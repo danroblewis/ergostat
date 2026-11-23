@@ -86,7 +86,10 @@ Percent stacking (`stack: percent`) answers "what share", never "how many": say 
   a single series the title names. Nothing is drawn over a plot but the cursor.
 - **Cardinality.** `group_by` a field with few values (`state`, `kind`, a size or a team): at most 12 groups are drawn,
   the rest added up as `other` (the answer's `capped` says how many). A field with many values (a requester, an id) is
-  a filter (`where`), or a table sorted by value; never a line per value.
+  a filter (`where`), or a table sorted by value; never a line per value. A group relation (a gap's `milestone`) is
+  a category too, and `state_group` each item's stage in it (done, in progress, waiting, stopped): gaps by milestone,
+  stacked, is a `bar` with `stack: stacked` of four `counts` queries, each `x: {type: category, by: milestone}` and
+  `where: {state_group: ...}` one stage.
 
 ## 6. What a panel costs, and when one is slow
 

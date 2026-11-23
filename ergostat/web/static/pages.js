@@ -43,7 +43,7 @@ function steadyWord(name, word, win) {
 }
 
 async function pageLoops(main, q) {
-  const p = page(main, "Loops");
+  const p = page(main, "Goals");
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
   const pick = (n) => { setQuery({ select: n }); openLoop(n); };     // the loop chosen, in the address
   if (q.get("select") && $("#detail").hidden) openLoop(q.get("select"));
@@ -67,10 +67,10 @@ async function pageLoops(main, q) {
     patch(qbox, ...(systems || []).filter((s) => s.quiet).map((s) => h("p", { class: "quiet-line", key: s.name, "data-system": s.name },
       h("b", {}, s.name), `: ${s.quiet}`)));
     const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
-    const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted"];
-    patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
+    const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted", "card"];   // card: a phone's (style.css)
+    patch(box, table(["goal", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => pick(g.name) },
-        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "", "Loops"));   // hysteresis and flapping (steadyWord)
+        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "loops", "Goals"));   // hysteresis and flapping (steadyWord)
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -107,15 +107,21 @@ async function pageAgents(main) {
     const last = (a) => a.runs_itself ? (a.running_since ? `running for ${ago(a.running_since).replace(" ago", "")}` : a.last ? ago(a.last.time) : "never ran")
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
-    const use = (a) => a.use || {};
+    const use = (a) => a.use || {}, all = Object.values(agents), sum = (f) => all.reduce((s, a) => s + (f(use(a)) || 0), 0);
+    // [key, head, title, its cell, the window's total]: a column empty for every agent is left out
+    const nums = [["tokens", "tokens", "Tokens its AI sessions used in the window: input, output, cache reads and writes",
+      (u) => (u.ai_runs ? u.tokens : null), tokensText, () => sum((u) => u.ai_runs && u.tokens)],
+      ["cpu", "CPU", "CPU time of its runs' processes in the window, user and system", (u) => u.cpu, cpuText, () => sum((u) => u.cpu)],
+      ["memory", "peak memory", "The most memory one of its runs held (its processes together)", (u) => u.memory_peak, bytesText,
+        () => Math.max(...all.map((a) => use(a).memory_peak || 0))]].filter(([, , , v]) => all.some((a) => v(use(a)) != null));
+    const spent = sum((u) => u.cost_usd), unk = all.reduce((s, a) => s + ([1, 2, 3].includes(a.rung) && use(a).unknown || 0), 0);
+    const gap = unk ? `not known: ${unk} failed or stopped` : "";
     const table = h("div", { class: "table-wrap" }, h("table", {}, h("caption", { class: "sr-only" }, "Agents, by rung"),
       headRow(h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when"),
-        h("th", { class: "num", title: "What its AI sessions cost in the window, in USD" }, "cost"),
-        h("th", { class: "num", title: "Tokens its AI sessions used in the window: input, output, cache reads and writes" }, "tokens"),
-        h("th", { class: "num", title: "CPU time of its runs' processes in the window, user and system" }, "CPU"),
-        h("th", { class: "num", title: "The most memory one of its runs held (its processes together)" }, "peak memory")),
+        h("th", { class: "num", title: "What its AI sessions cost in the window, in USD; a stand-in or a program runs free" }, "cost"),
+        nums.map(([k, head, title]) => h("th", { class: "num", key: k, title }, head))),
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
-        h("tr", {}, h("th", { colspan: 9, scope: "colgroup", "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
+        h("tr", {}, h("th", { colspan: 6 + nums.length, scope: "colgroup", "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
           h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
         xs.flatMap(([name, a]) => [h("tr", { class: "click", key: name, "data-row": name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), exc(a) ? h("span", { class: "exception", title: exc(a)[1] }, ` ${exc(a)[0]}`) : null),
@@ -128,11 +134,13 @@ async function pageAgents(main) {
           h("td", { class: "muted" }, a.schedule || a.every || (a.leased ? "on demand, per item (leased)"
             : a.runs_itself ? "on demand" : a.kind === "person" ? "by a person" : "not run here")),
           h("td", { class: "num nowrap", "data-use": "cost", title: use(a).cost ? `${use(a).cost}, over ${use(a).ai_runs} runs` : "" },
-            usd(use(a).cost_usd), use(a).cost && use(a).cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
-          h("td", { class: "num", "data-use": "tokens" }, tokensText(use(a).ai_runs ? use(a).tokens : null)),
-          h("td", { class: "num", "data-use": "cpu" }, cpuText(use(a).cpu)),
-          h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak))),
-          exc(a) ? h("tr", { class: "exception-why", key: name + "/why" }, h("td", { colspan: 9 }, exc(a)[1])) : null].filter(Boolean))))));
+            costText(use(a), a), use(a).cost && use(a).cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
+          nums.map(([key, , , v, text]) => h("td", { class: "num", key, "data-use": key }, text(v(use(a)))))),
+          exc(a) ? h("tr", { class: "exception-why", key: name + "/why" }, h("td", { colspan: 6 + nums.length }, exc(a)[1])) : null].filter(Boolean)))),
+      h("tbody", { class: "total", key: "total" }, h("tr", { "data-total": "" }, h("td", {}, h("b", {}, "total")), h("td", { class: "muted" }, "over the window"),
+        h("td", { class: "num" }, String(all.reduce((s, a) => s + (a.runs_itself ? a.runs || 0 : 0), 0))), h("td", {}), h("td", {}),
+        h("td", { class: "num nowrap", "data-use": "cost" }, spent ? usd(spent) + (gap && ` + ${gap}`) : gap || "$0: no AI cost recorded"),
+        nums.map(([key, , , , text, total]) => h("td", { class: "num", key, "data-use": key }, text(total())))))));
     if (heldStill(box)) holdStill(box, table, () => tick());      // the reader in the table: its rows stay as they are
     else patch(box, table);
     const ds = Object.entries(daemons || {});
@@ -225,6 +233,8 @@ function fieldView(v, small = false, depth = 0, declared = null, there = "") {
                         fmt === "claude-session" ? "conversation" : name);
     return fileView(path, url, fmt);
   }
+  const pr = small && typeof v === "string" && /^https?:\/\/\S+\/(?:pull|pulls|merge_requests)\/(\d+)\/?$/.exec(v);
+  if (pr) return h("a", { href: v, target: "_blank", rel: "noopener", title: v }, `PR #${pr[1]}`);   // a pull request: its number
   if (typeof v !== "object") return typeof v === "number" ? fmt(v) : String(v);
   if (small || depth > 2) return h("span", { class: "mono muted" }, JSON.stringify(v).slice(0, 80));
   if (Array.isArray(v)) {
@@ -239,12 +249,55 @@ function fieldView(v, small = false, depth = 0, declared = null, there = "") {
   return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldOf(k, x, false, depth + 1, null, there)))));
 }
 
+/* a field on its item's page (SPEC §5a, History): a short one in the grid; a list of records as cards, newest first,
+   the rest under 'N earlier', a file in one a closed disclosure read only when opened; a list whose entries share
+   at most 6 scalar keys a table, its cells small (a file a link, never a table in a cell) */
+const isShort = (v) => v == null || v === "" || typeof v === "number" || typeof v === "boolean" || (typeof v === "string" && v.length <= 60 && !v.startsWith("file:"));
+const isScalar = (v) => v == null || typeof v !== "object";
+const CARDS_SHOWN = 3;
+const OPENED = new Set();                                // the file disclosures the reader opened on this page
+function pageFieldView(v, declared, sizes) {
+  if (!Array.isArray(v) || !v.length || !v.every((x) => x && typeof x === "object" && !Array.isArray(x))) return isScalar(v) || Array.isArray(v) ? fieldView(v, false, 0, declared) : recordView(v, sizes);
+  const keys = [...new Set(v.flatMap((x) => Object.keys(x)))];
+  if (keys.filter((c) => v.filter((x) => c in x && isScalar(x[c])).length * 2 > v.length).length <= 6) {
+    const shown = v.slice(-LIST_SHOWN);
+    return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
+      h("table", { class: "sub" }, tableCaption(keys.join(", ")), headRow(keys.map((c) => h("th", {}, c))), shown.map((x) => h("tr", {}, keys.map((c) => h("td", {}, fieldOf(c, x[c], true)))))));
+  }
+  const cards = v.map((x, i) => h("div", { class: "card", key: i }, recordView(x, sizes))).reverse();
+  return h("div", { class: "cards" }, cards.slice(0, CARDS_SHOWN),
+    cards.length > CARDS_SHOWN ? h("details", { class: "earlier" }, h("summary", {}, `${cards.length - CARDS_SHOWN} earlier`), cards.slice(CARDS_SHOWN)) : null);
+}
+function recordView(x, sizes) {                          // one record: its scalars flowing, its lists as chips, a file folded
+  const es = Object.entries(x), muted = (k) => h("span", { class: "muted" }, k);
+  const flow = es.filter(([, y]) => isShort(y) || (typeof y === "string" && y.startsWith("file:") && (SNAP || formatOf(y.slice(5)) === "image")));
+  const chips = es.filter(([, y]) => Array.isArray(y) && y.length && y.every((s) => typeof s === "string" && isShort(s)));
+  const files = es.filter(([, y]) => typeof y === "string" && y.startsWith("file:") && !flow.some(([, f]) => f === y));
+  const rest = es.filter((e) => !flow.includes(e) && !chips.includes(e) && !files.includes(e));
+  return [flow.length ? h("p", { class: "flow" }, flow.map(([k, y], i) => [i ? " · " : "", muted(k), " ", fieldOf(k, y, true)])) : null,
+    chips.map(([k, y]) => h("p", { class: "chips" }, muted(k), " ", y.map((s) => h("span", { class: "chip" }, s)))),
+    rest.map(([k, y]) => (isScalar(y) || Array.isArray(y) ? h("p", {}, muted(k), " ", fieldOf(k, y, true))
+      : h("div", {}, muted(k), h("dl", {}, Object.entries(y).map(([a, b]) => [h("dt", {}, a), h("dd", {}, fieldOf(a, b, true))]))))),
+    files.map(([k, y]) => fileFold(k, y.slice(5), sizes))];
+}
+function fileFold(k, path, sizes) {                      // asked for only once opened (refreshFiles skips it closed)
+  const n = sizes?.[path];
+  const open = OPENED.has(path);
+  return h("details", { class: "file-fold", "data-file": path, open: open ? "" : null,
+    ontoggle: (ev) => { const d = ev.target;
+      if (d.open === OPENED.has(path)) return;
+      if (d.open) { OPENED.add(path); fileView(path, fileUrl(path), formatOf(path), true); d.append(FILES[path].el); }
+      else { OPENED.delete(path); while (d.lastChild !== d.firstChild) d.lastChild.remove(); } } },
+    h("summary", {}, k, h("span", { class: "muted" }, ` ${path.split("/").pop()}${n == null ? "" : ` · ${n < 1024 ? `${n} B` : `${fmt(Math.round(n / 1024))} KB`}`}`)),
+    open ? fileView(path, fileUrl(path), formatOf(path), true) : null);
+}
+
 /* a file's contents, shown as what they are: one view of each file, kept across refreshes and asked for again
    with each (a 304 while it is the same); changed, only what differs in it is redrawn (open tool calls stay open) */
 const FILES = {};
-function fileView(path, url, fmt) {
+function fileView(path, url, fmt, demote = false) {      // demote: its Markdown's headings below the page's h2 and h3
   const f = FILES[path] || (FILES[path] = { el: h("div", { class: `file-view f-${fmt}` }, h("span", { class: "muted" }, "…")), text: null });
-  f.url = url; f.fmt = fmt;
+  f.url = url; f.fmt = fmt; f.demote = demote;
   loadFile(path);
   return live(f.el);
 }
@@ -253,14 +306,14 @@ function loadFile(path) {
   fetch(f.url).then((r) => (r.ok ? r.text() : Promise.reject(r.status))).then((text) => {
     if (f.text === text) return;                          // unchanged: left as it is
     f.text = text;
-    patch(f.el, render(text, f.fmt, path));
+    patch(f.el, render(text, f.fmt, path, f.demote));
   }).catch((e) => { f.text = null; patch(f.el, h("span", { class: "muted" }, `cannot read ${path} (${e})`)); });
 }
 /* the files on the page, asked for again (a refresh whose answers did not change still reads them) */
-function refreshFiles() { for (const [path, f] of Object.entries(FILES)) if (f.el.isConnected) loadFile(path); }
+function refreshFiles() { for (const [path, f] of Object.entries(FILES)) if (f.el.isConnected && !f.el.closest("details:not([open])")) loadFile(path); }
 const fileUrl = (path) => "/file/" + path.split("/").map(encodeURIComponent).join("/");   // a path: relative links resolve
-function render(text, fmt, path) {
-  if (fmt === "markdown") return md(text, path);
+function render(text, fmt, path, demote = false) {
+  if (fmt === "markdown") return md(text, path, demote);
   if (fmt === "json") { try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) { /* as it is */ } return code(text, "json"); }
   if (fmt === "code") return code(text, CODE[(path.split(".").pop() || "").toLowerCase()]);
   if (fmt === "claude-session") return conversation(text);
@@ -274,7 +327,7 @@ function code(text, lang) {                               // highlighted again o
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 let mdReady = false;
-function md(text, path = null) {                          // Markdown, its raw HTML shown as text (nothing in it runs), code highlighted
+function md(text, path = null, demote = false) {                         // Markdown, its raw HTML shown as text (nothing in it runs), code highlighted
   if (!window.marked) return h("pre", { class: "plain" }, text);
   if (!mdReady) {
     marked.use({ renderer: { html: (t) => esc(typeof t === "string" ? t : t.text || ""),
@@ -291,6 +344,11 @@ function md(text, path = null) {                          // Markdown, its raw H
       a.href = new URL(href, location.origin + fileUrl(path)).pathname;
     }
     a.target = "_blank"; a.rel = "noopener";
+  }
+  if (demote) for (const x of el.querySelectorAll("h1, h2, h3, h4, h5, h6")) {
+    const y = document.createElement(`h${Math.min(6, Number(x.tagName[1]) + 3)}`);
+    y.append(...x.childNodes);
+    x.replaceWith(y);
   }
   return el;
 }
@@ -493,6 +551,7 @@ function messageView(d, refresh) {
    work item's page the actions asked for about it, with Approve and Deny on each one held; on an action's own page,
    its command, where it runs, its answer and its output */
 const ACTION_KIND = "ergostat.action";
+const MAY_DO = "You can look at everything. Approving or denying these is the only thing that changes the system.";
 const actionSays = (f) => `${f.description || f.action}${Object.keys(f.args || {}).length ? ` (${Object.entries(f.args).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}`;
 const commandBox = (c) => h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, c || ""));
 function actionAnswer(a, done) {
@@ -609,9 +668,21 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const found = h("span", { class: "muted search-said", "aria-live": "polite" });   // a kind's: its matches, the finished apart
-  let kind = q.get("kind"), state = q.get("state"), finished = itemsFinished(q);
-  const showFin = h("label", { class: "rg-check", title: "List the finished and dead items too (each kind says how many it leaves out)" },
-    h("input", { type: "checkbox", ...(finished === "show" ? { checked: "" } : {}), onchange: (ev) => { finished = ev.target.checked ? "show" : "hide"; go(); } }), "Show finished");
+  let kind = q.get("kind"), state = q.get("state"), finished = itemsFinished(q), finChosen = q.get("finished") != null;
+  // an old address's Frontier and Collapse done, read once: both off every item, Collapse done off the waited on
+  if (!finChosen && (q.get("frontier") != null || q.get("collapse") != null)) {
+    finChosen = true;
+    finished = q.get("collapse") !== "0" ? "hide" : q.get("frontier") === "0" ? "show" : "waits";
+  }
+  // the choice in force: the reader's, or the view's default (the Timeline opens on waits, so at now; the rest hide)
+  const fin = () => (finChosen ? finished : view === "timeline" ? "waits" : "hide");
+  const finSeg = h("span", { class: "seg fin-seg", role: "group", "aria-label": "Finished items" },
+    ...[["hide", "Hidden", "Only the unfinished and paused; a chain through finished items is one dashed line, via N finished"],
+        ["waits", "Those waited on", "And the finished items an unfinished one waits on directly (the list hides them)"],
+        ["show", "Shown", "Every item in the window, the finished and dead too"]]
+      .map(([v, text, title]) => h("button", { type: "button", "data-fin": v, title, onclick: () => { finished = v; finChosen = true; go(); } }, text)));
+  const finPress = () => { for (const b of finSeg.children) { const on = b.dataset.fin === fin(); b.className = on ? "on" : ""; b.setAttribute("aria-pressed", String(on)); } };
+  const showFin = h("span", { class: "fin-choice" }, h("span", { class: "muted" }, "Finished items:"), finSeg);
   const loading = h("p", { class: "muted items-loading", hidden: "" }, "Loading…");   // a click's, at once, until its answer
   const loaded = () => { if (!loading.hidden) loading.hidden = true; };   // (a poll touches nothing it need not)
   // a kind's page (SPEC §5a): a page of its items asked of the server, searched and sorted there; in the address as
@@ -624,27 +695,25 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
   // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
   let sort = ofKind(q.get("sort"));
-  // both show the frontier (the unfinished, and what they wait on) with the finished collapsed, so the timeline opens
-  // at now; unless asked otherwise
-  const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
-  const ask = { frontier: said("frontier"), collapse: said("collapse") };
-  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? true; },
-               group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
+  const ro = { group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
+  finPress();
   const viewBar = h("span", { class: "rg-viewbar" });
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
   // (and the process map's, process.js: through a node, along a line, caused from another kind, by states or events)
   let where = q.getAll("where"), moved = q.get("moved"), movedSince = q.get("moved_since"), movedUntil = q.get("moved_until");
-  let pm = { by: q.get("by"), through: q.get("through"), followed: q.get("followed"), caused: q.getAll("caused") };
+  // (and a valve's panel's: the items a block has taken now, taken=BLOCK)
+  let pm = { by: q.get("by"), through: q.get("through"), followed: q.get("followed"), caused: q.getAll("caused"), taken: q.get("taken") };
   const spanned = () => moved || pm.through || pm.followed || pm.caused.length;
   const setParams = () => ({ ...(where.length ? { where } : {}), ...(moved ? { moved } : {}),
                              ...Object.fromEntries(Object.entries(pm).filter(([, v]) => v && v.length)),
                              ...(spanned() && movedSince ? { moved_since: movedSince } : {}), ...(spanned() && movedUntil ? { moved_until: movedUntil } : {}) });
   const dropSet = () => { where = []; moved = movedSince = movedUntil = null; pm = { by: null, through: null, followed: null, caused: [] }; };
-  const paged = () => !!kind && !SNAP && !where.length && !spanned();
+  const paged = () => !!kind && !SNAP && !where.length && !spanned() && !pm.taken;
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
-  p.append(notes, h("div", { class: "filters" }, search, found, showFin, viewBar, chip), loading, compose, box, rbox);
+  const mayDo = h("p", { class: "may-do", hidden: true }, MAY_DO);   // on the gated actions: what a person may do
+  p.append(notes, h("div", { class: "filters" }, search, found, showFin, viewBar, chip), mayDo, loading, compose, box, rbox);
   let rbusy = false;
   const remoteTick = async (rs) => {
     if (rbusy || SNAP || !rs.length) return;
@@ -657,6 +726,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
   let used = new Set();
   const flows = {}, flowsAt = {};                     // each kind's flow over the window, and when it was asked for
+  const gps = {}, gpsAt = {}, gpMore = {};            // each kind's progress per group (itemsets.js groupRows), its rest unfolded
   // a chart lives across refreshes: kept while its data is the same (or under the pointer), its data set in
   // place when it can take it (``update``), made again only when it cannot
   const keep = (key, sig, make, update = null) => {
@@ -681,14 +751,14 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const go = (load = true) => { const u = new URLSearchParams(); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
-                     if (finished !== "hide") u.set("finished", finished);
-                     showFin.firstChild.checked = finished === "show";
+                     if (finChosen && (finished !== "hide" || view === "timeline")) u.set("finished", finished);
+                     finPress();
                      loading.hidden = false;           // and the rows already drawn filtered, before the answer
                      for (const tr of box.querySelectorAll("tr[data-kind]")) tr.hidden = !!kind && (tr.dataset.kind !== kind || (state != null && tr.dataset.state !== state));
                      if (sort && view === "list") u.set("sort", paged() ? `${kind}:${sort}` : sort);
                      if (paged() && view === "list" && pg > 1) u.set("page", `${kind}:${pg}`);
                      if (paged() && view === "list" && size !== 25) u.set("size", String(size));
-                     if (view !== "list") { u.set("view", view); for (const k of ["frontier", "collapse"]) if (ask[k] != null) u.set(k, ask[k] ? "1" : "0");
+                     if (view !== "list") { u.set("view", view);
                                             if (view === "graph" && ro.group === "kind") u.set("group", "kind");
                                             if (ro.status) u.set("status", ro.status);
                                             if (view === "timeline" && ro.lanes) u.set("rows", "lanes"); }
@@ -707,6 +777,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   };
   async function tick(force = true, signal = null) {
     if (compose.hidden !== (kind !== MESSAGE_KIND || !!SNAP)) compose.hidden = !compose.hidden;
+    if (mayDo.hidden !== (kind !== ACTION_KIND)) mayDo.hidden = !mayDo.hidden;
     ans.begin();
     const gone = () => signal?.aborted || !p.isConnected;   // a newer click asked again: this answer is let go
     // the list as the page shows it: the newest of each kind (all a chosen kind's, up to 300), matched to the
@@ -716,18 +787,18 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const folded = foldedSystems();
     let d;
     const sortAsked = sort && view === "list" ? sort : "";
-    const sig = JSON.stringify([kind, state, search.value.trim(), sortAsked, size, finished]);
+    const sig = JSON.stringify([kind, state, search.value.trim(), sortAsked, size, fin() === "show"]);   // (the list reads waits as hide)
     if (asked != null && sig !== asked && pg !== 1) { pg = 1; go(false); }      // a new search, sort or filter: page 1
     asked = sig;
     const wanted = pg, per = size;
     try {
       d = paged() ? await ans.api("items", { kind, ...(state ? { state } : {}), n: size, offset: (pg - 1) * size, shown: 1,
                                              ...(search.value.trim() ? { q: search.value.trim() } : {}),
-                                             ...(sortAsked ? { sort: sortAsked } : {}), ...(finished === "show" ? { finished } : {}),
+                                             ...(sortAsked ? { sort: sortAsked } : {}), ...(fin() === "show" ? { finished: "show" } : {}),
                                              ...whatifParams() }, signal)
         : await ans.api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}), ...whatifParams(),
-                                                     ...(finished === "show" ? { finished } : {}),
+                                                     ...(fin() === "show" ? { finished: "show" } : {}),
                                                      ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) }, signal);
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
       if (gone()) return;
@@ -742,7 +813,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     if (got !== wanted && pg === wanted && size === per) { pg = got; go(false); }   // (unless another was asked meanwhile)
     const hits = d.total ?? 0;
     setText(found, paged() && search.value.trim() ? `${hits} match${hits === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "");
-    const flowsWere = JSON.stringify(flows);
+    const flowsWere = JSON.stringify([flows, gps]);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
     const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys) || d.kinds.some((k) => k.system === sys && named(k));
@@ -758,6 +829,12 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       flowsAt[k.name] = Date.now();
       const fl = await api("items-flow", { kind: k.name, points: CHART_POINTS }).catch(() => null);
       flows[k.name] = fl && Object.values(fl.counts).some((c) => c.some((x) => x)) ? fl : null;   // none yet: its counts
+    }));
+    // each kind's progress per group (a gap's milestone), counted by the item index: every 10 s while shown, at once
+    // on a click (not in a snapshot)
+    await Promise.all(SNAP ? [] : shownKinds.filter((k) => k.progress?.length && (force || !(Date.now() - (gpsAt[k.name] || 0) < 10000))).map(async (k) => {
+      gpsAt[k.name] = Date.now();
+      gps[k.name] = await api("items-groups", { kind: k.name, by: k.progress[0], points: 2 }).catch((err) => ({ err: String(err.message || err) }));
     }));
     // how far each block's claims held, under the ergostat.claim table
     // (of a kind with any item, listed or not: its finished may all be left out)
@@ -781,16 +858,13 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const trust = await trustAsked, classes = (await classesAsked)?.asked ?? null;
     if (gone()) return;
     loaded();
-    if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
+    if (!force && !ans.changed && JSON.stringify([flows, gps]) === flowsWere) return;     // nothing changed: nothing touched
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
       h("button", { class: on ? "on" : "", "aria-pressed": String(!!on), title, onclick: fn }, text)));
-    const check = (on, text, title, fn) => h("label", { class: "rg-check", title }, h("input", { type: "checkbox", ...(on ? { checked: "" } : {}), onchange: fn }), text);
     patch(viewBar, seg("Show", [[view === "list", "List", "Each kind's items, newest first", () => { view = "list"; go(); }],
                                 [view === "graph", "Graph", "The items and their relations: what each waits on, the critical path", () => { view = "graph"; go(); }],
                                 [view === "timeline", "Timeline", "A Gantt chart: each item's states over time, and what is projected for the unfinished", () => { view = "timeline"; go(); }]]),
       ...(view === "list" ? [] : [
-        check(ro.frontier, "Frontier", "Only the unfinished, and what they wait on however far back", (ev) => { ask.frontier = ev.target.checked; go(); }),
-        check(ro.collapse, "Collapse done", "Finished items vanish; a chain through them is one dashed line, via N done", (ev) => { ask.collapse = ev.target.checked; go(); }),
         ...(view === "graph" ? [seg("Group", [[ro.group === "parent", "By parent", "A parent (an epic) is a stadium its children hang off", () => { ro.group = "parent"; go(); }],
                                               [ro.group === "kind", "By kind", "Each kind a frame", () => { ro.group = "kind"; go(); }]])]
           : [seg("Rows", [[!ro.lanes, "By item", "A row an item: what happened, and its projected bars", () => { ro.lanes = false; go(); }],
@@ -803,24 +877,30 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const card = (k) => {
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
         k.title || k.name, h("span", { class: "mono" }, k.title ? k.name : k.id));
+      const pm = h("a", { class: "pm-link", href: `/diagram?view=process&kind=${encodeURIComponent(k.name)}&mode=states`,   // where its work queues
+                          title: "Its process map: how many are in each state now, and how they moved" }, "process map");
       const fl = flows[k.name];
-      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
+      const gp = groupRows(gps[k.name], { more: !!gpMore[k.name], chosen: kind === k.name ? where : [],
+        onMore: () => { gpMore[k.name] = !gpMore[k.name]; refresh(); },
+        onPick: (r) => { const on = kind === k.name && JSON.stringify(where) === JSON.stringify(r.params.where);
+                         kind = k.name; state = null; dropSet(); if (!on) where = [...r.params.where]; go(); } });
+      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, pm, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
         h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
-          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])), finishSaid(k));
+          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])), finishSaid(k), gp);
       const chosen = kind === k.name ? state : null;
-      return h("div", { class: "kind-flow", key: k.name }, name,
+      return h("div", { class: "kind-flow", key: k.name }, name, pm,
         keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen, k.finished, k.paused, k.finished_from]),
              () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st), kind: k }),
-             (el) => el.update?.(fl, chosen, k)));
+             (el) => el.update?.(fl, chosen, k)), gp);
     };
     patch(notes, ...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
     // the finished left out (SPEC §5a): never a chosen state's, a set's or a search's; by the server, or here in a snapshot
-    const leaves = finished !== "show" && !state && !d.set && !needle;
+    const leaves = fin() !== "show" && !state && !d.set && !needle;
     const isHidden = (i) => hiddenStates(kindOf[i.kind]).includes(i.state);
     const rows = SNAP ? d.items.filter((i) => (!needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) && !(leaves && isHidden(i))) : d.items;
-    const flip = () => h("a", { href: "#", class: "finished-flip", onclick: (ev) => { ev.preventDefault(); finished = finished === "show" ? "hide" : "show"; go(); } }, finished === "show" ? "hide" : "show");
+    const flip = () => h("a", { href: "#", class: "finished-flip", onclick: (ev) => { ev.preventDefault(); finished = fin() === "show" ? "hide" : "show"; finChosen = true; go(); } }, fin() === "show" ? "hide" : "show");
     const finNote = (name, its) => {                     // what a kind leaves out, or the finished among a search's matches
       const k = kindOf[name], left = hiddenStates(k).filter((s) => k?.counts?.[s]), n = left.reduce((a, s) => a + k.counts[s], 0);
       if (leaves && n) return h("p", { class: "note finished-note", key: `fin:${name}` }, `${n} finished (${left.join(", ")}) not shown · `, flip());
@@ -846,7 +926,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
         "data-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none", onclick: () => { sort = sort.replace(/^-/, "") !== f ? f : !sort.startsWith("-") ? `-${f}` : ""; go(); } },   // from the sort now
         f, by === f ? h("span", { "aria-hidden": "true" }, down > 0 ? " \u25b4" : " \u25be") : "");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [head(f), "num"] : head(f))),
-        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
+        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num keep"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, "data-kind": i.kind || "", "data-state": i.state || "", ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
           show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldOf(f, i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
@@ -854,8 +934,8 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
           ...(movedCol ? [h("td", { class: "num nowrap", title: (i.moved_at || []).map(when).join("\n") },
                               (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
           ...(etaCol ? [etaCell(i.eta)] : []),
-          h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
-          h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items",
+          h("td", { class: "num nowrap keep" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
+          h("td", { class: "muted" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items kind-items",
         `${its[0]?.kind || "No kind"} items${paged() && d.cut ? `, sorted among the newest ${d.cut} of ${d.total}` : ""}`);
     };
     // a kind's pager, in its bar and under its table: "1-25 of 77 · Prev · Next", and how many a page
@@ -897,7 +977,8 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       const { want, d: rd } = relAsked[g.name] || { want: [] };
       if (!want.length) return kind || view !== "graph" ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
-      const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
+      const o = { finished: fin(), group: ro.group, q: needle, status: ro.status,
+                  where: kind && d.set ? where : [] };     // a set's where on a relation (a milestone's gaps) narrows them
       const m = rgModel(rd, o);
       const key = `rel:${view}:${g.name}`;
       const draw = (el) => { if (view === "graph") el.draw(m, o); else el.draw(m, rd, ro.lanes); return true; };
@@ -950,30 +1031,71 @@ function etaCell(e) {
 /* an item's lease (SPEC §9.5): who holds it and until when, its attempts; a dead letter said as one */
 function leaseCells(l, state) {
   if (!l || typeof l !== "object") return [h("td", {}, ""), h("td", {}, ""), h("td", {}, "")];
-  const left = l.holder ? l.expires - nowS() : null;
   return [h("td", { class: "nowrap", "data-lease": l.holder ? "held" : state === "dead" ? "dead" : "free" },
             l.holder ? h("span", { title: `run ${l.holder}, lease ${l.fence}` }, `${l.block} `, h("span", { class: "muted" }, l.holder.slice(0, 8)),
                          l.taken ? h("span", { class: "muted", title: "held for" }, `, ${dur(nowS() - l.taken)}`) : null)
               : state === "dead" ? h("b", { class: "bad" }, "dead letter") : h("span", { class: "muted" }, "–")),
-          h("td", { class: "num nowrap" + (left != null && left < 0 ? " bad" : "") }, left == null ? "" : left < 0 ? `overdue ${dur(-left)}` : dur(left)),
-          h("td", { class: "num" }, `${l.attempts || 0}/${l.max ?? "?"}`)];
+          ...leaseTail(l)];
+}
+/* a lease's last two cells: the time left ('overdue 1m' in the bad colour) and its attempts, counted ("1/3"), or with
+   ``nth`` the one its run is making ("attempt 2 of 3": a run's own is counted when it ends); the Items page's rows
+   and a valve's panel's taken items (itemsets.js) */
+function leaseTail(l, nth = false) {
+  const left = l.holder ? l.expires - nowS() : null, n = l.attempts || 0;
+  return [h("td", { class: "num nowrap" + (left != null && left < 0 ? " bad" : "") }, left == null ? "" : left < 0 ? `overdue ${dur(-left)}` : dur(left)),
+          h("td", { class: "num" }, nth ? `attempt ${n + 1} of ${l.max ?? "?"}` : `${n}/${l.max ?? "?"}`)];
 }
 function leaseView(l, state) {
   const left = l.holder ? l.expires - nowS() : null;
-  const says = l.holder ? [h("b", {}, `held by ${l.block}`), ` (run ${l.holder.slice(0, 8)}, lease ${l.fence}, ${l.tier}), `,
-      left < 0 ? h("b", { class: "bad" }, `overdue ${dur(-left)}`) : `expires in ${dur(left)}`, `; renewed ${ago(l.renewed)} (TTL ${dur(l.ttl)})`]
-    : state === "dead" ? [h("b", { class: "bad" }, "A dead letter"), `: given up on after ${l.attempts} attempts. `,
-        h("code", {}, "ergostat lease ITEM --redrive"), " gives it another go."]
-    : ["Not held", l.not_before && l.not_before > nowS() ? `; not taken again for ${dur(l.not_before - nowS())}` : ""];
+  const says = l.holder ? [h("b", {}, `Taken by ${l.block}`), ` (run ${l.holder.slice(0, 8)}, lease ${l.fence}, ${l.tier}), `,
+      left < 0 ? h("b", { class: "bad" }, `overdue ${dur(-left)}`) : `expires in ${dur(left)}`, `; renewed ${ago(l.renewed)} (TTL ${dur(l.ttl)}).`]
+    : state === "dead" ? [h("b", { class: "bad" }, "A dead letter"), `: given up on after ${l.attempts} attempts.`]
+    : [l.not_before && l.not_before > nowS() ? `Not taken again for ${dur(l.not_before - nowS())}.` : ""];
   const rows = (l.history || []).slice().reverse().map((x) => h("tr", { key: `${x.fence}|${x.run || ""}` }, h("td", { class: "num" }, String(x.fence)), h("td", {}, x.block || ""),
     h("td", { class: "mono small" }, (x.run || "").slice(0, 8)), h("td", { class: "nowrap" }, when(x.taken)),
     h("td", { class: x.how === "ack" ? "" : "bad" }, x.how || "holding"), h("td", { class: "num nowrap" }, dur((x.ended || nowS()) - x.taken)),
     h("td", { class: "num" }, x.exit == null ? "" : String(x.exit)), h("td", {}, (x.why || "") + (x.silent ? ` (silent ${dur(x.silent)})` : "") + (x.counted === false ? " (not counted)" : ""))));
-  return h("div", { class: "lease" }, h("p", {}, ...says, ` Attempts ${l.attempts || 0} of ${l.max ?? "?"}.`),
+  return h("details", { class: "lease" }, h("summary", {}, `Attempts (${rows.length})`),
+    h("p", {}, ...says, ` ${l.attempts || 0} of ${l.max ?? "?"} attempts counted.`),
     rows.length ? table(["lease", "block", "run", "taken", "how", ["for", "num"], ["exit", "num"], "why"], rows, "leases") : null);
 }
 
-/* a field's history: each change, oldest first, with the event that made it (a click opens it) */
+/* where an item went in the model (SPEC §5a, *What a kind touches*): its path the stock-and-flow way, each stock it
+   was counted in and for how long, each valve that moved it and the block (its run, its attempt), each a link to the
+   diagram with that part chosen; the last step is where it is counted now. ``fp``: its kind's footprint; ``links``:
+   its path drawn alone (Drawn alone, §5a), under the line */
+function whereView(d, fp, links) {
+  const steps = d.path, fin = new Set(d.kind_of?.final || []), lease = d.fields.lease?.holder ? d.fields.lease : null;
+  const part = (kind, name, view = "dynamics") => `/diagram?view=${view}&select=${encodeURIComponent(`${kind}.${name}`)}`;
+  const mover = Object.fromEntries(fp.taken_by.flatMap((t) => t.out.map((f) => [f.replace(/^flow\./, ""), t.block])));
+  const ran = Object.fromEntries((d.fields.lease?.history || []).map((x) => [x.run, x]));   // each run's own span
+  const runLink = (run, from) => {                   // the Record of the item over that run (taken..ended); else from the step on
+    const x = ran[run], at = x?.taken ?? from;
+    return h("a", { href: `/record?item=${encodeURIComponent(d.id)}&from=${at}${x?.ended ? `&to=${x.ended}` : ""}` }, `run ${run.slice(0, 8)}`);
+  };
+  const box = (s, i) => {
+    const last = i === steps.length - 1, until = s.left ?? nowS();
+    const name = s.stock ? h("a", { href: part("stock", s.stock), title: `counted in ${s.stock} while ${s.state}` }, s.stock)
+      : h("span", { title: s.says || "" }, s.state);
+    const said = last && lease ? [h("b", {}, ` being worked by ${lease.block} for ${dur(nowS() - lease.taken)}`), ", ", runLink(lease.holder, lease.taken)]
+      : fin.has(s.state) ? h("span", { class: "muted" }, " finished") : h("span", { class: "muted" }, ` ${dur(until - s.entered)}`);
+    return h("span", { class: `wv-step${last ? " on" : ""}${fin.has(s.state) ? " final" : ""}`, "data-state": s.state },
+      name, s.stock && s.stock !== s.state ? h("span", { class: "muted" }, ` ${s.state}`) : null,
+      s.attempts > 1 ? h("span", {}, ` attempt ${s.attempts}`) : null, said);
+  };
+  const move = (s, nx) => {
+    const back = s && (nx.state === s.state || (s.ended && s.ended !== "ack"));
+    const b = s?.block || (!back && mover[nx.flow]);
+    const run = s?.run ? [", ", runLink(s.run, s.entered)] : [];
+    return h("span", { class: "wv-move" }, back ? `given back (${s.ended || "again"})` : nx.flow ? h("a", { href: part("flow", nx.flow) }, nx.flow) : "moved",
+      b ? [" (", h("a", { href: part("block", b, "blocks"), title: `block ${b}` }, b), ...run, ")"] : null, h("span", { class: "arrow", "aria-hidden": "true" }, " ⇒"));
+  };
+  return h("section", { class: "went" }, h("h2", {}, "Where it went"),
+    h("div", { class: "wv-path" }, steps.map((s, i) => [i ? move(steps[i - 1], s) : s.flow ? move(null, s) : null, box(s, i)])), links);
+}
+
+/* an item's changes, in one section at its page's end (SPEC §5a, History), asked for only while it is open: each
+   field's, the latest first, or one field's ('N changes' beside its name), each with the event that made it */
 const when = (t) => stamp(t);
 // why an unfinished item is not done (/api/why: SPEC §5a): the summary, who acts and how, the evidence linked
 function whyBox(w) {
@@ -994,17 +1116,25 @@ function eventLink(eid, type, d) {
 function recordLinkItem(id) {
   return h("a", { href: `/record?item=${encodeURIComponent(id)}` }, "all of them in the Record");
 }
-function historyView(cs, total, d, f) {
-  if (!total) return null;
+const CHANGES_SHOWN = 200;
+function historyView(d, of, all) {                       // the Changes section's body: each field's changes, the latest first
+  if (SNAP) return h("p", { class: "muted" }, "Its changes are not held in this snapshot: ", h("code", {}, `ergostat item ${d.id} --history`), " lists them.");
+  if (!d.history) return h("p", { class: "muted" }, "…");
+  const fs = Object.keys(d.history).filter((f) => !of || f === of);
+  const rows = fs.flatMap((f) => historyRows(d.history[f].slice(-CHANGES_SHOWN), d, f));
+  const total = fs.reduce((n, f) => n + (d.changes?.[f] || 0), 0);
+  return [h("p", { class: "note" }, of ? [`The changes to ${of}; `, h("a", { href: "#changes", onclick: (ev) => { ev.preventDefault(); all(); } }, "every field's"), "."]
+    : "Each field's changes, the latest first.",
+    rows.length < total ? [` The latest ${CHANGES_SHOWN} of a field's; `, h("code", {}, `ergostat item ${d.id} --history`), " lists all."] : null),
+    rows.length ? table(["when", "change", "path", "before", "after", "by event"], rows, "history") : h("p", { class: "muted" }, "No changes.")];
+}
+function historyRows(cs, d, f) {
   const how = (c) => c.op === "rolled up" ? `${c.count} change${c.count > 1 ? "s" : ""} from ${when(c.first.time)}, rolled up`
     : c.op === "refused" ? "refused" : c.op + (c.rule && c.rule !== "replace" ? ` (${c.rule})` : "") + (c.form !== "data" ? ` by ${c.form}` : "");
   const val = (v) => (v == null ? h("span", { class: "muted" }, "–") : fieldOf(f, v, true));
-  const rows = cs.slice().reverse().map((c, i) => h("tr", { key: c.event ? `${c.event}|${c.path || "/"}|${c.op}` : `${c.time}|${i}` }, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
+  return cs.slice().reverse().map((c, i) => h("tr", { key: c.event ? `${c.event}|${c.path || "/"}|${c.op}` : `${c.path}|${c.time}|${i}` }, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
     h("td", { class: "mono small" }, c.path || "/"), h("td", { class: "cell" }, c.op === "refused" ? c.why : val(c.before)),
     h("td", { class: "cell" }, c.op === "refused" ? "" : val(c.after)), h("td", { class: "nowrap" }, eventLink(c.event, c.type, d))));
-  return h("details", { class: "history" }, h("summary", {}, `history (${total} change${total > 1 ? "s" : ""})`),
-    total > cs.length ? h("p", { class: "note" }, `The latest ${cs.length} of ${total}; `, h("code", {}, `ergostat item ${d.id} --history`), " lists all.") : null,
-    table(["when", "change", "path", "before", "after", "by event"], rows, "history"));
 }
 
 /* an item's relations both ways (SPEC §5a, Relations): what it names, and what names it (the inverse, derived),
@@ -1056,15 +1186,28 @@ async function pageItem(main, id, q) {
   p.append(body);
   const note = messageBox({ about: id, title: "Send a note about this", done: () => tick() });   // lives across refreshes: what is typed stays
   let full = null;                                   // its full history, once asked for: kept across refreshes
+  let changesOpen = false, changesOf = "";           // the Changes section open, and the field it is narrowed to
+  OPENED.clear();
+  const showChanges = (f) => {
+    changesOf = f; changesOpen = true;
+    const el = p.querySelector("details.changes");
+    if (el) { el.open = true; el.scrollIntoView({ block: "start" }); }
+    tick();
+  };
   let impact = null;                                 // a failure's or a change's impact (review.js): worked out once
   const ans = answers();
   let whySig = null;                                 // what the why answer said when last drawn
+  let seq = 0, owed = false;                         // the latest tick's number; a superseded tick's draw still owed
   // a refresh asks for its answers first; if none changed (each a 304), nothing on the page is touched (its files
   // are still asked for: a transcript may grow before its events are recorded); else only what differs is
   async function tick(force = true) {
+    // only the latest request's answer is drawn: an older one, still awaited, may have asked another history=
+    const mine = ++seq, late = () => { if (mine === seq) return false; owed = true; return true; };
     ans.begin();
     let d;
-    try { d = await ans.api(`items/${encodeURIComponent(id)}`, whatifParams()); } catch (e) { d = null; }
+    try { d = await ans.api(`items/${encodeURIComponent(id)}`, { ...whatifParams(), ...(changesOpen && !SNAP ? { history: changesOf || "all" } : {}) }); }
+    catch (e) { d = null; }
+    if (late()) return;
     if (!d) { patch(body, h("p", { class: "muted" }, "Nothing is recorded about this id.")); return; }
     const k = d.kind_of;
     const ms = !k?.name?.startsWith("ergostat.") ? await ans.api("messages", { item: id }).catch(() => null) : null;
@@ -1074,40 +1217,65 @@ async function pageItem(main, id, q) {
     // it is never a 304; what it says (its cause, owner, step and evidence) is what counts as a change, and the words'
     // durations are redrawn with the rest of the page
     const w = !S.at && !(k?.final || []).includes(d.state) ? await api("why", { item: id }).catch(() => null) : null;
+    // what its kind touches in the model (unread: the lifecycle strip, saying nothing of the model)
+    const fp = k && d.path?.length ? await ans.api(`kinds/${encodeURIComponent(k.name)}`).catch(() => null) : null;
     const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
       r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
-    if (!p.isConnected) return;
+    if (!p.isConnected || late()) return;
     const same = wsig === whySig;
     whySig = wsig;
-    if (!force && !ans.changed && same) { refreshFiles(); return; }
+    if (!force && !owed && !ans.changed && same) { refreshFiles(); return; }
+    owed = false;
     const pair = (label, value) => h("span", {}, h("span", {}, label), value);
     const head = h("div", { class: "meta" },
       pair("Kind", k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
       d.state ? pair("State", h("span", {}, h("b", {}, d.state), ` for ${dur(nowS() - d.entered)}`)) : null,
-      d.eta ? pair("Expected done", h("span", { "data-eta": "" }, h("b", {}, etaWhen(d.eta.p50)), h("span", { class: "muted" }, ` (${etaP90(d.eta)}`
+      d.eta?.unscheduled ? pair("Expected done", h("span", { "data-eta": "" }, `not scheduled: ${d.eta.said || "it cannot move"}`))
+      : d.eta ? pair("Expected done", h("span", { "data-eta": "" }, h("b", {}, etaWhen(d.eta.p50)), h("span", { class: "muted" }, ` (${etaP90(d.eta)}`
         + (d.eta.start != null && d.eta.start > nowS() + 60 ? `; started about ${etaWhen(d.eta.start)}` : "")
         + (d.eta.dead ? `; a dead letter in ${Math.round(d.eta.dead * 100)}% of runs` : "") + ")"))) : null,
+      d.cost ? pair("Cost", h("span", { "data-cost": "", title: "What the runs that took it cost: their AI sessions, from its leases" },
+        d.cost.runs ? costText(d.cost, { ai: d.cost.ai }) : "not known yet", d.cost.cost && d.cost.cost !== "reported" ? " est." : "",
+        h("span", { class: "muted" }, d.cost.runs < d.cost.taken ? ` (${d.cost.runs} of the ${d.cost.taken} runs that took it ended)` : ` (over ${d.cost.taken} run${d.cost.taken === 1 ? "" : "s"})`))) : null,
       pair("Events", String(d.events)), pair("First", ago(d.first)), pair("Latest", h("span", {}, d.latest, h("span", { class: "muted" }, `, ${ago(d.last)}`))));
     // the path it took, arrow by arrow, to where it is now; the other states apart, with no arrow (its endings double-bordered)
     const fin = new Set(k?.final || []), box = (st) => h("span", { class: `stbox${st === d.state ? " on" : ""}${fin.has(st) ? " final" : ""}` }, st);
     const path = d.moves.map((m) => m.to).filter((s, i, a) => s && s !== a[i - 1]);
     if (d.state && path[path.length - 1] !== d.state) path.push(d.state);
     const ended = fin.has(d.state), rest = (k?.states || []).filter((s) => !path.includes(s) && (!ended || fin.has(s)));
-    const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, box(st)]),
+    const strip = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, box(st)]),
       rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
+    // its path drawn alone in Dynamics and Blocks, when anything there counted it; else it says nothing counts it
+    const toDiagram = (view, by, v) => `/diagram?view=${view}&${by}=${encodeURIComponent(v)}`;
+    const links = !d.path ? null : d.path.some((st) => st.stock || st.flow || st.block)
+      ? h("p", { class: "went" }, h("a", { href: toDiagram("dynamics", "item", id) }, "Draw its path in Dynamics"), ", ",
+        h("a", { href: toDiagram("blocks", "item", id) }, "in Blocks"), k ? ["; ",
+        h("a", { href: toDiagram("dynamics", "kind", k.name) }, `what every ${k.name} touches`)] : null, ".")
+      : h("p", { class: "went muted uncounted" }, "Its moves are not counted anywhere in the model.");
+    // a path through the model; else the strip, and a kind nothing counts says so
+    const where = fp && !fp.why ? whereView(d, fp, links) : null;
+    const went = where ? [where] : [links ? h("h2", {}, "Where it went") : null, strip, links];
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, when(m.time)), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
     // its kind's chosen fields first, in their order, then the rest by name
     const first = (k?.show || []).filter((f) => f in d.fields);
-    const hist = d.history || {}, gone = Object.keys(hist).filter((f) => f && !(f in d.fields));   // removed since: still have a history
+    const counts = d.changes || {}, gone = Object.keys(counts).filter((f) => f && !(f in d.fields));   // removed since: still have changes
     const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort(), ...gone.sort()].filter((f) => f !== "lease");
-    const lease = d.fields.lease && typeof d.fields.lease === "object" ? [h("h2", {}, "Lease"), leaseView(d.fields.lease, d.state)] : [];
-    const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", { "data-field": f, key: f },
-      h("th", {}, f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null),
-      h("td", {}, f in d.fields ? fieldOf(f, d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
-        historyView(hist[f] || [], (d.changes || {})[f] || 0, d, f))))))
+    const lease = d.fields.lease && typeof d.fields.lease === "object" ? [leaseView(d.fields.lease, d.state)] : [];
+    // short fields in a flowing grid, the kind's chosen first; every other a full-width block below, headed by its name
+    const name = (f) => [f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null,
+      counts[f] > 1 ? h("a", { class: "small changes-of", href: "#changes", onclick: (ev) => { ev.preventDefault(); showChanges(f); } }, ` ${counts[f]} changes`) : null];
+    const grid = order.filter((f) => !(f in d.fields) || isShort(d.fields[f]));
+    const fields = order.length ? [grid.length ? h("div", { class: "field-grid" }, grid.map((f) => h("div", { class: "field", "data-field": f, key: f },
+      h("div", { class: "field-name" }, name(f)), h("div", {}, f in d.fields ? fieldOf(f, d.fields[f]) : h("span", { class: "muted" }, "removed"))))) : null,
+      ...order.filter((f) => !grid.includes(f)).map((f) => h("div", { class: "field-block", "data-field": f, key: f },
+        h("h3", {}, name(f)), pageFieldView(d.fields[f], (k?.formats || {})[f], d.file_sizes)))]
       : h("p", { class: "muted" }, "No fields: its events carry no data.");
+    const changes = h("details", { class: "history changes", id: "changes", key: "changes",
+      ontoggle: (ev) => { if (ev.target.open === changesOpen) return; changesOpen = ev.target.open; if (!changesOpen) changesOf = ""; tick(); } },
+      h("summary", {}, h("h2", {}, "Changes", h("span", { class: "muted" }, ` ${Object.values(counts).reduce((a, b) => a + b, 0)}`))),
+      changesOpen ? historyView(d, changesOf, () => showChanges("")) : null);
     const refused = (d.refused || []).length ? [h("h2", {}, "Refused"), h("p", { class: "note" }, "Events recorded that changed nothing: their changeset could not apply, so none of it did."),
       table(["when", "event", "as", "why"], d.refused.slice().reverse().map((r) => h("tr", { key: r.event }, h("td", { class: "nowrap" }, when(r.time)),
         h("td", { class: "nowrap" }, eventLink(r.event, r.type, d)), h("td", { class: "muted" }, r.form), h("td", {}, r.why))), "refused")] : [];
@@ -1136,9 +1304,9 @@ async function pageItem(main, id, q) {
     const imp = impact ? [h("h2", {}, "Impact"), live(impact)] : [];
     const why = d.eta?.why ? h("p", { class: "note eta-why" }, h("b", {}, d.eta.waits_in ? `Waiting in ${d.eta.waits_in}` + (d.eta.position ? `, ${ordinal(d.eta.position)} in its queue` : "") + ": " : ""),
       d.eta.why, h("span", { class: "muted" }, ` (estimated from the record: ${d.eta.runs} runs of a simulation of every open item, which leaves out a goal that switches a block off and a capacity no block declares; `, h("a", { href: `/items?kind=${encodeURIComponent(k?.name || "")}&view=timeline` }, "the timeline"), ")")) : null;
-    patch(body, whyBox(w), head, track, why, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    patch(body, whyBox(w), head, ...went, ...lease, why, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
-      eventsTable(full ? full.events : d.record, true));
+      eventsTable(full ? full.events : d.record, true), changes);
   }
   await tick();
   // not while the owner is answering (a reason being typed in a decision's or an action's row)

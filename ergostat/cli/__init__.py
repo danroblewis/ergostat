@@ -63,6 +63,7 @@ AI sessions and programs: where they work and what they may do
   workspaces     The workspace pools: each workspace, the item it is for, free, in use, held or quarantined
   actions        The gated actions sessions asked for, counted per class; ID --approve or --deny: the owner's answer
   act            From a block's run: ask for one of its gated actions ($ERGOSTAT_CMD act NAME --arg K=V)
+  operating      The operating state and the owner's presence; freeze | incident | maintenance --for DUR | normal
 
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
@@ -83,6 +84,7 @@ run it
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
   remote         Remote systems this model reads (status); token NAME lets another ergostat read this one
+  library        fetch [NAME...]: clone the libraries: by git URL into .libraries/, pinned in libraries.lock
   worker         Be a compute node's worker for an engine (--stdio), or write it to copy to a node (--pack FILE)
   report         Reports about ergostat itself, scrubbed, for you to read and submit by hand (--draft TEXT)
   reset          Forget this project's record and start from nothing (--yes)
@@ -215,6 +217,8 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("--search", metavar="WORDS", help="only items whose fields' text contains every word (1 to 8; case "
                                                      "ignored; a plain substring, no ranking; the first 65,536 "
                                                      "characters of each item's text)")
+    i.add_argument("--groups", metavar="RELATION", help="with --kind: how far along each group its group relation names "
+                                                       "is (done, in progress, waiting, stopped, of its total)")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
                    help="with an item: each field's changes (or one field's), with the events that made them")
     i.add_argument("--near", nargs="?", const="1", metavar="N", help="with an item: the items within N hops (1-4, default 1)")
@@ -381,6 +385,8 @@ def build() -> argparse.ArgumentParser:
     inbox_topics(sub, common)
     from .remote import register as remote_topics
     remote_topics(sub, common)
+    from .library import register as library_topics
+    library_topics(sub, common)
     from .reports import register as report_topics
     report_topics(sub, common)
     from .worker import register as worker_topic

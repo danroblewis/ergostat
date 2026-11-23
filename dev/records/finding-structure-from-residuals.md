@@ -219,3 +219,14 @@ anyone to ask, each the more reversible one:
   - ruff, clean.
 - Still not done here: the clone has no `origin` remote, so origin/main was not merged. The unit suite and the four
   browser files were not run whole.
+
+## Entry
+
+section: Modelling
+
+- **Finding structure from residuals** (done for one kind, `finding-structure-from-residuals`; SPEC §12b): a missing
+  delay on a measured stock's inflow, as `DELAY3` or as a stock in transit never read, proposed when the stock's
+  one-step residuals (worked out from the record) are coloured and the change whitens them and shrinks them by a
+  fifth; a stock never read replays from its `initial:`. *Left*: a missing outflow or cause, a delay on an outflow, a
+  part replaced by another form, the observer's run-time innovations (`observer/X/innovation`) as the trigger, and
+  bench recall, not measured.

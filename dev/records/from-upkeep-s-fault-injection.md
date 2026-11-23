@@ -124,3 +124,23 @@ Left, for whoever has Bash:
    first commit (a8246e91); the docstring given back `docs/proposals/upkeep.md`; the entry deleted.
 4. Merge origin/main (GAPS.md merges by union, so check that intake's `twice()` reports no duplicate entry), then
    run the suites again.
+
+## Entry
+
+section: Done recently
+
+- **From upkeep's fault injection** (done on main; found by upkeep's fault injection,
+  `docs/roadmap/overnight-2026-11-19.md` at 01:30, whose proposal was not merged to main): the first four problems
+  from `resilience-core` (`docs/roadmap/overnight/resilience-core.md`, tests in `tests/test_resilience.py`), the fifth
+  from `cli-fallback` (`docs/roadmap/overnight/cli-fallback.md`, tests in `tests/test_cli_fallback.py`).
+  - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (3e106ee:
+    `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").
+  - **The watchdog restarts without finding the cause; a hang while starting is unseen; a wedged pool is found
+    late** (3e106ee: the index lock's holder dumped; restarts that did not help back off; a startup deadline).
+  - **An `alarm` block lights nothing** (3e106ee: one line in needs attention, "alarm raised" on its block).
+  - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
+    (3e106ee: `storage: logs:`; `ergostat compact --projects`).
+  - **The CLI refuses to run while the YAML is broken** (75e7687, the merge of `cli-fallback`; 366241d and 6affe4f
+    class `block --reset` and `block --check-warm` as acting): the engine keeps the model it takes as one snapshot
+    of every file its loading read; commands that read fall back to that snapshot alone, with a warning; commands
+    that act, `event --add` among them, refuse naming the YAML's error.

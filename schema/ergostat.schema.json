@@ -39,6 +39,12 @@
         "max-cost": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
       }
     },
+    "operating": {
+      "description": "The operating state's settings (SPEC 12k): away-after, how long with no event from the owner before they read as away (default 2h, from 5m to 7d). Main file only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"away-after": {"$ref": "#/$defs/duration"}}
+    },
     "dashboards": {
       "description": "Shared, named dashboards (SPEC section 4f); in a file whose defaults: set a system, each is named SYSTEM.NAME.",
       "type": "object",
@@ -611,6 +617,23 @@
           }
         }
       ]
+    },
+    "libraries": {
+      "description": "Libraries fetched by git URL into .libraries/NAME, pinned in libraries.lock (main file only, at most 16; SPEC §2a). The loader's allowlists are stricter than these patterns.",
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9-]{0,63}$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["git", "version"],
+        "properties": {
+          "git": {"type": "string", "pattern": "^(https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?|file://)/[A-Za-z0-9._~/-]*$"},
+          "version": {"type": "string", "pattern": "^[A-Za-z0-9._/][A-Za-z0-9._/-]{0,199}$"},
+          "path": {"type": "string", "pattern": "^[A-Za-z0-9._-][A-Za-z0-9._/-]*$"},
+          "trust": {"const": "owner"}
+        }
+      }
     }
   },
   "$defs": {
@@ -2178,6 +2201,20 @@
                     ],
                     "description": "A precedence relation's target states (neither finished nor paused) at which it no longer blocks: the item is unblocked, and takes: {unblocked: true} may take it. The critical path and the schedule stay finish-to-start"
                   },
+                  "done_when": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "minProperties": 1,
+                      "additionalProperties": {
+                        "oneOf": [
+                          {"type": ["string", "number", "boolean", "null"]},
+                          {"type": "array", "items": {"type": ["string", "number", "boolean", "null"]}}
+                        ]
+                      }
+                    },
+                    "description": "A group's: for a finished state of the item's, the fields it counts as done work in ({closed: {end: done}}); an item in that state not matching them leaves its group's total in the progress per group"
+                  },
                   "description": {
                     "type": "string"
                   }
@@ -2896,9 +2933,16 @@
         "faults": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["healthy"],
-          "description": "The queue's shared environment (SPEC section 9.5): while healthy reads unhealthy or unknown the block takes nothing new, and a run failing through the outage is given back uncounted",
+          "minProperties": 1,
+          "description": "The queue's shared environment (SPEC section 9.5): while healthy reads unhealthy or unknown the block takes nothing new, and a run failing through the outage is given back uncounted; hold-by: item fields whose values, failing together, are held each on its own",
           "properties": {
+            "hold-by": {
+              "oneOf": [
+                {"type": "string", "minLength": 1},
+                {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "maxItems": 8}
+              ],
+              "description": "An item field, or a list of 1 to 8: a value whose items fail together (3 in a row, of 2 items or more, within 10 minutes) is held, probed after a back-off, and released by a success"
+            },
             "healthy": {
               "type": "string",
               "pattern": "^(sensor|stock|flow|auxiliary|variable|goal|block)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",

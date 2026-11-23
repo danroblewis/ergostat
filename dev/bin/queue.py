@@ -20,6 +20,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    dry-merged; one that conflicts on a new base goes back to `approved` uncounted;
 5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py (the first
    to fail stops the other), then demo_check, once for the batch; a browser test skipped counts as a failure. The
+   browser files run only when the batch (`git diff --name-only pre HEAD`) touches a `[suites] browser_paths` glob
+   (an empty list, or one unreadable: always); else `browser: {not_run: ...}`, finished, never stopped (rest()), and
+   the batch's halves keep its decision. The daily browser run on main (browserday.py) is the net for the rest. The
    tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results
    recorded and never blocking (fac.beside()). With `[suites] queue_container` (the default) each suite runs in a
    container of the agent image on `[agents] queue_cpuset` with no network (agents.queued); one that does not start
@@ -53,6 +56,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    whatever became of that lease. When that gap does not land, it waits at `push-pending` and its outcome is said
    once the push settles (tell()), never back at `approved` meanwhile.
 
+Each batch is an item, batch/<run tag>: its start, runs, isolations, landing and end said through batches.py, whose
+calls never fail or delay the merge.
+
 While a push waits (run/queue.json, read under the queue's lock before a gap is taken; unreadable, the same), a run
 takes no gap: it gives its lease back, uncounted, and says nothing of it.
 
@@ -65,6 +71,7 @@ branch that moved since. A conflict is a failed gate (the second parks).
 from __future__ import annotations
 
 import fcntl
+import fnmatch
 import json
 import re
 import shlex
@@ -77,8 +84,10 @@ from contextlib import nullcontext
 
 sys.dont_write_bytecode = True
 import agents  # noqa: E402
+import batches  # noqa: E402
 import fac  # noqa: E402
 import flakes  # noqa: E402
+import gapsdoc  # noqa: E402
 import halves  # noqa: E402
 import pools  # noqa: E402
 import review  # noqa: E402
@@ -120,7 +129,19 @@ def crashed(rc: int, text: str) -> str:
     return m.group(0) if rc and (m := CRASH.search(text)) else ""
 
 
-def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | None = None, cover: bool = True) -> dict:
+def browser_wanted(cfg: dict, repo, pre: str) -> bool:
+    """Whether `git diff --name-only pre HEAD` (renames as both paths) names a path a `[suites] browser_paths` glob
+    matches. Absent, empty, not a list of globs, or a diff that cannot be read: True, the browser step runs."""
+    globs = cfg["suites"].get("browser_paths")
+    if not globs or not isinstance(globs, list) or not all(isinstance(g, str) and g for g in globs):
+        return True
+    r = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", "--no-renames", "-z", pre, "HEAD"],
+                       capture_output=True, text=True)
+    return bool(r.returncode) or any(fnmatch.fnmatchcase(p, g) for p in r.stdout.split("\0") if p for g in globs)
+
+
+def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | None = None, cover: bool = True,
+           browser: bool | None = None) -> dict:
     """ruff; then unit and browser at once; then host (when set); then demo (under the other two's load its pages drew
     nothing). The first to fail is the one reported; it stops its sibling (killed, `stopped_by` it, its own failure
     unsaid) and the later steps. With `[suites] queue_coverage`, the
@@ -128,7 +149,8 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
     main's (``pre``), never the batch's: a branch's own line in tests/quarantine.txt holds nothing back in its run.
     ``only``: just those suites (the rest of a run whose failures were excused, excused()). ``cover`` False: no coverage
     (a half's run, beside another: coverage_kept prunes one shared folder). A failure stops this call's suites only
-    (``mine``), never another half's."""
+    (``mine``), never another half's. ``browser``: whether the browser step runs (None: browser_wanted()); not run,
+    it is said as `not_run` and counts as finished (rest())."""
     held, mine = fac.quarantine(repo, pre), set()
 
     def one(name: str) -> dict:
@@ -145,7 +167,7 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
             raise agents.NotStarted(f"the host suite did not start (exit {rc}): {text[-400:].strip()}")
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         lost = nowhere(text, logs / f"{tag}-unit.txt") if name == "host" else []
-        got = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {}),
+        got = {"rc": rc, "seconds": round(secs), "log": str(log), **({"skipped": skipped} if skipped else {}),
                **({"nowhere": lost} if lost else {}), **({"counts": fac.counts(text) or "unknown"} if name in PYTEST else {})}
         if cov:
             got["coverage"] = coverage_kept(cfg, repo, cov, rc, pre)
@@ -190,9 +212,11 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
     def quarantined(tests: list[str]) -> None:
         fac.suite(cfg, "alone", repo, logs / f"{tag}-quarantined.txt", slot=False, box="queue", tests=tests)
 
-    out = {}
+    out = {} if (browser_wanted(cfg, repo, pre) if browser is None else browser) else \
+        {"browser": {"not_run": "no browser path changed", "counts": "not_run"}}
     for step in (("ruff",), ("unit", "browser"), ("host",), ("demo",)):
-        if not (step := tuple(n for n in step if (only is None or n in only) and (n != "host" or host_on(cfg)))):
+        if not (step := tuple(n for n in step if (only is None or n in only) and (n != "host" or host_on(cfg))
+                              and n not in out)):
             continue
         got = together(step)
         if step[0] == "unit":                          # the quarantined tests after them, whatever they said
@@ -291,7 +315,8 @@ def passed(alone: dict | None) -> bool:
 
 
 def rest(red: dict) -> tuple:
-    """The suites a red run did not finish: stopped by its failure, or never reached."""
+    """The suites a red run did not finish: stopped by its failure, or never reached (one not run by rule, `not_run`,
+    is finished)."""
     return tuple(n for n in SUITES if n not in red or red[n].get("stopped_by"))
 
 
@@ -466,6 +491,7 @@ def settle(cfg: dict, repo) -> str | None:
         for gid in pushed(p):
             fac.say("gap.push-settled", gid, push="settled by the coordinator", settled_by=iid,
                     settled_at=time.time())
+        batches.pushed(cfg, (p or {}).get("batch"), "settled by the coordinator")
         release(p)
         return None
     p = st.get("pending")
@@ -484,6 +510,7 @@ def settle(cfg: dict, repo) -> str | None:
         save(cfg, st)
         for gid in pushed(p):
             fac.say("gap.pushed", gid, pushed_at=time.time(), push="pushed")
+        batches.pushed(cfg, p.get("batch"), "ran")
         release(p)
         return None
     if now == "denied":
@@ -496,6 +523,7 @@ def settle(cfg: dict, repo) -> str | None:
         for gid in pushed(p):                          # one approval for the batch: a denial sends back all of it
             fac.say("gap.sent-back", gid, sent_back_by="queue", push="denied",
                     findings=[f"the push of its merge ({p['sha'][:12]}) was denied: the merge is undone"])
+        batches.pushed(cfg, p.get("batch"), "denied")
         release(p)
         return None
     if now in ("held", "requested", "approved"):
@@ -797,7 +825,7 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
     those failed are said here."""
     base, landed, back, tag = pre, [], [], fac.run_tag(fac.branch_of(batch[0][0]), began)
     logs, until = fac.run_dir(cfg, "queue"), began + allowance(cfg) if until is None else until
-    runs, rounds, gone, checked, reds, counting = [0], [], {}, set(), {}, threading.Lock()
+    runs, rounds, gone, checked, reds, counting, wants = [0], [], {}, set(), {}, threading.Lock(), []
     tree_of = lambda c: fac.git(repo, "rev-parse", f"{c}^{{tree}}")                 # noqa: E731
     linked = lambda x, y: reaches(x[0], y[0]["id"], batch) or reaches(y[0], x[0]["id"], batch)   # noqa: E731
 
@@ -819,7 +847,9 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
         tests fail alone says which (`reproduced`), for the path by name."""
         conf = conf or cfg
         counted()
-        red = suites(conf, work, t, logs, pre, cover=cover)
+        with counting:                                   # (the batch's decision, made on its first, whole, run)
+            wants[:] = wants or [browser_wanted(cfg, work, pre)]
+        red = suites(conf, work, t, logs, pre, cover=cover, browser=wants[0])
         tests = red.get("tests") or []
         if red.get("crashed") or not tests or len(tests) > NAMED_MOST or (len(ids) == 1 and not excusable(red)):
             return red
@@ -828,7 +858,8 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             alone = ask(red, work, f"{t}-again", conf)
             if passed(alone):
                 counted()
-                return excused(red, suites(conf, work, t, logs, pre, only=rest(red), cover=cover), t, ids)
+                return excused(red, suites(conf, work, t, logs, pre, only=rest(red), cover=cover, browser=wants[0]),
+                               t, ids)
         return red | ({"reproduced": alone["tests"]} if alone and alone.get("failed") else {})
 
     def timing(g: dict, got: dict) -> dict:
@@ -868,9 +899,10 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             checked.update(red["tests"])
             on_main(repo, pre, red, ask, tag, ids)
 
-    def blame(part: Part) -> None:
+    def blame(part: Part, how: str = "halves") -> None:
         g, red = part.merges[0][0], part.red
         gone[g["id"]] = "failed in the queue"
+        batches.isolated(g["id"], how if len(batch) > 1 else "alone", red["tests"])
         tell("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=part.on,
              findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
              + ([f"the failing merge of a batch of {len(batch)}, found in {len(rounds)} "
@@ -906,14 +938,16 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
                 runs[0] += sum(map(bool, here))
             def check(i: int, wt, n: int = n, here: list = here) -> dict | None:
                 return named(cfg, wt, f"{tag}-n{n}-{i}", logs, {"failed": red["failed"], "tests": here[i]}) if here[i] else {}
-            got = halves.run_all(cfg, repo, t.heads, check, tag, halves.NAMED_AT_ONCE)
+            with batches.run("named", [g["id"] for g, _ in t.merges]) as seen:
+                seen += (got := halves.run_all(cfg, repo, t.heads, check, tag, halves.NAMED_AT_ONCE))
             said = ["unknown" if r is None or isinstance(r, BaseException) else "fail" if r.get("failed") else "pass"
                     for r in got]
             k = next((i for i, x in enumerate(said) if x != "pass"), None)
             if k is None or said[k] != "fail":
                 break
             bad, m = got[k], part.merges[k]
-            blame(Part([m], {"failed": red["failed"], "tests": bad["tests"], "tail": bad["tail"], "log": bad["log"]}, base))
+            blame(Part([m], {"failed": red["failed"], "tests": bad["tests"], "tail": bad["tail"], "log": bad["log"]}, base),
+                  "named")
             part.merges, part.red, found = [x for x in part.merges if x is not m], None, True
             tests = sorted({x for i in range(k + 1, len(got)) if said[i] == "fail" for x in got[i]["tests"]} - set(bad["tests"]))
         if found:
@@ -934,8 +968,10 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             return
         fac.git(repo, "reset", "-q", "--keep", t.head)
         ids = [g["id"] for g, _ in t.merges]
+        go()                                                 # (out of time: no run begun, none recorded)
         try:
-            got = full(repo, tag if not runs[0] else f"{tag}-{runs[0] + 1}", ids, True)
+            with batches.run("full", ids) as seen:
+                seen.append(got := full(repo, tag if not runs[0] else f"{tag}-{runs[0] + 1}", ids, True))
         except (fac.Stalled, agents.NotStarted) as e:        # (what is settled stands; with nothing, the run's stall)
             if not (landed or gone or back):
                 raise
@@ -966,8 +1002,9 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
         said = {"round": n, "kind": "halves", "base": on[:12], "halves": [{"gaps": x, "result": "unknown"} for x in ids]}
         rounds.append(said)
         confs = [halves.share(cfg, i) for i in range(2)] if len(built) == 2 else [cfg]
-        got = halves.run_all(cfg, repo, [t.head for t in built],
-                             lambda i, wt: full(wt, f"{tag}-r{n}-{i}", ids[i], False, confs[i]), tag)
+        with batches.run("halves", sum(ids, [])) as seen:
+            seen += (got := halves.run_all(cfg, repo, [t.head for t in built],
+                                           lambda i, wt: full(wt, f"{tag}-r{n}-{i}", ids[i], False, confs[i]), tag))
         if len(got) == 2 and all(isinstance(r, dict) and r.get("crashed") for r in got):   # (the machine, not a merge)
             got = [fac.Stalled(r["failed"], f"both halves crashed: {r['crashed']}", r.get("tail", "")) for r in got]
         told = [i for i, r in enumerate(got) if not isinstance(r, BaseException)]
@@ -1065,7 +1102,7 @@ def main_red(cfg: dict, repo) -> str | None:
         return None
     head = fac.git(repo, "rev-parse", "HEAD")
     if tests := [t for t in r["tests"] if t not in fac.quarantine(repo, head) and not lacks(repo, head, t)]:
-        fac.wait_quiet(cfg)
+        fac.wait_quiet(cfg, most=fac.slot_count(cfg))   # (the kept slot is the queue's, here too: slots.py)
         try:
             got = named(cfg, repo, f"main-{head[:12]}-{int(time.time())}", fac.run_dir(cfg, "queue"),
                         {"failed": r["suite"], "tests": tests})
@@ -1118,6 +1155,7 @@ def recover(cfg: dict, repo) -> str | None:
     if not fac.git_ok(repo, "reset", "-q", "--keep", r["pre"]):
         return block(cfg, st, f"a killed run's merges could not be undone (reset --keep to {r['pre'][:12]})")
     save(cfg, st)
+    batches.abandoned(cfg)                             # (its batch item, left open: given back)
     return None
 
 
@@ -1186,27 +1224,33 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
         if not batch:
             emptied(cfg, gap, empty)
             return 0
-        waited = fac.wait_quiet(cfg)
+        waited = fac.wait_quiet(cfg, most=fac.slot_count(cfg))   # (the kept slot is the queue's: slots.py)
         began = time.time()
         if fac.git(repo, "rev-parse", "HEAD") != pre:      # (under the lock nothing should move it: never merged onto)
             fac.nack(f"queue: {cfg['git']['base']} moved while the run waited", after="10m", count=False)
             return 0
         save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": [g["id"] for g, _ in batch], "at": began}})
+        batches.begin(cfg, fac.run_tag(fac.branch_of(batch[0][0]), began), [g["id"] for g, _ in batch], pre)
         done = settled = False
         try:
             try:
                 landed, merged, back = land(cfg, repo, batch, pre, began, waited, dried, until)
             except fac.Stalled as e:                       # (main undone below; no gap blamed for it)
+                batches.end("given-back", f"its run stalled: {e}")
                 stalled(cfg, gap, batch, pre, e)
                 return 0
             except MainRed as e:                           # (main undone below; no gap blamed for it)
+                batches.end("given-back", f"main fails {', '.join(e.args[0]['tests'][:5])} too")
                 held_by_main(cfg, e.args[0])
                 return 0
             except Exception as e:                         # Docker or the AI service unreachable: an outage, no
                 if not (why := fac._outage().of(e)):       # gap blamed, nothing counted (outage.py); main undone
                     raise
+                batches.end("given-back", f"outage: {why}")
                 fac.nack(f"queue: outage: {why}", after=fac._outage().AFTER, count=False)
                 return 0
+            merged, notes = gaps_md(repo, pre, merged) if landed else (merged, {})   # (part of the landing)
+            batches.settled([g["id"] for g, _ in landed], merged, [(g["id"], why) for g, why in back])
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
                 HELD["said"] = []
@@ -1218,7 +1262,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": ids, "at": began, "landing": ids}})
             run = {"run": fac.run_tag(fac.branch_of(gap), began), "minutes": round((time.time() - began) / 60, 1),
                    "at": time.time(), "tried": len(batch), "landed": len(landed), "given_back": len(back),
-                   **(summed(landed[-1][1]["suites_queue"]) if landed else {})}   # (the green run main ends at)
+                   **(summed(landed[-1][1]["suites_queue"]) if landed else {}), **notes}   # (the green run main ends at)
             # (the whole run, on each of its gaps, for merges-per-hour; given_back: sent back to approved, uncounted)
             extra = lambda g: {} if g["id"] == gap["id"] else {"queued_at": began, "queue_attempts": 1}  # noqa: E731
             for g, timing in landed:
@@ -1230,6 +1274,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             settled = True
         finally:
             if not done:                                   # raised or stopped: main as it was
+                batches.end("given-back", "its run raised or was stopped before it settled")
                 fac.git(repo, "merge", "--abort", check=False)
                 if not fac.git_ok(repo, "reset", "-q", "--keep", pre):
                     block(cfg, state(cfg), f"a failed batch could not be undone (reset --keep to {pre[:12]})")
@@ -1242,7 +1287,41 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
                 save(cfg, st)
         if landed:
             ask(cfg, repo, gap, landed, merged, pre)
+            greened(landed[-1][1]["suites_queue"], merged)
     return 0
+
+
+def gaps_md(repo, pre: str, merged: str) -> tuple[str, dict]:
+    """Inside the landing, before its point of no return (so a stop undoes it with the merges, and recover() puts main
+    back past it): the batch's own GAPS.md edits carried into the records and docs/GAPS.md written from them
+    (gapsdoc.regenerate()), committed on main as `docs/GAPS.md from the records` when anything differs. (main's head:
+    every landed gap's main_sha and the push; what the run says: gaps_md_carried, gaps_md_unplaced.) Any failure
+    commits nothing, leaves main at ``merged`` and says `gaps_md: why`; the batch lands all the same."""
+    wrote: list[str] = []
+    try:
+        before = fac.git(repo, "show", f"{pre}:docs/GAPS.md", check=False) + "\n"   # (unread: "", so none removed)
+        got = gapsdoc.regenerate(repo, gapsdoc.rendered_at(repo, pre), before)
+        wrote = got["files"]
+        fac.git(repo, "add", "--", *wrote)
+        if not fac.git_ok(repo, "diff", "--cached", "--quiet"):
+            fac.git(repo, "commit", "-q", "-m", f"docs/GAPS.md from the records\n\n{fac.TRAILER}")
+        return fac.git(repo, "rev-parse", "HEAD"), {f"gaps_md_{k}": got[k] for k in ("carried", "unplaced") if got[k]}
+    except Exception as e:  # noqa: BLE001 - a render that fails never blocks a merge
+        fac.git(repo, "reset", "-q", "--hard", merged, check=False)        # (the queue's own checkout, at its merge)
+        for p in wrote:                                                     # (only files it wrote that main lacks)
+            if not fac.git_ok(repo, "cat-file", "-e", f"{merged}:{p}"):
+                (repo / p).unlink(missing_ok=True)
+        return merged, {"gaps_md": f"{type(e).__name__}: {e}"[:600]}
+
+
+def greened(suites: dict, merged: str) -> None:
+    """The green run main landed on, counted for each seen flake it says PASSED (flakes.green), once the push is
+    asked: a failure here is said on stderr and never fails or delays the landing."""
+    try:
+        if fixed := flakes.green(suites, merged):
+            print(f"queue: fixed after green runs: {', '.join(fixed)}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001 - the flakes' count never fails a landing
+        print(f"queue: the flakes' green runs not counted ({type(e).__name__}: {e})", file=sys.stderr)
 
 
 def ask(cfg: dict, repo, gap: dict, landed: list, merged: str, pre: str) -> None:
@@ -1257,12 +1336,14 @@ def ask(cfg: dict, repo, gap: dict, landed: list, merged: str, pre: str) -> None
     gids = [g["id"] for g, _ in landed]
     for gid in gids:
         fac.say("gap.push-asked", gid, push=push, push_said=said[-600:])
+    if (b := batches.pending()) and push == "pushed":
+        batches.pushed(cfg, b, "ran")
     if push != "pushed":
         m = re.search(r"ergostat\.action/[0-9a-f]+", said)
         then, HELD["said"] = HELD["said"], []           # the run's own gap's outcome waits for the push to settle
         save(cfg, {**state(cfg), "pending": {"sha": merged, "pre": pre, "gap": gids[0], "gaps": gids,
                                              "action": m.group(0) if m else "", "known": push.split(" ")[0],
-                                             "said": said[-600:], "at": time.time(), "then": then}})
+                                             "said": said[-600:], "at": time.time(), "then": then, "batch": b}})
         if then:
             fac.say("gap.push-pending", gap["id"], push_pending=merged)
         settle(cfg, repo)                                 # a push denied or failed at once is handled now
