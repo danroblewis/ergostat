@@ -267,6 +267,21 @@ def test_a_frequency_response_through_the_api(p):
     best = max(range(len(r["frequency"]["hz"])), key=lambda i: r["frequency"]["coherence"][i])
     assert r["frequency"]["magnitude_db"][best] == pytest.approx(20 * math.log10(2), abs=0.1)
     assert set(r["frequency"]) == {"hz", "magnitude_db", "phase_deg", "re", "im", "coherence"}
+    assert r["supported"] is True and 0 < r["coherence_floor_each"] < r["coherence_floor"] < 1
+
+
+def test_unrelated_signals_through_the_api_are_answered_as_no_response_with_no_curve(p):
+    """Done item 3 (dev/records/frequency-refuses-noise.md): the server decides, and the answer carries the decision."""
+    r = random.Random(11)
+    n, step = 1024, 30.0
+    p.measurements.add_many([("in", T + i * step, r.gauss(0, 1)) for i in range(n)]
+                            + [("out", T + i * step, r.gauss(0, 1)) for i in range(n)])
+    got = ask(p, {"source": "frequency", "input": {"source": "series", "series": "in"}, "output": {"source": "series", "series": "out"}},
+              since=n * step, until=T + n * step)[0]
+    assert "error" not in got, got
+    assert got["supported"] is False and "no frequency is coherent past chance" in got["refused"]
+    assert got["frequency"]["hz"] == [] and got["frequency"]["magnitude_db"] == []
+    assert got["coherence_peak"] < got["coherence_floor"] < 1
 
 
 def test_a_constant_input_is_refused_in_words_and_the_others_answer(p):
