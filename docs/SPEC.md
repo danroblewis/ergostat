@@ -1817,7 +1817,9 @@ how many match and `finished` how many of them are in one of the kind's finished
 before the page is cut: numbers as numbers, then text, a missing or non-finite value last, the newest first among
 equals. Up to 5,000 items are read for it (`items.SORTED_MOST`, without their moves); past that it is the newest 5,000
 that are sorted and paged, and the answer's `cut` (5000) says so, as the pager and the table's caption do. Without
-`sort`, the newest first. An `offset` past the end answers the last page, and says its `offset`. The page, the size
+`sort`, the newest first. With no state and no search it pages only the kind's unfinished items unless
+`finished=show` (*Finished items*): the index pages its other states, so `total` and the pager count those, and the
+kind's `hidden` says what is left out. An `offset` past the end answers the last page, and says its `offset`. The page, the size
 and the sort are in the address, the page and sort named by their kind (`page=gap:3`, `sort=gap:-ai_cost_usd`,
 `size=100`); a new search, sort, state or size starts at page 1, and the poll asks again for the page shown. In a
 snapshot (no server) the kind's list is the snapshot's, as before. A set (`where`, `moved` and the process map's

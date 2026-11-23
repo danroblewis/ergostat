@@ -103,3 +103,23 @@ Round 5 (the merge of main 1c790d38 conflicted in `pages.js`):
   `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` as in rounds 1-4 (the wait for the project
   switcher, on a path this branch does not change); `test_item_sets.py` 16 passed; `test_graph_cli_web.py` +
   `test_snapshot_sets.py` 48 passed. ruff is clean.
+
+Round 6 (the merge of main dc47a763 conflicted in `server.py`, `pages.js` and `test_items_page.py`):
+- Main made `?kind=K` a kind's own page, paged, searched and sorted by the server (`items.kind_page`), which bypassed
+  this branch's `_unfinished`. Kept both: `kind_page` takes `states=` (as `listing` does), and with no state, no
+  search and no `finished=show`, the handler gives it the kind's other states, so the index pages only the
+  unfinished, and `total` and the pager count those. The frame's kinds carry `hidden` (`server._with_hidden`) for the
+  note. The page asks a kind's page with `finished` and the click's AbortSignal. The finished choice is part of what
+  sends the pager back to page 1, and the pager is drawn only over rows. On a kind's page a search's finished
+  count is main's line beside the search box ("1 match, 1 finished"), so the note does not say it a second time.
+- Tests changed because of the default: main's `test_a_kind_pages_through_every_item…` and
+  `test_a_kinds_search_reaches_every_item…` open with `finished=show` (they page every item), and so do
+  `test_item_search.py::test_the_api_pages_searches_and_sorts_one_kind` (which now also checks the default: 80 of
+  120 listed, `hidden == {"done": 40}`, a search hiding nothing) and `test_agents_page.py`'s approved-actions table (its
+  five approved actions are finished). `test_items_list_sorts_by_a_column` keeps main's `sort=hypothesis:title` and
+  this branch's dead letter left out. The new default check was seen to fail with `states=vis` taken out (120 == 80).
+- Ran after the merge: `test_item_search.py` + `test_item_sets.py` 27 passed; `test_items_page.py` 64 passed and 1
+  failed, the same `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` as in rounds 1-5;
+  `test_graph_cli_web.py` + `test_snapshot_sets.py` passed. `test_agents_page.py` passed 9 of 9 alone. One run before
+  that failed `test_each_row_says_how_it_is_engaged_and_which_goal_it_serves` (line 486, the agents panel's lease
+  line, which reads no `/api/items`) and then passed. I count it unrelated and leave it alone (lesson 13). ruff is clean.
