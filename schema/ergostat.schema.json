@@ -39,6 +39,12 @@
         "max-cost": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
       }
     },
+    "dashboards": {
+      "description": "Shared, named dashboards (SPEC section 4f); in a file whose defaults: set a system, each is named SYSTEM.NAME.",
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/name", "not": {"const": "default"}},
+      "additionalProperties": {"$ref": "#/$defs/dashboard"}
+    },
     "runs": {
       "description": "How a machine block's run is held (SPEC 9.1). Main file or ergostat.local.yaml only.",
       "type": "object",
@@ -611,6 +617,53 @@
     "name": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "dashboard": {
+      "description": "A shared, named dashboard (SPEC section 4f): one window for all its panels; display only.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["panels"],
+      "properties": {
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "window": {"$ref": "#/$defs/duration"},
+        "panels": {"type": "array", "minItems": 1, "maxItems": 24, "items": {"$ref": "#/$defs/panel"}}
+      }
+    },
+    "panel": {
+      "description": "One panel: its kind, its words, and exactly the parameters its endpoint takes (SPEC section 4f).",
+      "type": "object",
+      "required": ["panel"],
+      "properties": {
+        "panel": {"enum": ["note", "goals", "chart", "items", "states", "cycle-time", "scope", "items-graph", "timeline"]},
+        "title": {"type": "string"},
+        "size": {"enum": ["s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall"]},
+        "note": {"type": "string"},
+        "text": {"type": "string"},
+        "refs": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^(stock|flow|auxiliary)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$"}}]},
+        "goals": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/name"}}]},
+        "goal": {"$ref": "#/$defs/name"},
+        "kind": {"type": "string", "minLength": 1},
+        "kinds": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
+        "state": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
+        "where": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
+        "system": {"$ref": "#/$defs/name"},
+        "points": {"type": "integer", "minimum": 2, "maximum": 1000},
+        "n": {"type": "integer", "minimum": 1, "maximum": 500},
+        "replay": {"type": "boolean"},
+        "fan": {"type": "boolean"},
+        "moved": {"type": "string"}, "moved_since": {"type": "string"}, "moved_until": {"type": "string"},
+        "through": {"type": "string"}, "followed": {"type": "string"}, "search": {"type": "string"}
+      },
+      "allOf": [
+        {"if": {"properties": {"panel": {"const": "note"}}}, "then": {"required": ["text"], "propertyNames": {"enum": ["panel", "title", "size", "note", "text"]}}},
+        {"if": {"properties": {"panel": {"const": "goals"}}}, "then": {"propertyNames": {"enum": ["panel", "title", "size", "note", "goals"]}}},
+        {"if": {"properties": {"panel": {"const": "chart"}}}, "then": {"required": ["refs"], "propertyNames": {"enum": ["panel", "title", "size", "note", "refs", "points", "replay", "fan"]}}},
+        {"if": {"properties": {"panel": {"const": "items"}}}, "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "title", "size", "note", "kind", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"]}}},
+        {"if": {"properties": {"panel": {"enum": ["states", "cycle-time"]}}}, "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "title", "size", "note", "kind", "points"]}}},
+        {"if": {"properties": {"panel": {"const": "scope"}}}, "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "title", "size", "note", "goal", "points"]}}},
+        {"if": {"properties": {"panel": {"enum": ["items-graph", "timeline"]}}}, "then": {"propertyNames": {"enum": ["panel", "title", "size", "note", "kinds", "system"]}}}
+      ]
     },
     "duration": {
       "oneOf": [

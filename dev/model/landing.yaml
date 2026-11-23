@@ -42,6 +42,10 @@ stocks:
     description: the gaps merged on main - a running total, never work waiting (the queue's merges and the joins found covered)
     cumulative: true
     sensor: {items: gap, state: merged, every: 1m}
+  flakes-main-broken:
+    unit: tests
+    description: tests failing on main too (dev/bin/onmain.py), waiting for main-mend to see them pass twice alone
+    sensor: {items: flake, state: main-broken, every: 1m}
   upgrades-available:
     unit: upgrades
     description: new commits on origin/main the instance does not run yet
@@ -151,6 +155,12 @@ flows:
     driven-by: [+stock.gaps-queue-failed]
     equation: triage-park-share * stock.gaps-queue-failed / triage-time
     sensor: {items: gap, entering: parked, where: {parked_in: triage}, over: 1d}
+  flakes-mended:
+    from: flakes-main-broken
+    description: a main-broken test passed twice alone on the pushed main (main-mend) - main's break mended
+    driven-by: [+stock.flakes-main-broken]
+    equation: stock.flakes-main-broken / mend-time
+    sensor: {items: flake, entering: fixed, where: {fixed_by: main-mend}, over: 1d}
   upgrades-opened:
     to: upgrades-available
     description: a new commit on the remote's pushed main (the push follows each green merge, once approved)
@@ -247,6 +257,10 @@ parameters:
     range: [0, 1]
     estimate: true
     description: the share of queue failures that are a branch's last failed gate ([gates] kill_after)
+  mend-time:
+    value: 1h
+    estimate: true
+    description: how long a main-broken test waits for main-mend's run (every 30m, [gates] mend_most at a time) once main is fixed
   upgrades-per-merge:
     value: 1
     unit: upgrades/gaps
@@ -385,6 +399,16 @@ blocks:
     timeout: 1h
     in: block.triage-when
     out: [flow.flakes-retried, flow.sent-back-by-triage, flow.parked-in-triage]
+  main-mend:
+    type: program
+    description: the way out of main-broken - on the pushed main, once the machine is quiet, the oldest main-broken tests ([gates] mend_most, at most 20) run alone twice in a suite container; each passing both is flake.main-fixed, a patch testing the item's main as read (dev/bin/mend.py)
+    run: python3 dev/bin/mend.py
+    every: 30m
+    pool: 1
+    lease: {ttl: 30m, attempts: 1}
+    timeout: 30m
+    in: +stock.flakes-main-broken
+    out: flow.flakes-mended
 
   main-watch:
     type: program

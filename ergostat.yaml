@@ -216,15 +216,17 @@ items:
 
   flake:
     id: flake/*
-    description: a test that failed in a suite and passed alone (seen) - counted each time, until fixed; or one that fails on main too (main-broken, the implementor's triage, dev/bin/onmain.py)
+    description: a test that failed in a suite and passed alone (seen) - counted each time, until fixed; or one that fails on main too (main-broken, the implementor's triage, dev/bin/onmain.py), until it passes twice alone on the pushed main (main-mend, dev/bin/mend.py)
     states: [seen, main-broken, fixed]
     # written only by dev/bin/flakes.py, on the item as it stands, under its lock: seen on a main-broken item is
     # flake.measured (counted, still main's); a second main-broken keeps main_broken_at; either on a fixed item makes
-    # it again (times 1, main_fixed_at, fixed_by and green_passes removed)
+    # it again (times 1, main_fixed_at, fixed_by, green_passes and passed_on removed)
     on:
       flake.seen: seen
       flake.main-broken: main-broken   # failed on a branch and on clean main: main's, not the gap's
       flake.fixed: fixed
+      flake.main-fixed: fixed          # passed twice alone on the pushed main (dev/bin/mend.py, under flakes.py's
+                                       # lock): a patch testing /main as read, so a newer break refuses it and its move
     show: [test, times, main]
     fold: {times: sum, gaps: union}
 
