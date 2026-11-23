@@ -18,3 +18,32 @@ Do not change which gaps the implementor takes: that is `milestone-limits-what-i
 ## Tests
 
 Each rule above: activation, the limit, completion, a parked gap holding it open, an empty one, no way out of `completed`, the upkeep cycle, and the refusals.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 17:03).
+
+Stopped on its last attempt by RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 678, in session
+    out = agents.session(cfg, role, brief, work, keep=kept)
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 204, in session
+    egress(cfg)
+    ~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 117, in egress
+    _egress(cfg)
+    ~~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 124, in _egress
+    docker("network", "create", "--internal", NET)
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 106, in docker
+    raise RuntimeError(f"docker {args[0]}: {r.stderr.strip()[-300:]}")
+RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
