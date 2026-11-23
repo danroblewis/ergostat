@@ -50,3 +50,13 @@ Unrelated: tests/test_agents.py::test_a_rerun_is_timed_by_the_suite_that_failed 
 order with `ModuleNotFoundError: No module named 'flakes'`. It loads dev/bin/onmain.py, which imports flakes (on
 main since regression-flake-writes-hold-state), without dev/bin on sys.path. This change does not touch it. It could
 not be run on a main worktree here (`git worktree add` was refused).
+
+After the build step failed (three tests):
+- test_the_shipped_build_setting_runs_the_small_set: `[suites] build` still had -rfEs while unit had -rpfEs; build now
+  ends with unit's pytest command (-rpfEs), as the test pins. Passes.
+- test_a_rerun_is_timed_by_the_suite_that_failed: because this branch touches tests/test_agents.py, the build's
+  affected set now includes it, so the stub it lacked (for main's `import flakes` in onmain.py) is added next to the
+  fac and agents stubs. That is one test line outside the Files list. Passes.
+- test_an_approved_switch_drains_and_switches_through_the_engine: passes alone (149 s against a 120 s deadline for each
+  step, under -n 8 in the build). Its path (drain.py, live.py) imports neither flakes nor queue, and nothing it runs
+  reads `[suites]`. It is load-dependent timing outside this gap (lesson 13), so it is reported here and left alone.

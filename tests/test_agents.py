@@ -225,6 +225,7 @@ def test_missing_browser_stops_the_round_rather_than_skipping(tmp_path):
 def test_a_rerun_is_timed_by_the_suite_that_failed():
     sys.modules.setdefault("fac", module("fac"))
     sys.modules.setdefault("agents", module("agents"))
+    sys.modules.setdefault("flakes", module("flakes"))               # (onmain imports it, with dev/bin off sys.path)
     room, soon = module("onmain").room, time.time() + 200
     took = {"unit": {"seconds": 10}, "browser": {"seconds": 400}}
     assert not room({**took, "failed": "browser"}, soon) and room({**took, "failed": "unit"}, soon)
