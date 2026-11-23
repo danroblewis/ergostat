@@ -1,0 +1,7 @@
+# regression-flake-fixed-by-hand: A person can say a flake is fixed, and the quarantine's release is one event
+
+depends-on: [regression-flake-writes-hold-state]
+
+Problem: a test that was deleted or renamed stays seen or main-broken forever, and so does every goal on those stocks; manage.py has a `flake` command that writes flake.seen (dev/bin/manage.py:228-233) and no way out. The quarantine's release is a bare flake.measured with quarantined: false (dev/bin/fac.py:594-598, on main today), so the record cannot tell a release from any measurement. Change: `manage.py flake-fixed TEST --why W` writes flake.fixed from seen or main-broken with fixed_by (the person) and why, and records an intervention with intervene("flake-fixed", ...) (manage.py:56); an item in neither state is refused with a message. fac.beside's release writes flake.released (quarantined: false, released_at), declared as a no-state event in the kind's comment; quarantined folds as before. Done: the command moves an item from either state to fixed and records one intervention; it refuses an unknown test or one already fixed; a release is one flake.released event after which quarantined is false; dev/README.md 'Record an intervention' lists the command. Files: dev/bin/manage.py, dev/bin/fac.py, ergostat.yaml, dev/README.md, tests/test_factory.py (three tests). Budget: 50 net lines.
+
+Area: regression. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
