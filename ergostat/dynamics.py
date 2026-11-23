@@ -442,9 +442,6 @@ def shadows(g: dict) -> dict:
 
 # the control words the attention cards use, in system dynamics' (the regulator is the flow's valve)
 _WORDS = [
-    (r"\ba valve too small\b", "a flow too small to close the gap"),
-    (r"\bthe valve is at its limit \(saturated\)", "the flow is at its most (saturated)"),
-    (r"\bits valve keeps up\b", "its flow keeps up"),
     (r"\bits valve\b", "its flow"), (r"\bthe valve\b", "the flow"), (r"\bvalves?\b", "flow"),
     (r"\bits controller\b", "what serves it"), (r"\bcontrollers?\b", "decision"),
     (r"\bsetpoints?\b", "desired level"), (r"\ba rule\b", "a fixed decision"), (r"\brules?\b", "decision"),
@@ -474,7 +471,7 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
         what = a.get("what", "")
         name = what.split(" ", 1)[1] if what.startswith(("loop ", "controller ")) else None
         lp = loops.get(name) if name else None
-        if lp and lp.get("status") == "off" and what.startswith("loop "):
+        if lp and lp.get("status") == "off" and what.startswith("loop ") and a.get("level") != "hint":
             sp = _sp(lp.get("setpoint") or "")
             want = sp.lstrip("≤≥=<> ")
             gap = f": {lp['off_by_words']}" if lp.get("off_by_words") else ""

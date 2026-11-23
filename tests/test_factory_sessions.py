@@ -111,7 +111,7 @@ def test_the_copy_is_capped_and_asserts_the_token_gone(tmp_path, mods):
 def model_with_sessions(tmp_path: Path) -> Project:
     """A project with the root model's session kind and the kinds it relates to."""
     root = yaml.safe_load((ROOT / "ergostat.yaml").read_text())
-    kinds = {k: root["items"][k] for k in ("session", "gap", "research", "review", "situation")}
+    kinds = {k: root["items"][k] for k in ("session", "gap", "research", "review", "situation", "milestone")}
     for k in kinds.values():
         k.pop("join", None)
         k["on"] = k.pop(True)                                                   # (YAML 1.1 reads `on:` as true)
