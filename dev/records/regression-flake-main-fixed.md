@@ -45,5 +45,9 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   noise, not slower). Nothing in this branch runs on the switcher's path (drain.py reads upgrade, gap, research and
   situation items, not flakes). Not run: main itself (a second worktree was refused here). Left: the queue's run on
   clean main tells whether the 120 s wait is tight for main under load, which is a gap of its own (lesson-10).
+- Round 3 (no review findings to answer): main had not moved since the last merge (a72d29ea, main at ead497d1), so
+  no code changed. Ruff is clean; the five acceptance tests pass, and so do tests/test_spec_items.py (7),
+  tests/test_changesets.py (58) and tests/test_fac_items.py (8). The whole of tests/test_factory.py was not run again
+  this round (it gave 204 passed, 2 skipped in round 2, on the same code).
 
 Overrun reason: 160 net lines against 150 (131 in mend.py, 24 in landing.yaml); the 10 over are the stock, flow and parameter the block's in/out must name, which the definition's estimate did not count.
