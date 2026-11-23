@@ -19,7 +19,9 @@ For each gap, read its GAPS.md entry and its definition when it has one, and loo
 - **split**: a gap too large for one branch (L and more than one thing): its parts, each a short title and why, in the
   order they should be built. Never a gap with built work: one that `continues` a branch, or whose branch has
   commits main lacks. Its parts would start from main and abandon that work, so the program refuses the split (and
-  applies the rest of your proposal).
+  applies the rest of your proposal). Each part waits on the one before it; the first takes what the gap still waits
+  on. A part may name more in `depends_on` (gap ids, or an earlier part as `gap/g-1`); a name that is no gap, a later
+  part, the gap itself or one waiting on it refuses the split.
 
 Pinned gaps keep their rank: say their fields, never move them.
 
@@ -30,7 +32,7 @@ Answer with exactly one fenced JSON block, nothing after it:
  "grooming": {"gap/a": {"value": 4, "size": "M", "risk": "low", "groomed_why": "..."}},
  "closes": [{"gap": "gap/d", "end": "done", "reason": "landed in abc1234 (ergostat/x.py)"},
             {"gap": "gap/e", "end": "duplicate", "of": "gap/f", "reason": "..."}],
- "splits": [{"gap": "gap/g", "into": [{"title": "...", "why": "..."}]}]}
+ "splits": [{"gap": "gap/g", "into": [{"title": "...", "why": "...", "depends_on": []}]}]}
 ```
 
 {context}
