@@ -92,3 +92,15 @@ Round 1, the `check` finding sent back (`interface system.guarantees`):
   stock → goal → fix-main → flow as B.
 - Not run in this session: Bash was refused for every command ("don't ask mode"), so `ergostat check`, the tests, ruff
   and `git commit` were not run. The edits are in the working tree, uncommitted.
+
+Round 2 (2026-11-23), the one review finding:
+
+- **`remedy-when` is an `expr` again, as on main.** Round 1 removed the `main` input, the only reason for the select,
+  so the select was a behaviour change to the interventions loop outside the gap (a select ignores an unknown input,
+  where the expr gives no command; interventions-trend is a run sensor that can be unknown). `type: expr`,
+  `expr: max(rising, many)` is restored and the select's comment is gone. dev/model/interventions.yaml now matches main,
+  so the branch no longer changes it: the Change's wiring there (`main` on remedy-when, `flow.main-tests-fixed` on
+  remedy) is carried by `fix-main` inside `guarantees`, for the interface reason in round 1. No test named
+  remedy-when, so none changes. This supersedes "`remedy-when` stays a `select`" above.
+- Not run in this round either: Bash was refused ("don't ask mode") after one read-only command, so the tests, ruff,
+  `ergostat check` and `git commit` were not run, and this round's edits are uncommitted in the working tree.

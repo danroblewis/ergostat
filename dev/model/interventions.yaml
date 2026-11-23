@@ -50,12 +50,12 @@ goals:
 
 blocks:
   remedy-when:
-    type: select                       # the max of the three: a select, not an expr, so its loops are drawn signed
-    pick: max
+    type: expr
     description: work the interventions while they rise or pile up
     in:
       rising: goal.handled-interventions-falling.off
       many: goal.interventions-remedied-all.off
+    expr: max(rising, many)
     out: block.remedy
   remedy:
     type: person
