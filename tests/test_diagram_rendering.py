@@ -2878,6 +2878,7 @@ BD_LEGEND_DRAWN = {
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
     "a system as one block": ".bd-subsystem, .bd-frame-system",
+    "a lighter line": "g.bd-edge.bd-record, g.bd-edge.bd-aside, .bd-bus .bd-bar",
 }
 
 

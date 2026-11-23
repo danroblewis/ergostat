@@ -83,3 +83,19 @@ routing time bound (20121 and 22588 ms, bound 20000), and [autoscaler] satellite
 valve-orientation-mismatch 3 (ceiling 2), [ticket-factory] satellite-far 15 (ceiling 14). Before the merge every
 layout-fault check passed. The branch changes no geometry, so I think these come with main's layout changes. That is
 also unproven on clean main, which the queue must settle. Not run: the unit suite and the four browser files in full.
+
+Round 3: main (059ff718) is merged (commit db306f7c). The one conflict, export.js's control legend, keeps the branch's
+lighter-line row and takes main's rename of "loop holding" to "goal holding".
+- The blocking finding is fixed. BD_LEGEND_DRAWN (tests/test_diagram_rendering.py) gains the key 'a lighter line', which
+  maps to `g.bd-edge.bd-record, g.bd-edge.bd-aside, .bd-bus .bd-bar`. test_each_blocks_legend_row_is_a_symbol_drawn
+  passes in all 3 cases. With the selector pointed at a class no wire has, 2 of the 3 cases failed (software-factory
+  open=* and image-squeeze open=*), so the key is checked. The third case (image-squeeze view=blocks) does not list the
+  row.
+- test_the_exported_png_shows_every_loop_name_the_values_and_its_legend_on_white_in_dark_mode still fails, on its
+  Blocks half's `len(rows) > 10`. Main has the same line (main:tests/test_diagram_rendering.py:4535), and this branch
+  only adds a legend row, so I think it fails on main too. That is not run on clean main. The fix is outside this gap.
+- I did not run the whole browser file the review asked for. The house rules say the four browser files are not run by
+  the implementor. They are left to the merge queue.
+Tests run this round: ruff is clean. tests/test_style_tokens.py passes (15) and tests/test_guide.py passes (8).
+test_each_blocks_legend_row_is_a_symbol_drawn (3), test_line_tones_information_lighter_than_the_material_path (2) and
+test_flows_only_export_legend_lists_only_what_is_shown pass. The exported-PNG test fails as described above.
