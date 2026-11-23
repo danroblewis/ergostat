@@ -2807,6 +2807,12 @@ def test_the_goals_page_says_each_goals_word_as_the_server_does_live_and_from_a_
         pg.goto(url + "/loops")
         pg.wait_for_function("() => document.querySelectorAll('.page tr.click').length === 4", timeout=30000)
         live = pg.evaluate(rows)
+        pg.goto(url + "/diagram?view=blocks")           # the side list's lines: the same word, holding left unsaid
+        pg.wait_for_function("() => document.querySelectorAll('.side button.looprow[data-loop]').length > 0",
+                           timeout=60000)
+        side = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('.side button.looprow[data-loop]')]"
+                           ".map((r) => [r.querySelector('b').textContent, r.querySelector('.status')?.textContent || '']))")
+        assert side == {n: "" if w == "holding" else w for n, w in want.items()}, (side, want)
         pg.close()
     finally:
         proc.terminate()

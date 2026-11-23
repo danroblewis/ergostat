@@ -51,3 +51,22 @@ tests/conftest.py); test_every_examples_loops_answer_carries_each_goals_word_and
 test_no_page_script_words_a_goals_state_but_goalrow (tests/test_graph_cli_web.py); browser
 test_the_goals_page_says_each_goals_word_as_the_server_does_live_and_from_a_snapshot (tests/test_diagram_rendering.py),
 which was seen to fail when goalRow's status cell was broken for open goals. Net code lines: +66 −33.
+
+Round 2 (the review's one finding):
+- The header's tooltip (util.js refreshHeader) named every goal off, upkeep goals too, while #running counts only the
+  system's (state.goals_off). It now leaves out goals with an `upkeep`, the same rule as the count, so '1 goal off'
+  sits over a tooltip naming that one goal. Test: test_the_headers_tooltip_names_the_goals_its_count_counts
+  (tests/test_items_page.py: first-loop with inbox-short off and the two modelling goals off); seen to fail before the
+  fix (the title named requests-handled and model-fits too) and pass after.
+- Done item 3's side list: the goals-page browser test now also reads the Blocks side list's lines on the four-goal
+  fixture and asks each word to be /api/loops' (holding left unsaid, as the side list does); seen to fail when the
+  side list printed `off` for an open goal.
+- Not run to green: tests/test_items_page.py as a whole has six other failures in this container: the item-set
+  panels (test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set,
+  test_the_model_changes_are_found_by_heading_search_and_panel, test_a_valves_leased_items_are_listed_live,
+  test_a_snapshot_lists_a_parts_items_and_opens_its_set, test_a_set_left_out_of_a_snapshot_says_so; itemsets.js and
+  dynamics.js, which this branch does not change) and
+  test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart at the project switcher's entry for another
+  project (projects.py, unchanged; its header assertions before that line pass). A run on clean main was refused in
+  this session (a git worktree and checking out main's files were both denied), so that they fail on main too is
+  read from the diff, not seen.
