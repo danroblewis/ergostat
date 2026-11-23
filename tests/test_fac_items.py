@@ -34,6 +34,20 @@ def test_every_state_is_listed_past_the_cap(monkeypatch):
     assert len(got) == 700 and len({x["id"] for x in got}) == 700
 
 
+def test_a_state_counted_empty_is_not_listed(monkeypatch):
+    record(monkeypatch, {"merged": 2, "in-review": 0, "ready": 1, "parked": 0})
+    calls = []
+    inner = fac.ergostat
+    monkeypatch.setattr(fac, "ergostat", lambda *a: calls.append(a) or inner(*a))
+    assert {x["id"] for x in fac.items("gap")} == {"gap/merged-0", "gap/merged-1", "gap/ready-0"}
+    assert [a[a.index("--state") + 1] for a in calls if "--state" in a] == ["merged", "ready"]
+    calls.clear()
+    record(monkeypatch, {"merged": 0, "ready": 0})
+    inner = fac.ergostat
+    monkeypatch.setattr(fac, "ergostat", lambda *a: calls.append(a) or inner(*a))
+    assert fac.items("gap") == [] and len(calls) == 1        # every state empty: the kind's line only
+
+
 def test_one_state_is_one_listing(monkeypatch):
     record(monkeypatch, {"merged": 3, "ready": 2})
     assert {x["id"] for x in fac.items("gap", "ready")} == {"gap/ready-0", "gap/ready-1"}

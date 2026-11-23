@@ -241,3 +241,22 @@ outside this gap (lesson-13):
 - Not checked: whether it fails on main under the same load. Running the test in a worktree of main
   (`git worktree add -q /tmp/mainwt main && ...`) was refused in this session.
 - The merge of main (f086f76e) was already committed in e74f4824, with no conflict left.
+
+## Where it stopped
+
+The switcher test's failure is fixed in the code, as the factory asked. The cause was found by timing each ergostat
+call the step makes (the timing was temporary and is not committed). `fac.items(kind)` with no state lists each of
+the kind's states with an ergostat process of its own, including the states the kind's line counts 0. A switcher
+step (`items("upgrade")`, then `under_way()` over gap, research and situation) made about 45 such calls, at about 1 s
+each: 46 s a step alone, so two steps under the load of the build suite passed the test's 120 s wait. Now
+`fac.items` lists only the states counted above 0 (a header it cannot read still lists everything, as before). A step
+takes about 6 s, and the test runs in 75 s instead of 153 s. Every other caller of `fac.items` gets the same saving.
+The cause is on main too: the branch had not changed this code. The fix is in this branch because the factory asked
+for it here.
+
+- New test: `tests/test_fac_items.py::test_a_state_counted_empty_is_not_listed`. It failed with the filter removed.
+- Run: tests/test_fac_items.py, 9 passed; the switcher test, 1 passed (75 s); tests/test_queue.py,
+  tests/test_backlog.py and tests/test_milestones.py (other callers of `fac.items`), 87 passed. ruff is clean on
+  ergostat, tests and scripts.
+- Refused in this session: `git checkout -- tests/test_factory.py` (the timing was taken out by hand instead), and
+  running a short Python script through bash.
