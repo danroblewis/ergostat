@@ -248,3 +248,20 @@ finishing the factory's merge of main (7cb97857, ff2a7daa). No code outside test
   above). `tests/test_inbox.py`: 34 passed. `tests/test_inbox_page.py`: 7 passed, rc 0.
 - **Not run:** the rest of `tests/test_diagram_rendering.py` (its earlier failures on main's header and on timing
   bounds are as reported above), the other browser files, the unit suite.
+
+Continued, round 3: the queue's finding (conflicts with main in `diagram.js`), answered by finishing the factory's
+merge of main (ead497d1, dd3b5787). 44 net lines outside tests and docs against main (budget 60).
+
+- **Merge:** `state.py`: main's new `object` field on each attention entry kept next to the branch's
+  `fold`/`about`/`system`. `diagram.js`: main added a row's "diagnosis in …" note (`diagnosis_in`) inside the inline
+  row it draws in `list`; the branch draws rows through its shared `row` (used by plain entries and fold members), so
+  main's note now ends that `row`, and `list` keeps the branch's `folded`/`foldRow` loop.
+  `tests/test_diagram_rendering.py`: both sides added tests at the same place; the branch's two fold tests are kept
+  whole, then main's `test_a_one_sided_limit_is_drawn_and_named_as_a_limit`.
+- **Runs:** ruff clean. `tests/test_inbox.py`: 34 passed. `tests/test_runner_and_state.py`: 44 passed. The acceptance
+  test, `test_two_folds_each_keep_their_own_reason_across_a_refresh` and main's
+  `test_a_one_sided_limit_is_drawn_and_named_as_a_limit`: 3 passed, rc 0. `tests/test_inbox_page.py`: 9 passed, rc 0.
+- **Not run:** the rest of `tests/test_diagram_rendering.py` (earlier failures on main's header and on timing bounds
+  as reported above), the other browser files, the unit suite. No browser test covers `diagnosis_in` on a row; it was
+  not checked by a run here.
+- **Refused:** a `python3 - <<EOF` script to resolve the conflicts (done with edits instead).
