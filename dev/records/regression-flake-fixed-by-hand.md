@@ -38,3 +38,12 @@ so it shows no failing test: the run was cut off, not failed by a test. tests/te
 900 s timeout stopped it in test_a_defect_park_is_never_resumed_by_the_program. That test and every test after it
 were then run three at a time: all passed. The factory's -n 8 build command itself was refused in this session, so
 the xdist run was not reproduced. No code was changed: nothing was found to fix.
+
+Round 2, after the second failed build. This tail shows one F (no name), so a test did fail under -n 8. The likely
+cause, found by reading and not reproduced (the xdist run was not run here): the tests' manage_record loaded
+manage.py, which imports fac, flakes, agents, onmain and runs from sys.modules. A worker that ran the triage test
+(which leaves flakes and agents there) or the test that replaces sys.modules["fac"] first gave manage a stale flakes
+bound to another fac. The new tests also left their own copies there for the tests after them. manage_record now
+sets all five for the test's duration only (monkeypatch.setitem) and asserts manage uses the test's own flakes and
+fac. Run serially: the three acceptance tests, also after the triage test and the fac-replacing test. All passed. No
+code outside tests/ changed.

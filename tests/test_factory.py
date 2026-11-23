@@ -731,11 +731,15 @@ def test_two_flake_writers_at_once_never_lose_a_state(tmp_path, monkeypatch):
 
 def manage_record(tmp_path, monkeypatch):
     """flake_record's project, and dev/bin/manage.py on it: (manage, its flakes module)."""
-    flake_record(tmp_path, monkeypatch)
+    flakes = flake_record(tmp_path, monkeypatch)
     monkeypatch.syspath_prepend(str(BIN))
+    monkeypatch.setitem(sys.modules, "fac", flakes.fac)            # (manage's imports: its own for this test, the
+    monkeypatch.setitem(sys.modules, "flakes", flakes)             # ones earlier tests left in sys.modules unused,
+    for name in ("agents", "onmain", "runs"):                      # and none left behind for the tests after it)
+        monkeypatch.setitem(sys.modules, name, module(name))
     manage = module("manage")
-    monkeypatch.setattr(manage.fac, "MODEL", tmp_path)
-    return manage, manage.flakes
+    assert manage.fac is flakes.fac and manage.flakes is flakes and manage.onmain.flakes is flakes
+    return manage, flakes
 
 
 def fixes(flakes) -> list[dict]:
