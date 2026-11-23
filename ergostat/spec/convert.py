@@ -1,6 +1,6 @@
 """``ergostat convert``: an ``ergostat.toml`` written as ``ergostat.yaml`` (SPEC §14).
 
-What converts by itself: stocks, flows, systems, goals (from controllers), and blocks (from valves
+What converts by itself: stocks, flows, systems, the ``[budget]``, goals (from controllers), and blocks (from valves
 and the agents behind disturbances). Where the old file let ergostat only watch, the new one closes
 the loop: a controller that held a stock through a valve becomes an ``onoff`` block commanding
 that valve's block, so the valve runs when its goal is off instead of on a timer.
@@ -58,6 +58,8 @@ def convert(m: mdl.Model) -> tuple[str, list[str]]:
     out: dict = {"name": m.name}
     if m.keep != 30 * 86400.0:
         out["keep"] = human(m.keep)
+    if m.budget is not None:           # the money limit carries over; dropping it would un-refuse runs
+        out["budget"] = {"daily": m.budget.daily, "max-cost": m.budget.max_cost}
     systems = {fix(n): ({"description": s.description} if s.description else None) for n, s in m.systems.items()}
     for n in m.system_names():
         systems.setdefault(fix(n), None)

@@ -597,9 +597,10 @@ def test_a_hard_restart_never_leaves_two_runs_of_one_item(tmp_path, hard, monkey
 
 def test_a_hard_restart_spends_no_attempt(tmp_path, hard):
     """A job held by a run when the engine restarts hard (wedged: its run's end never recorded), with one attempt
-    allowed: the next engine expires the lease uncounted and it waits to be taken again. Fails, a dead letter, when
-    an expiry of a previous engine's run is counted; the next engine's own run's expiry still counts."""
-    from ergostat.leases import EXPIRED
+    allowed: the next engine ends the lease uncounted on its first pass (its run no longer exists: leases/gone.py)
+    and it waits to be taken again. Fails, a dead letter, when the end of a previous engine's run is counted; the next
+    engine's own run's expiry still counts."""
+    from ergostat.leases import ENDED as EXPIRED
     from ergostat.leases.terms import grace
     from ergostat.spec.engine import Engine
 

@@ -12,7 +12,7 @@ from contextlib import contextmanager
 
 import fac
 
-REMAKE_CLEARS = ("main_fixed_at", "fixed_by", "fixed_on", "green_passes")   # a fixed flake seen again: its old fields
+REMAKE_CLEARS = ("main_fixed_at", "fixed_by", "fixed_on", "green_passes", "passed_on")   # a fixed flake seen again
 GREEN_MOST = 50                                    # seen flakes read per green run, and flake_fixed_after's ceiling
 
 
