@@ -74,7 +74,7 @@ def counts(within: float) -> tuple[int | None, str]:
         return None, "no model here, or it declares no claims: tests command"
     env = {**os.environ, "ERGOSTAT_ROOT": str(spec.root)}
     where, parent, end = Path(spec.root) / c.in_, os.getppid(), time.monotonic() + min(c.timeout, within)
-    while not where.is_dir():                             # made by the model's own first run, maybe not yet
+    while not where.is_dir():                             # made by the model's own first run, maybe not yet (whole)
         if time.monotonic() >= end or os.getppid() != parent:
             return None, f"no folder {c.in_} to run the tests in"
         time.sleep(0.2)

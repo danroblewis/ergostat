@@ -8073,7 +8073,7 @@ parameter is given:
 
 | `with:` | Measured (auxiliary) | Goal | Served by (person) |
 |---|---|---|---|
-| `every: D` (and `timeout`, 10m) | `tests-failing`: failed and errors of the `claims: tests` command's pytest-style summary, run every D by `python -m ergostat.regressions counts` in its `in:` folder (waited for within `timeout`, when the model's own first run makes it) | `tests-green` `<= 0` | `tests-fixer` |
+| `every: D` (and `timeout`, 10m) | `tests-failing`: failed and errors of the `claims: tests` command's pytest-style summary, run every D by `python -m ergostat.regressions counts` in its `in:` folder (waited for within `timeout`, when the model's own first run makes it; the folder is run as soon as it is there, so the model makes it whole, as image-squeeze's `lab.py init` fills one and renames it into place) | `tests-green` `<= 0` | `tests-fixer` |
 | `block: NAME` (and `escape-share`, 0.1) | `escapes`: `ergostat.trust.contradicted@NAME` | `claims-kept` `<= escape-share` | `escapes-reviewer` |
 | `changes: true` | `regressed-changes`: `ergostat.model.regressed` | `changes-hold` `<= 0` | `changes-reviewer` |
 | `repair: NAME` | repair's own `fixes-regressed-recent`, not made again | repair's `fixes-hold` | `fixes-reviewer`, beside `repair-settle` |

@@ -4,6 +4,7 @@ person; and in the healthy demo (squeeze as it was handed over, nothing written 
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import threading
@@ -93,3 +94,27 @@ def test_the_reader_waits_for_its_test_folder(tmp_path, monkeypatch):
         assert regressions.counts(20.0) == (0, "")
     finally:
         later.join()
+
+
+def test_the_reader_never_finds_the_test_folder_half_made(tmp_path, monkeypatch):
+    """lab.py init fills run/product whole before it is there: a reading that starts while init is still copying the
+    seed (its test file held back a second, past several of the reader's 0.2 s looks) runs the real tests, reads 0."""
+    d = copy(tmp_path)
+    spec_ = importlib.util.spec_from_file_location("lab_under_test", d / "bin" / "lab.py")
+    lab = importlib.util.module_from_spec(spec_)
+    spec_.loader.exec_module(lab)
+    real = shutil.copy2
+
+    def slow(src, dst, *a, **k):
+        if Path(src).name == "test_squeeze.py":
+            time.sleep(1.0)                                 # the window: the folder may be seen, its tests not yet
+        return real(src, dst, *a, **k)
+    monkeypatch.setattr(lab.shutil, "copy2", slow)
+    monkeypatch.chdir(d)
+    init = threading.Thread(target=lab.init)
+    init.start()
+    try:
+        assert regressions.counts(60.0) == (0, "")
+    finally:
+        init.join()
+    assert (d / "run" / "product" / "test_squeeze.py").is_file() and not (d / "run" / "product.new").exists()

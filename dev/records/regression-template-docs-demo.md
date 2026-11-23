@@ -98,3 +98,24 @@ Not run: the unit suite as a whole, the four browser files whole (test_items_pag
 test_page_refresh all serve image-squeeze), demo_check, and the merge of main (main is this branch's base, unchanged
 since the clone).
 Overrun reason: counted as the factory counts (outside tests/, docs/ and dev/), it is 23 net lines: 6 in the reader, which the wait for the demo's test folder needs, and 17 in examples/image-squeeze (the use, its system, the seed's summary line). The definition's own budget leaves out examples/, and by it the branch is 6 lines.
+
+Round 2. One finding, blocking: the reader waited only for run/product to exist, but `lab.py init` made the folder
+before it copied the seed's files into it, so a reading that landed in that window ran no tests and gave no value.
+- **Fixed in the model, not the reader**: `lab.py init` (examples/image-squeeze/bin/lab.py) now fills `run/product.new`,
+  makes its git repository there, and renames it to `run/product` before adding production's worktree. A reader that
+  sees the folder sees it whole. A leftover `product.new` from an init that died midway is removed first. That folder is
+  init's own, under the demo's `run/`. This is the more reversible option (the finding's first suggestion). A readiness
+  signal would have meant a new convention in the reader and in SPEC. The init still holds lab.py's lock, as before.
+- **SPEC** (the template's table, `tests-failing` row) now says the folder is run as soon as it is there, so a model
+  makes it whole, and gives image-squeeze's init as the example. The reader's comment says the same.
+- **Test**: `test_the_reader_never_finds_the_test_folder_half_made` runs the copied demo's real `lab.init` in a thread,
+  with the copy of test_squeeze.py held back 1 s (several of the reader's 0.2 s looks), while `regressions.counts`
+  reads. It asserts 0, and that run/product holds the tests and no `product.new` is left. Seen to fail with init
+  filling run/product in place (`exited 1 with no test summary`), and to pass with the fix.
+- Run here, each passing: tests/test_image_squeeze_regressions.py (4) with tests/test_regressions_template.py (22 in
+  all), and test_messages.py::test_image_squeeze_developer_session_takes_a_note_while_it_builds, which runs the
+  real `lab.py init` and then builds a hypothesis on a worktree of the renamed repository. ruff is clean.
+- Refused again here: `uv run python scripts/demo_check.py image-squeeze`. demo_check is left for the merge queue.
+- Not run, as in round 1: the unit suite whole, the four browser files whole, and the merge of main (main is this
+  branch's base, unchanged since the clone).
+Overrun reason: counted as the factory counts (outside tests/, docs/ and dev/), it is now 25 net lines: 6 in the reader, which the wait for the demo's test folder needs, and 19 in examples/image-squeeze (the use, its system, the seed's summary line, and 2 for init filling the folder before renaming it into place, the round-2 fix). The definition's own budget leaves out examples/, and by it the branch is 6 lines.

@@ -105,14 +105,16 @@ def init() -> None:
     with lock():
         if (REPO / ".git").exists():
             return
-        REPO.mkdir(parents=True, exist_ok=True)
+        new = RUN / "product.new"                   # filled whole, then renamed: run/product is never there half-made
+        shutil.rmtree(new, ignore_errors=True)       # (an init that died midway: its own folder)
+        new.mkdir(parents=True)
         for f in (ROOT / "seed").iterdir():
             if f.suffix == ".py":
-                shutil.copy2(f, REPO / f.name)
-        shutil.copy2(ROOT / "seed" / "gitignore", REPO / ".gitignore")
-        git("init", "-q")
-        git("add", "-A")
-        git("commit", "-q", "-m", "squeeze as it was handed over")
+                shutil.copy2(f, new / f.name)
+        shutil.copy2(ROOT / "seed" / "gitignore", new / ".gitignore")
+        for step in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "squeeze as it was handed over"]):
+            git(*step, cwd=new)
+        new.replace(REPO)
         git("worktree", "add", "-q", "--detach", str(PROD), "main")
         WORK.mkdir(exist_ok=True)
         save(RUN / "settings.json", {"quality": 80})
