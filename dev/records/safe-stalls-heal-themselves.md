@@ -73,3 +73,14 @@ tests/test_factory_outage.py and tests/test_finding_attention.py (13 passed); te
 tests/test_resilience.py and tests/test_leased_workspaces.py (81 passed); tests/test_agents.py (20 passed, 1 failed:
 the unrelated `test_a_rerun_is_timed_by_the_suite_that_failed`, `No module named 'flakes'`, because it imports
 dev/bin/onmain.py without dev/bin on its path, and this branch changes neither that test nor onmain.py). ruff is clean.
+
+Round 4 (no review findings came back). No code changed. main was merged again (a71ebec6, bringing 5411f137: a red
+batch split into halves, dev/bin/halves.py). Checked the outage path against it: a half whose suite ends as Docker goes
+down raises `agents.NotStarted` (fac.suite), which halves.run_all hands back as that half's result; with nothing
+settled it is raised again and the queue's outage branch nacks uncounted (10m); with something settled the half's gaps
+go back to `approved` uncounted (queue.py `lose`; the run's own gap nacked `count=False` after 1m). Either way nothing
+is parked or counted, so done 3 holds; the shorter 1m retry in the second case is main's, left as it is. Ran again, one
+file at a time, on the merged tree: tests/test_lease_gone.py, tests/test_factory_outage.py and
+tests/test_finding_attention.py (13 passed); tests/test_leases.py, tests/test_resilience.py and
+tests/test_leased_workspaces.py (81 passed); tests/test_agents.py (20 passed, 1 failed: the same unrelated
+`test_a_rerun_is_timed_by_the_suite_that_failed`, `No module named 'flakes'` at dev/bin/onmain.py:25). ruff is clean.
