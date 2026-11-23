@@ -164,3 +164,11 @@ Round 7 (answering the merge queue's finding):
 - The scrollbar's `height: 6px` stays. The token test does not count height as spacing, and no token fits a scrollbar's thickness.
 - Run: `tests/test_style_tokens.py` failed 1 of 10 before the fix and passed 10 of 10 after it. Ruff is clean. With Playwright under the watchdog, the acceptance test passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
 - Still outside the gap and unchanged: "follows −128% held out" in `ergostat/control/ident.py`, a follow-up gap of its own.
+
+## Where it stopped
+
+Round 8 (the factory's merge of main, 1c790d38b71a):
+- Resolved the conflict in `tests/test_graph_cli_web.py`. Main's new test (`test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas`) and this branch's test were in the same place. Both are kept whole, as they were. The merge is committed (c21f61b5). No page code changed this round.
+- Refused this round: a `python3 - <<'EOF'` edit script for the resolution (done with the editor instead), and a `cat >> … <<'EOF'` append to this file followed by `git add`/`git commit` (this note was written with the editor; it may be uncommitted if the next commit is refused too).
+- Run: ruff clean; `tests/test_graph_cli_web.py` 45 passed; with Playwright under the watchdog, the acceptance test passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
+- Still outside the gap and unchanged: "follows −128% held out" in `ergostat/control/ident.py`, a follow-up gap of its own.
