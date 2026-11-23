@@ -123,3 +123,19 @@ Answering `ergostat check`'s three new findings (implementor, 2026-11-23). The d
   not read them.
 - Pinned by tests/test_milestones.py::test_the_milestone_model_raises_no_check_finding. With one equation removed it
   fails on no-equation. Before the goal was added it failed on purpose.
+
+## Where it stopped
+
+Round 2 (implementor, 2026-11-23): the merge queue's two failures were this branch's own, and both are fixed.
+- tests/test_library_trust.py::test_every_compile_key_classified: the new item key `final` was not classified in the
+  library trust table. It is now allowed to a template, as a list (`L`) like `states` (ergostat/library/trust.py's
+  `ITEM`). It only names states the kind already has, and it runs nothing. That made the file pass (48 passed);
+  before, it failed with `['items.final'] == []`.
+- tests/test_factory_sessions.py::test_a_kept_session_folds_into_its_conversation_by_cores_reader: the test builds a
+  model from a fixed set of the root model's kinds. The gap kind's new `milestone` relation names a kind that was not
+  in that set, so compiling it failed with "'milestone' is not a kind of item". `milestone` is now added to the
+  test's set of kinds, as was done for the other kinds gap relates to. That made the file pass (5 passed). No other
+  test copies only some of the root model's kinds.
+- main has no commits past this branch's last merge (69ed1030), so there was nothing to merge.
+- Run here: tests/test_library_trust.py, tests/test_factory_sessions.py, tests/test_milestones.py (all passed). Ruff is
+  clean. Not run here: the unit suite and the four browser files.
