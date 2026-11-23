@@ -375,7 +375,18 @@ def _every_explanation(spec):
     return "\n\n".join(out).replace(PY, "<python>").replace(str(HERE), "<templates>") + "\n"
 
 
-def test_explain_without_remotes_unchanged():
-    spec = sp.load(Path(__file__).parent.parent / "examples/alert-triage/ergostat.yaml")
-    assert not spec.remotes
+def _alert_triage_without_uses(tmp_path):
+    # the example's own parts only: its `uses:` system is library template text, which main rewords on its own
+    import shutil
+    shutil.copytree(Path(__file__).parent.parent / "examples/alert-triage", tmp_path / "alert-triage")
+    path = tmp_path / "alert-triage/ergostat.yaml"
+    text = path.read_text()
+    assert "\nuses:\n" in text
+    path.write_text(text[:text.index("\nuses:\n") + 1])
+    return sp.load(path)
+
+
+def test_explain_without_remotes_unchanged(tmp_path):
+    spec = _alert_triage_without_uses(tmp_path)
+    assert not spec.remotes and not any("modelling" in n for n in spec.systems)
     assert _every_explanation(spec) == GOLDEN.read_text()     # written from main's explain, before this gap

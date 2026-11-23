@@ -38,3 +38,19 @@ Round 2 (the review's one finding, the golden text holding host paths):
   failed (AssertionError); restored, it and all 15 tests of tests/test_remote.py pass; ruff clean.
 - Not shown: a run from a second checkout and venv (a clone under /tmp with its own .venv) was refused in this
   session, so the host independence rests on the placeholders being taken from the same PY and HERE the output uses.
+
+Round 3 (the queue: test_explain_without_remotes_unchanged failed alone after main was merged in):
+- Cause: the golden text held alert-triage's `uses: modelling` system, whose description is library template text.
+  Main reworded it (89083c72 dropped "(SPEC §12e)"), so the golden went stale with no change to explain.py. Main's
+  explain.py is unchanged since 2cf215fd (`git diff 2cf215fd main -- ergostat/spec/explain.py` is empty).
+- Fix, tests only: the test copies examples/alert-triage to tmp_path and cuts its `uses:` block, so the golden holds
+  the example's own parts only and no longer moves when main rewords a library template. The golden was rewritten.
+  The test also asserts that the cut model has no modelling system. Easy to undo: the golden and one helper.
+- Why the rewritten golden is main's text: checking out main's explain.py to write it was refused in this session,
+  so the branch wrote it. Before that, the branch's output for the whole uncut example was diffed against the old
+  golden (written from main's explain.py). The only differing line was the reworded template description.
+- Seen failing: with "  Holds " changed to "  Holds  " in explain.py, the test failed (AssertionError). Restored, all
+  17 tests of tests/test_remote.py pass and ruff is clean. main (2a97eafb) is already merged. No code outside tests
+  changed.
+- Refused in this session: a python heredoc editing the test, a scratch script under /tmp (both writing and running
+  it), and `git checkout main -- ergostat/spec/explain.py ergostat/remote/__init__.py`.

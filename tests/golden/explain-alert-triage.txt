@@ -1,21 +1,8 @@
-alert-triage: 14 stocks, 22 flows, 1 auxiliary, 8 goals, 15 blocks (ergostat.yaml, alerts.yaml, investigation.yaml).
+alert-triage: 7 stocks, 11 flows, 1 auxiliary, 6 goals, 10 blocks (ergostat.yaml, alerts.yaml, investigation.yaml).
 Systems (explain system.NAME for one):
-  - alerts: 2 in, 3 out; 24 parts, 25 feedback loops inside and 54 through it
-  - investigation: 3 in, 2 out; 6 parts, 13 feedback loops inside and 54 through it
-  - modelling: 0 in, 0 out; 0 parts, 11 feedback loops inside
+  - alerts: 2 in, 3 out; 24 parts, 14 feedback loops inside and 54 through it
+  - investigation: 3 in, 2 out; 6 parts, 2 feedback loops inside and 54 through it
 Items: alert (alert/*: new → leased → triaged → investigating → summarising → escalated → closed → dismissed → dead); facet (facet/*: open → leased → done → dead); ergostat.model-change (ergostat.model-change/*: made → checked → testing → passed → accepted → refused → failed → dismissed → superseded → verified → regressed → inconclusive); ergostat.modelling-request (ergostat.modelling-request/*: open → proposed → held → answered → dismissed); ergostat.claim (ergostat.claim/*: made → verified → contradicted → unchecked); ergostat.message (ergostat.message/*: received → unrouted → routed → delivered → answered); ergostat.verdict (ergostat.verdict/*: asked → met → unmet → contradicted → unjudged → overruled → missed); ergostat.decision (ergostat.decision/*: proposed → confirmed → superseded → dismissed); ergostat.correction (ergostat.correction/*: proposed → confirmed → retired → dismissed); ergostat.context (ergostat.context/*: started → succeeded → failed); ergostat.report (ergostat.report/*: drafted → reviewed → submitted → dismissed).
-
-Goal requests-handled: stock.unanswered-requests <= 0.
-  Measured: stock.unanswered-requests.main counts the ergostat.modelling-request items in open or proposed every 10s.
-  Served: fixer (program) reads it and moves changes-made-by-fixer; keep-requests-handled (implied by fixer naming the goal) runs fixer while the goal is off, until it holds.
-  Closes the long way, through other stocks: block.fixer → flow.changes-made-by-fixer → stock.pending-changes → block.judge → flow.changes-accepted → flow.requests-answered. Each stock along it is a queue the loop waits on, so it answers only as fast as they drain.
-  Disturbances: requests-raised (unmeasured).
-
-Goal model-fits: stock.model-error <= 0.05.
-  Measured: stock.model-error.main reads the built-in measure ergostat.model.fit every 1m.
-  Served: improver (ai) reads it and moves changes-made; keep-model-fits (implied by improver naming the goal) runs improver while the goal is off, until it holds.
-  Closes the long way, through other stocks: block.improver → flow.changes-made → stock.pending-changes → block.judge → flow.changes-accepted → flow.model-mended. Each stock along it is a queue the loop waits on, so it answers only as fast as they drain.
-  Disturbances: model-drift (unmeasured).
 
 Goal new-alerts-triaged: stock.new-alerts <= 0.
   Measured: stock.new-alerts.main counts the alert items in new every 2s.
@@ -54,33 +41,28 @@ Goal facets-investigated: stock.open-facets <= 0.
   Acting: investigate (ai) moves flow.facets-done, flow.alerts-investigated.
   Disturbances: facets-opened (set by fan-out, program).
 
-Blocks serving no goal: judge (judge, every 30s) → flow.tests-started, flow.changes-passed, flow.changes-failed, flow.changes-accepted.
-
-Feedback loops (29 balancing, 52 reinforcing; R reinforces, B balances):
+Feedback loops (18 balancing, 52 reinforcing; R reinforces, B balances):
   B alerts-escalated: stock.alerts-escalated → flow.alerts-reopened
   B alerts-escalated via escalations-handled: stock.alerts-escalated → flow.escalations-handled
   B alerts-summarising: stock.alerts-summarising → flow.alerts-escalated
   B alerts-summarising via alerts-summarised: stock.alerts-summarising → flow.alerts-summarised
   B alerts-triaged: stock.alerts-triaged → flow.facets-opened-for
-  B changes-testing: stock.changes-testing → flow.changes-failed
-  B changes-testing via changes-passed: stock.changes-testing → flow.changes-passed
-  B model-error: stock.model-error → flow.model-mended
   B new-alerts: stock.new-alerts → flow.alerts-dismissed
   B new-alerts via alerts-triaged: stock.new-alerts → flow.alerts-triaged
   B open-facets: stock.open-facets → flow.facets-done
-  B passed-changes: stock.passed-changes → flow.changes-accepted
-  ... and 69 more.
+  B alerts-investigating: stock.alerts-investigating → block.investigate → flow.alerts-investigated
+  B alerts-investigating via facets-done: stock.alerts-investigating → block.investigate → flow.facets-done → flow.alerts-investigated
+  B escalations-answered: stock.alerts-escalated → goal.escalations-answered → block.keep-escalations-answered → block.on-call → flow.alerts-reopened
+  B escalations-answered via escalations-handled: stock.alerts-escalated → goal.escalations-answered → block.keep-escalations-answered → block.on-call → flow.escalations-handled
+  ... and 58 more.
 
 Modes at the start (eigenvalues of the stocks' Jacobian, one evaluation of the equations, no run; a delay's stages are not states here: its time is in time-scales):
   λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
   λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
-  λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
-  λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
-  λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
-  λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
-  λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
-  λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
-  and 5 more
+  λ -347/h (τ 10s): stock.alerts-escalated (its own) ε 1.07; stock.alerts-summarising (its own) ε 0.30; stock.alerts-triaged (its own) ε 0.30; most in stock.alerts-escalated
+  λ -1.58e+03 ± 587i/h (τ 2s, period 39s): stock.alerts-summarising (its own) |ε| 0.35 (0.30+0.17i); stock.alerts-triaged (its own) |ε| 0.35 (0.30+0.17i); stock.open-facets (its own) |ε| 0.35 (0.30+0.17i); most in stock.alerts-triaged
+  λ -1.8e+03/h (τ 2s): stock.new-alerts (its own) ε 1.00; stock.alerts-escalated (its own) ε -0.00; stock.alerts-summarising → stock.alerts-escalated ε -0.00; most in stock.new-alerts
+  λ -2.35e+03/h (τ 2s): stock.alerts-summarising (its own) ε 0.23; stock.alerts-triaged (its own) ε 0.23; stock.open-facets (its own) ε 0.23; most in stock.open-facets
 
 Goal escalations-answered: stock.alerts-escalated <= 0.
   Owner: on-call.
@@ -107,23 +89,11 @@ Goal investigations-joined: stock.alerts-investigating <= 3 (give or take 1).
   Acting: investigate (ai) moves flow.facets-done, flow.alerts-investigated.
   Disturbances: facets-opened-for (set by fan-out, program).
 
-Goal model-fits: stock.model-error <= 0.05.
-  Measured: stock.model-error.main reads the built-in measure ergostat.model.fit every 1m.
-  Served: improver (ai) reads it and moves changes-made; keep-model-fits (implied by improver naming the goal) runs improver while the goal is off, until it holds.
-  Closes the long way, through other stocks: block.improver → flow.changes-made → stock.pending-changes → block.judge → flow.changes-accepted → flow.model-mended. Each stock along it is a queue the loop waits on, so it answers only as fast as they drain.
-  Disturbances: model-drift (unmeasured).
-
 Goal new-alerts-triaged: stock.new-alerts <= 0.
   Measured: stock.new-alerts.main counts the alert items in new every 2s.
   Served: keep-new-alerts-triaged (implied by triage naming the goal) runs triage while the goal is off, until it holds.
   Acting: triage (ai) moves flow.alerts-triaged, flow.alerts-dismissed.
   Disturbances: alerts-fired (unmeasured).
-
-Goal requests-handled: stock.unanswered-requests <= 0.
-  Measured: stock.unanswered-requests.main counts the ergostat.modelling-request items in open or proposed every 10s.
-  Served: fixer (program) reads it and moves changes-made-by-fixer; keep-requests-handled (implied by fixer naming the goal) runs fixer while the goal is off, until it holds.
-  Closes the long way, through other stocks: block.fixer → flow.changes-made-by-fixer → stock.pending-changes → block.judge → flow.changes-accepted → flow.requests-answered. Each stock along it is a queue the loop waits on, so it answers only as fast as they drain.
-  Disturbances: requests-raised (unmeasured).
 
 Goal summaries-written: stock.alerts-summarising <= 0.
   Measured: stock.alerts-summarising.main counts the alert items in summarising every 2s.
@@ -138,20 +108,6 @@ Block fan-out: a program block, actuator.
   Outputs to: flow.facets-opened-for, flow.facets-opened.
   Serves: goal.facets-opened.
 
-Block fixer: a program block, actuator.
-  the rule tier, answering the requests a mechanical change answers safely and certainly
-  Runs: `<python> -m ergostat.library.run modelling rules`
-  Runs while goal requests-handled is off (through keep-requests-handled).
-  Reads: stock.unanswered-requests.
-  Outputs to: flow.changes-made-by-fixer.
-  Serves: goal.requests-handled.
-
-Block improver: an ai block, actuator.
-  Prompt: <templates>/modelling/improver.md
-  Runs while goal model-fits is off (through keep-model-fits).
-  Outputs to: flow.changes-made.
-  Serves: goal.model-fits.
-
 Block investigate: an ai block, actuator, on agent claude.
   looks into one facet and records its finding; the run that finishes an alert's last facet moves the alert on
   Prompt: prompts/investigate.md
@@ -159,10 +115,6 @@ Block investigate: an ai block, actuator, on agent claude.
   Reads: stock.alerts-investigating.
   Outputs to: flow.facets-done, flow.alerts-investigated.
   Serves: goal.investigations-joined, goal.facets-investigated.
-
-Block judge: a judge block, actuator.
-  Reads: stock.pending-changes, stock.changes-testing.
-  Outputs to: flow.tests-started, flow.changes-passed, flow.changes-failed, flow.changes-accepted.
 
 Block keep-escalations-answered: an onoff block, controller (implied: ergostat put it there).
   implied by on-call's goal: escalations-answered
@@ -179,20 +131,10 @@ Block keep-facets-opened: an onoff block, controller (implied: ergostat put it t
   Outputs to: block.fan-out.
   Serves: goal.facets-opened.
 
-Block keep-model-fits: an onoff block, controller (implied: ergostat put it there).
-  implied by improver's goal: model-fits
-  Outputs to: block.improver.
-  Serves: goal.model-fits.
-
 Block keep-new-alerts-triaged: an onoff block, controller (implied: ergostat put it there).
   implied by triage's goal: new-alerts-triaged
   Outputs to: block.triage.
   Serves: goal.new-alerts-triaged.
-
-Block keep-requests-handled: an onoff block, controller (implied: ergostat put it there).
-  implied by fixer's goal: requests-handled
-  Outputs to: block.fixer.
-  Serves: goal.requests-handled.
 
 Block keep-summaries-written: an onoff block, controller (implied: ergostat put it there).
   implied by summarise's goal: summaries-written
@@ -220,11 +162,6 @@ Block triage: an ai block, actuator, on agent claude.
   Outputs to: flow.alerts-triaged, flow.alerts-dismissed.
   Serves: goal.new-alerts-triaged.
 
-Stock accepted-changes (changes): changes accepted and written into the model. It has memory: its value persists, and changes only through its flows.
-  Measured: stock.accepted-changes.main counts the ergostat.model-change items in accepted every 10s.
-  Filled by: changes-accepted (+).
-  No goal is about it.
-
 Stock alerts-escalated (alerts): summarised and handed to the on-call engineer, not answered yet. It has memory: its value persists, and changes only through its flows.
   Measured: stock.alerts-escalated.main counts the alert items in escalated every 2s.
   Filled by: alerts-escalated (+).
@@ -249,27 +186,10 @@ Stock alerts-triaged (alerts): worth a look, their facets not opened yet. It has
   Drained by: facets-opened-for (−).
   Goals: facets-opened.
 
-Stock answered-requests (requests): requests answered, check no longer finding them. It has memory: its value persists, and changes only through its flows.
-  Measured: stock.answered-requests.main counts the ergostat.modelling-request items in answered every 10s.
-  Filled by: requests-answered (+).
-  No goal is about it.
-
-Stock changes-testing (changes): changes being replayed on the record that comes after them. It has memory: its value persists, and changes only through its flows.
-  Measured: stock.changes-testing.main counts the ergostat.model-change items in testing every 10s.
-  Filled by: tests-started (+).
-  Drained by: changes-passed (−), changes-failed (−).
-  No goal is about it.
-
 Stock facets-investigated (facets): facets investigated, with their findings. It has memory: its value persists, and changes only through its flows.
   Measured: stock.facets-investigated.main counts the facet items in done every 2s.
   Filled by: facets-done (+).
   No goal is about it.
-
-Stock model-error (1): the scaled error of the model's replay on the record (the Fit page's total; lower is better). It has memory: its value persists, and changes only through its flows.
-  Measured: stock.model-error.main reads the built-in measure ergostat.model.fit every 1m.
-  Filled by: model-drift (+, two-way).
-  Drained by: model-mended (−).
-  Goals: model-fits.
 
 Stock new-alerts (alerts): fired, not triaged yet. It has memory: its value persists, and changes only through its flows.
   Measured: stock.new-alerts.main counts the alert items in new every 2s.
@@ -282,24 +202,6 @@ Stock open-facets (facets): facets opened, not investigated yet. It has memory: 
   Filled by: facets-opened (+).
   Drained by: facets-done (−).
   Goals: facets-investigated.
-
-Stock passed-changes (changes): passed by the judge, waiting to be written (by the owner, for a change to the structure). It has memory: its value persists, and changes only through its flows.
-  Measured: stock.passed-changes.main counts the ergostat.model-change items in passed every 10s.
-  Filled by: changes-passed (+).
-  Drained by: changes-accepted (−).
-  No goal is about it.
-
-Stock pending-changes (changes): changes to the model made and checked, waiting for the judge. It has memory: its value persists, and changes only through its flows.
-  Measured: stock.pending-changes.main counts the ergostat.model-change items in checked every 10s.
-  Filled by: changes-made (+), changes-made-by-fixer (+).
-  Drained by: changes-superseded (−), tests-started (−).
-  No goal is about it.
-
-Stock unanswered-requests (requests): what check finds that modelling is still working on (open, or with a change waiting); one held for the owner or more record leaves the count, so requests-handled can be met. It has memory: its value persists, and changes only through its flows.
-  Measured: stock.unanswered-requests.main counts the ergostat.modelling-request items in open or proposed every 10s.
-  Filled by: requests-raised (+).
-  Drained by: requests-answered (−).
-  Goals: requests-handled.
 
 Flow alerts-dismissed: from new-alerts to outside.
   Set by block triage (ai).
@@ -352,35 +254,6 @@ Flow alerts-triaged: from new-alerts to alerts-triaged.
   Its rate follows +stock.new-alerts (driven-by: an influence, sized by its equation).
   Measured: flow.alerts-triaged.main counts alert items entering triaged, via triage (per hour, over 10m) every 1m (a rate per hour).
 
-Flow changes-accepted: from passed-changes to accepted-changes.
-  Set by block judge (judge).
-  Its rate follows +stock.passed-changes (driven-by: an influence, declared, not yet checked against the record).
-  Measured: flow.changes-accepted.main counts ergostat.model-change items entering accepted (per hour, over 10m) every 1m (a rate per hour).
-
-Flow changes-failed: from changes-testing to outside.
-  Set by block judge (judge).
-  Its rate follows +stock.changes-testing (driven-by: an influence, declared, not yet checked against the record).
-  Measured: flow.changes-failed.main counts ergostat.model-change items entering failed (per hour, over 10m) every 1m (a rate per hour).
-
-Flow changes-made: from outside to pending-changes.
-  Set by block improver (ai).
-  Measured: flow.changes-made.main counts ergostat.model-change items entering made, made_by improver/improver-by-hand/ergostat/owner (per hour, over 10m) every 1m (a rate per hour).
-
-Flow changes-made-by-fixer: from outside to pending-changes.
-  Set by block fixer (program).
-  Its rate follows +stock.unanswered-requests (driven-by: an influence, declared, not yet checked against the record).
-  Measured: flow.changes-made-by-fixer.main counts ergostat.model-change items entering made, made_by fixer (per hour, over 10m) every 1m (a rate per hour).
-
-Flow changes-passed: from changes-testing to passed-changes.
-  Set by block judge (judge).
-  Its rate follows +stock.changes-testing (driven-by: an influence, declared, not yet checked against the record).
-  Measured: flow.changes-passed.main counts ergostat.model-change items entering passed (per hour, over 10m) every 1m (a rate per hour).
-
-Flow changes-superseded: from pending-changes to outside.
-  Nothing in the model sets it: a disturbance, estimated from what its stocks do.
-  Its rate follows +stock.pending-changes (driven-by: an influence, declared, not yet checked against the record).
-  Measured: flow.changes-superseded.main counts ergostat.model-change items entering superseded (per hour, over 10m) every 1m (a rate per hour).
-
 Flow escalations-handled: from alerts-escalated to outside.
   Set by block on-call (person).
   escalations-handled = (1 - reopen-share) * stock.alerts-escalated / answer-time (per hour)
@@ -410,29 +283,6 @@ Flow facets-opened-for: from alerts-triaged to alerts-investigating.
   Its rate follows +stock.alerts-triaged (driven-by: an influence, sized by its equation).
   Measured: flow.facets-opened-for.main counts alert items entering investigating (per hour, over 10m) every 1m (a rate per hour).
 
-Flow model-drift: from outside to model-error, either way (two-way: what moves it may move it back).
-  Nothing in the model sets it: a disturbance, estimated from what its stocks do.
-  Measured: flow.model-drift.main reads how much stock model-error's readings changed, net, less what its other flows moved (per hour, over 10m) every 1m (a rate per hour).
-
-Flow model-mended: from model-error to outside.
-  Nothing in the model sets it: a disturbance, estimated from what its stocks do.
-  Its rate follows +stock.model-error, +flow.changes-accepted (at once) (driven-by: an influence, declared, not yet checked against the record).
-  Measured: flow.model-mended.main sums the fit_gained of ergostat.model-change items entering accepted (per hour, over 10m) every 1m (a rate per hour).
-
-Flow requests-answered: from unanswered-requests to answered-requests.
-  Nothing in the model sets it: a disturbance, estimated from what its stocks do.
-  Its rate follows +stock.unanswered-requests, +flow.changes-accepted (at once) (driven-by: an influence, declared, not yet checked against the record).
-  Measured: flow.requests-answered.main counts ergostat.modelling-request items entering answered (per hour, over 10m) every 1m (a rate per hour).
-
-Flow requests-raised: from outside to unanswered-requests.
-  Nothing in the model sets it: a disturbance, estimated from what its stocks do.
-  Measured: flow.requests-raised.main runs `<python> -m ergostat.library.run modelling requests --window 600` every 2m (a rate per hour).
-
-Flow tests-started: from pending-changes to changes-testing.
-  Set by block judge (judge).
-  Its rate follows +stock.pending-changes (driven-by: an influence, declared, not yet checked against the record).
-  Measured: flow.tests-started.main counts ergostat.model-change items entering testing (per hour, over 10m) every 1m (a rate per hour).
-
 Auxiliary oldest-new-alert (hours): how long the oldest untriaged alert has waited. It has no memory: its value is determined at each moment by others (its equation is not written, so it is measured).
   Measured: auxiliary.oldest-new-alert.main reads the hours the oldest alert item has been in new every 2s.
   It follows +stock.new-alerts (driven-by: declared, not yet checked; + rises with it, − falls, unsigned not known).
@@ -440,7 +290,7 @@ Auxiliary oldest-new-alert (hours): how long the oldest untriaged alert has wait
 
 System alerts: the alert's way from the pager to closed - triage, the fan-out, the summary, the on-call.
   Holds 5 stocks, 5 goals, 4 blocks.
-  Size: 24 parts, 25 feedback loops inside and 54 through it.
+  Size: 24 parts, 14 feedback loops inside and 54 through it.
   In:
     block.investigate → flow.alerts-investigated (action)
     flow.facets-done → flow.alerts-investigated (influence)
@@ -455,7 +305,7 @@ System alerts: the alert's way from the pager to closed - triage, the fan-out, t
 
 System investigation: the facets each alert is investigated along, one item each, worked in parallel and joined.
   Holds 2 stocks, 1 goals, 1 blocks.
-  Size: 6 parts, 13 feedback loops inside and 54 through it.
+  Size: 6 parts, 2 feedback loops inside and 54 through it.
   In:
     block.fan-out → flow.facets-opened (action)
     flow.facets-opened-for → flow.facets-opened (influence)
@@ -465,9 +315,3 @@ System investigation: the facets each alert is investigated along, one item each
     flow.facets-done → flow.alerts-investigated (influence)
   Modes most in it (at the start, of the stocks' Jacobian; explain for all):
     λ -2.35e+03/h (τ 2s): stock.alerts-summarising (its own) ε 0.23; stock.alerts-triaged (its own) ε 0.23; stock.open-facets (its own) ε 0.23; most in stock.open-facets
-
-System modelling: The model improved as a loop of its own (SPEC §12e) - its fit a stock held by a goal, everything check finds held as requests, tiers that answer them (the fixer, a program of mechanical fixes, then an AI agent when asked), an improver for the fit, and ergostat's judge that tests each change and writes what the policy allows..
-  Holds 7 stocks, 2 goals, 3 blocks.
-  Size: 0 parts, 11 feedback loops inside.
-  In: nothing (nothing outside reaches in).
-  Out: nothing (nothing outside sees it).
