@@ -123,16 +123,28 @@ def taken(ctx, it, info) -> dict:
     """The root for an item in its state, nothing it waits on unfinished and no lease on it."""
     bs = [b for b in ctx.spec.blocks.values() if b.takes and b.takes.kind == it.kind and it.state in b.takes.at]
     kind = ctx.spec.items[it.kind]
-    at = {s: i for i, s in enumerate(kind.states)}           # the move on to the next state first, then later ones
-    onward = sorted((e for e, s in (kind.on or {}).items() if s != it.state),
-                    key=lambda e: (at.get(kind.on[e], -1) <= at.get(it.state, -1), at.get(kind.on[e], -1), e))
     moved = f"moved to {it.state} by {it.latest or 'an event'}"
     if not bs:
+        asked = _asked(ctx.spec, it)
+        if asked is not None:
+            b, g, counted = asked                # its moves out of what the person is asked about, as written
+            onward = [e for e, s in (kind.on or {}).items() if s not in counted and s != kind.states[0]]
+            return root("person", it.id, f"in {it.state}, for a person to do: {b.name} (a person) is asked while goal "
+                        f"{g.name} is off, and {g.of} counts {it.kind} items in {it.state}; it moves on when one of these "
+                        f"is recorded: {', '.join(onward) or 'none declared'}", f"a person ({b.name})",
+                        "do it and record it" + (f" ({onward[0]})" if onward else "")
+                        + f", then report it in the inbox (ergostat inbox person/{b.name} --done N)",
+                        f"ergostat event --add {onward[0]} --item {it.id}" if onward else None,
+                        [ev(moved, item_link(it.id), at=it.entered), ev(f"{b.name} serves goal {g.name}", _blink(b.name))],
+                        since=it.entered, who=b.name)
         if it.state in info["working"] and it.state not in info["queue"]:
-            return root("work", it.id, f"in progress in {it.state}, outside ergostat: no block takes it from there, and "
-                        f"it moves on when one of these is recorded: {', '.join(onward) or 'none declared'}",
-                        "whoever records " + (onward[0] if onward else "its next event"), "finish the work and record it",
-                        None, [ev(moved, item_link(it.id), at=it.entered)], since=it.entered)
+            onward = _onward(kind, it.state)
+            return root("work", it.id, f"in progress in {it.state}, outside ergostat: no block takes it from there"
+                        f"{_waits_none(ctx, it)}, and it moves on when one of these is recorded: "
+                        f"{', '.join(onward) or 'none declared'}", "whoever records "
+                        + (onward[0] if onward else "its next event"), "finish the work and record it",
+                        f"ergostat event --add {onward[0]} --item {it.id}" if onward else None,
+                        [ev(moved, item_link(it.id), at=it.entered)], since=it.entered)
         return root("nothing", it.id, f"nothing takes {it.kind} items from {it.state}: no block's takes: names it, and "
                     "nothing it waits on is unfinished", "the owner",
                     f"add a block that takes: {{kind: {it.kind}, at: [{it.state}]}}, or record the event that moves it",
@@ -145,6 +157,44 @@ def taken(ctx, it, info) -> dict:
                 "gate, full pool, refusal or failing run is recorded for it", "the engine",
                 "look at the engine's log if it is not taken within a minute", "ergostat lease",
                 [ev(f"{b.name}: takes it, room now", _blink(b.name)) for b in bs], since=it.entered)
+
+
+def _onward(kind, state: str) -> list[str]:
+    """Its kind's ``on:`` events that can move it out of ``state``: not into it, not back to the kind's first state
+    (made again), and not one whose ``moves-from:`` leaves ``state`` out. The move on to a later state comes first,
+    nearest first, then moves back; events to the same state stay in the order written."""
+    first = kind.states[0] if kind.states else None
+    at = {s: i for i, s in enumerate(kind.states)}
+    return sorted((e for e, s in (kind.on or {}).items()
+                   if s not in (state, first) and state in kind.moves_from.get(e, (state,))),
+                  key=lambda e: (at.get(kind.on[e], -1) <= at.get(state, -1), at.get(kind.on[e], -1)))
+
+
+def _waits_none(ctx, it) -> str:
+    """For a kind with precedence relations: that nothing it waits on is unfinished (what it names, or that it names
+    nothing), and the item's own ``stuck`` text, a program's reason it cannot go on, when one is recorded."""
+    from ..precedence import _prec
+    prec = _prec(ctx.spec, it.kind)
+    stuck = it.fields.get("stuck")
+    said = f"; stuck: {stuck}" if isinstance(stuck, str) and stuck.strip() else ""
+    if not prec:
+        return said
+    with ctx.ix.lock:
+        on = sorted({d for _, r, d in ctx.ix.links_from([it.id]) if r in prec})
+    return ("; what it waits on is finished (" + ", ".join(on) + ")" if on else "; it waits on nothing recorded") + said
+
+
+def _asked(spec, it):
+    """(the person block, its goal, the states counted) when the model asks a person about this item: a person
+    block's goal is on a part a sensor counts from its kind's items in its state, every one (no ``where:``)."""
+    for b in spec.blocks.values():
+        g = spec.goals.get(b.goal or "") if b.type == "person" else None
+        part = spec.measured(g.of.kind).get(g.of.name) if g is not None else None
+        for s in (part.sensors.values() if part is not None else ()):
+            q = s.items or {}
+            if q.get("kind") == it.kind and it.state in (q.get("state") or ()) and not q.get("where"):
+                return b, g, list(q["state"])
+    return None
 
 
 def _block(ctx, b, it) -> dict | None:

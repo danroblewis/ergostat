@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import time
 
+from .. import datasources
 from ..spec import codec, numberreads
 from ..spec import items as its
 from . import transforms
 from .axes import X_OF, X_TYPES
-from .labels import word
+from .labels import STATE_GROUP, word
 from .parse import AGGS, MOST_SEGMENTS, RATE_PER, SEGMENTS, TRANSFORMS
 from .sources import OHLC_SOURCES, _series_unit
 
@@ -19,7 +20,11 @@ KEEP = 30.0                 # seconds an answer is kept
 
 
 def _groupable(ix, k) -> list[str]:
-    """``state``, ``kind``, and the fields its latest items hold few distinct texts in."""
+    """``state``, ``kind``, the fields its latest items hold few distinct texts in, and its group relations holding one
+    id per item (a gap's ``milestone``: a category by declaration, however many) with ``state_group``, each item's stage
+    in that group's progress (``labels.stage``), to stack them by."""
+    from ..spec.grouptally import offered
+    groups = [r for r, x in k.relations.items() if offered(k, x)]
     kn = ix.known(k.name)
     rows = [] if kn == -1 else ix.guard(lambda: ix.db.execute(
         "select body from items where kind = ? order by last desc limit ?", (kn, SAMPLE)).fetchall())
@@ -30,7 +35,7 @@ def _groupable(ix, k) -> list[str]:
                 seen.setdefault(name, []).append(word(v))
     least = max(2, len(rows) // 10)               # held by a tenth of them, each value on average twice: a category
     few = [f for f, vals in seen.items() if len(vals) >= least and 1 < len(set(vals)) <= FEW and len(vals) >= 2 * len(set(vals))]
-    return ["state", "kind", *sorted(few)]
+    return ["state", "kind", *sorted(few), *groups, *([STATE_GROUP] if k.states else [])]
 
 
 def _series(p) -> list[dict]:
@@ -60,15 +65,16 @@ def _read(p) -> dict:
     for name, got in sources.items():
         got["x"] = list(X_OF[name])
         got["ohlc"] = name in OHLC_SOURCES
-    return {"sources": sources, "x_types": list(X_TYPES),
+    return {"sources": sources, "datasources": datasources.listed(spec), "x_types": list(X_TYPES),
             "aggregations": list(AGGS), "transforms": list(TRANSFORMS), "rate_per": list(RATE_PER),
             "rate_units": dict(transforms.SHORT)}
 
 
-def fields(live, p) -> dict:
+def fields(live, p, reader: bool = False) -> dict:
+    """``reader``: anyone under a public name, who may not ask a data source, so is offered none (SPEC §4e)."""
     key = ("query-fields", int(time.time() // KEEP), getattr(live, "mtime", None))
     got = live.cached(key)
     if got is None:
         got = _read(p)
         live.keep(key, got)
-    return got
+    return {**got, "datasources": []} if reader else got

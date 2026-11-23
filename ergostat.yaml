@@ -60,6 +60,10 @@ systems:
     within: oversight
     description: how well the factory works - cycle time, first-pass yield, fix rounds, the queue, flakes, cost
     show: [auxiliary.first-pass-yield, auxiliary.cycle-hours, auxiliary.cost-per-merged]
+  guarantees:
+    within: oversight
+    description: what the factory promises of main - its failing tests, held at zero by main-green
+    show: [stock.main-failing-tests]
   times:
     within: oversight
     description: how long each gap spends in each state, in the build-review loop and at each gate, held by goals
@@ -121,9 +125,11 @@ items:
                                      # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
       duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
-      milestone: {kind: milestone, group: true, precedence: false, inverse: gaps}
+      milestone: {kind: milestone, group: true, precedence: false, inverse: gaps, done_when: {closed: {end: done}}}
                                      # the milestone it is finished with (milestones.py assign); folded by replace, so a
                                      # gap is in one, and the old free-text labels (not ids) stay as they were written;
+                                     # in its progress a closed gap is done work only when closed as done on main (end:
+                                     # done), else (a duplicate, abandoned, no end said) it leaves the total;
                                      # with [milestones] enforce, one not active holds the gap by its field
                                      # waits_on_milestone (gap.milestone-held, no state), unless it is pulled
     fold:
@@ -220,7 +226,10 @@ items:
     states: [seen, main-broken, fixed]
     # written only by dev/bin/flakes.py, on the item as it stands, under its lock: seen on a main-broken item is
     # flake.measured (counted, still main's); a second main-broken keeps main_broken_at; either on a fixed item makes
-    # it again (times 1, main_fixed_at, fixed_by, green_passes and passed_on removed)
+    # it again (times 1, main_fixed_at, fixed_by, green_passes and passed_on removed); flake.fixed by hand is
+    # manage.py flake-fixed's (fixed_by: the person, why), read and written under the same lock
+    # flake.released (no state): the quarantine's release, its test off main's list (quarantined: false,
+    # released_at; fac.beside); quarantined folds from it and from flake.measured as before
     on:
       flake.seen: seen
       flake.main-broken: main-broken   # failed on a branch and on clean main: main's, not the gap's
@@ -326,7 +335,7 @@ items:
     show: [kind, title, file, areas, about, carried, text]
 
 messages:
-  done: {gap: [merged, closed], milestone: [completed], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, closed], milestone: [completed], batch: [landed, partial, failed, given-back], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, applied, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)

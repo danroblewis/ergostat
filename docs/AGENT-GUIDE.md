@@ -73,7 +73,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. When a ticket may
    start once the one it waits on is in review, not done, say so on the relation: `blocked_by: {kind: ticket,
    starts_at: [review]}` (name every state from which on; a ticket held under a lease counts by the state it was
-   taken from, so never name `leased`; the projected schedule still waits for it to finish). Look at the Items
+   taken from, so never name `leased`; the projected schedule still waits for it to finish). Items grouped in one
+   group each (a ticket's `epic: {kind: epic, group: true}`, folded by `replace`) show each group's progress on the
+   kind's card (`ergostat item --kind ticket --groups epic`); when a finished state is not always done work (closed
+   as a duplicate), say which fields make it so: `done_when: {closed: {end: done}}`. Look at the Items
    page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
    to check the links came through, or ask from the command line: `ergostat item ID --near [N]` (the items within N
    hops, 1 to 4), `ergostat item A --path B` (a shortest chain of relations, a backward step named by its inverse),
@@ -545,6 +548,9 @@ budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charge
 - In `ergostat.toml`, write `[budget]` with `daily = 5` and `max-cost = 0.5` (same bounds). Each `[[agent]]` run
   then asks first, and `ergostat agent NAME --now` says `refused: budget: …`. Write each agent's `kind`: one
   without it is charged, even though it shows as a program. `decisions extract` reads this budget too (SPEC §9.9).
+  A command that starts with `claude` gets `--max-budget-usd` at its reserve right after `claude`, replacing any in
+  that call; a pipe or `&&` after it is kept. Start the command with `claude` (not `cd x && claude`), or it runs
+  uncapped while still charged its reserve. There is no `ERGOSTAT_MAX_COST` and no T1 kill for these runs.
 - A new place that starts `claude` or `$ERGOSTAT_AI` fails
   `tests/test_modeller_budget.py::test_only_listed_ai_starts`. Route the call through `decisions/ai.call` or `numbers/modeller.asked`; don't add the place to the allowlist.
 
@@ -605,6 +611,12 @@ one, `person-gate`) (SPEC §9.5, *Dispatch*):
   raising its threshold, denying a channel or dropping a gate without automating what it guarded is recorded as
   **suppression**: it never lowers the measure, and the request stays open until the guard is back or the work is
   automated. Never change a gate yourself without the owner.
+- **Work the person does by hand, on purpose.** When they describe their own to-dos (done on a bastion, on a VPN, by
+  hand), add `uses: {todo: {use: todo}}` rather than modelling each one: each to-do is an item with its `where`,
+  `instructions` (`[{do, run, check}]`), `requester`, `due` and `waits_on`. Record one they tell you about in one
+  call (MCP `record_event`, type `todo.ready`, item `todo/<id>`; `todo.added` when they have not said how yet), and
+  record nothing as done that they did not say they did. When a stakeholder asks after one, answer from `ergostat
+  why todo/<id>` (its summary is the paragraph to paste), never from memory. The template has no action: keep it so.
 
 ## 3e. Many sensors, or many items: a daemon instead of a process each
 

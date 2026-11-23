@@ -5,7 +5,8 @@
    kind is a frame. A group other than a parent, of a kind not asked (a gap's milestone), is a frame its members are
    drawn inside, titled with its tally (rgTally); one with nothing drawn in it, a card; the Timeline a summary row. A card's left bar is its state, in the kind's chart's shade; its border its status: active (the
    accent, breathing), queued for a block's next step (the accent, dotted), unblocked (ink), blocked (dashed), paused (dotted on a fill), done (faint,
-   ticked), a dead letter (bad). The critical path is
+   ticked), a dead letter (bad). A set's where on a relation (a milestone's row on the kind's card) narrows both to
+   its items and what they wait on. The critical path is
    drawn heavier, in the bad hue. Frontier: the unfinished items and what they wait on, however far back; collapse
    done: the finished vanish, and a chain through them is one dashed line, "via N done".
 
@@ -60,7 +61,12 @@ function rgModel(d, o) {
   const frameKinds = new Set(Object.values(frameOf).map((f) => byId[f].kind));
   const parentOf = (id) => [byId[id].group, ...(groupsOf[id] || []).map((e) => e.from)]
     .find((g) => g && byId[g] && g !== frameOf[id] && !frameKinds.has(byId[g].kind)) ?? null;
-  for (const x of d.items) if ((!asked.size || asked.has(x.kind)) && (!o.frontier || !done(x.id))) chain(x.id);
+  // a set's where on a relation of the kinds asked (a milestone's row: where=milestone:ID; none: :null), as the list
+  // reads it: only those items, and what they wait on
+  const wh = {};
+  for (const w of o.where || []) { const i = w.indexOf(":"), f = w.slice(0, i); if (i > 0 && d.kinds.some((k) => k.asked && k.relations?.[f])) (wh[f] ||= []).push(w.slice(i + 1)); }
+  const fits = (x) => Object.entries(wh).every(([f, vs]) => { const have = x.links?.[f] || []; return vs.some((v) => (v === "" || v === "null" ? !have.length : have.includes(v))); });
+  for (const x of d.items) if ((!asked.size || asked.has(x.kind)) && (!o.frontier || !done(x.id)) && fits(x)) chain(x.id);
   for (const id of [...scope]) { const g = parentOf(id); if (g) scope.add(g); }
   const q = (o.q || "").trim().toLowerCase();
   if (q) for (const id of [...scope]) { const x = byId[id]; if (![x.id, x.title, x.state, x.kind, x.status].join(" ").toLowerCase().includes(q)) scope.delete(id); }
@@ -440,8 +446,9 @@ function relTimeline(open) {
         const xa = Math.max(x0, X(t0)), xb = Math.min(x1, X(t1));
         lo = Math.min(lo, X(t0)); hi = Math.max(hi, X(t1));
         if (xb - xa < 0.5) return;
-        row.append(s("rect", { class: proj ? "rg-proj" : "rg-seg", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR, fill: proj && x.summary ? "none" : rgShade(kinds, x.kind, st), ...(block ? { "data-block": block } : {}) },
+        row.append(s("rect", { class: proj ? "rg-proj" : "rg-seg", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR, fill: proj && x.summary ? "none" : rgShade(kinds, x.kind, st), "data-state": st, ...(block ? { "data-block": block } : {}) },
           s("title", {}, `${x.id}: ${st}${proj ? ` (projected${block ? ` in ${block}` : ""})` : ""}, ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
+        if (!proj && xb - xa > 30) row.append(s("text", { class: "rg-sub rg-inbar", x: xa + 3, y: y + 4 }, rgClip(st, Math.floor((xb - xa - 4) / 6.5))));   // its state, where it fits
       };
       for (const [st, t0, t1] of x.segments || []) seg(st, t0, t1, false);
       for (const [st, t0, t1, block, lane] of x.projected || []) {
