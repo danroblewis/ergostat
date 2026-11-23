@@ -1136,6 +1136,7 @@ async function pageDiagram(main, q) {
       { sep: true },
       unpinAll]),
   ], { cls: "dots", title: view === "process" ? "More: which kinds of item, unpin" : "More: wrap, open or close every system, unpin" });
+  more.button.setAttribute("aria-label", "More diagram options");
   function pmKindItems() {                         // the kinds drawn: the system's by default, any of them by choice
     const g = S.graph?.kind === "process" ? S.graph : null;
     if (!g) return [];
@@ -1170,11 +1171,11 @@ async function pageDiagram(main, q) {
   })();
   const toolbar = h("div", { class: "toolbar" },
     h("span", { class: "seg", role: "group", "aria-label": "View" },
-      h("button", { class: view === "dynamics" ? "on" : "", title: "The stock-and-flow diagram, as system dynamics draws it",
+      h("button", { class: view === "dynamics" ? "on" : "", "aria-pressed": String(view === "dynamics"), title: "The stock-and-flow diagram, as system dynamics draws it",
                     onclick: () => { carryPanel(); go({ view: "dynamics" }); } }, "Dynamics", h("span", { class: "what" }, " · what is")),   // (the panel kept: interact.js)
-      h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => { carryPanel(); go({ view: "blocks" }); } },
+      h("button", { class: view === "blocks" ? "on" : "", "aria-pressed": String(view === "blocks"), title: "The control system as a block diagram", onclick: () => { carryPanel(); go({ view: "blocks" }); } },
         "Blocks", h("span", { class: "what" }, " · what is controlled")),
-      h("button", { class: view === "process" ? "on" : "", title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
+      h("button", { class: view === "process" ? "on" : "", "aria-pressed": String(view === "process"), title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
                     onclick: () => go({ view: "process" }) }, "Process", h("span", { class: "what" }, " · what happened"))),
     h("span", { class: "sep" }),
     sysSel, crumbs, ...pmBar,
@@ -1182,9 +1183,9 @@ async function pageDiagram(main, q) {
     more, caption);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
-    h("button", { class: "z", title: "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
+    h("button", { class: "z", title: "Zoom out", "aria-label": "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
     h("button", { title: "Show it whole", onclick: () => fit(svg, S.layout) }, "Fit"),
-    h("button", { class: "z", title: "Zoom in", onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
+    h("button", { class: "z", title: "Zoom in", "aria-label": "Zoom in", onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
     h("span", { class: "sep" }),
     menu("Export", [
       { label: "SVG", hint: "as drawn", onclick: () => exportSvg(svg, file()) },
@@ -1196,7 +1197,7 @@ async function pageDiagram(main, q) {
   wrap.append(svg, toolbar, zoom);
   if (typeof splitGrips === "function") splitGrips(wrap);         // a second pane, dragged in from an edge (split.js)
   S.legendEl = legend(view);   // blocks, process and dynamics each read differently
-  const side = h("div", { class: "side" });
+  const side = h("aside", { class: "side", "aria-label": "About the diagram" });
   const shell = h("div", { class: "diagram" + (sideHidden() ? " side-hidden" : "") }, wrap, side);
   main.append(shell);
   panZoom(svg);
@@ -1383,12 +1384,13 @@ function withValues(base, v) {
   return g;
 }
 
-/* the legend: open the first time, then as the reader left it (remembered in this browser) */
+/* the legend, named by the diagram's type: open unless the reader closed it in this browser (it then stays closed) */
 function legendOpen() { try { return localStorage.getItem("ergostat.legend") !== "closed"; } catch (e) { return true; } }
+const LEGEND_TYPE = { dynamics: "stock and flow diagram", blocks: "block diagram", process: "process map" };   // (the caption's: DIAGRAM_TYPE)
 function legendBox(view) {
-  const d = h("details", { class: "legend-box", open: legendOpen() ? "" : null }, h("summary", {}, "How to read it"), legend(view));
-  d.addEventListener("toggle", () => { try { localStorage.setItem("ergostat.legend", d.open ? "open" : "closed"); } catch (e) { /* not remembered */ } });
-  try { if (!localStorage.getItem("ergostat.legend")) localStorage.setItem("ergostat.legend", "closed"); } catch (e) { /* not remembered */ }
+  const d = h("details", { class: "legend-box", key: "legend", open: legendOpen() ? "" : null },
+    h("summary", {}, "How to read it", h("span", { class: "muted" }, ` · the ${LEGEND_TYPE[view] || "control diagram"}`)), legend(view));
+  d.addEventListener("toggle", () => { if (d.isConnected) try { localStorage.setItem("ergostat.legend", d.open ? "open" : "closed"); } catch (e) { /* not remembered */ } });
   return d;
 }
 
@@ -1463,12 +1465,12 @@ function renderSide(side, g, view) {
     side.append(h("div", { class: "att" }, h("div", {}, h("b", { class: "lvl-warn" }, "Not running. "),
       last ? `These are the last readings, from ${ago(last)}.` : "Nothing has been measured.")));
   }
-  const charts = view === "dynamics" ? sideCharts(out) : null;      // charts.js: the parts chosen, at the top
-  if (charts && S.sel?.size) side.append(live(charts));
-  // three groups, always in this order, each with its count: what waits on a person; the goals off (the system's,
-  // then modelling's after a rule: as many as the header's "loops off"); the rest, the model's housekeeping (folded,
-  // unless a fault is in it; modelling's held requests go there). Each entry starts with its state or kind word, so
-  // colour is not the only cue.
+  // charts.js: the parts chosen, at the top; with none chosen, no chart
+  if (view === "dynamics" && S.sel?.size) side.append(live(sideCharts(out)));
+  // three groups, always in this order, each with its count: what waits on a person (only when something waits); the
+  // goals off (the system's, then modelling's after a rule: as many as the header's "loops off"); the rest, the model's
+  // housekeeping (folded, unless a fault is in it; modelling's held requests go there). Each entry starts with its
+  // state or kind word, so colour is not the only cue.
   const ask = waitsOnYou;                                     // (util.js: the header's "N wait for you" counts the same)
   const waiting = problems.filter(ask);
   const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
@@ -1490,8 +1492,8 @@ function renderSide(side, g, view) {
     }
     return live(held);
   };
-  const list = (xs, none, cls) => {
-    const att = h("div", { class: `att ${cls}` });
+  const list = (xs, none, cls, key) => {
+    const att = h("div", { class: `att ${cls}`, ...(key ? { key } : {}) });
     if (!xs.length) att.append(h("div", { class: "none" }, none));
     xs.forEach((a, i) => {
       if (i && a.modelling && !xs[i - 1].modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
@@ -1508,36 +1510,45 @@ function renderSide(side, g, view) {
     });
     return hold(att, cls);
   };
-  side.append(h("h3", { class: "att-head", id: "waiting", tabindex: "-1" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you.", "needs"));
+  // what waits for the owner first (the one thing a person does here), only when something waits; more than 3: one line
+  // (while the reader is in the list it holds still: folded or not, as it was). The header's link goes to its heading.
+  const inList = out.querySelector(".att.needs"), fold = heldStill(inList) ? !!inList.closest("details.waiting-fold") : waiting.length > 3;
+  let moved = null;
+  if (waiting.length) {
+    side.append(h("h3", { class: "att-head", key: "waiting-h", id: "waiting", tabindex: "-1" }, "Waiting for you", count(waiting)));
+    let rows = list(waiting, "", "needs", "waiting-rows");
+    // folded or unfolded: the rows on the page are moved, not made again, so a reason typed in one stays with it
+    if (inList && !rows.__ref && !!inList.closest("details.waiting-fold") !== fold) rows = live(moved = patchNode(inList, rows));
+    side.append(fold ? h("details", { class: "waiting-fold", key: "waiting" }, h("summary", {}, `${waiting.length} wait for you`), rows) : rows);
+  }
+  side.append(legendBox(view));
   // (its count the header's, from the server: the system's goals off, the model's upkeep apart; never its rows counted)
-  side.append(h("h3", { class: "att-head" }, "Goals off", h("span", { class: "muted" }, ` ${goalsOffText()}`)), list(off, "No goal is off.", "goals-off"));
-  const house = h("details", { class: "housekeeping", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
+  side.append(h("h3", { class: "att-head", key: "off-h" }, "Goals off", h("span", { class: "muted" }, ` ${goalsOffText()}`)),
+              list(off, "No goal is off.", "goals-off", "off-rows"));
+  const house = h("details", { class: "housekeeping", key: "house", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
     h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
       h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy.", "house"));
   side.append(house);
   if (hints.length) {
-    // open when a loop is off: then the suggestions are the diagnosis, not an aside
-    // (the moment drawn, not now; and once the reader opens or closes them, as they left them)
-    const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");
-    const open = S.suggestOpen ?? anyOff;
-    const d = h("details", { class: "suggest", open: open ? "" : null },
+    // closed, its count in the summary; once the reader opens or closes it, as they left it
+    const d = h("details", { class: "suggest", key: "suggest", open: S.suggestOpen ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
       const loop = /^loop (\S+)/.exec(a.what)?.[1];
       d.append(h("div", { class: "hint" }, loop ? goalButton(loop, h("b", {}, a.what)) : h("b", {}, a.what), " ", op(a.says), " ",
-        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
+        loop ? h("a", { href: "#", class: "hit24", "aria-label": `Evidence for loop ${loop}`, onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
     }
     side.append(d);
   }
-  if (charts && !S.sel?.size) side.append(live(charts));               // or the ones charted last
   const loops = Object.entries(g.loops || {});
   if (view === "dynamics") sdLoopList(side, g);
   else if (view === "control" || view === "blocks") {
-    side.append(h("h3", {}, "Loops", h("span", { class: "muted" }, ` ${loops.length}`)));
-    if (!loops.length) side.append(h("div", { class: "muted" }, "No loops in view."));
+    const d = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Loops", count(loops)));
+    side.append(d);
+    if (!loops.length) d.append(h("div", { class: "muted" }, "No loops in view."));
     const rank = { off: 0, open: 1, unknown: 2, holding: 3 };       // the ones that need someone first
     for (const [name, lp] of loops.sort((a, b) => (rank[a[1].status] ?? 2) - (rank[b[1].status] ?? 2))) {
-      side.append(h("button", { class: "looprow", "data-loop": name,
+      d.append(h("button", { class: "looprow", "data-loop": name,
                               onmouseenter: () => highlightLoop(name), onmouseleave: () => highlightLoop(null),
                               onclick: () => { choose(g.corr?.loops?.[name] || []); openLoop(name); } },
         h("b", {}, name), exceptional(lp.status) ? statusEl(lp.status) : h("span"),
@@ -1547,16 +1558,17 @@ function renderSide(side, g, view) {
   if (st.changes?.length) {
     const last = st.changes[st.changes.length - 1];
     const n = (c) => c.added.length + c.removed.length + c.changed.length;
-    const d = h("details", { class: "changes" }, h("summary", {}, `Edited ${ago(last.time)}`,
-      h("span", { class: "muted" }, `, ${n(last)} part${n(last) === 1 ? "" : "s"}${st.changes.length > 1 ? `, ${st.changes.length} edits` : ""}`)));
+    const k = st.changes.length;
+    const d = h("details", { class: "changes", key: "changes" }, h("summary", {}, "The model",
+      h("span", { class: "muted" }, ` ${k} edit${k === 1 ? "" : "s"}, the last ${ago(last.time)}, ${n(last)} part${n(last) === 1 ? "" : "s"}`)));
     for (const c of st.changes.slice().reverse()) {
       const what = [...c.added.map((x) => "+" + x), ...c.removed.map((x) => "\u2212" + x), ...c.changed.map((x) => "~" + x)];
       d.append(h("div", { class: "change" }, h("span", { class: "muted" }, ago(c.time)), " ", h("span", { class: "what" }, what.join("  "))));
     }
-    side.append(h("h3", {}, "The model"), d);
+    side.append(d);
   }
-  side.append(legendBox(view));
   patch(out, [...panel.childNodes]);
+  if (moved) moved.__persist = false;                      // moved once; patched as any other from the next refresh
   if (S.toWaiting) toWaiting();                            // the header's "N wait for you", followed
 }
 

@@ -206,16 +206,75 @@ def test_items_list_sorts_by_a_column(browser, site):
     pg.wait_for_selector('section[data-system="lab"] table button.sort')
     assert rows()[:3] == ["hypothesis/8", "hypothesis/7", "hypothesis/6"]
     head = pg.locator('section[data-system="lab"] table button.sort', has_text="title")
-    assert head.get_attribute("aria-sort") == "descending"
+    assert head.locator("xpath=..").get_attribute("aria-sort") == "descending"     # on its column's header, not the button
+    assert head.get_attribute("aria-label") == "Sort by title"
     head.click()                                                                   # down, then off
     pg.wait_for_function("() => !location.search.includes('sort=')")
     pg.wait_for_function("""() => [...document.querySelectorAll('section[data-system="lab"] table button.sort')]
-                            .every((b) => b.getAttribute('aria-sort') === 'none')""")      # drawn again, unsorted
+                            .every((b) => b.closest('th').getAttribute('aria-sort') === 'none')""")      # drawn again, unsorted
     pg.locator('section[data-system="lab"] table button.sort', has_text="title").click()
     pg.wait_for_function("() => location.search.includes('sort=title')")
     pg.wait_for_function("""() => document.querySelector('section[data-system="lab"] table tr td:first-child b')
                             ?.textContent === 'hypothesis/1'""")
     assert rows()[:3] == ["hypothesis/1", "hypothesis/2", "hypothesis/3"]
+    pg.close()
+
+
+# The page's names, checked in the page by axe-core's rules as these pages use them (axe-core itself is not in
+# the repository and the tests reach no network): aria-allowed-attr for the role-bound attributes the pages set,
+# button-name and link-name (a name of words, aria-hidden glyphs left out, a title alone not counted), th-has-data-cells
+# (each header row in a thead, scoped, over data cells; each data table captioned) and target-size (the 24 px targets).
+NAMES = r"""() => {
+  const shown = (e) => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== "hidden";
+  const said = (e) => e.nodeType === 3 ? e.nodeValue : e.nodeType !== 1 || e.getAttribute("aria-hidden") === "true" ? ""
+    : e.getAttribute("aria-label") || [...e.childNodes].map(said).join("");
+  const words = (e) => /\p{L}/u.test(said(e)), at = (e) => e.outerHTML.slice(0, 120), out = [];
+  const role = (e) => e.getAttribute("role") || "";
+  const ALLOWED = { "aria-pressed": (e) => e.tagName === "BUTTON" || role(e) === "button",
+                    "aria-sort": (e) => e.tagName === "TH" || ["columnheader", "rowheader"].includes(role(e)),
+                    "aria-checked": (e) => /^(checkbox|radio|switch|menuitemcheckbox|menuitemradio|option)$/.test(role(e)),
+                    "aria-current": () => true };
+  for (const [a, ok] of Object.entries(ALLOWED))
+    for (const e of document.querySelectorAll(`[${a}]`)) if (!ok(e)) out.push(`aria-allowed-attr ${a}: ${at(e)}`);
+  for (const b of document.querySelectorAll("button")) if (shown(b) && !words(b)) out.push(`button-name: ${at(b)}`);
+  for (const a of document.querySelectorAll("a[href]")) if (shown(a) && !words(a)) out.push(`link-name: ${at(a)}`);
+  for (const t of document.querySelectorAll("table")) {
+    if (!t.querySelector("th") || !shown(t)) continue;
+    const head = t.tHead;
+    if (!head && t.rows[0] && [...t.rows[0].cells].every((c) => c.tagName === "TH"))
+      out.push(`th-has-data-cells (a header row out of a thead): ${at(t)}`);
+    if (head && !t.caption?.textContent.trim()) out.push(`no caption: ${at(t)}`);
+    if (!head) continue;
+    const grid = (r) => [...r.cells].flatMap((c) => Array(c.colSpan).fill(c));    // each column's cell, spans counted
+    for (const th of head.querySelectorAll("th")) {
+      if (th.getAttribute("scope") !== "col") out.push(`th unscoped: ${at(th)}`);
+      const i = grid(th.parentElement).indexOf(th), body = [...t.rows].filter((r) => r.parentElement !== head);
+      if (body.length && !body.some((r) => grid(r)[i]?.tagName === "TD")) out.push(`th-has-data-cells: ${at(th)}`);
+    }
+  }
+  for (const e of document.querySelectorAll(".hit24, button.rg-key, .filters label.check input[type=checkbox]")) {
+    const r = e.getBoundingClientRect();
+    if (shown(e) && (r.width < 23.5 || r.height < 23.5)) out.push(`target-size ${Math.round(r.width)}x${Math.round(r.height)}: ${at(e)}`);
+  }
+  return { out, current: [...document.querySelectorAll("#nav a[aria-current=page]")].map((a) => a.getAttribute("href")),
+           pressed: [...document.querySelectorAll(".seg[aria-label=View] button, .seg[aria-label=Show] button")]
+             .filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.textContent),
+           side: document.querySelector(".diagram > .side")?.matches("aside[aria-label]") ?? null };
+}"""
+DIAGRAM_READY = "() => typeof S !== 'undefined' && S.graphSig && !document.querySelector('#main .loading')"
+# (the test that uses them is the file's last: opening /model makes a model change in the shared site's record,
+# and test_the_model_changes_are_found_by_heading_search_and_panel counts exactly three)
+
+
+def test_a_field_named_by_sorts_by_author(browser, site):
+    """A sort button over a field named by is 'Sort by author', not 'Sort by by'; its arrow is hidden from its name."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    pg.goto(f"{site}/items?kind=hypothesis&sort=by")
+    pg.wait_for_selector('section[data-system="lab"] table button.sort')
+    b = pg.locator('section[data-system="lab"] table button.sort', has_text="by")
+    assert b.get_attribute("aria-label") == "Sort by author"
+    assert b.locator("[aria-hidden=true]").inner_text().strip() == "▴"
+    assert b.locator("xpath=..").get_attribute("aria-sort") == "ascending"
     pg.close()
 
 
@@ -288,6 +347,57 @@ def test_leases_are_shown_on_the_items_page_and_the_items(browser, site):
     pg.wait_for_selector(".lease")
     assert "held by developer" in pg.locator(".lease").inner_text()
     assert not errors, errors
+    pg.close()
+
+
+def test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top(browser, site):
+    """The "Why isn't this done?" block (SPEC §5a, /api/why): first on an unfinished item's page, its cause and next
+    step as /api/why gives them; hypothesis/1 is held by a lease no running engine renews (the page is served alone)."""
+    import json
+    got = json.loads(urllib.request.urlopen(f"{site}/api/why?item=hypothesis%2F1", timeout=30).read())
+    assert got["root"]["kind"] == "lease" and got["root"]["command"] == "ergostat run", got["root"]
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/item/hypothesis/1")
+    pg.wait_for_selector(".why")
+    assert pg.evaluate("() => { const w = document.querySelector('.why'); return !w.previousElementSibling"
+                       " && !!w.nextElementSibling?.matches('.meta'); }"), "it is at the top, above the item's facts"
+    box = pg.locator(".why")
+    assert box.get_attribute("data-why") == "lease"
+    text = box.inner_text()
+    assert text.startswith("Why isn't this done?") and "no engine is running" in text and "ergostat run" in text, text
+    assert box.locator('a[href="/item/hypothesis/1"]').count() >= 1, "its evidence linked"
+    assert not errors, errors
+    pg.close()
+
+
+def test_an_idle_unfinished_items_page_is_left_untouched_and_a_finished_one_never_asks_why(browser, site):
+    """The why answer differs at every poll (its time, its durations); the page redraws only when what it says
+    changes, so an idle page is patched by no poll (util.js: unchanged answers, nothing touched). A finished item's
+    page shows no why block, and does not ask for one."""
+    import json
+    done = json.loads(urllib.request.urlopen(f"{site}/api/why?item=ergostat.model-change%2Fc3", timeout=30).read())
+    assert done["done"], done
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    whys: list[str] = []
+    pg.on("request", lambda r: whys.append(r.url) if "/api/why" in r.url else None)
+    pg.goto(f"{site}/item/hypothesis/1")
+    pg.wait_for_selector(".why")
+    pg.wait_for_timeout(5500)                          # (the first poll past: it may differ from the first draw)
+    pg.evaluate("() => { window.__patched = 0; const was = patch;"
+                " window.__stacks = [];"
+                " patch = function (...a) { window.__patched++; window.__stacks.push(new Error().stack);"
+                " return was.apply(this, a); }; }")
+    n = len(whys)
+    pg.wait_for_timeout(9500)                          # two polls and more (every 4 s)
+    assert len(whys) >= n + 2, "it still asks why at each poll"
+    assert pg.evaluate("() => window.__patched") == 0, pg.evaluate("() => window.__stacks")
+    whys.clear()
+    pg.goto(f"{site}/item/ergostat.model-change/c3")
+    pg.wait_for_selector(".meta")
+    pg.wait_for_timeout(5000)
+    assert pg.locator(".why").count() == 0 and not whys, whys
     pg.close()
 
 
@@ -1346,6 +1456,90 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         events._kept.clear()
 
 
+def test_the_side_panels_and_item_tables_are_captioned(browser, site):
+    """Acceptance, the tables a page opens later (ui-the-current-page-view-and-mode-are-announced-tab): a loop's parts,
+    an agent's recent runs, a flow's parameters and items, a stock's items, an item's list of objects; each has a
+    caption and its header row in a scoped thead, with the same rules as the pages' own tables."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    seen: set[str] = set()
+
+    def check(where: str) -> None:
+        got = pg.evaluate(NAMES)
+        assert got["out"] == [], (where, got["out"])
+        seen.update(pg.evaluate("() => [...document.querySelectorAll('#detail table thead, #main table.sub thead')]"
+                                ".map((t) => t.parentElement.className || t.parentElement.caption.textContent.split(' ')[0])"))
+
+    pg.goto(f"{site}/diagram?view=dynamics")
+    pg.wait_for_function(DIAGRAM_READY, timeout=60000)
+    pg.evaluate("() => openLoop(Object.keys(S.status.loops)[0])")
+    pg.wait_for_selector("#detail table.parts thead", timeout=20000)
+    check("a loop")
+    pg.locator("#detail table.parts a").first.click()                      # the agent filling its first part
+    pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent.startsWith('Agent')"
+                         " && document.querySelector('#detail .table-wrap table thead')", timeout=20000)
+    check("an agent")
+    pg.goto(f"{site}/diagram?view=dynamics&around=flow/quality-turnover")
+    pg.wait_for_function(DIAGRAM_READY, timeout=60000)
+    found = pg.evaluate("""async () => {                       // the first flow drawn whose panel shows its parameters
+      for (const n of S.graph.nodes.filter((n) => n.flow || n.kind === "valve")) {
+        await openNode(n);
+        for (let i = 0; i < 40 && !document.querySelector("#detail table.params thead"); i++) await new Promise((r) => setTimeout(r, 50));
+        if (document.querySelector("#detail table.params thead")) return n.id;
+      }
+      return null; }""")
+    assert found, pg.evaluate("() => S.graph.nodes.map((n) => `${n.id} ${n.kind} ${n.flow}`)")
+    check("a flow with an equation")
+    pg.goto(f"{site}/diagram?view=dynamics&around=stock/ideas")
+    pg.wait_for_function(DIAGRAM_READY, timeout=60000)
+    pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.label === 'ideas' && n.kind === 'stock'))")
+    pg.wait_for_selector("#detail .item-set table.item-list thead", timeout=20000)
+    check("a stock's items")
+    pg.goto(f"{site}/item/hypothesis%2F1")
+    pg.wait_for_selector("#main h1", timeout=20000)
+    pg.evaluate("() => document.querySelector('#main').append(fieldView([{ step: 'a', took: 1 }, { step: 'b', took: 2 }]))")
+    check("an item's list of objects")
+    assert {"parts", "Recent", "params", "item-list", "sub"} <= seen, seen
+    assert not errors, errors
+    pg.close()
+
+
+@pytest.mark.parametrize("route, nav, view", [
+    ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
+    ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),
+    ("/items", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"), ("/record", "/record", None),
+    ("/model", "/model", None)])
+def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
+    """Acceptance (ui-the-current-page-view-and-mode-are-announced-tab): on each page, no button or link without a
+    name, no ARIA attribute where its role does not allow it, each data table's header row in a thead, scoped and
+    captioned, the 24 px targets at least that; one nav link is the current page, one view button pressed.
+    (The last test in the file on `site`: see DIAGRAM_READY.)"""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(site + route)
+    if nav == "/diagram":
+        pg.wait_for_function(DIAGRAM_READY, timeout=60000)
+    else:
+        pg.wait_for_selector("#main table", timeout=20000)
+    pg.wait_for_timeout(500)                                  # the parts asked for after the first (counts, charts)
+    got = pg.evaluate(NAMES)
+    assert got["out"] == [], got["out"]
+    # The diagram's view buttons also say what each view shows ("Dynamics · what is"): the view's word leads the name.
+    assert [p.split(" · ")[0] for p in got["pressed"]] == ([view] if view else []), got["pressed"]
+    assert got["current"] == [nav], got["current"]
+    if nav == "/diagram":
+        assert got["side"] is True                           # the side panel a landmark, named
+        assert pg.locator(".zoom button.z").evaluate_all("bs => bs.map((b) => b.getAttribute('aria-label'))") == ["Zoom out", "Zoom in"]
+        assert pg.locator(".toolbar .menu-btn.dots").get_attribute("aria-label") == "More diagram options"
+    if route == "/record":
+        pg.locator(".filters label.check").click()            # the 24 px checkbox, checked by its label
+        assert pg.locator(".filters label.check input").is_checked()
+    assert not errors, errors
+    pg.close()
+
+
 FINISHING = """
 items:
   gap:
@@ -1512,12 +1706,13 @@ def test_every_surface_prints_the_servers_one_count_of_goals_off(browser, tmp_pa
         off = g["system"]
         assert off >= 1 and off < sum(lp["status"] == "off" for lp in st["loops"].values()), g   # upkeep's not in it
         pg.goto(f"{urls['small']}/diagram")
-        pg.wait_for_function("() => document.querySelectorAll('.side h3.att-head').length === 3 && "
+        pg.wait_for_function("() => [...document.querySelectorAll('.side h3.att-head')].some((x) => "
+                             "/^Goals off/.test(x.textContent)) && "
                              "/goals? off/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
         assert re.match(rf"^{off} goals? off\b", pg.locator("#running").inner_text()), pg.locator("#running").inner_text()
         assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
-        heads = [x.strip() for x in pg.locator(".side h3.att-head").all_inner_texts()]
-        assert heads[1] == f"Goals off {off} · model upkeep 2", heads
+        heads = [x.strip() for x in pg.locator(".side h3.att-head").all_inner_texts()]   # (Waiting: only when some wait)
+        assert [x for x in heads if x.startswith("Goals off")] == [f"Goals off {off} · model upkeep 2"], heads
         # the caption: the system's goals, their off, and model upkeep apart, so no goal off is lost from it
         mine = [x for x, lp in st["loops"].items() if not lp.get("upkeep")]
         assert len(mine) == len(st["loops"]) - 2, mine                     # requests-handled, model-fits apart
@@ -1553,3 +1748,158 @@ def test_every_surface_prints_the_servers_one_count_of_goals_off(browser, tmp_pa
         for proc in procs:
             proc.terminate()
             proc.wait(timeout=10)
+
+
+# milestones in the Graph and the Timeline (dev/records/milestone-shown-in-the-graph.md): last in the file, so the
+# roadmap tests above keep the timing they had (the roadmap's record ages with its fixture)
+FRAMES = """([d, o]) => { const m = rgModel(d, o);
+  return { nodes: m.nodes.map((n) => [n.id, n.in || null, !!n.fold, !!n.hub]), edges: m.edges.map((e) => [e.from, e.to, e.cls]),
+           info: m.frameInfo, folded: [...m.folded], lost: m.lost, capped: m.capped }; }"""
+MS = {"frontier": False, "collapse": False, "group": "parent", "q": "", "status": None}
+
+
+def test_the_graph_frames_each_gap_in_its_milestone(browser, roadmap):
+    """On a generated answer (tests/test_milestone_frames.py): each gap in its milestone's frame, the rest in a plain
+    one; each frame titled with its name, state and tally (blocked, and on what); an arrow between milestones; no
+    dependency line lost, across frames too; a completed milestone folded under Collapse done."""
+    from tests.test_milestone_frames import milestone_answer
+    ans = milestone_answer()
+    by = {x["id"]: x for x in ans["items"]}
+    gaps = {a for a, x in by.items() if x["kind"] == "gap"}
+    ms_of = {e["to"]: e["from"] for e in ans["edges"] if e["kind"] == "group" and e["rel"] == "milestone"}
+    between = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["kind"] == "gap"}
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    got = pg.evaluate(FRAMES, [ans, MS])
+    nodes = {a: (f, fold, hub) for a, f, fold, hub in got["nodes"]}
+    assert set(nodes) == gaps                                                  # every gap a card, no milestone one
+    assert {a: nodes[a][0] for a in gaps} == {a: ms_of.get(a, "(plain)") for a in gaps}   # each in its frame
+    assert nodes["gap/s"][2] and not got["folded"]                              # a split inside its frame: a hub
+    info = got["info"]
+    assert set(info) == {"milestone/m0", "milestone/m1", "milestone/m2", "milestone/m3", "(plain)"}
+    assert info["milestone/m1"]["head"] == "milestone/m1 · release 1 · active"
+    assert info["milestone/m1"]["sub"] == "0/5 done · 2 working · 1 ready · 2 blocked on a0, a3, a2"
+    assert info["milestone/m2"]["sub"] == "0/3 done · 0 working · 0 ready · 3 blocked on m1, b0 · waits on m1"
+    assert info["milestone/m0"]["sub"].startswith("6/6 done") and info["milestone/m0"]["head"].endswith("· completed")
+    assert info["(plain)"]["head"] == "no milestone"
+    assert info["(plain)"]["sub"].startswith("1/3 done · 0 working · 1 ready · 1 blocked on m1")
+    deps = {(a, b) for a, b, cls in got["edges"] if cls == "dep"}
+    assert between <= deps and got["lost"] == 0                                 # every line, across frames too
+    assert {("milestone/m0", "milestone/m1"), ("milestone/m1", "milestone/m2")} <= deps   # milestone to milestone
+    # Collapse done: the completed milestone folded to its frame, a line from its gap drawn from it
+    for o in ({**MS, "collapse": True}, {**MS, "frontier": True, "collapse": True}):
+        got = pg.evaluate(FRAMES, [ans, o])
+        nodes = {a: (f, fold) for a, f, fold, _ in got["nodes"]}
+        assert got["folded"] == ["milestone/m0"] and nodes["milestone/m0"] == (None, True)
+        assert not any(a.startswith("gap/d") or a == "gap/n2" for a in nodes)     # its gaps, done, not drawn
+        deps = {(a, b) for a, b, cls in got["edges"] if cls == "dep"}
+        assert {(a, b) for a, b in between if by[a]["status"] != "done"} <= deps
+        assert {("milestone/m0", "gap/a0"), ("milestone/m0", "milestone/m1"), ("milestone/m1", "milestone/m2")} <= deps
+    assert not errors, errors
+    pg.close()
+
+
+MS_DRAW = """async ([d, o]) => { const m = rgModel(d, o), el = relGraph(() => {});
+  document.querySelector('main').prepend(el); await el.draw(m, o);
+  const box = (e) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+  const frames = Object.fromEntries([...el.querySelectorAll('.rg-frame')].map((f) => [f.dataset.id || '(plain)',
+    { ...box(f.querySelector('rect')), head: f.querySelector('.rg-fhead')?.textContent, cls: f.getAttribute('class') }]));
+  const cards = [...el.querySelectorAll('.rg-node')].map((n) => ({ id: n.dataset.id, ...box(n.querySelector('.rg-box')) }));
+  const out = { frames, cards, lines: el.querySelectorAll('.rg-edge').length, edges: m.edges.length,
+                within: Object.fromEntries(m.nodes.map((n) => [n.id, n.in || null])) };
+  el.remove(); return out; }"""
+
+
+@pytest.mark.parametrize("collapse", [False, True])
+def test_the_graph_draws_each_milestone_as_a_frame_holding_its_gaps(browser, roadmap, collapse):
+    """Drawn (ELK): each card inside its frame's box and no other milestone's, every line routed (milestone to
+    milestone, and gap to gap across frames), no two cards overlapping; under Collapse done the completed one is one
+    card, not a frame."""
+    from tests.test_milestone_frames import milestone_answer
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    got = pg.evaluate(MS_DRAW, [milestone_answer(), {**MS, "collapse": collapse}])
+    inside = lambda c, f: f["x"] - 1 <= c["x"] and c["x"] + c["w"] <= f["x"] + f["w"] + 1 and \
+        f["y"] - 1 <= c["y"] and c["y"] + c["h"] <= f["y"] + f["h"] + 1                  # noqa: E731
+    frames = got["frames"]
+    assert ("milestone/m0" in frames) is not collapse and "rg-plain" in frames["(plain)"]["cls"]
+    assert frames["milestone/m1"]["head"] == "milestone/m1 · release 1 · active"
+    for c in got["cards"]:
+        f = got["within"][c["id"]]
+        assert f is None or inside(c, frames[f]), (c, f)
+        assert not any(inside(c, b) for k, b in frames.items() if k != f), c        # in no other frame
+    assert collapse is any(c["id"] == "milestone/m0" for c in got["cards"])
+    assert got["lines"] == got["edges"] == (11 if collapse else 12)              # each line routed and drawn
+    # (10 between gaps and 2 between milestones; collapsed, the 2 from done gaps go and 1 comes from the folded m0)
+    assert not overlaps(got["cards"]), overlaps(got["cards"])
+    assert not errors, errors
+    pg.close()
+
+
+MS_TIMELINE = """([d, o, n]) => { const m = rgModel(d, o), el = relTimeline(() => {});
+  document.querySelector('main').prepend(el); el.draw(m, d);
+  const read = () => [...el.querySelectorAll('.rg-row')].map((r) => ({ id: r.dataset.id, sum: r.classList.contains('rg-sumrow'),
+    open: r.dataset.open, label: r.querySelector('.rg-id')?.textContent, tally: r.querySelector('.rg-tally')?.textContent,
+    bar: !!r.querySelector('.rg-msum'), y: r.querySelector('.rg-label').getBoundingClientRect().top,
+    span: ['data-t0', 'data-t1'].map((a) => +r.querySelector('.rg-msum')?.getAttribute(a)),
+    tx: r.querySelector('.rg-tally')?.getAttribute('x'),
+    cy: +r.querySelector('.rg-id').getAttribute('y') - 4 }));
+  const out = { rows: read(), note: el.querySelector('.rg-note').textContent,
+                starts: [...el.querySelectorAll('.rg-edge path')].map((p) => +p.getAttribute('d').split(' ')[0].split(',')[1]) };
+  if (n) { el.querySelector(`.rg-sumrow[data-id="${n}"] .rg-tri`).dispatchEvent(new MouseEvent('click')); out.after = read(); }
+  el.remove(); return out; }"""
+
+
+def test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order(browser, roadmap):
+    """A summary row a milestone (its span, how much is done, its tally), its gaps under it open for an active one;
+    rows in the order they start; a name whole; past the bound, milestones folded and said, never rows cut."""
+    from tests.test_milestone_frames import milestone_answer
+    ans = milestone_answer()
+    by = {x["id"]: x for x in ans["items"]}
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    got = pg.evaluate(MS_TIMELINE, [ans, MS, "milestone/m2"])
+    rows = got["rows"]
+    sums = [r for r in rows if r["sum"]]
+    assert [r["id"] for r in sums] == ["milestone/m0", "milestone/m1", "milestone/m2", "milestone/m3", "(plain)"]
+    assert {r["id"]: r["open"] for r in sums} == {"milestone/m0": "false", "milestone/m1": "true", "milestone/m2": "false",
+                                                  "milestone/m3": "true", "(plain)": "true"}
+    assert all(r["bar"] for r in sums) and "3 blocked on m1, b0" in next(r["tally"] for r in sums if r["id"] == "milestone/m2")
+    assert next(r["label"] for r in sums if r["id"] == "milestone/m1") == "milestone/m1 · release 1 · active"
+    ids = [r["id"] for r in rows]
+    assert not any(a.startswith(("gap/d", "gap/b")) for a in ids)              # folded under m0 and m2
+    m3 = [a for a in ids[ids.index("milestone/m3") + 1:ids.index("(plain)")]]
+    assert set(m3) == {"gap/s", "gap/s-1", "gap/milestones-shown-in-graph-and-timeline"}
+    start = lambda a: by[a]["segments"][0][1]                                    # noqa: E731
+    assert m3 == sorted(m3, key=start)                                           # the schedule's order, not the tree's
+    assert "gap/milestones-shown-in-graph-and-timeline" in [r["label"] for r in rows]   # a name whole
+    assert [r["y"] for r in rows] == sorted(r["y"] for r in rows)
+    after = [r["id"] for r in got["after"]]                                       # the triangle opens a folded one
+    assert after[after.index("milestone/m2") + 1:after.index("milestone/m2") + 4] == ["gap/b0", "gap/b1", "gap/b2"]
+    big = pg.evaluate(MS_TIMELINE, [milestone_answer(n_extra=40), MS, None])     # 44 frames and 263 gaps: past 200
+    sums = [r for r in big["rows"] if r["sum"]]
+    assert len(sums) == 45 and len(big["rows"]) <= 200                          # every milestone kept, as a row
+    assert any(r["open"] == "false" and r["id"].startswith("milestone/x") for r in sums)
+    assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
+    assert not errors, errors
+    pg.close()
+
+
+def test_the_timeline_spans_each_milestone_over_all_its_gaps_under_frontier_and_collapse(browser, roadmap):
+    """The Timeline's default (Frontier, Collapse done): a completed milestone's gaps are all collapsed out of the
+    rows, yet its summary row keeps its bar over all of them, its tally inside the chart, and its arrow to the
+    milestone after it; an active one's bar spans its done gaps too (the same span as with nothing collapsed)."""
+    from tests.test_milestone_frames import milestone_answer
+    ans = milestone_answer()
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    full = {r["id"]: r for r in pg.evaluate(MS_TIMELINE, [ans, MS, None])["rows"] if r["sum"]}
+    got = pg.evaluate(MS_TIMELINE, [ans, {**MS, "frontier": True, "collapse": True}, None])
+    sums = {r["id"]: r for r in got["rows"] if r["sum"]}
+    ids = [r["id"] for r in got["rows"]]
+    assert "milestone/m0" in sums and not any(a.startswith("gap/d") for a in ids)   # its gaps all collapsed
+    for f, r in sums.items():
+        assert r["bar"] and r["span"] == full[f]["span"], (f, r["span"], full[f]["span"])   # the span of all its gaps
+        assert r["tx"] not in (None, "") and 0 <= float(r["tx"]), (f, r["tx"])        # the tally drawn, not at -inf
+    m0 = {e["to"] for e in ans["edges"] if e["kind"] == "group" and e["rel"] == "milestone" and e["from"] == "milestone/m0"}
+    ts = [t for x in ans["items"] if x["id"] in m0 for g in x.get("segments", []) + x.get("projected", []) for t in g[1:3]]
+    assert len(m0) == 6 and sums["milestone/m0"]["span"] == [min(ts), max(ts)]
+    assert any(abs(y - sums["milestone/m0"]["cy"]) < 0.2 for y in got["starts"])     # m0's arrow to m1 kept
+    assert not errors, errors
+    pg.close()
