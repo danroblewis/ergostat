@@ -5374,7 +5374,9 @@ MAY_DO = "You can look at everything. Approving or denying these is the only thi
 MAY_DO_NONE = "Nothing waits for you. Looking never changes the system."
 MAY_DO_SEEN = """() => {
   const g = document.querySelector('[role="group"][aria-describedby="may-do"]'), may = document.getElementById("may-do");
+  const legend = document.querySelector("details.legend-box");
   return { first: g?.firstElementChild === may, text: may?.textContent, lead: g?.innerText.trim().split("\\n")[0],
+           group: !!g, top: !!(may && legend && may.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING),
            live: !!may?.closest("[aria-live]"), right: may?.getBoundingClientRect().right, width: innerWidth,
            over: may ? may.scrollWidth > may.clientWidth : null, shown: (may?.getBoundingClientRect().width || 0) > 0 };
 }"""
@@ -5407,7 +5409,11 @@ def test_the_requests_group_opens_by_saying_what_a_person_may_do(browser, tmp_pa
             pg.wait_for_selector('[data-inbox^="action/"]', timeout=30000)
         pg.wait_for_selector("#may-do", timeout=30000)
         got = pg.evaluate(MAY_DO_SEEN)
-        assert got["first"] and got["text"] == said and got["lead"] == said, got
+        assert got["text"] == said and got["top"], got           # where the group is: above How to read it
+        if waiting:                                               # the first text of Waiting for you, which it describes
+            assert got["first"] and got["lead"] == said, got
+        else:                                                     # nothing waits: no group, only its empty form
+            assert not got["group"], got
         assert not got["live"], "said with the group, not as a live region"
         pg.evaluate("""() => { window.__may = document.getElementById("may-do"); window.__muts = 0;
           new MutationObserver((rs) => { window.__muts += rs.length; })

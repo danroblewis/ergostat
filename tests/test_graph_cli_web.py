@@ -356,7 +356,7 @@ def test_needs_attention_and_the_actions_page_say_one_sentence_of_what_a_person_
     pages, diagram = (static / "pages.js").read_text(), (static / "diagram.js").read_text()
     said = "You can look at everything. Approving or denying these is the only thing that changes the system."
     assert f'const MAY_DO = "{said}";' in pages and said not in diagram
-    assert '"aria-describedby": "may-do"' in diagram and "? MAY_DO :" in diagram
+    assert '"aria-describedby": "may-do"' in diagram and 'key: "may-do" }, MAY_DO)' in diagram
     assert "Nothing waits for you. Looking never changes the system." in diagram
 
 
