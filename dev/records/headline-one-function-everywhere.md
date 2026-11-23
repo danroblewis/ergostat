@@ -103,3 +103,8 @@ loops' `upkeep` field, not from the server's count: "10 goals, N off · model up
 model upkeep 2". Seen to fail with the upkeep figure dropped ("10 goals, 9 off") and with the total counting upkeep
 goals again ("12 goals, 9 off · model upkeep 2"). The caption test in tests/test_diagram_rendering.py now expects the
 new form.
+
+## Where it stopped
+
+Round 3: main (7cb97857) merged in. The one conflict, in pages.js's Loops page, is resolved keeping main's removal of
+the browser's `perf`/`pts` caches and this branch's heading that prints the server's goals-off count. No other change.
