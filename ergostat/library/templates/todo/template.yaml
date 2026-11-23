@@ -1,0 +1,200 @@
+template: todo
+description: A person's own to-dos, each with its instructions and where it must be done, grouped into one batch for each place so that each place's work is done in one sitting.
+reading: |
+  System dynamics: an aging chain of a person's to-dos. They arrive as new (named, not written up yet), become
+  ready once their instructions and their place (`where`: a host, a bastion, a VPN, or anywhere) are written, and
+  leave as done or dropped. A to-do that cannot go on until something else happens is waiting: a stock beside the
+  chain, filled as they are held up and drained as what they wait on finishes, so they are ready again. What they
+  wait on is named in `waits_on`, a precedence relation: another to-do, or something asked of someone else (an item
+  of the kind ending `-wait`, answered when they answer). The arrivals are a disturbance: what people ask of you.
+  Control: two balancing loops, each an on-off controller whose actuator is the person. The first holds the new
+  to-dos at 0: they are asked to write each one's instructions and place. The second holds the ready ones at 0:
+  they are asked to do a sitting. A program on the rule rung, the batcher, regroups the ready to-dos by place each
+  pass (one batch item a place, its to-dos in the order to do them, the earliest due first, with every one's
+  instructions in order), so one sitting on a bastion or a VPN clears its batch. Nothing here acts outside ergostat:
+  the person does the work, and records it.
+example: |
+  uses:
+    todos:
+      use: todo
+      with:
+        command: cat todos.jsonl          # optional: to-dos read from a file, one JSON object a line, with an id
+params:
+  kind:
+    type: name
+    default: ${name}
+    description: 'the kind of item; ids KIND/<id>; its events KIND.added (new), KIND.ready, KIND.done, KIND.started, KIND.waiting, KIND.dropped; its fields title, requester, where, instructions (a list of steps, each a text or {do, run, check}), due, waits_on and notes'
+  wait-kind:
+    type: name
+    default: ${name}-wait
+    description: the kind of the things a to-do waits on that someone else does; ids WAIT-KIND/<id>, events WAIT-KIND.asked and WAIT-KIND.answered
+  batch-kind:
+    type: name
+    default: ${name}-batch
+    description: the kind of the batches, one a place; ids BATCH-KIND/<place>, events BATCH-KIND.grouped and BATCH-KIND.cleared
+  command:
+    type: command
+    description: 'optional: where to-dos are also read from, a command printing records as JSON, each with an id, and "event": ready (or added, waiting, done...) for the event it is'
+  poll:
+    type: duration
+    default: 1m
+    description: how often command is read
+  write-up:
+    default: To-dos were added without instructions. Write each one's steps (what to do, the command, how to check it worked) and where it must be done, then record it ready.
+    description: what a person is asked while new to-dos wait; false for nobody
+  ask:
+    default: To-dos are ready. Each batch (on the Items tab) is one sitting in one place, its instructions in order. Record each to-do done, waiting or dropped as you go, then answer here with how many you did.
+    description: what a person is asked while ready to-dos wait
+  regroup:
+    type: duration
+    default: 30s
+    description: how often the batches are worked out again
+items:
+  ${kind}:
+    id: ${kind}/*
+    description: something a person must do by hand, with its instructions and where it must be done
+    states: [new, ready, in-progress, waiting, done, dropped]
+    on:
+      ${kind}.added: new
+      ${kind}.ready: ready
+      ${kind}.done: done
+      ${kind}.started: in-progress
+      ${kind}.waiting: waiting
+      ${kind}.dropped: dropped
+    finished: [done, dropped]
+    fold:
+      notes: append
+    relations:
+      waits_on:
+        kind: ["${kind}", "${wait-kind}"]
+        precedence: true
+    show: [title, where, due, requester]
+  ${wait-kind}:
+    id: ${wait-kind}/*
+    description: something a to-do waits on that someone else does (a person's answer, an outside change), recorded by hand
+    states: [new, asked, answered]
+    on:
+      ${wait-kind}.asked: asked
+      ${wait-kind}.answered: answered
+    finished: [answered]
+    fold:
+      notes: append
+    show: [title, who]
+  ${batch-kind}:
+    id: ${batch-kind}/*
+    description: the ready to-dos of one place, in the order to do them, with every one's instructions (sitting)
+    states: [open, clear]
+    on:
+      ${batch-kind}.grouped: open
+      ${batch-kind}.cleared: clear
+    finished: [clear]
+    show: [title, count, due]
+stocks:
+  new:
+    unit: to-dos
+    description: added, their instructions or place not written yet
+    sensor:
+      items: ${kind}
+      state: new
+      every: 10s
+  ready:
+    unit: to-dos
+    description: ready to do (or being done), nothing they wait on unfinished
+    sensor:
+      items: ${kind}
+      state: [ready, in-progress]
+      every: 10s
+  waiting:
+    unit: to-dos
+    description: held up until what they wait on happens
+    sensor:
+      items: ${kind}
+      state: waiting
+      every: 10s
+  done:
+    unit: to-dos
+    cumulative: true
+    description: every to-do done, a running total
+    sensor:
+      items: ${kind}
+      state: done
+      every: 30s
+auxiliaries:
+  sittings:
+    unit: places
+    description: how many places have ready to-dos (the batches open), each one sitting
+    driven-by: ["+stock.ready"]
+    sensor:
+      items: ${batch-kind}
+      state: open
+      every: 30s
+flows:
+  added:
+    to: new
+    description: to-dos added, as the reader of command sees them, or as a person records them
+    sensor:
+      if: ${command}
+      value:
+        run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} --id-field id --event added --window 600
+        every: ${poll}
+        averages: 10m
+  written-up:
+    from: new
+    to: ready
+    description: to-dos whose instructions and place were written
+  held-up:
+    from: ready
+    to: waiting
+    description: to-dos that must wait on something
+    sensor:
+      items: ${kind}
+      entering: waiting
+      over: 1h
+  freed:
+    from: waiting
+    to: ready
+    description: to-dos whose wait is over
+  doing:
+    from: ready
+    to: done
+    description: to-dos done by the person
+    sensor:
+      items: ${kind}
+      entering: done
+      over: 1h
+  dropping:
+    from: ready
+    description: to-dos dropped, no longer wanted
+    sensor:
+      items: ${kind}
+      entering: dropped
+      over: 1h
+goals:
+  written-up:
+    if: ${write-up}
+    stock: new
+    hold: "<= 0"
+    description: every to-do has its instructions and its place
+  none-ready:
+    stock: ready
+    hold: "<= 0"
+    description: no ready to-do is left undone
+blocks:
+  write-up:
+    if: ${write-up}
+    type: person
+    goal: written-up
+    ask: ${write-up}
+    out: flow.written-up
+  do:
+    type: person
+    goal: none-ready
+    ask: ${ask}
+    out: flow.doing
+  batcher:
+    type: program
+    description: frees the waiting to-dos whose wait is over, then regroups the ready ones by place, one batch item a place (it reads the record and prints events; it runs nothing else)
+    run: ${lib} todo batches --kind ${kind} --batch-kind ${batch-kind} --flow flow.freed
+    every: ${regroup}
+    max: 1
+    out: flow.freed

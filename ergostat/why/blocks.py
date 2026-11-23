@@ -122,6 +122,18 @@ def taken(ctx, it, info) -> dict:
     onward = sorted(e for e, s in (kind.on or {}).items() if s != it.state)
     moved = f"moved to {it.state} by {it.latest or 'an event'}"
     if not bs:
+        asked = _asked(ctx.spec, it)
+        if asked is not None:
+            b, g, counted = asked                # its moves out of what the person is asked about, as written
+            onward = [e for e, s in (kind.on or {}).items() if s not in counted and s != kind.states[0]]
+            return root("person", it.id, f"in {it.state}, for a person to do: {b.name} (a person) is asked while goal "
+                        f"{g.name} is off, and {g.of} counts {it.kind} items in {it.state}; it moves on when one of these "
+                        f"is recorded: {', '.join(onward) or 'none declared'}", f"a person ({b.name})",
+                        "do it and record it" + (f" ({onward[0]})" if onward else "")
+                        + f", then report it in the inbox (ergostat inbox person/{b.name} --done N)",
+                        f"ergostat event --add {onward[0]} --item {it.id}" if onward else None,
+                        [ev(moved, item_link(it.id), at=it.entered), ev(f"{b.name} serves goal {g.name}", _blink(b.name))],
+                        since=it.entered, who=b.name)
         if it.state in info["working"] and it.state not in info["queue"]:
             return root("work", it.id, f"in progress in {it.state}, outside ergostat: no block takes it from there, and "
                         f"it moves on when one of these is recorded: {', '.join(onward) or 'none declared'}",
@@ -139,6 +151,19 @@ def taken(ctx, it, info) -> dict:
                 "gate, full pool, refusal or failing run is recorded for it", "the engine",
                 "look at the engine's log if it is not taken within a minute", "ergostat lease",
                 [ev(f"{b.name}: takes it, room now", _blink(b.name)) for b in bs], since=it.entered)
+
+
+def _asked(spec, it):
+    """(the person block, its goal, the states counted) when the model asks a person about this item: a person
+    block's goal is on a part a sensor counts from its kind's items in its state, every one (no ``where:``)."""
+    for b in spec.blocks.values():
+        g = spec.goals.get(b.goal or "") if b.type == "person" else None
+        part = spec.measured(g.of.kind).get(g.of.name) if g is not None else None
+        for s in (part.sensors.values() if part is not None else ()):
+            q = s.items or {}
+            if q.get("kind") == it.kind and it.state in (q.get("state") or ()) and not q.get("where"):
+                return b, g, list(q["state"])
+    return None
 
 
 def _block(ctx, b, it) -> dict | None:

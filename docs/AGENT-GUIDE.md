@@ -588,6 +588,12 @@ one, `person-gate`) (SPEC §9.5, *Dispatch*):
   raising its threshold, denying a channel or dropping a gate without automating what it guarded is recorded as
   **suppression**: it never lowers the measure, and the request stays open until the guard is back or the work is
   automated. Never change a gate yourself without the owner.
+- **Work the person does by hand, on purpose.** When they describe their own to-dos (done on a bastion, on a VPN, by
+  hand), add `uses: {todo: {use: todo}}` rather than modelling each one: each to-do is an item with its `where`,
+  `instructions` (`[{do, run, check}]`), `requester`, `due` and `waits_on`. Record one they tell you about in one
+  call (MCP `record_event`, type `todo.ready`, item `todo/<id>`; `todo.added` when they have not said how yet), and
+  record nothing as done that they did not say they did. When a stakeholder asks after one, answer from `ergostat
+  why todo/<id>` (its summary is the paragraph to paste), never from memory. The template has no action: keep it so.
 
 ## 3e. Many sensors, or many items: a daemon instead of a process each
 
