@@ -65,3 +65,16 @@ would be a load-dependent bound (lesson-10), outside this gap (lesson-13). No co
 is left as it is. Not run: main's own timing of this test (`git worktree add -q /tmp/mainwt main` was refused in this
 session), and a timed `ergostat item` call (refused as well), so neither the cause nor that main fails it too was
 reproduced.
+
+Round 3, after the second failed build. The same test failed the same way: a switcher run still in e.running at
+the test's 120 s deadline (1 failed, 192 passed, 610 s). The diff against main was read again: on this test's path
+(dev/bin/drain.py, live.py, fac.items, fac.ergostat, the engine, dev/model/landing.yaml) the branch changes nothing.
+fac.py's one change is in beside(), which drain.py never calls; manage.py is not run by the switcher; ergostat.yaml
+gains comment lines only. Run serially here it passed (1 passed, 145.5 s; 141 s of it CPU, so the test is CPU-bound
+and slows with the machine's load). One thing found by reading: the switcher block's own timeout is 5m
+(dev/model/landing.yaml:387), and the test waits 120 s for each of its runs. So a run the engine still counts as
+healthy can outlast the test's wait when the machine is loaded. That bound is main's (lesson-10). Changing drain.py
+or the test is outside this gap's Files (lesson-13), and the test's bound is not to be raised, so no code was changed.
+It is left for the factory's rerun on clean main. Not run: this test on main's tree (`git archive main | tar -x -C
+/tmp/mainsrc` and running it there was refused in this session), so it is not shown that main fails it under the
+same load.
