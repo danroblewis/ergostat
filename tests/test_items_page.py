@@ -505,6 +505,26 @@ p.events.add("agent.ran", item="developer", source="ergostat", causedby="run21aa
     pg.wait_for_function("() => /not known/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
     cost = pg.inner_text(".meta [data-cost]")
     assert cost.startswith("not known: 1 failed or stopped") and "$0" not in cost and "over 2 runs" in cost, cost
+    # taken by an AI block and a program: the AI run killed with no session is still not known, the program's failure
+    # (no session to spend) is not counted as one
+    mixed = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
+for run, block in (("run4aaaaaaaa", "developer"), ("run4bbbbbbbb", "matcher")):
+    p.events.add("ergostat.lease.taken", item="hypothesis/4", data={{"run": run, "block": block, "fence": 1, "ttl": 600}})
+    p.events.add("ergostat.lease.ended", item="hypothesis/4", data={{"run": run, "fence": 1, "how": "ack"}})
+p.events.add("agent.failed", item="developer", source="ergostat", causedby="run4aaaaaaaa",
+             data={{"exit": -9, "seconds": 3, "note": "killed (a timeout?)"}})
+p.events.add("agent.failed", item="matcher", source="ergostat", causedby="run4bbbbbbbb", data={{"exit": 1, "seconds": 1}})
+"""
+    subprocess.run([sys.executable, "-c", mixed], env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True,
+                   capture_output=True)
+    pg.goto(f"{site}/item/hypothesis%2F4")
+    pg.wait_for_function("() => /over 2 runs/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
+    cost = pg.inner_text(".meta [data-cost]")
+    assert cost.startswith("not known: 1 failed or stopped") and "$0" not in cost, cost
     assert not errors, errors
     pg.close()
 

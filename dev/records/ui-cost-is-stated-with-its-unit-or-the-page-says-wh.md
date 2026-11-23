@@ -260,3 +260,37 @@ passed. Ruff is clean.
 Refused, not worked around: an in-place merge resolution by a Python heredoc (it was done with the editor), and a
 rerun of the single items test piped through `grep | head` (it ran without the pipe). Not run here:
 test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py, test_snapshot_sets.py and the whole unit suite.
+
+Round 8: built. 75 added, 22 removed in `ergostat/` against main (53 net, budget 60).
+
+The review's blocking finding (lesson 3): an item leased by agents of different rungs got rung None, so the header
+read a killed AI run as "no AI, $0". Fixed as the review asked:
+- `server.py` `_item_cost` now decides on the server. It returns `ai`, true when any block that took the item is an
+  AI rung (ai, narrow-ai or decision). A block the model no longer has also counts as AI, because its rung cannot be
+  read and AI is the worst case. `unknown` is counted only over those blocks' runs, since a program's failed run had no
+  session to spend. Other totals (runs, dollars, tokens) are still over all the runs. The `rung` field is gone.
+- `util.js` `costText` takes `{ai}` in place of a rung (`a.ai ?? [1,2,3].includes(a.rung)`), and `pages.js` pageItem
+  passes `{ai: d.cost.ai}`. The /agents page and the agent panel still pass the agent, so they are unchanged.
+- SPEC §9.1 and the agent guide now say this.
+
+Tests: `tests/test_run_costs.py::test_an_items_cost_is_the_sum_of_the_runs_that_took_it_and_none_when_none_did` now
+checks `ai` and `unknown`. A program alone gives no AI and its failure counts 0. An AI block and a program, each with a
+failed run and no cost, give `ai` and `unknown` 1. A removed block counts as AI. The acceptance test
+`tests/test_items_page.py::test_cost_is_stated_or_says_why_it_is_none_with_the_windows_total_and_on_an_item` now
+also leases hypothesis/4 to `developer` (ai) and `matcher` (program) and ends both leases. It ends developer's run as
+`agent.failed` (exit -9, killed, no `ai`) and matcher's as `agent.failed` (exit 1). It checks that the header reads
+"not known: 1 failed or stopped" with no "$0". Broken and seen to fail: with the server's `ai` true only when the
+leases have one rung (the old rule), the test failed with the header reading "no AI, $0 (over 2 runs)", which is the
+review's finding. With the page passing the old `{rung}`, it failed earlier, at the stand-in step.
+
+Run, with Playwright under the watchdog: tests/test_items_page.py: 60 passed, 2 failed. The two are the same as in
+round 7: `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (the project switcher) and
+`test_actions_say_per_class_asked_approved_denied_and_whether_held` (the Items page's action classes). Neither path is
+touched by this round. tests/test_agents_page.py: 11 passed, 1 failed: main's
+`test_each_row_says_how_it_is_engaged_and_which_goal_it_serves`, the "Loading…" race named in rounds 4 to 7 (lesson 13).
+tests/test_run_costs.py: 16 passed. Ruff is clean. Main has not moved since round 7's merge (the merge-base is main,
+f086f76e), so there was nothing to merge.
+Refused, not worked around: a `python -c` listing the example's agents and rungs (they were read from the YAML
+instead), and a `grep -n "rung" ... tests/test_run_costs.py | sed -n ...` read of the unit test (read with the
+file tools). Not run here:
+test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py, test_snapshot_sets.py and the whole unit suite.

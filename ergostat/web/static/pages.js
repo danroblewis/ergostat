@@ -1010,7 +1010,7 @@ async function pageItem(main, id, q) {
         + (d.eta.start != null && d.eta.start > nowS() + 60 ? `; started about ${etaWhen(d.eta.start)}` : "")
         + (d.eta.dead ? `; a dead letter in ${Math.round(d.eta.dead * 100)}% of runs` : "") + ")"))) : null,
       d.cost ? pair("Cost", h("span", { "data-cost": "", title: "What the runs that took it cost: their AI sessions, from its leases" },
-        d.cost.runs ? costText(d.cost, { rung: d.cost.rung }) : "not known yet", d.cost.cost && d.cost.cost !== "reported" ? " est." : "",
+        d.cost.runs ? costText(d.cost, { ai: d.cost.ai }) : "not known yet", d.cost.cost && d.cost.cost !== "reported" ? " est." : "",
         h("span", { class: "muted" }, d.cost.runs < d.cost.taken ? ` (${d.cost.runs} of the ${d.cost.taken} runs that took it ended)` : ` (over ${d.cost.taken} run${d.cost.taken === 1 ? "" : "s"})`))) : null,
       pair("Events", String(d.events)), pair("First", ago(d.first)), pair("Latest", h("span", {}, d.latest, h("span", { class: "muted" }, `, ${ago(d.last)}`))));
     // the path it took, arrow by arrow, to where it is now; the other states apart, with no arrow (its endings double-bordered)

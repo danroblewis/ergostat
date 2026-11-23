@@ -362,19 +362,25 @@ def test_an_items_cost_is_the_sum_of_the_runs_that_took_it_and_none_when_none_di
     ends = [{"type": "agent.ran", "time": 5.0, "causedby": "r1", "data": {"cost_usd": 0.25}},
             {"type": "agent.failed", "time": 6.0, "causedby": "r2", "data": {"cost_usd": 0.5}},
             {"type": "agent.ran", "time": 7.0, "causedby": "other", "data": {"cost_usd": 9.0}}]   # not this item's
+    tidy = [{"type": "agent.failed", "time": 4.0, "causedby": "t1", "data": {"exit": 1}}]       # a program's failure
 
     class Events:
         def query(self, item=None, since=0, until=0, **kw):
-            return [e for e in ends if item == "worker" and since <= e["time"] <= until]
+            return [e for e in {"worker": ends, "tidy": tidy}.get(item, []) if since <= e["time"] <= until]
 
-    def lease(run, t):
-        return {"type": "ergostat.lease.taken", "time": t, "data": {"run": run, "block": "worker"}}
+    def lease(run, t, block="worker"):
+        return {"type": "ergostat.lease.taken", "time": t, "data": {"run": run, "block": block}}
     p, m = NS(events=Events()), NS(agents={"worker": NS(rung=1), "tidy": NS(rung=4)})   # rungs as the model has them
     got = _item_cost(p, m, [lease("r1", 1.0), lease("r2", 2.0), lease("r3", 3.0)], 10.0)
     assert got["cost_usd"] == 0.75 and got["runs"] == 2 and got["failed"] == 1
-    assert got["taken"] == 3 and got["rung"] == 1                  # r3 has not ended: counted as taken, not as $0
-    two = [lease("r1", 1.0), {"type": "ergostat.lease.taken", "time": 2.0, "data": {"run": "r9", "block": "tidy"}}]
-    assert _item_cost(p, m, two, 10.0)["rung"] is None             # two agents of different rungs: no one rung
+    assert got["taken"] == 3 and got["ai"] and got["unknown"] == 0   # r3 has not ended: counted as taken, not as $0
+    assert not _item_cost(p, m, [lease("t1", 1.0, "tidy")], 10.0)["ai"]   # a program alone: no AI
+    assert _item_cost(p, m, [lease("t1", 1.0, "tidy")], 10.0)["unknown"] == 0   # its failure had no session to spend
+    ends.append({"type": "agent.failed", "time": 8.0, "causedby": "r4", "data": {"exit": -9, "note": "killed"}})
+    mixed = _item_cost(p, m, [lease("r4", 1.0), lease("t1", 2.0, "tidy")], 10.0)   # an AI block and a program
+    assert mixed["ai"] and mixed["unknown"] == 1 and mixed["runs"] == 2   # the killed AI run is not known, the program's not
+    gone = _item_cost(p, m, [lease("x1", 1.0, "removed")], 10.0)
+    assert gone["ai"]                                              # a block the model no longer has: maybe AI
     assert _item_cost(p, m, [{"type": "item.opened", "time": 1.0, "data": {}}], 10.0) is None
 
 

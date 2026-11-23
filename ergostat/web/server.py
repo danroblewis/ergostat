@@ -44,18 +44,21 @@ FOREVER = "public, max-age=31536000, immutable"
 
 def _item_cost(p, m, record: list[dict], until: float) -> dict | None:
     """What the runs that took an item cost (its leases name them, SPEC §9.5): their totals, how many took it, and
-    the rung of the agent that ran them; a run not ended yet is counted in ``taken``, never as $0. None when no run
-    took it (as far as its record's latest events show)."""
+    ``ai``, whether any of them is an AI block (an ai, narrow-ai or decision rung, or a block the model no longer has:
+    the worst case). ``unknown`` counts only those blocks' runs: a program's failed run had no session to spend. A run
+    not ended yet is counted in ``taken``, never as $0. None when no run took it (as far as its record's latest events
+    show)."""
     from ..costs import record as costs
     taken = {e["data"]["run"]: (e["data"].get("block"), e["time"]) for e in record
              if e["type"] == "ergostat.lease.taken" and isinstance(e.get("data"), dict) and e["data"].get("run")}
     if not taken:
         return None
     since = min(t for _, t in taken.values())
-    blocks = {b for b, _ in taken.values() if b}
-    ends = [costs.numbers(e) for b in blocks for e in costs.ended(p, since, until, b) if e.get("causedby") in taken]
-    rungs = {m.agents[b].rung for b in blocks if b in m.agents}
-    return {**costs.totals(ends), "taken": len(taken), "rung": rungs.pop() if len(rungs) == 1 else None}
+    ends = {b: [costs.numbers(e) for e in costs.ended(p, since, until, b) if e.get("causedby") in taken]
+            for b in {b for b, _ in taken.values() if b}}
+    ai = [b for b in ends if b not in m.agents or m.agents[b].rung in (1, 2, 3)]
+    return {**costs.totals([r for rs in ends.values() for r in rs]), "taken": len(taken), "ai": bool(ai),
+            "unknown": costs.totals([r for b in ai for r in ends[b]])["unknown"]}
 
 
 def asset_version(name: str) -> str | None:

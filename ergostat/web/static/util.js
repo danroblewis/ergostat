@@ -279,9 +279,9 @@ function cpuText(x) { return x == null ? "\u2013" : x < 60 ? `${+x.toPrecision(2
 function bytesText(b) { return b == null ? "\u2013" : b >= 1e9 ? `${+(b / 1e9).toPrecision(3)} GB` : `${+(b / 1e6).toPrecision(3)} MB`; }
 /* runs' cost ({runs, cost_usd, tokens}) with why it is none: an AI agent's runs with no session and no tokens ran on
    a free stand-in, unless one failed or was stopped (its session may have spent: not known; a pool-full give-back never began one); another kind's, no AI
-   (a = the agent, {kind, rung, runs_itself}; u = totals with `unknown`, or one run with failed, note, exit) */
+   (a = the agent, {kind, rung, runs_itself}, or {ai} for several; u = totals with `unknown`, or one run with failed, note, exit) */
 function costText(u, a) {
-  const ai = a && [1, 2, 3].includes(a.rung);
+  const ai = a && (a.ai ?? [1, 2, 3].includes(a.rung));
   const back = !u.failed && /^workspace pool .* has none free for /.test(u.note || "");   // given back unrun: no session
   const unknown = u.unknown ?? (u.cost_usd == null && !back && (u.failed || u.note || u.exit !== 0) ? 1 : 0);
   if (u.cost_usd) return usd(u.cost_usd) + (ai && unknown ? ` + not known: ${unknown} failed or stopped` : "");
