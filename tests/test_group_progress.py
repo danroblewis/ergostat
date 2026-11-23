@@ -1,9 +1,10 @@
 """milestone-progress-per-group (dev/records/milestone-progress-per-group.md): each milestone's progress, counted from
 the item index (ergostat/spec/grouptally.py) over a hand-worked record of the factory's own gap and milestone kinds
 (compiled from ergostat.yaml): done, in progress, waiting, stopped, of its total; a split gap counted as its parts, a
-gap closed as a duplicate (or with no end said) leaving the total, a parked one stopped; each row's link the set of
-exactly its gaps; the answer a category-by-stack table any chart reads (`/api/items-groups`); and
-`milestones.py status` saying it."""
+gap closed as a duplicate (or with no end said) leaving the total, a parked one stopped, a ready one held by what it
+depends on or by its waiting milestone waiting; each row's link the set of exactly its gaps; the answer a
+category-by-stack table (`/api/items-groups`); a dashboard panel's own queries charting it; and `milestones.py status`
+saying it."""
 
 from __future__ import annotations
 
@@ -33,7 +34,8 @@ def factory_text() -> str:
     said = text[text.index("\nmessages:\n"):text.index("\nagents:\n")]
     done, paused = (", ".join(re.findall(r"\b(?:gap|milestone): \[[^\]]*\]", said.split(f"  {k}:")[1].split("\n  ")[0]))
                     for k in ("done", "paused"))
-    return f"name: t\nitems:{kinds}\nmessages:\n  done: {{{done}}}\n  paused: {{{paused}}}\n"
+    return (f"name: t\nitems:{kinds}\nmessages:\n  done: {{{done}}}\n  paused: {{{paused}}}\n"
+            "blocks:\n  build:\n    type: program\n    run: 'true'\n    takes: {kind: gap, at: [ready], to: [built]}\n")
 
 
 def project(tmp_path, text: str) -> Project:
@@ -55,11 +57,17 @@ GAPS = {
     "a6": ("milestone/m-a", ["gap.started"], {}, "in progress"),
     "a7": ("milestone/m-a", [], {}, "waiting"),
     "a8": ("milestone/m-a", ["gap.started", "gap.built", "gap.review-started"], {}, "in progress"),
+    # ready, a state the build block takes from: queued (in progress) unless held, blocked (waiting)
+    "d1": ("milestone/m-a", ["gap.defined"], {"depends_on": ["gap/a6"]}, "waiting"),     # a6 is still building
+    "d2": ("milestone/m-a", ["gap.defined"], {"depends_on": ["gap/a1"]}, "in progress"),  # a1 merged: not held
+    "d3": ("milestone/m-a", ["gap.defined"], {"depends_on": ["gap/gone"]}, "waiting"),   # not in the record: not known done
     "s": ("milestone/m-a", ["gap.split"], {}, "split"),                           # its work is its parts'
     "s-1": ("milestone/m-a", ["gap.started", "gap.merged"], {"parent": ["gap/s"]}, "done"),
     "s-2": ("milestone/m-a", [], {"parent": ["gap/s"]}, "waiting"),
     "s-3": (None, [], {"parent": ["gap/s"]}, "waiting"),                          # a part in no milestone: in none
     "b1": ("milestone/m-b", [], {}, "waiting"),
+    "b2": ("milestone/m-b", ["gap.defined"], {}, "waiting"),                   # ready, but its milestone still waits
+    "b3": ("milestone/m-b", ["gap.defined", "gap.started"], {}, "in progress"),  # pulled: its work has begun
     "c1": ("milestone/m-c", ["gap.merged"], {}, "done"),
     "l1": ("release-1", ["gap.started"], {}, "in progress"),                     # an old label, no milestone item
     "n1": (None, [], {}, "waiting"),
@@ -115,10 +123,11 @@ def test_a_hand_worked_record_gives_the_right_counts_per_milestone(rec):
         assert (r["left"], r["summaries"]) == (want["left"], want["split"]), rid
         assert r["total"] == sum(want[k] for k in gt.STACKS), rid
     a = rows["milestone/m-a"]
-    assert a["counts"] == {"done": 3, "in progress": 2, "waiting": 2, "stopped": 1} and a["total"] == 8
+    assert a["counts"] == {"done": 3, "in progress": 3, "waiting": 4, "stopped": 1} and a["total"] == 11
     assert (a["left"], a["summaries"], a["state"], a["status"], a["waits_on"]) == (2, 1, "active", "active", [])
     b = rows["milestone/m-b"]
-    assert (b["state"], b["status"], b["waits_on"], b["total"]) == ("waiting", "blocked", ["milestone/m-a"], 1)
+    assert (b["state"], b["status"], b["waits_on"], b["total"]) == ("waiting", "blocked", ["milestone/m-a"], 3)
+    assert b["counts"] == {"done": 0, "in progress": 1, "waiting": 2, "stopped": 0}
     assert (rows["milestone/m-c"]["state"], rows["milestone/m-c"]["counts"]["done"]) == ("completed", 1)
     assert rows["milestone/m-empty"]["total"] == 0 and rows["milestone/m-empty"]["item"]
     assert not rows["release-1"]["item"] and rows["release-1"]["counts"]["in progress"] == 1
@@ -210,10 +219,10 @@ messages:
 """
 
 
-def test_a_dashboard_panel_charts_any_kind_by_its_group_stacked_by_status_group(rec, tmp_path):
-    """Done item 4: ``/api/items-groups?kind=K&by=REL`` is a table (rows the categories, ``stacks`` the series) for
-    the factory's gaps by milestone and, the same with no code of its own, for any model's group relation: the
-    Items listing names the relations it is offered for."""
+def test_items_groups_answers_any_kind_by_its_group_as_a_category_by_stack_table(rec, tmp_path):
+    """``/api/items-groups?kind=K&by=REL`` is a table (rows the categories, ``stacks`` the series) for the factory's
+    gaps by milestone and, the same with no code of its own, for any model's group relation: the Items listing names
+    the relations it is offered for."""
     from ergostat.web import serve
     (tmp_path / "other").mkdir()
     other = project(tmp_path / "other", TICKETS)
@@ -222,7 +231,7 @@ def test_a_dashboard_panel_charts_any_kind_by_its_group_stacked_by_status_group(
         if st != "todo":
             other.events.add(f"ticket.{'started' if st == 'doing' else 'done'}", item=f"ticket/{i}", at=T0 + 10 + i)
     other.events.add("epic.started", item="epic/e1", at=T0)
-    for p, kind, by, want in ((rec, "gap", "milestone", {"milestone/m-a": [3, 2, 2, 1]}),
+    for p, kind, by, want in ((rec, "gap", "milestone", {"milestone/m-a": [3, 3, 4, 1]}),
                               (other, "ticket", "epic", {"epic/e1": [2, 1, 0, 0], None: [0, 0, 1, 0]})):
         server, url = serve(p, free_port())
         try:
@@ -241,6 +250,41 @@ def test_a_dashboard_panel_charts_any_kind_by_its_group_stacked_by_status_group(
         assert {k: table[k] for k in want} == want
         assert all(len(r["done"]) == len(got["times"]) for r in got["rows"])     # each category's series over time
         assert next(k for k in listed["kinds"] if k["name"] == kind)["progress"] == [by]
+
+
+# a dashboard panel as saved (dashboard.js): a stacked bar chart, one query per state group, each a category by milestone
+PANEL = {"title": "gaps by milestone", "form": "bar", "options": {"stack": "stacked"},
+         "queries": [{"id": "abcd"[n], "source": "counts", "kind": "gap", "agg": "last", "label": s,
+                      "x": {"type": "category", "by": "milestone"}, "where": {"state_group": s}}
+                     for n, s in enumerate(gt.STACKS)]}
+
+
+def test_a_dashboard_panel_charts_gaps_by_milestone_stacked_by_state_group(rec):
+    """Done item 4: the panel's own queries, sent as the page sends them (``panels.js`` queryPanels: id, label and
+    hidden dropped) to ``/api/query``, give each milestone's count per state group equal to its progress, the gaps in
+    none as ``none``, and what left the total in no stack; the fields offer milestone and state_group to group by."""
+    import base64
+
+    from ergostat.web.server import Live, api
+    until = rec.t_end + 100
+    sent = [{**{k: v for k, v in q.items() if k not in ("id", "label", "hidden")}, "id": f"q{n}"}
+            for n, q in enumerate(PANEL["queries"])]
+    body = {"since": until - T0 + 100, "until": until, "points": 4, "queries": sent}
+    q = base64.urlsafe_b64encode(json.dumps(body).encode()).decode().rstrip("=")
+    results = api(Live(rec), "query", {"q": [q]})["results"]
+    chart: dict = {}
+    for s, r in zip(gt.STACKS, results, strict=True):
+        assert "error" not in r and r["x"]["type"] == "category", r
+        (one,) = r["series"]
+        for cat, v in zip(one["xs"], one["values"], strict=True):
+            chart.setdefault(cat, dict.fromkeys(gt.STACKS, 0))[s] = v
+    rows = {r["id"] or "none": r for r in answer(rec)["rows"]}
+    want = {k: r["counts"] for k, r in rows.items() if r["total"]}
+    assert chart == want
+    assert chart["milestone/m-a"] == {"done": 3, "in progress": 3, "waiting": 4, "stopped": 1}
+    assert chart["milestone/m-b"] == {"done": 0, "in progress": 1, "waiting": 2, "stopped": 0}
+    by = api(Live(rec), "query/fields", {})["sources"]["items"]["kinds"]["gap"]["group_by"]
+    assert {"milestone", "state_group"} <= set(by)
 
 
 def test_milestones_status_says_each_milestones_progress(rec, monkeypatch):
@@ -267,10 +311,10 @@ def test_milestones_status_says_each_milestones_progress(rec, monkeypatch):
     cfg = {"paths": {"run": str(rec.tmp / "run"), "live": str(rec.tmp / "live")}, "milestones": {}}
     lines = milestones.status(cfg).splitlines()
     at = lines.index("milestone/m-a  active  M-A")
-    assert lines[at + 3] == ("  progress: 3 done, 2 in progress, 2 waiting, 1 stopped, of 8 (2 closed as no work done "
+    assert lines[at + 3] == ("  progress: 3 done, 3 in progress, 4 waiting, 1 stopped, of 11 (2 closed as no work done "
                              "(left the total); 1 split (counted as its parts))")
     at = lines.index("milestone/m-b  waiting  M-B")
-    assert lines[at + 3] == "  progress: 0 done, 0 in progress, 1 waiting, 0 stopped, of 1"
+    assert lines[at + 3] == "  progress: 0 done, 1 in progress, 2 waiting, 0 stopped, of 3"
     assert "gaps naming no milestone, progress: 1 done, 0 in progress, 2 waiting, 1 stopped, of 4" in lines
 
     def unset(*a, **k):

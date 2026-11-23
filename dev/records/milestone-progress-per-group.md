@@ -109,3 +109,45 @@ the second site) and `test_actions_say_per_class_asked_approved_denied_and_wheth
 `/items` for `.action-classes`, which main's router sends to the overview). This branch touches neither the header,
 the switcher, the actions nor the router; the factory's rerun on clean main decides. Not run: the other three
 browser files, the unit suite.
+
+Round 5. Main (28ad5c4a) merged in first. The conflict in pages.js's list `tick`: main's lines kept (the graph
+answers asked with `signal`, `trust`/`classes` awaited, `gone()`, `loaded()`), with the branch's
+`JSON.stringify([flows, gps])` check so a change in a milestone's counts still redraws.
+The findings, both blocking (there were no others):
+- Done item 4 was narrowed on a reason the tree disproves (dashboard.js, panels.js and the query engine are on main).
+  The narrowing is withdrawn: a dashboard panel now charts gaps by milestone stacked by state group with no custom
+  code. The query engine labels items by a group relation's field (`milestone`, already a field in the index) and by
+  `state_group`, each item's stage as its progress counts it (`labels.stage`, from `grouptally.stages`: the same
+  read, so a chart's counts are the progress's). `/api/query/fields` offers both in `group_by` (`_groupable`: group
+  relations folded by replace, whatever their number of values, and `state_group` for a kind with states). The panel
+  is a `bar` with `stack: stacked` of four `counts` queries, `x: {type: category, by: milestone}`, `where:
+  {state_group: S}`, one per stage; plots-bar.js already stacks several queries' categories. An empty text label
+  now reads as `none` (labels.word), as the progress's "no milestone" row does. Decision taken alone (the reversible
+  one): no new query shape (a category X with a second `group_by` is still refused), only labels. Known limit, said in
+  SPEC: like every category chart, at most 12 categories a query, the rest as `other`, and each query picks its own
+  largest 12, so past 12 milestones a stack's `other` can hold different milestones from another's. The page's
+  milestone rows are the view for 25.
+  Test: `test_a_dashboard_panel_charts_gaps_by_milestone_stacked_by_state_group` sends the panel's own queries as
+  panels.js sends them (id, label and hidden dropped) to `/api/query` and asserts each milestone's stack equals its
+  progress row, the "no milestone" row as `none`, and that the fields offer both. With `state_group` read as the
+  state instead, it was seen to fail. The old endpoint-only test is renamed
+  `test_items_groups_answers_any_kind_by_its_group_as_a_category_by_stack_table` (it claims no panel now).
+- Members were read with no waits, so "blocked" never occurred. Now each member's status gets what
+  `precedence.build` reads: its precedence targets not finished (start-to-start by `starts_at`; a target not in the
+  record is not known to be finished), plus its group when the group item is unstarted (`blocked` or `unblocked`: a
+  milestone still in `waiting`). Decision taken alone: the group rule is model-neutral (ergostat knows no
+  `waits_on_milestone` field), and an active member stays in progress whatever it waits on, since its work began.
+  The hand-worked record gets a block taking gaps at `ready` and five gaps there: d1 behind a building gap (waiting),
+  d2 behind a merged one (in progress), d3 behind one not in the record (waiting), b2 in waiting m-b (waiting), b3
+  pulled and building in m-b (in progress). m-a is now 3/3/4/1 of 11, m-b 0/1/2/0 of 3. Seen to fail with the waits
+  dropped (4 failed), with the group rule alone dropped (3 failed), and with a missing target read as finished (4
+  failed).
+Run here: tests/test_group_progress.py (9 passed), tests/test_query_engine.py (52), tests/test_query_fixes.py (19),
+tests/test_query_axes.py, tests/test_query_spread.py, tests/test_items_overview.py (79), tests/test_milestones.py
+(50), tests/test_precedence.py (10), tests/test_relations.py (26), tests/test_milestone_frames.py and
+tests/test_spec_schema.py (40), tests/test_dashboards_doc.py (34), ruff clean. tests/test_items_page.py under the
+watchdog: 67 passed, 1 failed, `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` at line 2013
+(the project switcher, as in rounds 1 to 4; this branch touches neither the header nor the switcher). The
+actions test of rounds 3 and 4 passes now. Refused in this session: a background run of that browser file with
+its output sent to /tmp (`... > /tmp/items_page.log 2>&1`); it was run in the foreground instead. Not run: the other
+three browser files (test_dashboard_page.py among them: no page code changed this round), the unit suite.

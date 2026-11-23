@@ -1235,8 +1235,9 @@ reads the event log.
 - **Transforms.** `none`; `rate`, per `rate_per` (`second`, `minute`, `hour`, `day`; by default the shortest in which the
   largest value is at least 1), over the seconds each bucket covers, so a part bucket is no dip; for a `series` with `agg:
   last` it is a counter's rate, a fall being a reset; `delta`; `cumulative`; `moving_avg` (`window` in buckets).
-- **Groups.** `group_by` is `state`, `kind` or a low-cardinality field, at most 12 groups, the rest added up as `other`
-  (`capped` says how many).
+- **Groups.** `group_by` is `state`, `kind`, a low-cardinality field, a group relation's field holding one id per
+  item, or `state_group` (§5a, *Progress per group*), at most 12 groups, the rest added up as `other` (`capped` says
+  how many).
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
   refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
@@ -1462,8 +1463,10 @@ Items API and the item page give each relation with its `starts_at`.
 `milestone`) has its groups' progress (`spec/grouptally.py`), read from the item index (the items as folded now and
 their moves), never by replaying events. Each group its items name, every item of the kinds it names (an empty one
 too), a value naming no item (an old label), and the items naming none, is a row: its members by status group, *done*
-(finished), *in progress* (active or queued), *waiting* (first state, or blocked) and *stopped* (paused, a dead
-letter), of its total; the group's state and what its precedence relations name that is not finished (one not in the
+(finished), *in progress* (active or queued), *waiting* (first state, or blocked: an item its precedence relations
+name is not finished, as the Graph reads it, one not in the record not known to be; or its group has not started, in
+its kind's first state, as a milestone still waiting; an active member stays in progress, its work begun) and
+*stopped* (paused, a dead letter), of its total; the group's state and what its precedence relations name that is not finished (one not in the
 record is not known to be finished), and its set (`where=REL:ID`; none: `REL:null` and `REL:`), exactly its members.
 Two kinds of member leave the total, counted apart: one in a finished state the relation's `done_when` names whose
 fields do not match it (`milestone: {kind: milestone, group: true, done_when: {closed: {end: done}}}`: a gap closed as
@@ -1484,6 +1487,14 @@ its total, its state and what it waits on. The active ones and the row for none 
 button that says how many and in which states. A row's click opens its set (from the overview, on the kind's own
 page, `/items/KIND?where=REL:ID`): the list, and the Graph and the Timeline,
 which narrow to a set's `where` on a relation of the kinds asked (its items, and what they wait on).
+The query engine (dashboard panels) reads the same: the group relation's field (`milestone`) and `state_group`, each
+item's stage as its progress counts it (one of the four, or `left`, `summary`, `odd`: out of the total; under the
+kind's first relation offered, else by its status), are labels to group and filter by, offered in
+`/api/query/fields` (`group_by`; an empty text reads as `none`). A stacked bar panel of gaps by milestone is four
+`counts` queries, `{"source": "counts", "kind": "gap", "x": {"type": "category", "by": "milestone"}, "where":
+{"state_group": "done"}}` and the same for `in progress`, `waiting` and `stopped`: each category's level at the
+window's end is that row's count. Like every category chart, at most 12 categories a query, the rest added up as
+`other`.
 
 A relation is a field like any other: events add and take away links as they change fields (`"data": {"blocked_by":
 "ticket/12"}`, `{"blocked_by": {"remove": "ticket/12"}}`, a JSON Patch), and every change is in its history. The
