@@ -514,15 +514,13 @@ def part(page, name, slot):
     return card(page).locator(f"[data-part={name}] select[data-slot={slot}]")
 
 
-def test_the_gallery_is_the_registry_grouped_and_says_what_each_needs(ed, tmp_path):
+def test_the_gallery_is_the_registry_grouped(ed, tmp_path):
     opened(ed, {"id": "p1", "queries": [{**HOUR_COST, "id": "a"}]})
     wait_drawn(ed)
     names = ed.locator(".pe-form").evaluate_all("els => els.map(e => e.dataset.form)")
     assert set(names) == set(ed.evaluate("Object.keys(plotForms())")), "every family, and only what registered"
     assert "pe-form-blocked" in tile(ed, "phase").get_attribute("class"), "marked, not hidden"
-    assert tile(ed, "phase").locator(".pe-form-need").inner_text() == "Needs X: query"
-    assert "X axis" in tile(ed, "phase").get_attribute("title"), "the whole reason is there too"
-    assert "model with poles" in tile(ed, "pole-zero").locator(".pe-form-need").inner_text()
+    assert "model with poles" in tile(ed, "pole-zero").get_attribute("title")
     assert "pe-form-blocked" not in tile(ed, "line").get_attribute("class")
     shot(ed, "desktop-gallery", tmp_path)
 
@@ -691,30 +689,102 @@ def test_builds_a_bode_plot_from_empty_by_keyboard(ed):
 
 
 def test_bode_from_two_queries_uses_them_and_keeps_them_hidden(ed):
-    opened(ed, {"id": "p1", "queries": [
+    opened(ed, {"id": "p1", "form": "nyquist", "queries": [
         {"id": "a", "source": "counts", "kind": "gap", "transform": "none"},
         {"id": "b", "source": "series", "series": "stock.backlog", "agg": "avg", "transform": "none"}]})
-    tile(ed, "nyquist").click()
+    assert tile(ed, "nyquist").locator("input").is_disabled(), "two time queries are not a frequency response"
+    ed.locator(".pe-form-guide").get_by_role("button", name="Set it up").click()
     qs = ed.evaluate("__editor.config.queries")
     assert [q.get("hidden", False) for q in qs] == [True, True, False]
     assert qs[2]["input"]["kind"] == "gap" and qs[2]["output"]["series"] == "stock.backlog"
 
 
-@pytest.mark.parametrize("name,form", [("Phase portrait", "phase"), ("Bode plot", "bode"),
-                                       ("Cost against size", "scatter"), ("Distribution of cycle", "histogram")])
-def test_quick_starts_fill_a_complete_panel_and_can_be_undone(ed, name, form):
-    before = {**HOUR_COST, "id": "a"}
-    opened(ed, {"id": "p1", "queries": [before]})
+def chart_list(page):
+    """the chart type list's height, and each tile's"""
+    return page.evaluate("""() => ({
+        list: document.querySelector('.pe-side fieldset[aria-label=Chart]').getBoundingClientRect().height,
+        tiles: Object.fromEntries([...document.querySelectorAll('.pe-form')]
+            .map(e => [e.dataset.form, e.getBoundingClientRect().height]))})""")
+
+
+def test_the_sidebar_has_no_note_or_quick_starts_and_the_chart_list_keeps_its_height(ed):
+    opened(ed, {"id": "p1", "note": "kept as it was"})
+    side = ed.locator(".pe-side")
+    assert ed.get_by_label("Note").count() == 0
+    assert "Quick start" not in side.inner_text() and side.locator(".pe-quick, .pe-quick-btn").count() == 0
+    before = chart_list(ed)
+    tile(ed, "bode").click()                      # (sets up a frequency response: every time-series chart is then disabled)
+    ed.wait_for_function("document.querySelector('.pe-form[data-form=line] input').disabled")
+    assert chart_list(ed) == before
+    ed.get_by_role("button", name="Cancel").click()
+    opened(ed, {"id": "p1", "note": "kept as it was", "queries": [{**HOUR_COST, "id": "a"}]})
     wait_drawn(ed)
-    ed.get_by_role("button", name=name).click()
-    got = ed.evaluate("__editor.config")
-    assert got["form"] == form
-    assert "pe-form-blocked" not in tile(ed, form).get_attribute("class")
-    ed.get_by_role("button", name="Undo quick start").click()
-    assert ed.evaluate("__editor.config.queries") == [before] and ed.evaluate("__editor.config.form") == "line"
-    ed.get_by_role("button", name=name).click()
+    before = chart_list(ed)
+    for form in ("bar", "candlestick", "newchart", "line"):
+        tile(ed, form).click()
+        assert ed.evaluate("__editor.config.form") == form
+        assert chart_list(ed) == before, f"choosing {form} moved the list"
     ed.get_by_role("button", name="Save", exact=True).click()
-    assert result(ed)["saved"]["form"] == form, "complete: it saves as it is"
+    assert result(ed)["saved"]["note"] == "kept as it was", "a saved note stays stored"
+
+
+def test_a_chart_that_cannot_show_the_result_is_disabled_with_why_in_its_tooltip(ed):
+    opened(ed, {"id": "p1", "queries": [{**HOUR_COST, "id": "a"}]})
+    wait_drawn(ed)
+    phase = tile(ed, "phase")
+    assert phase.locator("input").is_disabled()
+    assert "Needs an X axis of another query" in phase.get_attribute("title")
+    assert phase.inner_text().strip() == "Phase", "the reason is not written in the list"
+    assert "Needs" not in ed.locator(".pe-side").inner_text()
+    sizes = chart_list(ed)["tiles"]
+    assert sizes["phase"] == sizes["line"], "at its normal height"
+    assert not tile(ed, "line").locator("input").is_disabled() and not tile(ed, "line").get_attribute("title")
+    phase.click(force=True)
+    assert ed.evaluate("__editor.config.form") == "line", "a disabled chart cannot be chosen"
+    choose(ed, "x_type", "query")
+    assert not phase.locator("input").is_disabled(), "once the result can be drawn so, it is open"
+
+
+def test_the_chart_dialog_draws_only_applicable_charts_and_applies_the_one_clicked(ed, tmp_path):
+    opened(ed, {"id": "p1", "queries": [{**HOUR_COST, "id": "a"}]})
+    wait_drawn(ed)
+    asked, updates = ed.evaluate("[__log.asked.length, __log.updates.length]")
+    ed.get_by_role("button", name="Charts of this data").click()
+    dialog = ed.get_by_role("dialog", name="Charts of this data")
+    cards = dialog.locator(".pe-pick-card")
+    assert cards.evaluate_all("els => els.map(e => e.dataset.form)") == ["line", "bar", "newchart"], \
+        "the open charts that can draw it now: not candlestick (no ohlc asked), not phase, histogram, scatter or bode"
+    assert dialog.locator(".stub-chart[data-state=drawn]").count() == 3
+    drawn = ed.evaluate(f"__log.updates.slice({updates})")
+    assert len(drawn) == 3 and all(d == ed.evaluate(f"__log.updates[{updates - 1}]") for d in drawn), "the current data"
+    assert ed.evaluate("__log.asked.length") == asked, "drawn from the answer the preview has, nothing asked again"
+    shot(ed, "desktop-chart-dialog", tmp_path)
+    ed.keyboard.press("Escape")
+    assert dialog.count() == 0 and ed.locator(".pe-overlay").count() == 1, "Escape closes the dialog, not the editor"
+    ed.get_by_role("button", name="Charts of this data").click()
+    cards.nth(1).click()
+    assert dialog.count() == 0
+    assert ed.evaluate("__editor.config.form") == "bar" and tile(ed, "bar").locator("input").is_checked()
+    assert ed.evaluate("document.activeElement.value") == "bar"
+    ed.get_by_role("button", name="Save", exact=True).click()
+    assert result(ed)["saved"]["form"] == "bar"
+
+
+def test_a_chart_error_appears_above_the_preview_once(ed, tmp_path):
+    opened(ed, {"id": "p1", "form": "phase", "queries": [{**HOUR_COST, "id": "a"}]})
+    ed.wait_for_function("__log.asked.length > 0 && document.querySelector('.stub-chart').dataset.state === 'empty'")
+    guide = ed.locator(".pe-form-guide")
+    why = guide.locator("span").inner_text()
+    assert "Needs an X axis of another query" in why
+    assert ed.evaluate("""() => document.querySelector('.pe-form-guide').getBoundingClientRect().bottom
+        <= document.querySelector('.pe-preview').getBoundingClientRect().top + 0.5"""), "above the preview"
+    said = ed.evaluate("""(why) => [...document.querySelectorAll('.pe-overlay *')]
+        .filter(e => [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.includes(why))).length""", why)
+    assert said == 1, "once: not in the preview, the sidebar or the query too"
+    assert "Needs" not in ed.locator(".pe-side").inner_text()
+    shot(ed, "desktop-chart-error", tmp_path)
+    guide.get_by_role("button", name="Set it up").click()
+    assert guide.is_hidden()
 
 
 @pytest.mark.parametrize("scheme", ["light", "dark"])
