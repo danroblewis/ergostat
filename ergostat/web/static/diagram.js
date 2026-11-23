@@ -1428,7 +1428,10 @@ function legendBox(view) {
 function inboxAnswer(a) {
   if (SNAP || S.at) return null;
   const said = h("span", { class: "note", "aria-live": "polite", tabindex: "-1" });
-  const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
+  // each box under a label that says what it means: a number its unit and flow, a reason that Deny needs it
+  const labelled = (text, input) => input && h("label", { class: "ask-in" }, h("span", {}, text), input);
+  const unit = a.unit || a.flow || "work", along = a.flow ? `, along ${a.flow}` : "";
+  const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any" }) : null;
   // each button names what it answers, seen ("Approve the push") and heard (with the entry's id, unique in the list)
   const thing = { action: `the ${a.object}`, person: `${a.object}'s ask`, advise: `${a.object}'s command`,
                   breaker: `the reset of ${a.object}'s breaker`, steptest: "the step test", change: "the model change",
@@ -1436,7 +1439,7 @@ function inboxAnswer(a) {
   // read from the row on the page, not the one built: a refresh patches this row into the one there
   const ready = (row) => { const d = row.querySelector('button[data-verb="deny"]'), w = row.querySelector('input[type="text"]');
                            if (d) d.disabled = !w?.value.trim(); };
-  const why = a.answer.includes("deny") ? h("input", { type: "text", placeholder: "why (to deny)", "aria-label": `Why deny ${thing}`,
+  const why = a.answer.includes("deny") ? h("input", { type: "text", "aria-label": `Why deny ${thing}`,
                                                        oninput: (ev) => ready(ev.currentTarget.closest(".inbox-act")) }) : null;
   const go = (verb) => {
     const says = `${{ approve: "Approve", deny: "Deny", done: "Done with" }[verb]} ${thing}`;
@@ -1459,7 +1462,9 @@ function inboxAnswer(a) {
   };
   // the keyboard's order: the reason before the answers, so a denial can say why; Deny waits for the reason
   const typed = document.querySelector(`[data-inbox="${CSS.escape(a.what)}"] .inbox-act input[type="text"]`)?.value.trim();
-  return h("div", { class: "row inbox-act" }, n, why, ...a.answer.map(go), said);
+  return h("div", { class: "row inbox-act" },
+    labelled(`${unit[0].toUpperCase() + unit.slice(1)} done${along} (number)`, n), labelled("Reason for denying (required)", why),
+    ...a.answer.map(go), said);
 }
 
 /* an entry waiting on the owner read as a sentence (what, to what, for which item, who asks, why), linked to its page;
@@ -1488,7 +1493,7 @@ function folded(xs) {
 const PLURAL = { stock: "stocks", flow: "flows", auxiliary: "auxiliaries", parameter: "parameters", goal: "goals", block: "blocks" };
 function foldRow(ms, row) {
   const kinds = new Set(ms.map((m) => String(m.about).split(".")[0])), systems = [...new Set(ms.map((m) => m.system).filter(Boolean))].sort();
-  const said = h("span", { class: "note", "aria-live": "polite" }), why = h("input", { type: "text", placeholder: "why (to deny all)", "aria-label": "Why" });
+  const said = h("span", { class: "note", "aria-live": "polite" }), why = h("input", { type: "text" });
   // read from the clicked row as it is on the page: a refresh hands this handler to the kept nodes (patchNode)
   const all = h("button", { class: "ghost", "data-verb": "deny-all", onclick: async (ev) => {
     const b = ev.currentTarget, act = b.parentElement, note = act.querySelector("input").value, out = act.querySelector(".note");
@@ -1503,7 +1508,8 @@ function foldRow(ms, row) {
   return h("div", { "data-fold": ms[0].fold, key: `fold:${ms[0].fold}` }, h("details", { class: "fold" },
     h("summary", {}, h("span", { class: "att-word" }, "request · "), h("b", { class: "lvl-warn" },`${ms.length} ${kinds.size === 1 ? PLURAL[[...kinds][0]] || "parts" : "parts"}: ${ms[0].fold.split("|")[0].replace(/-/g, " ")}`),
       systems.length ? ` (${systems.join(", ")})` : ""), ...ms.map(row)),
-    SNAP || S.at ? null : h("div", { class: "row inbox-act" }, why, all, said));
+    SNAP || S.at ? null : h("div", { class: "row inbox-act" },
+      h("label", { class: "ask-in" }, h("span", {}, "Reason for denying all (required)"), why), all, said));
 }
 
 /* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)
@@ -1573,7 +1579,7 @@ function renderSide(side, g, view) {
   const row = (a) => {
     const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
+    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^(?:loop|goal) (\S+)$/.exec(a.what)?.[1];
     const said = h("span", { class: "att-word" }, `${word} · `);
     const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
     if (a.answer && a.first) return h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a));
@@ -1618,7 +1624,7 @@ function renderSide(side, g, view) {
     const d = h("details", { class: "suggest", key: "suggest", open: S.suggestOpen ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
-      const loop = /^loop (\S+)/.exec(a.what)?.[1];
+      const loop = /^(?:loop|goal) (\S+)/.exec(a.what)?.[1];      // (Dynamics calls a controlled goal a goal)
       d.append(h("div", { class: "hint" }, loop ? goalButton(loop, h("b", {}, a.what)) : h("b", {}, a.what), " ", op(a.says), " ",
         loop ? h("a", { href: "#", class: "hit24", "aria-label": `Evidence for loop ${loop}`, onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
     }
@@ -1627,9 +1633,9 @@ function renderSide(side, g, view) {
   const loops = Object.entries(g.loops || {});
   if (view === "dynamics") sdLoopList(side, g);
   else if (view === "control" || view === "blocks") {
-    const d = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Loops", count(loops)));
+    const d = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Control loops", count(loops)));
     side.append(d);
-    if (!loops.length) d.append(h("div", { class: "muted" }, "No loops in view."));
+    if (!loops.length) d.append(h("div", { class: "muted" }, "No control loops in view."));
     for (const [name, lp] of loops.sort((a, b) => goalRank(a[1]) - goalRank(b[1]))) {       // the ones that need someone first
       d.append(h("button", { class: "looprow", "data-loop": name,
                               onmouseenter: () => highlightLoop(name), onmouseleave: () => highlightLoop(null),
