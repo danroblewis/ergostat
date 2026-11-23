@@ -2773,7 +2773,8 @@ More (filters, rate of change, latches) can be added when a case needs them.
 Common to machine blocks: `agent` (optional: the shared machine it runs on, section 10), `max`
 and `min` (limits on one run's amount), `timeout`, `every`/`cron` (its schedule when nothing commands it; when something does, `every`
 is the least time between runs), `takes`, `pool` and `lease` (the items it works, a run for each, and its leases' terms:
-section 9.5), `on` (the event types that start it, a run for each: *Started by an event*, below),
+section 9.5), `on` (the event types that start it, a run for each: *Started by an event*, below), `runs-on` (a
+`program` block's compute pool, or `local`: section 12k, *Compute pools*; it runs here still),
 `mode` (`auto`, or `advise`: its commands wait for a person to approve; not on a block that takes
 items, which `check` refuses as `advise-with-takes`: gate it instead, section 9.5), and its control law's
 constants when it says them: `gain` (for a block that steps a setting by its goal's error, the step
@@ -6187,7 +6188,7 @@ remote), and the same push through `git-push` after the owner's approval.
 `compute:` declares pools of **nodes**: machines a model's runs may later execute on (the plan is
 `docs/proposals/compute-systems.md`). **So far a pool is declared and checked only**: nothing connects to a node,
 reads a secret's file or runs anywhere but on the engine's own machine, and a model without `compute:` compiles to
-the same model as before. A block names no pool yet (`runs-on:` is a later change).
+the same model as before. A block may name its pool (`runs-on:`, below), and still runs here.
 
 ```yaml
 compute:
@@ -6221,7 +6222,18 @@ all pools (`too-many-nodes`); more than 64 slots (`too-many-slots`); nodes × sl
 without `image` (`docker-needs-image`); a node's `ssh:` naming a user (`node-names-user`: `@`) or an address
 (`node-names-address`: all digits and dots, or a `:`, `[` or `]`); and any other malformed entry (`bad-node`,
 `bad-backend`, `bad-number`, `bad-network`, `bad-image`, `bad-repos`, `bad-secrets`, `bad-labels`, `missing-key` for
-no `nodes`). A library template may not declare `compute:` (§2a).
+no `nodes`). A library template may not declare `compute:` (§2a). A pool is not called `local` (`bad-name`).
+
+**`runs-on: POOL`** on a `program` block names the pool its runs are for; `runs-on: local`, or none, is here, and
+compiles to the same model as a block that does not say it. **Nothing runs differently yet**: the engine still runs
+every block here. `check` refuses, at the key: a pool `compute:` does not declare (`unknown-pool`); a name no pool
+could have (`bad-runs-on`); `runs-on` on an `ai` block (`runs-on-ai`, for now), a `person` block (`runs-on-person`), a
+daemon's block (`runs-on-daemon`) or a sensor (`runs-on-sensor`); a block whose `run:` as written, or the file of the
+model's folder its first word names, says `ERGOSTAT_CMD`, `ERGOSTAT_SOCKET` or `ergostat ` (`runs-on-calls`: a node
+cannot answer calls yet; a script that cannot be read or is over 8 MiB counts as calling); and a pool named by blocks
+of two engine shards (`pool-across-shards`, §9.8: a pool's slots are counted in one process), said only of a model
+with no other error. The check of calls reads text: a command that reaches ergostat some other way (a program that
+opens the socket itself) is not seen.
 
 ## 12l. Coherence: the three views held against each other
 
@@ -7014,8 +7026,8 @@ as off. To count the window, an `items` sensor on an auxiliary may name `enterin
 
 A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
 and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
-the protocol: the worker, its frame, `hello`, `beat` and `ping`, and a run started under its keeper with its output sent by offset (12s.3). Nothing in the engine speaks to it yet, and no
-model says `compute:` or `runs-on:` yet; a model is unchanged by any of this.
+the protocol: the worker, its frame, `hello`, `beat` and `ping`, and a run started under its keeper with its output sent by offset (12s.3). Nothing in the engine speaks to it yet; a
+model may declare `compute:` pools and a block's `runs-on:` (§12k, *Compute pools*), checked only, and runs as before.
 
 **The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
 modules import each other by bare name and nothing from ergostat (a test reads every import of every module), so a

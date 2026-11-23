@@ -82,3 +82,23 @@ Its runs failed past their attempts (a dead letter):
 - attempt 4: nack exited 1
 - attempt 5: nack the run ended with gap/compute-runs-on-config-continued still parked
 - attempt 6: nack the implementor pool is full (run/pools.json): waits its turn
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, gap/compute-runs-on-config-continued-continued round 1). Nothing is left of the
+definition. Choices made with no one to ask, each the more reversible one:
+
+- One file outside the Files list: ergostat/numbers/version.py (1 line). `Block.runs_on` is a new dataclass field, and
+  `_plain` hashes every field, so with no change every model's `whole`, `control` and each block's `part` hash would
+  move on upgrade (reopening dismissed findings about blocks) even with no `runs-on:` written. The field is marked
+  `metadata={"unset": None}` and `_plain` leaves out a field at its unset value, so a model with no `runs-on` (or
+  `runs-on: local`) hashes as it did on main; naming a pool is still a control change
+  (test_runs_on_local_or_none_compiles_to_an_identical_ir).
+- `runs-on` on a person block is refused too (`runs-on-person`): the definition names daemon, sensor and ai; a person
+  is run by no machine. `local` is refused as a pool's name (`bad-name`), since `runs-on: local` means here.
+- Calls are found in the `run:` text and in the model-folder file its first word names (read whole; unreadable or
+  over 8 MiB counts as calling, never as clean). A program that reaches the socket by other means is not seen; SPEC
+  says so.
+- `pool-across-shards` is worked out from `shards.plan(spec)` (the default ceiling of 16 shards, the most split an
+  engine makes), only for a model with no other error, since such a model is refused already. Said at the second
+  block's `runs-on`.

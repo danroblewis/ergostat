@@ -1625,6 +1625,11 @@
         },
         "lease": {
           "$ref": "#/$defs/lease_terms"
+        },
+        "runs-on": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "A program block: the compute pool its runs are for (a name under compute:), or local (here, as with none). Refused on an ai, person or daemon's block, on a command that calls ergostat, and for a pool whose blocks are in two shards (SPEC §12k)"
         }
       },
       "additionalProperties": false,
