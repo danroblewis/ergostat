@@ -3671,8 +3671,10 @@ def test_a_loops_state_is_printed_on_its_error_in_its_word_bold_when_off_and_nev
 SD_GAPS = """() => { const bad = getComputedStyle(document.body).getPropertyValue('--bad').trim(), probe = document.createElement('i');
   probe.style.color = bad; document.body.append(probe); const badRgb = getComputedStyle(probe).color; probe.remove();
   const gaps = Object.fromEntries([...document.querySelectorAll('svg.canvas g.node[data-id^="gap:"]')].map((n) => {
-    const g = n.querySelector('.gap-word'), w = n.querySelector('.sd-word');
-    return [n.dataset.id.slice(4), { word: g?.dataset.word || 'holding', text: n.textContent, off: !!n.querySelector('.gap-off'),
+    const g = n.querySelector('.gap-word'), w = n.querySelector('.sd-word'), r = n.querySelector('.hit.sd-aux').getBBox();
+    const spill = Math.max(0, ...[...n.querySelectorAll('text')].map((t) => t.getBBox())
+      .map((b) => Math.max(r.x - b.x, b.x + b.width - r.x - r.width)));
+    return [n.dataset.id.slice(4), { word: g?.dataset.word || 'holding', text: n.textContent, off: !!n.querySelector('.gap-off'), spill,
       stroke: getComputedStyle(n.querySelector('.hit.sd-aux')).stroke, fill: w ? getComputedStyle(w).fill : null }]; }));
   const markers = [...document.querySelectorAll('svg.canvas .loop-marker')].map((m) => ({ loops: m.dataset.loops.split('|'),
     off: m.classList.contains('goal-off'), stroke: getComputedStyle(m.querySelector('.marker-arc')).stroke }));
@@ -3744,6 +3746,13 @@ def test_a_goals_gap_in_dynamics_says_its_word_and_an_off_one_is_red_never_the_a
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=dynamics&open=*", 0)
         pg.wait_for_function("() => document.querySelector('svg.canvas .gap-off')", timeout=DRAWN_S * 1000)
+        # the drawing's text at the width the sizes assume (CH, 6.7 px a character): this container's fallback font
+        # is narrower than the owner's, and would hide a word overrunning its box
+        pg.evaluate("""() => { const svg = document.querySelector('svg.canvas');
+          const t = s('text', { 'font-family': 'monospace', 'font-size': 10 }, 'x'.repeat(40));
+          svg.append(t); const px = 10 * CH / (t.getBBox().width / 40); t.remove();
+          const st = document.createElement('style'); document.head.append(st);
+          st.textContent = `svg.sd text, svg.sd tspan { font-family: monospace !important; font-size: ${px}px !important; }`; }""")
         got = pg.evaluate(SD_GAPS)
         assert set(got["gaps"]) == set(loops), (got["gaps"], loops)
         for name, lp in loops.items():                                                   # 2: the server's word
@@ -3784,6 +3793,8 @@ def test_a_goals_gap_in_dynamics_says_its_word_and_an_off_one_is_red_never_the_a
     assert not errors, errors
     assert now[holding]["word"] == "off" and after["gaps"][holding]["word"] == "off", (now[holding], after["gaps"][holding])
     assert after["layouts"] == layouts, (after["layouts"], layouts)
+    # with no new layout, each gap's box still holds its text: a word come since the layout widens it, never spills out
+    assert all(gp["spill"] <= 0.5 for gp in (*got["gaps"].values(), *after["gaps"].values())), (got["gaps"], after["gaps"])
 
 
 def pg_number(x: float) -> str:

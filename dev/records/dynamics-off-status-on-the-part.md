@@ -68,3 +68,26 @@ Failing, not caused by this branch (each is text this diff does not touch):
   `blocksLegend()` has 6 rows where the test wants more than 10.
 Neither was run on main here: a worktree of main (`git worktree add /tmp/mainwt main -f`) was refused as a command.
 Not run here: the unit suite and the four browser files whole (the factory runs them); demo_check (no example touched).
+
+Round 2: the one finding answered. 23 net lines outside tests, docs and dev (budget 40).
+
+- Finding (blocking): a word that came after the layout overran its gap's box. Now `sdAux` draws the box at
+  `max(layout width, sdSize(n) now)`, widened round its centre (the text was already centred on it), so the box fits
+  its word with no new layout. `sdSize` gives an off gap 10 px more for its bold word, so a gap already off at layout
+  time is drawn at exactly its layout width. A gap widened later is wider than the box its connectors were routed to,
+  by half the extra on each side, until the next layout. That is the reversible choice: no re-layout, as done item 4 asks.
+- The test now checks, before and after the goal goes off between polls, that no text in any gap overruns its
+  `.hit.sd-aux` rect (bboxes, 0.5 px slack). This container's fallback font is narrower than the sizes' CH of
+  6.7 px a character, which hid the overrun (the test passed with the fix removed). So the test sets the drawing's text
+  in monospace, scaled in the page until one character measures CH. With that, the test fails with the fix removed
+  (a 9 px overrun on the goal that went off) and passes with the fix in place.
+
+Run here, one at a time under the watchdog: the new test (passes, and fails with the fix removed);
+test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_same,
+test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks,
+test_the_guide_draws_every_frame_live_and_in_a_snapshot, test_a_loop_marker_lights_its_loop_and_opens_its_panel,
+test_flows_only_export_legend_lists_only_what_is_shown (all pass); tests/test_guide.py (8 passed); ruff (clean).
+test_every_view_draws_cleanly_and_in_time: 20 passed, 3 failed: the same 3 with the same counts as round 1 and
+the dynamics-every-goal-drawn record for main (autoscaler satellite-far 10 > 0, the-job valve-orientation-mismatch
+3 > 2, ticket-factory satellite-far 15 > 14).
+Not run here: the unit suite and the four browser files whole (the factory runs them).

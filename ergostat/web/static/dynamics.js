@@ -26,7 +26,7 @@ function sdSize(n) {
   if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n) + (sdNoUnit(n) ? " unit ?" : "")) + 28), SD_STOCK_H];
   if (n.kind === "auxiliary") {                         // its name is the part: as wide as that, with its value under it
     const lines = sdAuxLines(n);
-    return [Math.max(...lines.map((t) => textWidth(t) * (t === lines[0] ? 1.02 : 0.92))) + 10, 6 + lines.length * 14];
+    return [Math.max(...lines.map((t) => textWidth(t) * (t === lines[0] ? 1.02 : 0.92))) + (sdGapWord(n)?.word === "off" ? 20 : 10), 6 + lines.length * 14];   // (off: its word bold)
   }
   return SD_SIZE[n.kind] || [40, 40];
 }
@@ -84,7 +84,8 @@ function sdStock(n, w, hgt) {
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
 function sdAux(n, w, hgt) {
   const gw = sdGapWord(n), g = s("g", gw ? { class: `gap-word${gw.word === "off" ? " gap-off" : ""}`, "data-word": gw.word } : {});
-  g.append(s("rect", { class: "hit sd-aux", width: w, height: hgt, rx: 3 }));
+  const fw = Math.max(w, sdSize(n)[0]);                 // a word come since the layout: the box widened round its centre, not laid out again
+  g.append(s("rect", { class: "hit sd-aux", x: (w - fw) / 2, width: fw, height: hgt, rx: 3 }));
   sdAuxLines(n).forEach((t, i) => g.append(s("text", { x: w / 2, y: 14 + i * 14, "text-anchor": "middle",
     class: i === 0 ? "t-label sd-name" : t === "(exogenous)" ? "t-sub sd-exo" : t === SD_NO_FEEDBACK ? "t-sub sd-exo sd-nofeedback" : "t-sub sd-value" + (n.role === "desired" ? "" : " live") },
     ...(i === 1 && gw?.text ? [sdValue(n), s("tspan", { class: "sd-word" }, ` · ${gw.text}`)] : [t]))));   // the word printed, never colour alone
