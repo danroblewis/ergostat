@@ -51,3 +51,21 @@ files was refused in this session, so it is not shown to fail on main. With the 
 Timeline tests, `test_the_graph_and_the_timeline_left_open_change_nothing[timeline]` failed in full-file runs (a
 legend count button changed during its quiet window as the roadmap fixture aged) and passed alone. Placed last, it
 passes. The cause inside that test (a count that moves with the record's age) is not fixed here.
+
+Round 2 (the review's one finding, blocking): a Timeline summary row's span came from its drawn rows only, so under
+the default Frontier + Collapse done a completed milestone had no bar, its tally was placed at x=-Infinity and its
+arrow to the next milestone was dropped; an active one's bar covered only its unfinished gaps. Now the span is every
+member the answer holds (the model returns `members`, already built for the tally), or the milestone's own times
+when none has any; the order by start uses the same span; a tally with no span at all sits at the axis; a folded
+milestone's collapsed gaps draw their lines from its row (as its drawn ones already did). The bar carries
+`data-t0`/`data-t1`, read by the test. New test, last in the file:
+`test_the_timeline_spans_each_milestone_over_all_its_gaps_under_frontier_and_collapse` (Frontier and Collapse on: the
+completed milestone's bar over all 6 of its gaps, each bar the same span as with nothing collapsed, each tally at a
+finite x, m0's arrow kept). Seen to fail with the old span (`x.kids`) put back, and with the summary rows' arrows
+removed. About 145 net lines in the code against the 600 budget.
+
+Not clean, round 2: in the full `tests/test_items_page.py` run, 37 passed and
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` failed, as in round 1; it fails alone too (a
+30 s wait for the other project's entry in the header's project switcher), and nothing it covers is changed here.
+Running it on an export of main (`git -C /work archive main | tar -x -C /tmp/mainsrc`, then the test there) was
+refused in this session, so it is still not shown to fail on main.

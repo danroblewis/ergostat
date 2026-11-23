@@ -139,7 +139,7 @@ function rgModel(d, o) {
   const counts = {};
   for (const x of d.items) counts[x.status] = (counts[x.status] || 0) + 1;
   const framed = Object.fromEntries(ids.map((id) => [id, inFrame(id)]).filter(([, f]) => f));
-  return { nodes, edges, kinds, counts, capped, lost, byId, scope, frameOf: framed, frameInfo, folded };
+  return { nodes, edges, kinds, counts, capped, lost, byId, scope, frameOf: framed, frameInfo, folded, members };
 }
 
 /* a frame's title (rgModel): its name and state, then its members' tally: done of all, working, ready, and blocked
@@ -411,16 +411,16 @@ function relTimeline(open) {
                                "aria-label": `${x.open ? "Fold" : "Open"} ${t.head}`, onclick: () => toggle(x.id, x.open),
                                onkeydown: (ev) => { if (ev.key === "Enter") toggle(x.id, x.open); } }, x.open ? "▾" : "▸"),
           s("g", { class: "rg-label", ...link }, s("title", {}, t.said), s("text", { class: "rg-id", x: 16, y: y + 4 }, rgClip(t.head, Math.floor((x0 - 22) / 6.6)))));
-        const tt = x.kids.flatMap(rgTimes), t0 = Math.min(...tt), t1 = Math.max(...tt);
+        const tt = x.span, t0 = Math.min(...tt), t1 = Math.max(...tt);
         let lo = Infinity, hi = -Infinity;
         if (tt.length) {
           lo = X(t0); hi = X(t1);
           const xa = Math.max(x0, lo), xb = Math.min(x1, hi);
-          if (xb > xa) row.append(s("rect", { class: "rg-msum", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR }, s("title", {}, `${t.said}\n${clock(t0)} to ${clock(t1)}`)),
+          if (xb > xa) row.append(s("rect", { class: "rg-msum", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR, "data-t0": t0, "data-t1": t1 }, s("title", {}, `${t.said}\n${clock(t0)} to ${clock(t1)}`)),
             s("rect", { class: "rg-msdone", x: xa, y: y - RG.BAR / 2, width: (xb - xa) * (t.total ? t.done / t.total : 0), height: RG.BAR }));
         }
-        const w = textWidth(t.sub), after = Math.min(x1, hi) + 6;
-        const tx = after + w <= x1 ? after : Math.max(x0, lo) - 6 - w >= x0 ? Math.max(x0, lo) - 6 - w : x0 + 4;
+        const w = textWidth(t.sub), after = Math.min(x1, hi) + 6;   // no times at all: the tally at the axis
+        const tx = !tt.length ? x0 + 4 : after + w <= x1 ? after : Math.max(x0, lo) - 6 - w >= x0 ? Math.max(x0, lo) - 6 - w : x0 + 4;
         row.append(s("text", { class: "rg-sub rg-tally", x: tx, y: y + 4 }, t.sub));
         at[x.id] = { lo, hi, y };
         parts.push(row);
@@ -496,7 +496,11 @@ function relTimeline(open) {
       // a click on the triangle opens or folds it); frames and the rest in the order they start, the schedule's
       const byF = {}, loose = [];
       for (const x of order) if (m.frameOf[x.id]) (byF[m.frameOf[x.id]] ||= []).push(x); else loose.push(x);
-      const start = (f) => Math.min(...(byF[f] || []).map(key), m.byId[f] ? key(m.byId[f]) : Infinity);
+      // a frame's span: every member the answer holds, drawn or collapsed (under Frontier + Collapse done a completed
+      // milestone's are all collapsed); none with times, the milestone's own
+      const all = m.members || {}, span = {};
+      for (const f of Object.keys(fr)) { span[f] = (all[f] || []).flatMap(rgTimes); if (!span[f].length && m.byId[f]) span[f] = rgTimes(m.byId[f]); }
+      const start = (f) => Math.min(...(byF[f] || []).map(key), ...span[f], m.byId[f] ? key(m.byId[f]) : Infinity);
       const ent = [...Object.keys(fr).map((f) => ({ f, k: start(f) })), ...loose.map((x) => ({ x, k: key(x) }))]
         .sort((p, q) => p.k - q.k || ((p.f ?? p.x.id) < (q.f ?? q.x.id) ? -1 : 1));
       const open = new Set(Object.keys(fr).filter((f) => byHand[f] ?? (f === RG_PLAIN || ["active", "queued"].includes(m.byId[f]?.status))));
@@ -508,8 +512,9 @@ function relTimeline(open) {
       for (const e of ent) {
         if (!e.f) { rows.push({ ...e.x, depth: 0 }); continue; }
         const xs = byF[e.f] || [];
-        rows.push({ sum: true, id: e.f, x: m.byId[e.f], info: fr[e.f], open: open.has(e.f), kids: xs, depth: 0 });
-        for (const x of xs) if (open.has(e.f)) rows.push({ ...x, depth: 1 }); else alias[x.id] = e.f;
+        rows.push({ sum: true, id: e.f, x: m.byId[e.f], info: fr[e.f], open: open.has(e.f), kids: xs, span: span[e.f], depth: 0 });
+        for (const x of xs) if (open.has(e.f)) rows.push({ ...x, depth: 1 });
+        if (!open.has(e.f)) for (const x of [...xs, ...(all[e.f] || [])]) alias[x.id] = e.f;   // a folded one's lines: from its row
       }
     } else {                                            // a parent, then its children under it
       const kidsOf = {};
@@ -519,7 +524,7 @@ function relTimeline(open) {
       for (const x of order) put(x, 0);
     }
     const shown = rows.slice(0, RG.BARS);
-    const ts = shown.flatMap((x) => (x.sum ? x.kids : [x]).flatMap(rgTimes));
+    const ts = shown.flatMap((x) => (x.sum ? x.span : rgTimes(x)));
     const lo = Math.max(d.since, Math.min(d.now, ...ts)), hi = Math.max(d.now, ...ts);
     const pad = (hi - lo) * 0.03 || 60;
     const edges = d.edges.filter((e) => e.kind === "precedence");

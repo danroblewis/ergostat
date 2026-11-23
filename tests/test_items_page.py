@@ -1551,8 +1551,12 @@ MS_TIMELINE = """([d, o, n]) => { const m = rgModel(d, o), el = relTimeline(() =
   document.querySelector('main').prepend(el); el.draw(m, d);
   const read = () => [...el.querySelectorAll('.rg-row')].map((r) => ({ id: r.dataset.id, sum: r.classList.contains('rg-sumrow'),
     open: r.dataset.open, label: r.querySelector('.rg-id')?.textContent, tally: r.querySelector('.rg-tally')?.textContent,
-    bar: !!r.querySelector('.rg-msum'), y: r.querySelector('.rg-label').getBoundingClientRect().top }));
-  const out = { rows: read(), note: el.querySelector('.rg-note').textContent };
+    bar: !!r.querySelector('.rg-msum'), y: r.querySelector('.rg-label').getBoundingClientRect().top,
+    span: ['data-t0', 'data-t1'].map((a) => +r.querySelector('.rg-msum')?.getAttribute(a)),
+    tx: r.querySelector('.rg-tally')?.getAttribute('x'),
+    cy: +r.querySelector('.rg-id').getAttribute('y') - 4 }));
+  const out = { rows: read(), note: el.querySelector('.rg-note').textContent,
+                starts: [...el.querySelectorAll('.rg-edge path')].map((p) => +p.getAttribute('d').split(' ')[0].split(',')[1]) };
   if (n) { el.querySelector(`.rg-sumrow[data-id="${n}"] .rg-tri`).dispatchEvent(new MouseEvent('click')); out.after = read(); }
   el.remove(); return out; }"""
 
@@ -1587,5 +1591,28 @@ def test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order(browse
     assert len(sums) == 45 and len(big["rows"]) <= 200                          # every milestone kept, as a row
     assert any(r["open"] == "false" and r["id"].startswith("milestone/x") for r in sums)
     assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
+    assert not errors, errors
+    pg.close()
+
+
+def test_the_timeline_spans_each_milestone_over_all_its_gaps_under_frontier_and_collapse(browser, roadmap):
+    """The Timeline's default (Frontier, Collapse done): a completed milestone's gaps are all collapsed out of the
+    rows, yet its summary row keeps its bar over all of them, its tally inside the chart, and its arrow to the
+    milestone after it; an active one's bar spans its done gaps too (the same span as with nothing collapsed)."""
+    from tests.test_milestone_frames import milestone_answer
+    ans = milestone_answer()
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    full = {r["id"]: r for r in pg.evaluate(MS_TIMELINE, [ans, MS, None])["rows"] if r["sum"]}
+    got = pg.evaluate(MS_TIMELINE, [ans, {**MS, "frontier": True, "collapse": True}, None])
+    sums = {r["id"]: r for r in got["rows"] if r["sum"]}
+    ids = [r["id"] for r in got["rows"]]
+    assert "milestone/m0" in sums and not any(a.startswith("gap/d") for a in ids)   # its gaps all collapsed
+    for f, r in sums.items():
+        assert r["bar"] and r["span"] == full[f]["span"], (f, r["span"], full[f]["span"])   # the span of all its gaps
+        assert r["tx"] not in (None, "") and 0 <= float(r["tx"]), (f, r["tx"])        # the tally drawn, not at -inf
+    m0 = {e["to"] for e in ans["edges"] if e["kind"] == "group" and e["rel"] == "milestone" and e["from"] == "milestone/m0"}
+    ts = [t for x in ans["items"] if x["id"] in m0 for g in x.get("segments", []) + x.get("projected", []) for t in g[1:3]]
+    assert len(m0) == 6 and sums["milestone/m0"]["span"] == [min(ts), max(ts)]
+    assert any(abs(y - sums["milestone/m0"]["cy"]) < 0.2 for y in got["starts"])     # m0's arrow to m1 kept
     assert not errors, errors
     pg.close()
