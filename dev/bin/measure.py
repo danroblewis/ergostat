@@ -427,27 +427,34 @@ def code_reading(name: str) -> float:
     return value
 
 
-def code_change(name: str) -> float:
-    """A code measure's change over the last TREND of main's merges, by seq: each sha once (its last reading)."""
+def code_change(name: str, values: dict[str, tuple[int, float]] | None = None) -> float:
+    """A code measure's change over the last TREND of main's merges, by seq: each sha once (its last reading). ``values``
+    ({sha: (seq, value)}, passing.py's) in place of the code measures' history."""
     cfg, measure = fac.config(), name.removesuffix("-change")
-    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
     by_sha: dict[str, tuple[int, float]] = {}
     try:
-        for line in (fac.path(cfg, "run") / "code-measures.jsonl").read_text().splitlines():
+        for line in (fac.path(cfg, "run") / "code-measures.jsonl").read_text().splitlines() if values is None else ():
             r = json.loads(line)
             if r["measure"] == measure:
                 by_sha[str(r["sha"])] = (int(r["seq"]), float(r["value"]))
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise SystemExit(f"{name}: no value (the code measures' history cannot be read: {e!r})") from None
+    window = by_seq(cfg, by_sha if values is None else values)
+    if len({seq for seq, _ in window}) < 2:
+        raise SystemExit(f"{name}: no value (fewer than two of main's commits measured within {TREND} merges)")
+    return round(window[0][1] - window[-1][1], 4)
+
+
+def by_seq(cfg: dict, by_sha: dict[str, tuple[int, float]]) -> list[tuple[int, float]]:
+    """The (seq, value) of the shas on main within TREND merges of the latest of them, the latest first."""
+    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
     window: list[tuple[int, float]] = []
     for sha, (seq, value) in sorted(by_sha.items(), key=lambda kv: -kv[1][0]):    # the latest seq first
         if window and seq < window[0][0] - TREND:
             break
         if fac.git_ok(repo, "merge-base", "--is-ancestor", sha, base):           # (a merge undone measured nothing)
             window.append((seq, value))
-    if len({seq for seq, _ in window}) < 2:
-        raise SystemExit(f"{name}: no value (fewer than two of main's commits measured within {TREND} merges)")
-    return round(window[0][1] - window[-1][1], 4)
+    return window
 
 
 if __name__ == "__main__":
