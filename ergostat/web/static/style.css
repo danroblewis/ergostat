@@ -121,10 +121,13 @@ button.ghost:hover, .menu-btn:hover { background: var(--fill); }
 button.name { border: 0; background: none; padding: 0; min-height: 0; color: inherit; font-weight: inherit; text-align: inherit; }
 button.name:hover:not(:disabled) { background: none; text-decoration: underline; }
 label.check { display: inline-flex; align-items: center; gap: var(--sp-1); cursor: pointer; }
+.filters label.check input[type=checkbox] { width: 24px; height: 24px; margin: 0; }      /* a 24 px target (WCAG 2.5.8) */
+.hit24, button.rg-key { display: inline-flex; align-items: center; min-height: 24px; min-width: 24px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* a menu: a button and what it holds, floating; the one thing with a shadow */
 .menu { position: relative; display: inline-flex; }
-.menu-btn::after { content: "▾"; color: var(--muted); font-size: var(--text-sm); margin-left: var(--sp-1); }
+.menu-btn::after { content: "▾" / ""; color: var(--muted); font-size: var(--text-sm); margin-left: var(--sp-1); }
 .menu-btn.dots::after { content: none; }
 .menu-btn[aria-expanded=true] { background: var(--fill); }
 .menu-pop { position: absolute; top: calc(100% + var(--sp-1)); left: 0; z-index: 30; min-width: 12em; padding: var(--sp-1); background: var(--bg);
@@ -233,7 +236,8 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .att-word + .ask-first { display: inline; }
 .att hr.att-rule { border: 0; border-top: 1px solid var(--line); margin: 0; width: 100%; }
 details.housekeeping > summary h3 { display: inline; }
-details.suggest, details.changes, details.legend-box { margin-top: var(--sp-3); }
+details.suggest, details.changes, details.legend-box, details.loops { margin-top: var(--sp-3); }
+details.waiting-fold > .att { margin-top: var(--sp-3); }
 details > summary { cursor: pointer; color: var(--ink-2); }
 details > summary:hover { color: var(--ink); }
 details.suggest .hint { margin-top: var(--sp-3); }
@@ -367,6 +371,21 @@ a.chart-name { color: var(--accent); }
 .side-charts h3 { margin-top: var(--sp-5); }
 .side-strip + .side-strip { border-top: var(--hair) solid var(--line); }
 .detail .scope dl { margin-top: var(--sp-2); }
+/* plots.js: several series on one axis (each named with its value), a phase plot, a heatmap and its key */
+figure.plot-fig { margin: 0 0 var(--sp-3); }
+.plot-fig .chart-head { flex-wrap: wrap; }
+.plot-vals { display: flex; flex-wrap: wrap; gap: 0 var(--sp-3); color: var(--muted); }
+.plot-chip .n { color: var(--ink); }
+.plot-chip .sw { display: inline-block; width: var(--sp-4); border-top-width: var(--sp-0); margin-right: var(--sp-1); vertical-align: middle; }
+.plot-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--muted); }
+.plot-key .ramp { display: inline-flex; border: var(--hair) solid var(--line); }
+.plot-key .ramp span, .plot-key .hatch { display: inline-block; width: var(--sp-3); height: var(--sp-3); }
+.plot-key .hatch { margin-left: var(--sp-2); border-top: var(--sp-0) solid var(--bad);
+  background: repeating-linear-gradient(-45deg, var(--bad) 0 var(--hair), var(--bg) var(--hair) var(--sp-1)); }
+.plot-data summary { cursor: pointer; }
+.plot-data table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.plot-data th, .plot-data td { padding: 0 var(--sp-2); text-align: right; font-weight: normal; }
+.plot-data thead th { color: var(--muted); }
 /* the Items page: each kind's cumulative flow, its states named at the right; its cycle times under its table */
 .cfd { display: grid; grid-template-columns: minmax(0, 1fr) 12em; gap: var(--sp-4); align-items: center; margin: 0 0 var(--sp-3); }
 .cfd-states { display: flex; flex-direction: column; gap: var(--sp-0); }
@@ -952,6 +971,12 @@ button.rg-key.on { outline: var(--hair) solid var(--accent); }
 @media (prefers-reduced-motion: reduce) { .rg-node.rg-active .rg-box { animation: none; } }
 .rg-frame rect { fill: var(--sd-hull); stroke: var(--line-strong); }
 .rg-frame text { fill: var(--muted); font-size: var(--canvas-sm); font-weight: 600; }
+.rg-frame.rg-ms { cursor: pointer; }
+.rg-frame.rg-ms .rg-fhead { fill: var(--ink); }
+.rg-frame .rg-fsub { font-weight: 400; }
+.rg-frame.rg-ms.rg-active rect { stroke: var(--accent); stroke-width: 1.4; }
+.rg-frame.rg-plain rect { fill: none; stroke: var(--ink-2); stroke-dasharray: 6 4; }
+.rg-node.rg-fold .rg-box { fill: var(--sd-hull); stroke: var(--line-strong); stroke-dasharray: none; animation: none; }
 .rg-edge path { stroke: var(--muted); stroke-width: 1.3; }
 .rg-edge .rg-head { fill: var(--muted); stroke: none; }
 .rg-edge.rg-via path { stroke-dasharray: 6 4; }
@@ -986,6 +1011,10 @@ button.rg-key.on { outline: var(--hair) solid var(--accent); }
 .rg-gantt .rg-lanebar { fill-opacity: 0.55; stroke-dasharray: none; cursor: pointer; }
 .rg-gantt .rg-inbar { pointer-events: none; font-size: var(--text-sm); }
 .rg-gantt .rg-critical .rg-summary { stroke: var(--bad); }
+.rg-gantt .rg-msum { fill: var(--sd-hull); stroke: var(--ink-2); stroke-width: 1; }
+.rg-gantt .rg-msdone { fill: var(--ink-2); pointer-events: none; }
+.rg-gantt .rg-tri { cursor: pointer; fill: var(--ink-2); }
+.rg-gantt .rg-sumrow .rg-id { font-size: var(--canvas-sm); }
 .rg-gantt .rg-edge path { stroke-width: 1; }
 .rg-gantt .rg-now line { stroke: var(--accent); stroke-width: 1.4; }
 .rg-gantt .rg-now text { fill: var(--accent); font-size: var(--canvas-sm); }

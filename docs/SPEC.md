@@ -190,8 +190,9 @@ them. A held chain's `ask`, `prompt`, `query` and `sources` are gated by who wro
 (an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After
 the leases are checked, each limit below that an untrusted part passes is an error, **untrusted-limit**, at its
 `use:` line. The limits are constants (`ergostat/library/bounds.py`), never config. They are a second line behind
-the allowlist below: a held chain makes a program, ai or person block, or a sensor's `run`, `query`, `every` or
-`cron`, only as R1 to R3 below allow, and no judge block or `daemon` at all; the limits bound whatever it admits:
+the allowlist below: a held chain makes a program, ai or person block, or a sensor's `query`, `every` or `cron`,
+only as R1 to R3 below allow, a sensor's `run` only sandboxed where R1 and R2 do not allow it, and no judge block or
+`daemon` at all; the limits bound whatever it admits:
 
 | Limit | Value | Applies to |
 |---|---|---|
@@ -330,12 +331,14 @@ value with its writer, its type and whether its own text is its type's narrow fo
 has judged the chain, then strips them. Only expand makes marks: a template or a value holding a mark's control
 characters is refused, whole.
 
-**R1, what a held chain may run.** A sensor's or a `program` block's `run` stands when every character of it is: (a)
+**R1, what a held chain may run.** A `program` block's `run` stands, and a sensor's `run` runs on the owner's shell,
+only when every character of it is: (a)
 an owner command, as the whole value; or, inside a built-in template's run, (b) the template's own text, ergostat's
 names (`${lib}`, `${python}`, `${name}`), a value ergostat's template wrote, or an owner command through `:quote` or
 `:arg`; or (c) a value allowed by R2. A library's text (an untrusted template's words around `${cmd}`, its
 `${here}`, a library default for a command), an owner value of another type (a `string`), and a run holding a field
-(`${it.run}`) refuse the chain. `every`, `cron`, `timeout` and `averages` stand only as the owner or a trusted
+(`${it.run}`) refuse the chain when in a block's run; in a sensor's run they make it a *sandboxed run* (below), never
+the owner's. `every`, `cron`, `timeout` and `averages` stand only as the owner or a trusted
 template wrote them. A `program` block may say only `goal`, `run`, `every`, `cron`, `timeout` and the common block
 keys; `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused, each by
 name in trust.py's `MACHINE_TYPES`.
@@ -376,6 +379,27 @@ text, `goal`, `until`, `every` and `cron` (these two as R1's rule above), and th
 `parse`, `context`, `review`, `agent`, `workspace`, `tools`, `timeout` and the rest are refused by name
 (`library-untrusted`). A template cannot write `sources:` today (it is not a template section); the gate judges one
 by R3 all the same. R3 says only who wrote the text; the library still decides that the part asking it exists.
+
+**Sandboxed sensor runs.** Compile says where each sensor's `run` runs (`Sensor.run_in`,
+`ergostat/library/runs.py`), by allowlist: on the owner's shell, with `callback_env` as before, only a run in the
+model's own files (its `where` exactly the loader's), one an instance of a trusted chain made (`untrusted: false` in
+its `uses` entry), one R1 or R2 passed (the use's `owner_runs`), or ergostat's built-in measures. Anything else, an
+unknown `where`, a remote's, a missing use or a check that raised included, and a sensor compile never judged
+(`run_in` None), runs only through `ergostat.sandbox`: `/bin/sh -c RUN`, with `hosts={}` (no network), `env={}` (no
+`ERGOSTAT_*`, so no calling ergostat back), only its template's folder readable besides the toolchain, a work folder
+`<state>/library-work/<instance>` (the name checked, `[a-z0-9][a-z0-9-]{0,63}`; a longer instance name, as nested
+ones grow, is `0-` and 40 hex of its SHA-256, which no instance name can be; a run with no instance gets a fresh
+`0-unknown-*` folder, removed after it) as its only writable place and its working directory, a timeout of at most 120 s (a longer, zero or non-number one reads as 120), and at most 4 such
+runs at once in the process, checked and taken under one lock; a run whose processes escaped the kill keeps its slot.
+The work folder is emptied when the chain of instances that made it changes: which template each instance above it
+uses, and each template file's digest, are kept in a marker beside the folder (`<folder>.made`), never inside it.
+Where no sandbox can start (no `bwrap` or `sandbox-exec`), nothing runs: the reading fails (`sensor.failed`, "not
+run: ...") and no measurement is made. Its output's event lines are recorded as any sensor's; a relayed message is
+refused (`sensor.refused`, "a sandboxed run cannot relay a message"). The sensing view adds `, sandboxed` to it.
+A library sensor's `daemon` is refused **library-unsandboxed**: a daemon is a process nothing sandboxes. What this
+proves without a live sandbox is what is asked of it, the `Policy` and argv captured
+(`tests/test_library_sandbox_sensors.py`); that the sandbox enforces a `Policy` is proven only by
+`tests/test_sandbox_attacks.py`, which needs a backend that can start.
 
 What R1 and R2 let through is still an untrusted part, under the limits of *Untrusted libraries* above: one floor on
 how often, `UNTRUSTED_EVERY`, whoever wrote the `every`. So a held chain's program block needs the owner's `every:`
@@ -741,6 +765,28 @@ missing, when its layout changes, or when the record went back (a fresh record),
 folded to), and a prune takes out the items whose events are all gone. `tests/test_item_index.py`
 holds it equal to a fresh fold for every example's kinds, as events arrive, after roll-ups, read
 cold and built again.
+
+The same file holds, as indexed tables, what the status answer reads from the record
+(`spec/projections.py`), followed in the same transactions as the items and built again with them:
+`records`, ergostat's own items (gated actions, messages, reports, model changes, modelling requests
+and model requests), each folded by its built-in kind as its module's `stored()` folds it, with its
+state and its class (an action's class, a change's kind, a request's code) as indexed columns;
+`marks`, each event of the types read by type and time (loop crossings, breakers, step tests, daemons
+given up, leases expired, the events of model changes and modelling requests, and what
+`ergostat.forgotten` set aside, so a read that leaves voided crossings out reads one table); and
+`asks`, each time a person block was asked or an advised block advised and how it was answered. What
+also depends on the model's blocks, goals or files (which inbox entries wait, a class's record over
+the week, an alarm's readings) is worked out from these when read, since one index serves every model
+with the same item kinds. The record stays the truth: when events are taken out (a roll-up, a prune)
+the records and marks are folded again from what the record still holds and an ask whose event is
+gone is dropped, and a fresh record or a new layout builds the whole file again (an index of an
+older layout is another file, never read). `tests/test_index_projections.py` holds each table equal
+to a fresh read of the record (the modules' `stored()`, `events.query`, the inbox's asks) for random
+records on both event stores, followed a chunk at a time, read cold, built again, after a roll-up, a
+prune and a fresh record, after a crash part way (each chunk is one transaction: the next process
+resumes from the last committed), and read by another process while one follows (it reads what was
+committed, unblocked). The answers are as of what the index has folded, not of an earlier `until`:
+the status reads them only when it asks about now.
 
 **Items rolled up.** An item's events older than its horizon (`rollup.after`, or its kind's) are
 replaced by one event, `ergostat.item.snapshot`, the item as it stood after them:
@@ -1400,6 +1446,46 @@ with no `to=`, more than one of `near=`, `path=` and `about=` (the CLI's flags l
 (`at=`) is refused (exit 2, 400), never answered with a default (only
 no depth at all is 1; the API reads an empty `depth=` as none).
 
+**Why it is not done.** `ergostat why ID [--json]`, `GET /api/why?item=ID` and MCP's `why` answer one question for
+any item, as the record is now (`--at`, `at=` are refused), from the item index and the model only (`ergostat/why/`;
+nothing in it names a kind, state or block of any model). The item's page shows it first, as *Why isn't this done?*,
+while the item is unfinished. The answer:
+
+- **now**: its state, since when and for how long, against the stays its kind's latest 2,000 items made in that state:
+  longer than which share of them, and *unusual* past nine in ten; with fewer than 5 stays it says so and calls
+  nothing unusual.
+- **the cause**, followed to its end: the precedence targets it waits on (as *Relations* reads them: unfinished, not in
+  a `starts_at` state), what each of those waits on, depth first in link order, to each **root**: `work` (held by a
+  lease whose taking recorded the pid of the process that took it, that pid running and an engine running; or in a
+  working state no block takes from: in progress outside ergostat), `person` (the owner asked to
+  answer a gated action about it, or a gate whose input a person reads by hand: a manual sensor), `pool-full` (the
+  block's runs at once are its pool now, the holders named; a holder whose lease is dead is the root instead, `via`
+  the block; a holder whose process is not recorded is named under **missing**), `gate` (a `budget.refused` for the
+  block in the last 5 minutes with no run started since, `gate: budget`; or a gate commanding the block reads 0, a
+  factor of its product being 0 for an input that is not 0: a limit reached), `lease` (held, but no engine is running:
+  start one, and its watchdog ends the lease once past its expiry; or the process that took it is gone while an
+  engine runs: that engine's watchdog expires it only past its expiry and grace, so the answer gives that time,
+  `ends`, and the by-hand give-back, `ERGOSTAT_ITEM=… ERGOSTAT_LEASE=… ERGOSTAT_RUN=… ergostat lease --nack …
+  --no-count`; past its expiry and not ended; or given back and put off), `block` (no engine running, or its last 3
+  runs failed), `closed` (a gate's
+  zero factor whose every input reads 0: a goal holding, an intake shut), `parked` (paused in a state
+  `messages: paused:` names, or a dead letter), `nothing` (no block takes its kind from its state, or a block's
+  `where:` does not match its fields), `cycle` (it waits on itself: the loop named), `missing` (it waits on an id
+  never recorded), and `unknown` (what holds it is not in the record: a gate with no reading, a factor whose input
+  has none, a field that cannot be read, a lease whose taking recorded no pid, as with no `budget:` declared, so that
+  whether its process runs is not known, or nothing found holding it). Each root says who or what must act (`owner`),
+  the action and the command. Up to 200 items are looked at and 8 roots kept; the first is the answer's.
+- **evidence**: each claim's event or reading, with a link (the item's page, `/api/events/ID`, the block in the
+  Blocks view); **missing**: what the record cannot tell, never guessed.
+- **summary**: one paragraph to paste to someone else.
+
+A finished item says it is done; an item of a kind that lives on says it is never done; an id never recorded says
+so; none of them has a cause. The item's page asks for the answer only while the item is unfinished, and redraws for
+it only when what it says changes (its roots' kinds, items, owners, actions, commands, paths and evidence), since its
+time and durations differ at every poll. The engine is read from its run lock and `heartbeat.json` (running: the lock held and the last pass within the
+watcher's limit). An item's own state is never folded from its events; only the evidence is looked up, a few events
+at most per item. On a record of 3,000 items it answers in under 100 ms (`tests/test_why.py`).
+
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:
@@ -1632,9 +1718,9 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 
 | View | What it shows |
 |---|---|
-| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
+| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A group other than `parent`, of a kind not asked (a gap's `milestone`, with kind `gap` chosen), is a frame its members are drawn inside, titled with its id, title and state, and its members' tally: how many done of all, working (active or queued), ready (unblocked), and blocked and on what (each item they wait on, by its own frame when that is another; in full in the frame's tooltip); a frame that waits on another (a milestone's `depends_on`) has an arrow from it, and lines between members stay drawn across frames. The asked items in no such group are in a plain, dashed frame ("no milestone"). A frame with nothing drawn in it (a completed milestone under **Collapse done**, or one only waited on) is one card with the same title, and a line from a member collapsed in it is drawn from that card. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
 `status=` in the address) and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the levelled projection's end, rounded up to the minute; until the completion estimates are worked out, and at a moment travelled to, the levelled projection's end, the last levelled bar's ("done about 04:02, levelled by each block's capacity, median times"). Every time the Timeline and the legend print (the axis ticks aside) is a clock time with its date and zone when not today. A click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
@@ -3443,6 +3529,16 @@ runs as a process of its own.
   given again (the new owner judged it not its own). Only the lead does what is done once: the `ergostat.started`
   event, `history.note` (at start and on a swap), the sweep of the messages, workspace leases, actions and notices,
   the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket.
+- **A moved flow's stocks, read by their owner.** With `shard=None` a run that moves a flow (any amount but 0) has
+  the sensors of both of the flow's stocks read at once, caused by that run, as before. A shard engine reads at once,
+  after its own run (a block's, a leased item's or a step test's), only those of the stocks in its own shard
+  (`Plan.of` of the sensor), never another shard's. Every other shard engine follows the run's ended event
+  (`agent.ran` or `agent.failed` with `data.moved`) the way it follows the owner's asks: by `seq`, under the one model
+  it read for the event. It skips the runs of a block it follows itself (already read after acting), and reads each
+  of its own measured sensors of the moved flows' stocks once, its reading caused by the run (the event's
+  `causedby`). A `moved` that is not a mapping, an amount of 0, NaN or not a number, or a flow or stock the model
+  lacks makes no read and does not stop the following. A swap that moves the block between its run and the follow:
+  its new owner skips the run as its own, so the new owner's stocks are not read at once but at their schedule.
 - **A shard engine's own files, events and stop.** With `shard=None` each is as it was. A shard engine listens on a
   socket of its own: `engine.SHARD.sock` in the state directory, or, when that path is too long for a socket, the
   short folder's file named by a hash of the state directory and the shard (`calls/server.py`'s `path_for(state,
@@ -3462,8 +3558,7 @@ runs as a process of its own.
   engine starts no agent runs of its own (the older runner does), and a sensor's command is bounded by its timeout
   and is not killed at close, the same with or without a shard.
 - **Not yet by shard.** The wires are not carried, and nothing refuses them yet: that is `shard-wires`, and the
-  shard tests read an estimate across shards on purpose. A run a block's moving a flow asks for reads that flow's
-  stocks' sensors wherever they are. `daemons.json` is still one file per state directory, written by each engine
+  shard tests read an estimate across shards on purpose. `daemons.json` is still one file per state directory, written by each engine
   in turn. A swap does not reshard. It clears what moved out, which is what a reshard was to do.
 
 ### 9.9 The day's AI budget: runs reserve before they start
@@ -3708,6 +3803,8 @@ where the error is 0.
 - **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
   `ergostat/library/trust.py` does not allow: at the owner's `use:` line, and nothing of the chain is in the model
   (section 2a);
+- **library-unsandboxed**: the same refusal, when a held chain's sensor names a `daemon`, which cannot be run in the
+  sandbox (section 2a, *Sandboxed sensor runs*);
 - **untrusted-text**: the same refusal, when a held chain's `ask`, `prompt`, sensor `query` or `sources` entry holds a
   piece the library wrote, or whose writer can't be told (section 2a, R3).
 
@@ -3997,7 +4094,10 @@ open system comes from a shadow variable `<x>` inside the receiving system, and 
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a
 pipe out ends in a cloud with the part beyond named under it. An
 open system is a sector, a light tint with its name at the top left; a closed one is a module, its
-connection points named on its edge. The view's panels use system dynamics' words only. A flow's
+connection points named on its edge. The view's panels use system dynamics' words only. The side
+list's cards are said in those words too, but only a sentence's own words: a code, an id or a part
+name (`queue-goal-tolerance`, `goal.ci-upgrade-planned`) and the tier a request names are kept as
+they are, the same as in Blocks. A flow's
 valve (the bowtie) opens as the **valve**: the rate of the flow, its inputs (the connectors into it,
 each with its sign) and its equation: written (section 7b), drawn in MathML with each parameter's
 value and provenance (its calibrations side by side beneath: each one's estimate ± its standard error,
@@ -6500,13 +6600,24 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   `--stats` (below).
 - The MCP tools `inbox` and `answer`, so the owner's Claude session can answer on their behalf when told to; its
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
-- The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
-  each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
-  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own. Every entry is
-  listed, however many come before it. While the pointer or the focus is in one of the side panel's lists (*Waiting
-  for you*, *Goals off*, *Model housekeeping*; and likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its
-  top how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or
-  gone meanwhile stays in its place and says so in its row until then.
+- The page: the entries are listed under *Waiting for you*, at the top of the Diagram's side panel (only when one
+  waits; more than 3 fold into one line, "N wait for you", that opens them, though never while the reader is in the
+  list), each with Approve / Deny, or a number and
+  Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. The item pages keep
+  their own buttons. No page or panel of its own. Every entry is listed, however many come before it. While the
+  pointer or the focus is in one of the side panel's lists (*Waiting for you*, *Goals off*, *Model housekeeping*; and
+  likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its top
+  how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or gone
+  meanwhile stays in its place and says so in its row until then.
+
+**The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
+you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process
+map; in Dynamics and Blocks it lists only the symbols the model drawn has), open unless the reader closed it in this browser (then it stays closed, until
+they open it again); then the rest of what needs attention: *Goals off* (the system's goals, then modelling's after a
+rule; as many as the header's "loops off") and *Model housekeeping* (folded unless a fault is in it; modelling's held
+requests go there), each with its count and each entry starting with its state or kind word; then Suggestions, the loop list (the Process view's kinds)
+and The model's edits, each folded with its count in its summary. No chart is shown until parts are chosen; a chosen
+part's panel is as before.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 
