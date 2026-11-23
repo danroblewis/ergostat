@@ -74,3 +74,5 @@ The finding (util.js:343 with review.js:298-311): an aborted page fetch returned
 - Test: tests/test_page_polling.py::test_leaving_the_model_page_mid_fetch_and_coming_back_fills_whats_available holds loops?perf=1, leaves Model for Agents, comes back, and asserts that the summaries are asked for again and fill the Loops table with no page error. With round 4's never-settling promise put back, it fails (no second ask, 60 s timeout). With the unhandledrejection handler removed, both it and test_leaving_a_page_cancels_its_fetches_in_flight fail on a page error ('signal is aborted without reason').
 
 Nothing to merge: main is at the branch's last merge (ead497d1).
+
+Run in round 5: tests/test_page_polling.py with Playwright under suite_watch (22 passed, rc 0, none skipped, 1007 s), and ruff (clean). Not run: the full unit suite, the other three browser files and demo_check (no example touched). tests/test_web_lanes.py, tests/test_web_access.py and tests/test_projects_header.py were not run again either: no Python changed.
