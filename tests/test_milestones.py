@@ -286,6 +286,39 @@ def test_a_cycle_already_there_does_not_refuse_an_unrelated_change(ms):
     assert "on a precedence cycle (never taken): gap/p, gap/q" in ms.mod.status(ms.cfg)
 
 
+def test_assign_and_depends_refuse_a_cycle_through_a_split_parent(ms):
+    """A split parent p (in m1) is a summary of its sub-gap s (`parent` is a group by default), so with s in m2,
+    m2 depending on m1 closes m2 -> s -> p's end -> m1's end -> m2: s would never be taken, and m1 never complete."""
+    ms.mod.add(ms.cfg, "m1")
+    ms.mod.add(ms.cfg, "m2")
+    ms.gap("p", milestone="milestone/m1")
+    ms.gap("s", parent="gap/p")
+    assert ms.mod.assign(ms.cfg, "s", "m2") == "gap/s"                        # m2 depends on nothing yet
+    with pytest.raises(ms.mod.Refused, match=r"milestone/m2 depending on milestone/m1 would close a cycle: milestone/m2 -> "
+                                             r"milestone/m1 \(its end\) -> gap/p \(its end\) -> gap/s -> milestone/m2"):
+        ms.mod.depends(ms.cfg, "m2", ["m1"])
+    assert ms.fields("milestone/m2").get("depends_on") in (None, [])
+    ms.mod.add(ms.cfg, "m3", depends=["m1"])
+    ms.gap("t", parent="gap/p")
+    with pytest.raises(ms.mod.Refused, match=r"gap/t in milestone/m3 would close a cycle"):
+        ms.mod.assign(ms.cfg, "t", "m3")
+
+
+def test_the_relations_the_cycle_check_reads_are_the_models():
+    """milestones.py's PRECEDENCE and GROUPS are every precedence and group relation of the gap and milestone kinds,
+    as compiled (a group added to the gap kind fails this until the check reads it)."""
+    spec, _ = read(ROOT / "ergostat.yaml")
+    for kind in ("gap", "milestone"):
+        rels = spec.items[kind].relations.values()
+        sys.path.insert(0, str(BIN))
+        try:
+            import milestones
+        finally:
+            sys.path.remove(str(BIN))
+        assert sorted(r.name for r in rels if r.precedence) == sorted(milestones.PRECEDENCE.get(kind, ())), kind
+        assert sorted(r.name for r in rels if r.group) == sorted(milestones.GROUPS.get(kind, ())), kind
+
+
 def test_add_refuses_a_milestone_made_again_and_a_bad_name(ms):
     ms.mod.add(ms.cfg, "m", title="the first")
     with pytest.raises(ms.mod.Refused, match="already a milestone"):

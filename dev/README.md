@@ -268,8 +268,8 @@ is not decided here: `pull` only marks a gap `pulled`. The old free-text labels 
 written; `status` lists them until they are assigned.
 
 A milestone with gaps is a summary in the precedence graph the implementor's take reads (its start before its gaps,
-its end after them), so a milestone dependency and a gap dependency can close a cycle together, and a gap on a cycle
-is never taken. `add`, `depends` and `assign` refuse a change that would put an unfinished gap or milestone on a cycle
+its end after them), and so is a split parent with its sub-gaps (`parent` is a group too), so a milestone dependency
+with a gap dependency, or with a split across two milestones, can close a cycle, and a gap on a cycle is never taken. `add`, `depends` and `assign` refuse a change that would put an unfinished gap or milestone on a cycle
 it was not on, naming the path; `status` names any on one (deps.py records gap dependencies without knowing milestones,
 so it can still close one).
 

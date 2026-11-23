@@ -166,3 +166,26 @@ Round 3 (implementor, 2026-11-23): the review's one finding, a cycle through gap
   from `pairs_of`; the second fails with the "not on a cycle already" filter removed.
 - Run here: tests/test_milestones.py (28 passed). Ruff is clean. main has no commits past this branch's last merge.
   Not run here: the unit suite and the four browser files.
+
+## Where it stopped
+
+Round 4 (implementor, 2026-11-23): the review's one finding, a cycle through a split parent, is fixed.
+- The finding was right, and round 3's record was wrong to say `parent` is no group: ergostat/spec/relations.py makes
+  `parent` a group by default, so precedence.py makes an unfinished split parent a summary. With split parent P in M1,
+  sub-gap S in M2 and M2 depends_on M1, the cycle M2 -> S -> P's end -> M1's end -> M2 holds S untaken and M1 open.
+- Now `pairs_of` (dev/bin/milestones.py) builds the graph from every precedence and group relation of the gap and
+  milestone kinds, named in `PRECEDENCE` and `GROUPS` (`gap`: `milestone` and `parent`). Any item with unfinished
+  members is a summary. A member that is itself a summary is joined to its group's end by its own end, as precedence.py's
+  `end_of(c)` does. Before, a member was joined by itself, which gets a nested summary (a split parent in a milestone) wrong.
+- tests/test_milestones.py::test_assign_and_depends_refuse_a_cycle_through_a_split_parent: `depends M2 M1` is refused
+  with the path once S is in M2, and `assign T M3` is refused when M3 already depends on M1. It fails with `parent`
+  removed from `GROUPS`, and it fails with the member's end edge put back as it was.
+  ::test_the_relations_the_cycle_check_reads_are_the_models pins `PRECEDENCE` and `GROUPS` to the compiled model's
+  precedence and group relations of both kinds. A group added to the gap kind fails it until the check reads it. It
+  fails with `parent` removed from `GROUPS`.
+- Choice made alone: the check keeps parked gaps in its graph, while precedence.py leaves out a paused (parked) item. A
+  parked gap is continued later, and the cycle comes back with it, so this refuses a little more than the take sees
+  today. Making it match exactly is a one-line change to the `live` set in `pairs_of`.
+- dev/README.md's *Milestones* section now says a split across two milestones can close a cycle too.
+- Run here: tests/test_milestones.py (30 passed). Ruff is clean. main has no commits past this branch's last merge.
+  Not run here: the unit suite and the four browser files.

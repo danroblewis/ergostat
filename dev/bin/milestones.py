@@ -12,8 +12,9 @@ waiting, active, completed (final: no event moves one out of it).
   milestones.py depends MILESTONE ON [ON ...]     (refuses a cycle, a name that is no milestone, a completed one)
   milestones.py assign GAP MILESTONE              (refuses a completed milestone, and a cycle)
                             A cycle is sought in the precedence graph the implementor's take reads: gaps' depends_on,
-                            milestones' depends_on, and each milestone a summary of its gaps (ergostat/precedence.py),
-                            over the unfinished ones. A change that puts an item on a cycle it was not on is refused.
+                            milestones' depends_on, and each group a summary of its members (a milestone of its gaps, a
+                            split parent of its sub-gaps: ergostat/precedence.py), over the unfinished ones. A
+                            change that puts an item on a cycle it was not on is refused.
   milestones.py pull GAP | unpull GAP             (marks a gap pulled ahead of its milestone, or clears it: only said
                                                    here; what the implementor takes is not decided by this program)
   milestones.py status                            (each milestone, its state, what it waits on, its gaps by state)
@@ -191,26 +192,33 @@ def known(mid: str, ms: dict[str, dict]) -> dict:
     return ms[mid]
 
 
-END = " (its end)"                               # a milestone with gaps is a summary: a start node and an end node
+END = " (its end)"                               # a group with members is a summary: a start node and an end node
+# The relations the take's graph reads (ergostat.yaml; pinned to the compiled model by tests/test_milestones.py):
+# precedence (a before b), and groups (a summary: its start before each member, each member's end before its end)
+PRECEDENCE = {"gap": ("depends_on",), "milestone": ("depends_on",)}
+GROUPS = {"gap": ("milestone", "parent")}         # parent: a group by default (ergostat/spec/relations.py GROUPS)
 
 
 def pairs_of(ms: dict[str, dict], gaps: dict[str, dict]) -> list[tuple[str, str]]:
     """The precedence graph the Items page's critical path and the implementor's take read (ergostat/precedence.py),
     over the unfinished gaps and milestones: ``(a, b)``, a before b. A gap's depends_on and a milestone's depends_on
-    are precedence; a milestone with unfinished gaps is a summary (its start before each gap, each gap before its
-    end), so what it depends on comes before its gaps start and what depends on it waits for them all to end."""
-    live_m = {k for k, m in ms.items() if m["state"] != "completed"}
-    live_g = {k for k, g in gaps.items() if g["state"] not in DONE}
+    are precedence; an item with unfinished members (a milestone of its gaps, a split parent of its sub-gaps) is a
+    summary: its start before each member, each member's end before its end, so what it depends on comes before its
+    members start and what depends on it waits for them all to end. A parked gap is kept in (precedence.py leaves a
+    paused one out, but it is continued later, and the cycle with it)."""
+    live = {k: ("gap", g) for k, g in gaps.items() if g["state"] not in DONE}
+    live.update({k: ("milestone", m) for k, m in ms.items() if m["state"] != "completed"})
     kids: dict[str, list[str]] = {}
-    for gid in sorted(live_g):
-        for mid in ids_of(gaps[gid]["fields"].get("milestone")):
-            if mid in live_m:
-                kids.setdefault(mid, []).append(gid)
+    for c, (kind, it) in sorted(live.items()):
+        for r in GROUPS.get(kind, ()):
+            for p in ids_of(it["fields"].get(r)):
+                if p in live and p != c:
+                    kids.setdefault(p, []).append(c)
     end = lambda a: a + END if a in kids else a          # noqa: E731
-    out = [(end(d), a) for items, live in ((gaps, live_g), (ms, live_m)) for a in sorted(live)
-           for d in ids_of(items[a]["fields"].get("depends_on")) if d in live]
-    for mid, cs in kids.items():
-        out += [(mid, c) for c in cs] + [(c, mid + END) for c in cs]
+    out = [(end(d), a) for a, (kind, it) in sorted(live.items()) for r in PRECEDENCE.get(kind, ())
+           for d in ids_of(it["fields"].get(r)) if d in live]
+    for p, cs in kids.items():
+        out += [(p, c) for c in cs] + [(end(c), p + END) for c in cs]
     return out
 
 
