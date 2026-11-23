@@ -328,15 +328,22 @@ def without_stack_forward(text: str) -> str:
                   "", text)
 
 
+def without_stacking(text: str) -> str:
+    """A model file (or ergostat.yaml) as main had it before merge-pipeline-stacks-turned-on: no gaps-stacked,
+    depends_on finish-to-start."""
+    return re.sub(r"(?m)^  gaps-stacked:\n(?:    .*\n)*", "", text).replace(
+        "depends_on: {kind: gap, starts_at: [approved, queued, push-pending]}", "depends_on: gap")
+
+
 def factory_copy(where: Path, edit=lambda text: text) -> Path:
-    """The factory's model in a folder of its own, each model file passed through ``edit``."""
+    """The factory's model in a folder of its own, each model file (and ergostat.yaml) passed through ``edit``."""
     (where / "dev" / "model").mkdir(parents=True)
     for x in (ROOT / "dev").iterdir():
         if x.name != "model":
             (where / "dev" / x.name).symlink_to(x)
     for x in (ROOT / "dev" / "model").iterdir():
         (where / "dev" / "model" / x.name).write_text(edit(x.read_text()))
-    (where / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+    (where / "ergostat.yaml").write_text(edit((ROOT / "ergostat.yaml").read_text()))
     return where
 
 
@@ -398,7 +405,9 @@ def test_a_joined_gap_that_lands_enters_the_landed_stock_once(tmp_path):
 def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, capsys, monkeypatch):
     """gaps-landed-stock: `ergostat check` on the model with gaps-landed says nothing it did not say without it, and
     the Dynamics diagram draws the stock with the pipes into it. merge-pipeline-stacks-merged-forward: nor with the
-    block stack-forward and its sensor, goal and flow (removed from the model checked before, too)."""
+    block stack-forward and its sensor, goal and flow (removed from the model checked before, too).
+    merge-pipeline-stacks-turned-on: nor with depends_on's starts_at and the auxiliary gaps-stacked, which the
+    Dynamics diagram draws."""
     from ergostat import model as mdl
     from ergostat.cli import main, spec_cmds
     from ergostat.numbers import extremes_cache
@@ -413,10 +422,11 @@ def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, ca
         got = json.loads(capsys.readouterr().out)
         assert got["ok"], [x for x in got["found"] if x["level"] == "error"]
         return {x["id"] for x in got["found"] if x["level"] != "error"}
-    before = factory_copy(tmp_path / "before", lambda t: without_stack_forward(without_landed(t)))
+    before = factory_copy(tmp_path / "before", lambda t: without_stacking(without_stack_forward(without_landed(t))))
     old = "".join(x.read_text() for x in (before / "dev" / "model").iterdir())
     assert "\n  gaps-landed:" not in old and "to: gaps-landed" not in old and "merged_by: null" not in old
-    assert "stack-forward" not in old and "stale-stacks" not in old
+    assert "stack-forward" not in old and "stale-stacks" not in old and "gaps-stacked" not in old
+    assert "      depends_on: gap\n" in (before / "ergostat.yaml").read_text()
     now = found(factory_copy(tmp_path / "now"))
     assert not [x for x in now if x.startswith(("extremes-running", "extremes-skipped"))]
     assert sorted(now - found(before)) == []
@@ -424,7 +434,7 @@ def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, ca
     live = Live(Project(mdl.load(tmp_path / "now"), directory=tmp_path / "state"))
     g = api(live, "graph", {"view": ["dynamics"], "open": ["*"]})
     ids = {n["id"] for n in g["nodes"]}
-    assert "stock:gaps-landed" in ids
+    assert "stock:gaps-landed" in ids and "stock:gaps-stacked" in ids      # (an auxiliary's node is named stock: too)
     into = {e.get("from", e["source"]) for e in g["edges"] if e["kind"] == "pipe" and e["target"] == "stock:gaps-landed"}
     assert {"flow:gaps-merged", "flow:joins-covered"} <= into, into
 
@@ -5816,6 +5826,122 @@ def test_finish_refuses_a_head_that_no_longer_holds_a_base(tmp_path):
     assert r.returncode == 0, r.stderr[-800:]
     said = json.loads(r.stdout.strip().splitlines()[-1])
     assert said.startswith(f"the branch no longer holds main or a base, merged in before it {sha[:12]}: refused"), said
+
+
+# ---- merge-pipeline-stacks-turned-on: a gap starts on approved dependencies and is reviewed against its base
+
+def test_the_factory_takes_a_gap_whose_dependency_is_approved(tmp_path):
+    """The engine's take (Dispatcher.ready's filter, then takes: unblocked) on a copy of the factory's model: a ready
+    gap whose only dependency is approved, queued or push-pending is taken; one in fix or parked, or the same
+    approved one on the model as it was (finish-to-start), is not."""
+    from types import SimpleNamespace
+
+    from ergostat import model as mdl
+    from ergostat.leases.ready import unblocked
+    from ergostat.spec import items as its
+    from ergostat.store import Project
+    fac = module("fac")
+
+    def taken(where: Path, dep_at: str) -> list[str]:
+        (where / "state").mkdir()
+        p = Project(mdl.load(where), directory=where / "state")
+        spec, ev, t = p.model.spec, p.events, time.time() - 3600
+        assert spec.items["gap"].relations["depends_on"].starts_at in ([], None, list(fac.STACKABLE))
+        steps = {"approved": ("gap.started", "gap.built", "gap.review-started", "gap.approved")}
+        steps["queued"] = (*steps["approved"], "gap.queued")
+        steps["push-pending"] = (*steps["queued"], "gap.push-pending")
+        steps["fix"] = (*steps["approved"][:3], "gap.sent-back")
+        steps["parked"] = (*steps["fix"], "gap.parked")
+        for k, e in enumerate(("gap.found", "gap.defined", *steps[dep_at])):
+            ev.add(e, item="gap/base", data={"rank": 1} if k == 0 else {}, at=t + k)
+        ev.add("gap.found", item="gap/top", data={"rank": 2, "depends_on": ["gap/base"]}, at=t + 20)
+        ev.add("gap.defined", item="gap/top", at=t + 21)
+        b = spec.blocks["implementor"]
+        got = [i for i in its.project(ev, spec, "gap") if i.state in b.takes.at and its.matches(i, b.takes.where)]
+        assert {i.id: i.state for i in its.project(ev, spec, "gap")}["gap/base"] == dep_at
+        return [i.id for i in unblocked(SimpleNamespace(p=p, spec=spec), b, got)]
+    for dep_at in fac.STACKABLE:
+        assert taken(factory_copy(tmp_path / dep_at), dep_at) == ["gap/top"], dep_at
+    for dep_at in ("fix", "parked"):
+        assert "gap/top" not in taken(factory_copy(tmp_path / dep_at), dep_at), dep_at  # (a base in fix: taken itself)
+    assert taken(factory_copy(tmp_path / "before", without_stacking), "approved") == []    # as main had it
+
+
+def test_a_stacked_gap_is_reviewed_against_its_base(tmp_path):
+    """The reviewer of a stacked gap gets only its own diff (not its base's 50 lines), the same net lines as its
+    implementor counted, within a budget its base alone would break, and a brief naming its bases; a head that does
+    not hold its base is a blocking finding, judged against main (lesson-3)."""
+    def built(f: Factory) -> str:
+        base_gap(f, "beta-base", {"base.py": "".join(f"x{i} = {i}\n" for i in range(50))}, rank=1)
+        gid = stacked(f, "gap/beta-base")
+        (f.tmp / "instance" / "run" / "defs" / "alpha-thing.md").write_text(
+            "# alpha thing\n\n## Definition of done\n\nIt works.\n\n## Size budget\n\n10 net lines.\n")
+        said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES="own.py")
+        assert said == ["gap.started", "gap.built"] and f.item(gid)["fields"]["net_lines"] == 2
+        assert f.item(gid)["fields"]["budget"] == 10
+        return gid
+
+    f = Factory(tmp_path / "one")
+    gid = built(f)
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.approved", f.item(gid)["fields"].get("findings")
+    (rid,) = [i for i in f.db()["items"] if i.startswith("review/alpha-thing-")]
+    assert f.item(rid)["fields"]["net_lines"] == f.item(gid)["fields"]["net_lines"] == 2
+    text = (f.tmp / "instance" / "run" / "briefs" / "alpha-thing-reviewer-1.md").read_text()
+    diff = text.split("```diff", 1)[1].split("```", 1)[0]
+    assert "own.py" in diff and "base.py" not in diff and "x49 = 49" not in diff
+    assert "# This gap is stacked" in text and "gap/beta-base at " in text
+    sb = f.item(gid)["fields"]["stack_base"]                       # its base, said with its head (implement.py)
+    assert sb == git(f.tmp / "live" / "drop.git", "rev-parse", "refs/stack/factory/alpha-thing")
+    assert f"`git diff {sb}...HEAD`" in text
+
+    g = Factory(tmp_path / "two")                                 # its base gone from the drop: never judged on main
+    gid = built(g)                                                # as if it were the gap's own
+    git(g.tmp / "live" / "drop.git", "update-ref", "-d", "refs/stack/factory/alpha-thing")
+    g.fold([{"event": "gap.measured", "item": gid, "data": {"stack_base": ""}}], None)    # (built before stack_base)
+    said, _ = g.run("review.py", gid)
+    assert said[-1] == "gap.sent-back"
+    found = g.item(gid)["fields"]["findings"]
+    assert any(x.startswith("gate 1: stacked on gap/beta-base at ") and "judged against main" in x for x in found)
+    (rid,) = [i for i in g.db()["items"] if i.startswith("review/alpha-thing-")]
+    assert g.item(rid)["fields"]["net_lines"] == 52                # the worst case: its base's 50 lines counted too
+    assert any(x.startswith("size: 52 net lines") for x in found), (g.item(rid)["fields"], found)
+
+    h = Factory(tmp_path / "three")                 # its base approved again and merged forward while it is built: the
+    gid = built(h)                                  # base it is judged against moves with it, so its diff stays its own
+    drop, before = h.tmp / "live" / "drop.git", git(h.tmp / "live" / "drop.git", "rev-parse", "refs/stack/factory/alpha-thing")
+    new = commit_on(h, "beta-base", {"base2.py": "".join(f"y{i} = {i}\n" for i in range(30))})
+    taken = h.record.read_text()                    # the record as a reviewer that took the gap just before read it
+    said, _ = h.run("stack.py")
+    assert said == ["gap.measured"] and h.item(gid)["state"] == "built" and holds(drop, new, h.item(gid)["fields"]["head"])
+    ref = git(drop, "rev-parse", "refs/stack/factory/alpha-thing")
+    assert ref != before and parents(h, ref) == [before, new]              # its base made again, by the base's head
+    assert parents(h, h.item(gid)["fields"]["head"])[1] == ref             # and merged into it in the base's place
+    assert h.item(gid)["fields"]["stack_base"] == ref                      # said with the new head, in one event
+    moved = h.record.read_text()
+    h.record.write_text(taken)                      # lesson-1: the review taken in the window (its head and fields read
+    said, _ = h.run("review.py", gid)               # before the merge forward, its clone made after the ref moved)
+    assert said[-1] == "gap.approved", h.item(gid)["fields"].get("findings")
+    assert [h.item(i)["fields"]["net_lines"] for i in h.db()["items"] if i.startswith("review/alpha-thing-")] == [2]
+    h.record.write_text(moved)
+    said, _ = h.run("review.py", gid)
+    assert said[-1] == "gap.approved", h.item(gid)["fields"].get("findings")
+    (rid,) = [i for i in h.db()["items"] if i.startswith("review/alpha-thing-")]
+    assert h.item(rid)["fields"]["net_lines"] == h.item(gid)["fields"]["net_lines"] == 2
+    text = (h.tmp / "instance" / "run" / "briefs" / "alpha-thing-reviewer-1.md").read_text()
+    diff = text.split("```diff", 1)[1].split("```", 1)[0]
+    assert "own.py" in diff and "base2.py" not in diff and "y29 = 29" not in diff
+
+    k = Factory(tmp_path / "four")                  # merged forward but its base not made again with it: fails closed
+    gid = built(k)
+    stale = git(k.tmp / "live" / "drop.git", "rev-parse", "refs/stack/factory/alpha-thing")
+    commit_on(k, "beta-base", {"base2.py": "".join(f"y{i} = {i}\n" for i in range(30))})
+    said, _ = k.run("stack.py")
+    k.fold([{"event": "gap.measured", "item": gid, "data": {"stack_base": stale}}], None)
+    said, _ = k.run("review.py", gid)
+    assert said[-1] == "gap.sent-back"
+    found = k.item(gid)["fields"]["findings"]
+    assert any("does not hold them all: judged against main" in x for x in found), found
 
 
 # ---- merge-pipeline-stacks-merged-forward: a moved base merged forward into the gaps stacked on it (dev/bin/stack.py)

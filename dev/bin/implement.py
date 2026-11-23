@@ -85,11 +85,12 @@ def merge_main(work: Path, main: str, what: str = "main") -> list[str]:
     return conflicts
 
 
-def stack(cfg: dict, branch: str, main: str, bases: list[dict]) -> tuple[str, list[str]]:
+def stack(cfg: dict, branch: str, main: str, bases: list[dict], write: bool = True) -> tuple[str, list[str]]:
     """main and each base's reviewed head merged in rank order (by this program, `--no-ff`, never a rebase or a
     squash), in the drop with no work tree, as a commit under refs/stack/factory/<branch> (on no branch): (that commit,
     or ""; the files where two of them conflict). Each merge is dated as the base it adds, so the same main and bases
-    make the same commit in every round, and a branch that holds it is not merged again."""
+    make the same commit in every round, and a branch that holds it is not merged again. ``write`` False: the commit
+    only, the ref left as it is (stack.py moves it after the gap has said its new head and `stack_base`)."""
     d, at = agents.drop(cfg), main
     for b in bases:
         out = fac.git(d, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", at, b["sha"], check=False)
@@ -103,7 +104,8 @@ def stack(cfg: dict, branch: str, main: str, bases: list[dict]) -> tuple[str, li
                              b["sha"], "-m", f"Merge {b['gap']} ({b['sha'][:12]}) under {branch}\n\n{fac.TRAILER}"],
                             env={**os.environ, **WHO, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when},
                             capture_output=True, text=True, check=True, timeout=600).stdout.strip()
-    fac.git(d, "update-ref", f"refs/stack/{fac.git_branch(branch)}", at)
+    if write:
+        fac.git(d, "update-ref", f"refs/stack/{fac.git_branch(branch)}", at)
     return at, []
 
 
@@ -294,6 +296,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
             break
     net = fac.net_lines(agents.drop(cfg), against if bases else cfg["git"]["base"], head)
     record = dict(**on, rounds=1, ai_cost_usd=round(cost, 4), sessions=sessions, contexts=[context], head=head,
+                  stack_base=against if bases else "",
                   net_lines=net, budget=fac.budget_of(definition), built_main=base_sha, suites_fast=suites, session_dir=str(home),
                   fast_seconds=round(fast_seconds, 1),
                   build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:],

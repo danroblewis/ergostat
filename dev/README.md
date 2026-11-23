@@ -849,9 +849,36 @@ A gap is never left a dead letter: a run that fails on its last attempt parks th
 
 ## Stacked gaps
 
-A gap whose every unfinished dependency is approved, queued or push-pending is built on their reviewed heads, not on
-main (implement.py, step 1), and says so in `stacked_on: [{gap, sha}]`. The queue lands a stack bottom-up, all of it
-or none (queue.py).
+The factory does not wait for a dependency to merge. `depends_on` in ergostat.yaml is
+`{kind: gap, starts_at: [approved, queued, push-pending]}`, so the implementor takes a ready gap as soon as each
+dependency is reviewed (approved) or further along, and it is not yet on main.
+
+- **Built.** A gap whose every unfinished dependency is approved, queued or push-pending is built on their reviewed
+  heads, not on main (implement.py, step 1). main and each base are merged, in rank order, into
+  `refs/stack/factory/<branch>`, and the branch starts from that. The gap says so in `stacked_on: [{gap, sha}]`, and
+  says that base's commit as `stack_base` in the event that says its head. Its net lines, strays and check findings
+  are measured against that base.
+- **Reviewed.** The reviewer judges it against the same base, never main (review.py `stacked_base`), so its diff, its
+  net lines (the same number its implementor counted) and gate 1 cover only its own commits. It reads the base from
+  `stack_base`, said with the head it reviews (the ref only for a gap built before that field), so a review taken
+  while stack-forward moves the gap sees one head and its own base. The brief says it is stacked and names its
+  bases. When stack-forward brings a base's new head into a built gap, it makes a new base commit (the old base and
+  that head merged, no ref written), merges it into the gap in the head's place (stack.py `restack`), says the new
+  head and `stack_base` in one event, and only then moves `refs/stack/factory/<branch>`, from the old value only, so
+  the base stays below the head and the base's fix commits stay out of the gap's diff. A
+  head that does not hold that base, or a base that does not hold every `stacked_on` sha (one stack-forward could not
+  move), is a blocking finding, and the gap is judged against main, its bases' lines included.
+- **Landed.** The queue lands a stack bottom-up, all of it or none (queue.py).
+- **Said.** Its `blocked_reason` on the Items page reads `stacked on gap/x (approved)` rather than "waits on". The
+  auxiliary `gaps-stacked` (`deps.py stacked`: the gaps with a `stacked_on`, or one that cannot be read, and not
+  merged or closed) shows stacked work on the Dynamics diagram. It is an auxiliary, not a stock, because those gaps
+  are already counted in their own states' stocks.
+- **When a base fails or parks.** A base sent back to fix, or failing in the queue, leaves `starts_at`. A gap not
+  yet started waits on it again (`waits on gap/x, which is fix`). One already built stays as it is, and the merge
+  forward below brings in the base's fixed head once it is approved again. A parked (or dead) base sets
+  `waits_on_parked` on what depends on it, and the implementor does not take it until the base is continued or the
+  dependency removed. A descendant already approved or queued is not landed without its base, because the queue
+  takes a stack whole or not at all.
 
 A base can move after that: sent back by review or triage, a fix round adds commits and it is approved again at a new
 `reviewed_head`. The block `stack-forward` (`dev/bin/stack.py`, every 5 minutes while `stack-forward-when` commands

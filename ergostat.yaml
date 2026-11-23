@@ -120,7 +120,9 @@ items:
            parked_for, loop_rounds, loop_hours]
     # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended and gates (dev/bin/times.py)
     relations:
-      depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
+      depends_on: {kind: gap, starts_at: [approved, queued, push-pending]}
+                                     # precedence: ready to build once every gap it names is finished, or reviewed and
+                                     # not yet on main (starts_at, fac.STACKABLE: built stacked on it; dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where);
                                      # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
