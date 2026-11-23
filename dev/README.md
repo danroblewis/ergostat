@@ -793,7 +793,8 @@ merges landed but before its push was recorded, with what it landed (`why` says 
 The merge pipeline's health is read from the batch items (`dev/bin/landing.py`, through `measure.py`):
 `main-still-minutes` (since the latest batch that landed something, its `landed_at`), `batch-runs`,
 `batch-first-green`, `crash-lost-minutes` and `gaps-landed-per-hour` (the last day), charted together on the dashboard
-`landing.merge-pipeline`. The goal `main-moving` holds `main-stalled-minutes` at 120 (tolerance 30): the minutes main has
+`landing.merge-pipeline`. The goal `main-moving` (in `manager.yaml`, system `managing`, where the pipeline watch that
+reads it is) holds `main-stalled-minutes` at 120 (tolerance 30): the minutes main has
 not moved while gaps wait (approved, queued, or leased by merge-queue), from the later of its last move and the oldest
 waiting gap's approval, so it is 0, never off, while nothing waits. Its reason, `measure.py main-stalled-why`, names
 the current batch, its run and the cause ("batch/x-… (isolating, 3 gap(s)), run 6 (halves) crashed: OSError: …"); the

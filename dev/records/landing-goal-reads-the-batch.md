@@ -86,3 +86,18 @@ branch's ergostat changes taken out (pages.js's line put back and `place()` not 
 `examples/first-loop`, which has no relation for `place` to read and none of the new factory parts. So it is not
 this branch's (lesson 13), and it is left alone. Not run here: the unit suite, the other three browser files, and
 demo_check (no example touched).
+
+### Sent back before the suites: `interface system.managing`
+
+The check found `interface` on `system.managing`, on the branch and not on main. Pipeline-watch (system `managing`)
+reading `goal.main-moving` (then in `landing.yaml`, system `landing`) added a tenth information link across
+managing's boundary, which reaches `WIDE` (10, `ergostat/spec/architecture.py`). The fix is a move. The goal
+`main-moving` now sits in `dev/model/manager.yaml`, beside `merge-pipeline-flowing`, which is the same kind of goal
+(the manager's view of the pipeline, read by the watch). So the watch's read stays inside `managing`. A goal reading an
+auxiliary in another system is not a port (`Spec._interfaces` counts block reads and targets only), so
+`main-stalled-minutes` staying in `landing.yaml` crosses nothing new. The goal's name, setpoint, tolerance, the
+watch's `in:` edge (what draws it in Blocks) and every test are unchanged. This is the most reversible choice: moving
+the goal back is one block of YAML. Removing the edge instead would have taken the goal out of Blocks (done item 4).
+The `allows-findings` line was not touched (there is none). In this session Bash was refused, every command of it.
+So I could not run `ergostat check`, the tests, ruff, or `git commit`. The edits are in the working tree, uncommitted.
+The fix is reasoned from the check's code, and no run has confirmed it yet.

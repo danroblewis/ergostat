@@ -90,7 +90,7 @@ auxiliaries:
       no value without a readable report at most 20 of main's merges old
     driven-by: [-flow.gaps-merged]
     sensor: {run: python3 dev/bin/measure.py coverage-below-floor, every: 30m, timeout: 1m, description: the factory's measures}
-  # The merge pipeline's health, from its batch items (dev/bin/landing.py; the goal main-moving is landing.yaml's)
+  # The merge pipeline's health, from its batch items (dev/bin/landing.py; the goal main-moving is manager.yaml's)
   main-still-minutes:
     unit: minutes
     description: minutes since main last moved - since the latest batch that landed something; no value before any did
