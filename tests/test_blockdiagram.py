@@ -752,6 +752,16 @@ def test_every_wire_at_the_top_level_has_a_label_and_software_factory_closes_its
         assert all(e["signal"].get("sym") for e in es), (ex, [e["id"] for e in es if not e["signal"].get("sym")])
 
 
+def test_the_top_loop_stands_for_its_goals_and_signals_in_the_correspondence():
+    from ergostat.correspond import blocks_shapes
+    spec = load(ROOT / "examples" / "software-factory" / "ergostat.yaml")
+    sh = blocks_shapes(drawn(spec), spec)
+    assert {p for x in sh.values() for p in x["is"] if "top:" in p} == set()
+    assert "goal.no-live-bugs" in sh["sum:top:product"]["is"] and "goal.no-live-bugs.r" in sh["ref:top:product"]["is"]
+    assert "stock.bugs-live" in sh["h:top:product"]["is"] and "stock.bugs-live" in sh["out:top:product"]["is"]
+    assert sh["dist:top:product"]["is"] == ["auxiliary.ops-broken-per-ticket"]
+
+
 @pytest.mark.parametrize("which", ["two", "software-factory"])
 def test_opening_either_subsystem_shows_the_same_signals_at_its_frame_ports(tmp_path, which):
     spec = _two(tmp_path) if which == "two" else load(ROOT / "examples" / which / "ergostat.yaml")

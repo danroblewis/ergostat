@@ -1539,14 +1539,16 @@ def _top_loop(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict,
            "ym": ("y", "m", "measured", m), "d": ("d", P, "disturbance", len(dk))}                    # the textbooks: by their Σ)
     for k, (s_, sub, what, w) in sig.items():
         d.sig[f"top:{k}:{P}"] = {"key": f"top:{k}:{P}", "sym": s_, "sub": sub, "what": what, "n": w}
-    node = lambda nid, **kw: out.setdefault(nid, {"id": nid, "system": at, "loops": list(goals), **kw})  # noqa: E731
-    node(rid, kind="input", role="reference", label=f"r {P}", fn={"sym": "r", "sub": P, "bold": n > 1,
-         "value": ", ".join(goals) if n > 1 else f"{goals[0]} {_hold(spec.goals[goals[0]])}"},
+    node = lambda nid, ks=keys, **kw: out.setdefault(nid, {"id": nid, "system": at, "loops": list(goals),  # noqa: E731
+                                                           "signals": list(ks), **kw})          # (correspond.py: what it is)
+    node(rid, [f"goal.{g}.r" for g in goals], kind="input", role="reference", label=f"r {P}",
+         fn={"sym": "r", "sub": P, "bold": n > 1, "value": ", ".join(goals) if n > 1 else f"{goals[0]} {_hold(spec.goals[goals[0]])}"},
          ins=[], outs=[{"id": f"{rid}|out|r", "side": "E"}], math=[sym("r", P, None, n > 1)],
          says=f"the references of {P} that {C} serves, {n}: " + "; ".join(f"{g} {_hold(spec.goals[g])}" for g in goals) + ".",
          rows=[["goals", ", ".join(goals)]])
-    node(sid, kind="sum", role="comparator", label=f"Σ {P}", ins=[{"id": f"{sid}|in|r", "side": "W", "sign": "+"},
-         {"id": f"{sid}|in|y", "side": "S", "sign": "−"}], outs=[{"id": f"{sid}|out|e", "side": "E"}],
+    node(sid, [f"goal.{g}{x}" for g in goals for x in ("", ".r")], kind="sum", role="comparator", label=f"Σ {P}",
+         ins=[{"id": f"{sid}|in|r", "side": "W", "sign": "+"}, {"id": f"{sid}|in|y", "side": "S", "sign": "−"}],
+         outs=[{"id": f"{sid}|out|e", "side": "E"}],
          math=[eq(sym("e", P, None, n > 1), row(sym("r", P, None, n > 1), mo("−"), sym("y", f"m,{P}", None, m > 1)))],
          says=f"compares {P}'s references with what is measured of it: e = r − y_m. {C} reads y_m itself ({ys}) "
               "and compares inside: this junction is those comparisons, drawn ahead of it.")
@@ -1570,7 +1572,7 @@ def _top_loop(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict,
     wire("y", p, back["sourcePort"], hid, f"{hid}|in|y", feedback=True)
     wire("ym", hid, f"{hid}|out|ym", sid, f"{sid}|in|y", sign="−", feedback=True)
     if dk:
-        node(did, kind="input", role="disturbance", label=f"d {P}", fn={"sym": "d", "sub": P, "bold": len(dk) > 1},
+        node(did, dk, kind="input", role="disturbance", label=f"d {P}", fn={"sym": "d", "sub": P, "bold": len(dk) > 1},
              ins=[], outs=[{"id": f"{did}|out|d", "side": "E"}], math=[sym("d", P, None, len(dk) > 1)],
              says=f"what enters {P} that no valve sets, {len(dk)}: {', '.join(_keyname(k) for k in dk)}.")
         boxes[p]["ins"].append({"id": f"{p}|in|d", "side": "N", **({"key": "vec", "n": len(dk), "keys": dk}

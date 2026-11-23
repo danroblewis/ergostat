@@ -1863,7 +1863,8 @@ def test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip(browse
 
 TOP_LOOP = """() => {
   const at = (id) => S.layout.children.find((c) => c.id === id), by = Object.fromEntries(S.graph.nodes.map((n) => [n.id, n]));
-  const said = (e) => by[e.source]?.kind === "input" || S.graph.edges.some((x) => x.sourcePort === e.sourcePort && by[x.target]?.kind === "output");
+  const said = (e) => by[e.source]?.kind === "input" ||
+    S.graph.edges.some((x) => x.sourcePort === e.sourcePort && by[x.target]?.kind === "output");
   const net = (e) => [...document.querySelectorAll("svg.canvas text.bd-sig")].some((t) => t.dataset.net === e.sourcePort);
   const node = (id) => document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(id)}"]`)?.textContent || "";
   return { sum: at("sum:top:product"), c: at("sys:factory"), p: at("sys:product"), h: at("h:top:product"),
