@@ -93,3 +93,19 @@ Its runs failed past their attempts (a dead letter):
 - attempt 5: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 6: nack exited 1
 - attempt 7: nack the run ended with gap/quiet-system-says-all-holding still parked
+
+## Where it stopped
+
+Round 2 (2026-11-23): the factory's merge of main (bf6dbebf) conflicted in diagram.js and pages.js. Both were resolved
+by keeping main's lines and the branch's: in `show()`, main's caption lines plus the branch's `quietRefresh(g)` call.
+On the Loops page, main's "Loading…" box plus the branch's `qbox` of quiet lines. Committed as b055f008. Nothing else
+changed: the build is round 1's.
+
+- Run after the merge: ruff (clean), tests/test_quiet_system.py (4 passed), tests/test_page_refresh.py (9 passed,
+  1 failed, twice).
+- The failure is `test_other_pages_left_open_change_nothing[diagram?view=process&by=events]`: 6 mutations in 3
+  refreshes, each a DIV's `class` and an H1's `title`. These are written on every graph answer by two lines main
+  brought into `show()` in diagram.js: `shell.classList.remove("opening")` and `caption.title = caption.textContent`,
+  which write the attribute even when it is unchanged. The branch's `quietRefresh` writes only to
+  `#detail [data-quiet]`, and no panel is open in that test. So the failure is main's, not this branch's (lesson 13):
+  it is left alone. It was not run on main itself here, because `git worktree add /tmp/mainwt main` was refused.
