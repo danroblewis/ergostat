@@ -13,9 +13,13 @@ scratch copy each measured on the same record:
   worked out (a fit made measurable counts for the change, one made unmeasurable against it; with ``fit_counts``
   off, as the judge scores a change that cannot move the replay, it counts only against it);
 - **behaviour kept**: what the old model explained (a stock its replay follows, an equation that explains its flow)
-  the new still explains: still there (or renamed), no worse beyond the tolerance.
+  the new still explains: still there (or renamed), no worse beyond the tolerance;
+- **systems**, only for a change that adds a system or moves a part between systems: each system it adds or moves a
+  part into or out of, its flows and causal links with both ends in it against those that cross out of it (a part of no
+  system the model declares is in none: its links cross). Worse when one crosses more than it holds; improved when
+  each holds more than it crosses. How connected the systems are, nothing about what each is for.
 
-The verdict is **better** when the structural measures (findings, chains, coherence) improve (net) and none is worse,
+The verdict is **better** when the structural measures (findings, chains, coherence, systems) improve (net) and none is worse,
 the fit is no worse and no behaviour is lost (craft notes it opens are said beside it, and count against it only when
 nothing else moves); **mixed** when something improves and something is worse; **no better** when nothing improves.
 Whatever it says, the scorecard is kept and shown."""
@@ -31,7 +35,8 @@ SLACK = 0.02                # ... a stock's scaled error by this much besides, o
 EXPLAINED = 0.5             # a stock whose replay's scaled error is at most this is explained by the model
 EQ_EXPLAINED = 0.5          # an equation whose partial fit's R² is at least this explains its flow
 EQ_DROP = 0.1               # ... and keeps doing so unless it falls by more than this
-WEIGHTS = {"findings": 3.0, "pieces": 3.0, "mismatches": 2.0, "coherence": 4.0, "craft": 0.5, "lost": 5.0, "fit": 2.0}
+WEIGHTS = {"findings": 3.0, "pieces": 3.0, "mismatches": 2.0, "coherence": 4.0, "craft": 0.5, "lost": 5.0, "fit": 2.0,
+           "systems": 3.0}
 
 
 def _skip(x) -> bool:
@@ -40,13 +45,18 @@ def _skip(x) -> bool:
     return x.code in NOT_MODELLING or template_made(x) or not x.code
 
 
+def _as_note(x) -> bool:
+    from .requests import as_note
+    return as_note(x)
+
+
 def findings(problems) -> set[str]:
     return {f"{x.code}@{x.about}" if x.about else x.code for x in problems
-            if x.level not in ("error", "note") and not _skip(x)}
+            if x.level != "error" and not _as_note(x) and not _skip(x)}
 
 
 def notes(problems) -> set[str]:
-    return {f"{x.code}@{x.about}" if x.about else x.code for x in problems if x.level == "note" and not _skip(x)}
+    return {f"{x.code}@{x.about}" if x.about else x.code for x in problems if _as_note(x) and not _skip(x)}
 
 
 def pieces(spec: Spec) -> dict[str, int]:
@@ -69,6 +79,59 @@ def pieces(spec: Spec) -> dict[str, int]:
                 parent[root(f.source)] = root(f.target)
         out[k] = len({root(s) for s in set(c.stock_of.values())})
     return out
+
+
+_PARTS = (("stock", "stocks"), ("flow", "flows"), ("auxiliary", "auxiliaries"), ("goal", "goals"), ("block", "blocks"))
+
+
+def _placed(spec: Spec) -> dict[str, list[str]]:
+    """Each part → the systems it is in, innermost first (``correspond.system_of``); [] for a part of no system, or of
+    a system the model does not declare: it is in none, so a link to it crosses (never inside every system)."""
+    from ..correspond import system_of
+    out = {}
+    for k, t in _PARTS:
+        for n in getattr(spec, t):
+            s = system_of(spec, f"{k}.{n}")
+            out[f"{k}.{n}"] = [x for x in spec.chain(s) if x in spec.systems] if s in spec.systems else []
+    return out
+
+
+def _held(spec: Spec, system: str) -> dict[str, int]:
+    """The flows' and causal links' two ends both in the system (``inside``), or one in it and one not (``crossing``)."""
+    from ..spec.causal import links
+    at, out = _placed(spec), {"inside": 0, "crossing": 0}
+    for x in links(spec):
+        ins = (system in at.get(x.source, []), system in at.get(x.target, []))
+        if any(ins):
+            out["inside" if all(ins) else "crossing"] += 1
+    return out
+
+
+def systems(before: Spec, after: Spec, renames: dict[str, str]) -> dict | None:
+    """How the change set splits parts into systems (SPEC §12e): each system it adds, or that a part moves into or out
+    of, with its links inside against its links across, before and after; None when it adds no system and moves no part
+    (a renamed part is the same part, a system whose parts are exactly a system taken away's is that system renamed).
+    Worse when one such system crosses more than it holds; improved when each holds more than it crosses."""
+    pb, pa = _placed(before), _placed(after)
+    mb, ma = {}, {}
+    for r, ch in pb.items():
+        mb.setdefault(ch[0] if ch else None, set()).add(renames.get(r, r))
+    for r, ch in pa.items():
+        ma.setdefault(ch[0] if ch else None, set()).add(r)
+    gone = {frozenset(mb[s]): s for s in before.systems if s not in after.systems and mb.get(s)}
+    was = {s: gone.get(frozenset(ma.get(s, ())), s if s in before.systems else None) for s in after.systems}
+    now = {b: a for a, b in was.items() if b}
+    touched = {s for s, b in was.items() if b is None}
+    for r, ch in pb.items():
+        r2 = renames.get(r, r)
+        if r2 in pa and (now.get(ch[0]) if ch else None) != (pa[r2][0] if pa[r2] else None):
+            touched |= {s for s in (now.get(ch[0]) if ch else None, pa[r2][0] if pa[r2] else None) if s}
+    if not touched:
+        return None
+    out = {s: {"before": _held(before, was[s]) if was[s] else None, "after": _held(after, s)} for s in sorted(touched)}
+    worse = [s for s, v in out.items() if v["after"]["crossing"] > v["after"]["inside"]]
+    return {"by_system": out, "worse": worse,
+            "improved": not worse and all(v["after"]["inside"] > v["after"]["crossing"] for v in out.values())}
 
 
 UNSEEN = ("declared-not-seen-acting", "not-seen-acting")   # a block's runs on the record: none for a block not there then
@@ -277,6 +340,9 @@ def score(p, before: Spec, problems_before, after: Spec, problems_after, window:
         "lost": lost,
         "parts": parts,
     }
+    sy = systems(before, after, renames)
+    if sy:
+        card["systems"] = sy
     card["verdict"], card["why"], card["score"] = verdict(card, coh_up, coh_down, fit_counts)
     return card
 
@@ -332,8 +398,16 @@ def verdict(card: dict, coh_up: int = 0, coh_down: list | None = None, fit_count
         bad.append(f"the fit worse: {ft['says']}")
     if card["lost"]:
         bad.append(f"behaviour lost: {'; '.join(card['lost'][:2])}")
+    sy = card.get("systems") or {}
+    if sy.get("worse"):
+        bad.append("links across more than inside for system " + ", ".join(
+            f"{s} ({sy['by_system'][s]['after']['crossing']} across, {sy['by_system'][s]['after']['inside']} inside)"
+            for s in sy["worse"]))
+    elif sy.get("improved"):
+        good.append("more links inside than across for system " + ", ".join(sy["by_system"]))
     w = WEIGHTS
-    num = (w["findings"] * net_f + w["pieces"] * net_p + w["mismatches"] * net_m + w["coherence"] * (coh_up - len(coh_down))
+    num = (w["systems"] * ((1 if sy.get("improved") else 0) - len(sy.get("worse") or []))
+           + w["findings"] * net_f + w["pieces"] * net_p + w["mismatches"] * net_m + w["coherence"] * (coh_up - len(coh_down))
            + w["craft"] * net_c + w["fit"] * (1 if gain else -1 if ft.get("worse") else 0)
            - w["lost"] * len(card["lost"]))
     tail = f" (though {'; '.join(caveat)})" if caveat else ""
@@ -361,6 +435,12 @@ def lines(card: dict) -> list[str]:
               if co["kinds"] else ""),
            f"craft       notes {cr['before']} → {cr['after']}  (closed {len(cr['closed'])}, opened {len(cr['opened'])})",
            f"fit         {ft.get('says')}"]
+    sy = card.get("systems")
+    if sy:
+        def io(v):
+            return "–" if v is None else f"{v['inside']} in/{v['crossing']} across"
+        out.insert(5, "systems     " + ("worse" if sy["worse"] else "improved" if sy["improved"] else "no better") + "  ("
+                   + ", ".join(f"{s} {io(x['before'])} → {io(x['after'])}" for s, x in sy["by_system"].items()) + ")")
     for x in card["lost"]:
         out.append(f"lost        {x}")
     pt = card["parts"]

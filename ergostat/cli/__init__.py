@@ -17,7 +17,7 @@ from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
-from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual
+from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual, cmd_why
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
 from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
@@ -69,6 +69,7 @@ see it
   loop           The feedback loops: what each holds, how far off, each part along it
   item           The items (ticket/12): each one's kind, state and fields, folded from its events; --search WORDS
                  (ID --near [N], ID --path B, ID --about: what its relations and mentions reach, 2,000 items at most)
+  why            Why an item is not done (why ticket/12): the cause followed to its root, who must act, the evidence
   lease          The leases on items: who holds what, until when, and the dead letters (ITEM --redrive)
   decisions      The owner's decisions: extract them from transcripts, confirm, dismiss, supersede
   corrections    The owner's corrections: confirm, dismiss, retire; scan the record for them
@@ -82,6 +83,7 @@ run it
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
   remote         Remote systems this model reads (status); token NAME lets another ergostat read this one
+  worker         Be a compute node's worker for an engine (--stdio), or write it to copy to a node (--pack FILE)
   report         Reports about ergostat itself, scrubbed, for you to read and submit by hand (--draft TEXT)
   reset          Forget this project's record and start from nothing (--yes)
   verify         Score the changes written to the model again on the record since (--propose)
@@ -218,6 +220,8 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("--near", nargs="?", const="1", metavar="N", help="with an item: the items within N hops (1-4, default 1)")
     i.add_argument("--path", dest="path_to", metavar="B", help="with an item: a shortest chain of relations to B, either way")
     i.add_argument("--about", dest="about_item", action="store_true", help="with an item: what relates to it or names its id")
+    topic("why", cmd_why, "Why an item is not done: its state for how long, the cause followed to its root, who must "
+                          "act and how, the evidence")
     ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")
     ls.add_argument("--redrive", action="store_true", help="with ITEM: give a dead letter another go (its attempts from nothing)")
     ls.add_argument("--to", metavar="STATE", help="with --redrive: the state it goes back to (default: where it was taken from)")
@@ -307,11 +311,21 @@ def build() -> argparse.ArgumentParser:
             sp.add_argument("--forget-above", type=float, metavar="V", help="set aside readings above V (wrong ones: they "
                                                                           "would skew every rate and residual)")
             sp.add_argument("--forget-below", type=float, metavar="V", help="set aside readings below V")
+            sp.add_argument("--backfill", metavar="FILE", help="readings at past times: JSON lines {\"at\": EPOCH, "
+                                                              "\"value\": N} (- for standard input), written whole or "
+                                                              "not at all; one backfilled before is skipped")
+            sp.add_argument("--from", dest="from_", metavar="TEXT", help="with --backfill: where they came from")
+            sp.add_argument("--replace", action="store_true", help="with --backfill and --from: every reading from the "
+                                                                   "file's first at to its last set aside first (a measure "
+                                                                   "redefined: its history written again)")
+            sp.add_argument("--backfilled", action="store_true", help="the sensor's backfills: when, from, first, last, count")
         if t == "controller":
             sp.add_argument("--decided", metavar="TEXT", help="a person records a decision")
     r = topic("run", cmd_run, "Start the agents (in the background) and the web page", named=False)
     r.add_argument("--foreground", action="store_true", help="stay attached instead of running in the background")
-    r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs")
+    r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs "
+                                                       "(not those runs: outlive_engine leaves going: --runs)")
+    r.add_argument("--runs", action="store_true", help="with --stop: also the runs left going (runs: outlive_engine)")
     r.add_argument("--no-web", action="store_true", help="no web page")
     r.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     r.add_argument("--service", nargs="?", const="auto", choices=["auto", "launchd", "systemd"],
@@ -367,6 +381,8 @@ def build() -> argparse.ArgumentParser:
     remote_topics(sub, common)
     from .reports import register as report_topics
     report_topics(sub, common)
+    from .worker import register as worker_topic
+    worker_topic(sub, common)
     return ap
 
 

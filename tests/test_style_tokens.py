@@ -71,6 +71,16 @@ def test_no_important():
     assert "!important" not in CSS.read_text()
 
 
+def test_a_loop_row_made_a_button_keeps_the_rows_look():
+    """The side panel's loop rows are buttons (for the keyboard): the stylesheet takes off the button's own border,
+    fill and centring, so a row still reads as a row of the list."""
+    _, rules = split()
+    found = [dict(declarations("{" + body + "}")) for body in re.findall(r"button\.looprow\s*\{([^{}]*)\}", rules)]
+    assert found, "style.css has no button.looprow rule"
+    rule = found[0]
+    assert rule.get("border") == "0" and rule.get("background") == "none" and rule.get("text-align") == "left", rule
+
+
 def test_the_gate_catches_what_it_should():
     lits = {"color: #fff": True, "padding: 0 var(--sp-2)": False, "margin: -1px": True, "gap: 6px 10px": True,
             "font-size: 12.5px": True, "font-size: var(--text-sm)": False, "top: 50%": False}
@@ -79,6 +89,23 @@ def test_the_gate_catches_what_it_should():
         hit = bool(COLOUR.search(value) or (prop in ("font-size", "font") and literal_lengths(value)) or
                    (SPACING.match(prop) and literal_lengths(value)))
         assert hit == caught, decl
+
+
+def test_below_760_px_the_tabs_wrap_and_never_scroll_sideways():
+    """The narrow-width half of tests/test_items_page.py's phone/200% check, readable without a browser: below 760 px
+    the nav wraps onto its own rows, nothing in the sheet makes it scroll sideways, and the current page keeps its
+    underline."""
+    text = re.sub(r"/\*.*?\*/", "", CSS.read_text(), flags=re.S)
+    narrow = re.search(r"@media \(max-width: 759px\) \{(.*?)\n\}", text, flags=re.S)
+    assert narrow, "no @media (max-width: 759px) block"
+    nav = dict(declarations(re.search(r"\.bar nav \{[^{}]*\}", narrow.group(1)).group(0)))
+    assert nav.get("flex-wrap") == "wrap" and nav.get("overflow-x") == "visible", nav
+    for block in re.findall(r"@media \(max-width: (\d+)px\) \{(.*?)\n\}", text, flags=re.S):
+        if int(block[0]) < 760:
+            for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block[1]):
+                if sel.strip().startswith(".bar nav") and "a" not in sel.split():
+                    assert dict(declarations("{" + body + "}")).get("overflow-x", "visible") == "visible", sel
+    assert "border-bottom-color: var(--ink)" in re.search(r"\.bar nav a\.on \{[^{}]*\}", text).group(0)
 
 
 def _oklab(hexc: str) -> list[float]:
@@ -121,3 +148,63 @@ def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
             if ratio < 3:
                 low.append(f"--g{i} {step}: {ratio:.2f}")
     assert not low, low
+
+
+def test_the_arrows_and_guide_dot_borders_stand_3_to_1_on_the_paper_in_both_themes():
+    """The /item lifecycle and /items state arrows (.arrow) and the Guide's dot borders (.g-dot::before, the dot drawn
+    inside its 24px target) are graphics: WCAG's 3:1 against the page in the light and the dark theme, read from the
+    tokens they use."""
+    head, rules = split()
+    light_head, dark_head = head.split("prefers-color-scheme: dark", 1)
+    themes = {"light": dict(re.findall(r"(--[\w-]+):\s*([^;]+);", light_head))}
+    themes["dark"] = {**themes["light"], **dict(re.findall(r"(--[\w-]+):\s*([^;]+);", dark_head))}
+    arrow = re.search(r"(?m)^\.arrow\s*\{[^}]*\bcolor:\s*var\((--[\w-]+)\)", rules)
+    dot = re.search(r"(?m)^\.g-dot::before\s*\{[^}]*\bborder:[^;]*var\((--[\w-]+)\)\s*;", rules)
+    assert arrow and dot, "the .arrow colour and the .g-dot::before border are each one token"
+    low = []
+    for theme, tokens in themes.items():
+        bg = _luminance(_oklab(tokens["--bg"].strip()))
+        for what, token in (("arrow", arrow[1]), ("guide dot border", dot[1])):
+            y = _luminance(_oklab(tokens[token].strip()))
+            ratio = (max(y, bg) + 0.05) / (min(y, bg) + 0.05)
+            if ratio < 3:
+                low.append(f"{theme} {what} ({token}): {ratio:.2f}")
+    assert not low, low
+
+
+def test_the_first_level_note_sits_on_the_canvas_and_stacks_with_the_toolbar_on_a_narrow_screen():
+    """'Open all' on a model too big to read opens the first level and says so in a note diagram.js draws as
+    .open-level: it has its rule, sits over the canvas in small text, and goes static with .toolbar and .zoom."""
+    js = (CSS.parent / "diagram.js").read_text()
+    assert 'class: "open-level"' in js, "diagram.js no longer draws the first-level note as .open-level"
+    _, rules = split()
+    own = re.search(r"(?:^|\})\s*\.open-level\s*\{([^{}]*)\}", rules)
+    assert own, "style.css has no rule of its own for .open-level"
+    decls = dict(declarations("{" + own.group(1) + "}"))
+    assert decls.get("position") == "absolute" and decls.get("font-size") == "var(--text-sm)", decls
+    narrow = [sel for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
+              if "position: static" in body and ".toolbar" in sel]
+    assert any(".open-level" in sel for sel in narrow), "on a narrow screen the note stays absolute over the toolbar"
+
+
+def test_the_diagram_left_while_another_opens_is_dimmed_and_cannot_be_clicked():
+    """Into, Open (ui-open-into-and-every-panel-link-show-that-somethi): the diagram left stays on the screen, dimmed,
+    under 'Opening …', with its side list; neither may take a click meant for the diagram being opened."""
+    _, rules = split()
+    for sel in ("svg.canvas g.was", ".diagram.opening > .side"):
+        block = next((b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
+                      if sel in [x.strip() for x in s.split(",")]), None)
+        assert block is not None, f"no rule for {sel}"
+        decl = dict(declarations("{" + block + "}"))
+        assert float(decl.get("opacity", "1")) < 1, f"{sel} is not dimmed"
+        assert decl.get("pointer-events") == "none", f"{sel} still takes clicks"
+
+
+def test_the_dark_tokens_stand_aside_while_a_picture_is_exported():
+    """A saved picture is drawn light whatever the theme: each dark-theme rule excludes the class export.js sets on
+    <html> while it reads the drawing's styles, and export.js sets and then clears that very class."""
+    head, _ = split()
+    selectors = [s.strip() for s in re.findall(r"([^{}]+)\{[^{}]*\}", head.split("prefers-color-scheme: dark", 1)[1])]
+    assert selectors and all(s.endswith(":not(.export-light)") for s in selectors), selectors
+    js = (CSS.parent / "export.js").read_text()
+    assert 'classList.add("export-light")' in js and 'classList.remove("export-light")' in js

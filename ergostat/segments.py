@@ -104,6 +104,12 @@ def _run(e) -> tuple:
             int(d.get("unread") or 0) if mine else 0)
 
 
+def _full(e) -> tuple:
+    """A run that found its workspace pool full (the engine's note, from PoolFull): given back, not failed (SPEC §12k)."""
+    n = str((e.get("data") or {}).get("note") or "")
+    return (int(e["type"] == "agent.ran" and n.startswith("workspace pool ") and " has none free for " in n),)
+
+
 # what each tally adds up, over an item's events of some types: (types, of each event, adding two, nothing yet).
 # A segment adds up its own when it is sealed (its header's "tallies"), so a month's window is read from headers.
 TALLIES = {
@@ -111,6 +117,7 @@ TALLIES = {
                lambda a, b: (a[0] + b[0], a[1] + b[1], max(a[2], b[2])), lambda: (0, 0.0, -INF)),
     "decided": ("controller.decided", _decision, _merge, dict),
     "runs": ("agent.ran,agent.failed", _run, lambda a, b: tuple(x + y for x, y in zip(a, b, strict=True)), lambda: (0, 0, 0, 0)),
+    "full": ("agent.ran", _full, lambda a, b: (a[0] + b[0],), lambda: (0,)),
 }
 
 
@@ -440,10 +447,10 @@ class Segments:
             return []
         if after_seq is not None and s.last <= after_seq or before_seq is not None and s.first >= before_seq:
             return []
+        if item is not ... and s.span(item) is None:     # first: it rules out most segments, and costs a bisection
+            return []
         want_types = None if types is None else [t for t in s.types if types(t)]
         if want_types is not None and not want_types:
-            return []
-        if item is not ... and s.span(item) is None:
             return []
         items_ok = None if item_test is None else [i for i, x in enumerate(s.items) if item_test(x)]
         if items_ok is not None and not items_ok:
@@ -660,6 +667,32 @@ class Segments:
                           skip=tuple(skip), since=since, until=until, after_seq=after_seq, before_seq=before_seq,
                           test=test, limit=first)
 
+    def moments(self, *, n: int, type: str | None = None, since: float | None = None, until: float | None = None,
+                skip: tuple[str, ...] = ()) -> list[tuple[float, str]]:
+        """(time, type) of the newest ``n`` matching events, oldest first: from the segments' columns, no block unpacked
+        and no event parsed, which is what a chart of events needs and most of what reading them costs."""
+        test = _types_matcher(type, tuple(skip)) if type or skip else None
+        for attempt in range(3):
+            segs, hd, hn = self._hstate()
+            out = [(e["time"], e["type"]) for e in (hd.evs[j] for j in range(hn))
+                   if (test is None or test(e["type"])) and (since is None or e["time"] >= since)
+                   and (until is None or e["time"] <= until)][-n:]
+            try:
+                for s in reversed(segs):
+                    if len(out) >= n:
+                        break
+                    rows = self._rows(s, ..., test, since, until)[-(n - len(out)):]
+                    if rows:
+                        c = self._cols(s)
+                        out = [(c["time"][r], s.types[c["type"][r]]) for r in rows] + out
+                return out
+            except FileNotFoundError:                    # rewritten under us: ask again
+                if attempt == 2:
+                    raise
+                with self._lock:
+                    self._dir_stamp = None
+        return []
+
     def get(self, id: str) -> dict | None:
         segs, head = self._state()
         exact = len(id) >= 32
@@ -859,7 +892,7 @@ class Segments:
             whole = since <= s.t_min and s.t_max <= until
             key = (s.name, what, item)
             got = self._tallies.get(key) if whole else None
-            if whole and got is None and s.tallies is not None:
+            if whole and got is None and s.tallies is not None and what in s.tallies:   # (sealed before it had it: read)
                 got = s.tallies[what].get(item)
                 got = zero() if got is None else got if isinstance(got, dict) else tuple(got)
                 total = add(total, got)
@@ -901,7 +934,7 @@ class Segments:
 
     def runs(self, item: str, since: float, until: float | None = None) -> dict:
         r, f, ref, un = self._tally("runs", item, since, until)
-        return {"runs": r, "failed": f, "refused": ref, "unread": un}
+        return {"runs": r, "failed": f, "refused": ref, "unread": un, "pool_full": self._tally("full", item, since, until)[0]}
 
     # ---- taking events out
 
