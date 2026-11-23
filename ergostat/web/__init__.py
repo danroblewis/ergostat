@@ -8,7 +8,7 @@ import socket
 import threading
 from http.server import ThreadingHTTPServer
 
-from .server import handler
+from .server import handler, start_lister, stop_lister
 
 DEFAULT_PORT = 8781
 
@@ -68,10 +68,12 @@ class PooledServer(ThreadingHTTPServer):
     def shutdown(self):
         super().shutdown()
         self._stop_mtls()
+        stop_lister(self)                          # the header's lister stops with the last page of this process
 
     def server_close(self):
         super().server_close()
         self._stop_mtls()
+        stop_lister(self)
         jobs = getattr(self, "jobs", None)         # (none yet when the port could not be bound: the bind error is the news)
         for _ in range(self.workers if jobs is not None else 0):
             jobs.put(None)
@@ -116,6 +118,7 @@ def serve(project, port: int | None = None, mtls_port: int | None = None):
         server.mtls_port = server.mtls.server_address[1] if server.mtls else None
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=record_fits, args=(server.RequestHandlerClass.live,), name="ergostat-fit-history", daemon=True).start()
+    start_lister(server)                             # the header's project list, off the request path
     url = f"http://127.0.0.1:{port}"
     (project.dir / "web.json").write_text(json.dumps({"url": url}))
     return server, url

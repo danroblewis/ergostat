@@ -1,0 +1,142 @@
+"""Each kind says which of its states are finished, from one function (dev/records/items-kinds-say-which-states-finish.md):
+spec/finished.py finish_of, used by the Items listing, the relations (precedence.Kinds) and the estimates; the older
+rule's own callers (process.py, series.py, messages/route.py) give what they gave before."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import textwrap
+import time
+from pathlib import Path
+
+from ergostat import model as mdl
+from ergostat import precedence as pr
+from ergostat.spec import items as its
+from ergostat.spec.finished import finish_of
+from ergostat.spec.itemindex import done_states
+from ergostat.store import Project
+
+ROOT = Path(__file__).resolve().parent.parent
+PARITY = ROOT / "tests" / "fixtures" / "finished_parity.json"
+DEMOS = ("software-factory", "ticket-factory", "image-squeeze", "the-job", "roadmap")
+
+FACTORY = """
+items:
+  gap:
+    id: gap/*
+    states: [open, ready, building, in-review, merged, parked, closed]
+    on: {gap.opened: open, gap.ready: ready, gap.started: building, gap.built: in-review, gap.merged: merged,
+         gap.parked: parked, gap.closed: closed}
+  pool:
+    id: pool/*
+    states: [held]
+    on: {pool.measured: held}
+  answer:
+    id: answer/*
+    states: [asked, answered]
+    on: {answer.asked: asked, answer.given: answered}
+messages:
+  done: {gap: [merged, closed]}
+  paused: {gap: [parked]}
+"""
+
+
+def factory(tmp_path) -> Project:
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(FACTORY))
+    m = mdl.load(tmp_path)
+    assert m.spec is not None, [str(x) for x in getattr(m, "problems", [])]
+    return Project(m)
+
+
+def test_a_factory_shaped_gap_is_declared_and_its_pool_lives_on(tmp_path):
+    spec = factory(tmp_path).model.spec
+    gap = finish_of(spec, "gap", set())
+    assert (gap["finished"], gap["paused"], gap["from"], gap["lives_on"]) == (["merged", "closed"], ["parked"], "declared", False)
+    pool = finish_of(spec, "pool", {"held"})
+    assert (pool["finished"], pool["from"], pool["lives_on"]) == ([], "none", True)
+    assert finish_of(spec, "pool", set())["lives_on"]                       # one state: never done, left or not
+    assert finish_of(spec, "nothing", set())["lives_on"]
+
+
+def test_nothing_inferable_lives_on_where_the_older_rule_took_the_last_state(tmp_path):
+    spec = factory(tmp_path).model.spec
+    assert finish_of(spec, "answer", set())["finished"] == ["answered"]
+    gone = finish_of(spec, "answer", {"asked", "answered"})
+    assert (gone["finished"], gone["from"], gone["lives_on"]) == ([], "none", True)
+    assert done_states(spec.items["answer"], {"asked", "answered"}) == ["answered"]   # the older rule, kept for its callers
+    assert done_states(spec.items["pool"], set()) == ["held"]
+
+
+def test_ticket_factory_kinds_say_where_their_finish_comes_from():
+    """The definition named ticket-factory's ticket as inferred; it declares ``done: {ticket: [done]}``, so its okr
+    (nothing declared) is the inferred one, and its report (one state) lives on."""
+    spec = mdl.load(ROOT / "examples" / "ticket-factory").spec
+    assert (finish_of(spec, "ticket", set())["finished"], finish_of(spec, "ticket", set())["from"]) == (["done"], "declared")
+    okr = finish_of(spec, "okr", {"at-risk"})
+    assert (okr["finished"], okr["from"], okr["lives_on"]) == (["off-track"], "inferred", False)
+    assert finish_of(spec, "report", set())["lives_on"]
+
+
+def test_the_listing_the_relations_and_the_estimates_say_the_same(tmp_path):
+    p = factory(tmp_path)
+    ev, spec, t = p.events, p.model.spec, time.time() - 100
+    ev.add("gap.opened", item="gap/a", at=t)
+    ev.add("gap.merged", item="gap/a", at=t + 1)
+    ev.add("pool.measured", item="pool/x", at=t + 2)
+    ev.add("answer.asked", item="answer/1", at=t + 3)
+    ev.add("answer.given", item="answer/1", at=t + 4)
+    kinds = {k["name"]: k for k in its.listing(ev, spec)["kinds"]}
+    assert {f: kinds["gap"][f] for f in ("finished", "paused", "dead", "finished_from", "lives_on")} == \
+        {"finished": ["merged", "closed"], "paused": ["parked"], "dead": False, "finished_from": "declared", "lives_on": False}
+    assert kinds["pool"]["lives_on"] and kinds["pool"]["finished"] == [] and kinds["pool"]["finished_from"] == "none"
+    assert kinds["answer"]["finished"] == ["answered"] and kinds["answer"]["finished_from"] == "inferred"
+    from ergostat.spec.itemindex import index_for
+    info = pr.Kinds(spec, index_for(ev, spec, False))
+    assert info["gap"]["finished"] == ["merged", "closed"] and info["gap"]["paused"] == ["parked"]
+    assert info["pool"]["finished"] == []
+    src = {f: (ROOT / "ergostat" / f).read_text() for f in ("precedence.py", "spec/items.py", "numbers/etamodel.py")}
+    assert not [f for f, s in src.items() if "done_states" in s]        # none decides it but finish_of
+
+
+def _seed(p) -> None:
+    """Per kind, one item through every state its events name, and one left in its first."""
+    t = 1_700_000_000.0
+    for k in p.model.spec.items.values():
+        if not k.states or "*" not in k.id:
+            continue
+        on = sorted(((e, s) for e, s in k.on.items() if "*" not in e and s in k.states), key=lambda x: k.states.index(x[1]))
+        for n, steps in (("p1", on), ("p2", on[:1])):
+            for i, (e, _) in enumerate(steps):
+                p.events.add(e, item=k.id.replace("*", n, 1).replace("*", "x"), at=t + i)
+        t += 100
+
+
+def parity_outputs(tmp_path) -> dict:
+    """What process.py, series.py and messages/route.py say is finished, per demo and kind, on a seeded record."""
+    from ergostat import process, series
+    from ergostat.messages import route
+    out = {}
+    for demo in DEMOS:
+        d = tmp_path / demo
+        shutil.copytree(ROOT / "examples" / demo, d, ignore=shutil.ignore_patterns("run", "reports", "__pycache__"))
+        p = Project(mdl.load(d))
+        spec = p.model.spec
+        _seed(p)
+        for name, k in spec.items.items():
+            got = its.project(p.events, spec, name)
+            out[f"{demo}/{name}"] = {"process": sorted(process._done(spec, p.events, k)),
+                                     "series": series.finished_states(k, got),
+                                     "route": sorted(route.done_states(p, spec, k, got))}
+    return out
+
+
+def test_the_older_rules_callers_give_what_they_gave_before(tmp_path):
+    """The snapshot: taken with process.py, series.py, messages/route.py and itemindex.done_states as they are on main
+    (written by this test when missing, which then fails until it is committed)."""
+    got = json.dumps(parity_outputs(tmp_path), sort_keys=True, indent=1)
+    if not PARITY.exists():
+        PARITY.write_text(got + "\n")
+        raise AssertionError(f"{PARITY} written: check it and commit it")
+    assert got.count('"process"') > 10
+    assert got == PARITY.read_text().strip()
