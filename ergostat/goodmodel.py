@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 DIR, MANIFEST, OBJECTS = "good", "manifest.json", "objects"
-READS = {None, "status", "item", "why", "event", "lease", "loop", "system", "explain", "findings", "residual", "fit", "claims",
+READS = {None, "status", "item", "why", "held-up", "event", "lease", "loop", "system", "explain", "findings", "residual", "fit", "claims",
          "messages", "agent", "block", "inbox", "stock", "flow", "valve", "sensor", "controller", "disturbance"}
 ACTS = ("add", "redrive", "renew", "nack", "check", "about", "reopen", "now", "done", "approve", "deny", "stop",
         "restart", "check_warm", "opened", "read", "forget_above", "forget_below", "decided", "requests", "invest", "reset",
@@ -25,7 +25,7 @@ READ_WHAT = {"remote": ("proposals",)}
 READ_FLAGS = ("n", "kind", "state", "history", "type", "item", "source", "follow", "runs", "data", "patch", "set_", "by",
               "to", "why", "after", "no_count", "all", "around", "depth", "list", "wiring", "blocks", "open", "note",
               "command", "stats", "search", "near", "path_to", "about_item", "backfilled", "from_",
-              "replace")
+              "replace", "groups")
 WRITES = ("add", "add_many", "prune", "replace", "forget", "roll", "drop", "flush", "backfill")
 
 

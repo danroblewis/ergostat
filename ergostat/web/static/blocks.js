@@ -17,7 +17,7 @@ function bdTextW(t, small = false) { return (t || "").length * (small ? BD.CHS :
 function bdSymW(fn) {                                   // C_tuner(z): the symbol, its subscript, its argument
   if (!fn) return 0;
   if (fn.name) return bdTextW(fn.name) + 8;
-  return (fn.sym ? 10 : 0) + (fn.sub ? bdTextW(fn.sub, true) + 2 : 0) + (fn.arg ? 22 : 0);
+  return (fn.sym ? (fn.named ? bdTextW(fn.sym) : 10) : 0) + (fn.sub ? bdTextW(fn.sub, true) + 2 : 0) + (fn.arg ? 22 : 0);
 }
 function bdFrac(expr) {                                 // "1/s", "Kᵢ T z/(z − 1)": a fraction drawn stacked
   const m = /^([^/]+)\/\(?([^()/]+)\)?$/.exec(expr || "");
@@ -649,7 +649,7 @@ function bdRoute(lay, g) {
 function bdSym(parent, x, y, fn, { size = BD.FS, anchor = "middle", bold = false, cls = "bd-sym" } = {}) {
   // an italic symbol, its subscript (upright: it is a name), its argument
   const t = s("text", { x, y, class: cls, "text-anchor": anchor, "font-size": size });
-  if (fn.sym) t.append(s("tspan", { class: "bd-mi" + (bold || fn.bold ? " bd-bold" : "") }, fn.sym));
+  if (fn.sym) t.append(s("tspan", { class: (fn.named ? "bd-sysname" : "bd-mi") + (bold || fn.bold ? " bd-bold" : "") }, fn.sym));   // a named block: its name, upright
   if (fn.sub) t.append(s("tspan", { class: "bd-subs", "baseline-shift": "sub", "font-size": size * 0.74 }, fn.sub));
   if (fn.arg) t.append(s("tspan", { "font-size": size }, "("), s("tspan", { class: "bd-mi", "font-size": size }, fn.arg), s("tspan", { "font-size": size }, ")"));
   parent.append(t);
@@ -685,10 +685,11 @@ function bdNode(n, c) {
     g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt }));
     const head = bdSensorHead(fn), lines = bdLines(fn.reads);
     const x = w / 2 + (fn.sampled ? 16 : 0);
-    if (fn.sampled) {                                  // the sampler: a switch closed once every T
+    if (fn.sampled) {                                  // the sampler: a switch closed once every T (muted: T slight)
       const y = 16;
-      g.append(s("path", { class: "bd-line", d: `M8,${y} H12 M26,${y} H30 M12,${y} L25,${y - 7}` }),
-               s("circle", { class: "bd-dot", cx: 12, cy: y, r: 1.6 }), s("circle", { class: "bd-dot", cx: 26, cy: y, r: 1.6 }));
+      g.append(s("g", { class: `bd-sensor-sampler${fn.slight ? " bd-slight" : ""}` },
+                 s("path", { class: "bd-line", d: `M8,${y} H12 M26,${y} H30 M12,${y} L25,${y - 7}` }),
+                 s("circle", { class: "bd-dot", cx: 12, cy: y, r: 1.6 }), s("circle", { class: "bd-dot", cx: 26, cy: y, r: 1.6 })));
     }
     const t = s("text", { x, y: 20, class: n.role === "collector" ? "bd-name" : "bd-expr", "text-anchor": "middle" });
     if (n.role === "collector") t.textContent = head; else bdPower(t, head);         // e^(−sT): its exponent raised
@@ -769,7 +770,7 @@ function bdFnText(n) {                                  // what is inside the bl
 
 function bdPts(le) { const s0 = (le.sections || [])[0]; return s0 ? [s0.startPoint, ...(s0.bendPoints || []), s0.endPoint] : []; }
 
-function bdLabelSpot(pts, taken, w, hgt, boxes, lines = []) {     // where a signal's name goes: beside a straight stretch, clear of the rest
+function bdLabelSpot(pts, taken, w, hgt, boxes, lines = [], near = []) {     // where a signal's name goes: beside a straight stretch, clear of the rest
   const segs = pts.slice(1).map((b, i) => [pts[i], b]);
   const cuts = (r) => lines.some(([a, b]) => Math.max(a.x, b.x) > r.x && Math.min(a.x, b.x) < r.x + r.w &&
                                              Math.max(a.y, b.y) > r.y && Math.min(a.y, b.y) < r.y + r.h);
@@ -791,15 +792,26 @@ function bdLabelSpot(pts, taken, w, hgt, boxes, lines = []) {     // where a sig
     }
   });
   tries.sort((p, q) => p.i - q.i);                       // near where the signal leaves
-  return tries.find(free) || null;
+  return tries.find(free) || near.find(free) || null;    // (or, none with room, the places given near its source)
 }
+
+/* what a comparator's error signal says after e: " = −36 off", " = 2" holding, " open" on an open loop (no e): the
+   value /api/loops gives and the server's word (goalWord), never a status mapped here */
+function bdErrState(n) {
+  const lp = n?.role === "comparator" ? S.status?.loops?.[(n.loops || [])[0]] : null;
+  if (!lp) return null;
+  const word = goalWord(lp), text = `${lp.error == null ? "" : ` = ${fmt(lp.error)}`}${exceptional(word) ? ` ${word}` : ""}`;
+  return text ? { word, text } : null;
+}
+const bdStates = (g) => JSON.stringify(g.nodes.map((n) => bdErrState(n)?.text));
 
 const bdJustDropped = () => S.dropAt != null && performance.now() - S.dropAt < 400;   // the click that ends a drag (interact.js)
 
 function bdDraw(svg, g, lay) {
   svg.classList.add("bd");
   lay.undrawn = false;
-  squareLines(lay, g);                                 // no line drawn across: a stand-in is drawn square, greyed (interact.js)
+  lay.states = bdStates(g);                            // the loops' states its labels say
+  squareLines(lay, g);                                // no line drawn across: a stand-in is drawn square, greyed (interact.js)
   const pins = [];                                     // what the owner put by hand: a pin on it, on top (diagram.js)
   const vp = s("g", { id: "viewport" });
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
@@ -811,8 +823,9 @@ function bdDraw(svg, g, lay) {
     if (!f) continue;
     const fg = s("g", { class: `sys-hull hull bd-frame bd-frame-${f.frame}`, "data-hull": c.id });
     fg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height }));
-    const t = bdSym(fg, c.x + 10, c.y + 19, f.fn || {}, { anchor: "start", size: 13 });
-    t.append(s("tspan", { class: "bd-frame-name", dx: 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
+    const t = bdSym(fg, c.x + 10, c.y + 19, f.fn?.named ? {} : f.fn || {}, { anchor: "start", size: 13 });   // a named one: its name once
+    t.append(s("tspan", { class: "bd-frame-name", dx: f.fn?.named ? 0 : 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
+    if (f.frame === "system" && f.fn?.expr) t.append(s("tspan", { class: "bd-frame-dims", dx: 8 }, f.fn.expr));   // p × m, as on the closed block
     fg.append();
     // its top is a handle: dragged, the frame moves with everything in it, and stays there (interact.js, places.js)
     fg.append(s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: Math.max(0, c.width - 24), height: 30,
@@ -851,8 +864,7 @@ function bdDraw(svg, g, lay) {
     const vec = (e.signal?.n || 0) > 1;
     const eg = s("g", { class: `edge bd-edge${vec ? " bd-vec" : ""}`, "data-id": e.id, "data-nodes": `${e.source} ${e.target}`, "data-net": e.sourcePort });
     const { els, mark } = bdEdgeContent(e, pts, cross);
-    eg.append(...els);
-    eg.addEventListener("mouseenter", () => bdTrace(svg, { net: e.sourcePort }));
+    eg.append(...els);    eg.addEventListener("mouseenter", () => bdTrace(svg, { net: e.sourcePort }));
     eg.addEventListener("mouseleave", () => bdTrace(svg, S.bdSel || null));
     eg.addEventListener("click", (ev) => { ev.stopPropagation(); S.bdSel = { net: e.sourcePort }; bdTrace(svg, S.bdSel); openSignal(e); });
     if (mark) taken.push(mark);
@@ -915,20 +927,37 @@ function bdDraw(svg, g, lay) {
   }
   // each signal's name, once, near where it leaves
   const boxes = lay.children;
-  for (const [port, es] of Object.entries(nets)) {
-    const e = es[0], sg = e.signal || {};
+  const segsOf = (xs) => xs.filter((x) => byLe[x.id]).flatMap((x) => { const q = bdPts(byLe[x.id]); return q.slice(1).map((b, i) => [q[i], b]); });
+  // (a loop's junction with no error line, its return broken: its e and its state written by it all the same)
+  const unwired = g.nodes.filter((n) => bdErrState(n) && box[n.id] && !g.edges.some((x) => x.source === n.id && x.signal?.sym));
+  for (const [port, es, lone] of [...Object.entries(nets), ...unwired.map((n) => [null, [], n])]) {
+    const e = es[0] || { source: lone.id, signal: { sym: "e", sub: lone.loops[0] } }, sg = e.signal || {};
     if (!sg.sym) continue;
     const src = byId[e.source];
     if (src?.kind === "input" || (src?.kind === "port")) continue;     // an input says its name itself
     if (es.some((x) => byId[x.target]?.kind === "output")) continue;    // as does an output it reaches
-    const w = 10 + (sg.sub ? bdTextW(sg.sub, true) * 0.82 : 0), hgt = 14;
+    const st = bdErrState(src);                                         // a loop's error: its value, and its word
+    const wOf = (sub) => 10 + (sub ? bdTextW(sub, true) * 0.82 : 0) + (st ? bdTextW(st.text) + 4 : 0), hgt = 14;
+    let sub = sg.sub, w = wOf(sub);
     const pts = byLe[e.id] ? bdPts(byLe[e.id]) : [];
-    const others = g.edges.filter((x) => x.sourcePort !== port && byLe[x.id]).flatMap((x) => { const q = bdPts(byLe[x.id]); return q.slice(1).map((b, i) => [q[i], b]); });
-    const spot = bdLabelSpot(pts, taken, w, hgt, boxes, others) || bdLabelSpot(pts, taken, w, hgt, boxes);
+    const others = segsOf(g.edges.filter((x) => x.sourcePort !== port));
+    let spot = bdLabelSpot(pts, taken, w, hgt, boxes, others);
+    if (!spot && st && box[src.id]) {              // its state too long for its stretch: e without the loop's name (its junction's), or by the junction
+      const c = box[src.id], at = pts[0] || { x: c.x + c.width, y: c.y + c.height / 2 };
+      w = wOf(sub = null);
+      const near = [-1, 1].flatMap((k) => [0, 1, 2, 3].flatMap((j) => [at.x + 2, c.x, at.x - w, c.x - w - 12].map((x) =>
+        ({ x, y: k < 0 ? c.y - hgt - 2 - j * (hgt + 2) : c.y + c.height + 2 + j * (hgt + 2), w, h: hgt }))));
+      spot = bdLabelSpot(pts, taken, w, hgt, boxes, others) || bdLabelSpot([], taken, w, hgt, boxes, [...others, ...segsOf(es)], near);
+    }
+    spot ||= bdLabelSpot(pts, taken, w, hgt, boxes);
     if (!spot) continue;
     taken.push(spot);
-    const t = bdSym(labelsG, spot.x + 1, spot.y + 9, { sym: sg.sym, sub: sg.sub, bold: (sg.n || 0) > 1 }, { size: 12, anchor: "start", cls: "bd-sig" });
-    t.setAttribute("data-net", port);
+    const t = bdSym(labelsG, spot.x + 1, spot.y + 9, { sym: sg.sym, sub, bold: (sg.n || 0) > 1 }, { size: 12, anchor: "start", cls: "bd-sig" });
+    if (port) t.setAttribute("data-net", port);
+    if (st) {                       // bold when off; the neutral words regular; never a colour (docs/DESIGN.md)
+      t.append(s("tspan", { class: `bd-state${st.word === "off" ? " bd-off" : ""}`, "data-word": st.word }, st.text));
+      Object.assign(t.dataset, { sum: src.id, state: st.text });
+    }
   }
   const nodesG = s("g", { class: "bd-nodes" });
   for (const n of g.nodes) {
@@ -1078,6 +1107,7 @@ function mathml(tree, display = true) {
   const m = document.createElementNS(MATHML, "math");
   if (display) m.setAttribute("display", "block");
   m.append(build(tree));
+  m.setAttribute("alttext", m.textContent);         // read aloud, or copied, as its text
   return m;
 }
 
@@ -1094,9 +1124,21 @@ function openBlock(n) {
                                   ...(fn.arg ? [["mo", "("], ["mi", fn.arg], ["mo", ")"]] : [])], false) : (fn.name || n.label);
   const defs = (n.math || []).map((m) => h("div", { class: "bd-math" }, mathml(m)));
   const rows = (n.rows || []).filter(([, v]) => v != null && v !== "");
-  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, title)];
-  // a loop's comparator, controller or process output: its scope first (charts.js)
-  if (["comparator", "controller", "output"].includes(n.role)) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x])) {
+  const top = h("div", {}), procs = h("div", {}), ctl = n.role === "controller" && n.id?.startsWith("blk:");
+  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, title), top, ...(n.role === "process" ? [procs] : [])];   // charts, then words
+  // a controller's or process's loops first, a table each (control.js); then a controller's scope and closed loop, each
+  // loop's; a process's loops with no one process are left out when it has others (only its loops' text)
+  const mine = n.role === "process" ? n.y_of || [] : ctl ? (n.loops || []).filter((x) => S.status?.loops?.[x]) : [];
+  // each loop settled on its own: one failed answer leaves only that loop unknown (its controlBox says why)
+  if (mine.length) Promise.all(mine.map((l) => loopControl(l).catch(() => ({ goal: l, failed: true })))).then((ds) => {
+    const all = ds.filter(Boolean), ok = all.filter((d) => !d.failed), held = ok.filter((d) => !d.why);
+    const own = (d) => !ctl || d.controller?.block === n.id.slice(4) || (d.controllers || []).includes(n.id.slice(4));
+    top.replaceChildren(...held.filter(own).map(loopTableBox), ...(!ctl ? [] : all.flatMap((d) => [all.length > 1 ? h("div", { class: "strip-title" }, h("b", {}, d.goal)) : null,
+      loopScope(d.goal), controlBox(d.goal, "controller", { block: n.id.slice(4) })].filter(Boolean))));
+    if (!ctl) procs.replaceChildren(...(held.length ? held : ok).concat(all.filter((d) => d.failed)).map((d) => controlBox(d.goal, "process")));
+  }).catch((e) => top.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
+  // a loop's comparator or process output: its scope first (charts.js)
+  if (["comparator", "controller", "output"].includes(n.role) && !ctl) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x])) {
     if ((n.loops || []).length > 1) kids.push(h("div", { class: "strip-title" }, h("b", {}, l)));
     kids.push(loopScope(l));
   }
@@ -1104,19 +1146,15 @@ function openBlock(n) {
   if (defs.length) kids.push(h("h3", {}, fn.linear === false || fn.name ? "What it computes" : "Its function"), ...defs);
   if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
   if (["output", "sensor", "process"].includes(n.role)) kids.push(partItemsSection(n.part));   // what goes through it (itemsets.js)
-  // the loop it is the process of, identified (control.js); a controller's law with that process, and its tuning
-  if (n.role === "process") for (const l of n.y_of || []) kids.push(controlBox(l, "process"));
   if (n.role === "process" && !(n.y_of || []).length && !n.mimo)
     kids.push(h("p", { class: "muted small" }, "Not identified: no goal holds what comes out of it, so no loop's record or step test can tell its dynamics."));
-  if (n.role === "controller" && n.id?.startsWith("blk:")) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x]))
-    kids.push(controlBox(l, "controller", { block: n.id.slice(4) }));
   for (const l of n.loops || []) {                      // a stale reading on its input (the observer: SPEC §9.6)
     const lp = S.status?.loops?.[l];
     if (lp?.stale != null && ["comparator", "controller"].includes(n.role)) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Stale input: "),
       `${lp.stock} was read ${dur(lp.stale)} ago, too long for its sensor; on-stale: ${lp.on_stale}`));
   }
   const loops = n.loops || [];
-  if (loops.length) kids.push(h("h3", {}, `In the loop${loops.length > 1 ? "s" : ""} of`),
+  if (loops.length) kids.push(h("h3", {}, `In the control loop${loops.length > 1 ? "s" : ""} of`),
     h("p", {}, ...loops.flatMap((l, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(l); } }, l)])));
   if (n.remote) kids.push(remoteNote(n.remote));
   const sysName = n.role === "subsystem" ? n.label : n.kind === "frame" && n.frame === "system" ? n.label : null;
@@ -1147,7 +1185,8 @@ async function drawBlocksView(svg, g) {
   if (sg === S.graphSig && S.layout) {                 // the same diagram: its parts keep their places and frames
     const within = Object.fromEntries(S.layout.children.map((c) => [c.id, c.within]));
     for (const n of g.nodes) n.systems = [...(within[n.id] || [])].reverse();
-    if (S.layout.undrawn && !S.layout.routing) bdDraw(svg, g, S.layout);    // routed while it was held: drawn now
+    const moved = bdStates(g) !== S.layout.states;     // a loop's state changed: its error's label placed again
+    if ((S.layout.undrawn || moved) && !S.layout.routing) bdDraw(svg, g, S.layout);    // (or routed while it was held: drawn now)
     for (const n of g.nodes) {                         // an alarm raised or cleared: its label, nothing laid out again
       const el = svg.querySelector(`g.bd-node[data-id="${CSS.escape(n.id)}"]`);
       if (el) bdAlarm(el, n);
@@ -1181,9 +1220,11 @@ function blocksLegend() {
   const ink = 'stroke="currentColor" fill="none" stroke-width="1.3"';
   return h("div", { class: "legend bd-legend" },
     row(has((n) => !["sensor", "collector", "sum", "mux", "demux", "input", "output", "sampler", "port"].includes(kindOf(n))),`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
-        "a block, its function inside: C a controller, P a process, Q a subsystem; C(z) runs every T, (s) is continuous; Q without (s) holds sampled or nonlinear parts; click it for its definition"),
+        "a block, its function inside: C a controller, P a process; C(z) runs every T, (s) is continuous, without (s) it holds sampled or nonlinear parts; click it for its definition"),
+    row(has((n) => n.role === "subsystem") || fr.some((f) => f.frame === "system"), `<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="13" font-size="7" text-anchor="middle" fill="currentColor">2×3</text>`,
+        "a system as one block, the same closed and open: C_name when it acts on another system's process, P_name when another system acts on it, its name alone when both or neither; p × m, its p outputs by its m inputs, disturbances counted"),
     row(has((n) => n.role === "sensor"), `<rect x="2" y="2" width="26" height="16" ${ink}/><text x="15" y="10" font-size="7" text-anchor="middle" font-style="italic" fill="currentColor">H = 1</text><path d="M7,14 H23" stroke="currentColor" stroke-width="0.8"/>`,
-        "a sensor, on the feedback path beneath the loop: what finds the work. Inside, its function (H = 1: it reads what is there as it is; H(s): avg τ, a rate over a window; e^(−sT) with a switch: it polls every T, a period that matters against the loop's) and, beneath, what it reads and how often"),
+        "a sensor, on the feedback path beneath the loop: what finds the work. Inside, its function (H = 1: it reads what is there as it is; H(s): avg τ, a rate over a window; e^(−sT) with a switch: it polls every T, the switch muted when T is slight against the loop's) and, beneath, what it reads and how often"),
     row(has((n) => n.role === "collector"), `<rect x="2" y="2" width="26" height="16" ${ink}/><path d="M7,8 H23 M7,13 H19" stroke="currentColor" stroke-width="0.8"/>`,
         "a collector, in front of a sensor on the same path: the command or query that polls an outside system and records what it saw as items, which the sensor counts; a count is only as fresh as its collector"),
     row(has((n) => n.kind === "sampler"), `<path d="M0,10 H8 M22,10 H30 M8,10 L20,3" ${ink}/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="22" cy="10" r="1.6" fill="currentColor"/>`,
@@ -1197,6 +1238,8 @@ function blocksLegend() {
         "a block's tier, written small in its top-left corner: who fills it, top of the ladder to bottom: person, AI agent, narrow AI, decision, program, rule (a law ergostat computes); none on an external block with no agent"),
     row(has((n) => n.fn?.name && n.fn.linear === false && n.role !== "collector"), `<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation, dead zone); no transfer function is claimed"),
     row(has((n) => n.kind === "sum"), `<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
+    row(has((n) => bdErrState(n)), `<text x="1" y="14" font-size="9" fill="currentColor"><tspan font-style="italic">e</tspan> = 3 <tspan font-weight="600">off</tspan></text>`,
+        "a loop's state, on its error: e's value now and, when its goal is not holding, the goal's word (bold when off); no colour"),
     row(Object.values(nets).some((k) => k > 1), `<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
     row(es.some((e) => (e.signal?.n || 0) > 1) || has((n) => n.kind === "mux" || n.kind === "demux"), `<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
     row(fr.some((f) => f.frame === "cascade"), `<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),

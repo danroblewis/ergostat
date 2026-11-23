@@ -505,7 +505,7 @@ APIS = [("loops", "loops"), ("items", "items"), ("exercised", "exercised"),     
 PAGES = [("diagram", "/diagram", True), ("diagram-system", "/diagram?system=sys-001", True),
          ("diagram-opened", "/diagram?open=org,area-01,sys-001", True), ("blocks", "/diagram?view=blocks", True),
          ("diagram-all-open", "/diagram?open=*", True),
-         ("loops", "/loops", False), ("items", "/items", False), ("check", "/check", False)]
+         ("goals", "/goals", False), ("items", "/items", False), ("check", "/check", False)]
 READY = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && document.querySelectorAll('svg.canvas g.node').length > 0")
 ROUTED = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && !S.layout.routing && "
           "document.querySelectorAll('svg.canvas g.node').length > 0")

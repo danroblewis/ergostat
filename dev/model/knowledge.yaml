@@ -478,7 +478,9 @@ blocks:
     run: python3 dev/bin/plan.py
     prompt: dev/prompts/planner.md
     takes: {kind: gap, at: [open, replan], to: [split, ready, replan, parked], unblocked: true, order: rank,
-            where: {continues: null}}  # a gap continuing a branch waits for the intake (its definition is on it)
+            where: {continues: null, waits_on_milestone: null}}
+    # (a gap continuing a branch waits for the intake: its definition is on it; one whose milestone is not active
+    # and that is not pulled waits for it, once [milestones] enforce: dev/bin/milestones.py)
     pool: 12                           # operator: planners spend AI budget, not machine
     lease: {ttl: 60m, attempts: 2}
     timeout: 2h

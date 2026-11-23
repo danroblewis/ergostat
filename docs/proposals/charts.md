@@ -3,7 +3,7 @@
 Status: planned 2026-11-16, built 2026-11-16. As built: a flow's rate counted from the record (items
 moving, or its valve's openings, which come after items and before the stock's changes) is counted
 over a twelfth of the window, so one event is not a spike; a kind's items finish in the states after
-its first that no item has left (else its last state); the Loops page's old trend in a loop's panel
+its first that no item has left (else its last state); the Goals page's old trend in a goal's panel
 is replaced by its scope.
 
 ## What the owner asked for
@@ -36,19 +36,18 @@ Both disciplines read behaviour beside the structure, never on a separate dashbo
    process output shows r and y on one plot (y measured, r dashed, the tolerance band shaded),
    u below (the control output: the actuator's moved amount or the knob's value, marking
    saturation at its limits), e below, one time axis; with the loop's numbers (time off, back
-   in, saturated share, last decision). The Loops page's sparklines open the same scope.
+   in, saturated share, last decision). The Goals page's sparklines open the same scope.
 3. **Items page.** Each kind: a cumulative flow diagram (its states stacked over the window, in
    state order) in place of the one-line counts; under each kind's table, a cycle-time scatter
    (each finished item: when it finished × how long it took), with the median line.
 4. **Hover anywhere on a chart:** a vertical cursor shared across the strip, values at that
    moment; the same moment highlighted on every chart in the panel (synchronised cursors).
 5. **The time window is the page's** (the "Last 1h" control): every chart follows it.
-6. **Three more forms, not yet in any panel** (`web/static/plots.js`): several series on one time axis (every rate
-   in one unit, each line named at its end and told apart by its dash as well as its hue, every value at the
-   cursor); a phase plot of one measure against another on the same buckets (joined in time order, direction
-   ticks, the first point open and the latest filled, a desired level dashed); a heatmap of rows by buckets (refs
-   each on its own range, a kind's states on one scale, goals by how far off) on the grey ramp, an off stretch
-   hatched red. Each is a figure with an accessible name and its numbers as a table.
+6. **Dashboard chart forms** (`web/static/plots-*.js`, registered in `panels.js`): line, bar, scatter, heatmap of counts,
+   candlestick, histogram, box, stat, table, phase portrait, Bode, Nyquist and pole-zero, each with its own options.
+   Beside them, `web/static/plots.js` draws a heatmap of rows by buckets (refs each on its own range, a kind's states on
+   one scale, goals by how far off) on the grey ramp, an off stretch hatched red, as a figure with an accessible name and
+   its numbers as a table; it is in no panel yet.
 
 ## How
 
@@ -72,5 +71,5 @@ Both disciplines read behaviour beside the structure, never on a separate dashbo
 ## Later
 
 Comparative runs on the causes strip beyond one what-if (the replay, the projection, its sensitivity fan and a
-what-if are built: SPEC §12b); the phase plot and heatmap in a panel (drawn by plots.js, item 6); SPC charts on measured auxiliaries. (Step responses and Bode
+what-if are built: SPEC §12b); the heatmap of rows in a panel (plots.js, item 6); SPC charts on measured auxiliaries. (Step responses and Bode
 plots in the block panels are built, from identified processes: SPEC §12d.)

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import types
 from pathlib import Path
 
 import pytest
@@ -33,8 +34,8 @@ def test_implementor_environment_has_a_browser():
     assert f"--with {PIN} " in cfg["browser_ready"] and f"--with {PIN} " in cfg["browser"]
     assert f"--with {PIN} " in cfg["rerun"]
     # each browser run prints its skips (-rfEs: one SKIPPED line per reason, and the FAILED and ERROR lines
-    # fac.failed_tests reads), as well as pytest's summary count
-    assert all(" -rfEs " in cfg[n] for n in ("browser", "rerun"))
+    # fac.failed_tests reads; the browser suite PASSED too, for flakes.green), as well as pytest's summary count
+    assert " -rpfEs " in cfg["browser"] and " -rfEs " in cfg["rerun"]
     # the session may run a named browser file under the watchdog, with the suite's own Playwright, and never the suite
     sys.modules.setdefault("fac", module("fac"))
     assert may(f"{PAGE} tests/test_items_page.py") and not may(cfg["browser"])
@@ -222,12 +223,47 @@ def test_missing_browser_stops_the_round_rather_than_skipping(tmp_path):
     assert fast["failed"] == "browser" and fast["browser"]["rc"] == 0 and fast["browser"]["skipped"] == 1
 
 
-def test_a_rerun_is_timed_by_the_suite_that_failed():
-    sys.modules.setdefault("fac", module("fac"))
-    sys.modules.setdefault("agents", module("agents"))
-    room, soon = module("onmain").room, time.time() + 200
+def test_a_rerun_is_timed_by_the_suite_that_failed(monkeypatch):
+    # onmain imports agents, fac and flakes from beside it: each given fresh here (undone after the test), so no
+    # module an earlier test in this worker left in sys.modules (a stub, a patched fac.git) or on sys.path decides it
+    for name in ("fac", "agents", "flakes"):                 # (fac first: agents and flakes import it)
+        monkeypatch.setitem(sys.modules, name, module(name))
+    onmain = module("onmain")
+    assert onmain.fac is sys.modules["fac"] and onmain.flakes.fac is onmain.fac and callable(onmain.agents.clone)
+    # room() reads the clock itself: a fixed one for this onmain alone, so how long a loaded container takes between
+    # this test's reading and room()'s (or a clock another test moves) cannot decide the arithmetic
+    now = 1_000_000.0
+    monkeypatch.setattr(onmain, "time", types.SimpleNamespace(time=lambda: now))
+    room, soon = onmain.room, now + 200
     took = {"unit": {"seconds": 10}, "browser": {"seconds": 400}}
     assert not room({**took, "failed": "browser"}, soon) and room({**took, "failed": "unit"}, soon)
+    assert room({"unit": {"seconds": 10}}, now + onmain.LEAST + 1) and not room({"unit": {"seconds": 10}}, now + onmain.LEAST)
+
+
+def test_room_holds_on_a_slow_clock(monkeypatch):
+    """The container is slow: each reading of the wall clock is 150 s after the last (a worker starved under -n 8).
+    The rerun test still judges room() by its own arithmetic, not by the time that passed between its readings."""
+    t = [time.time()]
+
+    def slow():
+        t[0] += 150
+        return t[0]
+    monkeypatch.setattr(time, "time", slow)
+    with pytest.MonkeyPatch.context() as inner:
+        test_a_rerun_is_timed_by_the_suite_that_failed(inner)
+
+
+def test_room_holds_after_another_test_left_a_stub_fac(monkeypatch):
+    """An earlier test in the worker left stand-ins: a fac and an agents lacking what onmain uses, no flakes module,
+    and dev/bin not on sys.path. The rerun test still loads onmain on its own fresh modules, and leaves the stubs."""
+    stub_fac, stub_agents = types.ModuleType("fac"), types.ModuleType("agents")
+    monkeypatch.setitem(sys.modules, "fac", stub_fac)
+    monkeypatch.setitem(sys.modules, "agents", stub_agents)
+    monkeypatch.delitem(sys.modules, "flakes", raising=False)
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if Path(p or ".").resolve() != BIN.resolve()])
+    with pytest.MonkeyPatch.context() as inner:
+        test_a_rerun_is_timed_by_the_suite_that_failed(inner)
+    assert sys.modules["fac"] is stub_fac and sys.modules["agents"] is stub_agents and "flakes" not in sys.modules
 
 
 @pytest.mark.slow
@@ -251,7 +287,8 @@ def test_a_browser_failure_that_skips_alone_is_not_a_flake(tmp_path):
 # at /work, or with none in a new empty STATE/copies/<name> (given its stdin with -i, as a copy is piped in), a
 # process group of its own (as a container outlives its killed client), listed in STATE/running/<name> while it runs;
 # `kill`/`rm` kill that group by name; `ps --filter name=X` lists those running. STATE/fails: `run` fails as Docker's
-# own error does (exit 125), before any command.
+# own error does (exit 125), before any command. STATE/down: Docker unreachable, every command failing as with no
+# daemon.
 FAKE_DOCKER = """\
 import json, os, signal, subprocess, sys
 from pathlib import Path
@@ -259,6 +296,10 @@ state, args = Path(STATE), sys.argv[1:]
 with open(state / "calls.jsonl", "a") as f:
     f.write(json.dumps(args) + "\\n")
 running = state / "running"
+if (state / "down").exists():                       # (an outage: no daemon answers any command)
+    print("Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+          file=sys.stderr)
+    sys.exit(125 if args[0] == "run" else 1)
 if args[0] == "run":
     if (state / "fails").exists():
         sys.exit(print("docker: Error response from daemon: no such image", file=sys.stderr) or 125)
@@ -520,3 +561,135 @@ def test_the_implementor_is_told_its_clone_has_no_remote(tmp_path):
     assert "Your clone is not the implementor's" in reviewer
     assert "A ref visible to you does not disprove what the implementor says of its own clone" in reviewer
     assert "such a statement is not a finding" in reviewer
+
+
+# ---- research-design-queues-sessions-see-a-demo: a designer, and an implementor, may start a demo and walk it
+
+DEMO_UP, WALK = "uv run python scripts/demo_up.py", f"uv run --with {PIN} python scripts/walk.py"
+REVIEWER = ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]
+
+
+class Kept:                       # (a sessions.Session's names, as run_args reads them)
+    HOME, stem, sid = "/home/dev/.claude/projects", "alpha-thing-designer-1", "0" * 36
+
+    def __init__(self, raw):
+        self.raw = raw
+
+
+def factory_cfg(tmp_path, **agents_set) -> dict:
+    cfg = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())
+    cfg["paths"]["run"] = str(tmp_path / "run")
+    cfg["agents"].update(agents_set)
+    return cfg
+
+
+def mounts(args: list[str]) -> list[str]:
+    return flag(args, "-v")
+
+
+def test_designer_session_argv_mounts_shots_and_readonly_work(tmp_path, monkeypatch):
+    import contextlib
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cfg, keep = factory_cfg(tmp_path), Kept(tmp_path / "raw")
+    designer = agents.run_args(cfg, "designer", Path("/w"), "n", keep)
+    reviewer = agents.run_args(cfg, "reviewer", Path("/w"), "n", keep)
+    shots = f"{(tmp_path / 'run' / 'shots' / keep.stem).resolve()}:/shots"
+    assert "/w:/work:ro" in mounts(designer)
+    assert sorted(mounts(designer)) == sorted(mounts(reviewer) + [shots])          # one mount new, and no other
+    cut = lambda a: a[:a.index(cfg["agents"]["image"])]  # noqa: E731              # (docker's part, before the image)
+    d, r = cut(designer), cut(reviewer)
+    i = d.index(shots)
+    d = d[:i - 1] + d[i + 1:]                                                       # its "-v" and the mount taken out
+    assert len(d) == len(r) and [(x, y) for x, y in zip(d, r, strict=True) if x != y] == [("3", "1.5")]   # only --cpus
+    # without a kept session, the container's name names the folder; a name that is not one is refused
+    named = f"{(tmp_path / 'run' / 'shots' / 'n').resolve()}:/shots"
+    assert named in mounts(agents.run_args(cfg, "designer", Path("/w"), "n"))
+    for bad in ("..", "a/b", "", "A"):
+        with pytest.raises(agents.Refused, match="pictures folder"):
+            agents.run_args(cfg, "designer", Path("/w"), bad)
+    # the session itself: the folder made on the host, the brief told to pass --shots /shots, the argv as above
+    ran = []
+    monkeypatch.setattr(agents, "token", lambda cfg: "tok-123")
+    monkeypatch.setattr(agents, "sweep", lambda cfg: [])
+    monkeypatch.setattr(agents, "egress", lambda cfg: None)
+    monkeypatch.setattr(agents, "killed", lambda name: agents.RUNNING.discard(name))
+    res = type(sys)("resources")
+    res.sampled = lambda *a: contextlib.nullcontext({})
+    monkeypatch.setitem(sys.modules, "resources", res)
+    monkeypatch.setattr(agents.subprocess, "run", lambda argv, **k: ran.append((argv, k["input"])) or
+                        subprocess.CompletedProcess(argv, 0, '{"type": "result"}', ""))
+    keep.copy = type("C", (), {"follow": lambda self: None})()
+    assert agents.session(cfg, "designer", "look at the Items tab", Path("/w"), keep=keep)["type"] == "result"
+    (argv, brief), = ran
+    assert (tmp_path / "run" / "shots" / keep.stem).is_dir() and shots in mounts(argv) and "/w:/work:ro" in mounts(argv)
+    assert brief.startswith("look at the Items tab") and "--shots /shots" in brief
+    # a bad designer_cpus: refused with its reason before any container is run
+    with pytest.raises(agents.Refused, match="designer_cpus"):
+        agents.session(factory_cfg(tmp_path, designer_cpus=9), "designer", "b", Path("/w"), keep=keep)
+    assert len(ran) == 1 and not agents.RUNNING
+    assert agents.TIMEOUTS["designer"] == 3600 and module("fac").STANDIN["designer"]
+    assert (cfg["ai"]["designer_model"], cfg["ai"]["designer_session_usd"]) == ("opus", 2.0)
+
+
+def test_designer_and_implementor_may_run_demo_and_walk():
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    for role in ("designer", "implementor"):
+        assert may(f"{DEMO_UP} start ops --port 8801", role) and may(f"{DEMO_UP} stop ops", role), role
+        assert may(f"{WALK} steps.json --shots /shots", role) and may(f"{WALK} - --shots /shots", role), role
+        assert not may("uv run python scripts/walk.py x", role) and not may("uv run python scripts/demo_check.py", role)
+        assert not may(f"{DEMO_UP}x start ops", role) and not may("curl http://127.0.0.1:8801", role)
+    assert agents.TOOLS["designer"] == REVIEWER + agents.SEE                  # exactly the reviewer's and the two
+    assert agents.SEE == [f"Bash({DEMO_UP}:*)", f"Bash({WALK}:*)"]
+    assert set(agents.SEE) <= set(agents.TOOLS["implementor"])
+    others = ("reviewer", "planner", "groomer", "researcher", "librarian")
+    assert not [r for r in others if may(f"{DEMO_UP} start ops", r) or may(f"{WALK} x", r)]
+    cfg = {"ai": {"designer_model": "opus", "designer_session_usd": 2.0}}
+    args = agents.claude_args(cfg, "designer")
+    assert args[args.index("--allowedTools") + 1].split(",") == agents.TOOLS["designer"]
+    assert args[args.index("--tools") + 1] == "Bash,Glob,Grep,Read"             # (no Edit, no Write)
+
+
+def test_designer_cpus_bounds(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cpus = lambda cfg, role, brief="": flag(agents.run_args(cfg, role, Path("/w"), "n", brief=brief), "--cpus")  # noqa: E731
+    web = "## Files to touch\n\n- ergostat/web/items.js\n"
+    cfg = factory_cfg(tmp_path)
+    assert cfg["agents"]["designer_cpus"] == 3
+    assert cpus(cfg, "designer") == ["3"] and cpus(cfg, "implementor", web) == ["3"]
+    assert cpus(cfg, "implementor", "ergostat/spec/x.py") == ["1.5"] and cpus(cfg, "reviewer", web) == ["1.5"]
+    absent = factory_cfg(tmp_path)
+    absent["agents"].pop("designer_cpus")
+    assert cpus(absent, "designer") == ["3"]                                       # its default
+    for ok in (4, 0.5, "2"):
+        assert cpus(factory_cfg(tmp_path, designer_cpus=ok), "designer") == [f"{float(ok):g}"]
+    for bad in (0, -1, 4.5, 64, "lots", "nan", "inf"):                            # (a ceiling: lesson-4)
+        cfg = factory_cfg(tmp_path, designer_cpus=bad)
+        for role, brief in (("designer", ""), ("implementor", web)):
+            with pytest.raises(agents.Refused, match=r"\[agents\] designer_cpus = .*at most 4"):
+                cpus(cfg, role, brief)
+        assert cpus(cfg, "implementor", "no web here") == ["1.5"]                  # not its setting: not refused
+        assert cpus(cfg, "reviewer") == ["1.5"]
+
+
+def test_no_proxy_names_loopback(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cfg = factory_cfg(tmp_path)
+    for role in ("implementor", "reviewer", "designer", "planner"):
+        env = flag(agents.run_args(cfg, role, Path("/w"), "n"), "-e")
+        assert "NO_PROXY=127.0.0.1,localhost" in env and "no_proxy=127.0.0.1,localhost" in env, role
+        assert not [e for e in env if e.lower().startswith("no_proxy=") and not e.endswith("=127.0.0.1,localhost")]
+
+
+def test_reviewer_tools_unchanged(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    assert agents.TOOLS["reviewer"] == REVIEWER                                   # the reviewer gains nothing
+    for role in ("planner", "plan_reviewer", "join_judge", "pipeline_manager", "groomer"):
+        assert agents.TOOLS[role] == REVIEWER, role
+    assert agents.TOOLS["researcher"] == REVIEWER + ["WebSearch"]
+    args = agents.run_args(factory_cfg(tmp_path), "reviewer", Path("/w"), "n")
+    assert not [m for m in mounts(args) if m.endswith(":/shots")] and "/w:/work:ro" in mounts(args)

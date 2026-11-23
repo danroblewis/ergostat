@@ -29,6 +29,16 @@ the egress proxy (`dev/agent/egress.py`, container `ergostat-egress`), which rea
 one secret, the session token, and nothing else of this machine. Claude Code inside still runs `--restricted` with the
 role's narrow tools.
 
+**A session may see a page.** The implementor and the designer (a read-only role, like the reviewer: the reviewer's
+tools and nothing that writes) may also run `uv run python scripts/demo_up.py` (start one demo of `examples/`, offline,
+and stop it) and `uv run --with playwright==1.63.0 python scripts/walk.py` (walk its pages in Chromium). No other
+role may. Each implementor or designer session gets a folder of its own on this machine, `run/shots/<session>/`
+(named as its transcript, `<gap>-<role>-<n>`), mounted read-write at `/shots`, and its brief tells it to pass
+`--shots /shots`: its pictures land there and outlive the container (its `/tmp` does not). A designer runs on
+`[agents] designer_cpus` CPUs (default 3, above 0 and at most 4, else the session is refused with the reason), and so
+does an implementor whose brief names `ergostat/web/` (an engine and Chromium at once); every other session keeps
+`session_cpus`. `NO_PROXY` is `127.0.0.1,localhost`, so the demo's own web is reached without the egress proxy.
+
 **Each session's conversation is kept.** Claude Code's own session file (from a folder of its own mounted as its
 projects folder, `/home/dev/.claude/projects`, and nothing else of this machine's home) is copied as it grows, the
 session token scrubbed, into `run/sessions/<gap>-<role>-<n>.jsonl` (at most 20 MB; a last line says when the rest was
@@ -96,6 +106,18 @@ neither and run on. At the reset the hold lifts by itself and the items given ba
 order. A reset time that cannot be read (no time, an unknown zone, a date that does not exist, more than 8 days off),
 or a hold file that cannot be read, holds for an hour and says so; the next session after it finds the limit again or
 not. A switch's drain nacks are uncounted too (`count: false`), whether a run gives its item back or the switcher does.
+
+**An outage is a pause, not a failure** (`dev/bin/outage.py`). A run that fails because Docker or the AI service cannot
+be reached gives its item back uncounted, put off 10 minutes, and is taken again after it, as often as the outage
+lasts: no attempt, nothing toward the kill rule, never parked or a dead letter. Docker's is told by its words naming
+Docker (a container that did not start, exit 125, `docker ...`), confirmed by `docker info` failing or not answering in
+30 s (a factory with no `docker` installed has no Docker outage); a queue suite whose container fails while `docker info`
+fails is one too, never a red suite. The AI service's is told by a connection error in what the session said (refused,
+no route, a name not resolved, a request timed out); an answer of the API's (a 4xx, a 5xx) is the service reached.
+This covers the implementor and the reviewer (`fac.guarded`) and the merge queue's batch (main undone, no gap blamed).
+The engine gives back a lease whose run's process is gone, uncounted too (SPEC §9.5, *A run gone*), and a kind's
+`attention:` field puts the pipeline manager's latest finding (`finding`, on its handled situation) on the page's
+attention list.
 
 ## Submit a gap
 
@@ -224,8 +246,55 @@ Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) g
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
 `main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
 adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
-the gaps and times said, `main_fixed_at`, `fixed_by` and `green_passes` removed). An item it cannot read is written as
-said, the failure on stderr.
+the gaps and times said, `main_fixed_at`, `fixed_by`, `fixed_on` and `passed_on` removed, `green_passes` removed or,
+for a seen, set to 0). An item it cannot read is written as said, the failure on stderr. A flake is said fixed by hand
+with `manage.py flake-fixed TEST --why W` (below).
+
+**Out of main-broken: main-mend.** The block `main-mend` (dev/model/landing.yaml; every 30 minutes, pool 1, a lease,
+timeout 30 minutes) runs `dev/bin/mend.py`: it fetches main as pushed (the checkout's `<remote>/<base>`), waits for a
+quiet machine (`fac.wait_quiet`), and takes the `main-broken` tests not tried since they broke, oldest
+first (by `main_broken_at`), then the least lately tried (`run/mend/tried.json`), at most `[gates] mend_most` (default
+5, held to 1-20), so tests that stay unknown run after run give up their place to those behind them. It runs them alone twice on that commit (together; after a run that died, killed by its timeout with one of them picked, one at a time, each counted tried as it starts, so a hanging test goes behind the others), in `<worktrees>/.mend` and a
+suite container (`[suites] alone` with `-rA`; a test of a browser suite file with `rerun`, which has Playwright), and
+reads each result from the whole log (`fac.outcomes`). A test passing both runs is `flake.main-fixed` (state `fixed`;
+`passed_on`, `main_fixed_at`, `fixed_by: main-mend`). Failed, skipped, not collected, quarantined at that commit, or a
+run that stalled or left no log: unknown, and it stays main-broken. The write is decided under `run/flakes.lock` on the
+item read there, only when its `main` is the commit run on or an ancestor of it, and is a patch whose first op tests
+that `main`: a newer break written in between refuses the whole event, and a refused patch moves no state (SPEC §5a).
+
+**How a flake leaves seen.** Every `flake.seen` sets `green_passes` to 0. After each green landing, once its push
+is asked, `flakes.green` reads the unit and browser logs of the run main landed on (both print `PASSED` lines:
+`-rpfEs`) for each seen flake that is not quarantined (at most 50, by id). A test with a `PASSED` line and no `FAILED`
+or `ERROR` line raises `green_passes` by one (under the lock, a patch that tests the value it read). A test absent
+from the logs, one in a suite not run in that batch, or one in a red, stopped or unreadable log changes nothing.
+At `[gates] flake_fixed_after` (default 5, 1 to 50) green runs in a row the flake is `flake.fixed`
+(`fixed_by: green-runs`, `fixed_on`: main's head). A failure here is said on stderr and never fails or delays the
+landing. Only seen flakes are counted; nothing here moves a main-broken one.
+
+## Regression guarantees
+
+What the factory promises of main, each a stock held at zero by a goal, in the system `guarantees` (within
+`oversight`; dev/model/guarantees.yaml). Nothing in it acts on the world: each loop closes through people and the
+programs already there.
+
+- **main-green.** The stock `main-failing-tests` counts the flake items in `main-broken` (tests failing on clean main
+  too). The flow `main-tests-broken` fills it (`flake.main-broken`). The flow `main-tests-fixed` drains it, counting
+  `flake.main-fixed` by main-mend. The goal `main-green` (`<= 0`, tolerance 0, critical) is off while any test fails on
+  main. Its `on-stale` is `off`, but an items sensor is never stale (SPEC §9.6), so today that changes nothing. Off, it
+  asks the coordinator (`fix-main`, a person block in the system, so nothing outside reaches into its loop) to have
+  the fix made.
+  Once main-mend sees the test pass twice alone on the pushed main, it holds again. The loop is named `main-repair`
+  and is drawn balancing.
+- **quarantine-small.** The stock `quarantined` (dev/model/guarantees-quarantine.yaml) is the number of tests listed in
+  tests/quarantine.txt on main as pushed (`held.py quarantined`: the checkout's `<remote>/<base>`, never fetched).
+  The goal `quarantine-small` holds it at or under `quarantine-most`: 8, the count on main on 2026-11-23. A setpoint is
+  a number, so the goal's `hold` writes the same 8, and a test keeps the two equal. The owner lowers both as tests are
+  released. The goal goes off only when the quarantine grows, and a list not read counts as off. Off, it asks the
+  coordinator (`release-quarantined`, a person block in the system, as `fix-main` is) to have a test released; the
+  loop is `quarantine-release`. The stock's flows are its rises and falls over a day. The auxiliary `quarantine-oldest-days` (`held.py quarantine-oldest-days`) is the
+  number of days since the oldest `when`. No goal is on it until the owner says how long a test may stay. A list, a
+  line or a date held.py cannot read gives no value (exit 1), never 0. A listed test with no flake item marked
+  `quarantined`, or such an item whose test is not listed, is named on stderr.
 
 ## The backlog: ranked, groomed
 
@@ -264,9 +333,17 @@ minute, no AI) completes an active milestone with at least one gap once every on
 holds it open; an empty one never completes), then activates waiting ones whose dependencies all completed, by rank,
 while fewer than `[milestones] active_max` (3; at most 20) are active. An `upkeep` milestone, for the factory's own
 repairs, is always active and outside the limit; after `[milestones] upkeep_days` (7; at most 90) it completes, its
-unfinished gaps move to a new upkeep milestone (`follows` it), which is active at once. Which gaps the implementor takes
-is not decided here: `pull` only marks a gap `pulled`. The old free-text labels in some gaps' `milestone` stay as
-written; `status` lists them until they are assigned.
+unfinished gaps move to a new upkeep milestone (`follows` it), which is active at once. The old free-text labels in
+some gaps' `milestone` stay as written; `status` lists them until they are assigned.
+
+With `[milestones] enforce = true` (false by default, and then nothing about dispatch changes) the planner and the
+implementor take only the work of active milestones. The pass, and each command once it has written, keeps on every
+unfinished gap the derived field `waits_on_milestone` (as deps.py keeps `waits_on_parked`): empty when its milestone is
+active or it is `pull`ed (the owner's exception: taken as if its milestone were active), otherwise the milestone it
+waits for, after the pass's placements (for a gap the pass left: an old label as written, `unassigned` for none). A
+sub-gap of a split with no milestone of its own takes its parent's, and is pulled when its parent is (the pass places a
+sub-gap in its parent's milestone; a pulled parent still pulls it there, but not one moved to another milestone). Their `takes: where` asks it empty; review and the merge queue ask nothing
+of it, so what was built keeps landing. Turning enforcement off clears the field on the next pass.
 
 With `[milestones] enforce = true` (off by default) the pass, under the same lock, then places every unfinished gap
 with no milestone (none, an old label, a name that is no milestone) or a completed one, recording `gap.milestone-set`
@@ -285,8 +362,11 @@ them after a pass with enforcement on, unless no milestone is active, or each wo
 A milestone with gaps is a summary in the precedence graph the implementor's take reads (its start before its gaps,
 its end after them), and so is a split parent with its sub-gaps (`parent` is a group too), so a milestone dependency
 with a gap dependency, or with a split across two milestones, can close a cycle, and a gap on a cycle is never taken. `add`, `depends` and `assign` refuse a change that would put an unfinished gap or milestone on a cycle
-it was not on, naming the path, and the pass never places a gap where it would; `status` names any on one (deps.py records gap dependencies without knowing milestones,
-so it can still close one).
+it was not on, naming the path, and the pass never places a gap where it would; `status` names any on one (deps.py
+records gap dependencies without knowing milestones, so it can still close one). One such cycle is said by name: a gap depending on a gap of a milestone that can only finish
+after its own (one that depends on it, at any depth), so both would wait forever. `assign` and `depends` refuse it and
+`status` lists any. Pulling the needed gap does not lift the refusal: the link is still a cycle in the take's graph,
+which takes neither gap, pulled or not.
 
 ```sh
 python3 dev/bin/milestones.py add NAME --title "..." --rank 1 [--depends A,B] [--upkeep]   # refuses a name in use
@@ -449,7 +529,11 @@ start). Raising it trades risk for velocity: edit the value, and the next tune's
 `self-reference`, `factory-missing-capability` or `queue-interleaving`, or `"factory": true`. The factory's own
 records count by themselves: the merge queue stopped (`queue`) and the upgrader unable to bring the instance back
 (`switch`). Review findings and a reviewer's park are not harm and do not count. Escapes count against the pools
-too: a merge reverted on main (`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`),
+too: a merge reverted on main (reverts are found by `main-watch`, dev/bin/escapes.py: each `This reverts commit
+<sha>` pushed to main is matched to the merged gap whose reviewed head is that merge's second parent, else whose
+`main_sha` it is when exactly one gap carries it, and recorded as `gap.reverted` once; one matching no gap is the
+intervention `reverted-unmatched`, an escape at the pool size then; by hand,
+`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`),
 main broken by it (`ergostat event --add gap.measured --item gap/NAME --data '{"broke_main": true}'`; the
 implementor's triage counts by itself: a `main-broken` intervention blames the gaps whose merge made that main
 commit, their `main_sha`, or, with none found, counts one escape at the pool size then), or a later gap or
@@ -610,8 +694,8 @@ it.) After each unit run (and each triage rerun) the quarantined tests run once 
 implementor: `[suites] alone`; triage: `rerun`), never blocking. Each result is said on `flake/<test>`
 (`flake.measured`: `quarantined`, `last_run`, `last_run_log`), read from that run's whole log: `pass` only on the
 test's own PASSED line with no FAILED or ERROR line, `fail` on either, `unknown` otherwise (skipped, not collected, a
-run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
-released (`quarantined: false`) at the next such run. When a queue failure names only quarantined tests, triage
+run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is
+released at the next such run: one `flake.released` (`quarantined: false`, `released_at`), not a measurement. When a queue failure names only quarantined tests, triage
 sends the gap back to the queue with no flake seen and no retry spent. Tests are added and released by hand, by
 a change to main's list (which a reviewer reads in the diff); nothing in this code quarantines or releases one.
 
@@ -724,9 +808,75 @@ of every queue run, each run's whole length once) measures what it buys. If the 
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
 
+**The daily browser run on main.** Once a day (`browser-daily`, every 24h; `dev/bin/browserday.py`) the four browser
+files run on the remote's main, whether or not anything merged since: it tests main, not changes, so a change that
+breaks a page from outside the browser files' paths is still found. It takes the queue's lock, so it never runs
+beside a batch (a batch waiting for the lock starts after it), then waits for a quiet machine. It runs in a detached
+worktree of its own at `origin/main` (`<worktrees>/browser-daily`, made and removed by that name), in the queue's
+suite container with main's quarantine deselected; the worktree, the suite's processes and its container go on every
+way out (a stop, a timeout, an error; a SIGKILLed run's are removed by the next run, or by the queue's sweep). Green:
+`run/browser-daily.json` keeps `{sha, at, green: true}` and that sha as `last_green`. Red, naming tests: each (the
+first 8; the rest count as real) runs alone twice (`[suites] rerun`, `-rA`). One passing both times is a flake seen
+(`flake.seen`, suite `browser`, the run and its log), and raises nothing; when every one is a flake the day counts as
+green. The others raise one intervention of class `queue` (which pipeline-watch raises as a situation) naming them,
+main's sha, and the first-parent commits since the last green sha as `suspects` (the latest 50 when no green is known
+or it is no ancestor of main). A red run that names no test (a skip, a stall) raises one with the log's tail, and so
+does a crashed run (the queue's `crashed()`: exit 3, `INTERNALERROR>`, a full disk, a lost worker), whose FAILED lines
+are not read, since they name whatever was running; neither is ever green. It holds no batch back: the queue's own check on main (`main_red`) is unchanged. The auxiliary
+`browser-main-green` reads the file (1 green, 0 red; no reading when it is missing or cannot be read), and the goal
+of that name shows it on the Dynamics diagram. The daily run reads the goal (read, not commanded, so it keeps its
+schedule) and sets the auxiliary, so the goal's loop closes inside landing. What makes main green again is a fix
+merged, by way of the intervention.
+
+Each run's batch is an item, `batch/<run tag>` (`dev/bin/batches.py`; `ergostat item --kind batch`, the Items page, its
+graph and Timeline), so what the queue is doing is read in ergostat, not in `run/queue.json` and the logs: `testing`
+while a run of the suites is under way, `isolating` between the runs of a red batch, `pushing` once something landed
+and its push waits, then `landed`, `partial`, `failed` (nothing landed and a gap failed, or the push was denied) or
+`given-back` (nothing landed and nothing blamed: a stall, main red, out of time, an error). Its `runs` list each run:
+its kind (`full`, `named`: the failing tests on each prefix, `halves`: a round of two halves, one run), the gaps it
+covered, `outcome` (passed, failed, crashed, stalled), `failed` and `passed` summed over the pytest suites that said
+counts (`counted` names them; none said: neither is known), the first ten failing tests, minutes and a crash's cause.
+`isolated` says each gap found failing, how and on which tests; `given_back` and `why`, how it ended. It links to its
+gaps, and each gap's page lists its `batches`; the events carry no logs. While a run is under way, `batch-run-percent`
+and `batch-run-failures` read its progress from its own pytest logs (the least advanced; the F and E so far), never
+from the record. Saying any of this never fails or delays a merge: a failure to write is dropped. A batch whose queue
+run was killed ends when the next run takes over: `given-back` when recovery puts main back, and, killed after its
+merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
+
 A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
 `ergostat-factory-*`, killed when its run ends or is stopped, and swept by `main-watch` once past its time.
+
+## Stacked gaps
+
+A gap whose every unfinished dependency is approved, queued or push-pending is built on their reviewed heads, not on
+main (implement.py, step 1), and says so in `stacked_on: [{gap, sha}]`. The queue lands a stack bottom-up, all of it
+or none (queue.py).
+
+A base can move after that: sent back by review or triage, a fix round adds commits and it is approved again at a new
+`reviewed_head`. The block `stack-forward` (`dev/bin/stack.py`, every 5 minutes while `stack-forward-when` commands
+it: the sensor `stale-stacks`, which counts the stacked gaps whose base has moved or landed, above 0) merges the base's new head
+forward into each gap stacked on it. It never rebases or squashes, so the review history stays. One pass runs under
+the queue's lock, taken only if it is free (a queue run holding it means the next pass). It reads the gaps inside the
+lock and takes the stale ones bottom-up, so a stack of three moves in one pass:
+
+- a gap leased, building, in review or in fix is never touched: its next implementor round merges the base itself
+  (`fac.stack_base` reads the bases' reviewed heads again), and a fix gap's review findings stay as they are;
+- an approved gap whose branch is no longer its reviewed head is left alone (the queue refuses it as it is);
+- otherwise each moved base's head is merged into the gap's branch (`--no-ff`, by the factory) in a scratch clone of
+  the drop. The drop's branch moves only from the tip it was read at (update-ref's old value): a branch moved by
+  another writer is refused and theirs is kept. The gap's state is read again just before, and a changed one is
+  refused too (this narrows the window to a reviewer or implementor lease but does not close it). When the merge is
+  clean, `stacked_on` is updated. An approved gap stays approved with the merge as its `reviewed_head`
+  (`reviewed_by: stack-forward`): the merge brings in only reviewed commits, and the queue tests the result. A built
+  gap gets the merge as its `head`, so the review judges it;
+- a conflict is aborted and the gap is sent back to fix (`sent_back_by: stack-forward`, the files in
+  `stack_conflict`), not counted as a failed gate. In fix it is no longer stale, so a later pass does not send it
+  back again. The implementor's next round merges the base again and hands the conflict to its session;
+- a base that has landed (merged or closed) is dropped from `stacked_on`, and nothing is merged.
+
+A `stacked_on` that cannot be read, or that names a gap not in the record, counts in `stale-stacks` and is never
+moved. The pass says what it did with each gap on stderr, in the block's log.
 
 ## Time in each state
 
@@ -789,6 +939,13 @@ ergostat event --add intervention.recorded --item intervention/2026-11-20-unstic
   --data '{"reason": "the worktree was left mid-rebase", "class": "worktree", "recorded_at": 1795160000}'
 ergostat event --add intervention.remedied --item intervention/2026-11-20-unstick-alpha --data '{"remedy": "gap/..."}'
 ```
+
+A flake that cannot pass again (its test deleted or renamed) would stay `seen` or `main-broken`, and every goal on those
+stocks with it. Say it is fixed:
+`python3 dev/bin/manage.py flake-fixed tests/test_x.py::test_y --why "renamed to test_z"`. That writes `flake.fixed`
+(`fixed_by`: you, `why`) under `run/flakes.lock` and records the intervention (`flake-fixed`, class `flake`). It
+refuses a test with no flake item, or one that is already `fixed`, and any call but the coordinator's: the pipeline
+manager's is refused (it is not among its tools).
 
 ## The pipeline manager
 

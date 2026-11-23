@@ -1,6 +1,7 @@
 import contextlib
 import fcntl
 import json
+import multiprocessing.spawn
 import os
 import subprocess
 import sys
@@ -11,6 +12,20 @@ import time
 from pathlib import Path
 
 import pytest
+
+_DEV_BIN = Path(__file__).resolve().parent.parent / "dev" / "bin"
+_preparation = multiprocessing.spawn.get_preparation_data
+
+
+def _without_dev_bin(name):
+    """What a spawned process starts from, less dev/bin: many tests put it on sys.path, a spawned process inherits that,
+    and there dev/bin/queue.py hides the standard library's `queue`, which multiprocessing itself imports."""
+    data = _preparation(name)
+    data["sys_path"] = [x for x in data.get("sys_path", []) if not x or Path(x).resolve() != _DEV_BIN]
+    return data
+
+
+multiprocessing.spawn.get_preparation_data = _without_dev_bin
 
 DISK = """
 name = "t"
@@ -52,6 +67,52 @@ name = "cleaner"
 kind = "program"
 command = "python3 clean.py"
 every = "1s"
+"""
+# the disk model with one goal of each word, once disk-usage reads 70: holding (disk-under-80), off (disk-under-50),
+# open (disk-cleaned-nightly: its valve drains another stock) and unknown (inodes-under-90, never read)
+FOUR_GOALS = DISK + """
+[[controller]]
+name = "disk-under-50"
+holds = "disk-used"
+setpoint = "<= 50"
+reads = ["disk-usage"]
+drives = ["delete-old-files"]
+agent = "cleaner"
+
+[[stock]]
+name = "inodes-used"
+unit = "%"
+systems = ["host"]
+
+[[flow]]
+name = "inodes-freed"
+from = "inodes-used"
+
+[[sensor]]
+name = "inode-usage"
+measures = "inodes-used"
+agent = "cleaner"
+
+[[controller]]
+name = "inodes-under-90"
+holds = "inodes-used"
+setpoint = "<= 90"
+reads = ["inode-usage"]
+drives = ["free-inodes"]
+agent = "cleaner"
+
+[[valve]]
+name = "free-inodes"
+flow = "inodes-freed"
+agent = "cleaner"
+
+[[controller]]
+name = "disk-cleaned-nightly"
+holds = "inodes-used"
+setpoint = "<= 95"
+reads = ["inode-usage"]
+drives = ["delete-old-files"]
+agent = "cleaner"
 """
 
 

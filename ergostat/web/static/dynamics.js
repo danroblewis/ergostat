@@ -40,7 +40,8 @@ function sdRateSaid(now, rate, unit, flow) {
 }
 /* the lines written beside a part (under a valve or a converter): its name, then its value */
 function sdLabelLines(n) {
-  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "not measured" : n.rateText];
+  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "not measured" : n.rateText,
+    ...(n.attempts ? [`${n.attempts} attempt${n.attempts === 1 ? "" : "s"}`] : [])];      // an item's: the runs that took it
   if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
   if (n.kind === "cloud" && n.from) return [`from ${n.from}`];        // an inflow from outside: where it comes from, where the model knows it
   return [];
@@ -64,6 +65,8 @@ function sdStock(n, w, hgt) {
   g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
   if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v,
     sdNoUnit(n) ? s("tspan", { class: "sd-nounit" }, " unit ?") : null));
+  if (n.path?.length) g.append(s("text", { x: 4, y: 11, class: "t-sub sd-path", "data-path": n.path.join(",") },   // an item's steps here, in move order
+    n.path.join(", ")));
   return g;
 }
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
@@ -120,6 +123,119 @@ function sdSystem(n, w, hgt) {
       p.both ? "⇄ " : "", p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
+}
+/* a closed module's headline measures (``charted``: its show:, else its goals' measures), the first three, each as its
+   name, its value now and a sparkline of its behaviour over the page's window on its own scale (its low–high written
+   after it): put where they fit in the free middle of the box's existing rows (the description's second line, the port
+   rows), drawn after the structure from one answer for every box (series?measured=1: the measurement store alone),
+   asked again on the page's interval, and never moving or sizing a box. A bucket with no reading is a gap. Not drawn
+   while the line would be too small to read (under SPARK.px pixels high on the screen). Stocks, flows and auxiliaries
+   draw none */
+const SPARK = { w: 44, h: 12, most: 3, px: 7, every: 2500, pad: 10 };
+const sdSparkRefs = (n) => (n?.kind === "system" && !n.remote && !n.upkeep
+  ? [...new Set((n.charted || []).map((x) => x.part.replace(":", ".")))].slice(0, SPARK.most) : []);
+const sdSparkWindow = () => JSON.stringify([S.since, S.at || null]);
+const sdSparkReadable = () => (S.view?.k || 1) * SPARK.h >= SPARK.px;
+/* after each draw of the main canvas: what is held drawn at once, and the boxes' measures asked again when due */
+function sdSparks(svg, g) {
+  if (!svg.classList.contains("canvas")) return;
+  sdSparksPaint(svg, g);
+  const refs = [...new Set([...svg.querySelectorAll("g.node.k-system")].flatMap((el) => sdSparkRefs(g.nodes.find((n) => n.id === el.dataset.id))))];
+  const c = S.sparks, win = sdSparkWindow();
+  if (!refs.length || SNAP) return;
+  const every = SPARK.every / (window.ERGOSTAT_POLL_SPEED || 1);
+  const fresh = c && c.win === win && refs.every((r) => r in c.data) && performance.now() - c.at < every;
+  if (fresh || (c?.asking && c.askingFor === win + refs.join(",")) || performance.now() - (S.sparkFailed ?? -Infinity) < every) return;
+  const seq = (S.sparkSeq = (S.sparkSeq || 0) + 1);
+  S.sparks = { ...(c && c.win === win ? c : { win, data: {}, at: 0 }), asking: true, askingFor: win + refs.join(",") };
+  api("series", { refs: refs.join(","), points: SPARK.w, measured: 1 }).then((d) => {
+    if (seq !== S.sparkSeq || sdSparkWindow() !== win) return;        // a later ask, or the window changed: not this one
+    const data = Object.fromEntries(refs.map((r) => [r, undefined]));  // asked and not answered (cut past the server's
+    for (const x of d.series || []) data[x.ref.replace(/^auxiliary\./, "stock.")] = data[x.ref] = x;   // ceiling, or
+    // unknown to it): nothing drawn, never "no readings", for that is not known (the answer's ``cut`` names the first)
+    S.sparks = { win, data, at: performance.now(), asking: false };
+    const now = document.querySelector("svg.canvas");
+    if (now && S.graph?.kind === "dynamics") sdSparksPaint(now, S.graph);
+  }).catch(() => {                                    // not answered: none drawn (never the last lines as if read now)
+    if (seq !== S.sparkSeq) return;
+    S.sparks = null; S.sparkFailed = performance.now();     // (asked again on the page's interval, not every redraw)
+    const now = document.querySelector("svg.canvas");
+    if (now && S.graph?.kind === "dynamics") sdSparksPaint(now, S.graph);
+  });
+}
+/* the zoom crossed the readable size: drawn again, or taken away (diagram.js's applyView) */
+function sdSparksZoomed(svg) {
+  const r = sdSparkReadable();
+  if (r === S.sparkReadable) return;
+  S.sparkReadable = r;
+  if (S.graph?.kind === "dynamics" && svg.classList.contains("canvas")) sdSparksPaint(svg, S.graph);
+}
+function sdSparksPaint(svg, g) {
+  S.sparkReadable = sdSparkReadable();
+  const c = S.sparks?.win === sdSparkWindow() ? S.sparks : null;
+  for (const el of svg.querySelectorAll("g.node.k-system")) {
+    el.querySelector(":scope > .sd-sparks")?.remove();
+    const n = g.nodes.find((x) => x.id === el.dataset.id), refs = sdSparkRefs(n), box = el.querySelector("rect.sd-module");
+    if (!c || !S.sparkReadable || !refs.length || !box) continue;
+    const w = +box.getAttribute("width"), hgt = +box.getAttribute("height");
+    const sg = s("g", { class: "sd-sparks" });
+    el.append(sg);
+    const bands = sdSparkBands(el, n, w, hgt);
+    for (const ref of refs) {
+      const ser = c.data[ref], m = (n.charted || []).find((x) => x.part.replace(":", ".") === ref);
+      if (ser === undefined || !m) continue;
+      for (let i = 0; i < bands.length; i++) {
+        if (sdSparkRow(sg, m, ser, bands[i])) { bands.splice(i, 1); break; }
+      }
+    }
+  }
+}
+/* each existing row's widest free stretch, [y, from, to]: the rows a closed box already has (its description's second
+   line, each port row), less what is written in them */
+function sdSparkBands(el, n, w, hgt) {
+  const taken = [...el.querySelectorAll(":scope > g > text")].map((t) => {
+    const b = t.getBBox();                            // (one hidden now, a port in Flows only: where it shows again, widely)
+    if (b.width || !t.textContent) return b;
+    const x = +t.getAttribute("x"), wd = textWidth(t.textContent), a = t.getAttribute("text-anchor");
+    return { x: a === "end" ? x - wd : a === "middle" ? x - wd / 2 : x, y: +t.getAttribute("y") - 10, width: wd, height: 13 };
+  });
+  const ys = [56];
+  for (let y = sysTop(n); y + SPARK.h / 2 + 3 <= hgt; y += SYS_ROW) ys.push(y);
+  return ys.map((y) => {
+    const xs = taken.filter((b) => b.y < y + 7 && b.y + b.height > y - 7).map((b) => [b.x - SPARK.pad, b.x + b.width + SPARK.pad]).sort((a, b) => a[0] - b[0]);
+    let at = SPARK.pad, best = [y, 0, 0];
+    for (const [a, b] of [...xs, [w - SPARK.pad, w]]) {
+      if (a - at > best[2] - best[1]) best = [y, at, a];
+      at = Math.max(at, b);
+    }
+    return best;
+  }).filter(([, a, b]) => b > a);
+}
+/* one measure in one free stretch: its name, its value now, its line, its scale; false (and nothing left) if it does
+   not fit there */
+function sdSparkRow(sg, m, ser, [y, from, to]) {
+  const values = ser?.values || [], { d, lo, hi } = sparkPath(values, SPARK.w, SPARK.h);
+  const v = m.missing || !m.value || m.value === "?" ? "–" : m.value, bare = v.split(" ")[0];   // (a rate's has its unit)
+  const full = ser?.unit && ser.kind !== "flow" && v !== "–" ? `${v} ${ser.unit}` : v;
+  const span = !d ? "no readings" : `${fmt(lo)}–${fmt(hi)}`;
+  for (const said of [...new Set([full, bare])]) {
+    const row = s("g", { class: "sd-spark", "data-ref": ser?.ref || m.part, role: "img",
+                         "aria-label": `${m.label}: ${said} now; ${d ? `from ${fmt(lo)} to ${fmt(hi)}` : "nothing read"} over the window, on its own scale` });
+    sg.append(row);
+    const name = s("text", { y: y + 4, class: "t-sub sd-spark-name" }, m.label);
+    const now = s("text", { y: y + 4, class: "t-sub sd-spark-value live" + (m.stale ? " sd-spark-stale" : "") }, said);
+    const scale = s("text", { y: y + 4, class: "t-sub sd-spark-scale live" }, span);
+    row.append(name, now, scale);
+    const nw = name.getComputedTextLength(), vw = now.getComputedTextLength(), cw = scale.getComputedTextLength();
+    if (nw + 4 + vw + 6 + SPARK.w + 4 + cw > to - from) { row.remove(); continue; }
+    now.setAttribute("x", from + nw + 4);
+    const lx = from + nw + 4 + vw + 6;
+    name.setAttribute("x", from);
+    scale.setAttribute("x", lx + SPARK.w + 4);
+    if (d) row.append(s("path", { class: "sd-spark-line live", d, transform: `translate(${lx},${y - SPARK.h / 2})` }));
+    return true;
+  }
+  return false;
 }
 function sdWrap(text, room, max) {                      // words in lines of ``room`` characters, ``max`` at most (the last cut with …)
   const lines = [""];
@@ -513,7 +629,9 @@ function sdLoopList(panel, g) {
   const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
     h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.name)),
-    h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
+    h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`,
+      ((gs) => gs.length ? `, serves goal${gs.length > 1 ? "s" : ""} ${gs.join(", ")}` : "")(      // (the goals it closes)
+        [...new Set(c.nodes.filter((x) => x.startsWith("gap:")).map((x) => x.slice(4)))])));
   if (!known.length && !unknown.length && !modules.length) side.append(h("div", { class: "muted" }, "No feedback loops drawn here."));
   const counts = ["R", "B"].map((p) => [p, known.filter((c) => sdPol(c) === p).length]).filter(([, n]) => n);
   if (counts.length) side.append(h("div", { class: "note" }, counts.map(([p, n], i) => `${n} ${{ R: i ? "reinforcing" : "Reinforcing", B: i ? "balancing" : "Balancing" }[p]}`).join(", ")));

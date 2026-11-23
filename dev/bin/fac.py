@@ -84,6 +84,14 @@ def _aihold():
     return aihold
 
 
+def _outage():
+    """dev/bin/outage.py, found beside this file (as _aihold)."""
+    if str(HERE / "bin") not in sys.path:
+        sys.path.append(str(HERE / "bin"))
+    import outage
+    return outage
+
+
 def draining(cfg: dict) -> bool:
     """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
     review) waits for its next turn instead of starting; so it does while the AI is held (aihold.py)."""
@@ -156,8 +164,8 @@ def add(event: str, item: str, **data) -> None:
 
 def items(kind: str, state: str | None = None) -> list[dict]:
     """The items of a kind (in a state), from the record. One listing carries at most 500 items (spec/items.py
-    LISTED), so with no state each state is listed on its own and the lists joined (past 500 gaps the
-    intake read merged and closed gaps as new and opened them again)."""
+    LISTED), so with no state, when one listing does not carry them all, each state is listed on its own and the
+    lists joined (past 500 gaps the intake read merged and closed gaps as new and opened them again)."""
     def one(st):
         args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", st] if st else [])
         got = json.loads(ergostat(*args).stdout)
@@ -167,7 +175,10 @@ def items(kind: str, state: str | None = None) -> list[dict]:
         return got.get("items", [])
     if state:
         return one(state)
-    head = [ln for ln in ergostat("item", "--kind", kind).stdout.splitlines() if ln.startswith(f"{kind} ")]
+    got = json.loads(ergostat("item", "--kind", kind, "--json", "-n", "5000").stdout)
+    if len(got.get("items", [])) >= int(got.get("total") or 0):   # (all of them in one listing: one snapshot, one start)
+        return got.get("items", [])
+    head =[ln for ln in ergostat("item", "--kind", kind).stdout.splitlines() if ln.startswith(f"{kind} ")]
     states = re.findall(r"([a-z][a-z-]*) \d+", head[0].split("  ", 2)[-1]) if head else []
     if not states:
         return one(None)
@@ -617,6 +628,9 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     if boxed and p.returncode in agents_module().NOT_STARTED:
         raise agents_module().NotStarted(f"the {name} suite's container did not start (exit {p.returncode}): "
                                          f"{log.read_text()[-400:].strip()}")
+    if boxed and p.returncode and (down := _outage().docker_down()):    # (Docker gone during it: no red suite)
+        raise agents_module().NotStarted(f"the {name} suite's container ended (exit {p.returncode}) as Docker went "
+                                         f"down: {down}")
     return p.returncode, time.time() - began
 
 
@@ -697,11 +711,12 @@ def counts(text: str) -> dict[str, int] | None:
 def beside(tests: list[str], log: Path, run) -> dict[str, str]:
     """The quarantined ``tests`` run once beside a suite (``run(tests)`` writes ``log``), never blocking it: each
     result said on its item flake/<test> (`last_run`). A run that fails to start or leaves no log records unknown. A
-    flake item still marked quarantined whose test is no longer listed is marked released (`quarantined: false`)."""
+    flake item still marked quarantined whose test is no longer listed is released: one flake.released
+    (`quarantined: false`, `released_at`), so the record tells a release from a measurement."""
     try:
         for it in items("flake"):
             if it["fields"].get("quarantined") and it["fields"].get("test") not in tests:
-                say("flake.measured", it["id"], quarantined=False)
+                say("flake.released", it["id"], quarantined=False, released_at=time.time())
     except Exception:  # noqa: BLE001 - a record that cannot be read leaves the marks as they were, never the suite
         pass
     if not tests:
@@ -781,7 +796,7 @@ STANDIN = {
                'size: M (confidence: medium)\n\n100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- `docs/GAPS.md:1`: the gaps\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
-    "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
+    "designer": "The stand-in started no demo and walked nothing.", "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
     "pipeline_manager": '```json\n{"calls": [], "summary": "The stand-in looked and did nothing."}\n```'}
 
 
@@ -835,9 +850,14 @@ def last_attempt(given: dict) -> bool:
 def guarded(given: dict, began: float, measured: str, stop) -> int:
     """For a run's unexpected failure (a session timed out or gave no result, a verdict that does not parse, no
     definition, Docker or the egress proxy failing): its hours recorded; on its last attempt, ``stop(why)`` (the gap
-    parked with where it stopped) instead of a dead letter; before, raised again (the attempt counted)."""
+    parked with where it stopped) instead of a dead letter; before, raised again (the attempt counted). An outage
+    (Docker or the AI service unreachable, outage.py) is neither: given back uncounted, put off, tried again."""
     import traceback
     e = sys.exc_info()[1]
+    if why := _outage().of(e):                           # (its hours not counted toward the kill rule's either)
+        say("gap.measured", last_error=f"outage: {why}"[:500])
+        nack(f"outage: {why}", after=_outage().AFTER, count=False)
+        return 0
     say("gap.measured", **{measured: round((time.time() - began) / 3600, 3)}, last_error=f"{type(e).__name__}: {e}"[:500])
     if last_attempt(given):
         stop(f"Stopped on its last attempt by {type(e).__name__}: {e}\n\n```\n{traceback.format_exc()[-1500:]}\n```")
