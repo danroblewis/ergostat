@@ -92,3 +92,20 @@ Its runs failed past their attempts (a dead letter):
 - attempt 13: nack given back
 - attempt 14: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 15: nack the run ended with gap/ui-a-suggestion-appears-when-it-has-a-verdict still parked
+
+## Where it stopped
+
+Continued (gap/ui-a-suggestion-appears-when-it-has-a-continued, round 1): main fd6fff22 merged in, conflicts resolved.
+
+- ergostat/state.py: main's `state`/`modelling` on a loop's attention entry kept; the branch's `diagnosis_in` is now
+  set inside the same block.
+- diagram.js: main's three grouped lists (Waiting for you, Goals off, Model housekeeping) kept; the "· diagnosis in"
+  note is added to each entry there. A suggestion keeps main's goal button and `showGoal`, but takes the goal from its
+  heading (`loop NAME`, the branch's) rather than its text, which no longer starts with it.
+- tests: main's `test_a_goal_name_opens_its_evidence…` and the branch's `off_for` and acceptance test both kept
+  (each with its own `finally`). The acceptance test's Needs attention matcher now allows main's state word
+  ("off · loop short-backlog"). test_dynamics_view takes main's "off by 4" and keeps the branch's suggestion check.
+- Run: ruff (clean); tests/test_item_about.py, test_dynamics_view.py::test_the_attention_cards_speak_system_dynamics,
+  test_runner_and_state.py::test_a_suggestion_waits_for_its_verdict_and_names_its_goal_once (all pass). The two
+  browser tests by name (the acceptance test and main's goal-name test) went past the 600s foreground limit and were
+  moved to the background; their result is not in this note. The merge queue must run the full suites.
