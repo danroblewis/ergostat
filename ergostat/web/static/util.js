@@ -33,6 +33,14 @@ function h(tag, attrs = {}, ...kids) {
   for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
 }
+/* a data table's name, for those who hear it (each data table has one) */
+const tableCaption = (text) => h("caption", { class: "sr-only" }, text);
+/* a data table's header row, in its thead: each th a column's header, a sorted column's order on it */
+function headRow(...ths) {
+  const row = h("tr", {}, ...ths);
+  for (const th of row.children) { th.setAttribute("scope", "col"); const by = th.querySelector("[data-sort]"); if (by) th.setAttribute("aria-sort", by.dataset.sort); }
+  return h("thead", {}, row);
+}
 function s(tag, attrs = {}, ...kids) {
   const el = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs || {})) if (v != null && v !== false) {
@@ -551,7 +559,11 @@ async function route() {
   oldAddress();
   const { path, q } = parseRoute();
   const top = path.split("/").slice(0, 2).join("/");
-  for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", routeOfHref(a.getAttribute("href")) === top);
+  for (const a of document.querySelectorAll("#nav a")) {
+    const on = routeOfHref(a.getAttribute("href")) === top;
+    a.classList.toggle("on", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  }
   S.timer?.stop?.();
   closeDetail();
   if (typeof splitLayout === "function" && !PANE) splitLayout();

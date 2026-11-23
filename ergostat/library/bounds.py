@@ -56,7 +56,8 @@ def check(c, spec) -> None:
         what = f"{s.of.kind} {s.of.name} sensor {s.name}"
         _timing(c, what, s.every, s.cron, s.where)
         if s.daemon is not None or s.push:
-            c.err(f"{what}.daemon: an untrusted library's sensor is read by a command, never a daemon", s.where, CODE)
+            c.err(f"{what}.daemon: an untrusted library's sensor is read by a command, run in ergostat.sandbox, never "
+                  f"a daemon, which nothing sandboxes", s.where, "library-unsandboxed")
     total, over = 0, False
     for b in spec.blocks.values():
         b.untrusted = untrusted_part(b.where, spec.uses)
