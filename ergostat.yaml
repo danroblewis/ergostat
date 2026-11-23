@@ -278,10 +278,11 @@ items:
       upgrade.superseded: superseded
       upgrade.failed: failed
       upgrade.switch-approved: approved    # the switcher (drain.py): its switch-instance approved
-      upgrade.draining: draining       # a quiet moment or the daily window: the runs under way drain
-      upgrade.drained: draining        # drained (or the bound reached): the switch begins
+      upgrade.switch-begun: approved   # the switch started (live.py, its own process): the runs under way carry on
+      upgrade.draining: draining       # (the record's before switch-without-draining: a switch waited for the runs
+      upgrade.drained: draining        # under way to drain; kept so the record of those still reads)
       upgrade.withdrawn: withdrawn     # a newer version waits, or runs: its switch request withdrawn
-      upgrade.switched: switched       # the switch (live.py), once drained
+      upgrade.switched: switched       # the switch (live.py): the new version's engine started
       upgrade.kept: healthy
       upgrade.reverted: reverted
     show: [sha, check, switch, previous]
@@ -342,6 +343,10 @@ agents:
 
 leases:
   ai: {ttl: 60m}
+
+runs:
+  outlive_engine: true                # each run kept by a keeper of its own: a version switch stops the engine, not
+                                      # the runs under way; the new version's engine takes them up (dev/bin/drain.py)
 
 uses:
   modelling:

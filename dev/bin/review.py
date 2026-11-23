@@ -160,7 +160,7 @@ def next_review(branch: str) -> int:
 
 def judge(cfg: dict, gap: dict, began: float) -> int:
     f = gap["fields"]
-    if fac.drain_holds(cfg):
+    if fac.ai_holds(cfg):
         return 0
     refused = fac.may_spend(cfg, float(cfg["ai"]["reviewer_session_usd"]))
     if refused:

@@ -535,4 +535,4 @@ if __name__ == "__main__":
     if sys.argv[1:] in (["splits"], ["lint"]):
         sys.exit((splits if sys.argv[1] == "splits" else sweep)(fac.config()))
     cfg, item = fac.config(), fac.read_input()["item"]
-    sys.exit(0 if fac.drain_holds(cfg) else (join if sys.argv[1:] == ["join"] else planner)(cfg, item))
+    sys.exit(0 if fac.ai_holds(cfg) else (join if sys.argv[1:] == ["join"] else planner)(cfg, item))
