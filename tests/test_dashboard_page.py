@@ -264,11 +264,30 @@ def test_the_default_has_a_panel_of_every_chart_family(browser, site):
     got = pg.evaluate("""([f, items]) => {
       const rich = JSON.parse(JSON.stringify(f));
       rich.sources.items.kinds.widget.fields = [{ name: "cost_usd", unit: "usd" }, { name: "net_lines", unit: "lines" }];
+      rich.sources.frequency = { goals: ["widgets-held"] };
       const made = dashDefault(rich, items.kinds).panels;
       return { made: made.map((p) => normalizeForm(p).form), all: Object.keys(plotForms()), n: made.length, most: DASH_MOST };
     }""", [FIELDS, ITEMS])
     assert set(got["all"]) <= set(got["made"])
     assert got["n"] <= got["most"]
+    ctx.close()
+
+
+def test_the_default_draws_no_response_from_arrivals_against_completions(browser, site):
+    """dev/records/frequency-refuses-noise.md: arrivals and completions are not shown as a working Bode or Nyquist
+    example; a goal's declared process is, when there is one."""
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    got = pg.evaluate("""([f, items]) => {
+      const freq = (made) => made.filter((p) => ["bode", "nyquist", "pole-zero"].includes(normalizeForm(p).form))
+        .map((p) => ({ form: normalizeForm(p).form, q: p.queries[0] }));
+      const withGoal = JSON.parse(JSON.stringify(f));
+      withGoal.sources.frequency = { goals: ["widgets-held"] };
+      return { bare: freq(dashDefault(f, items.kinds).panels), goal: freq(dashDefault(withGoal, items.kinds).panels) };
+    }""", [FIELDS, ITEMS])
+    assert got["bare"] == []
+    assert sorted(p["form"] for p in got["goal"]) == ["bode", "nyquist", "pole-zero"]
+    assert all(p["q"] == {"id": "a", "source": "frequency", "model": {"goal": "widgets-held"}} for p in got["goal"])
     ctx.close()
 
 
@@ -350,7 +369,7 @@ def test_edit_mode_moves_and_resizes_by_mouse(browser, site):
     pg = opened(ctx, f"{site}/dashboard")
     edit(pg)
     was = order(pg)
-    grip = pg.locator(f'[data-panel="{was[0]}"] .dash-grip').bounding_box()
+    grip = pg.locator(f'[data-panel="{was[0]}"] .panel-title').bounding_box()     # the title is the handle
     to = pg.locator(f'[data-panel="{was[1]}"]').bounding_box()
     pg.mouse.move(grip["x"] + 3, grip["y"] + 3)
     pg.mouse.down()
@@ -370,15 +389,100 @@ def test_edit_mode_moves_and_resizes_by_mouse(browser, site):
     ctx.close()
 
 
-def test_the_tools_never_sit_over_the_plot(browser, site):
+SETTLED = "() => !document.getAnimations().some((a) => a.effect?.target?.classList?.contains('dash-cell'))"
+# where every panel's header, body, plots and stats lie on the page, to the pixel
+PLACES = """() => Object.fromEntries([...document.querySelectorAll('.dash-cell')].map((c) => [c.dataset.panel,
+  [...c.querySelectorAll('.panel-head, .panel-body, canvas, .panel-stats > *, .panel-table')].map((e) => {
+    const r = e.getBoundingClientRect();
+    return [e.className || e.tagName, r.left + scrollX, r.top + scrollY, r.width, r.height].join(' ');
+  })]))"""
+TOOLS = """(id) => { const t = document.querySelector(`[data-panel="${id}"] .dash-tools`), s = getComputedStyle(t);
+  return { shown: s.display !== 'none' && s.opacity === '1' && s.pointerEvents !== 'none',
+           labels: [...t.querySelectorAll('button, a, [role=button]')].map((b) => b.getAttribute('aria-label')) }; }"""
+
+
+@pytest.mark.parametrize("width,height", [(1440, 1000), (1024, 768), (390, 844)])
+def test_entering_edit_mode_moves_no_panel_content(browser, site, width, height):
+    ctx = context(browser, width, height)
+    pg = opened(ctx, f"{site}/dashboard")
+    pg.wait_for_function("() => document.querySelectorAll('.dash-cell canvas, .dash-cell .panel-stats > *').length > 0")
+    pg.wait_for_function(SETTLED)
+    pg.wait_for_timeout(300)                                            # the plots told where they moved to (dashPlotsMoved)
+    before = pg.evaluate(PLACES)
+    edit(pg)
+    pg.wait_for_function(SETTLED)
+    after = pg.evaluate(PLACES)
+    assert len(before) >= 4 and all(before.values())
+    assert after == before
+    pg.get_by_role("button", name="Done").click()
+    pg.wait_for_function("() => !document.querySelector('.dash-grid.editing')")
+    pg.wait_for_function(SETTLED)
+    assert pg.evaluate(PLACES) == before
+    assert pg.errors == []
+    ctx.close()
+
+
+def test_only_edit_and_remove_show_on_hover_or_focus_and_never_over_the_plot(browser, site):
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    ids = order(pg)
+    assert not pg.evaluate(TOOLS, ids[0])["shown"]                      # outside edit mode: none
+    edit(pg)
+    pg.mouse.move(1, 1)
+    for pid in ids:
+        assert pg.evaluate(TOOLS, pid) == {"shown": False, "labels": ["Edit this panel", "Remove this panel"]}
+    pg.hover(f'[data-panel="{ids[1]}"] .panel-title')
+    assert pg.evaluate(TOOLS, ids[1])["shown"]
+    assert not pg.evaluate(TOOLS, ids[0])["shown"]
+    for pid in ids:                                                     # in the header's corner, clear of the plot
+        pg.hover(f'[data-panel="{pid}"] .panel-head')
+        assert pg.evaluate("""(id) => { const c = document.querySelector(`[data-panel="${id}"]`);
+          const t = c.querySelector('.dash-tools').getBoundingClientRect(), hd = c.querySelector('.panel-head').getBoundingClientRect(),
+                b = c.querySelector('.panel-body').getBoundingClientRect();
+          return t.top >= hd.top - 1 && t.bottom <= hd.bottom + 1 && t.bottom <= b.top + 1 && t.right <= hd.right + 1; }""", pid), pid
+    pg.mouse.move(1, 1)
+    pg.locator(f'[data-panel="{ids[2]}"]').focus()                     # by keyboard: the panel, then its Edit
+    pg.keyboard.press("Tab")
+    assert pg.evaluate("() => document.activeElement.getAttribute('aria-label')") == "Edit this panel"
+    assert pg.evaluate(TOOLS, ids[2])["shown"]
+    pg.keyboard.press("Enter")
+    pg.wait_for_selector(".pe-overlay[role=dialog]")
+    assert pg.errors == []
+    ctx.close()
+
+
+def test_the_x_removes_the_panel(browser, site):
     ctx = context(browser)
     pg = opened(ctx, f"{site}/dashboard")
     edit(pg)
-    assert pg.evaluate("""() => [...document.querySelectorAll('.dash-cell')].every((c) => {
-      const b = c.querySelector('.dash-body').getBoundingClientRect(), t = c.querySelector('.dash-tools').getBoundingClientRect(),
-            f = c.querySelector('.dash-foot').getBoundingClientRect();
-      return t.bottom <= b.top + 1 && f.top >= b.bottom - 1;
-    })""")
+    was = order(pg)
+    pg.hover(f'[data-panel="{was[0]}"] .panel-title')
+    pg.locator(f'[data-panel="{was[0]}"] .dash-tools').get_by_role("button", name="Remove this panel").click()
+    assert order(pg) == was[1:]
+    assert pg.errors == []
+    ctx.close()
+
+
+def test_on_touch_a_tap_shows_that_panels_controls(browser, site):
+    ctx = browser.new_context(viewport={"width": 1024, "height": 900}, has_touch=True)
+    ctx.add_init_script(WATCH)
+    ctx.route("**/api/query/fields", lambda r: r.fulfill(json=FIELDS))
+    ctx.route("**/api/query?*", answer)
+    ctx.route("**/api/items?*", lambda r: r.fulfill(json=ITEMS))
+    ctx.route("**/api/items-graph*", lambda r: r.fulfill(json=GRAPH))
+    pg = opened(ctx, f"{site}/dashboard")
+    pg.get_by_role("button", name="Edit", exact=True).tap()
+    pg.wait_for_selector(".dash-grid.editing")
+    ids = order(pg)
+    assert not any(pg.evaluate(TOOLS, pid)["shown"] for pid in ids)
+    pg.locator(f'[data-panel="{ids[0]}"] .panel-body').tap()
+    assert pg.evaluate(TOOLS, ids[0])["shown"]
+    pg.locator(f'[data-panel="{ids[1]}"] .panel-body').tap()
+    assert pg.evaluate(TOOLS, ids[1])["shown"]
+    assert not pg.evaluate(TOOLS, ids[0])["shown"]                      # one panel's at a time
+    pg.locator(f'[data-panel="{ids[1]}"] .dash-tools').get_by_role("button", name="Remove this panel").tap()
+    assert ids[1] not in order(pg)
+    assert pg.errors == []
     ctx.close()
 
 

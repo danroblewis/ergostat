@@ -25,10 +25,10 @@ def worker(root, beat=10.0) -> list[str]:
     return [sys.executable, "-I", WORKER, "--stdio", "--root", str(root), "--beat", str(beat)]
 
 
-def node(tmp_path, argv, beat=cx.BEAT, first=cx.FIRST, labels=None):
+def node(tmp_path, argv, beat=cx.BEAT, first=cx.FIRST, labels=None, ping=cx.PING):
     seen = []
     pool = ComputePool("farm", [{"connect": argv}], labels=labels or {})
-    n = cx.Node(pool, 1, tmp_path / "farm.log", lambda kind, data, said: seen.append((kind, data)), beat, first)
+    n = cx.Node(pool, 1, tmp_path / "farm.log", lambda kind, data, said: seen.append((kind, data)), beat, first, ping)
     return n.start(), seen
 
 
@@ -253,5 +253,129 @@ def test_engine_starts_and_closes_every_session_and_never_names_a_host(tmp_path,
         (plain / "ergostat.yaml").write_text("name: t\nstocks:\n  queue: {unit: items}\n")
         f.swap(mdl.load(plain))                                             # and swapped out: closed
         assert f.compute.nodes == {} and wait_for(lambda: gone(pid) and not one.thread.is_alive(), 10)
+    finally:
+        f.close()
+
+
+def test_round_trips_measured(tmp_path):
+    hello = {"v": 1, "seq": 1, "type": "hello", "slots": 2, "labels": {}}
+    mute = f"import sys\nprint({json.dumps(hello)!r}, flush=True)\nsys.stdin.read()\n"    # (in service, never a pong)
+    n, _ = node(tmp_path, [sys.executable, "-I", "-c", mute], ping=0.05, first=60)
+    try:
+        up(n)
+        time.sleep(0.5)
+        assert n.least_rtt() is None and n.pending                     # a ping sent, none answered: no value yet
+    finally:
+        n.close()
+        n.thread.join(10)
+    n, _ = node(tmp_path, worker(tmp_path / "r", beat=0.2), ping=0.05, first=60)
+    try:
+        pid = up(n)
+        assert wait_for(lambda: len(n.rtts) >= 5, 10), n.status()       # a ping each interval, each pong timed
+        now = time.monotonic()
+        with n.lock:
+            least = min(r for _, r in n.rtts)
+            n.rtts.append((now - 120, least / 10))                     # out of the window of 60 s
+            n.rtts.append((now, least * 100 + 1))                      # in it, the newest, never the least
+        assert least / 10 < n.least_rtt() <= least and n.least_rtt(window=200) == least / 10
+        os.kill(pid, signal.SIGKILL)
+        assert wait_for(lambda: n.state == "lost", 10) and n.least_rtt(window=1e9) is None   # the session's alone
+    finally:
+        n.close()
+        n.thread.join(10)
+        n.pinger.join(10)
+    assert not n.alive()
+
+
+def pools(tmp_path, entries, first=cx.FIRST):
+    p = project(tmp_path, "name: t\nstocks:\n  queue: {unit: items}\n")
+    got = cx.Pools(p, lambda s: None, first=first)
+    got.sync({"farm": ComputePool("farm", entries)})
+    return got
+
+
+def test_lost_node_slots_leave_the_status(tmp_path):
+    argv = worker(tmp_path / "r", beat=0.2)
+    ps = pools(tmp_path, [{"connect": argv}, {"connect": argv}], first=60)
+    try:
+        a, b = ps.nodes["farm/1"], ps.nodes["farm/2"]
+        pid = up(a)
+        up(b)
+        s = a.hello["slots"]
+        assert wait_for(lambda: ps.status()["farm"]["free"] == 2 * s, 10), ps.status()      # free: the beats' word
+        got = ps.status()["farm"]
+        assert got == {"in_service": 2, "lost": 0, "slots": 2 * s, "free": 2 * s, "error": None,
+                       "least_rtt": got["least_rtt"]}
+        os.kill(pid, signal.SIGKILL)
+        assert wait_for(lambda: a.state == "lost", 10)
+        got = ps.status()["farm"]                                      # the next reading: its slots gone
+        assert {k: got[k] for k in ("in_service", "lost", "slots", "free", "error")} == {
+            "in_service": 1, "lost": 1, "slots": s, "free": s, "error": {"node": "farm/1", "why": "the session ended"}}
+    finally:
+        ps.close()
+    assert ps.status() == {}
+
+
+def test_unknown_version_in_status(tmp_path, monkeypatch):
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "ssh").write_text('#!/bin/sh\necho "alice@real.example.com: Permission denied (publickey)." >&2\n'
+                              'echo "ssh: connect to host 10.1.2.3 port 22: Connection refused" >&2\nexit 255\n')
+    (bin_ / "ssh").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    hello = {"v": 2, "seq": 1, "type": "hello", "slots": 4, "labels": {"user": "alice", "host": "real.example.com"}}
+    fake = f"import sys\nprint({json.dumps(hello)!r}, flush=True)\nsys.stdin.read()  # alice@10.1.2.3\n"
+    ps = pools(tmp_path, [{"connect": [sys.executable, "-I", "-c", fake]}, {"ssh": "Secret-Host"}], first=60)
+    try:
+        assert wait_for(lambda: ps.nodes["farm/2"].state == "lost" and ps.nodes["farm/1"].state == "refused", 15)
+        got = ps.status()["farm"]
+        assert got["in_service"] == 0 and got["lost"] == 2 and got["slots"] == got["free"] == 0
+        assert got["least_rtt"] is None
+        errs = {ps.nodes[k].erred: (k, ps.nodes[k].error) for k in ("farm/1", "farm/2")}
+        assert got["error"] == dict(zip(("node", "why"), errs[max(errs)], strict=True))      # the one set last
+        ps.nodes["farm/1"]._out("refused", ps.nodes["farm/1"].error)                       # set again: now the last
+        assert ps.status()["farm"]["error"] == {"node": "farm/1", "why": "line 1: protocol v2 is not v1"}
+        text = json.dumps(ps.status()).lower()
+        assert not [w for w in ("secret-host", "10.1.2.3", "real.example.com", "alice") if w in text], text
+    finally:
+        ps.close()
+
+
+def test_status_only_with_pools(tmp_path, monkeypatch):
+    from ergostat import runner
+    from ergostat.spec.engine import Engine
+    from ergostat.store import Project
+    from ergostat.web.server import Live, api
+    argv = json.dumps(worker(tmp_path / "r", beat=0.2))
+    p = project(tmp_path, f"name: t\nstocks:\n  queue: {{unit: items}}\ncompute:\n  farm:\n"
+                          f"    nodes: [{{connect: {argv}}}]\n")
+    live = Live(Project(mdl.load(tmp_path)))
+    assert api(live, "status", {})["compute"] == {"farm": None}        # no engine running: unknown, never a guess
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    try:
+        up(e.compute.nodes["farm/1"])
+        assert wait_for(lambda: e.compute.status()["farm"]["least_rtt"] is not None, 15)
+        e.watchdog.beat_at = -1e9
+        e.watchdog.beat()                                               # the heartbeat carries it
+        beat = json.loads((Path(p.dir) / "heartbeat.json").read_text())
+        assert beat["compute"]["farm"]["in_service"] == 1
+        with monkeypatch.context() as m:
+            m.setattr(runner, "running_pid", lambda *a, **k: 4242)
+            assert api(live, "status", {})["compute"] == {"farm": beat["compute"]["farm"]}
+    finally:
+        e.close()
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    q = project(plain, "name: t\nstocks:\n  queue: {unit: items}\n")
+    f = Engine(q, say=lambda s: None)
+    f.start_all()
+    try:
+        f.watchdog.beat_at = -1e9
+        f.watchdog.beat()
+        assert "compute" not in json.loads((Path(q.dir) / "heartbeat.json").read_text())
+        with monkeypatch.context() as m:
+            m.setattr(runner, "running_pid", lambda *a, **k: 4242)
+            assert "compute" not in api(Live(Project(mdl.load(plain))), "status", {})   # a model without: no key
     finally:
         f.close()
