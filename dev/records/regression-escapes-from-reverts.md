@@ -60,3 +60,15 @@ Its runs failed past their attempts (a dead letter):
 - attempt 9: nack queue: the push of 76e1a9ab1945 (gap/perf-segments-item-span-first) is requested
 - attempt 10: nack queue: the push of 2985c7826921 (gap/milestone-kind-and-lifecycle) is requested
 - attempt 11: nack the fast suites failed (build: tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine)
+
+Continued, round 1 (after the park): main (dc47a763) is already merged in (8ddc718e). No code changed. The five
+acceptance tests pass on this branch again, and `ruff check ergostat tests scripts` is clean. The dead letter's last
+attempt failed on test_an_approved_switch_drains_and_switches_through_the_engine. Run alone on this branch it passes
+in 147 s. Its two switcher runs each wait at most 120 s, and the live.py switch waits at most 90 s, so under the
+build's parallel workers it is close to its bounds (lesson 10). It is not this branch's code. The engine's loop is
+never started there (instance_engine), so the new escapes-day sensor does not run. It starts only the switcher
+(dev/bin/drain.py) and live.py, and this branch changes neither. upgrade.py changes only in `watch`, which that test
+never calls. Attempts 8-10 were queue nacks waiting on other gaps' pushes, not failures of this branch. A
+comparison run on clean main (a `git worktree add --detach /tmp/mainwt main`, then the named test there) was refused
+in this session, so the test was not run on main here. The factory reruns it there. Why the switcher's runs take
+this long belongs in its own gap (lesson 13).
