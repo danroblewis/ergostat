@@ -996,13 +996,15 @@ def test_stat_and_table_options(site):
     assert site.page.locator("td.panel-cell-bar").count() == 2
 
 
-COARSE = {"id": "a", "times": [NOW + 1200 * i for i in range(4)], "unit": "items", "series": [{"name": "slow", "values": [10, 20, None, 40]}]}
+COARSE = {"id": "a", "times": [NOW + 1200 * i for i in range(4)], "unit": "items",
+          "series": [{"name": "slow", "values": [10, 20, None, 40]}]}
 FINE = {"id": "b", "times": [NOW + 720 * i for i in range(5)], "unit": "items", "series": [{"name": "fast", "values": [1, 2, 3, 4, 5]}]}
 MIXED_META = {"now": NOW + 3600, "since": NOW, "until": NOW + 3600, "step": 720}
 
 
 def mixed(form="line", options=None):
-    return {**config(form, options or {}), "queries": [{"id": "a", "source": "series", "series": "slow"}, {"id": "b", "source": "moves", "kind": "k"}]}
+    two = [{"id": "a", "source": "series", "series": "slow"}, {"id": "b", "source": "moves", "kind": "k"}]
+    return {**config(form, options or {}), "queries": two}
 
 
 def mount_two(site, cfg, *results):
