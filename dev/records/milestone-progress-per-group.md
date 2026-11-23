@@ -70,3 +70,29 @@ non-empty map on a group relation is refused as bad-relation at `done_when`. An 
 Run here: tests/test_group_progress.py, tests/test_relations.py, tests/test_spec_schema.py (73 passed),
 tests/test_milestones.py, tests/test_milestone_frames.py (42 passed), ruff clean. The browser file was not run again
 (no page code changed this round).
+
+Round 3. The one finding (conflicts with main in dev/bin/milestones.py and ergostat.yaml) is fixed: main
+(7a44d730) is merged in, both sides kept. In milestones.py's docstring, main's shorter `pull` line and the branch's
+`status` line naming the progress. In ergostat.yaml, the branch's `done_when` comment and main's
+`waits_on_milestone` comment, one after the other.
+Running the browser file after the merge found a real gap the round-2 merge had brought in, unseen because round 2
+did not run the browser file: main's Items overview (`/items` is now kinds.js, from `/api/items-overview`) had no
+milestone rows, so both page acceptance tests failed waiting for `.gp-row`. Fixed: the overview's cards name
+`progress` (web/items_overview.py), and kinds.js asks `/api/items-groups` for those kinds and draws the same
+`groupRows` (its card two columns wide). Redrawn only when the rows change, since the answer's `times` move with now.
+A row's click opens the kind's own page, `/items/gap?where=milestone:ID`. SPEC §5a says so in both places.
+Tests changed to fit main's routing. `test_a_milestones_row_opens_...` reopens the page the click led to (the path
+now holds the kind). In `test_twenty_five_milestones_fit_...`, the "(the fold is why)" check said "unfolded, some
+card starts past 1000px". On the overview's grid that no longer holds: unfolded, the next card wraps to 849px. It now
+asserts that unfolding pushes the next row of cards down by at least twenty rows' height. With the fold broken (every
+row shown), the test was seen to fail. tests/test_items_overview.py's pin that kinds.js asks only `items-overview`
+now allows exactly `items-overview` and `items-groups`.
+Run here: tests/test_group_progress.py, tests/test_milestones.py, tests/test_relations.py (84 passed),
+tests/test_spec_schema.py, tests/test_milestone_frames.py (40 passed), tests/test_items_overview.py (7 passed), ruff
+clean. tests/test_items_page.py: 58 passed, 2 failed, both again by name. One is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (the project switcher, as in rounds 1 and 2).
+The other is `test_actions_say_per_class_asked_approved_denied_and_whether_held`, at line 593. It opens `/items` and
+waits for `.action-classes`, which only the kind's list page (pages.js) draws, while main's router sends a bare
+`/items` to the overview. That routing is main's, and this branch leaves the actions and the router alone. Not run
+on clean main here (a worktree of main was refused in round 1), so this rests on reading the code: the factory's
+rerun on clean main decides. Not run: the other three browser files, the unit suite.
