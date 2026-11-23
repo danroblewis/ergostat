@@ -71,3 +71,44 @@ both unrelated:
 
 Lesson 9, each broken by hand and seen to fail: the budget refusal no longer a stall (2 tests fail); stalls not ranked
 first (2 fail); no goal folded (1 fails); the page reading no `held_up` (the browser test fails).
+
+### Round 2
+
+Main (1c790d38) merged in first: `index.html` and `util.js` conflicted, both resolved keeping main's change (the
+"wait for you" link inside its polite live region, its comment) and the branch's (`#heldup` after it, its lines).
+
+The review's one finding (blocking), answered: the most held root and the unknown count are now worked out over every
+ranked root, not the 20 listed (`answer` gives `most`, its place in `roots`, and `unknown`); the most held root is
+always listed, after the first 20 when the class ranking puts it lower, so `roots` can be 21 long; the CLI's cut line
+says "N more roots not listed, none holding more than the most held", which the listing makes true. SPEC §5a says so.
+Tests: `test_the_most_held_is_found_and_listed_past_twenty_roots_ranked_above_it` (25 parked gaps nothing waits on,
+held, ahead of the merge queue's full pool with 60 waiting) and
+`test_items_whose_root_is_not_known_are_counted_past_twenty_roots` (25 unknown roots, the line says 25). With the old
+behaviour put back by hand both fail (the first names `gap/z0` as the most held, as the review said).
+
+Found by the merge: the browser test `test_the_header_says_what_holds_the_work_up_in_one_line` failed, the header
+naming *nothing takes session items* and `/api/held-up` *nothing takes case items*. Main's example now has two such
+stalls of 8 items each, 32 s of waiting apart in 6 h, and the roots were ranked on hours rounded to 0.01 h, so the two
+tied at some moments (and the tie went to the text) and not at others: the order flipped with the clock. Roots are now
+ranked on the unrounded hours (`test_roots_waited_on_within_a_rounding_of_each_other_rank_by_the_longer_wait`,
+fails with the rounded key put back). The browser test compared two answers worked out seconds apart whose "of
+waiting" text moves every few seconds; it now compares the header with `/api/status`'s own `held_up` (polled until the
+header has followed it) and checks it names the root `/api/held-up` ranks first.
+
+Tests run in round 2: `tests/test_held_up.py` (28 pass), `tests/test_why.py` (33 pass), ruff clean. Browser, under
+the watchdog: `tests/test_items_page.py` whole: 55 pass, 3 fail, then the header test passes after the change above;
+`tests/test_page_refresh.py` with `tests/test_page_polling.py`: 30 pass, 2 fail (`test_page_refresh.py` again alone:
+8 pass, the same 2 fail). The failures left, none touched by the branch (it changes neither pages.js nor these tests):
+
+- `test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`: as in round 1 (the
+  project switcher never lists the other project), now at line 1834.
+- `test_items_page.py::test_actions_say_per_class_asked_approved_denied_and_whether_held` (came with main): no
+  `.action-classes` line within 20 s. It fails the same way with `held_up` taken out of `/api/status` (put back
+  after), which leaves the branch nothing on the page but a hidden empty span.
+- `test_page_refresh.py::test_the_items_page_changes_only_the_new_row`: waits for `table.items tr`, a selector the
+  merged page code (`ergostat/web/static`) no longer has anywhere.
+- `test_page_refresh.py::test_other_pages_left_open_change_nothing[diagram?view=process&by=events-graph]`: as in
+  round 1.
+
+Choice with nobody to ask: listing the most held as a 21st root rather than cutting one of the 20 (the class ranking
+of the 20 stays as it was; reversible by changing one line in `answer`).
