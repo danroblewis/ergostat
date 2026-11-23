@@ -113,6 +113,11 @@ TOOLS = [
      "parked or dead item, nothing taking its state, a cycle, a missing item), who must act and the command, the evidence "
      "with links, what the record cannot tell, and a one-paragraph summary. The same as `ergostat why ITEM --json`.",
      "inputSchema": _obj({"item": {"type": "string"}}, ["item"])},
+    {"name": "held_up", "description": "What holds the work up: every unfinished item grouped by its root cause (as why "
+     "finds it), the roots ranked by what they hold (items, hours of waiting, the items its block takes first), each "
+     "a stall, held on purpose, queueing or unknown, with its next step; the goals off because of a root folded under "
+     "it; and line, the biggest constraint in words, or that nothing is stuck. The same as `ergostat held-up --json`.",
+     "inputSchema": _obj({})},
     {"name": "context", "description": "A starting context, as Markdown: a projection recipe the model names under "
      "contexts: (its parts in order, each within its budget: decisions, corrections, the owner's words, an item's history, "
      "the state now, a session's turns, documents, the model's parts), rendered for item when given; or the built-ins "
@@ -277,6 +282,9 @@ class Server:
         if name == "why":
             from .why import answer
             return _text(answer(p, str(a.get("item") or "")))
+        if name == "held_up":
+            from .why import held
+            return _text(held.answer(p))
         if name == "explain":
             from .spec.explain import explain
             return _text(explain(spec, a.get("part") or None, p))
