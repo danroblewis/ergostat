@@ -635,6 +635,10 @@ details.sd-unknown > summary { color: var(--muted); margin: var(--sp-2) 0; }
 /* Agents: one list, by rung; the ladder as a line of counts */
 .ladder-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); margin: 0 0 var(--sp-5); color: var(--muted); }
 .ladder-line .step b { color: var(--ink); }
+/* an agent that never ran, is behind its schedule or last failed: its word in the alarm colour, its reason under it */
+.exception { color: var(--bad); font-weight: 600; }
+.ladder-line .exception { margin-left: var(--sp-2); }
+tr.exception-why td { padding-top: 0; color: var(--bad); font-size: var(--text-sm); border-top: 0; }
 tbody.group th small { font-weight: normal; font-size: var(--text-sm); }
 .hints { margin: var(--sp-1) 0 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .hints li { color: var(--ink-2); margin-top: var(--sp-0); }

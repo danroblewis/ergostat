@@ -475,6 +475,9 @@ ergostat measures every run itself (SPEC §9.1): what its AI sessions cost (doll
 estimated from tokens), its tokens, the CPU time and peak memory of its processes, its wall time and exit. You do not
 write anything for this: an `ai` block's own `claude -p`, and `ergostat session` inside any block's `run:`, report
 through the run. The Agents page shows each agent's totals and history; `ergostat agent NAME` the same.
+An agent whose last run failed, that never ran on its schedule, or that ran under half the runs its `every:` asks for
+over the window's record ("behind: 10 of ~120") is marked in red with its reason under the row, and counted on the
+page's top line.
 
 When the person wants a limit ("no more than $5 a day on AI"), make it a goal, read from a built-in measure, and gate
 the AI blocks on it, so the loop that does the work also stops when the money is spent:

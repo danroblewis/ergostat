@@ -90,8 +90,18 @@ async function pageAgents(main) {
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const cols = [...RUNG_NAMES, "retired"];
     const of = (i) => Object.entries(agents).filter(([, a]) => a.rung === i);
+    // an agent that stands out: it last failed, never ran on its schedule, or ran under half the runs its interval asks
+    const sched = (a) => a.schedule || (a.every ? `every ${dur(a.every)}` : "");
+    const exc = (a) => a.failing ? ["last run failed", `its last run, ${ago(a.last.time)}, failed${a.last.data?.note ? ": " + a.last.data.note : ""}`]
+      : !a.last && (a.runs_itself || a.every || a.cron) ? ["never ran", `${sched(a) || "it runs itself"}, but no run of it is in the record` +
+        (a.runs_itself ? "" : " (it is not run here: whatever runs it records nothing)")]
+      : a.expected >= 4 && a.runs < a.expected / 2 ? [`behind: ${a.runs} of ~${a.expected}`, `${sched(a)} over the ${dur(a.span)} of ` +
+        `record in the window asks for about ${a.expected} runs; ${a.runs} are recorded`] : null;
+    const tally = {};
+    for (const a of Object.values(agents)) { const x = exc(a); if (x) { const k = x[0].startsWith("behind") ? "behind schedule" : x[0]; tally[k] = (tally[k] || 0) + 1; } }
     patch(ladder, ...cols.map((k, i) => h("span", { class: "step", "data-kind": k, title: RUNG_HINT[i] },
-      of(i).length ? h("b", {}, String(of(i).length)) : "0", ` ${k}`)), h("span", { class: "muted" }, "most general → most specific"));
+      of(i).length ? h("b", {}, String(of(i).length)) : "0", ` ${k}`)), h("span", { class: "muted" }, "most general → most specific"),
+      ...Object.entries(tally).map(([k, n]) => h("span", { class: "exception", key: "x-" + k }, `${n} ${k}`)));
     const last = (a) => a.runs_itself ? (a.running_since ? `running for ${ago(a.running_since).replace(" ago", "")}` : a.last ? ago(a.last.time) : "never ran")
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
@@ -105,13 +115,13 @@ async function pageAgents(main) {
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
         h("tr", {}, h("th", { colspan: 9, scope: "colgroup", "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
           h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
-        xs.map(([name, a]) => h("tr", { class: "click", key: name, "data-row": name, onclick: () => openAgent(name) },
-          h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
+        xs.flatMap(([name, a]) => [h("tr", { class: "click", key: name, "data-row": name, onclick: () => openAgent(name) },
+          h("td", { class: "nowrap" }, h("b", {}, name), exc(a) ? h("span", { class: "exception", title: exc(a)[1] }, ` ${exc(a)[0]}`) : null),
           h("td", {}, rolesText(a.roles) || h("span", { class: "muted" }, "no roles"),
             (a.hints || []).length ? h("ul", { class: "hints" }, a.hints.map((hint) => h("li", { class: hint.about === "loop" ? "warn" : "", title: hint.says },
               hint.about === "loop" ? op(hint.says)
                 : `${hint.controller}: “${hint.decision}” ${Math.round(hint.share * 100)}% of ${hint.count}; a cheaper rung could fill it`))) : null),
-          h("td", { class: "num" }, a.runs_itself ? String(a.runs) : ""),
+          h("td", { class: "num" }, String(a.runs ?? "")),        // the window's count, the same the panel gives
           h("td", { class: "nowrap muted" }, last(a)),
           h("td", { class: "muted" }, a.schedule || a.every || (a.leased ? "on demand, per item (leased)"
             : a.runs_itself ? "on demand" : a.kind === "person" ? "by a person" : "not run here")),
@@ -119,7 +129,8 @@ async function pageAgents(main) {
             usd(use(a).cost_usd), use(a).cost && use(a).cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
           h("td", { class: "num", "data-use": "tokens" }, tokensText(use(a).ai_runs ? use(a).tokens : null)),
           h("td", { class: "num", "data-use": "cpu" }, cpuText(use(a).cpu)),
-          h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak))))))));
+          h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak))),
+          exc(a) ? h("tr", { class: "exception-why", key: name + "/why" }, h("td", { colspan: 9 }, exc(a)[1])) : null].filter(Boolean))))));
     if (heldStill(box)) holdStill(box, table, () => tick());      // the reader in the table: its rows stay as they are
     else patch(box, table);
     const ds = Object.entries(daemons || {});
