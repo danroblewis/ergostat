@@ -742,6 +742,28 @@ folded to), and a prune takes out the items whose events are all gone. `tests/te
 holds it equal to a fresh fold for every example's kinds, as events arrive, after roll-ups, read
 cold and built again.
 
+The same file holds, as indexed tables, what the status answer reads from the record
+(`spec/projections.py`), followed in the same transactions as the items and built again with them:
+`records`, ergostat's own items (gated actions, messages, reports, model changes, modelling requests
+and model requests), each folded by its built-in kind as its module's `stored()` folds it, with its
+state and its class (an action's class, a change's kind, a request's code) as indexed columns;
+`marks`, each event of the types read by type and time (loop crossings, breakers, step tests, daemons
+given up, leases expired, the events of model changes and modelling requests, and what
+`ergostat.forgotten` set aside, so a read that leaves voided crossings out reads one table); and
+`asks`, each time a person block was asked or an advised block advised and how it was answered. What
+also depends on the model's blocks, goals or files (which inbox entries wait, a class's record over
+the week, an alarm's readings) is worked out from these when read, since one index serves every model
+with the same item kinds. The record stays the truth: when events are taken out (a roll-up, a prune)
+the records and marks are folded again from what the record still holds and an ask whose event is
+gone is dropped, and a fresh record or a new layout builds the whole file again (an index of an
+older layout is another file, never read). `tests/test_index_projections.py` holds each table equal
+to a fresh read of the record (the modules' `stored()`, `events.query`, the inbox's asks) for random
+records on both event stores, followed a chunk at a time, read cold, built again, after a roll-up, a
+prune and a fresh record, after a crash part way (each chunk is one transaction: the next process
+resumes from the last committed), and read by another process while one follows (it reads what was
+committed, unblocked). The answers are as of what the index has folded, not of an earlier `until`:
+the status reads them only when it asks about now.
+
 **Items rolled up.** An item's events older than its horizon (`rollup.after`, or its kind's) are
 replaced by one event, `ergostat.item.snapshot`, the item as it stood after them:
 
