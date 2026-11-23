@@ -435,15 +435,17 @@ function openProcessEdge(e) {
 }
 
 /* the side list: what was read, what was left out, and the kinds */
-function pmSide(side, g) {
-  side.append(h("h3", {}, "The process map"));
+function pmSide(panel, g) {
+  panel.append(h("h3", {}, "The process map"));
   const notes = [`${g.events} event${g.events === 1 ? "" : "s"} in the window; nodes are ${g.by === "states" ? "the states items entered" : "the event types about items"}.`];
   if (g.capped?.events) notes.push(`Only the newest ${g.most.events.toLocaleString()} events were read.`);
   if (g.capped?.items) notes.push("Only the latest moved items were read.");
   if (g.capped?.nodes || g.capped?.edges) notes.push(`Too many to draw: the ${g.most.nodes} most frequent nodes and ${g.most.edges} most frequent lines are drawn, of ${g.total.nodes} and ${g.total.edges}.`);
   if (g.paths > 0) notes.push(`Paths under ${Math.round(g.paths * 100)}% of their kind's most frequent hidden: ${g.hidden.edges} line${g.hidden.edges === 1 ? "" : "s"}, ${g.hidden.nodes} node${g.hidden.nodes === 1 ? "" : "s"}.`);
-  side.append(...notes.map((t) => h("p", { class: "muted small" }, t)));
-  side.append(h("h3", {}, "Kinds", h("span", { class: "muted" }, ` ${g.kinds.length}`)));
+  panel.append(...notes.map((t) => h("p", { class: "muted small" }, t)));
+  // the kinds, folded with their count (the legend comes first)
+  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Kinds", h("span", { class: "muted" }, ` ${g.kinds.length}`)));
+  panel.append(side);
   if (!g.kinds.length) side.append(h("div", { class: "muted" }, "No kinds of item here."));
   const said = new Set();                              // a remote's links not drawn, said once, on its first kind
   const unlinked = (k) => {

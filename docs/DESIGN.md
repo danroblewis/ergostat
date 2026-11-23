@@ -312,7 +312,7 @@ provenance, its calibrations side by side, and any proposal for it, with Accept 
 typed over: a what-if, drawn on every chart until put back, its fit shown beside it, saved only by
 Propose these and then Accept), a feedback loop's panel how much of the behaviour it drives over the
 window at each stock it runs through, beside the loops competing there (loop dominance), parts chosen with
-Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
+Shift chart in the side panel (with none chosen, no chart); a loop's panel, its
 comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
 scope (y with r, u, e), and under it how the loop is doing (Harris index or, for a ceiling or a floor,
 how often and how far past it, oscillation, settling and overshoot, saturation, step tests and starts
@@ -391,10 +391,14 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   Numbers right-aligned, headers too over numbers. A wide table scrolls inside its own box; the page
   never scrolls sideways.
 - **Numbers.** One formatter (`fmt` in `util.js`): integers as they are, with thousands separated;
-  others to three significant figures; a real minus (−). Raw data on the Record is rounded the same
-  way where it is summarised, and kept whole in the event's panel. Setpoints and conditions use the
+  others to three significant figures; a real minus (−). Raw data on the Record is shown whole,
+  never rounded. Setpoints and conditions use the
   real symbols: ≤, ≥, =, ≠, −, ×, and … for an ellipsis. Subscripts are subscripts (K<sub>p</sub>,
   not K_p).
+- **Times.** One formatter (`stamp` in `util.js`): `2026-11-22 04:03:55 PST`, the date, the time and
+  the browser's zone by its short name, on the Record, a goal's Crossings, the Items page and an item's
+  page. A field named `*_at`, `raised`, `since` or `started` holding epoch seconds or ISO text is
+  shown the same way.
 - **Copy.** No paragraph under a page's title: what a thing is belongs to the Guide. Labels are
   terse and specific; a panel opens with what the thing is now, not its definition. Sentence case
   everywhere. No " · " chains to fake structure: two lines, or a label and a value. No arrows on

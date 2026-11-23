@@ -720,7 +720,8 @@ function bdNode(n, c) {
     g.append(bdBody(n, fn, w, hgt - band - (n.upkeep ? BD_UPKEEP : 0), band));
     if (n.upkeep) g.append(s("text", { x: w / 2, y: hgt - 8, class: "bd-note sys-upkeep", "text-anchor": "middle" }, UPKEEP));
     if (n.remote && !fn.name) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
-    if (n.identified) g.append(s("text", { x: w, y: -5, class: "bd-note bd-ident", "text-anchor": "end" }, "identified"));   // its law, from the record
+    if (n.identified || n.declared)                   // its law, from the record, or declared (an assumption)
+      g.append(s("text", { x: w, y: -5, class: "bd-note bd-ident", "text-anchor": "end" }, n.identified ? "identified" : n.declared));
     bdAlarm(g, n);
   }
   return g;
@@ -842,13 +843,14 @@ function bdDraw(svg, g, lay) {
   for (const e of g.edges) (nets[e.sourcePort] ||= []).push(e);
   S.edgeById = {};
   for (const f of lay.containers) taken.push({ x: f.x, y: f.y, w: Math.min(f.width, 260), h: 28 });   // the frames' titles
+  const cross = bdCrossings(lay.edges.map((le) => [le.id, bdPts(le)]));       // where lines cross: a hop, never a dot
   for (const e of g.edges) {
     const le = byLe[e.id];
     const pts = le ? bdPts(le) : [];
     if (pts.length < 2) continue;
     const vec = (e.signal?.n || 0) > 1;
     const eg = s("g", { class: `edge bd-edge${vec ? " bd-vec" : ""}`, "data-id": e.id, "data-nodes": `${e.source} ${e.target}`, "data-net": e.sourcePort });
-    const { els, mark } = bdEdgeContent(e, pts);
+    const { els, mark } = bdEdgeContent(e, pts, cross);
     eg.append(...els);
     eg.addEventListener("mouseenter", () => bdTrace(svg, { net: e.sourcePort }));
     eg.addEventListener("mouseleave", () => bdTrace(svg, S.bdSel || null));
@@ -856,10 +858,10 @@ function bdDraw(svg, g, lay) {
     if (mark) taken.push(mark);
     edgesG.append(eg);
   }
-  // take-off points: where the lines of one signal part
+  // take-off points: where the lines of one signal part (a line with no port of its own shares it with none)
   const dots = s("g", { class: "bd-dots" });
   for (const [port, es] of Object.entries(nets)) {
-    if (es.length < 2) continue;
+    if (es.length < 2 || port === "undefined") continue;
     const routes = es.map((e) => (byLe[e.id] ? bdPts(byLe[e.id]) : [])).filter((p) => p.length > 1);
     for (const p of bdTakeoffs(routes)) dots.append(s("circle", { cx: p.x, cy: p.y, r: 3.2, class: "bd-dot" }));
   }
@@ -959,19 +961,46 @@ function bdDraw(svg, g, lay) {
 
 /* a signal's line as drawn: its way, its head, its name as a tooltip, and a vector's slash and count (where
    that takes room: mark); drawn again alone while a part it touches is dragged (diagram.js's redrawLine) */
-function bdEdgeContent(e, pts) {
+function bdEdgeContent(e, pts, cross = null) {
   const vec = (e.signal?.n || 0) > 1;
+  // where it crosses others (drawn again alone while dragged: against the others' ways as they are)
+  cross = (cross || bdCrossings([[e.id, pts], ...(S.layout?.edges || []).filter((le) => le.id !== e.id).map((le) => [le.id, bdPts(le)])], e.id))
+    .filter((c) => c.h === e.id || c.v === e.id);
   const d = pts.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join("");
   const tip = pts[pts.length - 1], prev = pts[pts.length - 2];
   const ang = Math.atan2(tip.y - prev.y, tip.x - prev.x), L = vec ? 10 : 8;
   const back = { x: tip.x - Math.cos(ang) * (L - 1), y: tip.y - Math.sin(ang) * (L - 1) };
-  const short = [...pts.slice(0, -1), back].map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join("");
+  // a hop on each level stretch where an upright line crosses it: a small half circle over it (on the upright line,
+  // to the right, where the crossing is under the level one's arrowhead)
+  const wire = [...pts.slice(0, -1), back];
+  let short = `M${wire[0].x},${wire[0].y}`;
+  for (let i = 1; i < wire.length; i++) {
+    const a = wire[i - 1], b = wire[i], lvl = Math.abs(a.y - b.y) < 0.5, [u, w] = lvl ? ["x", "y"] : ["y", "x"];
+    const dir = Math.sign(b[u] - a[u]), pt = (t) => (lvl ? `${t},${a.y}` : `${a.x},${t}`);
+    let at = a[u];
+    for (const t of cross.filter((c) => (lvl ? c.h === e.id && !c.head : c.v === e.id && c.head) && Math.abs(c[w] - a[w]) < 0.5 &&
+                                        (c[u] - a[u]) * dir > 0 && (b[u] - c[u]) * dir > 0).map((c) => c[u]).sort((p, q) => (p - q) * dir)) {
+      const r = Math.min(4, (t - at) * dir, (b[u] - t) * dir);   // (signed: from the last hop's end on)
+      if (r < 0.5) continue;                                       // on or under the hop before: it covers this one
+      short += `L${pt(t - r * dir)}A${r},${r} 0 0 ${dir > 0 ? 1 : 0} ${pt(t + r * dir)}`;   // (over the top; or to the right)
+      at = t + r * dir;
+    }
+    short += `L${b.x},${b.y}`;
+  }
   const els = [s("path", { d, class: "bd-hit" }), s("path", { d: short, class: "bd-wire" }),
                s("path", { class: "bd-head", d: `M${tip.x},${tip.y} L${tip.x - L * Math.cos(ang - 0.38)},${tip.y - L * Math.sin(ang - 0.38)} L${tip.x - L * Math.cos(ang + 0.38)},${tip.y - L * Math.sin(ang + 0.38)} Z` })];
   let mark = null;
-  if (vec) {                                            // a vector: a slash across it, and how many signals
-    const [a, b] = pts.slice(1).map((q, i) => [pts[i], q]).sort((x, y) => (Math.abs(y[0].x - y[1].x) + Math.abs(y[0].y - y[1].y)) - (Math.abs(x[0].x - x[1].x) + Math.abs(x[0].y - x[1].y)))[0];
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, horiz = Math.abs(a.y - b.y) < 1;
+  if (vec) {                                            // a vector: a slash across it, and how many signals, mid-way along
+    let best = null;                                    // its longest stretch with no crossing or bend: clear of both
+    pts.slice(1).forEach((b, i) => {
+      const a = pts[i], len = Math.hypot(b.x - a.x, b.y - a.y);
+      const ts = [0, len, ...cross.filter((c) => Math.abs((c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)) < len &&
+        (c.x - a.x) * (b.x - a.x) + (c.y - a.y) * (b.y - a.y) > 0 && (c.x - b.x) * (a.x - b.x) + (c.y - b.y) * (a.y - b.y) > 0)
+        .map((c) => Math.hypot(c.x - a.x, c.y - a.y))].sort((p, q) => p - q);
+      ts.slice(1).forEach((t, k) => { if (!best || t - ts[k] > best.gap) best = { gap: t - ts[k], t: (t + ts[k]) / 2, a, b, len }; });
+    });
+    const { a, b } = best, f = best.t / (best.len || 1);
+    const mx = a.x + (b.x - a.x) * f, my = a.y + (b.y - a.y) * f, horiz = Math.abs(a.y - b.y) < 1;
     els.push(s("path", { class: "bd-slash", d: horiz ? `M${mx - 4},${my + 6} L${mx + 4},${my - 6}` : `M${mx - 6},${my + 4} L${mx + 6},${my - 4}` }),
              s("text", { class: "bd-count", x: mx + (horiz ? 0 : 9), y: my + (horiz ? 17 : 4), "text-anchor": horiz ? "middle" : "start" }, String(e.signal.n)));
     mark = { x: mx - 8, y: my - 8, w: 16, h: 30 };
@@ -979,20 +1008,35 @@ function bdEdgeContent(e, pts) {
   return { els, mark };
 }
 
-function bdTakeoffs(routes) {                         // the points where lines that leave one port together part
-  const on = (p, pts) => pts.slice(1).some((b, i) => { const a = pts[i];
-    return Math.abs(a.x - b.x) < 0.5 ? Math.abs(p.x - a.x) < 0.6 && p.y >= Math.min(a.y, b.y) - 0.6 && p.y <= Math.max(a.y, b.y) + 0.6
-      : Math.abs(p.y - a.y) < 0.6 && p.x >= Math.min(a.x, b.x) - 0.6 && p.x <= Math.max(a.x, b.x) + 0.6; });
-  const walk = (pts, step = 1) => { const out = []; for (let i = 1; i < pts.length; i++) { const a = pts[i - 1], b = pts[i];
-    const n = Math.max(1, Math.round((Math.abs(a.x - b.x) + Math.abs(a.y - b.y)) / step));
-    for (let k = 0; k < n; k++) out.push({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n }); }
-    out.push(pts[pts.length - 1]); return out; };
+/* where lines cross (each stretch level or upright): a level stretch and an upright one each passing through the
+   point, not ending on it (a line ending on another is a take-off). Each { x, y, h: the level line, v: the upright,
+   head: under the level one's arrowhead }; with of, only those of that line */
+function bdCrossings(lines, of = null) {
+  const hs = [], vs = [], out = [];
+  for (const [id, pts] of lines) pts.slice(1).forEach((b, i) => { const a = pts[i];
+    if (Math.abs(a.y - b.y) < 0.5 && Math.abs(a.x - b.x) > 0.5) hs.push([Math.min(a.x, b.x), Math.max(a.x, b.x), a.y, id, i === pts.length - 2 ? b.x : null]);
+    else if (Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) > 0.5) vs.push([Math.min(a.y, b.y), Math.max(a.y, b.y), a.x, id]); });
+  const pairs = (H, V) => { for (const [x0, x1, y, h, tip] of H) for (const [y0, y1, x, v] of V)
+    if (x0 + 0.8 < x && x < x1 - 0.8 && y0 + 0.8 < y && y < y1 - 0.8) out.push({ x, y, h, v, head: tip !== null && Math.abs(tip - x) < 11 }); };
+  pairs(of ? hs.filter((q) => q[3] === of) : hs, vs);
+  if (of) pairs(hs.filter((q) => q[3] !== of), vs.filter((q) => q[3] === of));
+  return out;
+}
+
+/* where the lines of one signal part: a bend of theirs (or the port they leave) that three ways meet at, the port's
+   block one of them; never where two only pass through each other (a crossing: drawn with a hop) */
+function bdTakeoffs(routes) {
+  const near = (p, q) => Math.abs(p.x - q.x) < 0.6 && Math.abs(p.y - q.y) < 0.6;
   const found = [];
-  for (let i = 0; i < routes.length; i++) for (let j = i + 1; j < routes.length; j++) {
-    const a = walk(routes[i]);
-    let last = null;
-    for (const p of a) { if (on(p, routes[j])) last = p; else break; }
-    if (last && !found.some((q) => Math.abs(q.x - last.x) < 2 && Math.abs(q.y - last.y) < 2)) found.push(last);
+  for (const p of routes.flatMap((r) => r.slice(0, -1))) {
+    if (found.some((q) => Math.abs(q.x - p.x) < 2 && Math.abs(q.y - p.y) < 2)) continue;
+    const ways = new Set();
+    for (const r of routes) r.slice(1).forEach((b, i) => { const a = r[i];
+      if (near(a, b) || p.x < Math.min(a.x, b.x) - 0.6 || p.x > Math.max(a.x, b.x) + 0.6 || p.y < Math.min(a.y, b.y) - 0.6 || p.y > Math.max(a.y, b.y) + 0.6) return;
+      const ux = Math.sign(Math.round(b.x - a.x)), uy = Math.sign(Math.round(b.y - a.y));
+      if (!near(p, b)) ways.add(`${ux},${uy}`);
+      if (!near(p, a)) ways.add(`${-ux},${-uy}`); });
+    if (ways.size + (routes.some((r) => near(p, r[0])) ? 1 : 0) >= 3) found.push(p);
   }
   return found;
 }
@@ -1127,30 +1171,35 @@ function bdRouteDraw(svg, lay) {
   });
 }
 
+/* only what is drawn, as sdLegend: each row when the model drawn has one */
 function blocksLegend() {
-  const row = (svgTxt, text) => [h("span", { html: `<svg width="30" height="20">${svgTxt}</svg>` }), h("span", {}, text)];
+  const g = S.graph || { nodes: [], edges: [] }, ns = g.nodes || [], es = g.edges || [], fr = g.frames || [];
+  const has = (f) => ns.some(f), kindOf = (n) => (n.role === "sensor" || n.role === "collector" ? n.role : n.kind);
+  const nets = {};
+  for (const e of es) nets[e.sourcePort] = (nets[e.sourcePort] || 0) + 1;
+  const row = (when, svgTxt, text) => when && [h("span", { html: `<svg width="30" height="20">${svgTxt}</svg>` }), h("span", {}, text)];
   const ink = 'stroke="currentColor" fill="none" stroke-width="1.3"';
   return h("div", { class: "legend bd-legend" },
-    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
+    row(has((n) => !["sensor", "collector", "sum", "mux", "demux", "input", "output", "sampler", "port"].includes(kindOf(n))),`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
         "a block, its function inside: C a controller, P a process, Q a subsystem; C(z) runs every T, (s) is continuous; Q without (s) holds sampled or nonlinear parts; click it for its definition"),
-    row(`<rect x="2" y="2" width="26" height="16" ${ink}/><text x="15" y="10" font-size="7" text-anchor="middle" font-style="italic" fill="currentColor">H = 1</text><path d="M7,14 H23" stroke="currentColor" stroke-width="0.8"/>`,
+    row(has((n) => n.role === "sensor"), `<rect x="2" y="2" width="26" height="16" ${ink}/><text x="15" y="10" font-size="7" text-anchor="middle" font-style="italic" fill="currentColor">H = 1</text><path d="M7,14 H23" stroke="currentColor" stroke-width="0.8"/>`,
         "a sensor, on the feedback path beneath the loop: what finds the work. Inside, its function (H = 1: it reads what is there as it is; H(s): avg τ, a rate over a window; e^(−sT) with a switch: it polls every T, a period that matters against the loop's) and, beneath, what it reads and how often"),
-    row(`<rect x="2" y="2" width="26" height="16" ${ink}/><path d="M7,8 H23 M7,13 H19" stroke="currentColor" stroke-width="0.8"/>`,
+    row(has((n) => n.role === "collector"), `<rect x="2" y="2" width="26" height="16" ${ink}/><path d="M7,8 H23 M7,13 H19" stroke="currentColor" stroke-width="0.8"/>`,
         "a collector, in front of a sensor on the same path: the command or query that polls an outside system and records what it saw as items, which the sensor counts; a count is only as fresh as its collector"),
-    row(`<path d="M0,10 H8 M22,10 H30 M8,10 L20,3" ${ink}/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="22" cy="10" r="1.6" fill="currentColor"/>`,
+    row(has((n) => n.kind === "sampler"), `<path d="M0,10 H8 M22,10 H30 M8,10 L20,3" ${ink}/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="22" cy="10" r="1.6" fill="currentColor"/>`,
         "a sampler (T): where a continuous signal enters a discrete controller C(z)"),
-    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,15 H10 V12 H14 V9 H18 V6 H24" ${ink}/>`,
+    row(has((n) => n.id.startsWith("zoh:")), `<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,15 H10 V12 H14 V9 H18 V6 H24" ${ink}/>`,
         "a zero-order hold (ZOH): where C(z) drives the continuous process, each value held for one period"),
-    row(`<rect x="3" y="4" width="24" height="12" rx="6" ${ink}/>`, "an In or Out port: a signal crossing the edge of a system drawn alone"),
-    row(`<path d="M15,0 V20" stroke="currentColor" stroke-width="0.8"/><path d="M2,10 H28" ${ink}/><rect x="11" y="6" width="8" height="8" rx="2" ${ink} fill="var(--bg, #fff)"/>`,
+    row(has((n) => n.kind === "port"), `<rect x="3" y="4" width="24" height="12" rx="6" ${ink}/>`, "an In or Out port: a signal crossing the edge of a system drawn alone"),
+    row(fr.some((f) => f.frame === "system"), `<path d="M15,0 V20" stroke="currentColor" stroke-width="0.8"/><path d="M2,10 H28" ${ink}/><rect x="11" y="6" width="8" height="8" rx="2" ${ink} fill="var(--bg, #fff)"/>`,
         "a port mark: where a signal crosses the frame of an open system, named"),
-    row(`<rect x="1" y="1" width="28" height="18" ${ink}/><text x="3.5" y="8.5" font-size="7.5" fill="currentColor">AI</text>`,
+    row(has((n) => n.tier), `<rect x="1" y="1" width="28" height="18" ${ink}/><text x="3.5" y="8.5" font-size="7.5" fill="currentColor">AI</text>`,
         "a block's tier, written small in its top-left corner: who fills it, top of the ladder to bottom: person, AI agent, narrow AI, decision, program, rule (a law ergostat computes); none on an external block with no agent"),
-    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation, dead zone); no transfer function is claimed"),
-    row(`<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
-    row(`<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
-    row(`<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
-    row(`<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
-    h("span", { class: "sym" }, "r e u y d"), h("span", {}, "reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample"));
+    row(has((n) => n.fn?.name && n.fn.linear === false && n.role !== "collector"), `<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation, dead zone); no transfer function is claimed"),
+    row(has((n) => n.kind === "sum"), `<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
+    row(Object.values(nets).some((k) => k > 1), `<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
+    row(es.some((e) => (e.signal?.n || 0) > 1) || has((n) => n.kind === "mux" || n.kind === "demux"), `<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
+    row(fr.some((f) => f.frame === "cascade"), `<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
+    es.some((e) => e.signal?.sym) && [h("span", { class: "sym" }, "r e u y d"), h("span", {},"reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample")]);
 }
 
