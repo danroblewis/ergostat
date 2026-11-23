@@ -106,3 +106,13 @@ Its runs failed past their attempts (a dead letter):
 - attempt 12: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 13: nack the run ended with gap/ui-an-agent-that-never-ran-is-behind-schedule-or-la still parked
 - attempt 14: nack given back
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 19:06).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 12: nack the implementor pool is full (run/pools.json): waits its turn
+- attempt 13: nack the run ended with gap/ui-an-agent-that-never-ran-is-behind-schedule-or-la still parked
+- attempt 14: nack given back
+- attempt 15: nack given back
