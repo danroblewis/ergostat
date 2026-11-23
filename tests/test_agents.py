@@ -251,7 +251,8 @@ def test_a_browser_failure_that_skips_alone_is_not_a_flake(tmp_path):
 # at /work, or with none in a new empty STATE/copies/<name> (given its stdin with -i, as a copy is piped in), a
 # process group of its own (as a container outlives its killed client), listed in STATE/running/<name> while it runs;
 # `kill`/`rm` kill that group by name; `ps --filter name=X` lists those running. STATE/fails: `run` fails as Docker's
-# own error does (exit 125), before any command.
+# own error does (exit 125), before any command. STATE/down: Docker unreachable, every command failing as with no
+# daemon.
 FAKE_DOCKER = """\
 import json, os, signal, subprocess, sys
 from pathlib import Path
@@ -259,6 +260,10 @@ state, args = Path(STATE), sys.argv[1:]
 with open(state / "calls.jsonl", "a") as f:
     f.write(json.dumps(args) + "\\n")
 running = state / "running"
+if (state / "down").exists():                       # (an outage: no daemon answers any command)
+    print("Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+          file=sys.stderr)
+    sys.exit(125 if args[0] == "run" else 1)
 if args[0] == "run":
     if (state / "fails").exists():
         sys.exit(print("docker: Error response from daemon: no such image", file=sys.stderr) or 125)
