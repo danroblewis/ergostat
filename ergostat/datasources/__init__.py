@@ -133,7 +133,8 @@ def values(spec, name: str, text: str, since: float, until: float, seconds: floa
         raise SourceError("limit", f"the window is more than the {int(MOST_WINDOW // 86400)} days allowed")
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
-    got = mod.values(src, (m.group(1) or "").strip() or None, m.group(2), Window(since, until, since, until - since, 1, min(seconds, MOST_SECONDS)))
+    w = Window(since, until, since, until - since, 1, min(seconds, MOST_SECONDS))
+    got = mod.values(src, (m.group(1) or "").strip() or None, m.group(2), w)
     if not isinstance(got, list) or not all(isinstance(v, str) for v in got):
         raise SourceError("refused", f"source {name!r} answered with no list of values")
     if len(got) > MOST_VALUES:

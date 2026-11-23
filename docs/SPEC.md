@@ -1269,6 +1269,27 @@ reads the event log.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
   is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
+- **Variables.** A Dashboard draft's `vars` names at most 8 variables (`$kind`, `${kind}`): a custom list
+  (`{"type": "custom", "values": [...], "multi": true}`, or a bare list, which takes several), a constant
+  (`{"type": "constant", "value": "prod"}`), or a query (`{"type": "query", "source": "prom", "text":
+  "label_values(ergostat_items, kind)", "multi": false}`; `label_values(label)` lists every series'). Each but a constant
+  is a choice at the top of the Dashboard, and what is chosen is kept in the address (`var-kind=a&var-kind=b`); a
+  variable not chosen takes its first value, or every value when it takes several. A query's values are asked of
+  `GET /api/query/values?q=` (base64url of `{source, text, since, until, vars}`), answered `{"values": [...]}`: at
+  most 200, each at most 200 characters, else refused (`error_kind: limit`), and refused to a public reader as any
+  data source query. A source type lists them by offering `values` beside `query` (for `prometheus`,
+  `GET /api/v1/label/NAME/values`). A data source query is sent `vars` (name to the values chosen, only those its text
+  names), and the server writes them in by the source's language, so no value can change what the query means: inside
+  a string literal a value is that literal's content, escaped for it (a raw `` ` `` string refuses a value holding a
+  backtick); in PromQL a string after `=~` or `!~` takes each value escaped as a literal regular expression, several as
+  `(?:a|b)`, and any other string exactly one value; outside a string a value must be one plain name or number or
+  duration (never a keyword), else the query is refused (`error_kind: refused`); a comment is left as written. The
+  `analysis` and `model` call languages have the same rules without regular expressions; a language with no rules
+  refuses every variable used in it. In the older query forms a field takes a variable's one value, and a list element
+  that is the variable alone takes every value. Changing a variable asks again only the panels whose queries then
+  change (those that use it, and the copies of a panel repeated by it); each panel takes only the answer of the last
+  ask it was in, by sequence. A panel repeated by a variable (section 4f's design, *Repeated panels*) shows one panel
+  for each value chosen.
 
 ## 4f. Dashboards: shared, named, and checked
 
@@ -4159,13 +4180,15 @@ sources:
 | `ergostat` | `url`, `token-file`, `tls` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
 A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
-(`GET /api/v1/query_range`, the only request it makes) through the server (section 4e, *Data sources*).
+(`GET /api/v1/query_range`) through the server (section 4e, *Data sources*); a dashboard variable's `label_values` is
+`GET /api/v1/label/NAME/values` (section 4e, *Variables*). Those two GETs are the only requests it makes.
 
 More types (Datadog, CloudWatch, SQL) can follow the same shape. A panel data source type is one module in
 `ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
 `sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points; a
-type offering any other public function or class is refused, so the one operation ergostat can call on a source is
-`query` (a type's `query` must itself only read; the `prometheus` one sends only that GET). Panels need no change for a new type (the
+type may also offer `values(source, selector, label, window)` (a label's values, for a variable), and one offering any
+other public function or class is refused, so the operations ergostat can call on a source are `query` and `values`
+(each must itself only read; the `prometheus` ones send only those GETs). Panels need no change for a new type (the
 model's JSON schema lists the types by name, so a new one is added there too).
 
 ## 12. What ergostat derives and checks
