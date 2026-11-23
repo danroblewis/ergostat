@@ -271,8 +271,9 @@ With `[milestones] enforce = true` (false by default, and then nothing about dis
 implementor take only the work of active milestones. The pass, and each command once it has written, keeps on every
 unfinished gap the derived field `waits_on_milestone` (as deps.py keeps `waits_on_parked`): empty when its milestone is
 active or it is `pull`ed (the owner's exception: taken as if its milestone were active), otherwise the milestone it
-waits for (an old label as written, `unassigned` for none). A sub-gap of a split with no milestone of its own takes its
-parent's, and is pulled when its parent is. Their `takes: where` asks it empty; review and the merge queue ask nothing
+waits for, after the pass's placements (for a gap the pass left: an old label as written, `unassigned` for none). A
+sub-gap of a split with no milestone of its own takes its parent's, and is pulled when its parent is (the pass places a
+sub-gap in its parent's milestone; a pulled parent still pulls it there, but not one moved to another milestone). Their `takes: where` asks it empty; review and the merge queue ask nothing
 of it, so what was built keeps landing. Turning enforcement off clears the field on the next pass.
 
 With `[milestones] enforce = true` (off by default) the pass, under the same lock, then places every unfinished gap

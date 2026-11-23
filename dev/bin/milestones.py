@@ -31,9 +31,10 @@ What the planner and the implementor take (their `takes: where: {waits_on_milest
 command once it has written, keeps the derived field `waits_on_milestone` on every unfinished gap, as deps.py keeps
 `waits_on_parked`. It is empty while `[milestones] enforce` is false (the default: nothing about dispatch changes), and
 for a gap whose milestone is active or that is pulled; otherwise it names the milestone it waits for, as it stands
-after the pass's placements (for a gap the pass left: an old label as written, `unassigned` for none). A sub-gap of a split with no milestone of its own is its parent's (at any depth), and
-pulled when one of them is. Review and the merge queue read no such field: what was built keeps landing. A gap that
-depends on a gap of a milestone that can only finish after its own (one depending on it, at any depth) would wait
+after the pass's placements (for a gap the pass left: an old label as written, `unassigned` for none). A sub-gap of
+a split with no milestone of its own is its parent's (at any depth); a sub-gap is pulled when it or a split ancestor
+in the same milestone (or in none) is. Review and the merge queue read no such field: what was built keeps landing.
+A gap that depends on a gap of a milestone that can only finish after its own (one depending on it, at any depth) would wait
 forever with it: `assign` and `depends` refuse it, and `status` lists any. A pulled needed gap does not lift that: the
 link is a cycle in the precedence graph the implementor's take reads (below), which takes neither gap, pulled or not.
 
@@ -206,18 +207,19 @@ HOPS = 50                                       # parents followed up from a sub
 
 
 def home(g: dict, gaps: dict[str, dict]) -> tuple[list[str], bool]:
-    """A gap's milestone (its own, else its nearest split ancestor's) and whether it, or an ancestor up to the one
-    whose milestone it takes, is pulled."""
-    pulled, seen = False, set()
+    """A gap's milestone (its own, else its nearest split ancestor's) and whether it, or a split ancestor in that
+    same milestone or in none (the pass places a sub-gap in its parent's), is pulled."""
+    pulled, seen, mine = False, set(), []
     while g is not None and g["id"] not in seen and len(seen) < HOPS:
         seen.add(g["id"])
+        own = ids_of(g["fields"].get("milestone"))
+        if mine and own and own != mine:
+            break
         pulled = pulled or g["fields"].get("pulled") is True
-        mine = ids_of(g["fields"].get("milestone"))
-        if mine:
-            return mine, pulled
+        mine = mine or own
         up = ids_of(g["fields"].get("parent"))
         g = gaps.get(up[0]) if up else None
-    return [], pulled
+    return mine, pulled
 
 
 def waits_for(g: dict, state: dict[str, str], gaps: dict[str, dict], enforce: bool) -> str | None:

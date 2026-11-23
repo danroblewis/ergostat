@@ -473,23 +473,26 @@ def test_with_enforcement_an_inactive_milestones_gap_is_held_and_an_active_ones_
     two_milestones(ms)
     ms.passes()                                                                 # a activates, in the same pass
     f = {g: ms.fields(f"gap/{g}").get("waits_on_milestone") for g in "xyzuw"}
-    assert f == {"x": None, "y": "milestone/b", "z": "milestone/b", "u": "unassigned", "w": "an-old-label"}
-    assert takes(ms, blocks, "implementor", "gap/x")
-    assert not any(takes(ms, blocks, "implementor", f"gap/{g}") for g in "yuw")
+    assert f == {"x": None, "y": "milestone/b", "z": "milestone/b", "u": None, "w": None}   # u, w placed in a
+    assert ms.fields("gap/u")["milestone"] == ms.fields("gap/w")["milestone"] == "milestone/a"
+    assert all(takes(ms, blocks, "implementor", f"gap/{g}") for g in "xuw")
+    assert not takes(ms, blocks, "implementor", "gap/y")
     assert not takes(ms, blocks, "planner", "gap/z")
     ms.p.events.add("gap.sent-back", item="gap/y")                              # a fix round is the implementor's too
     assert ms.state("gap/y") == "fix" and not takes(ms, blocks, "implementor", "gap/y")
     assert ms.passes() == []                                                    # nothing changed: nothing said again
-    ms.p.events.add("gap.merged", item="gap/x")                                 # a completes, b activates: released
-    assert ms.passes() == [("milestone.completed", "milestone/a"), ("milestone.activated", "milestone/b"),
-                           ("gap.milestone-held", "gap/y"), ("gap.milestone-held", "gap/z")]
-    assert takes(ms, blocks, "implementor", "gap/y") and takes(ms, blocks, "planner", "gap/z")
-    ms.mod.add(ms.cfg, "c")                                                     # (room under the limit: c activates)
+    ms.mod.add(ms.cfg, "c")                                                     # waiting until the next pass
     ms.mod.assign(ms.cfg, "u", "c")
     assert ms.fields("gap/u")["waits_on_milestone"] == "milestone/c"           # said by assign itself, not a pass later
-    ms.passes()
+    assert "enforced ([milestones] enforce): 3 gaps wait for their milestone" in ms.mod.status(ms.cfg)   # u, y, z
+    for g in "xw":
+        ms.p.events.add("gap.merged", item=f"gap/{g}")                          # a completes, b and c activate: released
+    assert ms.passes() == [("milestone.completed", "milestone/a"), ("milestone.activated", "milestone/b"),
+                           ("milestone.activated", "milestone/c"), ("gap.milestone-held", "gap/u"),
+                           ("gap.milestone-held", "gap/y"), ("gap.milestone-held", "gap/z")]
+    assert takes(ms, blocks, "implementor", "gap/y") and takes(ms, blocks, "planner", "gap/z")
     assert takes(ms, blocks, "implementor", "gap/u")
-    assert "enforced ([milestones] enforce): 1 gaps wait for their milestone" in ms.mod.status(ms.cfg)   # w
+    assert "enforced ([milestones] enforce): 0 gaps wait for their milestone" in ms.mod.status(ms.cfg)
 
 
 def test_a_pulled_gap_in_an_inactive_milestone_is_taken_as_if_it_were_active(ms, blocks):
@@ -506,6 +509,9 @@ def test_a_pulled_gap_in_an_inactive_milestone_is_taken_as_if_it_were_active(ms,
     assert ms.fields("gap/s")["waits_on_milestone"] == "milestone/b"
     ms.mod.pull(ms.cfg, "z", True)
     assert takes(ms, blocks, "implementor", "gap/s") and takes(ms, blocks, "planner", "gap/z")
+    ms.mod.add(ms.cfg, "c")                                                     # waiting (no pass yet)
+    ms.mod.assign(ms.cfg, "s", "c")                                             # moved out of z's milestone: z's pull
+    assert ms.fields("gap/s")["waits_on_milestone"] == "milestone/c"           # no longer reaches it
 
 
 def test_review_and_the_queue_are_not_held_by_an_inactive_milestone(ms, blocks):
@@ -692,7 +698,7 @@ def test_with_no_milestone_to_go_to_a_gap_is_left_and_counted(ms):
     ms.passes()
     assert ms.state("milestone/m") == "completed"
     ms.gap("late", milestone="milestone/m")
-    assert ms.passes() == []                                                 # never the completed one
+    assert ms.passes() == [("gap.milestone-held", "gap/late")]               # never the completed one (held: no home)
     assert ms.fields("gap/late")["milestone"] == "milestone/m"
     assert ms.mod.status(ms.cfg).splitlines()[-1] == ("unfinished gaps with no milestone (none, an old label, or a "
                                                       "completed one): 1 (late; the next pass places 0 of them)")
@@ -712,7 +718,8 @@ def test_a_placement_that_would_close_a_cycle_goes_to_upkeep_or_is_left(ms):
     assert (ms.state("milestone/a"), ms.state("milestone/b")) == ("active", "waiting")
     ms.gap("y", milestone="milestone/b")
     requested(ms, "x", source="request", requested_by="coordinator", depends_on=["gap/y"])
-    assert ms.passes() == []                                                 # no upkeep one: left, not put on a cycle
+    assert ms.passes() == [("gap.milestone-held", "gap/x"), ("gap.milestone-held", "gap/y")]   # no upkeep one: left,
+    #                                                                          not put on a cycle (and held: x has none, y's waits)
     assert ms.fields("gap/x").get("milestone") is None
     assert ms.mod.status(ms.cfg).splitlines()[-1] == ("unfinished gaps with no milestone (none, an old label, or a "
                                                       "completed one): 1 (x; the next pass places 0 of them)")
