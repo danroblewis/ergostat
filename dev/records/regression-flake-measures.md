@@ -227,3 +227,10 @@ Run here and passing: the four acceptance tests, `test_the_guarantees_model_chec
 Refused (Bash denied): `uv run ergostat check`, so the findings were read only through `ergostat.spec.read` in the
 test. The commit of this note was refused too (a heredoc append with `git add` and `git commit`). Not run: the whole
 unit suite and the four browser files (the factory's). The size is unchanged.
+
+Round 5 (implementor, 2026-11-23). Main (278f54a4) merged in. Its one conflict, dev/README.md, is resolved
+by keeping both entries: this gap's `flakes-few, main-repaired-fast` and main's new `lessons-hold`. Nothing else
+changed. Run on the merged tree and passing: the four acceptance tests, `test_the_guarantees_model_checks_clean` and
+`test_main_green_stale_is_off`. `uv run ruff check ergostat tests scripts dev/bin/flakes.py` is clean. Refused (Bash
+denied): `uv run ergostat check`, and a python one-off to strip the conflict markers (the file tools were used
+instead). Not run: the whole unit suite and the four browser files (the factory's). The size is unchanged.
