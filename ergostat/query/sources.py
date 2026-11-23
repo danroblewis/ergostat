@@ -13,6 +13,7 @@ from .buckets import Grid, aggregate, grid
 from .parse import Query
 
 EVENTS_MOST = 20_000        # events one query may read from the log
+EVENTS_WINDOW = 31 * 86400.0    # the longest window an events query may read the log over
 READINGS_MOST = 20_000      # a series' readings read for a percentile
 ANY = "all"
 
@@ -241,11 +242,15 @@ def _series_unit(p, name: str) -> str:
     return next((x.unit for parts in named.values() if (x := parts.get(kind)) is not None and x.unit), "")
 
 
-def events(p, spec, q: Query, g: Grid) -> Read:
+def events(p, spec, q: Query, g: Grid, read=None) -> Read:
+    """``read(n, type, since, until, skip)``: how the log is read (under the request's budget), when given."""
     if q.group_by not in (None, "type") or q.where:
         raise Unanswerable("events are counted by type only: group_by may be type, and there are no filters")
     skip = () if q.type else (its.TRANSCRIPT_TYPES,)
-    got = p.events.query(n=EVENTS_MOST + 1, type=q.type, since=g.since, until=g.until, skip=skip)
+    if g.until - g.since > EVENTS_WINDOW:
+        raise Unanswerable(f"events are read from the log, over at most {int(EVENTS_WINDOW // 86400)} days: ask for a shorter window")
+    ask = read or (lambda n, type, since, until, skip: p.events.query(n=n, type=type, since=since, until=until, skip=skip))
+    got = ask(EVENTS_MOST + 1, q.type, g.since, g.until, skip)
     cut = len(got) > EVENTS_MOST
     out: dict[str, list] = {}
     for e in got[-EVENTS_MOST:]:
