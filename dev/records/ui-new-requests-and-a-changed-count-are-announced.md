@@ -25,3 +25,22 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. The header's "N wait for you" link sits in a `<span class="waits-said" aria-live="polite"
+aria-atomic="true">` (index.html) that is always present, so a count appearing from 0 is announced as well. Its text is
+written only when N changes (setText), so a header poll with nothing new says nothing. At phone width the wrapper,
+not the link, takes the header's first line, and only while the link shows (style.css).
+Acceptance: tests/test_diagram_rendering.py::test_a_changed_count_of_what_waits_is_announced. It watches every write
+into the polite region holding the link for two polls with nothing new, then for a second request. It was seen to
+fail on two breaks: the text written on every poll, and the aria-live removed.
+
+Choices made with nobody to ask (each easy to reverse):
+- The words announced are the visible "N wait for you", the header's own words (Q43). No separate
+  "1 new request waits for you" sentence is added: inside an atomic region it would be read together with the
+  count, and a hidden extra span would change the header's first-thing order the Q43 test checks.
+- The side list's "Waiting for you" heading is not made a second live region. Its count changes with the header's,
+  so on /diagram the same change would be announced twice. The header's region is the one announcer, on every page.
+- The other header counts (goals off, model upkeep, running) stay outside the region. The definition announces only
+  a change in what waits for you.

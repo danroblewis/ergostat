@@ -5392,3 +5392,64 @@ def test_what_waits_for_you_is_one_step_from_every_page(browser, tmp_path, monke
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+# the header's "N wait for you" as found, then after every write into the polite live region holding it (null when none
+# holds it): a write of the same text again counts too, since a screen reader may say it again
+WAITS_HEARD = """() => { const a = document.getElementById('waits'), live = a && a.closest('[aria-live="polite"]');
+  if (!live) return null;
+  if (!window.__heard) { window.__heard = [live.textContent];
+    new MutationObserver(() => { window.__heard.push(live.textContent); })
+      .observe(live, { subtree: true, childList: true, characterData: true }); }
+  return window.__heard; }"""
+
+
+@pytest.mark.slow
+def test_a_changed_count_of_what_waits_is_announced(browser, tmp_path, monkeypatch):
+    """Design review Q77: the header's 'N wait for you' sits in an aria-live='polite' region, and its text changes only
+    when N changes: polls with nothing new write nothing a screen reader would say, and a new request is said once."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "heard"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(GROUPED.replace("goals:\n", "  archiving:\n    from: backlog\ngoals:\n").replace(
+        "uses:\n", "  approver:\n    type: person\n    ask: approve the plan\n    goal: short-backlog\n"
+                   "    out: flow.archiving\nuses:\n"))
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 2, "ask": "review the backlog"})
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.add_init_script("performance.setResourceTimingBufferSize(100000)")   # every header poll counted
+        pg.goto(f"{url}/items")
+        pg.wait_for_function("() => document.getElementById('waits')?.textContent === '1 wait for you'", timeout=30000)
+        assert pg.evaluate(WAITS_HEARD) == ["1 wait for you"]           # inside a polite region, watched from here
+        polls = pg.evaluate("() => performance.getEntriesByType('resource').filter((r) => /api\\/status/.test(r.name)).length")
+        pg.wait_for_function(f"() => performance.getEntriesByType('resource').filter((r) => /api\\/status/.test(r.name))"
+                             f".length >= {polls + 2}", timeout=30000)   # two header polls with nothing new
+        assert pg.evaluate(WAITS_HEARD) == ["1 wait for you"]           # wrote nothing
+        p.events.add("person.asked", item="approver", source="ergostat", data={"command": 2, "ask": "approve the plan"})
+        pg.wait_for_function("() => document.getElementById('waits').textContent === '2 wait for you'", timeout=30000)
+        polls = pg.evaluate("() => performance.getEntriesByType('resource').filter((r) => /api\\/status/.test(r.name)).length")
+        pg.wait_for_function(f"() => performance.getEntriesByType('resource').filter((r) => /api\\/status/.test(r.name))"
+                             f".length >= {polls + 1}", timeout=30000)
+        assert pg.evaluate(WAITS_HEARD) == ["1 wait for you", "2 wait for you"]   # the change, said once
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
