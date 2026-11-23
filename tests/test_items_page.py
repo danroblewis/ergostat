@@ -214,7 +214,7 @@ def test_items_list_sorts_by_a_column(browser, site):
     pg.wait_for_function("""() => [...document.querySelectorAll('section[data-system="lab"] table button.sort')]
                             .every((b) => b.closest('th').getAttribute('aria-sort') === 'none')""")      # drawn again, unsorted
     pg.locator('section[data-system="lab"] table button.sort', has_text="title").click()
-    pg.wait_for_function("() => location.search.includes('sort=title')")
+    pg.wait_for_function("() => location.search.includes('sort=hypothesis:title')")   # a kind's sort, named by its kind
     pg.wait_for_function("""() => document.querySelector('section[data-system="lab"] table tr td:first-child b')
                             ?.textContent === 'hypothesis/1'""")
     assert rows()[:3] == ["hypothesis/1", "hypothesis/2", "hypothesis/3"]
@@ -371,6 +371,33 @@ def test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top(browser, si
     text = box.inner_text()
     assert text.startswith("Why isn't this done?") and "no engine is running" in text and "ergostat run" in text, text
     assert box.locator('a[href="/item/hypothesis/1"]').count() >= 1, "its evidence linked"
+    assert not errors, errors
+    pg.close()
+
+
+def test_the_header_says_what_holds_the_work_up_in_one_line(browser, site):
+    """What holds the work up (SPEC §5a, /api/held-up): its first line in the page's header, red for a stall, the whole
+    line as its title; here the first stall /api/held-up ranks, said as /api/status's held_up says it (the two are
+    worked out apart, and the hours of waiting in the line move with the clock)."""
+    import json
+    got = json.loads(urllib.request.urlopen(f"{site}/api/held-up", timeout=30).read())
+    assert got["stall"] is True and got["line"].startswith(f"Stalled: {got['roots'][0]['says']}. "), got["line"]
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/items")
+    pg.wait_for_selector("header #heldup:not([hidden])")
+    line = pg.locator("#heldup")
+    for _ in range(40):                                   # (the header follows the status's next look)
+        said = pg.evaluate("() => fetch('/api/status').then((r) => r.json()).then((s) => s.held_up.line)")
+        if line.inner_text() == said:
+            break
+        pg.wait_for_timeout(500)
+    assert line.inner_text() == said and line.get_attribute("title") == said
+    assert said.startswith(f"Stalled: {got['roots'][0]['says']}. "), (said, got["line"])
+    assert "bad" in line.get_attribute("class").split(), "a stall is said in red"
+    assert pg.evaluate("() => { const b = document.querySelector('#heldup').getBoundingClientRect(); "
+                       "return b.height < 40 && b.top < 60; }"), "one line, at the top"
     assert not errors, errors
     pg.close()
 
@@ -1967,6 +1994,152 @@ def test_a_kinds_page_is_its_list_alone_and_the_old_address_goes_there(browser, 
     assert asked.count("/api/items-flow") == 1, asked                               # its chart's alone, not every kind's
     pg.locator(".rg-viewbar button", has_text="Graph").click()                    # its views, on its own page
     pg.wait_for_function("() => location.pathname === '/items/gap' && location.search.includes('view=graph')")
+    pg.close()
+
+
+# items-pages-through-a-kind: an open kind pages through all its items, sorted and searched on the server
+
+PAGED = 1200
+
+
+@pytest.fixture(scope="module")
+def paged_roadmap(tmp_path_factory):
+    """The roadmap example with 1,200 tickets (ticket/n0 the oldest, every third done), each with a number of points
+    shown as a column."""
+    d = tmp_path_factory.mktemp("paged") / ROADMAP
+    shutil.copytree(ROOT / "examples" / ROADMAP, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    y = d / "ergostat.yaml"
+    y.write_text(y.read_text().replace("show: [title, parent, blocked_by]", "show: [title, parent, blocked_by, points]"))
+    home = d.parent / "home"
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(d)!r})))
+t = time.time() - 4 * 86400
+evs = [{{"type": "ticket.planned", "item": f"ticket/n{{i}}", "data": {{"title": f"t{{i}}", "points": i * 7 % {PAGED}}}, "at": t + i}}
+       for i in range({PAGED})]
+evs += [{{"type": "ticket.approved", "item": f"ticket/n{{i}}", "at": t + i + 0.5}} for i in range(0, {PAGED}, 3)]
+p.events.add_many(evs, new=True)
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+ROWS = "() => [...document.querySelectorAll('tr.click td:first-child b')].map((b) => b.textContent)"
+SAYS = "() => document.querySelector('.pager.top .pager-says')?.textContent"
+
+
+def says(pg, text: str) -> None:
+    try:
+        pg.wait_for_function(f"() => ({SAYS})() === {text!r}", timeout=15000)
+    except playwright.Error:
+        pytest.fail(f"the pager says {pg.evaluate(SAYS)!r}, not {text!r}, at {pg.evaluate('location.search')!r}")
+
+
+@pytest.mark.slow
+def test_a_kind_pages_through_every_item_and_its_page_is_in_the_address(browser, paged_roadmap):
+    """Done items 1, 2 and 5: Next reaches every item, the last page's last row the oldest; page=ticket:24 opens that
+    page, a reload stays on it, a page past the end is the last; no 'All N' and no 'not loaded'."""
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{paged_roadmap}/items/ticket")
+    says(pg, f"1-25 of {PAGED}")
+    assert pg.evaluate(ROWS) == [f"ticket/n{i}" for i in range(PAGED - 1, PAGED - 26, -1)]
+    assert pg.locator(".pager.foot").count() == 1 and pg.locator(".pager.top button", has_text="Prev").is_disabled()
+    assert pg.evaluate(r"""() => [...document.querySelectorAll('body *')].filter((e) => /^All \d+/.test(e.textContent.trim())
+                           || (e.children.length === 0 && e.textContent.includes('not loaded'))).length""") == 0
+    pg.locator(".pager.top select").select_option("300")
+    says(pg, f"1-300 of {PAGED}")
+    seen = pg.evaluate(ROWS)
+    nxt = pg.locator(".pager.foot button", has_text="Next")
+    while not nxt.is_disabled():
+        at = len(seen)
+        nxt.click()
+        says(pg, f"{at + 1}-{at + 300} of {PAGED}")
+        seen += pg.evaluate(ROWS)
+    assert seen == [f"ticket/n{i}" for i in range(PAGED - 1, -1, -1)]          # every item, the last row the oldest
+    assert "page=ticket:4" in pg.evaluate("location.search") and "size=300" in pg.evaluate("location.search")
+    pg.goto(f"{paged_roadmap}/items/ticket?page=ticket:24")
+    says(pg, f"576-600 of {PAGED}")
+    assert pg.evaluate(ROWS)[0] == f"ticket/n{PAGED - 576}"
+    pg.goto(f"{paged_roadmap}/items/ticket")
+    says(pg, f"1-25 of {PAGED}")
+    for to in ("26-50", "51-75"):
+        pg.locator(".pager.top button", has_text="Next").click()
+        says(pg, f"{to} of {PAGED}")
+    pg.wait_for_function("() => location.search === '?page=ticket:3'")
+    pg.reload()
+    says(pg, f"51-75 of {PAGED}")                                                # a refresh on page 3 stays there
+    pg.goto(f"{paged_roadmap}/items/ticket?page=ticket:999")
+    says(pg, f"1176-1200 of {PAGED}")                                            # past the end: the last page
+    pg.wait_for_function("() => location.search === '?page=ticket:48'")
+    assert pg.evaluate(ROWS)[-1] == "ticket/n0"
+    assert not errors, errors
+    pg.close()
+
+
+@pytest.mark.slow
+def test_a_kinds_search_reaches_every_item_and_its_sort_is_the_whole_sets(browser, paged_roadmap):
+    """Done items 3 and 4: the 1,000th newest found and counted once; a finished one found; a numeric column's sort
+    puts the global maximum (read through the API) on page 1, and the page and sort survive a reload."""
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{paged_roadmap}/items/ticket?page=ticket:5")
+    says(pg, f"101-125 of {PAGED}")
+    pg.fill("input[type=search]", "ticket/n200")                                # the 1,000th newest
+    says(pg, "1-1 of 1 match")
+    assert pg.evaluate(ROWS) == ["ticket/n200"] and pg.locator(".search-said").inner_text() == "1 match, 0 finished"
+    assert "page=" not in pg.evaluate("location.search")                        # a new search: its first page
+    pg.fill("input[type=search]", "ticket/n0")                                  # finished (done), the oldest
+    pg.wait_for_function("() => document.querySelector('.search-said').textContent === '1 match, 1 finished'")
+    assert pg.evaluate(ROWS) == ["ticket/n0"]
+    pg.fill("input[type=search]", "ticket/n11")                                 # 11, 110-119, 1100-1199: 111
+    done = sum(1 for i in [11, *range(110, 120), *range(1100, 1200)] if i % 3 == 0)
+    pg.wait_for_function(f"() => document.querySelector('.search-said').textContent === '111 matches, {done} finished'")
+    pg.fill("input[type=search]", "")
+    says(pg, f"1-25 of {PAGED}")
+    every = []
+    for off in range(0, PAGED, 500):
+        with urllib.request.urlopen(f"{paged_roadmap}/api/items?kind=ticket&n=500&offset={off}", timeout=10) as r:
+            every += json.loads(r.read())["items"]
+    top = max(every, key=lambda i: i["fields"]["points"])
+    assert len(every) == PAGED and top["id"] != f"ticket/n{PAGED - 1}"           # not the newest: the sort is the server's
+    head = pg.locator("table button.sort", has_text="points")
+    head.click()                                                                  # up, then down
+    pg.wait_for_function("() => location.search.includes('sort=ticket:points')")
+    head = pg.locator("table button.sort", has_text="points")
+    head.click()
+    pg.wait_for_function("() => location.search.includes('sort=ticket:-points')")
+    pg.wait_for_function(f"() => ({ROWS})()[0] === {top['id']!r}")              # the set's maximum, on page 1
+    pg.locator(".pager.top button", has_text="Next").click()
+    says(pg, f"26-50 of {PAGED}")
+    pg.reload()
+    says(pg, f"26-50 of {PAGED}")
+    assert "sort=ticket:-points" in pg.evaluate("location.search") and "page=ticket:2" in pg.evaluate("location.search")
+    assert pg.locator("table button.sort", has_text="points").locator("xpath=..").get_attribute("aria-sort") == "descending"
+    second = sorted(every, key=lambda i: -i["fields"]["points"])[25]["id"]
+    assert pg.evaluate(ROWS)[0] == second
+    assert not errors, errors
     pg.close()
 
 

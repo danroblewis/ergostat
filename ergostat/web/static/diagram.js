@@ -1447,6 +1447,37 @@ function inboxBody(a, href) {
     run ? h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, run)) : null];
 }
 
+/* held requests alike (one code, one asker: the server's fold) as one entry, where the first of them stood */
+function folded(xs) {
+  const by = {}, out = [];
+  for (const a of xs) {
+    if (!a.fold) out.push(a);
+    else if (by[a.fold]) by[a.fold].members.push(a);
+    else out.push(by[a.fold] = { members: [a] });
+  }
+  return out.map((a) => (a.members?.length === 1 ? a.members[0] : a));
+}
+const PLURAL = { stock: "stocks", flow: "flows", auxiliary: "auxiliaries", parameter: "parameters", goal: "goals", block: "blocks" };
+function foldRow(ms, row) {
+  const kinds = new Set(ms.map((m) => String(m.about).split(".")[0])), systems = [...new Set(ms.map((m) => m.system).filter(Boolean))].sort();
+  const said = h("span", { class: "note", "aria-live": "polite" }), why = h("input", { type: "text", placeholder: "why (to deny all)", "aria-label": "Why" });
+  // read from the clicked row as it is on the page: a refresh hands this handler to the kept nodes (patchNode)
+  const all = h("button", { class: "ghost", "data-verb": "deny-all", onclick: async (ev) => {
+    const b = ev.currentTarget, act = b.parentElement, note = act.querySelector("input").value, out = act.querySelector(".note");
+    b.disabled = true;
+    const bad = [];                                   // one at a time: each answer is the owner's event, in turn
+    for (const m of ms) await apiPost(`inbox/${encodeURIComponent(m.what)}/deny`, note ? { note } : {}).catch((e) => bad.push(e.message));
+    out.textContent = bad.length ? ` ${bad.length} not denied: ${bad[0]}` : ` ${ms.length} denied`;
+    if (!bad.length) act.querySelector("input").value = "";   // the reason was this fold's; it goes with it
+    b.disabled = false; refreshHeader();
+  } }, "Deny all");
+  // keyed by its fold: a refresh matches it to its own nodes, never another fold's by place (and its typed reason)
+  return h("div", { "data-fold": ms[0].fold, key: `fold:${ms[0].fold}` }, h("details", { class: "fold" },
+    h("summary", {}, h("span", { class: "att-word" }, "request · "), h("b", { class: "lvl-warn" },`${ms.length} ${kinds.size === 1 ? PLURAL[[...kinds][0]] || "parts" : "parts"}: ${ms[0].fold.split("|")[0].replace(/-/g, " ")}`),
+      systems.length ? ` (${systems.join(", ")})` : ""), ...ms.map(row)),
+    SNAP || S.at ? null : h("div", { class: "row inbox-act" }, why, all, said));
+}
+
 /* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)
    or its summing junction (Blocks), the closed system holding it opened first (one level: the box drawn) */
 function goalButton(name, label) { return h("button", { class: "name", type: "button", onclick: () => showGoal(name) }, label); }
@@ -1511,21 +1542,25 @@ function renderSide(side, g, view) {
     }
     return live(held);
   };
+  const row = (a) => {
+    const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
+    const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
+    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
+    const said = h("span", { class: "att-word" }, `${word} · `);
+    const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
+    if (a.answer && a.first) return h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a));
+    return h("div", keys, said,
+      href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
+      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null,
+      a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null);   // its suggestion, once due
+  };
+  const one = (a) => (a.members ? a.members[0] : a);
   const list = (xs, none, cls, key, answered = []) => {
     const att = h("div", { class: `att ${cls}`, ...(key ? { key } : {}) }, ...answered);   // answered here: at the top
     if (!xs.length && !answered.length) att.append(h("div", { class: "none" }, none));
-    xs.forEach((a, i) => {
-      if (i && a.modelling && !xs[i - 1].modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
-      const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
-      const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-      const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
-      const said = h("span", { class: "att-word" }, `${word} · `);
-      const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
-      if (a.answer && a.first) { att.append(h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
-      att.append(h("div", keys, said,
-        href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
-        linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null,
-        a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null));   // its suggestion, once due
+    folded(xs).forEach((a, i, ys) => {
+      if (i && one(a).modelling && !one(ys[i - 1]).modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
+      att.append(a.members ? foldRow(a.members, row) : row(a));
     });
     return hold(att, cls);
   };
