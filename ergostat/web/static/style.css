@@ -429,6 +429,7 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
 .kind-flow .pm-link { font-size: var(--text-sm); margin-left: var(--sp-3); }
+.kind-card .pm-link { margin-left: 0; }
 .kind-flow .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }
 
 /* the drawings' own text and lines (shapes are in the renderers; only their type and ink are here) */

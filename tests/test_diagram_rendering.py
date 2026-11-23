@@ -1541,8 +1541,8 @@ def test_items_links_each_kind_to_its_process_map_whose_states_say_how_many_are_
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.goto(f"{url}/items")
-        pg.wait_for_selector('a.pm-link[href*="kind=ticket&"]')
+        pg.goto(f"{url}/items?states=all")              # the overview, its legends by each state (not state groups)
+        pg.wait_for_selector('.kind-card a.pm-link[href*="kind=ticket&"]')
         pg.wait_for_function("() => document.querySelector('a.pm-link[href*=\"kind=ticket&\"]')"   # its chart's legend
                              ".closest('.kind-flow').querySelector('.cfd')")
         legend = pg.evaluate(ITEMS_LEGEND, "ticket")

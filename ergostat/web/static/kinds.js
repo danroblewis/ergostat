@@ -32,7 +32,9 @@ async function pageKinds(main, q) {
       chart = flowChart({ states, counts: all ? k.counts : k.by_group, now: all ? k.now : k.now_by_group, times: d.times, since: d.since, until: d.until },
         group, { kind: k, height: 64, xAxis: false, onState: (st) => navigate(all ? `${href}?state=${encodeURIComponent(st)}` : href) });
     }
-    return h("div", { class: "kind-flow kind-card", "data-kind": k.name }, name, said, chart);
+    const pm = h("a", { class: "pm-link", href: `/diagram?view=process&kind=${encodeURIComponent(k.name)}&mode=states`,   // where its work queues
+                        title: "Its process map: how many are in each state now, and how they moved" }, "process map");
+    return h("div", { class: "kind-flow kind-card", "data-kind": k.name }, name, pm, said, chart);
   };
 
   /* the switch and every card, from the answer held (``d``): never a request */

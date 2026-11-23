@@ -1771,7 +1771,8 @@ out when one fails.
 
 **The overview.** `/items` is an overview of the item kinds: under each system's heading, one small card per kind in
 a dense grid (at 1440x900, sixteen or more in view on a record of the factory's shape), each with the kind's name (a link to its own page,
-`/items/KIND`), how many of its items are unfinished (not in a finished state) and how many in all, its states over the
+`/items/KIND`) and a "process map" link to its map in States (`/diagram?view=process&kind=KIND&mode=states`, §5b),
+how many of its items are unfinished (not in a finished state) and how many in all, its states over the
 window as a small stacked chart with its legend at its right (under it on a phone), and its rate in (items that
 arrived in the window, per hour) and out (items that first reached a finished state in it, per hour: the same finished states the unfinished count uses, so
 never a paused, `leased` or waiting state). A kind with no

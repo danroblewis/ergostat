@@ -159,3 +159,29 @@ or `tests/`. No source changed this round.
 Runs: ruff clean; tests/test_graph_cli_web.py 43 passed; the gap's browser test under suite_watch with Playwright,
 1 passed (rc 0). Not run: the unit suite, the four browser files in full, and tests/test_items_page.py (the merge
 queue runs them).
+
+### Round 5, main (dc47a763) merged at c4312d7d
+
+The finding (conflict with main in pages.js) is answered. In pages.js the per-kind card keeps main's
+`"aria-hidden": "true"` on the state arrows and the branch's `pm` link. In tests/test_graph_cli_web.py both new tests
+are kept: the branch's `now` test and main's
+`test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas`.
+
+Main made bare `/items` an overview of kind cards (`kinds.js`, items-one-section-per-kind-closed), and the old
+per-kind card moved to `/items/KIND`. So after the merge, /items had no process-map link and the gap's browser test
+failed (no `a.pm-link`). Fixed with the most reversible option: the overview's card gets the same "process map" link
+after its name (kinds.js +2, style.css +1 so it is not indented under the block name), and `/items/KIND` keeps its
+own. The browser test now opens `/items?states=all` (the overview's own switch, so its legend counts each state and not
+state groups) and takes the link from the `.kind-card`. It was seen to fail (timeout waiting for the link) with the
+overview's link removed. SPEC §5a's overview text names the link. Net outside tests and docs is now about 18 lines.
+
+Runs: ruff clean; tests/test_graph_cli_web.py 48 passed; the gap's browser test under suite_watch with Playwright,
+1 passed (rc 0); tests/test_items_page.py under suite_watch with Playwright: 59 passed, 2 failed, rc 1. The 2 failures
+are not this gap's:
+- `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (line 1874): the header's project switcher
+  never lists the other project. Main's own record (items-one-section-per-kind-closed) names it as failing in this
+  container.
+- `test_actions_say_per_class_asked_approved_denied_and_whether_held` (line 620): it waits on bare `/items` for
+  `.action-classes`, which only the old list draws (pages.js), and main's overview no longer shows that list there.
+  It fails alone, and it also fails with this round's overview link removed, so main's change causes it, not this one.
+Not run: the unit suite and the other browser files in full (the merge queue runs them).
