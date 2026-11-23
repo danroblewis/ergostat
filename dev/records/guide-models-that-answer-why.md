@@ -167,3 +167,32 @@ the Playwright test skipped since playwright is not installed in this run), `tes
 `tests/test_spec_items.py`, `tests/test_dashboards_doc.py`, `tests/test_item_about.py`; ruff clean. Refused this
 round: `git checkout main -- ergostat/why/blocks.py` (done with an edit instead) and one shell loop running three test
 files (run one at a time instead). The whole unit suite and the four browser files were not run here.
+
+Round 6, answering the review's one finding (blocking; there were no others): the `new` recipe made `why` name the
+arriving event as the owner of later working states. `_onward` leaves out only moves into the item's own state or
+into the kind's first state. With `new` first, the arriving event (`batch.started`, `lesson.seen`) is no longer left
+out, and it was written first in `on:`. So a batch in `isolating` named "whoever records batch.started" (main names
+`batch.landed`), and a lesson in `proposed` named "whoever records lesson.seen" (main names `lesson.requested`). The
+fix is in the models and the guide, with no code changed: the events an item arrives by are written last in `on:`.
+`dev/model/landing.yaml` now writes `batch.started` and `batch.run-started` last, and `ergostat.yaml` writes
+`lesson.seen` last. The guide's §3m recipe now says to write the arriving events last, and why. Its worked example's
+`pr`, `todo` and `batch` kinds follow that rule: written first, `batch.planned` was named for a sitting in `open`,
+the same fault. SPEC §5a says the same. Choices made with nobody to ask: the review also offered
+`moves-from: [new]` on the arriving event. It was not taken, because it changes the fold: a re-sent
+`batch.started` or `lesson.seen` on an existing item would be refused and recorded as refused. Reordering a map
+changes nothing but the order `why` reads. `batch.run-started` is also a real move from `isolating` back to
+`testing` (a new run), so it could not be barred anyway. A batch in `pushing` still names `batch.run-finished`, as on
+main (no single written order suits every state there). It is unchanged and outside this finding. The new test
+`test_with_new_first_a_later_working_state_names_its_way_on_not_the_arriving_event` runs `why` on the guide's batch
+in `open` (it names `batch.closed`). On the factory's own spec it pins the owner `why` takes (the first of `_onward`):
+a batch in `testing` (`batch.run-finished`) and `isolating` (`batch.landed`), a lesson in `seen` (`lesson.proposed`)
+and `proposed` (`lesson.requested`), and knowledge in `active` (`knowledge.retired`). It also checks that no later
+state of batch or lesson names an arriving event. Break-tested: with the guide's batch order put back, the test fails
+on `batch.closed`. With `lesson.seen` put back first in `ergostat.yaml`, it fails with `'lesson.seen' ==
+'lesson.requested'`. Restored, it passes. Run, each passing: `tests/test_why_guide.py` (12),
+`tests/test_queue_batch_item.py` (unit; the Playwright test skipped, playwright not installed in this run),
+`tests/test_todo_template.py`, `tests/test_why.py`, `tests/test_coherence.py`, `tests/test_dashboards_doc.py`,
+`tests/test_factory_knowledge.py`, `tests/test_held_up.py`, `tests/test_spec_items.py`,
+`tests/test_faults_healthy.py`, `tests/test_item_about.py`, `tests/test_chains.py`; ruff clean. Refused this round: one
+shell command reading SPEC lines and grepping the skill (`sed -n 1760,1770p docs/SPEC.md; grep ...`), done with the
+read and search tools instead. The whole unit suite and the four browser files were not run here.
