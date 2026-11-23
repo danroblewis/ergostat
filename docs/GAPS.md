@@ -70,12 +70,20 @@ review into *Done recently*). Newest decisions from the owner first within each 
   template folder readable, a work folder `<state>/library-work/<instance>` cleared when the chain above it changes, at
   most 120 s and 4 at once; with no sandbox nothing runs, and a library's sensor daemon is refused
   `library-unsandboxed` (SPEC §2a, *Sandboxed sensor runs*). Proven on the captured `Policy`; enforcement is the
-  attack suite's. *Left*: library blocks in the sandbox (`library-sandbox-blocks`).
+  attack suite's. **Built** (`library-fetch-git`, `library-fetch-load`): `libraries:` (main file only) and `ergostat
+  library fetch [NAME...] [--update]`, which reads only `libraries:` and runs no git on a file that does not parse,
+  clone each into `.libraries/NAME`, pinned in `libraries.lock` by commit and a digest of the copy (links hashed as
+  links); the model loads one only as locked, refusing by name a missing lock, entry, tree or commit, a changed
+  `git`/`version`/`path` (`library-unlocked`), an unreadable lock (`library-lock-unreadable`), a missing copy
+  (`library-missing`) or a changed one (`library-altered`), with the templates parsed from the bytes hashed and the
+  listing kept in the last good model's snapshot; a fetched library is untrusted, through the same gate as an
+  untrusted folder, unless `trust: owner` (SPEC §2a, *Fetched libraries*). Checked at load only: a script run from
+  `${here}` is read again when it runs. *Left*: library blocks in the sandbox (`library-sandbox-blocks`); fetched
+  libraries in the MCP `templates` tool (`author.library` lists folders only).
   *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
   descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
-  them, and the `library-untrusted` refusal's folder path); `fetch` by git URL or package, refusing a lock entry
-  without a tree, symlinks hashed explicitly; then running untrusted library blocks' scripts through
-  `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
+  them, and the `library-untrusted` refusal's folder path); fetch by package; then running untrusted library blocks'
+  scripts through `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.

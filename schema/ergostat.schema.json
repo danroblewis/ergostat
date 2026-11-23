@@ -620,20 +620,10 @@
     },
     "libraries": {
       "description": "Libraries fetched by git URL (ergostat library fetch), loaded only as libraries.lock pins them; untrusted unless trust: owner (main file only; SPEC §2a)",
-      "type": "object",
-      "maxProperties": 16,
-      "propertyNames": {"pattern": "^[a-z][a-z0-9_-]{0,63}$"},
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["git", "version"],
-        "properties": {
-          "git": {"type": "string"},
-          "version": {"type": "string"},
-          "path": {"type": "string"},
-          "trust": {"enum": ["owner", "untrusted"]}
-        }
-      }
+      "type": "object", "maxProperties": 16, "propertyNames": {"pattern": "^[a-z][a-z0-9_-]{0,63}$"},
+      "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["git", "version"],
+        "properties": {"git": {"type": "string"}, "version": {"type": "string"}, "path": {"type": "string"},
+                       "trust": {"enum": ["owner", "untrusted"]}}}
     }
   },
   "$defs": {

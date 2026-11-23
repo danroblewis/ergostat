@@ -50,13 +50,11 @@ def add(doc, got: dict, notes: list) -> list[str]:
     libs = doc.libraries
     if libs is None:
         return []
-
-    def at(name=None):
-        return libs.at(name) if name is not None and hasattr(libs, "at") else getattr(libs, "where", None)
+    at = libs.at if hasattr(libs, "at") else lambda _name: None
     try:
         wanted, trust = split(libs)
     except sources.SourceError as e:
-        doc.problems.append(Problem("error", f"libraries: refused, no library loaded: {e}", at(), e.code))
+        doc.problems.append(Problem("error", f"libraries: refused, no library loaded: {e}", at("libraries"), e.code))
         return [f"libraries: ({e})"]
     try:
         locks: dict | Refused | None = _lock(doc.root)
@@ -135,11 +133,8 @@ def _take(copy: Path, name: str, trust: str, walked: dict, got: dict, notes: lis
             continue
         t.library = name
         was = got.get(t.name)
-        if was is None or tp.trusted(t) and not tp.trusted(was):
-            got[t.name] = t
-            kept, skipped = t, was
-        else:
-            kept, skipped = was, t
+        kept, skipped = (t, was) if was is None or tp.trusted(t) and not tp.trusted(was) else (was, t)
+        got[t.name] = kept
         if skipped is not None:
             notes.append(said(f"template {t.name}: {skipped.path} is not used; "
                               f"{"ergostat's own" if kept.builtin else kept.path} is", skipped.untrusted,

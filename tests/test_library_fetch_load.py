@@ -100,6 +100,19 @@ def test_unlocked_treeless_missing_refused(tmp_path):
     assert _problems(root)[1] == []
 
 
+def test_libraries_main_file_only_and_in_schema(tmp_path):
+    from pathlib import Path
+    (tmp_path / "ergostat.yaml").write_text("name: t\ninclude: more.yaml\n")
+    (tmp_path / "more.yaml").write_text('libraries: {x: {git: "file:///x", version: main}}\n')
+    assert [p.code for p in _problems(tmp_path)[1]] == ["libraries-in-include"]
+    schema = json.loads((Path(__file__).resolve().parents[1] / "schema" / "ergostat.schema.json").read_text())
+    entry = schema["properties"]["libraries"]["additionalProperties"]
+    assert set(entry["properties"]) == {"git", "version", "path", "trust"} and entry["additionalProperties"] is False
+    with pytest.raises(fetched.sources.SourceError):
+        fetched.split({"x": {"git": "file:///x", "version": "main", "trust": "yes"}})
+    assert fetched.split({"x": {"git": "file:///x", "version": "main", "trust": "owner"}})[1] == {"x": "owner"}
+
+
 def test_changed_git_alone_unlocked(tmp_path):
     root, src = _project(tmp_path, trust="owner")
     other = tmp_path / "up2"

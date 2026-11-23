@@ -323,6 +323,29 @@ template file inside any folder listed untrusted is untrusted, even when a trust
 place of ergostat's own or a trusted one of the same name, whatever order the folders are listed in: the trusted one is
 used and `check` names the file skipped (**template-library**); between untrusted folders the first wins.
 
+**Fetched libraries.** `libraries:` (main file only, else **libraries-in-include**) names libraries kept in git, at
+most 16, each `NAME: {git: URL, version: BRANCH|TAG|COMMIT, path: SUBFOLDER, trust: owner|untrusted}` (`path` and
+`trust` optional; a value off its allowlist is **bad-library-source**). `ergostat library fetch [NAME...] [--update]`
+reads only `libraries:`, with the loader's own YAML reader, and never opens the project, its record or the last good
+model; a main file that does not parse stops it with exit 2 before any git runs. It clones each into
+`.libraries/NAME` and pins it in `libraries.lock` (JSON) by `commit` and `tree`, the digest of the copy: each path,
+its kind (folder, file, executable file or link) and its bytes or link target. A library whose `git`, `version` and
+`path` match its entry and whose copy is there is kept; `--update` resolves the version again and moves the entry.
+
+When the model loads, each library is checked in turn, and one that fails is refused by name at its line, none of
+its templates loaded: no lock, no entry, an entry with no `commit` or `tree`, or one whose `git`, `version` or `path`
+differ from `libraries:` (a changed `git:` alone too) is **library-unlocked**; a lock that does not read as a map of
+entries is **library-lock-unreadable**; no copy is **library-missing**; a copy that is a link, holds a kind other
+than folder, file and link, passes the caps (2,000 entries, 20 MB), or whose digest is not the entry's `tree` is
+**library-altered**. A use of a template that is not there (**unknown-template**) lists each refused library and its
+code. The templates are found where a folder's are (`*.yaml`, `*.yml`, `*/template.yaml`) and parsed from the bytes
+that were hashed, never read again. The listing is kept in the last good model's snapshot (`trees`), so the fallback
+reads it back without the copy or the lock. A library with `trust: owner` is trusted; any other is untrusted exactly
+as a `{folder: PATH}` is: it never shadows a trusted template, its notes are marked (`untrusted library folder
+.libraries/NAME:`), its uses are held and bounded, and a refusal says to mark it `trust: owner`. What is checked is
+the copy at load: a script a template runs from `${here}` is read from `.libraries/NAME` again when it runs, so a
+change made to it between the load and the run is not caught.
+
 A use is **held** when its template, or any template it uses at any depth, is untrusted. Its whole chain is expanded
 before anything of it is put in the model, and every part made from the first untrusted template down (trusted and
 built-in templates it uses included), as expanded with every parameter's value in it, is checked against the allowlist

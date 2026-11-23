@@ -11,11 +11,8 @@ from pathlib import Path
 
 
 def register(sub, common) -> None:
-    lp = sub.add_parser("library", parents=[common], help="Fetch the libraries: in the main file and pin them in "
-                        "libraries.lock (library fetch [NAME...] [--update])",
-                        description="Fetch each library in libraries: into .libraries/NAME, pinned by commit and tree "
-                                    "in libraries.lock. A library whose git, version and path match its lock, with its "
-                                    "copy there, is kept; --update resolves its version again and moves the lock.")
+    lp = sub.add_parser("library", parents=[common], help="library fetch [NAME...] [--update]: fetch libraries: into "
+                        ".libraries/NAME, pinned by commit and tree in libraries.lock (one already locked is kept)")
     lp.add_argument("what", choices=["fetch"])
     lp.add_argument("names", nargs="*", metavar="NAME", help="only these libraries (leave out: every one)")
     lp.add_argument("--update", action="store_true", help="resolve each version again and move its lock entry")
@@ -25,21 +22,18 @@ def register(sub, common) -> None:
 def cmd_library(args) -> int:
     from ..library import fetch, fetched, sources
     from ..spec import files
-    from ..spec import load as _  # noqa: F401 (the module, which the package's load() hides)
-    load = sys.modules["ergostat.spec.load"]
+    from ..spec.load import FILE, find, read_file
     start = Path(args.C).resolve() if args.C else Path.cwd()
-    main = load.find(start)
+    main = find(start)
     if main is None:
-        print(f"no {load.FILE} here or above {start}", file=sys.stderr)
+        print(f"no {FILE} here or above {start}", file=sys.stderr)
         return 2
     problems: list = []
-    data = load.read_file(main, problems)
+    data = read_file(main, problems)
     bad = [p for p in problems if p.level == "error"]
     if bad or not isinstance(data, dict):
-        for p in bad or [f"{main.name}: not a map of sections"]:
-            print(f"error  {p}", file=sys.stderr)
-        print("ergostat library fetch reads libraries: from the main file; fix it first (nothing was fetched)",
-              file=sys.stderr)
+        print("\n".join(f"error  {p}" for p in bad or [f"{main.name}: not a map of sections"]) + "\nergostat library "
+              "fetch reads libraries: from the main file; fix it first (nothing was fetched)", file=sys.stderr)
         return 2
     try:
         wanted, _ = fetched.split(data.get("libraries") or {})

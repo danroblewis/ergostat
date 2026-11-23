@@ -177,6 +177,17 @@ template is still at least 5 minutes (SPEC §2a, *Untrusted libraries*). A progr
 and the rest stay refused. Marks are made only by ergostat as it expands a template; a template or a value that holds
 a mark's control characters is refused whole.
 
+**Libraries fetched by git URL.** A library listed under `libraries:` (SPEC §2a, *Fetched libraries*) is fetched only
+by `ergostat library fetch`, which reads nothing of the model but `libraries:` and runs no git when the main file does
+not parse. It is pinned in `libraries.lock` by commit and by a digest of the copy (every path, its kind, its bytes or
+link target). The model loads a fetched library only as that lock pins it: no lock, no entry, an entry without a
+tree or commit, an entry for another `git:`, `version:` or `path:`, a lock that does not read, a missing copy, or a
+copy changed in a byte, a mode bit or a link, is refused by name (`library-unlocked`, `library-lock-unreadable`,
+`library-missing`, `library-altered`), and none of its templates load. The templates are parsed from the bytes that
+were hashed. A fetched library is untrusted, exactly as an untrusted folder is, unless you write `trust: owner` on
+it. What this covers is the copy at the moment the model loads: a script a template runs from `${here}` is read from
+`.libraries/NAME` again when it runs, so a change made between the load and the run is not caught by the lock.
+
 A template from your own folders is trusted, but its run still takes no value the library wrote, even quoted: `sh -c
 ${x:quote}` runs whatever lands in `x`, and nothing can vouch for that. An unquoted `${x}` of a `string` is refused
 too. Only your own command, passed wholly, reaches such a run. (This replaces the earlier plan to accept a quoted
