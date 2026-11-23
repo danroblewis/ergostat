@@ -209,7 +209,7 @@ async function openLoop(name, asController = false) {
     kids.push(h("table", { class: "crossings" }, lp.crossings.map((e, i) => [e, next(i)]).reverse().map(([e, to]) => h("tr", {},
       h("td", { class: "nowrap" }, h("a", { href: `/record?about=${encodeURIComponent(name)}&from=${e.time}${to != null ? `&to=${to}` : ""}`,
         title: "What the goal, its controller and its valves recorded from this crossing to the next" },
-        new Date(e.time * 1000).toLocaleTimeString([], { hour12: false }))),
+        stamp(e.time))),
       h("td", {}, statusEl(e.type.split(".")[1])), h("td", { class: "num" }, fmt(e.data.value)),
       h("td", { class: "muted" }, e.type === "loop.off" ? e.off_by_words || "" : "")))));
   }
@@ -351,15 +351,14 @@ function itemLink(id) {
 }
 /* an event's item: a remote's event (marked ``remote``) links to that remote's item, read there (SPEC §4c) */
 const eventItemLink = (e) => (e.remote ? remoteItemLink(e.item, e.remote) : itemLink(e.item));
-function dataCell(d) {                                  // the whole of it, one click away (rounded: the event's panel has it exactly)
-  const flat = JSON.stringify(tidy(d || {}));
+function dataCell(d) {                                  // the whole of it, unrounded, one click away
+  const flat = JSON.stringify(d || {});
   if (flat === "{}") return h("td", { class: "mono muted" }, "");
   if (flat.length <= 110) return h("td", { class: "mono muted data" }, flat);
   return h("td", { class: "mono muted data" }, h("details", {}, h("summary", {}, flat.slice(0, 100) + "\u2026"),
-    h("pre", {}, JSON.stringify(tidy(d), null, 2))));
+    h("pre", {}, JSON.stringify(d, null, 2))));
 }
 function eventsTable(evs, compact, fold = false) {
-  const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false });
   const runs = [];                                        // newest first; folded, a run of identical events is one row
   for (const e of evs.slice().reverse()) {
     const last = runs[runs.length - 1], sig = JSON.stringify([e.type, e.source, e.item, changeOf(e)]);
@@ -368,7 +367,7 @@ function eventsTable(evs, compact, fold = false) {
   return h("div", { class: "table-wrap" }, h("table", {}, h("caption", { class: "sr-only" }, "Events, newest first"),
     headRow(h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
     h("tbody", {}, runs.map(({ evs: run }) => { const e = run[0], n = run.length; return h("tr", { key: e.id },
-      h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, n > 1 ? `${clock(run[n - 1].time)}–${clock(e.time)}` : clock(e.time)),
+      h("td", { class: "nowrap" }, n > 1 ? `${stamp(run[n - 1].time)}–${stamp(e.time)}` : stamp(e.time)),
       h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: n > 1 ? `${n} events in a row: list them` : `event ${e.id}`,
         onclick: (ev) => { ev.preventDefault(); n > 1 ? showRun(run) : showEvent(e); } }, e.type), n > 1 ? h("span", { class: "run-count" }, ` ×${n}`) : null),
       compact ? null : h("td", { class: "nowrap" }, e.item ? eventItemLink(e) : "–"),
@@ -379,7 +378,7 @@ function showRun(run) {                                  // a folded run, each o
 }
 function showEvent(e) {                                 // one event, all of it, in the side panel
   showDetail(h("div", { class: "kind" }, e.remote ? `Event, remote ${e.remote}` : "Event"), h("h2", {}, e.type),
-    dl([["item", e.item ? eventItemLink(e) : null], ["source", e.source], ["when", new Date(e.time * 1000).toLocaleString()], ["id", e.id],
+    dl([["item", e.item ? eventItemLink(e) : null], ["source", e.source], ["when", stamp(e.time)], ["id", e.id],
         ["caused by", e.causedby]]),
     h("pre", {}, JSON.stringify(changeOf(e), null, 2)));
 }
