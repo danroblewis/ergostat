@@ -847,6 +847,7 @@ class Daemon:
     warm: bool = False              # concurrency processes, one run each at a time, its CPU the run's (§9.7, Warm)
     recycle: int = 1000             # warm: the most runs one process serves
     where: Where | None = field(default=None, compare=False)
+    outlive: bool = False           # kept by a keeper: goes on through an engine restart (§9.7, *outlives its engine*)
 
 
 @dataclass

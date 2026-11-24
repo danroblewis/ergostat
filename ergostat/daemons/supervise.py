@@ -117,6 +117,7 @@ class Supervisor(Hands):
         self.put_off: dict[str, str] = {}                # item → the daemon given up that gave it back, put off
         self.thread: threading.Thread | None = None
         self.written = 0.0
+        self.looked: set[str] = set()                # kept daemons looked for, as an engine before left them (kept.py)
 
     # ---- the model's daemons
 
@@ -291,11 +292,17 @@ class Supervisor(Hands):
     def _spawn(self, slot: Slot) -> None:
         log = open(old.log_path(self.e.p, f"daemon-{slot.d.name}"), "a", encoding="utf-8")
         from ..spec.engine import callback_env
+        args = (self.e.spec.root, callback_env(self.e.spec, self.e.p.dir, self.e.socket), log,
+                lambda s, v, n=slot.d.name: self._pushed(n, s, v),
+                lambda s, o, t, n=slot.d.name: self._observed(n, s, o, t))
+        again = None
         try:
-            p = Process(slot.d, self.e.spec.root, callback_env(self.e.spec, self.e.p.dir, self.e.socket), log,
-                        lambda s, v, n=slot.d.name: self._pushed(n, s, v),
-                        lambda s, o, t, n=slot.d.name: self._observed(n, s, o, t))
-        except OSError as err:
+            if slot.d.outlive:                       # under a keeper; one left going taken up (kept.py)
+                from . import kept
+                p, again = kept.spawn(self, slot, *args)
+            else:
+                p = Process(slot.d, *args)
+        except (OSError, ValueError) as err:
             log.close()
             self._restart(slot, f"could not start: {err}", False)
             return
@@ -311,10 +318,23 @@ class Supervisor(Hands):
             p.stop()
             self._kill(p)
             return
+        if again:                                    # (a kept one found ended by this engine: SPEC §9.7)
+            self.e.p.events.add("ergostat.daemon.restarted", item=slot.d.name, source=SOURCE,
+                                data={"daemon": slot.d.name, "why": again, "pid": p.pid, "restarts": 0, "wait": 0})
+            self.e.say(f"daemon {slot.d.name}: {again}: restarted")
         self.e.p.events.add("ergostat.daemon.started", item=slot.d.name, source=SOURCE,
-                            data={"daemon": slot.d.name, "pid": p.pid, "restarts": len(slot.restarts)})
+                            data={"daemon": slot.d.name, "pid": p.pid, "restarts": len(slot.restarts),
+                                  **({"kept": True} if getattr(p, "kept", False) else {})})
+
+    def acked(self, run: str) -> None:
+        """A run's end recorded: a kept daemon no longer holds it in its state (``kept.py``)."""
+        for p in self._procs():
+            if getattr(p, "kept", False) and p.acked(run):
+                return
 
     def _finished(self, slot: Slot, p: Process) -> dict:
+        if getattr(p, "kept", False):
+            p.finish()
         p.log.close()
         return SAMPLER.finish(slot.tracked) if slot.tracked is not None and slot.tracked.proc is p.proc else {}
 
@@ -398,7 +418,8 @@ class Supervisor(Hands):
         got = self.status()
         if final:
             for x in got.values():
-                x["state"], x["pid"] = "stopped", None
+                if x["state"] != "outliving":        # (a kept one goes on, its pid its own)
+                    x["state"], x["pid"] = "stopped", None
         shard = getattr(self.e, "shard", None)       # (a shard's own file and temporary file: SPEC §9.8)
         f = self.e.p.dir / ("daemons.json" if shard is None else f"daemons.{shard}.json")
         tmp = f.with_suffix(".tmp")
@@ -411,7 +432,10 @@ class Supervisor(Hands):
             procs = self._procs()
             for s in self.slots.values():
                 s.up.clear()
-                s.state = "stopped"
+                s.state = "outliving" if getattr(s.proc, "kept", False) else "stopped"
+        for p in [p for p in procs if getattr(p, "kept", False)]:
+            p.leave()                                # (it goes on, its runs for the next engine: kept.py)
+        procs = [p for p in procs if not getattr(p, "kept", False)]
         for p in procs:
             p.stop()
         deadline = time.monotonic() + min(grace(), 3.0)

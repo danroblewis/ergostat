@@ -109,8 +109,13 @@ class Process:
         log.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} starting: {d.run}\n")
         log.flush()
         env = {k: v for k, v in env.items() if not k.startswith("ERGOSTAT_") or k in SHARED}   # (an item's: in its line)
+        self._begin(cwd, env)
+
+    def _begin(self, cwd, env: dict) -> None:
+        """Its process started, and its writer and reader (a kept daemon's: ``kept.py``)."""
+        d = self.d
         self.proc = Measured(execd(d.run), shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
-                             stdout=subprocess.PIPE, stderr=log, start_new_session=True)
+                             stdout=subprocess.PIPE, stderr=self.log, start_new_session=True)
         self.pid = self.proc.pid                     # the program's (``execd``), or its shell's; either way the
                                                      # session's leader, so its group's id (``supervise.killpg``)
         with GROUPS_LOCK:                            # checked and added under one lock: in end_all's snapshot, or
