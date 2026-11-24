@@ -1009,6 +1009,17 @@ class NamedLoop:
 
 
 @dataclass
+class OperatingState:
+    """An operating state (SPEC §9.5): rank, pool (None: no cap), trips (goal → unknown-after, None: crossing only)."""
+    name: str
+    rank: int
+    pool: int | None = None
+    description: str = ""
+    trips: dict[str, float | None] = field(default_factory=dict)
+    where: Where | None = None
+
+
+@dataclass
 class Panel:
     """One panel of a declared dashboard (SPEC §4f): its kind, its words, and exactly the parameters its endpoint and
     page address take (``params``, plain data)."""
@@ -1069,6 +1080,7 @@ class Spec:
     compute: dict[str, ComputePool] = field(default_factory=dict)      # where runs may execute (SPEC §12k)
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
     daemons: dict[str, Daemon] = field(default_factory=dict)           # the long-lived runners (SPEC §9.7)
+    operating: dict[str, OperatingState] = field(default_factory=dict)  # the operating states declared (SPEC §9.5)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)

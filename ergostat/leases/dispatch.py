@@ -93,6 +93,7 @@ class Dispatcher:
         self.behind = False                           # the last pass ran out of its slice: the next comes at the next look
         self.mine: dict[str, tuple] = {}              # run → (block, item, fence): the leases taken here, not yet ended
         self.unread: set[str] = set()                 # blocks whose pool's stock has no reading, said once
+        self.hold: str | None = None                  # why the last trip check could not read its inputs: pool 0 till one can
         self.looks_failing: tuple[str, float] | None = None  # (the latest error, since when: wall) while every look meets one
         self.ending: dict[str, tuple] = {}            # run → (block, item, fence, out, since): its end tried, not done
         self.dropped: dict[str, tuple] = {}           # run → (item, since, let go at|None): the ends given up (``failing``)
@@ -135,6 +136,8 @@ class Dispatcher:
                     if mono - last >= EVERY or self.behind:
                         if mono - last >= EVERY:
                             last = mono
+                            if self.spec.operating and self.e.leads():   # the trips, once a second, by the lead alone (§9.5)
+                                self.trip()
                             try:                             # (on its own: a failed recovery skips no watch, no tick)
                                 budget.recover(self.p, self.spec)    # (at most once a minute: SPEC §9.9)
                             except Exception as e:
@@ -153,6 +156,51 @@ class Dispatcher:
             was, mark = mark, board.wait(mark, wait)
             if mark != was:
                 self.e.stop.wait(GAP)
+
+    # ---- operating states (SPEC §9.5)
+
+    def trip(self, now: float | None = None) -> None:
+        """The trips looked at, under the lock across their read, decision and write. Inputs that cannot be read hold
+        dispatch at pool 0 until a look reads them cleanly."""
+        from ..operating import trips
+        with self.lock:
+            try:
+                self.hold = trips.check(self.p, self.spec, now, say=self.e.say)
+            except Exception as e:                             # a write that raised holds too (worst case, lesson-3)
+                self.hold = f"the trips could not be checked: {type(e).__name__}: {e}"
+        if self.hold:
+            self.e.say(f"operating: {self.hold}")
+
+    def cap(self) -> tuple[int | None, str]:
+        """The pool the operating state in force allows each block that takes items (None: no cap), and why. A model
+        that declares no state reads nothing."""
+        if not self.spec.operating:
+            return None, ""
+        if self.hold:
+            return 0, self.hold
+        from ..operating.fold import in_force
+        _, pool, why = in_force(self.p, self.spec)
+        return pool, why
+
+    def flying(self, b, but: str) -> int:
+        """The block's runs in flight, from the fold and here, besides the item ``but``."""
+        self.stale = True
+        every, _ = self.items_of(b.takes.kind)
+        mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
+        return len((mine | set(self.going.get(b.name, {}))) - {but})
+
+    def entered_meanwhile(self, b, it, lease: dict, run: str, fence: int, inline: bool) -> bool:
+        """Read again just after the lease was written (everything recorded before it is seen): when the cap leaves
+        no room for this run now, counting those in flight, the lease ends at once, uncounted, and no run starts. A
+        run by hand (``inline``) ignores the block's pool, so only pool 0 gives it back."""
+        pool, why = self.cap()
+        if pool is None or (pool > 0 and (inline or self.flying(b, it.id) < pool)):
+            return False
+        self.p.events.add(ENDED, item=it.id, source=SOURCE, causedby=run,
+                          data={"run": run, "fence": fence, "how": "nack", "why": why, "count": False,
+                                **self.after(it, lease, False)})
+        self.e.say(f"{b.name}: gave {it.id} back at once: {why}")
+        return True
 
     # ---- dispatch
 
@@ -215,19 +263,20 @@ class Dispatcher:
         no other's look: it is said, and the first is returned."""
         now = time.time()
         self.stale = True
+        cap = self.cap()[0] if self.blocks else None       # (read once a look: a state never raises a block's pool)
         first = None
         for b in self.blocks:
             if self.e.stop.is_set() or b.name in self.e.held:
                 return first
             try:
-                self.tick_block(b, now)
+                self.tick_block(b, now, cap)
             except Exception as e:                             # (one block's trouble: the others are still dispatched)
                 self.e.say(f"leases: {b.name}: {type(e).__name__}: {e}")
                 first = first or f"{b.name}: {type(e).__name__}: {e}"
                 self.stale = True
         return first
 
-    def tick_block(self, b, now: float) -> None:
+    def tick_block(self, b, now: float, cap: int | None = None) -> None:
         if not self.holds.open(b):                             # its shared environment is down, or unknown: it waits
             return
         cmd, _ = self.e.command_of(b)
@@ -236,7 +285,8 @@ class Dispatcher:
         with self.lock:
             every, ix = self.items_of(b.takes.kind)
             mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
-            room = self.pool_now(b) - len(mine | set(self.going.get(b.name, {})))
+            pool = self.pool_now(b)                            # (a state only lowers it: min, never more)
+            room = min(pool, pool if cap is None else cap) - len(mine | set(self.going.get(b.name, {})))
             if b.params.get("daemon"):               # the daemon's room, shared by every block it serves (SPEC §9.7)
                 room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
             if room <= 0:
@@ -291,8 +341,12 @@ class Dispatcher:
 
     def once(self, b, why: str, outcome: dict | None = None) -> list[str]:
         """A run asked for by hand (``ergostat block NAME --now``): it leases the next item the block would take, and
-        runs here, at once, whatever its pool; with nothing to take, nothing runs. A take the budget refused is said in
-        ``outcome["refused"]``."""
+        runs here, at once, whatever its pool; with nothing to take, nothing runs; under an operating state's pool 0,
+        nothing runs either. A take the budget refused is said in ``outcome["refused"]``."""
+        cap, capwhy = self.cap()
+        if cap == 0:
+            self.e.say(f"{b.name}: not run: {capwhy} (pool 0)")
+            return []
         out: dict = {}
         with self.lock:
             got, hurry = self.in_order(b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
@@ -347,14 +401,16 @@ class Dispatcher:
                 return None
             now = its.one(self.p.events, spec, it.id)
             got = held(now.fields) if now else None
+            back = (not got or got.get("holder") != run           # someone else took it first: the fold refused this one,
+                    or self.spec.operating and self.entered_meanwhile(b, now, got, run, fence, inline))  # or given back
         except BaseException:
             budget.OPEN.discard(run)
             with self.e.lock:
                 self.e.running.discard(key)
             raise
-        if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
+        if back:                                                  # lost to another holder, or given back: nothing ran
             if run in budget.OPEN:                                # (nothing ran: its reserve given back)
-                budget.close(self.p, b.name, run, 0.0, "the take lost: another holder won")
+                budget.close(self.p, b.name, run, 0.0, "not run: another holder won, or a state gave it back")
             self.ours.discard(run)
             with self.e.lock:
                 self.e.running.discard(key)

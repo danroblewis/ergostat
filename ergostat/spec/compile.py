@@ -1175,6 +1175,8 @@ class Compiler:
         from ..daemons import config as daemons
         daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
         leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
+        from ..operating import compile as operating
+        operating.section(self, spec)                        # operating: the states, their pools and trips (SPEC §9.5)
         from ..library import bounds
         bounds.check(self, spec)                             # an untrusted library's parts: their limits (SPEC §2a)
         from . import triggers
