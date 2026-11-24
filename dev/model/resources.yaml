@@ -174,7 +174,7 @@ blocks:
     out: block.disk-cleanup
   disk-cleanup:
     type: program
-    description: removes session folders past [resources] session_keep_hours and installs other than current, previous and recent ones - only the factory's own names
+    description: removes session folders past [resources] session_keep_hours, those of finished gaps ([resources] finished_states) not touched in ten minutes nor mounted, and installs other than current, previous and recent ones - only the factory's own names
     run: python3 dev/bin/cleanup.py
     timeout: 10m
     in: block.cleanup-when

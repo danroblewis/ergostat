@@ -144,7 +144,10 @@ session_cpus = 0.5                   # one session's use until three are measure
 session_memory_gb = 1.0
 suite_cpus = 4.0                     # one of its suites' (in a container of 4 CPUs and 12 GB); not charged with [suites] slot
 suite_memory_gb = 4.0
-session_keep_hours = 24              # session folders and installs younger than this are never cleaned up
+session_keep_hours = 24              # session folders and installs younger than this are kept (but see the next)
+finished_states = ["approved", "queued", "push-pending", "merged", "closed"]   # a gap's session folders are removed
+                                     # sooner once every gap of its name is in one (its work is on its branch), unless
+                                     # touched in the last 10 minutes or mounted by a running container; [] or unset: never
 
 [code_health]                        # coverage (dev/README.md, Coverage) and the simplifier's pick (dev/bin/simplify.py;
                                      # its pool is 1, fixed in the code). The pick reads main's latest coverage report

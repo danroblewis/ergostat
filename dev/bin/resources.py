@@ -193,7 +193,8 @@ def disk_free(cfg: dict) -> float | None:
 
 # ---- the snapshot
 
-SLOW_READINGS = ("docker-disk", "sessions-disk", "installs-disk", "factory-disk", "vm-open-files")
+SLOW_READINGS = ("docker-disk", "sessions-disk", "installs-disk", "factory-disk", "vm-open-files",
+                 "sessions-removed-early")
 
 
 def take(cfg: dict) -> dict:
@@ -341,7 +342,8 @@ def line(cfg: dict) -> str:
             f"Docker VM {g('vm-cpus')} CPUs {g('vm-memory', '{:.0f}')} GB: CPU {g('vm-cpu-utilisation', '{:.0%}')} memory "
             f"{g('vm-memory-utilisation', '{:.0%}')}, its disk {g('docker-disk', '{:.0f}')} GB; the factory's "
             f"{len(s.get('containers', {}))} containers {g('factory-cpu', '{:.1f}')} CPUs {g('factory-memory', '{:.1f}')} GB, "
-            f"folders {g('sessions-disk', '{:.1f}')} GB sessions + {g('installs-disk', '{:.1f}')} GB old installs; "
+            f"folders {g('sessions-disk', '{:.1f}')} GB sessions ({g('sessions-removed-early')} of finished gaps "
+            f"removed early) + {g('installs-disk', '{:.1f}')} GB old installs; "
             f"{headroom(s, setpoints(), each)} more sessions fit (each {each[0]:.1f} CPUs, {each[1]:.1f} GB)")
 
 
