@@ -176,6 +176,25 @@ Round 4, answering the one finding of the review (the gap mask and the fill used
 
 Overrun reason: 373 lines added and 38 removed outside tests, docs and dev against main, 335 net against 240 (round 4 adds 13 net for one rule for the gap mask and its fill). The call language with columns for its refusals, the reference checks (self, missing, analysis, failed), the per-request bound held at parse and again at run time, the readings bound, the four verdict codes and (round 2) the scrape on every answer built from series readings are each asked for, and each costs a few lines. Round 3 adds the merge with main's reader rule and its model source. The rest is docstrings.
 
+Round 5, the merge of main (4557d0d8), conflicted in `engine.py` and `verdicts.py`. Both were resolved keeping both
+sides:
+- `verdicts.py` holds the branch's four codes and main's three `graph-*` codes.
+- `engine.answer` keeps the branch's two passes (analysis queries last, then the mixed-window warning) and main's
+  `graph` source (`_graph`) in the first pass. A `graph` answer is a diagram of relations, not sampled: it gets the
+  ledger with `scrape_s` null, no range windows and no `scrape-unknown`, like items. `raw(G)` over a graph query is
+  refused like any non-series query ("raw reads a series query or a data source's query").
+- Tests run in round 5: `test_analysis_source.py`, `test_graph_result_and_panel.py`,
+  `test_result_frames_and_verdicts.py`, `test_result_shapes.py`, `test_data_sources.py`, `test_query_engine.py`,
+  `test_graph_cli_web.py`, `test_model_data_source.py`, `test_sql_source.py` and `test_query_frequency.py` all pass.
+  `test_graph_result_page.py` passes with Playwright under the watchdog, as do 3 of the 4 tests in
+  `test_dashboard_first_load.py`.
+- One failure is not this branch's: `test_dashboard_first_load.py::test_the_page_sends_what_the_replay_sends` fails at
+  index 11. The page now asks `{"source": "graph", "diagram": "process"}`, from main's default dashboard
+  (`dashboard-examples.js`), but main's `FIRST` list in that test does not hold it. The branch changes nothing under
+  `ergostat/web`, and its one edit to that file is in another test (`test_a_cold_servers_first_dashboard_answer_is_within_budget`,
+  which passes). So it is main's test against main's page, and it is left alone (lesson 13).
+  The whole unit suite and the four browser files were not run here.
+
 ## Entry
 
 section: Done recently
