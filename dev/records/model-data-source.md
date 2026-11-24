@@ -104,6 +104,19 @@ loop once per 360° of phase, so `fopdt gain=1 tau=1s delay=1000d` held the GIL 
 - Run here: `tests/test_model_data_source.py` and `tests/test_control.py` (88 passed), ruff clean. Not run: the unit
   suite, the four browser files, `demo_check` (no example touched); main has not moved since the clone.
 
+Round 4, answering the one finding of the queue (conflicts with main in `docs/SPEC.md`,
+`ergostat/datasources/__init__.py`, `ergostat/query/engine.py`, from main's `sql` source):
+- Main (fa51005d) merged in, keeping both sides: `datasources.query` gives the type its `Window` with `project` and
+  `public` (this branch) and also sets main's `ASKING` context for the call (what `sql.py` reads); the implicit `model`
+  source (`_sources`) is used by `query`, `suggest` and `listed`. The engine passes `public` for a reader and refuses
+  every source to a reader but the `model` one, so main's `sql` source stays refused to a public reader. SPEC §4e keeps
+  this branch's reader sentence and *The model as a data source*, then main's *The SQL source* in full.
+- No other change. Run here after the merge: `tests/test_model_data_source.py`, `tests/test_sql_source.py`,
+  `tests/test_promql_suggest.py` (54 passed); `tests/test_query_engine.py`, `tests/test_dashboards.py`,
+  `tests/test_dashboards_doc.py` (118 passed); under the watchdog with Playwright, `tests/test_dashboard_page.py`,
+  `tests/test_sql_editor.py`, `tests/test_plot_forms.py` (166 passed, none skipped, rc 0); ruff clean. Not run: the
+  whole unit suite, the other browser files, `demo_check` (no example touched).
+
 ## Entry
 
 section: Modelling
