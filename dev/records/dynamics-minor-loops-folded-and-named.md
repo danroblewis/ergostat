@@ -122,3 +122,19 @@ attention cards; this branch's summary words are stripped by main's own SD_GOAL_
 legend rows where it wants more than 10), and tests/test_export.py's export menu test (it waits for a visible
 `.looprow`, which now sits in a folded list).
 Not run: the whole unit suite, the four browser files, and demo_check.
+
+### Round 3: 'Dominant now' kept across a redraw
+
+The one finding (blocking): `sdDominant` filled its line only when /api/dominance answered, into the element of the
+build that asked. Every later redraw (poll, `redrawSide`) patched the page from a new, still-empty element, so the line
+was wiped after the first refresh. Now the answer is kept (`S.sdDom.value`, per address). The line is built from it on
+every build, and the list is redrawn once when the answer first arrives. An answer that comes back after the address
+changed is dropped. dynamics.js: +17/-12 lines.
+New browser test `test_the_dominant_loop_heads_the_list_after_the_side_is_redrawn` (tests/test_diagram_rendering.py):
+it fakes /api/dominance, waits for "Dominant now: B7 bug-fixing (at users)", calls `S.redrawSide()` three times and
+asserts the line each time, and asserts the dominance was asked once. With the old function put back it failed on the
+first redraw (line ''). With the fix it passes.
+Run, passing: the new test, this gap's acceptance test, the R/B-only-when-signed test (browser);
+tests/test_dynamics_view.py (27). Ruff clean. Local `main` (b20756c7) is already merged. Not run: the whole unit
+suite, the four browser files, and demo_check. The round-1/2 failures listed above that are not this gap's were not
+run again.

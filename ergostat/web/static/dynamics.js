@@ -683,22 +683,27 @@ function sdLoopList(panel, g) {
 const sdCount = (n) => `${n?.named ?? "?"} named, ${n?.minor ?? "?"} minor`;
 /* the loop that dominates now (Loops That Matter, /api/dominance), of the list's: at each stock, the one dominant in
    the last bucket; of those, the one scoring most. Nothing while not worked out, or when none of the list's does.
-   Asked once a view and window (the address), never on a poll */
+   Asked once a view and window (the address), never on a poll; the answer is kept and the line built from it on
+   every redraw, the list redrawn once when it first arrives (a line filled late would be patched away) */
 function sdDominant(mine) {
   const el = h("div", { class: "note sd-dominant", key: "dominant" }), by = new Map(mine.map((c) => [c.name, c]));
-  if (S.sdDom?.at !== location.search) S.sdDom = { at: location.search, got: api("dominance", { points: CHART_POINTS }) };
-  S.sdDom.got.then((d) => {
-    let best = null;
-    for (const x of d?.stocks || []) {
-      const k = (x.dominant || []).at(-1), v = Math.abs((x.relative?.[k] || []).at(-1) ?? 0);
-      if (k && by.has(k) && (!best || v > best.v)) best = { c: by.get(k), v, at: x.stock.split(".").slice(1).join(".") };
-    }
-    if (best) el.replaceChildren("Dominant now: ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); sdToggle(best.c.name); } },
-      `${best.c.label} ${best.c.minor ? best.c.name : best.c.shown || best.c.name}`), ` (at ${best.at})`);
-  }).catch(() => {});
+  if (S.sdDom?.at !== location.search) {
+    const dom = S.sdDom = { at: location.search, value: null };
+    api("dominance", { points: CHART_POINTS }).then((d) => {
+      if (S.sdDom !== dom) return;                       // the address changed while it was asked
+      dom.value = d || {};
+      if (S.graph?.kind === "dynamics") S.redrawSide?.();
+    }).catch(() => {});
+  }
+  let best = null;
+  for (const x of S.sdDom.value?.stocks || []) {
+    const k = (x.dominant || []).at(-1), v = Math.abs((x.relative?.[k] || []).at(-1) ?? 0);
+    if (k && by.has(k) && (!best || v > best.v)) best = { c: by.get(k), v, at: x.stock.split(".").slice(1).join(".") };
+  }
+  if (best) el.append("Dominant now: ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); sdToggle(best.c.name); } },
+    `${best.c.label} ${best.c.minor ? best.c.name : best.c.shown || best.c.name}`), ` (at ${best.at})`);
   return el;
 }
-
 const SD_LEGEND = {
   stock: '<rect x="3" y="3" width="20" height="12" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.4"/>',
   flow: '<path d="M0 9 H21" stroke="var(--sd-ink)" stroke-width="7"/><path d="M0 9 H21" stroke="var(--sd-paper)" stroke-width="3.6"/><path d="M8 3 L13 9 L8 15 Z M18 3 L13 9 L18 15 Z" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M21 4 L26 9 L21 14 Z" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.2"/>',

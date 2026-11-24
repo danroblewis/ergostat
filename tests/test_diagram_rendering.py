@@ -3548,6 +3548,33 @@ def test_dynamics_marks_the_named_loops_and_one_per_goal_and_a_minor_loop_only_w
         pg.close()
 
 
+def test_the_dominant_loop_heads_the_list_after_the_side_is_redrawn(browser, tmp_path):
+    """dynamics-minor-loops-folded-and-named (4): 'Dominant now' (from a faked /api/dominance) heads the loop list,
+    and still does after the list is redrawn (a chart chosen, a poll), asked once for the address."""
+    fake = {"stocks": [{"stock": "product.users", "dominant": [None, "bug-fixing"], "relative": {"bug-fixing": [0, 0.9]}}]}
+    asked: list[str] = []
+
+    def answer(route):
+        asked.append(route.request.url)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(fake))
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/dominance*", answer)
+        drawn(pg, url, "system=product", 0)
+        label = pg.evaluate("() => S.graph.causalLoops.find((c) => c.name === 'bug-fixing').label")
+        line = "() => document.querySelector('.side .sd-dominant')?.textContent || ''"
+        pg.wait_for_function(f"() => ({line})().startsWith('Dominant now')", timeout=10000)
+        assert pg.evaluate(line) == f"Dominant now: {label} bug-fixing (at users)"
+        for _ in range(3):
+            pg.evaluate("() => S.redrawSide()")
+            assert pg.evaluate(line) == f"Dominant now: {label} bug-fixing (at users)"
+        assert len(asked) == 1, asked
+        assert not errors, errors
+        pg.close()
+
+
 def test_each_loop_marker_sits_inside_its_loop_as_drawn(browser, tmp_path):
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
