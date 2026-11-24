@@ -560,3 +560,40 @@ Parked by the factory (queue run 2, 2026-11-22 03:02).
 Failed its gates 8 times (the kill rule); the last, in the merge queue:
 - the first failing merge of a batch of 8, found by bisecting
 - failed again alone: tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network
+
+Round 17 (resumed after that park: the merge of main b20756c7, then the GAPS.md refusal).
+
+The merge conflicted in five files, and each kept both sides (merge commit ecc93f1f):
+- `ergostat/cli/__init__.py`: the branch's `operating` topic and main's `worker` topic.
+- `ergostat/leases/dispatch.py`: main's new `Dispatcher` fields (`looks_failing` behind its `failing` property,
+  `ending`, `dropped`, `holds`, `groups`, `marks`, `keeping`, `adopted`) and the branch's `hold`. In `run`, the trips
+  sit in main's reshaped `EVERY` branch, inside `mono - last >= EVERY`, ahead of `budget.recover`. `tick_block` keeps
+  main's `holds.open` check and the branch's `cap` argument.
+- `ergostat/spec/ir.py`: `OperatingState`, then main's `Panel` and `Dashboard`.
+- `ergostat/spec/load.py`: `SECTIONS` and `SINGULAR` have main's `compute` and the branch's `operating`.
+- `ergostat/store.py`: main moved `prune`'s clauses into `_LOOSE` and `_WHOLE`, which `prunable` shares. The branch's
+  `KEPT` exemption is now inside both clauses (`_KEEP`), so `prunable` and `prune` agree.
+
+GAPS.md: put back as main has it, by hand (`git checkout b20756c760e7 -- docs/GAPS.md` was refused, and so was the
+same command with the full sha). `git diff b20756c7 -- docs/GAPS.md` is now empty. The entry is in
+`dev/records/operating-states.md`, written as a sub-gap of `operating-modes-regime` (`entry-of:` and one `done:`
+line).
+
+**Not resolved, and blocking: main's `operating-state-record` uses this gap's names.** That gap landed on main, and
+it takes the same three names for something else:
+- the top-level `operating:` key, as `{away-after: 2h}` (`actions/compile.py`, `load.py` reading
+  `doc.operating`);
+- the item kind `ergostat.operating` (`actions/operating.py` `KIND`, with events `ergostat.operating.<STATE>`);
+- the CLI topic `ergostat operating` (`cli/gated.py`).
+
+This branch gives the same three names to its states section, its kind and its topic. So after this merge, `ergostat
+operating` is registered twice. On Python 3.11 or later argparse refuses that, so the CLI may not build at all
+(not checked: this round was told to stop after the GAPS.md commit). A model's `operating:` is now read both as
+`{away-after}` and as a map of states, so a model can't be valid for both. The two folds also share one kind name.
+`KEPT = "ergostat.operating."` now also keeps main's state events from pruning, which is harmless. None of the
+acceptance tests were run after the merge.
+
+This needs a decision from the owner or the coordinator, not a merge fix, because the definition's names are now
+taken. The most reversible fix is to rename this gap's three names (for example section `states:`, kind
+`ergostat.states`, topic `ergostat states`), which leaves main's landed gap as it is. The other option is to fold the
+two designs into one, with main's four fixed states declared as this gap's ranked states. That is a redesign.
