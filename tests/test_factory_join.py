@@ -462,6 +462,6 @@ def test_the_split_measures_are_sensed_in_the_factory_model():
     doc = (BIN / "measure.py").read_text().split('"""')[1]
     for name in ("splits-covered", "split-budgets-held", "split-joins", "split-overhead"):
         aux = spec.auxiliaries[name]
-        assert aux.system == "intake" and [s.run for s in aux.sensors.values()] == [
-            f"python3 dev/bin/measure.py {name}"]
+        assert aux.system == "open-gaps" and "intake" in spec.chain(aux.system)
+        assert [s.run for s in aux.sensors.values()] == [f"python3 dev/bin/measure.py {name}"]
         assert f"\n  {name} " in doc

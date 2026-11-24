@@ -1089,8 +1089,9 @@ old record) has its gates unknown (`null`), counted in no gate's measure rather 
 it is built again (a sum of only its later rounds would be an undercount read as a whole); gate events between its
 last `gap.timed` and the roll-up (only if the timer was stopped that long) are not counted.
 
-The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, `loop-hours`, `loop-rounds` and
-`gate-GATE-minutes`, each the median and with `-p90` the 90th percentile (nearest rank) over the last 14 days, of the
+The measures (`dev/model/times.yaml`, the system `times`: `in-STATE-hours` in its subsystem `state-times`, the loop's
+and the implementor's, fast suites' and review gates' in `loop-times`, the queue's gates in `gate-times`) are
+`in-STATE-hours`, `loop-hours`, `loop-rounds` and `gate-GATE-minutes`, each the median and with `-p90` the 90th percentile (nearest rank) over the last 14 days, of the
 gaps that left the state, ended the loop or passed the gate in the window, not only the merged ones; 0 with none.
 A median the pipeline manager can act on has a goal (`hold:`), read by the pipeline watch: off past its tolerance, it is
 a trigger of the manager's next session, and each goal's reading is on the situation (`times`). With no gap in its

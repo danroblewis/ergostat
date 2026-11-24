@@ -749,7 +749,8 @@ def test_split_measures(tmp_path):
     spec, _ = read(ROOT / "ergostat.yaml")
     for name in ("splits-covered", "split-budgets-held"):
         aux = spec.auxiliaries[name]
-        assert aux.system == "intake" and [s.run for s in aux.sensors.values()] == [f"python3 dev/bin/measure.py {name}"]
+        assert aux.system == "open-gaps" and "intake" in spec.chain(aux.system)
+        assert [s.run for s in aux.sensors.values()] == [f"python3 dev/bin/measure.py {name}"]
 
 
 def deny(f: Instance, aid: str, lid: str, by: str = "coordinator", note: str = "too narrow") -> None:
