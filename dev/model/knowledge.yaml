@@ -322,6 +322,16 @@ flows:
     from: knowledge-entries
     description: a lesson removed by the coordinator (dev/bin/lesson.py retire) - one briefs carried while first-pass yield did not move
     sensor: {items: lesson, entering: retired, over: 1d}
+  findings-applied:
+    system: knowledge
+    to: findings-active
+    description: an approved finding applied by lesson-apply - an entry finding-<slug> of kind finding, carried by area
+    sensor: {items: lesson, entering: applied, where: {kind: finding}, over: 1d}
+  findings-retired:
+    system: knowledge
+    from: findings-active
+    description: a finding removed by the coordinator (dev/bin/lesson.py retire) - no longer carried in any brief
+    sensor: {items: lesson, entering: retired, where: {kind: finding}, over: 1d}
 
 parameters:
   plan-time:
