@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 from .durations import human
@@ -29,37 +30,53 @@ STALE_RUNS = 3          # a reading older than this many of its agent's periods 
 def crossings_of(project, loop: str, since: float, until: float) -> list[dict]:
     """A loop's crossings in a span, and the last one before it (whether it was off when the span
     began): never every crossing of the whole record."""
-    before = project.events.query(n=1, item=loop, type="loop.*", until=since - 1e-6, unvoided=True)
-    return before + project.events.query(n=None, item=loop, type="loop.*", since=since, until=until, unvoided=True)
+    from .spec.projections import query
+    before = query(project, "loop.*", n=1, item=loop, until=since - 1e-6, unvoided=True)
+    return before + query(project, "loop.*", n=None, item=loop, since=since, until=until, unvoided=True)
+
 
 def _crossings(project, loops: list[str], since: float, until: float) -> dict[str, list[dict]]:
-    """``crossings_of`` for each of several loops (their time and type), read together: a month of a
-    busy record's crossings from the columns, not event by event."""
-    ev = project.events
-    if not hasattr(ev, "times") or ev.query(n=1, type="ergostat.forgotten"):     # some set aside: read one by one
-        return {lp: crossings_of(project, lp, since, until) for lp in loops}
-    got = ev.times(loops, "loop.*", since, until)
-    return {lp: ev.query(n=1, item=lp, type="loop.*", until=since - 1e-6, unvoided=True)
-            + [{"time": t, "type": ty, "seq": q, "item": lp} for t, ty, q in got[lp]] for lp in loops}
+    """``crossings_of`` for each of several loops, read together (from the item index's ``marks``)."""
+    from .spec.projections import query
+    got = {lp: query(project, "loop.*", n=1, item=lp, until=since - 1e-6, unvoided=True) for lp in loops}
+    for e in query(project, "loop.*", n=None, since=since, until=until, unvoided=True):
+        if e.get("item") in got:
+            got[e["item"]].append(e)
+    return got
 
 
-def _times(project, items: list[str], type: str, since: float, until: float) -> dict[str, list[float]]:
-    """When each of ``items`` had an event of ``type`` in the span."""
-    ev = project.events
-    if hasattr(ev, "times"):
-        return {k: [t for t, _, _ in v] for k, v in ev.times(items, type, since, until).items()}
-    return {i: [e["time"] for e in ev.query(n=None, type=type, item=i, since=since, until=until)] for i in items}
+_BY: tuple = (None, 0, {})     # the model's sensors last asked of, how many, and each part's (what measures it)
+_NEWEST = threading.local()    # while a snapshot is made: the store's newest reading of every series (``_latest``)
 
 
 def _sensor_for(m, target: str) -> list:
-    return [s for s in m.sensors.values() if s.measures == target]
+    # (the cache is read once into ``got`` and replaced whole: another thread or model swapping it between the
+    # check and the read cannot hand this call another model's sensors)
+    global _BY
+    got, sensors = _BY, m.sensors
+    if got[0] is not sensors or got[1] != len(sensors):
+        by: dict[str, list] = {}
+        for s in sensors.values():
+            by.setdefault(s.measures, []).append(s)
+        got = (sensors, len(sensors), by)
+        _BY = got
+    return list(got[2].get(target, ()))
+
+
+def _latest(project, series: str, at: float | None):
+    """``measurements.latest(series, at)``: while a snapshot is made, from the store's ``newest()`` (read once for it)
+    when that reading is at or before ``at``."""
+    got = (getattr(_NEWEST, "got", None) or {}).get(series, ())
+    if got and (at is None or got[0] <= at):
+        return got
+    return project.measurements.latest(series, at) if got or getattr(_NEWEST, "got", None) is None else None
 
 
 def stock_value(project, stock: str, at: float | None = None) -> dict:
     m = project.model
     best = None
     for s in _sensor_for(m, stock):
-        got = project.measurements.latest(f"sensor/{s.name}", at)
+        got = _latest(project, f"sensor/{s.name}", at)
         if got and (best is None or got[0] > best[0]):
             best = (got[0], got[1], s.name)
     if best is None:
@@ -67,10 +84,24 @@ def stock_value(project, stock: str, at: float | None = None) -> dict:
     return {"value": best[1], "at": best[0], "sensor": best[2]}
 
 
+def _range(project, series: str, since: float, until: float, sampled: bool = False) -> list[tuple[float, float]]:
+    """``measurements.range`` (``sampled``: ``.sampled``) of a span: while a snapshot is made, from the window's raw
+    readings it read together (``Measurements.ranges``), where they answer it alone, as the store would."""
+    raw, span = getattr(_NEWEST, "raw", None), getattr(_NEWEST, "span", None)
+    got = raw.get(series) if raw is not None and span[0] <= since and until <= span[1] else None
+    if got is not None:
+        rows = got if (since, until) == span else [x for x in got if since <= x[0] <= until]
+        if not sampled or len(rows) <= 1200:              # (``sampled``'s own: its 600 points, twice)
+            return rows
+    m = project.measurements
+    return m.sampled(series, since, until) if sampled else m.range(series, since, until)
+
+
 def history(project, stock: str, since: float, until: float | None = None) -> list[tuple[float, float]]:
     pts = []
     for s in _sensor_for(project.model, stock):
-        pts += project.measurements.sampled(f"sensor/{s.name}", since, until)
+        pts += (project.measurements.sampled(f"sensor/{s.name}", since, until) if until is None else
+                _range(project, f"sensor/{s.name}", since, until, sampled=True))
     return sorted(pts)
 
 
@@ -81,7 +112,7 @@ def mean_rate(project, flow: str, t0: float, t1: float) -> float | None:
     when no sensor has a reading in the window."""
     rates = []
     for s in _sensor_for(project.model, flow):
-        pts = project.measurements.range(f"sensor/{s.name}", t0, t1)
+        pts = _range(project, f"sensor/{s.name}", t0, t1)
         pts = [(t, r) for t, r in pts if t0 <= t <= t1]
         if not pts:
             continue
@@ -122,8 +153,24 @@ def moved(project, flow: str, t0: float, t1: float) -> float | None:
 
 
 def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
-    """The state at ``now`` (default: now), over the window before it; a past ``now`` looks back."""
+    """The state at ``now`` (default: now), over the window before it; a past ``now`` looks back. ``as_of``: the last
+    event the record held as it was read (``seq``) and when the answer was made (``made``): how old it is. What it
+    reads of the event log it reads from the item index's tables (``spec/projections.py``), caught up once."""
+    from .spec.itemindex import pinned
+    newest = getattr(project.measurements, "newest", None)
+    with pinned():
+        _NEWEST.got = dict(newest()) if newest is not None else None
+        try:
+            return _snapshot(project, window, now)
+        finally:
+            _NEWEST.got = _NEWEST.raw = _NEWEST.span = None
+
+
+def _snapshot(project, window: float, now: float | None) -> dict:
+    from .spec.projections import latest, openings, query, runs
+    from .spec.projections import opened as opened_in
     m = project.model
+    seq = project.events.last_seq() if hasattr(project.events, "last_seq") else None
     live = now is None
     now = now or time.time()
     since = now - window
@@ -132,6 +179,9 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     hours = max(now - start, 60.0) / 3600.0
     stocks, flows, loops, residuals = {}, {}, {}, {}
     full: dict[str, list] = {}
+    ranges = getattr(project.measurements, "ranges", None)    # the window's readings of every sensor, read together
+    _NEWEST.raw, _NEWEST.span = (ranges(sorted(f"sensor/{s}" for s in m.sensors), start, now), (start, now)) if ranges \
+        else (None, None)
 
     for name in m.stocks:
         v = stock_value(project, name, now)
@@ -144,13 +194,14 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
 
     # flows known from sensors or valves; a measured flow's reading is a rate per hour
     known: dict[str, float] = {}
+    opens = opened_in(project, sorted({v.name for f in m.flows.values() if (v := m.valve_of(f.name))}), start, now)
     for f in m.flows.values():
         rate, how, opened = None, None, None
         if f.rate is not None:
             rate, how = f.rate, "declared"
         sensors = _sensor_for(m, f.name)
         for s in sensors:
-            got = project.measurements.latest(f"sensor/{s.name}", now)
+            got = _latest(project, f"sensor/{s.name}", now)
             if got is not None:
                 # the average over the window, not the latest reading: one quiet scan is not a stopped flow
                 avg = mean_rate(project, f.name, start, now)
@@ -158,7 +209,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                 how = f"measured by {s.name}"
         valve = m.valve_of(f.name)
         if valve is not None:
-            opened = project.events.opened(valve.name, start, now)
+            opened = dict(opens[valve.name])
             if rate is None:
                 rate, how = opened["amount"] / hours, f"opened by {valve.name}"
         if rate is not None:
@@ -178,14 +229,15 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             if f.name in known:
                 sign = 1 if f.target == name else -1
                 if flows[f.name]["openings"] is not None and flows[f.name]["how"].startswith("opened"):
-                    explained += sign * project.events.opened(flows[f.name]["valve"], pts[0][0], pts[-1][0])["amount"]
+                    v = flows[f.name]["valve"]
+                    explained += sign * opened_in(project, [v], pts[0][0], pts[-1][0])[v]["amount"]
                 elif f.rate is not None:
                     explained += sign * f.rate * span
                 else:
                     got = moved(project, f.name, pts[0][0], pts[-1][0])
                     explained += sign * (got if got is not None else known[f.name] * span)
         rest = change - explained
-        raw = [x for s_ in _sensor_for(m, name) for x in project.measurements.range(f"sensor/{s_.name}", pts[0][0], pts[-1][0])]
+        raw = [x for s_ in _sensor_for(m, name) for x in _range(project, f"sensor/{s_.name}", pts[0][0], pts[-1][0])]
         raw = sorted(raw) if len(raw) <= 5000 else sorted(raw)[:5000]      # the ordinary step of the readings themselves
         steps = sorted(d for a, b in zip(raw, raw[1:], strict=False) if (d := abs(b[1] - a[1])) > 0)
         typical = steps[len(steps) // 2] if len(steps) >= 2 and len(raw) >= 4 else 0.0
@@ -236,8 +288,10 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
 
     all_loops = list(m.loops())
     crossed = _crossings(project, [lp.name for lp in all_loops], start, now)
-    opened_at = _times(project, sorted({v for lp in all_loops for v in (lp.valves or (lp.controller.drives if lp.controller.through
-                                                                                       else []))}), "valve.opened", start, now)
+    acting = sorted({v for lp in all_loops for v in (lp.valves or (lp.controller.drives if lp.controller.through else []))})
+    opened_at = openings(project, acting, start, now)
+    last_opened = latest(project, "valve.opened", acting, now)
+    decided = latest(project, "controller.decided", sorted({lp.controller.name for lp in all_loops}), now)
     spec = getattr(m, "spec", None)
     for lp in all_loops:
         c = lp.controller
@@ -252,19 +306,18 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         elif value is None:
             status, error = "unknown", None
         else:
-            last = project.events.query(n=1, item=lp.name, type="loop.*", until=now, unvoided=True)
+            last = query(project, "loop.*", n=1, item=lp.name, until=now, unvoided=True)
             was_off = bool(last and last[-1]["type"] == "loop.off")
             error, status = (g.hold.error(value, r), g.status(value, was_off, r)) if held else \
                 (c.error(value), c.status(value, was_off=was_off))
-        decisions = project.events.query(n=1, type="controller.decided", item=c.name, until=now)
+        decisions = [decided[c.name]] if decided.get(c.name) else []
         acts_on = lp.valves or (c.drives if c.through else [])    # the long way: where its controller acts, first along it
-        last_open = max((o["time"] for v in acts_on for o in project.events.query(n=1, type="valve.opened", item=v, until=now)),
-                        default=None)
+        last_open = max((o["time"] for v in acts_on if (o := last_opened.get(v))), default=None)
         knob = next((p.split(".", 1)[1] for p in c.through if p.startswith("auxiliary.")), None) if not acts_on else None
         if knob:                                                  # it acts by setting an auxiliary: when it last set it
             last_open = max((e["time"] for t in ("auxiliary.set", "variable.set")      # variable.set: its old name, in old records
-                             for e in project.events.query(n=1, type=t, item=knob, until=now)), default=None)
-        reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
+                             if (e := latest(project, t, [knob], now)[knob])), default=None)
+        reads = [_latest(project, f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
         stale = shown_stale(project, m.spec, lp.name, status, now) if getattr(m, "spec", None) else None
         if stale is not None:                             # its reading is too old to trust (SPEC §9.6)
@@ -322,16 +375,18 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         loops[lp.name].update(goal_row(loops[lp.name], getattr(m.stocks.get(c.holds), "unit", "")))
 
     contradicted: dict[str, list[dict]] = {}          # claims the record contradicts, by the block that made them (SPEC §12g)
-    for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
+    for e in query(project, "ergostat.claim.contradicted", n=500, since=since, until=now):
         contradicted.setdefault(e["data"].get("block") or "", []).append(e)
     agents = {}
     blocks = getattr(getattr(m, "spec", None), "blocks", None) or {}
+    names = list(m.agents)
+    ran, failed, started = (latest(project, t, names, now) for t in ("agent.ran", "agent.failed", "agent.started"))
+    tallied = runs(project, names, since, now)
     for a in m.agents.values():
-        counted = project.events.runs(a.name, since, now)
-        last_any = max(project.events.query(n=1, item=a.name, type="agent.ran", until=now) +
-                       project.events.query(n=1, item=a.name, type="agent.failed", until=now), key=lambda e: e["seq"], default=None)
-        begun = project.events.query(n=1, item=a.name, type="agent.started", until=now)
-        running_since = begun[-1]["time"] if begun and (last_any is None or begun[-1]["seq"] > last_any["seq"]) else None
+        counted = tallied[a.name]
+        last_any = max((e for e in (ran[a.name], failed[a.name]) if e), key=lambda e: e["seq"], default=None)
+        begun = started[a.name]
+        running_since = begun["time"] if begun and (last_any is None or begun["seq"] > last_any["seq"]) else None
         roles = m.roles_of(a.name)
         b_ = getattr(getattr(m, "spec", None), "blocks", {}).get(a.name)
         keeps = b_.goal if b_ is not None and b_.implied and b_.goal in m.controllers else None   # keep-GOAL: it decides for GOAL
@@ -339,7 +394,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         if a.every or a.cron:                             # a reading older than a few of its runs is stale
             for r in roles:
                 if r.kind == "sensor":
-                    got = project.measurements.latest(f"sensor/{r.name}", now)
+                    got = _latest(project, f"sensor/{r.name}", now)
                     if got is None or _missed(a, got[0], now):
                         stale.append(r.name)
         b = blocks.get(a.name)                            # its block: the goal its valves serve, and whether it takes items
@@ -379,7 +434,14 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     if getattr(getattr(project.model, "spec", None), "daemons", None):   # the long-lived runners, as the engine last saw them
         from .daemons.supervise import read_status
         snap["daemons"] = read_status(project.dir)
+    snap["as_of"] = {"seq": seq, "made": time.time()}
     return snap
+
+
+def age(snap: dict, now: float | None = None) -> dict:
+    """How old a snapshot is: ``as_of`` and its ``age``, the seconds since it was made."""
+    made = snap["as_of"]["made"]
+    return {**snap["as_of"], "age": max(0.0, (time.time() if now is None else now) - made)}
 
 
 def alarms(project, now: float) -> dict:
@@ -505,14 +567,19 @@ def unrouted_messages(project, now: float) -> list[dict]:
             for m in got.values() if m["state"] == "unrouted"][-20:]
 
 
+def decision_kind(words) -> str:
+    """A decision's words with the numbers taken out (``12 waiting`` is ``# waiting``): what decisions are grouped by."""
+    import re
+    return re.sub(r"-?\d+(\.\d+)?", "#", str(words)).strip() or "(no words)"
+
+
 def decisions(project, controller: str, since: float, until: float | None = None) -> dict:
     """What a controller decided in the window, grouped by its words with the numbers taken out:
     how many decisions, and how often each kind came up, commonest first."""
-    import re
     kinds: dict[str, int] = {}
     total = 0
     for words, n in project.events.decided(controller, since, until):
-        k = re.sub(r"-?\d+(\.\d+)?", "#", str(words)).strip() or "(no words)"
+        k = decision_kind(words)
         kinds[k] = kinds.get(k, 0) + n
         total += n
     return {"count": total, "kinds": sorted(kinds.items(), key=lambda kv: -kv[1])}
@@ -594,24 +661,24 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         if load > 0 and ours < 0.95 * load:
             # falling behind: what went out was less than what came in. Saturated only when each
             # opening moved the same amount (the valve at its limit); else it may be asking too little
-            amounts = [e["data"].get("amount") for v in lp["valves"]
-                       for e in project.events.query(n=50, type="valve.opened", item=v, since=since, until=snap["at"])]
+            from .spec.projections import opened_amounts
+            amounts = [a for v in lp["valves"] for a in opened_amounts(project, v, since, snap["at"])]
             limits = [m.valves[v].max for v in lp["valves"] if m.valves[v].max]
             at_limit = (bool(limits) and len(amounts) >= 3 and sum(a >= limits[0] * 0.999 for a in amounts) >= len(amounts) / 2) or (
                 not limits and len(amounts) >= 3 and len(set(amounts)) == 1 and (amounts[0] or 0) > 0)
             # the cause, in words no view rewrites, so every page says it alike (dynamics.words)
             cause = "saturated, moving its most each run" if at_limit else "falling behind the load"
             did = "it acts but moves nothing" if acted else "nothing ran to move any"
-            says = (f"loop {name} was off {off}% of the time: {cause}: {did} {way[0]} of {stock} "
+            says = (f"goal {name} was off {off}% of the time: {cause}: {did} {way[0]} of {stock} "
                     f"while {fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "")
                     if not ours else
-                    f"loop {name} was off {off}% of the time: {cause}. Its valve moved {fmt(ours)}/h {way[0]} while "
+                    f"goal {name} was off {off}% of the time: {cause}. Its valve moved {fmt(ours)}/h {way[0]} while "
                     f"{fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "") + ". "
                     + ((f"Its openings ran at its max of {fmt(limits[0])}" if limits else f"Every opening moved {fmt(amounts[0])}")
                    + ": it needs more per run, or less load" if at_limit else
                        "More per run, or acting more often" + (f" ({slowest} is the slowest stage)" if slowest else "")))
         else:
-            says = (f"loop {name} was off {off}% of the time: answering too late, though it keeps up on average"
+            says = (f"goal {name} was off {off}% of the time: answering too late, though it keeps up on average"
                     + (f"; {slowest} is the slowest stage" if slowest else ""))
         # a job that empties the stock on a schedule holds only if load × period fits the room under the setpoint
         pts = snap["stocks"].get(stock, {}).get("points") or []
@@ -624,7 +691,7 @@ def ladder_hints(project, snap: dict) -> list[dict]:
                          + (" (cron cannot: once a minute is its finest)" if needed < 60 and any(
                              x.cron for x in m.agents.values() if x.name in slowest) else ""))
         out.append({"controller": name, "agent": c.agent, "kind": a.kind if a else "", "share": lp["off_share"],
-                    "count": 0, "decision": "", "about": "loop", "says": says})
+                    "count": 0, "decision": "", "about": "loop", "goal": name, "says": says})
     # upstream action piling up behind a loop that is off: the anti-windup question for loops in series
     for up, lp in snap["loops"].items():
         for f in lp["flows"]:
@@ -637,8 +704,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
                 moved = snap["flows"].get(f, {}).get("rate") or 0
                 if moved > 0:
                     out.append({"controller": up, "agent": m.controllers[up].agent, "kind": "", "share": dl["off_share"],
-                                "count": 0, "decision": "", "about": "loop",
-                                "says": f"loop {up} keeps feeding {down_stock} ({fmt(moved)}/h) while loop {down} is off "
+                                "count": 0, "decision": "", "about": "loop", "goal": up,
+                                "says": f"goal {up} keeps feeding {down_stock} ({fmt(moved)}/h) while goal {down} is off "
                                         f"{round(dl['off_share'] * 100)}% of the time: work piles up downstream. Hold it back "
                                         f"while {down} is off (its controller can read {down_stock}, or listen for loop.holding@{down})"})
     for c in m.controllers.values():
@@ -751,24 +818,25 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
             continue
         if lp["status"] == "open" and f"stock.{lp['stock']}" in theirs:   # a goal here on a remote's stock: watched,
             continue                                                       # acted on there (nothing here may act on it)
+        of = {"what": f"goal {name}", "goal": name}     # the goal by its name, a field: never parsed from the words
         if lp["status"] == "off" and lp.get("breaking"):
             n, each = lp["breaking_n"], lp["per"]
-            out.append({"level": "bad", "what": f"loop {name}", "says": f"{n} {each}{'' if n == 1 else 's'} break{'s' if n == 1 else ''} "
+            out.append({"level": "bad", **of, "says": f"{n} {each}{'' if n == 1 else 's'} break{'s' if n == 1 else ''} "
                         f"it (each {each}'s {lp['stock']} {setpoint_text(lp)}): {per_says(lp)}"})
         elif lp["status"] == "off" and lp.get("per"):        # off, and none past its tolerance: holding only back within
-            out.append({"level": "bad", "what": f"loop {name}", "says": f"the worst {lp['per']}'s {lp['stock']} is "
+            out.append({"level": "bad", **of, "says": f"the worst {lp['per']}'s {lp['stock']} is "
                         f"{fmt(lp['value'])}, setpoint {setpoint_text(lp)}: none is past its tolerance now; it holds again "
                         "once each is back within the setpoint"})
         elif lp["status"] == "off":
-            out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
+            out.append({"level": "bad", **of, "says": f"{lp['stock']} is {fmt(lp['value'])}, "
                         f"setpoint {setpoint_text(lp)} ({lp.get('off_by_words')})"})
         elif lp["status"] == "stale":
             does = {"act": "its controllers act on it as it was", "hold": "what it commands is held",
                     "off": "it counts as off"}[lp["on_stale"]]
-            out.append({"level": "warn", "what": f"loop {name}", "says": f"{lp['stock']} was last read {human(lp['stale'])} "
+            out.append({"level": "warn", **of, "says": f"{lp['stock']} was last read {human(lp['stale'])} "
                         f"ago, too long for its sensor: stale ({does}; on-stale: {lp['on_stale']})"})
         elif lp["status"] == "open":
-            out.append({"level": "warn", "what": f"loop {name}", "says": "cannot close: " + "; ".join(lp["gaps"])})
+            out.append({"level": "warn", **of, "says": "cannot close: " + "; ".join(lp["gaps"])})
         elif lp["status"] == "unknown" and running and snap.get("recorded", 0) > UNKNOWN_GRACE:
             who = ""
             if model is not None:
@@ -776,9 +844,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                 kinds = {model.agents[a].kind for a in fillers}
                 who = (" (its sensor is filled by a person, who has reported no reading)" if kinds == {"person"}
                        else f" (sensor {', '.join(lp['sensors'])})")
-            out.append({"level": "warn", "what": f"loop {name}", "says": f"no reading of {lp['stock']} yet: "
+            out.append({"level": "warn", **of, "says": f"no reading of {lp['stock']} yet: "
                         f"the loop cannot tell whether it holds{who}"})
-        if out and out[-1]["what"] == f"loop {name}":   # its state word, and whether the goal is modelling's (the page groups)
+        if out and out[-1].get("goal") == name:   # its state word, and whether the goal is modelling's (the page groups)
             out[-1].update(state=lp["status"], **({"modelling": True} if mod and getattr(spec.goals.get(name), "system",
                                                                                      None) in mod else {}))
             if lp.get("diagnosis_in"):                  # its suggestion, not yet due
@@ -852,10 +920,10 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         out.append({"level": "warn", "what": "reports upstream", "waiting": True, **({"item": rs[0]["id"]} if len(rs) == 1 else {}),
                     "says": (f"{len(rs)} drafted" if len(rs) > 1 else f"\u201c{rs[0]['title'][:70]}\u201d drafted")
                     + " about ergostat itself, scrubbed, for you to read and submit by hand if you choose: ergostat report"})
-    for h in snap.get("hints", []):                  # a loop's: the goal named once, as its heading
-        loop = f"loop {h['controller']}"
-        out.append({"level": "hint", "what": loop, "says": h["says"].removeprefix(loop + " ")} if h["about"] == "loop"
-                   else {"level": "hint", "what": f"controller {h['controller']}", "says": h["says"]})
+    for h in snap.get("hints", []):                  # a goal's: the goal named once, as its heading
+        goal = f"goal {h['goal']}" if h.get("goal") else None
+        out.append({"level": "hint", "what": goal, "goal": h["goal"], "says": h["says"].removeprefix(goal + " ")} if goal
+                   else {"level": "hint", "what": f"controller {h['controller']}", "controller": h["controller"], "says": h["says"]})
     for name, r in snap["residuals"].items():
         if r["significant"]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "

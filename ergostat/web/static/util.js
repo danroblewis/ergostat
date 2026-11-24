@@ -3,7 +3,21 @@
 
 const $ = (s, el = document) => el.querySelector(s);
 const NS = "http://www.w3.org/2000/svg";
-const elk = new ELK();
+/* ELK, loaded when a layout is first asked for, so a page that draws nothing never fetches it: the page's own copy
+   when it has one (a snapshot's, a test page's), else its file at its version (the server's meta tag) */
+let ELK_LOADING = null;
+function elkReady() {
+  return ELK_LOADING ||= typeof ELK === "function" ? Promise.resolve(new ELK()) : new Promise((resolve, reject) => {
+    let v = {};
+    try { v = JSON.parse(document.querySelector('meta[name="ergostat-assets"]')?.content || "{}"); } catch (e) { /* none */ }
+    const el = document.createElement("script");
+    el.src = "/static/elk.bundled.js" + (v["elk.bundled.js"] ? `?v=${v["elk.bundled.js"]}` : "");
+    el.onload = () => resolve(new ELK());
+    el.onerror = () => { ELK_LOADING = null; el.remove(); reject(new Error("ELK did not load")); };   // (asked again next time)
+    document.head.append(el);
+  });
+}
+const elk = { layout: (g, o) => elkReady().then((e) => e.layout(g, o)) };
 const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y: 0, k: 1 }, fitted: false,
             timer: null, status: null, sel: null, hl: null };
 
@@ -12,7 +26,7 @@ const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y:
    opened with no server) the same path is kept in the hash instead, as #/items. UI_PAGES are the first parts
    of the paths the page answers (the server's UI_PAGES, the same list) */
 const HASHED = !!window.SNAPSHOT || location.protocol === "file:";
-const UI_PAGES = ["diagram", "dashboard", "goals", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
+const UI_PAGES = ["diagram", "dashboard", "goals", "loops", "agents", "agent", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
 function isPagePath(path) { return path === "/" || UI_PAGES.includes(String(path).split(/[/?#]/)[1]); }
 function appHref(v) { return HASHED && typeof v === "string" && v.startsWith("/") && isPagePath(v) ? "#" + v : v; }
 
@@ -380,7 +394,7 @@ async function apiText(path, params = {}, kept = false) {   // ``kept``: true (t
   const page = kept === true ? undefined : pageSignal();
   const signal = own && page ? AbortSignal.any([own, page]) : own || page;
   const r = await fetch(url, { signal });
-  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error(`${path}: ${r.status}`), { status: r.status });   // (a 404 told apart)
   return [url, await r.text()];
 }
 async function api(path, params = {}, kept = false) { return JSON.parse((await apiText(path, params, kept))[1]); }
@@ -631,7 +645,7 @@ if (HASHED) for (const a of document.querySelectorAll("a[href^='/']")) a.setAttr
 async function route(keep = false) {             // keep: the window changed; the panel open stays, asked again
   oldAddress();
   const { path, q } = parseRoute();
-  const top = path.split("/").slice(0, 2).join("/");
+  const top = path.split("/").slice(0, 2).join("/").replace(/^\/agent$/, "/agents");   // an agent's page: under Agents
   const w = Object.hasOwn(WINDOWS, q.get("window") || "") ? q.get("window") : "1h";   // the address's window is the one shown
   if (!SNAP && !ownWindow(path, q) && w !== S.since) { S.since = w; S.graphSig = ""; showAt(); refreshHeader(); }   // (back, forward)
   for (const a of document.querySelectorAll("#nav a")) {
@@ -651,6 +665,7 @@ async function route(keep = false) {             // keep: the window changed; th
   if (path === "/loops") { replaceRoute(`/goals${q.toString() ? `?${q}` : ""}`); return route(); }   // the Goals page's old name
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
+  if (path.startsWith("/agent/")) return pageAgent(main, decodeURIComponent(path.slice(7)));
   // the Items page: bare, the overview of the kinds (kinds.js); a kind's own page at /items/KIND (?kind=KIND goes there);
   // any other question (a search, a view of every kind) the list of every kind, as before
   if (path === "/items" && q.get("kind")) {

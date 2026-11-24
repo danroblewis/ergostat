@@ -94,6 +94,7 @@ def test_the_autoscaler_demo_draws_identifies_and_lists_its_external_controller(
     that law with its fit and judges the loop; the Agents page lists it as not run here, with no runs of its own."""
     import time
 
+    from ergostat.numbers import extlaw as el
     from ergostat.web.server import Live, api
     p, s = autoscaler(tmp_path)
     assert len(s["events"]) >= 10                       # it scaled, often: the record has moves to identify it from
@@ -114,7 +115,7 @@ def test_the_autoscaler_demo_draws_identifies_and_lists_its_external_controller(
     lc = api(live, "loop-control", {"goal": ["cpu-at-target"]})
     assert (lc["y"], lc["u"], lc["how"]) == ("auxiliary.utilisation", "stock.replicas", "setting")
     c = lc["controller"]
-    assert c["block"] == "web-hpa" and c["identified"]["family"] in ("onoff", "proportional", "pi", "stepper")
+    assert c["block"] == "web-hpa" and c["identified"]["family"] in el.FAMILIES
     assert c["identified"]["skill"] is not None and c["identified"]["r2"] is not None and c["identified"]["points"] >= 40
     assert c["says"].startswith("web-hpa is external: its law identified from the record") and "R²" in c["says"]
     assert "oscillation" in lc["performance"] and "constraint" in lc["performance"]     # the loop judged

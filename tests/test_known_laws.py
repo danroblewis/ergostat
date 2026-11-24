@@ -7,11 +7,19 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
+import random
 import textwrap
+import time
 
+import pytest
+
+from ergostat import model as mdl
 from ergostat.control import laws
+from ergostat.numbers import external as ex
 from ergostat.numbers import extlaw as el
 from ergostat.spec import load, read
+from ergostat.store import Project
 
 KUBE = """\
 name: k
@@ -176,6 +184,78 @@ def test_a_declared_law_is_drawn_as_its_blocks_function_and_a_block_without_one_
     assert m["identified"] and "declared" not in m and m["fn"]["law"] == "⌈u x / 0.58⌉" and said_row(m), m
 
 
+def recorded(tmp_path, made: float, declared: float, n: int = 480, seed: int = 0, text: str = KUBE):
+    """A project whose HPA record was made by an HPA of target ``made`` (from 4 replicas, a load swinging 1 to 4 pods'
+    worth every 30 minutes, with noise, on 15s samples) and whose model declares target ``declared``."""
+    tmp_path.mkdir(exist_ok=True)
+    model(tmp_path, f"law: {{kind: kubernetes-hpa, target: {declared}, min: 2, max: 10}}\n", text)
+    p = Project(mdl.load(tmp_path))
+    law = laws.law(laws.check({"kind": "kubernetes-hpa", "target": made, "min": 2, "max": 10})[0])
+    rng, u, now = random.Random(seed), 4.0, time.time()
+    st, rows = el.start(law, u, 0.5), []
+    for k in range(n):
+        x = (2.5 + 1.5 * math.sin(2 * math.pi * k / 120) + rng.gauss(0, 0.1)) / u
+        u = el.step(law, st, x)
+        t = now - (n - k) * 15.0
+        rows += [("sensor/utilisation.main", t, x), ("sensor/replicas.main", t, u), ("sensor/load.main", t, x * u)]
+    p.measurements.add_many(rows)
+    return p, now
+
+
+def said(p, now) -> list[tuple[str, str]]:
+    out = []
+    ex.findings(p, p.model.spec, now, lambda code, msg, where, about: out.append((code, msg)))
+    return out
+
+
+def test_declared_law_that_matches_holds(tmp_path):
+    p, now = recorded(tmp_path, 0.5, 0.5)
+    d = ex.declared(p, p.model.spec, "hpa", now - 86400, now)
+    w = d["law"]
+    assert d["kind"] == "kubernetes-hpa" and w.family == "ratio" and w.skill > 0.5 and w.r2 > 0.5, (d, w)
+    assert w.points == len(ex.identify(p, p.model.spec, "hpa", now - 86400, now)["ts"]) == 481   # held to until
+    assert d["beaten"] is None and not ex.disagrees(d)
+    assert not [c for c, _ in said(p, now) if c.startswith("external-law")], said(p, now)
+
+
+def test_declared_law_with_wrong_target_disagrees(tmp_path):
+    p, now = recorded(tmp_path, 0.5, 0.8)
+    (msg,) = [m for c, m in said(p, now) if c == "external-law-disagrees"]
+    assert msg.startswith("block hpa: declared kubernetes-hpa (⌈u x / 0.8⌉) fits its record worse than "), msg
+    assert msg.split(": it does not behave as configured (")[1].count("on the last quarter of 481 points held out"), msg
+    start = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(now - 480 * 15.0))
+    assert f"the record from {start} to " in msg, msg
+    assert ex.disagrees(ex.declared(p, p.model.spec, "hpa", now - 86400, now))
+
+
+def test_too_little_record_says_why(tmp_path):
+    p, now = recorded(tmp_path, 0.5, 0.5, n=20)
+    d = ex.declared(p, p.model.spec, "hpa", now - 86400, now)
+    assert d["law"] is None and "21 points of record" in d["why"] and "at least 40" in d["why"], d
+    assert d["why"] == ex.identify(p, p.model.spec, "hpa", now - 86400, now)["why"]
+    assert not [c for c, _ in said(p, now) if c.startswith("external-law")]
+    empty = recorded(tmp_path / "none", 0.5, 0.5, n=0)
+    assert "no readings" in ex.declared(empty[0], empty[0].model.spec, "hpa", empty[1] - 60, empty[1])["why"]
+    plain = load(model(tmp_path))                  # no law: nothing declared, nothing said of one
+    assert ex.declared(p, plain, "hpa", now - 86400, now) is None
+
+
+def test_loop_control_carries_declared(tmp_path):
+    from ergostat.control import loop
+    closed = KUBE.replace("    equation: auxiliary.load / stock.replicas\n",
+                          "    equation: auxiliary.load / stock.replicas\n    driven-by: [+auxiliary.load, -stock.replicas]\n")
+    p, now = recorded(tmp_path, 0.5, 0.8, text=closed)
+    c = loop.analyse(p, "headroom", now)["controller"]
+    d = c["declared"]
+    assert set(d) == {"kind", "short", "skill", "r2", "points", "worse"} and d["kind"] == "kubernetes-hpa", c
+    assert d["short"] == "⌈u x / 0.8⌉" and d["points"] == 481 and d["worse"] and d["skill"] < 0, d
+    assert c["block"] == "hpa" and c["identified"]["family"] == "ratio", c      # an HPA's record: the ratio family
+    from ergostat.web.server import Live, api
+    assert api(Live(p), "loop-control", {"goal": ["headroom"]})["controller"]["declared"] == d
+    model(tmp_path, "", closed)                    # with no law, the controller's answer has no declared
+    assert "declared" not in loop.analyse(Project(mdl.load(tmp_path)), "headroom", now)["controller"]
+
+
 def test_explain_says_a_declared_law_in_words_and_the_mcp_tool_says_the_same(tmp_path):
     from ergostat.mcp import serve
     from ergostat.spec.explain import explain
@@ -190,3 +270,129 @@ def test_explain_says_a_declared_law_in_words_and_the_mcp_tool_says_the_same(tmp
     assert got == text, got
     alert = explain(load(model(tmp_path, "law: {kind: alert-rule, threshold: 5, side: below, for: 0}\n")), "hpa")
     assert "declared alert-rule: fires as soon as utilisation is below 5, resolves as soon as it is back" in alert, alert
+
+
+# ---- a declared law in the closed-loop projection and its risk (SPEC §12c, §12d)
+
+DECLARED = "law: {kind: kubernetes-hpa, target: 0.5, min: 2, max: 10}\n"
+
+
+def kube(tmp_path, law: str, loads, reps, dt=15.0, text: str = KUBE):
+    """A project whose record is ``loads`` and ``reps`` at ``dt``, ending now; its utilisation load / replicas."""
+    import time
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    tmp_path.mkdir(exist_ok=True)
+    model(tmp_path, law, text)
+    p = Project(mdl.load(tmp_path))
+    now = time.time()
+    rows = []
+    for i, (x, u) in enumerate(zip(loads, reps, strict=True)):
+        t = now - (len(loads) - 1 - i) * dt
+        rows += [("sensor/utilisation.main", t, x / u), ("sensor/replicas.main", t, u), ("sensor/load.main", t, x)]
+    p.measurements.add_many(rows)
+    return p, now
+
+
+def project(p, now, span, inputs="hold", whatif=None, horizon=3600.0, points=60):
+    from ergostat.numbers import closedloop as cl
+    from ergostat.numbers import observe as ob
+    from ergostat.numbers import simulate as sim
+    spec = p.model.spec
+    data = ob.measured(p, ob.Grid(now - span, now, 20))
+    w = cl.parse_whatif(spec, whatif)[1] if whatif else None
+    return cl.projection(p, spec, data, sim.replay(spec, data), horizon, points=points, inputs=inputs, whatif=w), data
+
+
+def test_projection_runs_declared_law(tmp_path):
+    from ergostat.numbers import closedloop as cl
+    from ergostat.numbers import external as ex
+    from ergostat.numbers import simulate as sim
+    loads = [1.0 + i / 19 for i in range(20)]               # five minutes of record, the load rising, replicas held at 2
+    p, now = kube(tmp_path, DECLARED, loads, [2.0] * 20)
+    spec = p.model.spec
+    assert ex.laws(p, spec, now)["hpa"]["law"] is None      # too short to identify any law
+    got, data = project(p, now, 300.0, inputs="trend")
+    m = got["models"]["flow.scale"]
+    assert isinstance(m, ex.ExternalModel) and m.form == "declared" and m.basis == "its declaration", m
+    assert m.law.family == "ratio" and m.law.p["target"] == 0.5 and m.law.dt == 15.0 and m.begin["st"]["u"] == 2.0
+    run = got["projection"]
+    assert run.how["flow.scale"] == "declared law", run.how
+    assert any("declared law" in n and "hpa (kubernetes-hpa)" in n for n in run.notes), run.notes
+    reps = run.values["stock.replicas"]
+    assert reps[0] > 2.5 and reps[-1] == pytest.approx(10.0) and max(reps) <= 10.0 + 1e-6, reps   # up to its ceiling
+    assert all(b >= a - 1e-6 for a, b in zip(reps, reps[1:], strict=False)), reps
+    r = cl.risk(spec, data, sim.replay(spec, data), 3600.0, 12, got["models"], got["start"], inputs="trend", runs=3)
+    assert r["made"] == 3 and not [s for s in r["sampled"] if s["name"].startswith("hpa.")], r["sampled"]
+
+
+def test_declared_wins_over_identified(tmp_path):
+    from ergostat.numbers import external as ex
+    from tests.test_extlaw import hpa
+    xs, us = hpa()                                          # a long record an HPA-like stepper made: a law identified
+    p, now = kube(tmp_path, DECLARED, [x * u for x, u in zip(xs, us, strict=True)], us)
+    assert ex.laws(p, p.model.spec, now)["hpa"]["law"] is not None
+    got, _ = project(p, now, 1200.0)
+    m = got["models"]["flow.scale"]
+    assert m.form == "declared" and "declared kubernetes-hpa, external" in m.said() and m.se == {}, m.said()
+    assert got["projection"].how["flow.scale"] == "declared law"
+
+
+def test_whatif_changes_declared_target(tmp_path):
+    from ergostat.numbers import closedloop as cl
+    p, now = kube(tmp_path, DECLARED.replace("0.5", "0.6"), [2.0] * 20, [2.0] * 20)   # utilisation 1.0 on 2 replicas
+    as_declared, _ = project(p, now, 300.0)
+    tried, _ = project(p, now, 300.0, whatif={"block.hpa.target": "0.3"})
+    one, two = as_declared["projection"].values["stock.replicas"][-1], tried["projection"].values["stock.replicas"][-1]
+    assert one == pytest.approx(4.0) and two == pytest.approx(7.0), (one, two)   # ⌈2 × 1/0.6⌉ = 4; ⌈2 × 1/0.3⌉ = 7
+    assert "what if hpa's declared target 0.3" in tried["projection"].notes
+    assert as_declared["models"]["flow.scale"].law.p["target"] == 0.6           # the model itself is not changed
+    spec = p.model.spec
+    for raw, said in (({"block.hpa.ceiling": "5"}, "its parameters are target, min, max, tolerance"),
+                      ({"block.hpa.target": "0"}, "target: a number above 0"),
+                      ({"block.hpa.min": "20"}, "max: at least min"),
+                      ({"block.hpa.target": "nan"}, "target: a number")):
+        with pytest.raises(cl.WhatIfError, match=said):
+            cl.parse_whatif(spec, raw)
+    assert cl.parse_whatif(spec, {"block.hpa.stabilize-down": "1m"})[1].laws == {"hpa.stabilize-down": 60.0}
+
+
+def test_whatif_values_tried_together_are_checked_as_one_law(tmp_path):
+    from ergostat.numbers import closedloop as cl
+    p, _ = kube(tmp_path, DECLARED, [2.0] * 3, [2.0] * 3)   # declared min 2, max 10
+    spec = p.model.spec
+    for one in ({"block.hpa.min": "8"}, {"block.hpa.max": "5"}):                  # each alone is a valid law
+        cl.parse_whatif(spec, one)
+    with pytest.raises(cl.WhatIfError, match="block.hpa: the values tried together: max: at least min"):
+        cl.parse_whatif(spec, {"block.hpa.min": "8", "block.hpa.max": "5"})
+    assert cl.parse_whatif(spec, {"block.hpa.min": "4", "block.hpa.max": "5"})[1].laws == {"hpa.min": 4, "hpa.max": 5}
+
+
+def test_no_law_unchanged(tmp_path):
+    from ergostat.numbers import external as ex
+    from ergostat.numbers import extlaw as el
+    from tests.test_extlaw import hpa
+    p, now = kube(tmp_path, "", [1.0 + i / 19 for i in range(20)], [2.0] * 20)
+    got, _ = project(p, now, 300.0)                         # too short, no law declared: no law run
+    assert not isinstance(got["models"].get("flow.scale"), ex.ExternalModel)
+    assert got["projection"].how.get("flow.scale") != "declared law"
+    assert not any("declared law" in n for n in got["projection"].notes)
+    xs, us = hpa()
+    p, now = kube(tmp_path / "long", "", [x * u for x, u in zip(xs, us, strict=True)], us)
+    got, _ = project(p, now, 1200.0)
+    m, idn = got["models"]["flow.scale"], ex.laws(p, p.model.spec, now)["hpa"]
+    assert m.form == "identified" and m.basis == "its record" and m.law is idn["law"] and m.known is None
+    assert m.begin["st"] == el.settle(m.law, idn["xs"], idn["us"]) and m.begin["next"] == idn["ts"][-1] + m.law.dt
+    assert got["projection"].how["flow.scale"] == "identified model"
+
+
+def test_a_declared_law_whose_output_cannot_be_moved_is_external_not_run(tmp_path):
+    from ergostat.numbers import external as ex
+    text = KUBE.replace("output: stock.replicas", "output: auxiliary.load")
+    p, now = kube(tmp_path, DECLARED, [2.0] * 20, [2.0] * 20, text=text)
+    said = []
+    ex.findings(p, p.model.spec, now, lambda code, msg, where, about: said.append((code, msg)))
+    assert ("external-not-run", ) == tuple(c for c, _ in said if c == "external-not-run"), said
+    assert any("declared (kubernetes-hpa) but not run ahead" in m for _, m in said), said
+    assert ex.models(p, p.model.spec, now - 300, now) == {}

@@ -1,7 +1,8 @@
 """researcher: takes a research item at asked (a question, from the coordinator's `dev/bin/ask.py`, a
 `research.asked` event, or a planner) and answers it. In a read-only clone of main, a session reads the code, the docs
 and, where its session allows it, the web; its report, with sources, is written to run/research/<name>.md and its
-summary said on the item (research.answered). A planner waiting on it is given the report.
+summary said on the item (research.answered). A planner waiting on it is given the report. A checked answer proposes
+one finding for the knowledge queue (``finding``: lesson/finding-..., asked as knowledge-change, never a gap).
 
 Each source line is checked first (``check``): a `path` or `path:line` must be in the clone at the sha it was cloned
 at, the line within the file; a URL must be one the session opened (``opened``, from its transcript). An answer with
@@ -11,6 +12,7 @@ a run's own events leave an item dead, ends the second one a dead letter."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -89,6 +91,44 @@ def transcript(cfg: dict, item: str) -> Path | None:
     return max(got, key=lambda p: int(sessions.ROLE.match(p.name)["n"]), default=None)
 
 
+def packages(cfg: dict, gid: str) -> list[str]:
+    """The packages (folders) the gap's definition and GAPS entry name files in; none for a gap not in the record."""
+    import knowledge
+    gap = {g["id"]: g for g in fac.items("gap")}.get(gid)
+    if gap is None:
+        return []
+    try:
+        text = brief.definition_text(cfg, str(gap["fields"].get("definition") or ""), fac.branch_of(gap))
+    except ValueError:                                     # not defined yet (a planner's gap): its entry alone
+        text = ""
+    text += "\n" + brief.gaps_entry(cfg, str(gap["fields"].get("title") or ""))
+    return sorted({str(Path(t).parent) for t in knowledge.FILES.findall(text)})
+
+
+def finding(cfg: dict, item: dict, summary: str, checked: list[str]) -> None:
+    """A checked answer proposed as a finding (lesson/finding-<slug>-<hash6>, kind finding), asked as knowledge-change
+    as the librarian asks a lesson: at most one per answer, and never again for an id in any state (the id is the
+    question's, so a denied one stays denied). Its areas: the item's (ask.py --areas), or for a planner's question its
+    gap's packages. A record that cannot be read proposes nothing (the worst case is one finding lost, never a denied
+    one asked again); never a gap."""
+    f = item["fields"]
+    q = " ".join(str(f.get("question") or "").split())
+    lid = f"lesson/finding-{fac.slug(q, 40) or 'question'}-{hashlib.sha1(q.lower().encode()).hexdigest()[:6]}"
+    try:
+        held = {i["id"] for i in fac.items("lesson")}
+        areas = [str(a) for a in f.get("areas") or []] or (
+            packages(cfg, str(f["gap"])) if f.get("asked_by") == "planner" and f.get("gap") else [])
+    except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as e:
+        print(f"{lid}: not proposed, the record could not be read ({str(e)[:200]})", file=sys.stderr)
+        return
+    if lid in held:
+        return
+    entry = f"{summary or q}\nSource: {item['id']}\n" + "".join(f"- {s}\n" for s in checked)
+    fac.say("lesson.proposed", lid, kind="finding", name=q[:120], entry=entry.strip(), areas=areas,
+            research=item["id"], proposed_at=time.time())
+    fac.act("knowledge-change", key=lid.replace("/", "-"), lesson=lid)
+
+
 def main() -> int:
     fac.stop_on_term()
     cfg = fac.config()
@@ -125,6 +165,7 @@ def main() -> int:
                 ai_cost_usd=round(float(got.get("total_cost_usd") or 0), 4))
     if checked:
         fac.say("research.answered", report=fac.rel(p), answered_at=time.time(), **data)
+        finding(cfg, item, data["summary"], checked)
         return 0
     why = ("; ".join(u["why"] for u in unchecked) or "the report has no ## Sources lines")[:900]
     fac.say("research.dead-lettered" if f.get("unsourced") else "research.unsourced", unsourced_report=fac.rel(p), unsourced=1,

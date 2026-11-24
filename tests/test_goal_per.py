@@ -118,8 +118,8 @@ def test_needs_attention_and_the_loop_name_the_items_that_break_it(tmp_path):
     assert lp["status"] == "off" and round(lp["value"]) == 73 and lp["breaking_n"] == 2
     assert snap["loops"]["epics-small"]["breaking"] == [{"group": "epic/1", "value": 3.0}]
     said = {a["what"]: a["says"] for a in st.attention(snap)}
-    assert "ticket/1 (73)" in said["loop review-fresh"] and "2 items break it" in said["loop review-fresh"], said
-    assert said["loop epics-small"].startswith("1 parent breaks it (each parent's open-tickets <= 2): epic/1 (3)"), said
+    assert "ticket/1 (73)" in said["goal review-fresh"] and "2 items break it" in said["goal review-fresh"], said
+    assert said["goal epics-small"].startswith("1 parent breaks it (each parent's open-tickets <= 2): epic/1 (3)"), said
 
 
 def test_a_field_neither_related_nor_known_is_said(tmp_path):
@@ -191,5 +191,5 @@ def test_the_snapshot_holds_it_to_the_cascades_setpoint_and_says_when_none_is_pa
     assert lp["setpoint"] == "<= 3" and lp["status"] == "holding" and lp["breaking_n"] == 0
     # off from before, back past the setpoint but within the tolerance: off, and none named
     snap["loops"]["epics-small"] = {**lp, "status": "off", "value": 3.0, "breaking": [], "error": 0.0}
-    said = {a["what"]: a["says"] for a in st.attention(snap)}["loop epics-small"]
+    said = {a["what"]: a["says"] for a in st.attention(snap)}["goal epics-small"]
     assert said.startswith("the worst parent's open-tickets is 3") and "none is past its tolerance" in said, said

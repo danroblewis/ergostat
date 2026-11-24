@@ -1,873 +1,1980 @@
 {
- "image-squeeze/case": {
-  "process": [
-   "met"
-  ],
-  "route": [
-   "met"
-  ],
-  "series": [
-   "met"
-  ]
+ "hashes": {
+  "factory/answer/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "factory/answer/process": "84e6566d18b6c1332ef68e88d9a88f82b8f8f591d33144671f3634db58881563",
+  "factory/answer/route": "a78108d7e68800c3533bccb68e496c2ae7c78e2725359793ede1eea94646dd77",
+  "factory/answer/series": "9e38b72b4c8bcb2169aa4c21281e81979b89d84bc397299411c55395cb77430e",
+  "factory/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "factory/ergostat.claim/process": "cc4292856851c7d3f52664a3911eae16591d74d861b2c09b402c7710ea7bd12a",
+  "factory/ergostat.claim/route": "12883011659233616b21958720bdc1870dbdd55867e3efbab893058b0b41e0f3",
+  "factory/ergostat.claim/series": "fc1d241c095ae5aada25fda3331380ee844b4bcc49c15f49317002e63ea60ce6",
+  "factory/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "factory/ergostat.context/process": "afc469c75780631683cbdda03f8bb9d0e537d2aa5ca510869f48d06442b6af01",
+  "factory/ergostat.context/route": "00f35b299ca203cae3543ddc2ee53f3d6da2818e0909f58aae7955a784b85d92",
+  "factory/ergostat.context/series": "38e9e0def3269ac1b6311c87610bf52f58933bc3e740753ae7c6635daf7f23fd",
+  "factory/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "factory/ergostat.correction/process": "fe1517efaab94fdcc641712c3055f370a8a38abb418e384e374bc4b403421f37",
+  "factory/ergostat.correction/route": "ffdcc3348f19550b014a6d05b9faccbbbf6b885d9e9cab4eb6190cad59e3dd12",
+  "factory/ergostat.correction/series": "2cc04c6937f3fbd70f90e7c12209dd6d102215327d9c5697c32c9aa1775d1a2e",
+  "factory/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "factory/ergostat.decision/process": "533463b8084fd8cd9747ffccd81138bb2c1f29f0af2178f4f74f97d1f26ef2f5",
+  "factory/ergostat.decision/route": "55a2c955fd44104daa7486d0ecfb81ddc0c594f89134292f3181fa0934a4025d",
+  "factory/ergostat.decision/series": "66f5f6738aa8d10582e07b4d5ec265b868e21861803761f7a17293af85708892",
+  "factory/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "factory/ergostat.message/process": "c22506db913f323e2c4f6b9989d486a409e4b242558af3c77f78b06de4c367d3",
+  "factory/ergostat.message/route": "72fdb460a65adbb284c364a8f196726911698993bc2e7ad80a70f8450cb8eb33",
+  "factory/ergostat.message/series": "cde7c5e7a7a57f618193d657d8712650b209a89b3c6fd278641d0485a6403204",
+  "factory/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "factory/ergostat.model-change/process": "d517a5eff75d3cff688ecaeddd1ec0358ed2c8f4ad435a27c6e7dd2522a6a254",
+  "factory/ergostat.model-change/route": "fa160ce1a8ca5eae4d6d1df1c210d3f1071da1dc0a981c36eb60c1dac6b57ac0",
+  "factory/ergostat.model-change/series": "96e8d932cc03b6a5714bf5942cc9e652e16d836aeeb04ffb3dff2184c83b6094",
+  "factory/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "factory/ergostat.modelling-request/process": "a0017774c2f3e27ec7e57814726b0d85cfd81e11176122d5f5265cfc5f91b28b",
+  "factory/ergostat.modelling-request/route": "3862b896a7fdba15e94eb129fb201727d086769e3181e4f67c112a8b7a79038e",
+  "factory/ergostat.modelling-request/series": "448ef626524640313d74610ba37b59d9baaf928ac0870415fed4347e014cfe8c",
+  "factory/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "factory/ergostat.report/process": "5a76c9ab97f699afdd60062dbf3925c36aaa918aff8d7d604c3c6202ddf6b606",
+  "factory/ergostat.report/route": "6dcbd64842e4b3850dfae14a641e79006da2c5ae292ad9489abbe7b4fdea865c",
+  "factory/ergostat.report/series": "3e886f01529746a8f5006ce9b406aa7ba3c9da5b90e25840b3ffc4d1f399fd1a",
+  "factory/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "factory/ergostat.verdict/process": "7b8cd12a6cb63563a6344e66501c013ae08f5a60c551103ecb2a7397fea53d78",
+  "factory/ergostat.verdict/route": "6cf33de00c4fc524fa546be8cc37d54143b5fb2760aab7e0783255dd216ce332",
+  "factory/ergostat.verdict/series": "956cfdcbf7a1a8088f35f3fd0415fb92f3fa2d33b25836800029615e87c35ee6",
+  "factory/gap/final": "6c2eb97da14a54991df4bdf146cbc54d24cedf182486b2d9f9b6a109a844d670",
+  "factory/gap/process": "d69c0e12da528554def2076d186b5bb282dbb3818919a950e57884c8b3dc86a5",
+  "factory/gap/route": "018d1c862a358164e27807219f2a8db3d38356119ebb4b21ec2e487290ff79e1",
+  "factory/gap/series": "8071195a51f42d6c0f287bf16b00dcdcb2a3114565f1c0e163fe2c49fb95f375",
+  "factory/pool/final": "e7b28f6b342cb9fe4fe171f6f02275c1de5349f73462a8709b4e0679a332ab99",
+  "factory/pool/process": "b242c0480e227298d968df8252137e7565fc2dd261288bc56aa11120ca223280",
+  "factory/pool/route": "832df8015f42653b4d172c90e06c5c316d8195b4e0933df36bbc4b4d315b08d2",
+  "factory/pool/series": "0b4877dc2d8bb28ea52a597cd32aad659515197a1ed92a455840bdf17fee490f",
+  "factory/task/final": "ce171fd75504b5bdedea0f54c485cf5c0025ad5b3f37bac029866d78e4bd6708",
+  "factory/task/process": "1000ecd86af5eae7343f536035b8bda0b29d69cf02605824ddbdcaac7da986e2",
+  "factory/task/route": "5ac914b7d55541b1143c1c529ab09ada4f4c5cee76cad9230fe0d70ff37de850",
+  "factory/task/series": "ff4ffe798c62d62bf910d5485430e1df3fe987ab7db5f890d97603990b8020fd",
+  "factory@left/answer/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "factory@left/answer/process": "613c7d875578eb6d97639a61dfb3a2cf6e2edb3d986cbbb82dc66f68048f370f",
+  "factory@left/answer/route": "e33c572ef52b7ba84a3599145329da92d6ccaab16341b320038b3036b85f31a8",
+  "factory@left/answer/series": "0761b48ee41f5269d2e4d9376ca99d8fde089fcb9daa3a66bc76539c98968098",
+  "factory@left/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "factory@left/ergostat.claim/process": "c3186d798702c3fd6c6a00d205036b8fb3453b05e6a03fcf52926c5d75c82e97",
+  "factory@left/ergostat.claim/route": "cb62e778a0401053f5ea698de3d565832e5f17959d47e981fa3a007a9f72b501",
+  "factory@left/ergostat.claim/series": "d64cd8dd0ca431c01f2d23ccc123700386575d6084e2f6c38f8f6ec047976569",
+  "factory@left/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "factory@left/ergostat.context/process": "73e4f3cec6f8db93470e30fc53486751bf3981802f786eb98419dc0ab9fad05b",
+  "factory@left/ergostat.context/route": "1687a930264f7408fbc674254c17c9d86a061501f2a0959bdd9ec75f0f2e9ba8",
+  "factory@left/ergostat.context/series": "04a46fa3378e98e357f01037ccb4517d2ad21bf7197eaa58918885e8fc4597ca",
+  "factory@left/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "factory@left/ergostat.correction/process": "b858c4d947c0ec461c6e9373b24643ad39f31e22bc409a5ecd3cf430d67aaf88",
+  "factory@left/ergostat.correction/route": "b3eca341684a0f3aee6855c548d5ba251ca08645a2d74e2522ffd02af7e2080c",
+  "factory@left/ergostat.correction/series": "69485ebda30470a0b047359d35e0026505eae4256adcc44bdc517849036fca08",
+  "factory@left/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "factory@left/ergostat.decision/process": "2bbb3f38b1a3ca03d61070b2bf5e9e210ed0c79d10a3a309eaa461b1c7403204",
+  "factory@left/ergostat.decision/route": "4f607eb7c01bc998c1b35eee0b41b54a766c48a98f806dc4860d934802be2ba8",
+  "factory@left/ergostat.decision/series": "4802992cf90a8afd6676a605fa9b6851f3387a903ba80904046d6b8bcffd4f1a",
+  "factory@left/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "factory@left/ergostat.message/process": "1b13059de941536eeaa5e48d31c7be23a7ec9c1c85cfd9a5e86ab058688be9c0",
+  "factory@left/ergostat.message/route": "040e331bdc4b9b17151ec6dd6b5e554bfeced002aa99f1c958fc614ef085433b",
+  "factory@left/ergostat.message/series": "f331f718ab3242c01697b0e62118bbce0ac16a8b87b43a0631be926f9c27bc47",
+  "factory@left/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "factory@left/ergostat.model-change/process": "7e64a1f81d84149af37cd491bf4ece349ce90bb54439138b101d3ab5f6fda6e4",
+  "factory@left/ergostat.model-change/route": "5e4da01c999b9132cc21e7c9fbf38d12f4eb75a97cc238ff16f8a3a8daadaa86",
+  "factory@left/ergostat.model-change/series": "2056ea37ca61fc5d93c87d1eadb8e6c18af99eeabb80af0c20a9d3010dacc413",
+  "factory@left/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "factory@left/ergostat.modelling-request/process": "feb7033e6678a995281b042393e3cbccf65a8bf778c3d8ebc51f685a75471816",
+  "factory@left/ergostat.modelling-request/route": "6f1c0d02aef51d62fa8d2d6904d98b1c89c6b09c04ac34334dd35f5f202edb45",
+  "factory@left/ergostat.modelling-request/series": "3bcea258e3c02c0a188de6cba8d376bf55bc4ba62da5f39ba93034ea5c7dc241",
+  "factory@left/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "factory@left/ergostat.report/process": "07de9f11fcba390fa6ffad6975b9a092803dbc040fd62798888c7bb57e71a306",
+  "factory@left/ergostat.report/route": "5d8660f9aab1746b3e770284e1af3b099d9cc8cffcdf61181f986c11c8759ba3",
+  "factory@left/ergostat.report/series": "20bc5a6e0cee64471b5547f69cad021b43f48106e44cee26cca832af0a09891d",
+  "factory@left/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "factory@left/ergostat.verdict/process": "8f725cf2442dceb0f240518c3fe7fe417157c9ebac4259d7f5764331c2c91dd1",
+  "factory@left/ergostat.verdict/route": "597a44c97248515f285ab163df1efde891e01f343c98f49e6807bb9da2c64648",
+  "factory@left/ergostat.verdict/series": "9966d3174dedc695c892a3a997e26b3ed32289ed5e36baddc9223391ac9060a9",
+  "factory@left/gap/final": "6c2eb97da14a54991df4bdf146cbc54d24cedf182486b2d9f9b6a109a844d670",
+  "factory@left/gap/process": "c1bd1b1852a230d4b644159ac2883209987cea6c4f56f8e913d6362b3adb2303",
+  "factory@left/gap/route": "38f3a79a337024f7955dff91f0e3aa311eecf0eea40b9ce6ba070b012316e0fa",
+  "factory@left/gap/series": "8b3ca418bfb65758e61f6c7acf855f9d33f1363b1d0320ef9259c4497bcce54f",
+  "factory@left/pool/final": "e7b28f6b342cb9fe4fe171f6f02275c1de5349f73462a8709b4e0679a332ab99",
+  "factory@left/pool/process": "fd12dcad098c9175f27976220ea3e575e591b5d8f523980eea8f45cb7dc3044e",
+  "factory@left/pool/route": "9a0e0e6994db84994d4c0072532812fea77aa3505a718b837cbe96eec1117256",
+  "factory@left/pool/series": "1233dfece73b51c1c202369b40da72719f0a74463c359665b2791181bb865a24",
+  "factory@left/task/final": "0bb1c9383448e5060327530066bb9271bd61487a19694fb01ae98876a10e1e75",
+  "factory@left/task/process": "865ced05fb6dbd6a0c52d0addfedd5ebf721135d70a66f8a6b536091f839c268",
+  "factory@left/task/route": "4cbbb61f6ccec0bab934eebc7f221bda00fcc00a1a984cd1c430958ef588c5c1",
+  "factory@left/task/series": "df520a607b4640f82a594da43130ad6d1766d940da6a1a43c3b32975d8bd32a9",
+  "first-loop/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "first-loop/ergostat.claim/process": "91c17da63e10ddcf5633c87a25886ea901308cc9c64e07681b55a4773207672a",
+  "first-loop/ergostat.claim/route": "12883011659233616b21958720bdc1870dbdd55867e3efbab893058b0b41e0f3",
+  "first-loop/ergostat.claim/series": "71ebf4a235a76a3e00688b5e7e779c02daaa9db803f3080c9dc82eaee95c7c3c",
+  "first-loop/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "first-loop/ergostat.context/process": "a64cfe60ba2144b76669c8e19b9d3b253747e16b78c2610691282dc66a929a9c",
+  "first-loop/ergostat.context/route": "00f35b299ca203cae3543ddc2ee53f3d6da2818e0909f58aae7955a784b85d92",
+  "first-loop/ergostat.context/series": "521cdf0f5b67f3e0da5fb0e2d09f50c32fdbef0abbb19336714bd6be06985bdf",
+  "first-loop/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "first-loop/ergostat.correction/process": "e83ee5ebcedd8b9e684c4a930f87c1cebc71490a22fa5b81f2355ce489f42b06",
+  "first-loop/ergostat.correction/route": "ffdcc3348f19550b014a6d05b9faccbbbf6b885d9e9cab4eb6190cad59e3dd12",
+  "first-loop/ergostat.correction/series": "ecfa145edbe06262714dd2843af2211557143c065ac8d6f735349b32fe7912d1",
+  "first-loop/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "first-loop/ergostat.decision/process": "634bfc40e5c1cee7ad645c7babf94954c8e04d5c9186fbcc8aec4b6af88d7a7e",
+  "first-loop/ergostat.decision/route": "55a2c955fd44104daa7486d0ecfb81ddc0c594f89134292f3181fa0934a4025d",
+  "first-loop/ergostat.decision/series": "df9e9cca87a13397b94769e693c1fcd6986363674f9c2acc0cac0153a6aaf026",
+  "first-loop/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "first-loop/ergostat.message/process": "4fb1b53c5d2ece83f2a1777b57ed8a061b4503b6ada83471f4e28940ca4023c3",
+  "first-loop/ergostat.message/route": "72fdb460a65adbb284c364a8f196726911698993bc2e7ad80a70f8450cb8eb33",
+  "first-loop/ergostat.message/series": "21397b85b0437430e35891a6e560ad77ed8830546eb9ce52876d83e74833bdcc",
+  "first-loop/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "first-loop/ergostat.model-change/process": "48412c63e1cb1ae2b14a1ce4b39f825206e71c856fe82074caeb625be6cf0894",
+  "first-loop/ergostat.model-change/route": "fa160ce1a8ca5eae4d6d1df1c210d3f1071da1dc0a981c36eb60c1dac6b57ac0",
+  "first-loop/ergostat.model-change/series": "384c2869730b4c03513b6f7c40e147ff40121cc65685d44d026c71e2b263c78c",
+  "first-loop/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "first-loop/ergostat.modelling-request/process": "1a95b568e4ee1fb66035630ed4d0fe325431dea03dd0fd83e5bf08c75ccbcf9a",
+  "first-loop/ergostat.modelling-request/route": "3862b896a7fdba15e94eb129fb201727d086769e3181e4f67c112a8b7a79038e",
+  "first-loop/ergostat.modelling-request/series": "4cbcddb3eb7c6848843e04fb003d8b51b9c50bdf0f592dff4803d19865fe3b4a",
+  "first-loop/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "first-loop/ergostat.report/process": "eb04f18918143024a58f3c54d48cc877215f7592eee2ac4c2a662b6480bab9e0",
+  "first-loop/ergostat.report/route": "6dcbd64842e4b3850dfae14a641e79006da2c5ae292ad9489abbe7b4fdea865c",
+  "first-loop/ergostat.report/series": "f8ced2328c7fef1303a9b2d4d63562ffec37b7314c0446889eb4700076e8bf84",
+  "first-loop/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "first-loop/ergostat.verdict/process": "43ba62541bf0b3885f0bef8359a549d47a4b20d7921a53165ce24953dcdd6805",
+  "first-loop/ergostat.verdict/route": "6cf33de00c4fc524fa546be8cc37d54143b5fb2760aab7e0783255dd216ce332",
+  "first-loop/ergostat.verdict/series": "39c5042e4101dcb5f5f713c574d5261a8cf7a57b78444368e06cb8f257c04b91",
+  "first-loop@left/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "first-loop@left/ergostat.claim/process": "8936965ba1a5ac486ec2a210dfd72dd47fbd51707d5ff416d502c033a7b30e22",
+  "first-loop@left/ergostat.claim/route": "cb62e778a0401053f5ea698de3d565832e5f17959d47e981fa3a007a9f72b501",
+  "first-loop@left/ergostat.claim/series": "e60c1948aae613e80a33cad63f5a8a17e1b46a145b7445fefd76ce38e78c179b",
+  "first-loop@left/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "first-loop@left/ergostat.context/process": "6eddad9cee8c3df28644118ac3969c86761cb47e823c04444c143a274d8aee24",
+  "first-loop@left/ergostat.context/route": "1687a930264f7408fbc674254c17c9d86a061501f2a0959bdd9ec75f0f2e9ba8",
+  "first-loop@left/ergostat.context/series": "986d57cbdf6ad531d260df221f9c36a2a827577f002764ebd4c0a2a74d8e6441",
+  "first-loop@left/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "first-loop@left/ergostat.correction/process": "db106e79e6e762969c6a9c20a7964f368880f41f15bc19709eeb34b49f2b805e",
+  "first-loop@left/ergostat.correction/route": "b3eca341684a0f3aee6855c548d5ba251ca08645a2d74e2522ffd02af7e2080c",
+  "first-loop@left/ergostat.correction/series": "e99faba224cdb714be94881a9bc95140adf2ecb71c19c91e31c7cb815a071475",
+  "first-loop@left/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "first-loop@left/ergostat.decision/process": "635241a6457faeb3c7c765f5072906244882bfe281cf764236ed18a767712357",
+  "first-loop@left/ergostat.decision/route": "4f607eb7c01bc998c1b35eee0b41b54a766c48a98f806dc4860d934802be2ba8",
+  "first-loop@left/ergostat.decision/series": "17afb04b70f17d763f02776fe92a4ce69def45b6a7983732f5310c44de9b4b5a",
+  "first-loop@left/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "first-loop@left/ergostat.message/process": "bf9bc3fb90242d77d8566f53861478068bc2af9ca5b4f925e4d2a02ef6911e58",
+  "first-loop@left/ergostat.message/route": "040e331bdc4b9b17151ec6dd6b5e554bfeced002aa99f1c958fc614ef085433b",
+  "first-loop@left/ergostat.message/series": "94f205a066f84f84d301247a94d006624c2628cdb26edc5b0c4e7fb0140a9f5d",
+  "first-loop@left/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "first-loop@left/ergostat.model-change/process": "a64718da854bf485282a9bbe581b197a03613167373c8814eeb8be444555b4fb",
+  "first-loop@left/ergostat.model-change/route": "5e4da01c999b9132cc21e7c9fbf38d12f4eb75a97cc238ff16f8a3a8daadaa86",
+  "first-loop@left/ergostat.model-change/series": "9a63a5214333fc731ac5cff86c5ff72d0fd163225e378f36f584c1f572cba642",
+  "first-loop@left/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "first-loop@left/ergostat.modelling-request/process": "55880e8c0c9e13ec85d832b59db08488fe9b40677c087fd8de6e240650242db1",
+  "first-loop@left/ergostat.modelling-request/route": "6f1c0d02aef51d62fa8d2d6904d98b1c89c6b09c04ac34334dd35f5f202edb45",
+  "first-loop@left/ergostat.modelling-request/series": "b37f2c156df2bf9ede37f7dae753ec895d260d6930f2f053f848a30e3e49bb4c",
+  "first-loop@left/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "first-loop@left/ergostat.report/process": "a3f99281e23fa18355c12bbeb33774e1b09d1838a59738493235545b1e161f46",
+  "first-loop@left/ergostat.report/route": "5d8660f9aab1746b3e770284e1af3b099d9cc8cffcdf61181f986c11c8759ba3",
+  "first-loop@left/ergostat.report/series": "5b64158acbd4366e787499d8ef96a67e19d0d5d5b55276e4f3239a6d008ef0b7",
+  "first-loop@left/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "first-loop@left/ergostat.verdict/process": "dda13b9cbd00f24cf9f781d88590a43dd5cce022c699bddc3a3b140f787092b9",
+  "first-loop@left/ergostat.verdict/route": "597a44c97248515f285ab163df1efde891e01f343c98f49e6807bb9da2c64648",
+  "first-loop@left/ergostat.verdict/series": "648f70ba0bbdaf886cfb601461bb8c1703846353ff51bcef8039de7302950e45",
+  "image-squeeze/case/final": "2a95887c5d988ac45a02e148b41f33f3fb2ca59446505255b06928c334ce76cc",
+  "image-squeeze/case/process": "fa4fb2ff195380b22beb7ccbee2b67eadd5ff9113c19d9c7881abee86f3a0b02",
+  "image-squeeze/case/route": "f3469cdbeb852a7498b1e39eb80208412473c69091d4c6f943a5c5f1b7a160db",
+  "image-squeeze/case/series": "24753c1e59427d7e36b288b14d11897676dbdf330dc0633c6afe9ff4c10f7aa8",
+  "image-squeeze/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "image-squeeze/ergostat.claim/process": "001b88de59f2566c8edcf7dc89af4986e5017f8a029c8a9b43b038da8267af28",
+  "image-squeeze/ergostat.claim/route": "12883011659233616b21958720bdc1870dbdd55867e3efbab893058b0b41e0f3",
+  "image-squeeze/ergostat.claim/series": "e4828f986b382846c13b5e8c6de124100e1838dd4cdac3f9d1f7bd4e35d5029f",
+  "image-squeeze/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "image-squeeze/ergostat.context/process": "f8bae7cc44ee82aa462c3fdf3d006d536289bc37cff7128d63f598c22fcce0de",
+  "image-squeeze/ergostat.context/route": "00f35b299ca203cae3543ddc2ee53f3d6da2818e0909f58aae7955a784b85d92",
+  "image-squeeze/ergostat.context/series": "7ef0b9691b987fccfaaa82d33f555e7d8a20513bd444c1187639a29fe167b133",
+  "image-squeeze/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "image-squeeze/ergostat.correction/process": "0d819d05fcfae73dc0be32696cfc12890b4689bf3c8a0de4755aa4abeb95f176",
+  "image-squeeze/ergostat.correction/route": "ffdcc3348f19550b014a6d05b9faccbbbf6b885d9e9cab4eb6190cad59e3dd12",
+  "image-squeeze/ergostat.correction/series": "3f5e0f5f0b04e7bda204e95ce57e0e5c5f5955c13dbdca9403cb9449bbe7c289",
+  "image-squeeze/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "image-squeeze/ergostat.decision/process": "aabf0a9c235bcaea67c36874098abf33aa4000a159d56b9159fc3ad54f1e6a2a",
+  "image-squeeze/ergostat.decision/route": "55a2c955fd44104daa7486d0ecfb81ddc0c594f89134292f3181fa0934a4025d",
+  "image-squeeze/ergostat.decision/series": "df90bcc682958bf9837badb9efb54b66e720895706d66e550eca50195854f464",
+  "image-squeeze/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "image-squeeze/ergostat.message/process": "3ef80ad6ce8c404e3c1ed21d6a52d0548c5c096ed74a5bb9f9d2dfbd87796485",
+  "image-squeeze/ergostat.message/route": "72fdb460a65adbb284c364a8f196726911698993bc2e7ad80a70f8450cb8eb33",
+  "image-squeeze/ergostat.message/series": "4c4fb9ee729a67ce6c92d3e0e5ef970a81528956167ff3efa12e62d7f85ba996",
+  "image-squeeze/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "image-squeeze/ergostat.model-change/process": "95ae009e12d99aaaae72919a1e050575ab27f432bab4f4a79e1ff2c4945b5700",
+  "image-squeeze/ergostat.model-change/route": "fa160ce1a8ca5eae4d6d1df1c210d3f1071da1dc0a981c36eb60c1dac6b57ac0",
+  "image-squeeze/ergostat.model-change/series": "45ebba2452cda1365bce381cd6de15b0cf2206252cc1c36128d1f392e09cdfa7",
+  "image-squeeze/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "image-squeeze/ergostat.modelling-request/process": "e9922c19049ef5beca6d4313f4d42c31ad6ea0da4b77b75294b42f30a3a45c6d",
+  "image-squeeze/ergostat.modelling-request/route": "3862b896a7fdba15e94eb129fb201727d086769e3181e4f67c112a8b7a79038e",
+  "image-squeeze/ergostat.modelling-request/series": "7eec0a86e4500dbf4c6ce6fefb9225a63faf5c6f1c3943b8a42e10c33d64e6fa",
+  "image-squeeze/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "image-squeeze/ergostat.report/process": "04f5e68afb0962a062ef4151abbd7ea4e3f574df22ad9f730dd6784b58ca6a60",
+  "image-squeeze/ergostat.report/route": "6dcbd64842e4b3850dfae14a641e79006da2c5ae292ad9489abbe7b4fdea865c",
+  "image-squeeze/ergostat.report/series": "0f6af6d732f2c375a17f406cbba9f95c36e58aad71131d3d46890b9b98f28827",
+  "image-squeeze/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "image-squeeze/ergostat.verdict/process": "181b87b7cb1faec129b5b2ffe56c744bd11e4baba04e580d8b988083542a7fd9",
+  "image-squeeze/ergostat.verdict/route": "6cf33de00c4fc524fa546be8cc37d54143b5fb2760aab7e0783255dd216ce332",
+  "image-squeeze/ergostat.verdict/series": "2ec14e519b3da4953b1f79c5299a757b43fe7e3e5519f238a87d320462e53794",
+  "image-squeeze/hypothesis/final": "1fd9a5bd7367dd38c27a09a6ef2e0cae04b56303c91357d423a512f193043002",
+  "image-squeeze/hypothesis/process": "beec7cb99a7ed1f3ec95c830f26989540e57d54b80c75e086ecdce26b522f987",
+  "image-squeeze/hypothesis/route": "a44786ec8a40c762d4aa117e8b6868dace8346c0ae15a4c5a7228184645e52bf",
+  "image-squeeze/hypothesis/series": "2b0d7460b72a31cbac3e029d14106ae155e878bbd12ac65e096d69966b40da20",
+  "image-squeeze/release/final": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "image-squeeze/release/process": "2ababf5c0d6887f15f6fb8bc14c89292c5ba3f106a5cb371888601ee86803387",
+  "image-squeeze/release/route": "a683096011db3975a1e401e33b0047d1f2677a11efe85ef12806f016ae039795",
+  "image-squeeze/release/series": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+  "image-squeeze/session/final": "9b81b73b5356a8d43f64d1959c2cadfd1c4714815747e2d9c94ddbd9b5fadf64",
+  "image-squeeze/session/process": "3dc0499b8628eeda40f568a7b9460b992db49d921b625e0e2f0e2f5b146ad3cc",
+  "image-squeeze/session/route": "cc9328c58f475411a63f629cf862f677906807e502ab48d0e92abab3ce808a55",
+  "image-squeeze/session/series": "4733b0dd48ae721dfec98c6e5d8fdfeb826dcd65054a96fbe4d8454f927f9c9c",
+  "image-squeeze@left/case/final": "2a95887c5d988ac45a02e148b41f33f3fb2ca59446505255b06928c334ce76cc",
+  "image-squeeze@left/case/process": "994ae77aadb7c25cb14fa645b644afacdeb471a444a3ee38b1ac80923eeaa643",
+  "image-squeeze@left/case/route": "314a9a91a12217d0a7aaaf3b7fd2150ca423fd30aaa3a4a9a156ae0f94083aaf",
+  "image-squeeze@left/case/series": "7390281c5d8f6e8038d8214788d15ab49eed65ade739c78744c6e9e65cfea1db",
+  "image-squeeze@left/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "image-squeeze@left/ergostat.claim/process": "bfab2482725240548cab348d7308f975b0632e963ba24974d3d8fd82e094188a",
+  "image-squeeze@left/ergostat.claim/route": "cb62e778a0401053f5ea698de3d565832e5f17959d47e981fa3a007a9f72b501",
+  "image-squeeze@left/ergostat.claim/series": "a868521d9274a94da9a92a1372f8e6865cd447ef0f73f59d88a2f68c2e61cb2e",
+  "image-squeeze@left/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "image-squeeze@left/ergostat.context/process": "cf23b74637d074bacba287af214106851ffb4df4d53b027b7ac4867faa45485f",
+  "image-squeeze@left/ergostat.context/route": "1687a930264f7408fbc674254c17c9d86a061501f2a0959bdd9ec75f0f2e9ba8",
+  "image-squeeze@left/ergostat.context/series": "53fdf0457f45b6e3b93c802e1a9c978373c4302e7bf8fbdbbc330ac79089e331",
+  "image-squeeze@left/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "image-squeeze@left/ergostat.correction/process": "f9584aecbfc2b0880ca9bb735ebde73f3da542e097ad8da92da120d0a3e06043",
+  "image-squeeze@left/ergostat.correction/route": "b3eca341684a0f3aee6855c548d5ba251ca08645a2d74e2522ffd02af7e2080c",
+  "image-squeeze@left/ergostat.correction/series": "532aa8ad8da42ee2b2259b14da33a37086d3c2d2acea98837453dbd12b103a3a",
+  "image-squeeze@left/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "image-squeeze@left/ergostat.decision/process": "6592a3693d3ebf406a720b3f1d32ea849d131865a41601553fa4ac5895d97e68",
+  "image-squeeze@left/ergostat.decision/route": "4f607eb7c01bc998c1b35eee0b41b54a766c48a98f806dc4860d934802be2ba8",
+  "image-squeeze@left/ergostat.decision/series": "afadf743c4c83accb42b2f3e7cb9c4e6302ae0c295fdd3630cffef355b0914b6",
+  "image-squeeze@left/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "image-squeeze@left/ergostat.message/process": "eea0c36b0f2c54db4d0b4914a62fbcd655fa0b9402d50a37f0544aabb6937f65",
+  "image-squeeze@left/ergostat.message/route": "040e331bdc4b9b17151ec6dd6b5e554bfeced002aa99f1c958fc614ef085433b",
+  "image-squeeze@left/ergostat.message/series": "0a1963dc95cb5dfcce702be26c2af023ccee47d2e9c25725a5a90c170fb1cae4",
+  "image-squeeze@left/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "image-squeeze@left/ergostat.model-change/process": "b75c282494cdff84c0aef4b7da136cf3afa8512180c362196643c5ed95383e6f",
+  "image-squeeze@left/ergostat.model-change/route": "5e4da01c999b9132cc21e7c9fbf38d12f4eb75a97cc238ff16f8a3a8daadaa86",
+  "image-squeeze@left/ergostat.model-change/series": "92b5a2d158bedff64100bf6061240190714cf5fc071b97f311fcebc7da36a56b",
+  "image-squeeze@left/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "image-squeeze@left/ergostat.modelling-request/process": "44d9a07194dff4a279639abd5c8af8a6bafb1ac478ef277ecc750b128def0954",
+  "image-squeeze@left/ergostat.modelling-request/route": "6f1c0d02aef51d62fa8d2d6904d98b1c89c6b09c04ac34334dd35f5f202edb45",
+  "image-squeeze@left/ergostat.modelling-request/series": "850c28d45448fc8a9e6b7da650944d7e0bd1fad09e023f96bae5da47a5c3bff5",
+  "image-squeeze@left/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "image-squeeze@left/ergostat.report/process": "5d0580989138209b174e3a0644d0863d676a0cadb0a52531138668928df0f6f9",
+  "image-squeeze@left/ergostat.report/route": "5d8660f9aab1746b3e770284e1af3b099d9cc8cffcdf61181f986c11c8759ba3",
+  "image-squeeze@left/ergostat.report/series": "c86478d9e6b41cd8b51d1e9b6c7bed9e458e98ca9e7684fef2050d16e0b4dfcd",
+  "image-squeeze@left/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "image-squeeze@left/ergostat.verdict/process": "f0358387ca3e6128598d604b97cade3d7bc786efa502d9c04a7054ae388bff98",
+  "image-squeeze@left/ergostat.verdict/route": "597a44c97248515f285ab163df1efde891e01f343c98f49e6807bb9da2c64648",
+  "image-squeeze@left/ergostat.verdict/series": "2ad1a0867b82249cfa5d4cdc30a0f54cd5a3a889edad62a9766dd1c508fddc2b",
+  "image-squeeze@left/hypothesis/final": "1fd9a5bd7367dd38c27a09a6ef2e0cae04b56303c91357d423a512f193043002",
+  "image-squeeze@left/hypothesis/process": "623fa3d4c45c66a008074a455827a65f20dacbbbdc181329052347ceff587878",
+  "image-squeeze@left/hypothesis/route": "efe9f20bbd987872eb6f5112d05d321717e8e8f2dc1f2ccdd0b9a9bba7bb8120",
+  "image-squeeze@left/hypothesis/series": "6a0c524b2f127d93f0e7ee86adede7485f4a5a4c5f23551403bddf27094549e2",
+  "image-squeeze@left/release/final": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "image-squeeze@left/release/process": "6ece6bf47ea856849167ed5e820982b8fab6336d80399fd8d04ea1b844960cf9",
+  "image-squeeze@left/release/route": "a683096011db3975a1e401e33b0047d1f2677a11efe85ef12806f016ae039795",
+  "image-squeeze@left/release/series": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+  "image-squeeze@left/session/final": "9b81b73b5356a8d43f64d1959c2cadfd1c4714815747e2d9c94ddbd9b5fadf64",
+  "image-squeeze@left/session/process": "94e5adbf84aaadac935aeb900119a9dc255a43911bcf9ef38ef766f6b674bd83",
+  "image-squeeze@left/session/route": "6ed778f2bed60e661e1454d13c28e4862bf4d9c30555319d72f3748788b672f0",
+  "image-squeeze@left/session/series": "0202ff0168b8d9e695be1e3c2140196b4606caf502e782e4d2354c64a6bf79ac",
+  "roadmap/epic/final": "19c4d20e731efb21f8322a3e70cb1787264c6b04b6f4258a0f23d95ce1afdb81",
+  "roadmap/epic/process": "1f1e88c58ddd82b8a14fff18aacaa5db46500fc9d48dfd13144d57d3c07ec6a3",
+  "roadmap/epic/route": "a683096011db3975a1e401e33b0047d1f2677a11efe85ef12806f016ae039795",
+  "roadmap/epic/series": "c96ecebbb56edf1c85cda61eeae5a0a6e7cc8523f4b1c8458612b2f628dbfe69",
+  "roadmap/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "roadmap/ergostat.claim/process": "d0b6ca9e7ab22e7da795e8f38f02cd22e6e3a5bf8e9a752a0a293f9a4f4a903e",
+  "roadmap/ergostat.claim/route": "12883011659233616b21958720bdc1870dbdd55867e3efbab893058b0b41e0f3",
+  "roadmap/ergostat.claim/series": "1535d4c15e3a99e0b8470c5a075877ad8585e9e2903e5aef67f224b07e6f8a65",
+  "roadmap/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "roadmap/ergostat.context/process": "f1b4e955c538a5e7a7b2edc4b1a5ad4e813a5ce663b20d6685f884510233f0a1",
+  "roadmap/ergostat.context/route": "00f35b299ca203cae3543ddc2ee53f3d6da2818e0909f58aae7955a784b85d92",
+  "roadmap/ergostat.context/series": "545437ff51a748fdb0e4a6f388f742ed5ff88ea0537bb07250fad6acda1fdc8b",
+  "roadmap/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "roadmap/ergostat.correction/process": "79b1cc6167c8ad7c07fcd867020de087846726009fe80ec654da350fc1baea13",
+  "roadmap/ergostat.correction/route": "ffdcc3348f19550b014a6d05b9faccbbbf6b885d9e9cab4eb6190cad59e3dd12",
+  "roadmap/ergostat.correction/series": "becb947b077a0991a1ee846d0a81198f9b7bf6cb0be440396736e6f464034c68",
+  "roadmap/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "roadmap/ergostat.decision/process": "578de9f296d0d893124bd5cdceff37c8874fd08cf50c9f2f44a154cb2ea92f9b",
+  "roadmap/ergostat.decision/route": "55a2c955fd44104daa7486d0ecfb81ddc0c594f89134292f3181fa0934a4025d",
+  "roadmap/ergostat.decision/series": "a0d692bdd57e6c14a6abf2c2e6b55930cdd56615a7bb9162a144db6e9de7d851",
+  "roadmap/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "roadmap/ergostat.message/process": "425104c0498a79048ad56291c43ad0dfdef0366af76c6aea485736052e9a913e",
+  "roadmap/ergostat.message/route": "72fdb460a65adbb284c364a8f196726911698993bc2e7ad80a70f8450cb8eb33",
+  "roadmap/ergostat.message/series": "5fd9bf5fda123ffb2546707376cdf6a7b677a7bd467434a28d3e4d50800ab0b1",
+  "roadmap/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "roadmap/ergostat.model-change/process": "7421dca4d07a434412dc3ea8cb54dd05de24766196364dd67141a17e3569f598",
+  "roadmap/ergostat.model-change/route": "fa160ce1a8ca5eae4d6d1df1c210d3f1071da1dc0a981c36eb60c1dac6b57ac0",
+  "roadmap/ergostat.model-change/series": "656fdc10739a2ed3effcac0615c97fca483ceafc2753d4c4d860cd6255e9059d",
+  "roadmap/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "roadmap/ergostat.modelling-request/process": "9ac28bf3a334b41255e6dd0043e76e9a8792bb42fca46472ae3dadacf73df5e3",
+  "roadmap/ergostat.modelling-request/route": "3862b896a7fdba15e94eb129fb201727d086769e3181e4f67c112a8b7a79038e",
+  "roadmap/ergostat.modelling-request/series": "a7d67b387db00ca88cc71fe22266a2a041b37b9c2b25934aec3663143d8a9633",
+  "roadmap/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "roadmap/ergostat.report/process": "2532c6b1968fdbbdc6f701b318d728280cbb071a268a313cdf117290a5bff3c5",
+  "roadmap/ergostat.report/route": "6dcbd64842e4b3850dfae14a641e79006da2c5ae292ad9489abbe7b4fdea865c",
+  "roadmap/ergostat.report/series": "b22a101b03abaa92c36c7514451a543e98599a6da7b37017bd03079c37ac2e0d",
+  "roadmap/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "roadmap/ergostat.verdict/process": "b07c27a833db0e38e1b567464f7b308a2c6aa28e07226e439281381581f0c7c1",
+  "roadmap/ergostat.verdict/route": "6cf33de00c4fc524fa546be8cc37d54143b5fb2760aab7e0783255dd216ce332",
+  "roadmap/ergostat.verdict/series": "e331329edce76a0af3a935521ef89af76e5214bbfcea933d2abac118fee69c8a",
+  "roadmap/ticket/final": "0bb1c9383448e5060327530066bb9271bd61487a19694fb01ae98876a10e1e75",
+  "roadmap/ticket/process": "efd9c432a69394f91cd6e0c68516658d0b2a43e5e6c9f0ec87e3ec6a9ab5f211",
+  "roadmap/ticket/route": "88212572d619177e1f89182929c66e1eb0893bd8fac78ba0a155779f69fba50f",
+  "roadmap/ticket/series": "fd73c7b98ab8485fea9639c21aff02fb494ae6948147850043b76f837c1b1190",
+  "roadmap@left/epic/final": "19c4d20e731efb21f8322a3e70cb1787264c6b04b6f4258a0f23d95ce1afdb81",
+  "roadmap@left/epic/process": "674151c738d8aefaa861aa9ac295493adc779f1938985ca3380fd278258c7e92",
+  "roadmap@left/epic/route": "a683096011db3975a1e401e33b0047d1f2677a11efe85ef12806f016ae039795",
+  "roadmap@left/epic/series": "8c5c9988120a11bd6ed2f596d07988cef5384c1499d6d42e816ac7fe1234f087",
+  "roadmap@left/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "roadmap@left/ergostat.claim/process": "55f689a8051d3e1af1f57c5a71964026ef9585091017ca4968cc84abaab06326",
+  "roadmap@left/ergostat.claim/route": "cb62e778a0401053f5ea698de3d565832e5f17959d47e981fa3a007a9f72b501",
+  "roadmap@left/ergostat.claim/series": "c754bbf53cb6766bf2a146f189642121f095af2943906c990327a1ec619af210",
+  "roadmap@left/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "roadmap@left/ergostat.context/process": "8aa976ca0db40ec2eaceaa83a2f0195bc79a3e49f71e9cb9d96c19b07d43eb48",
+  "roadmap@left/ergostat.context/route": "1687a930264f7408fbc674254c17c9d86a061501f2a0959bdd9ec75f0f2e9ba8",
+  "roadmap@left/ergostat.context/series": "d32c3db4b4938f5b0e312ea05e4d83453b64cac184492b4b29d7625743d71610",
+  "roadmap@left/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "roadmap@left/ergostat.correction/process": "7264b2bd26bbf27f194383e413df99288b7d26f1ac839cdab93b54f3b8ccab51",
+  "roadmap@left/ergostat.correction/route": "b3eca341684a0f3aee6855c548d5ba251ca08645a2d74e2522ffd02af7e2080c",
+  "roadmap@left/ergostat.correction/series": "55069c376b5539df8442380cb0bfc412db36cb238c1bc64e3b2f392697c12521",
+  "roadmap@left/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "roadmap@left/ergostat.decision/process": "f9e12ed3c5b074719ea7c67c21c2716d1b4466b2229e84757770dc11c927b5b8",
+  "roadmap@left/ergostat.decision/route": "4f607eb7c01bc998c1b35eee0b41b54a766c48a98f806dc4860d934802be2ba8",
+  "roadmap@left/ergostat.decision/series": "ac7a9b98433aa51cfde44df6a9b15921cb10272d8ee392eb31feee363ec5fe6b",
+  "roadmap@left/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "roadmap@left/ergostat.message/process": "d90264ce3eb64131cc2adcc72a6668d33286de575b48a6833605108222850025",
+  "roadmap@left/ergostat.message/route": "040e331bdc4b9b17151ec6dd6b5e554bfeced002aa99f1c958fc614ef085433b",
+  "roadmap@left/ergostat.message/series": "b37a990b8858322214f061dcaed5fb592523f7f13afed8bc66ca9b20a162ad17",
+  "roadmap@left/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "roadmap@left/ergostat.model-change/process": "42163620aea83e60fb37b05d56e5dd031e30c1e4f0a6784de08aa2bfbd95d352",
+  "roadmap@left/ergostat.model-change/route": "5e4da01c999b9132cc21e7c9fbf38d12f4eb75a97cc238ff16f8a3a8daadaa86",
+  "roadmap@left/ergostat.model-change/series": "4a546652d05885adfd0f69eb670bfff2b59aec7c6feab1ccb45ba7b703ce4a7a",
+  "roadmap@left/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "roadmap@left/ergostat.modelling-request/process": "5d434d12d78615c3e64187c9cf3f38f3c878d66f490665184aad8596b9c15689",
+  "roadmap@left/ergostat.modelling-request/route": "6f1c0d02aef51d62fa8d2d6904d98b1c89c6b09c04ac34334dd35f5f202edb45",
+  "roadmap@left/ergostat.modelling-request/series": "41d5c7cee338dd8bb87626c45e65f5fb203d2e8f7c5f7720c83d755322c55a1a",
+  "roadmap@left/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "roadmap@left/ergostat.report/process": "49dc7dcd1efe844db169e692e8d5f4af65e2ea80a40fd375b076288b7345b920",
+  "roadmap@left/ergostat.report/route": "5d8660f9aab1746b3e770284e1af3b099d9cc8cffcdf61181f986c11c8759ba3",
+  "roadmap@left/ergostat.report/series": "7261b36ad1750e610551a423bc4bee96ef8ed1df64ea8f2073b41a5a536f4ebd",
+  "roadmap@left/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "roadmap@left/ergostat.verdict/process": "443af6fbd48201a3d4f86fb3c7a915713f172c8fe1f3c08be01731eacd29df9b",
+  "roadmap@left/ergostat.verdict/route": "597a44c97248515f285ab163df1efde891e01f343c98f49e6807bb9da2c64648",
+  "roadmap@left/ergostat.verdict/series": "442d8d94fcf0fd059c8c2a7055527790c88ea419c5c4e32ba945415edee09f1d",
+  "roadmap@left/ticket/final": "0bb1c9383448e5060327530066bb9271bd61487a19694fb01ae98876a10e1e75",
+  "roadmap@left/ticket/process": "694686cd5201c626b6f01ecf49db53a9517ad99d3f8df6a733c95c37467a88ee",
+  "roadmap@left/ticket/route": "f2af67f6e8783e1f7c755dc857b882e0ded215a0b1e04bc81414b78e224f10ef",
+  "roadmap@left/ticket/series": "2e5b97ca17ea4bcfc88dd0e45354d64f490368c58d152643ae361caad31949e9",
+  "software-factory/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "software-factory/ergostat.claim/process": "ec5069d841e70560772b8fdd5d767c57a5435e06b4beffcf7c1ef57ae3236faf",
+  "software-factory/ergostat.claim/route": "12883011659233616b21958720bdc1870dbdd55867e3efbab893058b0b41e0f3",
+  "software-factory/ergostat.claim/series": "1b53cc201e9cdcf0bdc69d138263a6a722197b63c991178d09f1b6ab9c4c2d53",
+  "software-factory/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "software-factory/ergostat.context/process": "2f0204367853c64f05788edd5acf1faf41c91964f6bf75c4ff31fc54354ec54e",
+  "software-factory/ergostat.context/route": "00f35b299ca203cae3543ddc2ee53f3d6da2818e0909f58aae7955a784b85d92",
+  "software-factory/ergostat.context/series": "a8e8f2047d5207bd329f2bcca0cbd327b68f5915db3f000adcda6c82416a67bd",
+  "software-factory/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "software-factory/ergostat.correction/process": "2d9624681d298dfba156141b0cae0b9a025a152cbbf3ee08a2169eb15c6adc8e",
+  "software-factory/ergostat.correction/route": "ffdcc3348f19550b014a6d05b9faccbbbf6b885d9e9cab4eb6190cad59e3dd12",
+  "software-factory/ergostat.correction/series": "e6d408b0c00b5b43bd5d80dfec388226d2345f50db90f0ccc5ba429384bac5f5",
+  "software-factory/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "software-factory/ergostat.decision/process": "9415e8a842ca1edb7727113a0e3b6081c530a5db0b29d4d26fdba3b61aeee952",
+  "software-factory/ergostat.decision/route": "55a2c955fd44104daa7486d0ecfb81ddc0c594f89134292f3181fa0934a4025d",
+  "software-factory/ergostat.decision/series": "eeec47af0c15e860cb4a063de33e415852f0a665f65841a6134667b91d456c05",
+  "software-factory/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "software-factory/ergostat.message/process": "981647219d343a6e915a5eb531f0dfa3b8bcad01d84e5cdb52c488e65762542c",
+  "software-factory/ergostat.message/route": "72fdb460a65adbb284c364a8f196726911698993bc2e7ad80a70f8450cb8eb33",
+  "software-factory/ergostat.message/series": "ce31a737e5d31d952b67205c793647d7f7c93056d484b2227c0f1b5bf2ab71a5",
+  "software-factory/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "software-factory/ergostat.model-change/process": "5dabfdaee5a97b000c8efbdb9a279abd268335845a884fbc6fac134e06d2b29f",
+  "software-factory/ergostat.model-change/route": "fa160ce1a8ca5eae4d6d1df1c210d3f1071da1dc0a981c36eb60c1dac6b57ac0",
+  "software-factory/ergostat.model-change/series": "ea72a02f97893b1239b942d9d0a18873892871b565b0a4de012b4df8cd98809f",
+  "software-factory/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "software-factory/ergostat.modelling-request/process": "b7de62ef4e732b31633fa09b4b4e84a2909a9985b5a54d9bbfe62926b69f47bc",
+  "software-factory/ergostat.modelling-request/route": "3862b896a7fdba15e94eb129fb201727d086769e3181e4f67c112a8b7a79038e",
+  "software-factory/ergostat.modelling-request/series": "78ae801b66736c70d9ca3c5c4b36d0acc3036f3c70a5f0c4091408339a0191f4",
+  "software-factory/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "software-factory/ergostat.report/process": "46b359c842d416bfa4c450d7d60d6c70db5519f65bf23f33fe7096a0e97aa619",
+  "software-factory/ergostat.report/route": "6dcbd64842e4b3850dfae14a641e79006da2c5ae292ad9489abbe7b4fdea865c",
+  "software-factory/ergostat.report/series": "de3e8d2376d983e47bb8b37a87074bc6302a645cc70484d96d1722fce7cae8ff",
+  "software-factory/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "software-factory/ergostat.verdict/process": "afb4271f139434e46b430866a20f4e1b6d284ccf56b58a501f926f728348e438",
+  "software-factory/ergostat.verdict/route": "6cf33de00c4fc524fa546be8cc37d54143b5fb2760aab7e0783255dd216ce332",
+  "software-factory/ergostat.verdict/series": "c3ecc4b9332cf71a2cb05705dbcb77ddab36e0f0b8de5f9eb891812085ddc75c",
+  "software-factory/pr/final": "362ee8ca10f86ede1ec5e12d1061877eac393d305f8e34a9b2d84971aef435fc",
+  "software-factory/pr/process": "c1cd037680552d670fd23c2871b963199b8df6acc766b4c021c95f28b2c42885",
+  "software-factory/pr/route": "08142b79c58274bf4317f18eca430689f5a38ae9400cd874d2d0ff9e247d2125",
+  "software-factory/pr/series": "f995297dba44fed55ff24bb4f49e9a7d43406e60164b39b482387907cdc366be",
+  "software-factory/release/final": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "software-factory/release/process": "033204478411eff581f49a32161712160677ea5c07ecb6bf66062511109f856c",
+  "software-factory/release/route": "a683096011db3975a1e401e33b0047d1f2677a11efe85ef12806f016ae039795",
+  "software-factory/release/series": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+  "software-factory/ticket/final": "b7dce8a751e68e7f673a79e8eadd50d1b890e249e68a8afc6a4a1ec440acd851",
+  "software-factory/ticket/process": "664cc3726590a1f94feeae4d88c42fc973e82c0b934f0bba34e6224e60751746",
+  "software-factory/ticket/route": "560a7c76db693211d8b79e85cb495a8ea7ba19e801af26a674aac6b9b892d4f5",
+  "software-factory/ticket/series": "da5d3446c28e779c2d95430c1f18a878f13fd964acfe45f84923e9b577d65512",
+  "software-factory@left/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "software-factory@left/ergostat.claim/process": "e9bd47c398d418ce96c3661cae28939d51fca774401d6e511ce4828ff6568f63",
+  "software-factory@left/ergostat.claim/route": "cb62e778a0401053f5ea698de3d565832e5f17959d47e981fa3a007a9f72b501",
+  "software-factory@left/ergostat.claim/series": "c754bbf53cb6766bf2a146f189642121f095af2943906c990327a1ec619af210",
+  "software-factory@left/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "software-factory@left/ergostat.context/process": "1b98772f9dc62c79314253654a9e0e9ee71d327af0b1af6b22a67beb1f9ee48e",
+  "software-factory@left/ergostat.context/route": "1687a930264f7408fbc674254c17c9d86a061501f2a0959bdd9ec75f0f2e9ba8",
+  "software-factory@left/ergostat.context/series": "d32c3db4b4938f5b0e312ea05e4d83453b64cac184492b4b29d7625743d71610",
+  "software-factory@left/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "software-factory@left/ergostat.correction/process": "eddaa05ad01893aeaef94489529f62561f2548aa9cf46a4e53f5735cd6db9709",
+  "software-factory@left/ergostat.correction/route": "b3eca341684a0f3aee6855c548d5ba251ca08645a2d74e2522ffd02af7e2080c",
+  "software-factory@left/ergostat.correction/series": "55069c376b5539df8442380cb0bfc412db36cb238c1bc64e3b2f392697c12521",
+  "software-factory@left/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "software-factory@left/ergostat.decision/process": "559d41e6a9d401532fe80170f2b03b98610722aa8fb61d6e7038ec40e0b8ce7e",
+  "software-factory@left/ergostat.decision/route": "4f607eb7c01bc998c1b35eee0b41b54a766c48a98f806dc4860d934802be2ba8",
+  "software-factory@left/ergostat.decision/series": "ac7a9b98433aa51cfde44df6a9b15921cb10272d8ee392eb31feee363ec5fe6b",
+  "software-factory@left/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "software-factory@left/ergostat.message/process": "ccc0b4e8bfa2a43d70fc26dd1a74f8b89804de796d702935c66764c45d84f41c",
+  "software-factory@left/ergostat.message/route": "040e331bdc4b9b17151ec6dd6b5e554bfeced002aa99f1c958fc614ef085433b",
+  "software-factory@left/ergostat.message/series": "b37a990b8858322214f061dcaed5fb592523f7f13afed8bc66ca9b20a162ad17",
+  "software-factory@left/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "software-factory@left/ergostat.model-change/process": "18823602664ba694dfe342621f3197bf1427a86762a941506b48439f80faa40b",
+  "software-factory@left/ergostat.model-change/route": "5e4da01c999b9132cc21e7c9fbf38d12f4eb75a97cc238ff16f8a3a8daadaa86",
+  "software-factory@left/ergostat.model-change/series": "4a546652d05885adfd0f69eb670bfff2b59aec7c6feab1ccb45ba7b703ce4a7a",
+  "software-factory@left/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "software-factory@left/ergostat.modelling-request/process": "6adb2d95a53b3fd4978573636e6634067bd41b7e4a75b6f5080b51609cf5e589",
+  "software-factory@left/ergostat.modelling-request/route": "6f1c0d02aef51d62fa8d2d6904d98b1c89c6b09c04ac34334dd35f5f202edb45",
+  "software-factory@left/ergostat.modelling-request/series": "41d5c7cee338dd8bb87626c45e65f5fb203d2e8f7c5f7720c83d755322c55a1a",
+  "software-factory@left/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "software-factory@left/ergostat.report/process": "1b9914f953737aa7332d1ab53b5357f28cbe91d52d53db635d792a1020187a0c",
+  "software-factory@left/ergostat.report/route": "5d8660f9aab1746b3e770284e1af3b099d9cc8cffcdf61181f986c11c8759ba3",
+  "software-factory@left/ergostat.report/series": "7261b36ad1750e610551a423bc4bee96ef8ed1df64ea8f2073b41a5a536f4ebd",
+  "software-factory@left/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "software-factory@left/ergostat.verdict/process": "92fc662bacc267a256301d6d5f0eaa848195461b06d929712631ddc9b9175f4b",
+  "software-factory@left/ergostat.verdict/route": "597a44c97248515f285ab163df1efde891e01f343c98f49e6807bb9da2c64648",
+  "software-factory@left/ergostat.verdict/series": "442d8d94fcf0fd059c8c2a7055527790c88ea419c5c4e32ba945415edee09f1d",
+  "software-factory@left/pr/final": "362ee8ca10f86ede1ec5e12d1061877eac393d305f8e34a9b2d84971aef435fc",
+  "software-factory@left/pr/process": "03ecdd8242c1a76fb49e42eb8e183ef0caa2d49ef43963fb708ffcfbeae44aeb",
+  "software-factory@left/pr/route": "4b4ae88806178fcaa0294d7cc691798b4acea7c84bab8bcdaff8e7510cae8b9a",
+  "software-factory@left/pr/series": "771ecaacc041dfc0e1259a18275bbb23fb296a0515f9f992f2019331a73675d1",
+  "software-factory@left/release/final": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "software-factory@left/release/process": "4b1a1ad9c78bdecadb2fce8133156c60541309831b97487fbe7c32d277887246",
+  "software-factory@left/release/route": "a683096011db3975a1e401e33b0047d1f2677a11efe85ef12806f016ae039795",
+  "software-factory@left/release/series": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+  "software-factory@left/ticket/final": "b7dce8a751e68e7f673a79e8eadd50d1b890e249e68a8afc6a4a1ec440acd851",
+  "software-factory@left/ticket/process": "7d79bad9385e443a9167ebd997b592729413b6adc7c70412a312a6e7ec27b66c",
+  "software-factory@left/ticket/route": "f2af67f6e8783e1f7c755dc857b882e0ded215a0b1e04bc81414b78e224f10ef",
+  "software-factory@left/ticket/series": "c54ac14603387de63f1c3e29471bf76ed21919a28decb469c69d896565e2d8ec",
+  "the-job/action/final": "57bb26cc0e67f9ff28dfeb6b02b4dbc673bb412b1f98d5ab71a3462bbd232dd2",
+  "the-job/action/process": "ba9c53d077308eee7a6a0a2b2b452d327b1c3fc5c9cfa521119a4286d19d6806",
+  "the-job/action/route": "af40de64255afa0309e09bd181492a3f38bdc67b79678ac1e4b6c461e434988f",
+  "the-job/action/series": "bcfca760cda14f0217382d7921e7b576f371897083a79705cbffffed541d4e1d",
+  "the-job/alert/final": "d989d7a5ad4afa08212aee9f6792426b963a60619970ab4f78a7c0ed73ef2ce0",
+  "the-job/alert/process": "f472c8e78a6df0c34cc6572d942dd574a3203d0a19fdd53201eb365330230331",
+  "the-job/alert/route": "d79351b3008cfca3e036bd113d8ade3946321e60303acdaa6bee29e3fe98a9da",
+  "the-job/alert/series": "091203af3cabcf35204b810593db2e136cfbdb6f326feb551a930c4a5a1b1f6c",
+  "the-job/ci/final": "fea357fc5caa1c95a3ce263cc7302eef0ce501eb974fc87d0ebf927f5ea7b092",
+  "the-job/ci/process": "803443c4364d594a941d28710a4276b717280a63eb5a5bd0576a637576f697b7",
+  "the-job/ci/route": "8840f1b0e550324be4da1cb844e7128fe2e4e04c5904b115804fde4e17f57843",
+  "the-job/ci/series": "1b4eb8637e164881b0c8641635c0db8c833a5a61d477a535accebcfd173e8d23",
+  "the-job/day/final": "d39dc21d7beb9d3b49138e616dc40270f2e7e38f8c4a1f06201d6e2a6cb1d52e",
+  "the-job/day/process": "d3bf2eb6afc1060de678d3ca682127625e5e589fe9773ea143f1450631f8dcfe",
+  "the-job/day/route": "6c74c9fe068aeb69c3f7ddc74587b9bb3d3eb932ce1a8ba768a2a3a7319c6f1f",
+  "the-job/day/series": "95c2aef668767831ab854c747b06f79a28fc3f3331d42d7d94bb67679a77996a",
+  "the-job/doc/final": "87e9b2fcce9a18e185e57af8a22602e4dfba0ef94d76267e51204117deb21637",
+  "the-job/doc/process": "c759fdde373cce7c8a0864a76e0ae343049a52575688e5975ea1bee9f668ff5a",
+  "the-job/doc/route": "7da0bcb45785790a036e19eb5260dbf2f043b85be20d4da562366b348c6adf4b",
+  "the-job/doc/series": "53bc28212eda437d59cc5c4c9c057dd9c1e16ce81fe2ea6877fb7c8eb175f14c",
+  "the-job/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "the-job/ergostat.claim/process": "9379a59d88ef240e1459f9ab126150b0d2cd5237becf60a5692b31a4e504ea94",
+  "the-job/ergostat.claim/route": "12883011659233616b21958720bdc1870dbdd55867e3efbab893058b0b41e0f3",
+  "the-job/ergostat.claim/series": "63c2515ff8d9ec9e57660ee38022375143275869dc92de3d14585436f37fef40",
+  "the-job/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "the-job/ergostat.context/process": "5fe284284ebda9c61446c0cf0565c90c0154676796d58d040094d43034a21bb6",
+  "the-job/ergostat.context/route": "00f35b299ca203cae3543ddc2ee53f3d6da2818e0909f58aae7955a784b85d92",
+  "the-job/ergostat.context/series": "b496d1b8a38a511b404d8ae10b81959e0af0ef03a9153600ce6ff8ae9d16218c",
+  "the-job/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "the-job/ergostat.correction/process": "0738ad7eaf5224f6d866bc15cc3f8ef649ee3de8b64618d08192b5c339b1673c",
+  "the-job/ergostat.correction/route": "ffdcc3348f19550b014a6d05b9faccbbbf6b885d9e9cab4eb6190cad59e3dd12",
+  "the-job/ergostat.correction/series": "070fc0ca9be873464544e2fde115ea3365f8da6b1847febce4628d4673b2fadf",
+  "the-job/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "the-job/ergostat.decision/process": "53a26c5e2698a57020d27b4fe06c44a614bda3d30605fdae695e9bc2eab9783d",
+  "the-job/ergostat.decision/route": "55a2c955fd44104daa7486d0ecfb81ddc0c594f89134292f3181fa0934a4025d",
+  "the-job/ergostat.decision/series": "5ad151f5cb3dc78fc6b2e65913af85af0c1c2e5b61709ab459b962b56b8b6370",
+  "the-job/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "the-job/ergostat.message/process": "86304cf139d696ef38fd70d066736bdf76336e05173dde22dcf986908abcd5ee",
+  "the-job/ergostat.message/route": "72fdb460a65adbb284c364a8f196726911698993bc2e7ad80a70f8450cb8eb33",
+  "the-job/ergostat.message/series": "1f9ab7b1843e846b0ac1fbf4fa33f0d48faf9073a799ced6bbf1ee4c4de1694e",
+  "the-job/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "the-job/ergostat.model-change/process": "9b225dd1f75afa2aaf4fc185931b861bc299e3d31e856f1da22bad51ea287041",
+  "the-job/ergostat.model-change/route": "fa160ce1a8ca5eae4d6d1df1c210d3f1071da1dc0a981c36eb60c1dac6b57ac0",
+  "the-job/ergostat.model-change/series": "d67bdae6a6aa81ac38b6cf5fac42d223dfa7a38ec1f39208601c6795b85d8d76",
+  "the-job/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "the-job/ergostat.modelling-request/process": "25d1b9197ba30b3fb9c2b8291559b4194aa3f18843e67ffc76d771319d0914e2",
+  "the-job/ergostat.modelling-request/route": "3862b896a7fdba15e94eb129fb201727d086769e3181e4f67c112a8b7a79038e",
+  "the-job/ergostat.modelling-request/series": "f8a1b544b4a200233b872b6e56bed16679e20d80e0083f68d6b735ef10ddd448",
+  "the-job/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "the-job/ergostat.report/process": "742f055928a5d7e78e9d97b64e909555b166afbbba33ab611fb0b40d43ddd0bd",
+  "the-job/ergostat.report/route": "6dcbd64842e4b3850dfae14a641e79006da2c5ae292ad9489abbe7b4fdea865c",
+  "the-job/ergostat.report/series": "b7d189fc3eca3df4af6c0c25c98aa5d9c36cf77dfbaab494c4f52d1ad61ac55c",
+  "the-job/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "the-job/ergostat.verdict/process": "1beae792b88e60de00826b7490dd213bae0601b02407234975356f4b9939cabc",
+  "the-job/ergostat.verdict/route": "6cf33de00c4fc524fa546be8cc37d54143b5fb2760aab7e0783255dd216ce332",
+  "the-job/ergostat.verdict/series": "80f6ca42d21cb3128a7d203130246c553b0ff5c65c82731a90c2bdd104cc360a",
+  "the-job/mention/final": "53b6a328d9a662918708814a88262ff4938e9cca84774cacef96fb2de0934b90",
+  "the-job/mention/process": "cdef4e40cad22dcfb4c6d9f1a9f21ab47f17a3fbce351302bb656e1b1ab4a297",
+  "the-job/mention/route": "1060995a06f6e48d6f5cab36ca8a82e8bba27fcc22db512e3c969cb551f3ef65",
+  "the-job/mention/series": "457d23b1bf49b1c60e7cff4c88fe63837bcc74c123648f2c526eada85076fd5c",
+  "the-job/note/final": "d8c251f92c409219128a07fd495d7dfdb198bddea6cc8ccdd7daaf88341aef70",
+  "the-job/note/process": "3d819cf51892e708522dc6c100c7016946f0dfc453c11fca6587d89546233146",
+  "the-job/note/route": "a4140f0cc8e8964b9b122beb7c369898dfa2124c49ea8dda6779bd204a1a02bf",
+  "the-job/note/series": "97be4a9732c680f9dcc980269f240370dfc522cdf09c2a66f2998e91c4357e75",
+  "the-job/outage/final": "ad24ad7f6d75400de76fe6783a4582ac7a77d06af148f0463fbd9082b3b5bf58",
+  "the-job/outage/process": "e2f8018ddfe87ca5ccc37bb806dac3ea0b4cf91096ee5b2f68aa5959f56dfb8f",
+  "the-job/outage/route": "9616c692ab9d965ed73f204be2fc8e4b5e47ab5498eac0838283522950c6a88d",
+  "the-job/outage/series": "74935d2c4b0f2690e2182964cdc46b517c389890054ccd9f23b5c7a9041f84c9",
+  "the-job/pr/final": "a9b8db1f6fab455f5c002d99e69e451eef4aaf3d52bbd653ed78bcf059c1679a",
+  "the-job/pr/process": "48acac696d130a4785af0ecd539ba07bbadf15b2b5de5703e5276db0ceaa2fe8",
+  "the-job/pr/route": "81e43b7fae856cec206bca673a933cdb678080c44efd7c3510319bd8c8159509",
+  "the-job/pr/series": "1f0435e744aa1f650defbba6fbd8e3c55abd58c2754c60979996ccced5495f54",
+  "the-job/ramp/final": "2727572192425d8fd8866ad437705ec895a95ef9af7cf55b60397f21f5e2abeb",
+  "the-job/ramp/process": "ed9648cb085a2280d69343b4f8a7b3953d9e7f27b6e3caf828e51b66ac2ea40f",
+  "the-job/ramp/route": "2d8013f80e3a91630ed892b1b5656cb554c5e02b39c586102a2ed20ec74e12a8",
+  "the-job/ramp/series": "e3c240b0a5a522104ba2b9bc5d8fdc7b150f982d0405faad8ab9f1004ef2e433",
+  "the-job/review/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "the-job/review/process": "6583821b7b9afbe7df5138d85f9c33fd6ba28cc066030747a0989eeb1b811a08",
+  "the-job/review/route": "ae6d8f653ca0a124add24f2a69473e10355f9b92a9d66fc3ebabd63c2eec874d",
+  "the-job/review/series": "191c149aed09f353600e3a049aec2ea018455842c7d7b40c119b21715c97c703",
+  "the-job/secret/final": "ff2014be130ec4b1524e2347834453ec03681a7f46bb96bc10ad3ef38e8dfbcb",
+  "the-job/secret/process": "9cc5f348b4e055198961ca0016a658d53a27843569f8cf4c8a1898cfcbb467b6",
+  "the-job/secret/route": "4c1afff5e033350502eecc1a7cb2c7217788fc1a11d98560f868a1891dcaba47",
+  "the-job/secret/series": "e1f938da99a84cb7e59d1fc012801581a7652fb28681899b92ab146f357f9993",
+  "the-job/session/final": "9b81b73b5356a8d43f64d1959c2cadfd1c4714815747e2d9c94ddbd9b5fadf64",
+  "the-job/session/process": "ba79f771e2c95a0db3475de744db184da3f592804bb60785c167b1621f5df90c",
+  "the-job/session/route": "cc9328c58f475411a63f629cf862f677906807e502ab48d0e92abab3ce808a55",
+  "the-job/session/series": "268f58a04da0a3a64c0763979dbe3fee4c8e3dddaa880ac6b8ad4dbbf49bafed",
+  "the-job/team-pr/final": "cbcbfae20455913a4a3d9fc2176829cb0b5cd2afa86fee3bc3ea1be8513bebed",
+  "the-job/team-pr/process": "bf3590a1ef3e8ff0885cb7c2e804611191be217e02bc816d6a36d31fb4c5a42e",
+  "the-job/team-pr/route": "2964cf5b8f7ca4baa96d8def1c4c899a53ac677440eb1c392391854f4c2ce25b",
+  "the-job/team-pr/series": "b3da9e615ff59b330287f95bbc1f10c1763bd0acc01990c2abb2558be5291411",
+  "the-job/ticket/final": "53b6a328d9a662918708814a88262ff4938e9cca84774cacef96fb2de0934b90",
+  "the-job/ticket/process": "f2b6f61c51f0d4e366530c130e71634bca0bf65608286177c2ec45683663ac89",
+  "the-job/ticket/route": "d47d451c317dccd0d2019c1ed55482c61bd54188f7d03984ccea9c2a5a02fe0f",
+  "the-job/ticket/series": "7ed58627104e380649fe3f72016794cc0400de647d8df21fea6f2531fa5d5d08",
+  "the-job/update/final": "323b5b3574e72970976eeb6c56bffad4ef1e14b1f555e584ca9a33cd216e76eb",
+  "the-job/update/process": "fb637df79879b3488782d6cf08384ec27ec1702c77642996405bfab793c1b83c",
+  "the-job/update/route": "fcd704f6c748a9c5a16e26a3e1b3535b6a7ac583fd0066eb1213de42f671c69c",
+  "the-job/update/series": "7e99d53639ba9c68db699922b1c266c057b119f122cb899a5c9db26e465e6dce",
+  "the-job@left/action/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/action/process": "1961612f9cc40a734cf3aa5e57e952e6f937156bbd070dad3b30c4035d6e7a3f",
+  "the-job@left/action/route": "42aab16160cbad260f19c247df42379cecad2b231bbe2159c027e6207f9d522d",
+  "the-job@left/action/series": "60388c6cf6aaf0447f6d0bd80940aa68b1f992e85f3f603b2547c31070bbab88",
+  "the-job@left/alert/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/alert/process": "04d3efdadd715089f5219bc9a2a5bbaf69ed4f6cd13ac1555d7fc3bfea81707d",
+  "the-job@left/alert/route": "3ee045505acbe2c35c388e4a511f9278b92a1fb1640901d8d8785415a6d1e444",
+  "the-job@left/alert/series": "ff900561dc443aa79ce439301a919361087393775c989bab4973646b1c3a1eec",
+  "the-job@left/ci/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/ci/process": "9f924deaab1a3a232d03e9fd2c1e2442b930587e684bb3a95013cb1a82c72f90",
+  "the-job@left/ci/route": "9ca9b3af0365bebf76e63b236e8f9083f1169d64c92dbdbe8babcd052b80220b",
+  "the-job@left/ci/series": "667d581a588476e6eb3effe61f6045eb668a26fcb7467cc44ee2296fcf56a2e4",
+  "the-job@left/day/final": "d39dc21d7beb9d3b49138e616dc40270f2e7e38f8c4a1f06201d6e2a6cb1d52e",
+  "the-job@left/day/process": "cc05d8f6463a67e2c7747d3dd6622626f9a5bab1f2fb8c499ab2968332b9fed5",
+  "the-job@left/day/route": "8d0e35359f042c99d467d09f68837db359c0b2681c88c4e6fcefa3dac8c5e8ee",
+  "the-job@left/day/series": "5f44163e15a1aaa69bad50db3559db2ae3671acd5ad5f6827c5f2ceadf8feb93",
+  "the-job@left/doc/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/doc/process": "d9d5da68326e46311a05bed5ea8a13a836aa4e1b913301539a0602fef3336249",
+  "the-job@left/doc/route": "2313f56c4ff7e3c2af8aa5ae86e5912c84141efa5c71aea68c7d1e4d1690a900",
+  "the-job@left/doc/series": "f9e7843895a391531721a606004cb669fa286690019eb6d5fade0eb8863fa057",
+  "the-job@left/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "the-job@left/ergostat.claim/process": "fae87426e7ba4bf98372419f9047fbd4be95303b1330ddadff5703031a820127",
+  "the-job@left/ergostat.claim/route": "cb62e778a0401053f5ea698de3d565832e5f17959d47e981fa3a007a9f72b501",
+  "the-job@left/ergostat.claim/series": "0421b3f75c9f2232dcafcade1b59c2881163446369d1458762b9bb1262ffb6f9",
+  "the-job@left/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "the-job@left/ergostat.context/process": "20b8ad25c8b496bc5e4c18e747376469e51da125d96e7197d274dce4ace287b4",
+  "the-job@left/ergostat.context/route": "1687a930264f7408fbc674254c17c9d86a061501f2a0959bdd9ec75f0f2e9ba8",
+  "the-job@left/ergostat.context/series": "7ffa06f9b0f464e915fd58772c10bb107cd0f9d59ac88f661022b63524e625c1",
+  "the-job@left/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "the-job@left/ergostat.correction/process": "dd02587197aaa2b24b2fd63f67ff0da56acf83e0d69f7fa6329cd6914d46ea90",
+  "the-job@left/ergostat.correction/route": "b3eca341684a0f3aee6855c548d5ba251ca08645a2d74e2522ffd02af7e2080c",
+  "the-job@left/ergostat.correction/series": "f197b637251b5de4f7d5474207ea0029ec30b76d501ce1a63a3c2696091eb1a6",
+  "the-job@left/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "the-job@left/ergostat.decision/process": "6f4f0f2ec37c2796de371c5680f6a2972b991fd32ebab1b68a3ed0bf18a87004",
+  "the-job@left/ergostat.decision/route": "4f607eb7c01bc998c1b35eee0b41b54a766c48a98f806dc4860d934802be2ba8",
+  "the-job@left/ergostat.decision/series": "55e5514803004080fa530a3cd9cb9bdf0a42761491e121bff1192a9a95133be1",
+  "the-job@left/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "the-job@left/ergostat.message/process": "80d3077ac9baa3d3126848e35116f307137ede4339210088089833a00c23a935",
+  "the-job@left/ergostat.message/route": "040e331bdc4b9b17151ec6dd6b5e554bfeced002aa99f1c958fc614ef085433b",
+  "the-job@left/ergostat.message/series": "77fced6ff833cdb98f5f89d3cc33b6ed6ddbed655e30c0a62e2cfa795632e990",
+  "the-job@left/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "the-job@left/ergostat.model-change/process": "0e68957bc83227a9607600b48dbe27fe0d0d722584421bd94137024456daf822",
+  "the-job@left/ergostat.model-change/route": "5e4da01c999b9132cc21e7c9fbf38d12f4eb75a97cc238ff16f8a3a8daadaa86",
+  "the-job@left/ergostat.model-change/series": "519c6a5d6000d98318b9f8b22f1e28804a23c544b1c0ca0d5ab1acdb569b3958",
+  "the-job@left/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "the-job@left/ergostat.modelling-request/process": "9a9865bd5b2dd8932fd57a0937d5d5f7c2f236a52d3e030a120f26335b349089",
+  "the-job@left/ergostat.modelling-request/route": "6f1c0d02aef51d62fa8d2d6904d98b1c89c6b09c04ac34334dd35f5f202edb45",
+  "the-job@left/ergostat.modelling-request/series": "aba41ccd266bda1ba85c9cfc2cfc1db01753ab073f7e1ca0483fd545057f0124",
+  "the-job@left/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "the-job@left/ergostat.report/process": "a84bf4b1028abba60b1c811ba811e747a8c0d1e82b5648455b9af524cba1fedb",
+  "the-job@left/ergostat.report/route": "5d8660f9aab1746b3e770284e1af3b099d9cc8cffcdf61181f986c11c8759ba3",
+  "the-job@left/ergostat.report/series": "40d63d7f198a353e1b6a262eda8764ec428bad722a1da14b594f71c5283fde50",
+  "the-job@left/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "the-job@left/ergostat.verdict/process": "6afe437baf6e55e4a45b95b81f602596c61cf619d6ed886ebcde72bf208c1f18",
+  "the-job@left/ergostat.verdict/route": "597a44c97248515f285ab163df1efde891e01f343c98f49e6807bb9da2c64648",
+  "the-job@left/ergostat.verdict/series": "b323d6f080100cc62751e224391848ce83052fb5608aa0d16e80b64df720a861",
+  "the-job@left/mention/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/mention/process": "eec6e8f106287d2b9d5d0566c18914b9f5472055960aa4da38bf8535a9a3404a",
+  "the-job@left/mention/route": "32e4cd76900fcd8a15de90790e7d0b920dcf5e62d9c34b4b7183b8fa69ba165c",
+  "the-job@left/mention/series": "680dfdd47e1456725fe9e1d9672c913a280cf7578400857a22cc03705f8b22b3",
+  "the-job@left/note/final": "d8c251f92c409219128a07fd495d7dfdb198bddea6cc8ccdd7daaf88341aef70",
+  "the-job@left/note/process": "92d96e8bb9811e9fa3de4856e3faaf538fd91447a12b250c1aba113a513f8b88",
+  "the-job@left/note/route": "01b8931cd7c30c6cb0aea5bd0e97ead6696d65507abe4be21ce0311afe9d7707",
+  "the-job@left/note/series": "17f6efbd0980efd6cc14bd78d38d44ae09c74c8410e04b13864bf3ae88c21ca8",
+  "the-job@left/outage/final": "ad24ad7f6d75400de76fe6783a4582ac7a77d06af148f0463fbd9082b3b5bf58",
+  "the-job@left/outage/process": "81879f9b2ebbb9a959c7a0d1cdb4586b28c87afb4aac64bfbe1151e528bd68e7",
+  "the-job@left/outage/route": "a673a491c6678a67cf463ed6bce77e8fb9ec68f10f2e6fa45d3b8a196b4fe485",
+  "the-job@left/outage/series": "a611862fbbd67d15ca65baaf0258a6f46088ed116262028dafc787cf9a8cdb17",
+  "the-job@left/pr/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/pr/process": "6fa54914e023e86a91d6dea98750a1b10e6e205efe3a0dd087070d3ede5dc66f",
+  "the-job@left/pr/route": "af8f4cc67a82343fa6625a086531359f3a4c497e7c3854567dfde0f9a65676aa",
+  "the-job@left/pr/series": "aaf1916d0b5c5a2f299f8f779a19ef2600208b363b44b3c44d8eaa8e5edeba19",
+  "the-job@left/ramp/final": "2727572192425d8fd8866ad437705ec895a95ef9af7cf55b60397f21f5e2abeb",
+  "the-job@left/ramp/process": "89401de3f093588381a392920b798f4769797ee6b0631c1ff6f8e9894b5c059d",
+  "the-job@left/ramp/route": "c2ca6ec0383d6b79d592eb47780fdb13fa04529502e5260c31389a84759a3c62",
+  "the-job@left/ramp/series": "f862ab297f7d915dbdca5b5c986c0fb34ec76ff69817837b4573c914e64412ed",
+  "the-job@left/review/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "the-job@left/review/process": "40ce66ea67261c59a4b7bda30d23529aed263bfe5db24c9df307b5b4c7fe99c9",
+  "the-job@left/review/route": "96fb0802a931adb2881530e5073eac151805edcefd9cc3dd27fb6335a8f07f48",
+  "the-job@left/review/series": "8aabe02a6f13c06000f745ac3638c1ba91a8617b0a35721a0089c46221b04894",
+  "the-job@left/secret/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/secret/process": "441877401c417c2402863d29b739db7f8341076b42cc261b97de883e7037708b",
+  "the-job@left/secret/route": "5882188c26b7fcaafca7f053b230ed7d5a7a9a882a4eb2fe0fe7ed072f643af7",
+  "the-job@left/secret/series": "a831171ba0b1a8cb3f6d31122cea12139a05dfb3dcf3a0f83f0cf3732c82a15f",
+  "the-job@left/session/final": "9b81b73b5356a8d43f64d1959c2cadfd1c4714815747e2d9c94ddbd9b5fadf64",
+  "the-job@left/session/process": "b9c7ac6fa2ab6935c0ccac3fff21253d6ece3c94494c30e416fc2ffb2391ac82",
+  "the-job@left/session/route": "6ed778f2bed60e661e1454d13c28e4862bf4d9c30555319d72f3748788b672f0",
+  "the-job@left/session/series": "5f0cf4f9f13f1fa8929960ed13889e9a65f8d26fe75c9d428dbbae9b9a3027fc",
+  "the-job@left/team-pr/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/team-pr/process": "67870d4a09d02741ca0d2849b0e300aaf3aee6ba88ab03251272c573f511fe73",
+  "the-job@left/team-pr/route": "b4a72403691675c83851cfb142220a02f85fd31fab611424101c58d34e000140",
+  "the-job@left/team-pr/series": "9e5394068d67822905ec40b1a33b2185c61b5c77a6910934ec4f7943e921a063",
+  "the-job@left/ticket/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/ticket/process": "dc798978c7260ace4b2a0487f3a7b97978b325125211741726d20d042bd0f66a",
+  "the-job@left/ticket/route": "6c83478f7a10c0cff9e72228dec222560c1b92d8800fa21647d531b9cec1b4c9",
+  "the-job@left/ticket/series": "ad9f7ca45b438eedb6f1ea3314068a2815763e4cf9f8b8bfe93f767fefe8beda",
+  "the-job@left/update/final": "216aef2619556bb130378a7b203b03b7b59bb52c4c53382fab1a05ab4220bcd8",
+  "the-job@left/update/process": "6b9385433b5b34a48342e36052e4bf678ba971d68a931527f81d9fe8ecd8586e",
+  "the-job@left/update/route": "c7f269e1a6a2eb6e299db6e3fbcb47e351aafeeef3905b294646017b41425a57",
+  "the-job@left/update/series": "86841c7cc6acb50418fffefdc0d0d9f1205d37548f1710c588688aa3df5e5b55",
+  "ticket-factory/ergostat.action/final": "6e2e6e68013a85a3b493150b93ef5728b3a908e1c9c3554213943007fa5541b8",
+  "ticket-factory/ergostat.action/process": "212a0a379a6fc75dc120234bf8ae465cedf596699cc133579d5f3f9d6313bb3e",
+  "ticket-factory/ergostat.action/route": "a241386367f3e1e8dc50f532217fe745bc7825d5a779ffca592c0d1da136eea2",
+  "ticket-factory/ergostat.action/series": "1d54c7fc90b0b8442a0e975f8a0e5b83056afceedcc465f0d80693c86fcd0328",
+  "ticket-factory/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "ticket-factory/ergostat.claim/process": "6df4e7f508b7a7da1a7a574698d874e6ffaf29464f77e44615f63f73119849ae",
+  "ticket-factory/ergostat.claim/route": "12883011659233616b21958720bdc1870dbdd55867e3efbab893058b0b41e0f3",
+  "ticket-factory/ergostat.claim/series": "f45529e465ac62d609e7199f3a6803288702cc9ec73edeed0392ecb9e767bd4b",
+  "ticket-factory/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "ticket-factory/ergostat.context/process": "754fbff29b77bbe71b60a0a111abd7f3d070cec8a68f481b7a15b289b885e0c3",
+  "ticket-factory/ergostat.context/route": "00f35b299ca203cae3543ddc2ee53f3d6da2818e0909f58aae7955a784b85d92",
+  "ticket-factory/ergostat.context/series": "60a233453aaab174db35e7217c39cb7cba3a108f09a33cf18277be6fbe48940e",
+  "ticket-factory/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "ticket-factory/ergostat.correction/process": "666f1fef421938928576cf50adabd19257bc3e06e1f9b544aefe3d27c3bcbc1c",
+  "ticket-factory/ergostat.correction/route": "ffdcc3348f19550b014a6d05b9faccbbbf6b885d9e9cab4eb6190cad59e3dd12",
+  "ticket-factory/ergostat.correction/series": "bba687510e180f4c09f13fdd0e83266a34c6c87e3013867ae205d8bb8adb3602",
+  "ticket-factory/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "ticket-factory/ergostat.decision/process": "006861cdcfe6f6e99b1a3c9111689da7f86a1569fcf9f7de8406776b77090002",
+  "ticket-factory/ergostat.decision/route": "55a2c955fd44104daa7486d0ecfb81ddc0c594f89134292f3181fa0934a4025d",
+  "ticket-factory/ergostat.decision/series": "bf75c79bb634723a5a67486d8cda8619e290118467bb0bb7a5500207e995638e",
+  "ticket-factory/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "ticket-factory/ergostat.message/process": "0e7f13f9c0c3b4dbe160d33adeec443b47a4919f18d3075efd3e84e0d8c76f60",
+  "ticket-factory/ergostat.message/route": "72fdb460a65adbb284c364a8f196726911698993bc2e7ad80a70f8450cb8eb33",
+  "ticket-factory/ergostat.message/series": "59a77b717ff2ce3252941f075e9169a2e05cd3583bcadb159308098945767937",
+  "ticket-factory/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "ticket-factory/ergostat.model-change/process": "8d53fffd5c6cb6b0e7bdf000116fab6599942687a41872fc269576a94b6f56fc",
+  "ticket-factory/ergostat.model-change/route": "fa160ce1a8ca5eae4d6d1df1c210d3f1071da1dc0a981c36eb60c1dac6b57ac0",
+  "ticket-factory/ergostat.model-change/series": "e170a02546f15da2b81ce6ebd5eb92af5dab3f19cd0481b1595585d1723f33bb",
+  "ticket-factory/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "ticket-factory/ergostat.modelling-request/process": "b1d5313a461df1ae7032a4d812353c08cf345acb41cd8b9b0c05eb4f93393af0",
+  "ticket-factory/ergostat.modelling-request/route": "3862b896a7fdba15e94eb129fb201727d086769e3181e4f67c112a8b7a79038e",
+  "ticket-factory/ergostat.modelling-request/series": "0aafa58d942da36e7f7a2cf3999160985e340c71d13cbe4074c07a35cb51369f",
+  "ticket-factory/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "ticket-factory/ergostat.report/process": "983de8bf1bc7d00aac2fcf479af51c9a4ab97fc1e656f3af20e387e996c7ab0b",
+  "ticket-factory/ergostat.report/route": "6dcbd64842e4b3850dfae14a641e79006da2c5ae292ad9489abbe7b4fdea865c",
+  "ticket-factory/ergostat.report/series": "bc7df4cdac74993c89aa337b00653fb9019f0590442e6637202e53944f62c255",
+  "ticket-factory/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "ticket-factory/ergostat.verdict/process": "792ce87a5ad807ada65744ea6f6f7dc65751637844485058dbb86eb092a5808a",
+  "ticket-factory/ergostat.verdict/route": "6cf33de00c4fc524fa546be8cc37d54143b5fb2760aab7e0783255dd216ce332",
+  "ticket-factory/ergostat.verdict/series": "33b6c635f253a4314519ee6ed102f1ff00ef4b13294c3913c0fc867573399317",
+  "ticket-factory/ergostat.workspace/final": "0c85ccccac1e0a53d6431c168c1456f4a43fc37d4a86b08b052c539e12080791",
+  "ticket-factory/ergostat.workspace/process": "6115211f0c40b95331c66a1c8428fc8d04fab99c012f0862d261faf2d26ea63f",
+  "ticket-factory/ergostat.workspace/route": "467940d46bc69708dbf0e20a547d33a2618d68d060777e75ae6972cba88a978f",
+  "ticket-factory/ergostat.workspace/series": "4d9f2721d425ec814767f56bd6de60cd8b762959a009bf69c1712d3348691b79",
+  "ticket-factory/okr/final": "a60e22301d72199326ccc4547353b67186165bfefd7d34e554a7a34d5cc55b7d",
+  "ticket-factory/okr/process": "cecf8317149c38fa282fbb7b858097eb9f205096d4432b3513c249defdf92801",
+  "ticket-factory/okr/route": "1e1b30ed71a2d216463f2c210e4016a5c9d2b72b42f16af6e7f9d2a7da3a3946",
+  "ticket-factory/okr/series": "7d98f181b04bf0bf5f3d5a00c9d1c59272b9b2a022140762efe23203591e801b",
+  "ticket-factory/report/final": "71c1798ce437884d41fcbfd9ea3bbfa01f9f31467891c3b256379d27bc0d980d",
+  "ticket-factory/report/process": "a3c6e52d84e120d15ae46f6b35d8a60ddcbf72153d4549d05ec233689215ceb5",
+  "ticket-factory/report/route": "a683096011db3975a1e401e33b0047d1f2677a11efe85ef12806f016ae039795",
+  "ticket-factory/report/series": "8fe11f892572a3384e4e9e0aa4a053bce1c00c0cd14e3f31781ffd284a5140bb",
+  "ticket-factory/ticket/final": "0bb1c9383448e5060327530066bb9271bd61487a19694fb01ae98876a10e1e75",
+  "ticket-factory/ticket/process": "6aba5037ff76bd97def9c558b0805f717686dcc971f6a602718910040fd7c207",
+  "ticket-factory/ticket/route": "56430458c88a70130b98e17e7de9391ac74a4facc9750ad999f9dd537a087125",
+  "ticket-factory/ticket/series": "2ce3d86aff4fa7b3fbb8b31c40ef9bc4285d386be28e4a0d1aa657991e93405f",
+  "ticket-factory@left/ergostat.action/final": "6e2e6e68013a85a3b493150b93ef5728b3a908e1c9c3554213943007fa5541b8",
+  "ticket-factory@left/ergostat.action/process": "acad25e2490f422130ea15b64046a514c9af9fd502ce0258dc995c4d4a04ca96",
+  "ticket-factory@left/ergostat.action/route": "f32c95cf142fc9b5d309ce3b50150e54c747ef1a8669d953d43174abcee9ba8b",
+  "ticket-factory@left/ergostat.action/series": "a405b061edb772927e03cb6366a5f10633fb0ecba20fcf94f1880da243fdb8f0",
+  "ticket-factory@left/ergostat.claim/final": "7112e827508c53b59953e9cf42a804cdca79f2b3a15b84333f5dc145e188f226",
+  "ticket-factory@left/ergostat.claim/process": "48935d1daaa6c39ac56d700d6ca0e0c450bbb345dafaa196382c51733d8a7929",
+  "ticket-factory@left/ergostat.claim/route": "cb62e778a0401053f5ea698de3d565832e5f17959d47e981fa3a007a9f72b501",
+  "ticket-factory@left/ergostat.claim/series": "5c7b7462a0ce826a83674dce24b0e8c17ae9e43e05afb50f87d3a0064815a6be",
+  "ticket-factory@left/ergostat.context/final": "fa424aa176746c93182ce5e4f75d367a2af1adfcf1edfab7f8bf38a538fa43ad",
+  "ticket-factory@left/ergostat.context/process": "68c8745fed3e8d51ce05030eca0bffd61d85aef6964d82c0eeb13096cf6ed046",
+  "ticket-factory@left/ergostat.context/route": "1687a930264f7408fbc674254c17c9d86a061501f2a0959bdd9ec75f0f2e9ba8",
+  "ticket-factory@left/ergostat.context/series": "101a48e7b10407d4c8d7caa0af7b3397afdf1e6620f91c9888a58897c64fec58",
+  "ticket-factory@left/ergostat.correction/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "ticket-factory@left/ergostat.correction/process": "5a5e6f3eea50c593f580097671c73ef765bc15c12aae3693b60836b5b94c6858",
+  "ticket-factory@left/ergostat.correction/route": "b3eca341684a0f3aee6855c548d5ba251ca08645a2d74e2522ffd02af7e2080c",
+  "ticket-factory@left/ergostat.correction/series": "90afbcf824a024a1a92217201bd5c22d7b0b33456600ed2c334db730c5771b74",
+  "ticket-factory@left/ergostat.decision/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "ticket-factory@left/ergostat.decision/process": "0b5c1a30baf6d42439e7b901770d14a49a722a6421cfd5b29cfdbf7e373aee3e",
+  "ticket-factory@left/ergostat.decision/route": "4f607eb7c01bc998c1b35eee0b41b54a766c48a98f806dc4860d934802be2ba8",
+  "ticket-factory@left/ergostat.decision/series": "b9c979e7545e4671d303ee416065b5d9b7453525b794ac7986cf45d0382b1274",
+  "ticket-factory@left/ergostat.message/final": "30eb9d0da858bf0a923d18b1db8cb634a825c886688e44031bb1f8f5016d1aa4",
+  "ticket-factory@left/ergostat.message/process": "1a9ac1df52be4fbb772ee2945f44a90e136f317215ae5030bcd4ca73bc13209d",
+  "ticket-factory@left/ergostat.message/route": "040e331bdc4b9b17151ec6dd6b5e554bfeced002aa99f1c958fc614ef085433b",
+  "ticket-factory@left/ergostat.message/series": "0fecc1290a17d30bf953f0307c31a1edbbbaf4e7291c05dd97c5a48a917cc0cf",
+  "ticket-factory@left/ergostat.model-change/final": "29388c4fcf02ff72c31357a75239701439b9c53f6cd9892bbf8f89e5e90473fa",
+  "ticket-factory@left/ergostat.model-change/process": "020378b001726b3bba4ef42938a81a7e8c190ce3e72cf3eb6982b74eafca0a94",
+  "ticket-factory@left/ergostat.model-change/route": "5e4da01c999b9132cc21e7c9fbf38d12f4eb75a97cc238ff16f8a3a8daadaa86",
+  "ticket-factory@left/ergostat.model-change/series": "d519bf431bc171cd4fc9f42ca8a58c63365ee1561f4738ca3de02ea44c08a1a0",
+  "ticket-factory@left/ergostat.modelling-request/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "ticket-factory@left/ergostat.modelling-request/process": "c1ad48c1409cfff380849f0671ea4b279d799d72031e2f53e860fa93c356e127",
+  "ticket-factory@left/ergostat.modelling-request/route": "6f1c0d02aef51d62fa8d2d6904d98b1c89c6b09c04ac34334dd35f5f202edb45",
+  "ticket-factory@left/ergostat.modelling-request/series": "009a57382e69fed4e088f6c62c26c8fdc486b20f526c24eae68e9664d401336d",
+  "ticket-factory@left/ergostat.report/final": "334a43550781f758d7f51cd0f3e114ec00462ee358287975b27379f5d96fdc06",
+  "ticket-factory@left/ergostat.report/process": "0c6836af1972a646f431bdd5423ab3d4e87582ca7a8214eab4a981fddd2e4870",
+  "ticket-factory@left/ergostat.report/route": "5d8660f9aab1746b3e770284e1af3b099d9cc8cffcdf61181f986c11c8759ba3",
+  "ticket-factory@left/ergostat.report/series": "b8e23211ff3e0fa86cae720c67b2c6ba3a4c6de59d4832c79f8f77a093285e3e",
+  "ticket-factory@left/ergostat.verdict/final": "0344a7ea44c4c6270f0d09d4a99172703e70209b0792ad0f49905cff816da10a",
+  "ticket-factory@left/ergostat.verdict/process": "78fb13235e95ce89c3e5deadb4e020860c536727e2b3e014c74a8a7ff03e1baf",
+  "ticket-factory@left/ergostat.verdict/route": "597a44c97248515f285ab163df1efde891e01f343c98f49e6807bb9da2c64648",
+  "ticket-factory@left/ergostat.verdict/series": "c226848cbbfc2f19a4f4ed0f0bedb6b181ca6eeca63ca7cc8a56a73997175eb3",
+  "ticket-factory@left/ergostat.workspace/final": "0c85ccccac1e0a53d6431c168c1456f4a43fc37d4a86b08b052c539e12080791",
+  "ticket-factory@left/ergostat.workspace/process": "e7fe3ab4cfa23d17ac4a687a086e81fe6ecf564827f9b2ac2631125bb78b70e1",
+  "ticket-factory@left/ergostat.workspace/route": "6e0623c2f493be838bd7a836c442cd09f7c51023dfbc6b8d14aec5d3ace2ad51",
+  "ticket-factory@left/ergostat.workspace/series": "310a7d5ecb55574f1425193ff534c86fb91b8798ce3d99ad59a5d1356550c88c",
+  "ticket-factory@left/okr/final": "a60e22301d72199326ccc4547353b67186165bfefd7d34e554a7a34d5cc55b7d",
+  "ticket-factory@left/okr/process": "da5222b9b1cda55a4d2c1a7be8b12f63a47c8454f98ae68f5b9c71ff4e89b30c",
+  "ticket-factory@left/okr/route": "4d5e1c5ff3a49de06aa5596f171234901480359b643c0aeeda415040001d257c",
+  "ticket-factory@left/okr/series": "d808891a8aca9d671c1bca4030d0597fdd2fd65ba189378689fed774391920b0",
+  "ticket-factory@left/report/final": "71c1798ce437884d41fcbfd9ea3bbfa01f9f31467891c3b256379d27bc0d980d",
+  "ticket-factory@left/report/process": "06706a98a65bd480588dcd0040098e9eee1453a0bf8fed1af10cf63beecf60d4",
+  "ticket-factory@left/report/route": "a683096011db3975a1e401e33b0047d1f2677a11efe85ef12806f016ae039795",
+  "ticket-factory@left/report/series": "c9dac91b12f0ddb2e4b3fd3149c70516785502dc72c5c3bf26423602515468ba",
+  "ticket-factory@left/ticket/final": "0bb1c9383448e5060327530066bb9271bd61487a19694fb01ae98876a10e1e75",
+  "ticket-factory@left/ticket/process": "1186606924ef96cd01e9109206753fb1da603e365ccdb127c979b9cff19231d0",
+  "ticket-factory@left/ticket/route": "6c83478f7a10c0cff9e72228dec222560c1b92d8800fa21647d531b9cec1b4c9",
+  "ticket-factory@left/ticket/series": "e80eab04531090d0bbe9e60ae2e6c5a1db4ec21312e7f21e152721bf1d62440b"
  },
- "image-squeeze/ergostat.claim": {
-  "process": [
-   "unchecked"
-  ],
-  "route": [
-   "unchecked"
-  ],
-  "series": [
-   "unchecked"
-  ]
- },
- "image-squeeze/ergostat.context": {
-  "process": [
-   "failed"
-  ],
-  "route": [
-   "failed"
-  ],
-  "series": [
-   "failed"
-  ]
- },
- "image-squeeze/ergostat.correction": {
-  "process": [
-   "dismissed"
-  ],
-  "route": [
-   "dismissed"
-  ],
-  "series": [
-   "dismissed"
-  ]
- },
- "image-squeeze/ergostat.decision": {
-  "process": [
-   "dismissed"
-  ],
-  "route": [
-   "dismissed"
-  ],
-  "series": [
-   "dismissed"
-  ]
- },
- "image-squeeze/ergostat.message": {
-  "process": [
+ "said": {
+  "factory/answer/final": [
    "answered"
   ],
-  "route": [
+  "factory/answer/series": [
    "answered"
   ],
-  "series": [
+  "factory/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "factory/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "factory/ergostat.context/final": [
+   "failed"
+  ],
+  "factory/ergostat.context/series": [
+   "failed"
+  ],
+  "factory/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "factory/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "factory/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "factory/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "factory/ergostat.message/final": [
    "answered"
-  ]
- },
- "image-squeeze/ergostat.model-change": {
-  "process": [
+  ],
+  "factory/ergostat.message/series": [
+   "answered"
+  ],
+  "factory/ergostat.model-change/final": [
    "inconclusive"
   ],
-  "route": [
+  "factory/ergostat.model-change/series": [
    "inconclusive"
   ],
-  "series": [
+  "factory/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "factory/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "factory/ergostat.report/final": [
+   "dismissed"
+  ],
+  "factory/ergostat.report/series": [
+   "dismissed"
+  ],
+  "factory/ergostat.verdict/final": [
+   "missed"
+  ],
+  "factory/ergostat.verdict/series": [
+   "missed"
+  ],
+  "factory/gap/final": [
+   "merged",
+   "closed"
+  ],
+  "factory/gap/series": [
+   "parked",
+   "closed"
+  ],
+  "factory/pool/final": [
+   "held"
+  ],
+  "factory/pool/series": [
+   "held"
+  ],
+  "factory/task/final": [
+   "waiting",
+   "done"
+  ],
+  "factory/task/series": [
+   "waiting",
+   "done"
+  ],
+  "factory@left/answer/final": [
+   "answered"
+  ],
+  "factory@left/answer/series": [
+   "answered"
+  ],
+  "factory@left/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "factory@left/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "factory@left/ergostat.context/final": [
+   "failed"
+  ],
+  "factory@left/ergostat.context/series": [
+   "failed"
+  ],
+  "factory@left/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "factory@left/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "factory@left/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "factory@left/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "factory@left/ergostat.message/final": [
+   "answered"
+  ],
+  "factory@left/ergostat.message/series": [
+   "answered"
+  ],
+  "factory@left/ergostat.model-change/final": [
    "inconclusive"
-  ]
- },
- "image-squeeze/ergostat.modelling-request": {
-  "process": [
+  ],
+  "factory@left/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "factory@left/ergostat.modelling-request/final": [
    "dismissed"
   ],
-  "route": [
+  "factory@left/ergostat.modelling-request/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "image-squeeze/ergostat.report": {
-  "process": [
+  "factory@left/ergostat.report/final": [
    "dismissed"
   ],
-  "route": [
+  "factory@left/ergostat.report/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "image-squeeze/ergostat.verdict": {
-  "process": [
+  "factory@left/ergostat.verdict/final": [
    "missed"
   ],
-  "route": [
+  "factory@left/ergostat.verdict/series": [
    "missed"
   ],
-  "series": [
+  "factory@left/gap/final": [
+   "merged",
+   "closed"
+  ],
+  "factory@left/gap/series": [
+   "closed"
+  ],
+  "factory@left/pool/final": [
+   "held"
+  ],
+  "factory@left/pool/series": [
+   "held"
+  ],
+  "factory@left/task/final": [
+   "done"
+  ],
+  "factory@left/task/series": [
+   "done"
+  ],
+  "first-loop/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "first-loop/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "first-loop/ergostat.context/final": [
+   "failed"
+  ],
+  "first-loop/ergostat.context/series": [
+   "failed"
+  ],
+  "first-loop/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "first-loop/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "first-loop/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "first-loop/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "first-loop/ergostat.message/final": [
+   "answered"
+  ],
+  "first-loop/ergostat.message/series": [
+   "answered"
+  ],
+  "first-loop/ergostat.model-change/final": [
+   "inconclusive"
+  ],
+  "first-loop/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "first-loop/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "first-loop/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "first-loop/ergostat.report/final": [
+   "dismissed"
+  ],
+  "first-loop/ergostat.report/series": [
+   "dismissed"
+  ],
+  "first-loop/ergostat.verdict/final": [
    "missed"
-  ]
- },
- "image-squeeze/hypothesis": {
-  "process": [
-   "dropped",
-   "kept"
   ],
-  "route": [
-   "dropped",
-   "kept"
+  "first-loop/ergostat.verdict/series": [
+   "missed"
   ],
-  "series": [
-   "leased",
+  "first-loop@left/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "first-loop@left/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "first-loop@left/ergostat.context/final": [
+   "failed"
+  ],
+  "first-loop@left/ergostat.context/series": [
+   "failed"
+  ],
+  "first-loop@left/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "first-loop@left/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "first-loop@left/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "first-loop@left/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "first-loop@left/ergostat.message/final": [
+   "answered"
+  ],
+  "first-loop@left/ergostat.message/series": [
+   "answered"
+  ],
+  "first-loop@left/ergostat.model-change/final": [
+   "inconclusive"
+  ],
+  "first-loop@left/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "first-loop@left/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "first-loop@left/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "first-loop@left/ergostat.report/final": [
+   "dismissed"
+  ],
+  "first-loop@left/ergostat.report/series": [
+   "dismissed"
+  ],
+  "first-loop@left/ergostat.verdict/final": [
+   "missed"
+  ],
+  "first-loop@left/ergostat.verdict/series": [
+   "missed"
+  ],
+  "image-squeeze/case/final": [
+   "met"
+  ],
+  "image-squeeze/case/series": [
+   "met"
+  ],
+  "image-squeeze/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "image-squeeze/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "image-squeeze/ergostat.context/final": [
+   "failed"
+  ],
+  "image-squeeze/ergostat.context/series": [
+   "failed"
+  ],
+  "image-squeeze/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "image-squeeze/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "image-squeeze/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "image-squeeze/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "image-squeeze/ergostat.message/final": [
+   "answered"
+  ],
+  "image-squeeze/ergostat.message/series": [
+   "answered"
+  ],
+  "image-squeeze/ergostat.model-change/final": [
+   "inconclusive"
+  ],
+  "image-squeeze/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "image-squeeze/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "image-squeeze/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "image-squeeze/ergostat.report/final": [
+   "dismissed"
+  ],
+  "image-squeeze/ergostat.report/series": [
+   "dismissed"
+  ],
+  "image-squeeze/ergostat.verdict/final": [
+   "missed"
+  ],
+  "image-squeeze/ergostat.verdict/series": [
+   "missed"
+  ],
+  "image-squeeze/hypothesis/final": [
+   "kept",
+   "dropped"
+  ],
+  "image-squeeze/hypothesis/series": [
    "dropped",
    "dead"
-  ]
- },
- "image-squeeze/release": {
-  "process": [],
-  "route": [],
-  "series": []
- },
- "image-squeeze/session": {
-  "process": [
+  ],
+  "image-squeeze/release/final": [],
+  "image-squeeze/session/final": [
    "lost"
   ],
-  "route": [
+  "image-squeeze/session/series": [
    "lost"
   ],
-  "series": [
+  "image-squeeze@left/case/final": [
+   "met"
+  ],
+  "image-squeeze@left/case/series": [
+   "met"
+  ],
+  "image-squeeze@left/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "image-squeeze@left/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "image-squeeze@left/ergostat.context/final": [
+   "failed"
+  ],
+  "image-squeeze@left/ergostat.context/series": [
+   "failed"
+  ],
+  "image-squeeze@left/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "image-squeeze@left/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "image-squeeze@left/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "image-squeeze@left/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "image-squeeze@left/ergostat.message/final": [
+   "answered"
+  ],
+  "image-squeeze@left/ergostat.message/series": [
+   "answered"
+  ],
+  "image-squeeze@left/ergostat.model-change/final": [
+   "inconclusive"
+  ],
+  "image-squeeze@left/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "image-squeeze@left/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "image-squeeze@left/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "image-squeeze@left/ergostat.report/final": [
+   "dismissed"
+  ],
+  "image-squeeze@left/ergostat.report/series": [
+   "dismissed"
+  ],
+  "image-squeeze@left/ergostat.verdict/final": [
+   "missed"
+  ],
+  "image-squeeze@left/ergostat.verdict/series": [
+   "missed"
+  ],
+  "image-squeeze@left/hypothesis/final": [
+   "kept",
+   "dropped"
+  ],
+  "image-squeeze@left/hypothesis/series": [
+   "leased",
+   "dead"
+  ],
+  "image-squeeze@left/release/final": [],
+  "image-squeeze@left/session/final": [
    "lost"
-  ]
- },
- "roadmap/epic": {
-  "process": [
+  ],
+  "image-squeeze@left/session/series": [
+   "lost"
+  ],
+  "roadmap/epic/final": [
    "shipped"
   ],
-  "route": [
-   "shipped"
-  ],
-  "series": [
+  "roadmap/epic/series": [
    "underway",
    "shipped"
-  ]
- },
- "roadmap/ergostat.claim": {
-  "process": [
+  ],
+  "roadmap/ergostat.claim/final": [
    "unchecked"
   ],
-  "route": [
+  "roadmap/ergostat.claim/series": [
    "unchecked"
   ],
-  "series": [
-   "unchecked"
-  ]
- },
- "roadmap/ergostat.context": {
-  "process": [
+  "roadmap/ergostat.context/final": [
    "failed"
   ],
-  "route": [
+  "roadmap/ergostat.context/series": [
    "failed"
   ],
-  "series": [
-   "failed"
-  ]
- },
- "roadmap/ergostat.correction": {
-  "process": [
+  "roadmap/ergostat.correction/final": [
    "dismissed"
   ],
-  "route": [
+  "roadmap/ergostat.correction/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "roadmap/ergostat.decision": {
-  "process": [
+  "roadmap/ergostat.decision/final": [
    "dismissed"
   ],
-  "route": [
+  "roadmap/ergostat.decision/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "roadmap/ergostat.message": {
-  "process": [
+  "roadmap/ergostat.message/final": [
    "answered"
   ],
-  "route": [
+  "roadmap/ergostat.message/series": [
    "answered"
   ],
-  "series": [
-   "answered"
-  ]
- },
- "roadmap/ergostat.model-change": {
-  "process": [
+  "roadmap/ergostat.model-change/final": [
    "inconclusive"
   ],
-  "route": [
+  "roadmap/ergostat.model-change/series": [
    "inconclusive"
   ],
-  "series": [
-   "inconclusive"
-  ]
- },
- "roadmap/ergostat.modelling-request": {
-  "process": [
+  "roadmap/ergostat.modelling-request/final": [
    "dismissed"
   ],
-  "route": [
+  "roadmap/ergostat.modelling-request/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "roadmap/ergostat.report": {
-  "process": [
+  "roadmap/ergostat.report/final": [
    "dismissed"
   ],
-  "route": [
+  "roadmap/ergostat.report/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "roadmap/ergostat.verdict": {
-  "process": [
+  "roadmap/ergostat.verdict/final": [
    "missed"
   ],
-  "route": [
+  "roadmap/ergostat.verdict/series": [
    "missed"
   ],
-  "series": [
-   "missed"
-  ]
- },
- "roadmap/ticket": {
-  "process": [
+  "roadmap/ticket/final": [
    "done"
   ],
-  "route": [
-   "done"
-  ],
-  "series": [
-   "leased",
+  "roadmap/ticket/series": [
    "done",
    "dead"
-  ]
- },
- "software-factory/ergostat.claim": {
-  "process": [
+  ],
+  "roadmap@left/epic/final": [
+   "shipped"
+  ],
+  "roadmap@left/epic/series": [
+   "underway",
+   "shipped"
+  ],
+  "roadmap@left/ergostat.claim/final": [
    "unchecked"
   ],
-  "route": [
+  "roadmap@left/ergostat.claim/series": [
    "unchecked"
   ],
-  "series": [
-   "unchecked"
-  ]
- },
- "software-factory/ergostat.context": {
-  "process": [
+  "roadmap@left/ergostat.context/final": [
    "failed"
   ],
-  "route": [
+  "roadmap@left/ergostat.context/series": [
    "failed"
   ],
-  "series": [
-   "failed"
-  ]
- },
- "software-factory/ergostat.correction": {
-  "process": [
+  "roadmap@left/ergostat.correction/final": [
    "dismissed"
   ],
-  "route": [
+  "roadmap@left/ergostat.correction/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "software-factory/ergostat.decision": {
-  "process": [
+  "roadmap@left/ergostat.decision/final": [
    "dismissed"
   ],
-  "route": [
+  "roadmap@left/ergostat.decision/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "software-factory/ergostat.message": {
-  "process": [
+  "roadmap@left/ergostat.message/final": [
    "answered"
   ],
-  "route": [
+  "roadmap@left/ergostat.message/series": [
    "answered"
   ],
-  "series": [
-   "answered"
-  ]
- },
- "software-factory/ergostat.model-change": {
-  "process": [
+  "roadmap@left/ergostat.model-change/final": [
    "inconclusive"
   ],
-  "route": [
+  "roadmap@left/ergostat.model-change/series": [
    "inconclusive"
   ],
-  "series": [
-   "inconclusive"
-  ]
- },
- "software-factory/ergostat.modelling-request": {
-  "process": [
+  "roadmap@left/ergostat.modelling-request/final": [
    "dismissed"
   ],
-  "route": [
+  "roadmap@left/ergostat.modelling-request/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "software-factory/ergostat.report": {
-  "process": [
+  "roadmap@left/ergostat.report/final": [
    "dismissed"
   ],
-  "route": [
+  "roadmap@left/ergostat.report/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "software-factory/ergostat.verdict": {
-  "process": [
+  "roadmap@left/ergostat.verdict/final": [
    "missed"
   ],
-  "route": [
+  "roadmap@left/ergostat.verdict/series": [
    "missed"
   ],
-  "series": [
-   "missed"
-  ]
- },
- "software-factory/pr": {
-  "process": [
-   "deployed"
-  ],
-  "route": [
-   "deployed"
-  ],
-  "series": [
-   "deployed"
-  ]
- },
- "software-factory/release": {
-  "process": [],
-  "route": [],
-  "series": []
- },
- "software-factory/ticket": {
-  "process": [
-   "dropped"
-  ],
-  "route": [
-   "dropped"
-  ],
-  "series": [
-   "dropped"
-  ]
- },
- "the-job/action": {
-  "process": [
-   "dead",
+  "roadmap@left/ticket/final": [
    "done"
   ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
+  "roadmap@left/ticket/series": [
    "leased",
+   "dead"
+  ],
+  "software-factory/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "software-factory/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "software-factory/ergostat.context/final": [
+   "failed"
+  ],
+  "software-factory/ergostat.context/series": [
+   "failed"
+  ],
+  "software-factory/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "software-factory/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "software-factory/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "software-factory/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "software-factory/ergostat.message/final": [
+   "answered"
+  ],
+  "software-factory/ergostat.message/series": [
+   "answered"
+  ],
+  "software-factory/ergostat.model-change/final": [
+   "inconclusive"
+  ],
+  "software-factory/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "software-factory/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "software-factory/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "software-factory/ergostat.report/final": [
+   "dismissed"
+  ],
+  "software-factory/ergostat.report/series": [
+   "dismissed"
+  ],
+  "software-factory/ergostat.verdict/final": [
+   "missed"
+  ],
+  "software-factory/ergostat.verdict/series": [
+   "missed"
+  ],
+  "software-factory/pr/final": [
+   "deployed"
+  ],
+  "software-factory/pr/series": [
+   "deployed"
+  ],
+  "software-factory/release/final": [],
+  "software-factory/ticket/final": [
+   "dropped"
+  ],
+  "software-factory/ticket/series": [
+   "dropped"
+  ],
+  "software-factory@left/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "software-factory@left/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "software-factory@left/ergostat.context/final": [
+   "failed"
+  ],
+  "software-factory@left/ergostat.context/series": [
+   "failed"
+  ],
+  "software-factory@left/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "software-factory@left/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "software-factory@left/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "software-factory@left/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "software-factory@left/ergostat.message/final": [
+   "answered"
+  ],
+  "software-factory@left/ergostat.message/series": [
+   "answered"
+  ],
+  "software-factory@left/ergostat.model-change/final": [
+   "inconclusive"
+  ],
+  "software-factory@left/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "software-factory@left/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "software-factory@left/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "software-factory@left/ergostat.report/final": [
+   "dismissed"
+  ],
+  "software-factory@left/ergostat.report/series": [
+   "dismissed"
+  ],
+  "software-factory@left/ergostat.verdict/final": [
+   "missed"
+  ],
+  "software-factory@left/ergostat.verdict/series": [
+   "missed"
+  ],
+  "software-factory@left/pr/final": [
+   "deployed"
+  ],
+  "software-factory@left/pr/series": [
+   "deployed"
+  ],
+  "software-factory@left/release/final": [],
+  "software-factory@left/ticket/final": [
+   "dropped"
+  ],
+  "software-factory@left/ticket/series": [
+   "dropped"
+  ],
+  "the-job/action/final": [
    "done",
    "dead"
-  ]
- },
- "the-job/alert": {
-  "process": [
+  ],
+  "the-job/action/series": [
+   "done",
+   "dead"
+  ],
+  "the-job/alert/final": [
    "commented",
    "dead"
   ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
-   "leased",
+  "the-job/alert/series": [
    "commented",
    "dead"
-  ]
- },
- "the-job/ci": {
-  "process": [
-   "dead",
-   "upgraded"
   ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
-   "leased",
+  "the-job/ci/final": [
    "upgraded",
    "dead"
-  ]
- },
- "the-job/day": {
-  "process": [
+  ],
+  "the-job/ci/series": [
+   "upgraded",
+   "dead"
+  ],
+  "the-job/day/final": [
    "recorded"
   ],
-  "route": [
+  "the-job/day/series": [
    "recorded"
   ],
-  "series": [
-   "recorded"
-  ]
- },
- "the-job/doc": {
-  "process": [
+  "the-job/doc/final": [
    "approved",
    "dead"
   ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
-   "leased",
+  "the-job/doc/series": [
    "approved",
    "dead"
-  ]
- },
- "the-job/ergostat.claim": {
-  "process": [
+  ],
+  "the-job/ergostat.claim/final": [
    "unchecked"
   ],
-  "route": [
+  "the-job/ergostat.claim/series": [
    "unchecked"
   ],
-  "series": [
-   "unchecked"
-  ]
- },
- "the-job/ergostat.context": {
-  "process": [
+  "the-job/ergostat.context/final": [
    "failed"
   ],
-  "route": [
+  "the-job/ergostat.context/series": [
    "failed"
   ],
-  "series": [
-   "failed"
-  ]
- },
- "the-job/ergostat.correction": {
-  "process": [
+  "the-job/ergostat.correction/final": [
    "dismissed"
   ],
-  "route": [
+  "the-job/ergostat.correction/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "the-job/ergostat.decision": {
-  "process": [
+  "the-job/ergostat.decision/final": [
    "dismissed"
   ],
-  "route": [
+  "the-job/ergostat.decision/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "the-job/ergostat.message": {
-  "process": [
+  "the-job/ergostat.message/final": [
    "answered"
   ],
-  "route": [
+  "the-job/ergostat.message/series": [
    "answered"
   ],
-  "series": [
-   "answered"
-  ]
- },
- "the-job/ergostat.model-change": {
-  "process": [
+  "the-job/ergostat.model-change/final": [
    "inconclusive"
   ],
-  "route": [
+  "the-job/ergostat.model-change/series": [
    "inconclusive"
   ],
-  "series": [
-   "inconclusive"
-  ]
- },
- "the-job/ergostat.modelling-request": {
-  "process": [
+  "the-job/ergostat.modelling-request/final": [
    "dismissed"
   ],
-  "route": [
+  "the-job/ergostat.modelling-request/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "the-job/ergostat.report": {
-  "process": [
+  "the-job/ergostat.report/final": [
    "dismissed"
   ],
-  "route": [
+  "the-job/ergostat.report/series": [
    "dismissed"
   ],
-  "series": [
-   "dismissed"
-  ]
- },
- "the-job/ergostat.verdict": {
-  "process": [
+  "the-job/ergostat.verdict/final": [
    "missed"
   ],
-  "route": [
+  "the-job/ergostat.verdict/series": [
    "missed"
   ],
-  "series": [
-   "missed"
-  ]
- },
- "the-job/mention": {
-  "process": [
+  "the-job/mention/final": [
    "answered",
    "dead"
   ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
-   "leased",
+  "the-job/mention/series": [
    "answered",
    "dead"
-  ]
- },
- "the-job/note": {
-  "process": [
+  ],
+  "the-job/note/final": [
    "briefed"
   ],
-  "route": [
+  "the-job/note/series": [
    "briefed"
   ],
-  "series": [
-   "briefed"
-  ]
- },
- "the-job/outage": {
-  "process": [
+  "the-job/outage/final": [
    "reviewed"
   ],
-  "route": [
+  "the-job/outage/series": [
    "reviewed"
   ],
-  "series": [
-   "reviewed"
-  ]
- },
- "the-job/pr": {
-  "process": [
+  "the-job/pr/final": [
    "closed",
    "dead"
   ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
-   "leased",
+  "the-job/pr/series": [
    "closed",
    "dead"
-  ]
- },
- "the-job/ramp": {
-  "process": [
-   "approved",
-   "broke",
-   "proved-fine",
-   "rejected"
   ],
-  "route": [
+  "the-job/ramp/final": [
    "approved",
+   "rejected",
    "broke",
-   "proved-fine",
-   "rejected"
+   "proved-fine"
   ],
-  "series": [
-   "leased",
+  "the-job/ramp/series": [
    "proved-fine",
    "dead"
-  ]
- },
- "the-job/review": {
-  "process": [
+  ],
+  "the-job/review/final": [
    "answered"
   ],
-  "route": [
-   "answered"
-  ],
-  "series": [
-   "leased",
+  "the-job/review/series": [
    "answered",
    "dead"
-  ]
- },
- "the-job/secret": {
-  "process": [
-   "dead",
-   "rotated"
   ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
-   "leased",
+  "the-job/secret/final": [
    "rotated",
    "dead"
-  ]
- },
- "the-job/session": {
-  "process": [
+  ],
+  "the-job/secret/series": [
+   "rotated",
+   "dead"
+  ],
+  "the-job/session/final": [
    "lost"
   ],
-  "route": [
+  "the-job/session/series": [
    "lost"
   ],
-  "series": [
-   "lost"
-  ]
- },
- "the-job/team-pr": {
-  "process": [
-   "dead",
-   "moving"
-  ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
-   "leased",
+  "the-job/team-pr/final": [
    "moving",
    "dead"
-  ]
- },
- "the-job/ticket": {
-  "process": [
+  ],
+  "the-job/team-pr/series": [
+   "moving",
+   "dead"
+  ],
+  "the-job/ticket/final": [
    "answered",
    "dead"
   ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
-   "leased",
+  "the-job/ticket/series": [
    "answered",
    "dead"
-  ]
- },
- "the-job/update": {
-  "process": [
-   "dead",
-   "sent"
   ],
-  "route": [
-   "dead",
-   "leased"
-  ],
-  "series": [
-   "leased",
+  "the-job/update/final": [
    "sent",
    "dead"
-  ]
- },
- "ticket-factory/ergostat.action": {
-  "process": [
-   "denied"
   ],
-  "route": [
-   "denied"
+  "the-job/update/series": [
+   "sent",
+   "dead"
   ],
-  "series": [
-   "denied"
-  ]
- },
- "ticket-factory/ergostat.claim": {
-  "process": [
-   "unchecked"
+  "the-job@left/action/final": [
+   "dead"
   ],
-  "route": [
-   "unchecked"
-  ],
-  "series": [
-   "unchecked"
-  ]
- },
- "ticket-factory/ergostat.context": {
-  "process": [
-   "failed"
-  ],
-  "route": [
-   "failed"
-  ],
-  "series": [
-   "failed"
-  ]
- },
- "ticket-factory/ergostat.correction": {
-  "process": [
-   "dismissed"
-  ],
-  "route": [
-   "dismissed"
-  ],
-  "series": [
-   "dismissed"
-  ]
- },
- "ticket-factory/ergostat.decision": {
-  "process": [
-   "dismissed"
-  ],
-  "route": [
-   "dismissed"
-  ],
-  "series": [
-   "dismissed"
-  ]
- },
- "ticket-factory/ergostat.message": {
-  "process": [
-   "answered"
-  ],
-  "route": [
-   "answered"
-  ],
-  "series": [
-   "answered"
-  ]
- },
- "ticket-factory/ergostat.model-change": {
-  "process": [
-   "inconclusive"
-  ],
-  "route": [
-   "inconclusive"
-  ],
-  "series": [
-   "inconclusive"
-  ]
- },
- "ticket-factory/ergostat.modelling-request": {
-  "process": [
-   "dismissed"
-  ],
-  "route": [
-   "dismissed"
-  ],
-  "series": [
-   "dismissed"
-  ]
- },
- "ticket-factory/ergostat.report": {
-  "process": [
-   "dismissed"
-  ],
-  "route": [
-   "dismissed"
-  ],
-  "series": [
-   "dismissed"
-  ]
- },
- "ticket-factory/ergostat.verdict": {
-  "process": [
-   "missed"
-  ],
-  "route": [
-   "missed"
-  ],
-  "series": [
-   "missed"
-  ]
- },
- "ticket-factory/ergostat.workspace": {
-  "process": [
-   "quarantined"
-  ],
-  "route": [
-   "quarantined"
-  ],
-  "series": [
-   "quarantined"
-  ]
- },
- "ticket-factory/okr": {
-  "process": [
-   "off-track"
-  ],
-  "route": [
-   "off-track"
-  ],
-  "series": [
-   "off-track"
-  ]
- },
- "ticket-factory/report": {
-  "process": [
-   "written"
-  ],
-  "route": [
-   "written"
-  ],
-  "series": [
-   "written"
-  ]
- },
- "ticket-factory/ticket": {
-  "process": [
-   "done"
-  ],
-  "route": [
-   "done"
-  ],
-  "series": [
+  "the-job@left/action/series": [
    "leased",
+   "dead"
+  ],
+  "the-job@left/alert/final": [
+   "dead"
+  ],
+  "the-job@left/alert/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/ci/final": [
+   "dead"
+  ],
+  "the-job@left/ci/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/day/final": [
+   "recorded"
+  ],
+  "the-job@left/day/series": [
+   "recorded"
+  ],
+  "the-job@left/doc/final": [
+   "dead"
+  ],
+  "the-job@left/doc/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "the-job@left/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "the-job@left/ergostat.context/final": [
+   "failed"
+  ],
+  "the-job@left/ergostat.context/series": [
+   "failed"
+  ],
+  "the-job@left/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "the-job@left/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "the-job@left/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "the-job@left/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "the-job@left/ergostat.message/final": [
+   "answered"
+  ],
+  "the-job@left/ergostat.message/series": [
+   "answered"
+  ],
+  "the-job@left/ergostat.model-change/final": [
+   "inconclusive"
+  ],
+  "the-job@left/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "the-job@left/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "the-job@left/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "the-job@left/ergostat.report/final": [
+   "dismissed"
+  ],
+  "the-job@left/ergostat.report/series": [
+   "dismissed"
+  ],
+  "the-job@left/ergostat.verdict/final": [
+   "missed"
+  ],
+  "the-job@left/ergostat.verdict/series": [
+   "missed"
+  ],
+  "the-job@left/mention/final": [
+   "dead"
+  ],
+  "the-job@left/mention/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/note/final": [
+   "briefed"
+  ],
+  "the-job@left/note/series": [
+   "briefed"
+  ],
+  "the-job@left/outage/final": [
+   "reviewed"
+  ],
+  "the-job@left/outage/series": [
+   "reviewed"
+  ],
+  "the-job@left/pr/final": [
+   "dead"
+  ],
+  "the-job@left/pr/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/ramp/final": [
+   "approved",
+   "rejected",
+   "broke",
+   "proved-fine"
+  ],
+  "the-job@left/ramp/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/review/final": [
+   "answered"
+  ],
+  "the-job@left/review/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/secret/final": [
+   "dead"
+  ],
+  "the-job@left/secret/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/session/final": [
+   "lost"
+  ],
+  "the-job@left/session/series": [
+   "lost"
+  ],
+  "the-job@left/team-pr/final": [
+   "dead"
+  ],
+  "the-job@left/team-pr/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/ticket/final": [
+   "dead"
+  ],
+  "the-job@left/ticket/series": [
+   "leased",
+   "dead"
+  ],
+  "the-job@left/update/final": [
+   "dead"
+  ],
+  "the-job@left/update/series": [
+   "leased",
+   "dead"
+  ],
+  "ticket-factory/ergostat.action/final": [
+   "denied"
+  ],
+  "ticket-factory/ergostat.action/series": [
+   "denied"
+  ],
+  "ticket-factory/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "ticket-factory/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "ticket-factory/ergostat.context/final": [
+   "failed"
+  ],
+  "ticket-factory/ergostat.context/series": [
+   "failed"
+  ],
+  "ticket-factory/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "ticket-factory/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "ticket-factory/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "ticket-factory/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "ticket-factory/ergostat.message/final": [
+   "answered"
+  ],
+  "ticket-factory/ergostat.message/series": [
+   "answered"
+  ],
+  "ticket-factory/ergostat.model-change/final": [
+   "inconclusive"
+  ],
+  "ticket-factory/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "ticket-factory/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "ticket-factory/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "ticket-factory/ergostat.report/final": [
+   "dismissed"
+  ],
+  "ticket-factory/ergostat.report/series": [
+   "dismissed"
+  ],
+  "ticket-factory/ergostat.verdict/final": [
+   "missed"
+  ],
+  "ticket-factory/ergostat.verdict/series": [
+   "missed"
+  ],
+  "ticket-factory/ergostat.workspace/final": [
+   "quarantined"
+  ],
+  "ticket-factory/ergostat.workspace/series": [
+   "quarantined"
+  ],
+  "ticket-factory/okr/final": [
+   "off-track"
+  ],
+  "ticket-factory/okr/series": [
+   "off-track"
+  ],
+  "ticket-factory/report/final": [
+   "written"
+  ],
+  "ticket-factory/report/series": [
+   "written"
+  ],
+  "ticket-factory/ticket/final": [
+   "done"
+  ],
+  "ticket-factory/ticket/series": [
    "stopped",
+   "dead"
+  ],
+  "ticket-factory@left/ergostat.action/final": [
+   "denied"
+  ],
+  "ticket-factory@left/ergostat.action/series": [
+   "denied"
+  ],
+  "ticket-factory@left/ergostat.claim/final": [
+   "unchecked"
+  ],
+  "ticket-factory@left/ergostat.claim/series": [
+   "unchecked"
+  ],
+  "ticket-factory@left/ergostat.context/final": [
+   "failed"
+  ],
+  "ticket-factory@left/ergostat.context/series": [
+   "failed"
+  ],
+  "ticket-factory@left/ergostat.correction/final": [
+   "dismissed"
+  ],
+  "ticket-factory@left/ergostat.correction/series": [
+   "dismissed"
+  ],
+  "ticket-factory@left/ergostat.decision/final": [
+   "dismissed"
+  ],
+  "ticket-factory@left/ergostat.decision/series": [
+   "dismissed"
+  ],
+  "ticket-factory@left/ergostat.message/final": [
+   "answered"
+  ],
+  "ticket-factory@left/ergostat.message/series": [
+   "answered"
+  ],
+  "ticket-factory@left/ergostat.model-change/final": [
+   "inconclusive"
+  ],
+  "ticket-factory@left/ergostat.model-change/series": [
+   "inconclusive"
+  ],
+  "ticket-factory@left/ergostat.modelling-request/final": [
+   "dismissed"
+  ],
+  "ticket-factory@left/ergostat.modelling-request/series": [
+   "dismissed"
+  ],
+  "ticket-factory@left/ergostat.report/final": [
+   "dismissed"
+  ],
+  "ticket-factory@left/ergostat.report/series": [
+   "dismissed"
+  ],
+  "ticket-factory@left/ergostat.verdict/final": [
+   "missed"
+  ],
+  "ticket-factory@left/ergostat.verdict/series": [
+   "missed"
+  ],
+  "ticket-factory@left/ergostat.workspace/final": [
+   "quarantined"
+  ],
+  "ticket-factory@left/ergostat.workspace/series": [
+   "quarantined"
+  ],
+  "ticket-factory@left/okr/final": [
+   "off-track"
+  ],
+  "ticket-factory@left/okr/series": [
+   "off-track"
+  ],
+  "ticket-factory@left/report/final": [
+   "written"
+  ],
+  "ticket-factory@left/report/series": [
+   "written"
+  ],
+  "ticket-factory@left/ticket/final": [
+   "done"
+  ],
+  "ticket-factory@left/ticket/series": [
+   "leased",
    "dead"
   ]
  }

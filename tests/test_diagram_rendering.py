@@ -1010,10 +1010,17 @@ SCREEN_AT = """(name) => {
   const r = el.getBoundingClientRect();
   return [r.left, r.top];
 }"""
+OUTSIDE_HULL = """(name) => {
+  // whether a system's open outline lies partly beyond the canvas
+  const h = document.querySelector(`g.hull[data-hull="${name}"] rect:not(.hull-grip)`).getBoundingClientRect();
+  const c = document.querySelector('svg.canvas').getBoundingClientRect();
+  return h.left < c.left - 1 || h.top < c.top - 1 || h.right > c.right + 1 || h.bottom > c.bottom + 1;
+}"""
 
 
 def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(browser, tmp_path):
-    """A system opened stays where its box was on the screen, and closed again where its outline was; another
+    """A system opened stays where its box was on the screen (or moves the least that shows all of it), and closed
+    again where its outline was; another
     system's box, put by hand, keeps its pin and its place through both."""
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
@@ -1032,6 +1039,8 @@ def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(
         pg.mouse.up()
         pg.wait_for_function("() => S.pins['hull:product'] && !S.layout.routing", timeout=20000)
         pinned = pg.evaluate(SCREEN_AT, "product")
+        view = "() => [S.view.x, S.view.y, S.view.k]"
+        v0 = pg.evaluate(view)
         for name, opened in (("factory", True), ("factory", False)):
             at = pg.evaluate(SCREEN_AT, name)
             pg.evaluate("(n) => S.toggleSystem(n)", name)
@@ -1039,15 +1048,142 @@ def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(
                                  "!S.layout.routing && document.querySelectorAll('svg.canvas g.node').length", timeout=30000)
             pg.wait_for_timeout(300)
             now = pg.evaluate(SCREEN_AT, name)
-            assert abs(now[0] - at[0]) < 4 and abs(now[1] - at[1]) < 4, (name, opened, at, now)
+            if opened and (abs(now[0] - at[0]) >= 4 or abs(now[1] - at[1]) >= 4):   # moved only to bring all of it in view
+                assert not pg.evaluate(OUTSIDE_HULL, name), (name, at, now)
+            else:
+                assert abs(now[0] - at[0]) < 4 and abs(now[1] - at[1]) < 4, (name, opened, at, now)
             assert pg.evaluate("() => !!S.pins['hull:product']"), "the pin was lost"
-            if not opened:                              # back as it was: product's box where it was put
-                d = pg.evaluate(SCREEN_AT, "product")
+            if not opened:                              # back as it was: product's box where it was put (less any pan)
+                d, v = pg.evaluate(SCREEN_AT, "product"), pg.evaluate(view)
+                assert v[2] == v0[2], (v0, v)
+                d = [d[0] - (v[0] - v0[0]), d[1] - (v[1] - v0[1])]
                 assert abs(d[0] - pinned[0]) < 4 and abs(d[1] - pinned[1]) < 4, (pinned, d)
             r = pg.evaluate(AUDIT)
             assert not r["through"] and not r["partOverlap"], (name, opened, r["through"], r["partOverlap"])
         assert not errors, errors
         pg.close()
+
+
+OUTSIDE = """() => {
+  // every path and text drawn that is not wholly inside the canvas, and the edge hint's words when it is shown
+  const c = document.querySelector('svg.canvas').getBoundingClientRect(), out = [];
+  for (const el of document.querySelectorAll('svg.canvas #viewport path, svg.canvas #viewport text')) {
+    const r = el.getBoundingClientRect();
+    if (!r.width && !r.height) continue;                      // not drawn (hidden)
+    if (r.left < c.left - 1 || r.top < c.top - 1 || r.right > c.right + 1 || r.bottom > c.bottom + 1)
+      out.push(`${el.tagName} ${(el.textContent || el.getAttribute('class') || '').slice(0, 30)} at ` +
+               [r.left, r.top, r.right, r.bottom].map(Math.round).join(','));
+  }
+  const hint = document.getElementById('panhint');
+  return { out, hint: hint.hidden ? '' : hint.textContent, canvas: [Math.round(c.width), Math.round(c.height)] };
+}"""
+
+
+@pytest.mark.parametrize("example, view", [("ticket-factory", "blocks"), ("ticket-factory", "dynamics"),
+                                           ("software-factory", "blocks"), ("software-factory", "dynamics")])
+def test_fit_shows_every_line_and_label_and_no_edge_hint(browser, tmp_path, example, view):
+    """Fit frames what is drawn (every part, line and label), not only the layout's box, clear of the toolbars.
+    ticket-factory's modelling is the demo the design review saw wires past the right edge on after Fit (:8791)."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1800, "height": 560})     # wide and low: the toolbars' room counts
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, f"view={view}&system=modelling", 0)
+        fit(pg)
+        seen = pg.evaluate(OUTSIDE)
+        assert not seen["out"], seen
+        assert not seen["hint"], seen
+        bar = pg.locator(".zoom").bounding_box()          # the zoom bar lies on none of it
+        top = pg.locator(".toolbar").bounding_box()
+        box = pg.evaluate("() => { const r = document.querySelector('svg.canvas #viewport').getBoundingClientRect(); "
+                          "return [r.left, r.top, r.right, r.bottom]; }")
+        assert box[3] <= bar["y"] + 1 and box[1] >= top["y"] + top["height"] - 1, (box, bar, top)
+        pg.close()
+        assert not errors, errors
+
+
+@pytest.mark.parametrize("example", ["big", "software-factory"])
+def test_open_frames_the_system_opened_or_says_which_way_the_rest_lies(browser, tmp_path, example):
+    """Each system opened from its box (Open) is then wholly in view; one too big at the least legible zoom has
+    its top left in view, the zoom at that least, and the hint names the way to the rest, and clicked pans there.
+    big's api is the system the design review saw land half off-screen after Open (:8797)."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1280, "height": 800})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=-", 0)
+        names = pg.evaluate("() => Object.keys(S.graph.tree || {}).filter((n) => !S.graph.tree[n].within)")
+        if example == "big":
+            assert "api" in names, names
+            names = ["api"]
+        assert names
+        for i, name in enumerate(names):
+            drawn(pg, url, "open=-", i + 1)
+            pg.locator(f'g.node.k-system:has(text:text-is("{name}")) g.sys-btn:has(text:text-is("Open"))').first.click()
+            pg.wait_for_function(f"() => (S.graph.open || []).includes('{name}') && S.layout && !S.layout.routing && "
+                                 f"document.querySelector('g.hull[data-hull=\"{name}\"]')", timeout=60000)
+            pg.wait_for_timeout(300)
+            at = pg.evaluate("""(name) => {
+              const h = document.querySelector(`g.hull[data-hull="${name}"] rect:not(.hull-grip)`).getBoundingClientRect();
+              const c = document.querySelector('svg.canvas').getBoundingClientRect(), hint = document.getElementById('panhint');
+              const bar = document.querySelector('.diagram .toolbar').getBoundingClientRect();
+              return { l: h.left - c.left, t: h.top - c.top, r: h.right - c.left, b: h.bottom - c.top, w: c.width, h: c.height,
+                       k: S.view.k, bar: bar.bottom - c.top, hint: hint.hidden ? '' : hint.textContent }; }""", name)
+            inside = at["l"] >= -1 and at["t"] >= -1 and at["r"] <= at["w"] + 1 and at["b"] <= at["h"] + 1
+            if not inside:
+                too_big = at["r"] - at["l"] > at["w"] - 39 or at["b"] - at["t"] > at["h"] - at["bar"] - 59
+                assert too_big and at["k"] <= 0.8 + 1e-6 and 0 <= at["l"] < 40 and 0 <= at["t"] < at["bar"] + 20, (name, at)
+                way = "(to the right →|to the left ←|above ↑|below ↓)"
+                assert re.fullmatch(f"More {way}( and {way})*", at["hint"]), at
+                before = pg.evaluate("() => [S.view.x, S.view.y]")
+                pg.locator("#panhint").click()
+                after = pg.evaluate("() => [S.view.x, S.view.y]")
+                if "right" in at["hint"]:
+                    assert after[0] < before[0], (before, after)
+                if "below" in at["hint"]:
+                    assert after[1] < before[1], (before, after)
+        if example != "software-factory":
+            pg.close()
+            assert not errors, errors
+            return
+        # drawn alone (Into) in a small window: too big to show legibly, so the hint names the way, and pans there
+        pg.set_viewport_size({"width": 1000, "height": 400})
+        drawn(pg, url, "system=factory", 99)
+        seen = pg.evaluate(OUTSIDE)
+        assert seen["out"] and re.fullmatch(r"More to the right →( and below ↓)?|More below ↓", seen["hint"]), seen
+        before = pg.evaluate("() => [S.view.x, S.view.y]")
+        pg.locator("#panhint").click()
+        after = pg.evaluate("() => [S.view.x, S.view.y]")
+        assert ("right" not in seen["hint"] or after[0] < before[0]) and ("below" not in seen["hint"] or after[1] < before[1])
+        assert after != before, (before, after)
+        pg.close()
+        assert not errors, errors
+
+
+def test_the_edge_hint_pans_when_the_drawing_runs_past_every_side(browser, tmp_path):
+    """Zoomed in on the middle, the rest lies every way and the hint names all four; clicked, the view still moves
+    (on each axis, towards the side with more beyond it), never the two ways cancelling out."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1280, "height": 800})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=modelling", 0)
+        fit(pg)
+        for _ in range(8):
+            pg.get_by_role("button", name="Zoom in", exact=True).click()
+        hint = pg.evaluate("""() => {                     // the drawing's middle put on the canvas's middle
+          const svg = document.querySelector('svg.canvas'), c = svg.getBoundingClientRect();
+          const b = svg.querySelector('#viewport').getBoundingClientRect();
+          S.view.x += (c.left + c.width / 2) - (b.left + b.width / 2); S.view.y += (c.top + c.height / 2) - (b.top + b.height / 2);
+          applyView(svg);
+          const h = document.getElementById('panhint'); return h.hidden ? '' : h.textContent; }""")
+        assert all(w in hint for w in ("to the left ←", "to the right →", "above ↑", "below ↓")), hint
+        before = pg.evaluate("() => [S.view.x, S.view.y]")
+        pg.locator("#panhint").click()
+        after = pg.evaluate("() => [S.view.x, S.view.y]")
+        assert abs(after[0] - before[0]) > 100 and abs(after[1] - before[1]) > 100, (before, after)
+        pg.close()
+        assert not errors, errors
 
 
 # the page's answers from the paths matching window.__slow (a pattern) held back 2.5s: a slow server, made on purpose
@@ -1743,7 +1879,8 @@ def test_items_links_each_kind_to_its_process_map_whose_states_say_how_many_are_
         assert all(n["px"] >= 10.99 for n in pg.evaluate(NODE_TEXT)), pg.evaluate(NODE_TEXT)
         pg.get_by_role("button", name="Fit").click()
         assert all(n["px"] >= 10.99 for n in pg.evaluate(NODE_TEXT)), pg.evaluate(NODE_TEXT)
-        assert pg.is_visible("#panhint") and pg.inner_text("#panhint").startswith("More beyond the edge "), pg.inner_text("#panhint")
+        assert pg.is_visible("#panhint") and re.match(r"More to the (left|right|above|below)", pg.inner_text("#panhint")), \
+            pg.inner_text("#panhint")
         pg.close()
     assert not errors, errors
 
@@ -2388,6 +2525,42 @@ def test_a_loops_table_is_drawn_again_when_a_proposal_below_it_is_accepted(brows
         pg.close()
 
 
+def test_a_loops_table_shows_a_declared_laws_fit_beside_the_identified(browser, tmp_path):
+    """The tuner's loop answer routed to carry an external controller's two laws (SPEC §12d): the table's held-out fit
+    row says the identified law's skill and R² and, beside it, the declared law's, with its points and that it fits its
+    record worse; a declared law too little record judges says why."""
+    import json
+    declared = [{"kind": "kubernetes-hpa", "short": "⌈u x / 0.8⌉", "skill": -37.5, "r2": -4.32, "points": 481, "worse": True},
+                {"kind": "kubernetes-hpa", "why": "21 points of record on a 15s grid (at least 40)"}]
+
+    def answer(route):
+        d = route.fetch().json()
+        if d and not d.get("why"):
+            d["controller"] = {**(d.get("controller") or {}), "block": "tuner", "declared": declared[0],
+                               "identified": {"short": "+1 > 0.55, −1 < 0.186", "skill": 0.5, "r2": -1.26}}
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(d))
+
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/loop-control?*", answer)
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="Fit", exact=True).click()
+        pg.locator('g.node[data-id="blk:tuner"] .hit').first.click()
+        pg.wait_for_function(SETTLED, timeout=60000)
+        fit = dict(pg.evaluate(LOOP_PANEL)["rows"])["held-out fit"]
+        assert "validation" in fit and "; tuner's law identified +1 > 0.55, −1 < 0.186: skill 0.5 one step ahead" in fit, fit
+        assert "declared kubernetes-hpa ⌈u x / 0.8⌉: skill −37.5 one step ahead, R² −4.32 run free of 481 points, fits its " \
+               "record worse" in fit, fit
+        row = pg.evaluate("""(c) => { const t = loopTable({ goal: 'g', controller: c });
+          return [...t.rows].find((r) => r.cells[0].textContent === 'held-out fit').cells[1].textContent; }""",
+                          {"block": "hpa", "declared": declared[1]})
+        assert row.endswith("; hpa's law declared kubernetes-hpa: not judged, 21 points of record on a 15s grid (at least 40)"), row
+        assert not errors, errors
+        pg.close()
+
+
 PROC_ORDER = """() => {
   // the process panel: its identification (the first .control) before the block's words and headings outside it
   const d = document.querySelector('#detail'), c = d.querySelector('.control');
@@ -2656,6 +2829,68 @@ def test_a_system_is_drawn_c_p_or_named_with_the_same_p_by_m_closed_and_open(bro
         pg.close()
 
 
+# dev/records/model-split-oversized-systems.md: the factory's landing, times and intake, each split into subsystems
+FACTORY_SPLIT = {"landing": ["merging", "upgrading", "switching"], "times": ["state-times", "loop-times", "gate-times"],
+                 "intake": ["open-gaps", "split-and-join"], "switching": ["switch-over"], "split-and-join": ["joins"]}
+# one of each subsystem's parts, as the Dynamics view names its node (an auxiliary's is named stock: too)
+FACTORY_SPLIT_PART = {"merging": "stock:gaps-queued", "upgrading": "stock:upgrades-available",
+                      "switching": "stock:upgrades-installed", "switch-over": "stock:upgrades-switching",
+                      "state-times": "stock:in-ready-hours", "loop-times": "stock:loop-hours",
+                      "gate-times": "stock:gate-unit-minutes", "open-gaps": "stock:gaps-open",
+                      "split-and-join": "stock:gaps-split", "joins": "stock:gaps-joined"}
+# the Blocks view draws nothing of these: gate-times has no block, and switch-over, split-and-join and joins hold
+# none (the switch's blocks are switching's; split-watch and join-judge, in no goal's loop, are intake's own and
+# were not drawn before the split either)
+NO_BLOCKS = {"gate-times", "split-and-join", "switch-over", "joins"}
+# the subsystems drawn closed: each one's box, by its name ([name, its node's id, drawn])
+CLOSED_SYSTEMS = """(names) => names.map((x) => { const n = S.graph.nodes.find((n) => n.role === 'subsystem' && n.label === x);
+  return [x, n?.id || null, !!(n && document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`))]; })"""
+# the subsystems drawn open: each one's frame, and the ids of the parts drawn inside it
+OPEN_SYSTEMS = """(names) => Object.fromEntries(names.map((x) => {
+  const hull = document.querySelector(`svg.canvas g.hull[data-hull="${x}"], svg.canvas g.hull[data-hull="frame:${x}"]`);
+  const inside = S.graph.nodes.filter((n) => ((n.systems || []).includes(x) || (n.systems || []).includes('frame:' + x))
+    && document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`)).map((n) => n.id);
+  return [x, [!!hull, inside]]; }))"""
+
+
+@pytest.mark.slow
+def test_the_factorys_split_systems_are_drawn_in_dynamics_and_blocks(browser, tmp_path):
+    """Done 3: the factory's model, served, draws the new subsystems of landing, times and intake, each system's view
+    in turn. Dynamics: opened, each subsystem a frame with its parts in it. Blocks: closed, each a block of its own
+    inside its parent; opened, a frame with its blocks in it (but those of NO_BLOCKS, which hold none: split-and-join's
+    own Blocks view, with nothing to draw, is not opened). No page error."""
+    src = tmp_path / "src" / "factory"
+    (src / "dev").mkdir(parents=True)
+    shutil.copy(ROOT / "ergostat.yaml", src / "ergostat.yaml")
+    for x in ("model", "prompts", "knowledge"):
+        shutil.copytree(ROOT / "dev" / x, src / "dev" / x)
+    with served(src, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        n = 0
+        for parent, subs in FACTORY_SPLIT.items():
+            for view in ("dynamics", "blocks")[:1 if parent in NO_BLOCKS else 2]:   # (no block: nothing to draw)
+                drawn(pg, url, f"view={view}&system={parent}", n)
+                tree = pg.evaluate("() => S.graph.tree || {}")
+                assert {s: (tree.get(s) or {}).get("within") for s in subs} == dict.fromkeys(subs, parent), view
+                if view == "blocks":
+                    closed = pg.evaluate(CLOSED_SYSTEMS, subs)
+                    assert [x for x, _, shown in closed if not shown] == [s for s in subs if s in NO_BLOCKS], closed
+                    assert all(i == f"sys:{x}" for x, i, shown in closed if shown), closed
+                drawn(pg, url, f"view={view}&system={parent}&open={','.join(subs)}", n + 1)
+                opened = pg.evaluate(OPEN_SYSTEMS, subs)
+                for s in subs:
+                    hull, inside = opened[s]
+                    if view == "dynamics":
+                        assert hull and FACTORY_SPLIT_PART[s] in inside, (view, s, opened[s])
+                    else:
+                        assert (hull and bool(inside)) == (s not in NO_BLOCKS), (view, s, opened[s])
+                n += 2
+        assert not errors, errors
+        pg.close()
+
+
 SD_CHECK = """() => {
   // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
   // parts drawn as themselves) has its marker; every connector shows its polarity (? where not known) at its head;
@@ -2715,6 +2950,169 @@ def test_the_dynamics_view_draws_only_system_dynamics_symbols_each_loop_marked_e
             assert not bad, (v, bad[:10])
         assert pg.locator(".toolbar .seg button.on").inner_text().lower().startswith("dynamics")
         assert not errors, errors
+        pg.close()
+
+
+PROBE ="""(v) => { const e = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); e.style.stroke = `var(${v})`;
+  document.querySelector('svg.canvas').append(e); const c = getComputedStyle(e).stroke; e.remove(); return c; }"""
+FRAMES = """() => { const probe = PROBE;
+  return { frame: probe('--frame'), paper: getComputedStyle(document.body).backgroundColor,
+    frames: [...document.querySelectorAll('svg.canvas g.hull')].map((g) => {
+      const r = g.querySelector(':scope > rect.frame'), c = g.querySelector(':scope > path.frame-corners');
+      const rs = r && getComputedStyle(r), cs = c && getComputedStyle(c);
+      return { name: g.dataset.hull || '', modelling: g.classList.contains('frame-modelling'), fill: rs?.fill, stroke: rs?.stroke,
+               dash: rs?.strokeDasharray, rx: r?.getAttribute('rx'), corners: !!c, cornerDash: cs?.strokeDasharray,
+               cornerWidth: cs && parseFloat(cs.strokeWidth) }; }) }; }""".replace("PROBE", PROBE)
+
+
+def luminance(rgb: str) -> float:
+    import re
+    c = [int(x) / 255 for x in re.findall(r"\d+", rgb)[:3]]
+    c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = sorted([luminance(a), luminance(b)], reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+@pytest.mark.parametrize("example", ["software-factory", "ticket-factory"])
+def test_an_open_system_is_framed_by_its_corners_in_every_view_and_both_themes_and_modellings_hairline_is_dashed(browser, tmp_path,
+                                                                                                                example):
+    """Every open system's frame, in Dynamics, Blocks and Process and in both themes: no fill, a square-cornered
+    hairline in --frame (at least 1.6:1 on the paper) and a path of corner marks; modelling's hairline dashed, its
+    corners solid."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served(example, tmp_path) as url:
+        seed_workflows(Project(mdl.load(tmp_path / example)), time.time())
+        time.sleep(1.6)
+        for scheme in ("light", "dark"):
+            pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+            for i, view in enumerate(["open=*", "view=blocks&open=*", *(["view=process"] if example == "software-factory" else [])]):
+                if view == "view=process":
+                    pm_served(pg, url, 10 + i)
+                else:
+                    drawn(pg, url, view, i)
+                r = pg.evaluate(FRAMES)
+                assert r["frames"], (scheme, view)
+                assert contrast(r["frame"], r["paper"]) >= 1.6, (scheme, r["frame"], r["paper"])
+                for f in r["frames"]:
+                    assert f["fill"] in ("none", "rgba(0, 0, 0, 0)"), (scheme, view, f)
+                    assert f["stroke"] == r["frame"] and f["rx"] is None, (scheme, view, f)
+                    assert f["corners"] and 1.2 <= f["cornerWidth"] <= 1.4 and f["cornerDash"] == "none", (scheme, view, f)
+                    assert (f["dash"] != "none") == (f["modelling"] or f["name"].startswith("casc:")), (scheme, view, f)
+                if view != "view=process":                     # modelling, open, in Dynamics and Blocks: dashed
+                    assert [f for f in r["frames"] if f["modelling"]], (scheme, view, [f["name"] for f in r["frames"]])
+            pg.close()
+
+
+def test_a_graph_with_no_tree_frames_its_systems_by_their_corners_and_fills_nothing(browser, tmp_path):
+    """The second drawing path (a graph with no tree, e.g. a TOML model: its systems outlined around their parts)
+    draws the same frame: no fill on the rect or the corners, the hairline in --frame."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
+        drawn(pg, url, "open=*", 0)
+        r = pg.evaluate("""() => { const svg = document.querySelector('svg.canvas'), g = { ...S.graph };
+          delete g.tree; const lay = { ...S.layout, containers: [] };
+          const names = [...new Set(g.nodes.flatMap((n) => n.systems || []))];
+          S.status = { ...S.status, systems: names }; S.showHulls = true; drawGraph(svg, g, lay);
+          return { names, frame: (PROBE)('--frame'),
+            frames: [...svg.querySelectorAll('.sys-hull rect.frame, .sys-hull path.frame-corners')].map((e) => {
+              const cs = getComputedStyle(e);
+              return { tag: e.tagName, hull: !!e.closest('g.hull'), fill: cs.fill, stroke: cs.stroke }; }) }; }"""
+                        .replace("PROBE", PROBE))
+        pg.close()
+    assert r["names"] and len(r["frames"]) >= 2 * len(r["names"]), r
+    for f in r["frames"]:
+        assert f["hull"] and f["fill"] in ("none", "rgba(0, 0, 0, 0)"), f
+        assert f["tag"] != "rect" or f["stroke"] == r["frame"], (f, r["frame"])
+
+
+def test_the_exported_blocks_legend_draws_the_frame_glyphs_hairline_and_corners(browser, tmp_path):
+    """The Blocks legend in a saved picture: its frame row's hairline and corners are stroked in the file itself,
+    where none of the page's custom properties exist (rendered here in a blank page with no stylesheet)."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
+        drawn(pg, url, "view=blocks&open=*", 0)              # (open: the legend has a row only for what is drawn)
+        markup = pg.evaluate("() => bdExportLegend(600).g.outerHTML")
+        pg.close()
+    blank = browser.new_page()
+    blank.set_content(f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900">{markup}</svg>')
+    r = blank.evaluate("""() => {
+      const corners = [...document.querySelectorAll('path')].find((p) => p.getAttribute('d').startsWith('M2,7V2H7'));
+      const ic = corners && corners.parentNode, rect = ic && ic.querySelector('rect');
+      return corners ? { corners: getComputedStyle(corners).stroke, rect: getComputedStyle(rect).stroke,
+                         halo: getComputedStyle(ic.querySelector('text')).stroke, html: ic.innerHTML } : null; }""")
+    blank.close()
+    assert r, markup[:400]
+    assert all(r[k] not in ("none", "") for k in ("corners", "rect", "halo")) and "var(" not in r["html"], r
+
+
+def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, tmp_path):
+    """A closed system (a module in Dynamics, a subsystem block in Blocks) is outlined in --frame-mark at 1.2 px; with
+    a goal in it off, in full ink at 2 px: darker on the paper and thicker."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
+        drawn(pg, url, "", 0)
+        # (a box drawn by the view's own code, put on the canvas, its outline's computed style read, taken off)
+        put = """const put = (g, sel) => { document.querySelector('svg.canvas #viewport').append(g);
+            const cs = getComputedStyle(g.querySelector(sel)), out = [cs.stroke, parseFloat(cs.strokeWidth)]; g.remove(); return out; };"""
+        sd = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.kind === 'system'); PUT
+          const draw = (loops) => put(sdSystem({ ...n, loops }, 220, 120), 'rect.sd-module');
+          return { calm: draw({ holding: 2 }), off: draw({ holding: 1, off: 1 }), mark: (PROBE)('--frame-mark'),
+            drawn: [...document.querySelectorAll('svg.canvas rect.sd-module')].map((r) => [r.classList.contains('sys-off'),
+                                                                                         getComputedStyle(r).stroke]),
+            legend: (() => { const was = S.graph; S.graph = { ...was, nodes: [...was.nodes, { ...n, loops: { off: 1 } }] };
+                             // (with a module off; the frame rows only: main's tone row speaks of "a goal's gap")
+                             try { return [...sdLegend().children].map((c) => c.textContent)
+                                     .filter((t) => /^(module|sector)/.test(t)).join(' | '); }
+                             finally { S.graph = was; } })(),
+            paper: getComputedStyle(document.body).backgroundColor }; }""".replace("PROBE", PROBE).replace("PUT", put))
+        drawn(pg, url, "view=blocks", 1)
+        bd = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem'); PUT
+          const was = S.status.loops;
+          S.status.loops = { ...was, 'fixture-goal': { status: 'off', word: 'off' }, 'calm-goal': { status: 'holding', word: 'holding' } };
+          const draw = (loops) => put(bdNode({ ...n, loops }, { x: 0, y: 0, width: 120, height: 60 }), ':scope > rect.bd-line');
+          const out = { calm: draw(['calm-goal']), off: draw(['calm-goal', 'fixture-goal']) }; S.status.loops = was; return out; }"""
+                         .replace("PUT", put))
+        pg.close()
+    for v in (sd, bd):
+        assert v["calm"][1] == 1.2 and v["off"][1] == 2, v
+        assert contrast(v["off"][0], sd["paper"]) > contrast(v["calm"][0], sd["paper"]) + 2, v
+    assert sd["calm"][0] == sd["mark"], sd
+    assert "drawn heavy" in sd["legend"] and not re.search(SD_WORDS, sd["legend"], re.I), sd["legend"]
+    assert sd["drawn"] and all(st == (sd["off"][0] if off else sd["calm"][0]) for off, st in sd["drawn"]), sd
+
+
+def test_a_closed_subsystems_outline_follows_its_goals_as_the_status_polls_change(browser, tmp_path):
+    """A closed subsystem block draws no comparator, so its outline is not redrawn by a loop's error label changing:
+    a goal in it going off after the first draw must still make it heavy on the next poll, and light again after."""
+    off: set[str] = set()
+
+    def status(route):
+        resp = route.fetch()
+        body = resp.json()
+        for k in off:
+            body.setdefault("loops", {}).setdefault(k, {}).update(status="off", word="off")   # (the server's word too)
+        route.fulfill(response=resp, body=json.dumps(body))
+
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        pg.route("**/api/status*", status)
+        drawn(pg, url, "view=blocks", 0)
+        sub = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem' && (n.loops || []).length
+                                       && !n.loops.some((k) => goalWord(S.status.loops?.[k]) === 'off'));
+                                     return n && { id: n.id, loops: n.loops }; }""")
+        assert sub, "no closed subsystem with a goal in it, none off"
+        heavy = f"""() => document.querySelector(`g.bd-node[data-id="${{CSS.escape({json.dumps(sub['id'])})}}"]`)
+                             ?.classList.contains('sys-off')"""
+        assert pg.evaluate(heavy) is False
+        off.update(sub["loops"][:1])                     # (a goal in it gone off, after the first draw)
+        pg.wait_for_function(heavy, timeout=20000)
+        off.clear()                                      # (and back)
+        pg.wait_for_function(f"() => !({heavy})()", timeout=20000)
         pg.close()
 
 
@@ -2889,6 +3287,52 @@ def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard
         pg.close()
 
 
+# the demos swept (dev/records/diagram-spoken-names.md): every focusable part's spoken name, and what the page knows
+# of it to check that name against (its name as drawn, a stock's unit)
+SPOKEN_DEMOS = ["software-factory", "ticket-factory", "image-squeeze", "first-loop", "autoscaler", "ops"]
+SPOKEN = """() => [...document.querySelectorAll('svg.canvas [tabindex]:is(.node, .edge, .bd-frame)')].map((el) => {
+  const n = el.matches('.node') && S.graph.nodes.find((x) => x.id === el.dataset.id);
+  const e = el.matches('.edge') && S.graph.edges.find((x) => x.id === el.dataset.id);
+  const f = el.matches('.bd-frame') && (S.graph.frames || []).find((x) => x.id === el.dataset.hull);
+  const name = n ? (['gap', 'desired'].includes(n.role) ? n.goal : ['cloud', 'sampler', 'mux', 'demux'].includes(n.kind) ? ''
+                    : String(n.label).replace(/^Σ /, '')) : e ? e.signal?.sym || e.flow || '' : f ? f.label : '';
+  return { id: el.dataset.id || el.dataset.hull, role: el.getAttribute('role'), label: el.getAttribute('aria-label') || '',
+           name, unit: n && n.kind === 'stock' ? (n.unit || '').trim() : '' };
+})"""
+SPOKEN_KINDS = {   # each view's kind words, the first words of every name (an allowlist: a part named otherwise fails)
+    "dynamics": r"(stock|flow|pipe of flow|connector|auxiliary|exogenous input|desired level|goal gap|goal excess|decision|"
+                r"cloud|module|shadow variable)\b",
+    "blocks": r"(signal|summing junction|mux|demux|sampler|subsystem|inner loop|controller|actuator|process|sensor|collector|"
+              r"reference input|disturbance input|output|In port|Out port|zero-order hold|block)\b"}
+NOT_SPOKEN = {"dynamics": r"sensor|controller", "blocks": r"stock"}   # the other discipline's words
+
+
+@pytest.mark.parametrize("example", SPOKEN_DEMOS)
+def test_every_focusable_part_is_named_in_its_views_words_with_its_kind_and_name(browser, tmp_path, example):
+    """Done items 1-3 of diagram-spoken-names: in Dynamics and in Blocks, every part Tab reaches has a non-empty name
+    that starts with its kind word and contains its name, with no 'undefined' and no raw id; a stock's says its unit;
+    no Dynamics name says sensor or controller, no Blocks name says stock."""
+    assert example in EXAMPLES, example
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, view in enumerate(("dynamics", "blocks")):
+            drawn(pg, url, f"view={view}&open=*", i)
+            parts = pg.evaluate(SPOKEN)
+            assert len(parts) > 3, (view, parts)
+            for p in parts:
+                said = p["label"]
+                assert p["role"] == "button" and re.match(SPOKEN_KINDS[view], said), (view, p)
+                assert p["name"] in said and p["unit"] in said, (view, p)
+                assert not re.search(r"undefined|null|NaN|\w:\w", said), (view, p)
+                twice = p["name"] and re.search(rf"(?<!\S){re.escape(p['name'])},? {re.escape(p['name'])}(?![\w-])", said)
+                assert not twice, (view, "its name said twice", p)
+                assert not re.search(NOT_SPOKEN[view], said, re.I), (view, p)
+        assert not errors, errors
+        pg.close()
+
+
 @pytest.mark.slow
 def test_a_goal_and_its_feedback_loops_link_each_other_across_the_views(browser, tmp_path):
     """goal -> feedback loop (Dynamics, the loop chosen) -> goal, and goal -> control loop (Blocks); the list's summary
@@ -2967,6 +3411,107 @@ def test_the_diagram_is_one_tab_stop_that_remembers_the_part_last_on(browser, tm
         pg.close()
 
 
+SPOKEN_UNIT = """() => {
+  const off = { 'users-at-180': { word: 'off', error: -28 }, 'located-worked': { word: 'off', error: -36 },
+                other: { word: 'holding' }, short: { word: 'off' } };
+  S.status = { ...S.status, loops: off };
+  const sd = { kind: 'dynamics', nodes: [
+    { id: 'stock:users', kind: 'stock', label: 'users', valueText: '152', unit: 'users', systems: ['product'],
+      goals: [{ name: 'users-at-180', desired: '180' }] },
+    { id: 'flow:signups', kind: 'valve', label: 'signups', rate: 3.1, rateText: '3.1 per hour' },
+    { id: 'cloud:signups:in', kind: 'cloud' },
+    { id: 'gap:users-at-180', kind: 'auxiliary', role: 'gap', label: 'users gap', goal: 'users-at-180', of: 'users', offBy: 'off by 28' },
+    { id: 'desired:users-at-180', kind: 'auxiliary', role: 'desired', goal: 'users-at-180', of: 'users', valueText: '180' },
+    { id: 'auxiliary:churn', kind: 'auxiliary', label: 'churn', valueText: '2', unit: 'per day' },
+    { id: 'decision:route', kind: 'auxiliary', role: 'decision', label: 'route' },
+    { id: 'system:product', kind: 'system', label: 'product', description: 'what users get', loops: { holding: 2, off: 1 } },
+    { id: 'term:load', kind: 'terminal', role: 'shadow', label: 'load' },
+    { id: 'gap:short', kind: 'auxiliary', role: 'gap', excess: true, goal: 'short', label: 'short excess', offBy: 'over by 4' },
+    { id: 'auxiliary:demand', kind: 'auxiliary', exogenous: true, label: 'demand', valueText: '40', unit: 'per hour' },
+    { id: 'term:ops', kind: 'terminal', role: 'stub', label: 'ops' }],
+    edges: [{ id: 'p1', kind: 'pipe', source: 'cloud:signups:in', target: 'flow:signups', flow: 'signups' },
+            { id: 'p2', kind: 'pipe', source: 'flow:signups', target: 'stock:users', flow: 'signups', causal: ['word of mouth'] },
+            { id: 'c1', kind: 'connector', source: 'auxiliary:churn', target: 'gap:users-at-180', polarity: '+' }],
+    causalLoops: [{ name: 'word of mouth', polarity: 'B', nodes: ['stock:users', 'flow:signups', 'gap:users-at-180'] },
+                  { name: 'l2', polarity: 'R', nodes: ['stock:users'] }, { name: 'l3', polarity: null, nodes: ['stock:users'] }] };
+  const bd = { kind: 'blocks', nodes: [
+    { id: 'blk:k', kind: 'block', role: 'controller', label: 'keep-located-worked', fn: { sym: 'C', kind: 'on-off' },
+      loops: ['located-worked'] },
+    { id: 'sum:located-worked', kind: 'sum', role: 'comparator', label: 'Σ located-worked', loops: ['located-worked'], ins: [] },
+    { id: 'psum:backlog', kind: 'sum', role: 'process-sum', label: 'Σ backlog', ins: [{ sign: '+' }, { sign: '−' }] },
+    { id: 'ref', kind: 'input', role: 'reference', label: 'r located-worked', fn: { sym: 'r', value: '180' } },
+    { id: 'sens', kind: 'block', role: 'sensor', label: 'located', fn: {} },
+    { id: 'smp', kind: 'sampler', role: 'sampler', label: 'T', fn: { T: '5m' } },
+    { id: 'mux1', kind: 'mux', label: 'mux', n: 3 },
+    { id: 'sub', kind: 'block', role: 'subsystem', label: 'intake', fn: { sym: 'intake' }, description: 'takes work in',
+      loops: ['located-worked', 'other'] },
+    { id: 'pin', kind: 'port', role: 'in-port', label: 'demand' },
+    { id: 'proc', kind: 'block', role: 'process', label: 'located', fn: { sym: 'P' } },
+    { id: 'y', kind: 'output', role: 'output', label: 'y located' },
+    { id: 'act', kind: 'block', role: 'actuator', label: 'judge', fn: { kind: 'judge' } },
+    { id: 'dist', kind: 'input', role: 'disturbance', label: 'd arrivals', fn: { sym: 'd' } },
+    { id: 'pout', kind: 'port', role: 'out-port', label: 'done' },
+    { id: 'zoh', kind: 'block', role: 'hold', label: 'ZOH', fn: {} },
+    { id: 'col', kind: 'block', role: 'collector', label: 'tickets seen', fn: { name: 'tickets seen', kind: 'collector' } },
+    { id: 'jn', kind: 'sum', role: 'junction', label: 'Σ queue', ins: [{ sign: '+' }, { sign: '+' }] },
+    { id: 'dmx', kind: 'demux', role: 'bus', label: 'bus', n: 2 }],
+    edges: [{ id: 'e1', source: 'sum:located-worked', target: 'blk:k', signal: { sym: 'e', sub: 'located-worked', what: 'error' } }],
+    frames: [{ id: 'casc:x', kind: 'frame', frame: 'cascade', label: 'located-worked' },
+             { id: 'sys:intake', kind: 'frame', frame: 'system', label: 'intake' }] };
+  return { sd: [...sd.nodes, ...sd.edges].map((x) => sdSpoken(x, sd)),
+           bd: [...bd.nodes, ...bd.edges, ...bd.frames].map((x) => bdSpoken(x, bd)) };
+}"""
+
+
+def test_each_views_name_function_speaks_every_part_kind_with_its_state_and_loops(browser, tmp_path):
+    """Done items 2 and 4 of diagram-spoken-names: each view's name function (sdSpoken, bdSpoken) on a part of every
+    kind (sdNodeKind's and BD_KINDS' each, and the lines and frames), with exact strings: an off goal's saying 'off'
+    (the server's word), a stock its value and unit, a part its loops, no part its name or kind twice."""
+    with served("first-loop", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "view=dynamics", 0)
+        said = pg.evaluate(SPOKEN_UNIT)
+        assert said["sd"] == [
+            "stock users, 152 users of desired 180, off, in product, in balancing loop word of mouth and 2 others",
+            "flow signups, 3.1 per hour, from cloud to users, in balancing loop word of mouth",
+            "cloud, outside the model's boundary",
+            "goal gap users-at-180, off, off by 28, in balancing loop word of mouth",
+            "desired level users-at-180, of users, 180",
+            "auxiliary churn, 2 per day",
+            "decision route",
+            "module product, what users get, 2 goals holding, 1 goal off",
+            "shadow variable load",
+            "goal excess short, off, over by 4",
+            "exogenous input demand, 40 per hour",
+            "connector out to ops",
+            "pipe of flow signups, from cloud to signups",
+            "pipe of flow signups, from signups to users, in balancing loop word of mouth",
+            "connector from churn to users gap, positive"], said["sd"]
+        assert said["bd"] == [
+            "controller C keep-located-worked, on-off, control loop located-worked, off",
+            "summing junction of located-worked, reference minus measurement, control loop located-worked, off",
+            "summing junction of backlog, plus minus",
+            "reference input r located-worked, 180",
+            "sensor (feedback path) located",
+            "sampler (A/D), T = 5m",
+            "mux of 3 signals",
+            "subsystem intake, takes work in, control loop located-worked, off, control loop other, holding",
+            "In port demand",
+            "process P located",
+            "output y located",
+            "actuator judge",
+            "disturbance input d arrivals",
+            "Out port done",
+            "zero-order hold (D/A) ZOH",
+            "collector (feedback path) tickets seen",
+            "summing junction of queue, plus plus",
+            "demux of 2 signals",
+            "signal e located-worked, error, minus 36, off",
+            "inner loop (cascade) of located-worked",
+            "subsystem intake, open"], said["bd"]
+        pg.close()
+
+
 def test_the_arrows_follow_pipes_connectors_and_signals(browser, tmp_path):
     """Done 2: in Dynamics, from the stock backlog Right goes to its outflow valve (submitted) and on to the next stock
     (in-review), Left back; Down steps onto a connector into or out of the stock, saying its other end and its sign. In
@@ -2999,9 +3544,11 @@ def test_the_arrows_follow_pipes_connectors_and_signals(browser, tmp_path):
         assert pg.evaluate(ON)["id"] == "stock:backlog", pg.evaluate(ON)
         pg.keyboard.press("ArrowDown")
         line = pg.evaluate(ON)
-        assert line["edge"] and line["aria"].startswith("connector line") and "backlog" in line["aria"] and "sign" in line["aria"], line
+        # (its spoken name, diagram-spoken-names: 'connector from X to Y, positive', its sign in system dynamics' words)
+        assert line["edge"] and line["aria"].startswith("connector from") and "backlog" in line["aria"], line
+        assert re.search(r", (positive|negative|polarity not known)\b", line["aria"]), line
         pg.keyboard.press("ArrowDown")                       # the next connector of the stock (or the same, if it has one)
-        assert pg.evaluate(ON)["edge"] and pg.evaluate(ON)["aria"].startswith("connector line"), pg.evaluate(ON)
+        assert pg.evaluate(ON)["edge"] and pg.evaluate(ON)["aria"].startswith("connector from"), pg.evaluate(ON)
         pg.keyboard.press("Home")
         assert pg.evaluate(ON)["inSvg"] and not pg.evaluate(ON)["edge"], pg.evaluate(ON)
 
@@ -3140,6 +3687,10 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                      .length,
                    sizes: [...new Set(sizes)], sum,
                    hullStroke: hull && getComputedStyle(hull).stroke, hullFill: hull && getComputedStyle(hull).fill,
+                   frame: (() => { const e = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                                   e.style.stroke = 'var(--frame)'; hull.parentNode.append(e);
+                                   const c = getComputedStyle(e).stroke; e.remove(); return c; })(),
+                   corners: !!hull?.parentNode.querySelector(':scope > path.frame-corners'),
                    // the panel but its legend (first now) and Q42's group words ('Goals off', 'No goal is off.', the
                    // same in every view), every fold opened: no control word in any of it
                    side: (() => { const s = document.querySelector('.side').cloneNode(true);
@@ -3151,8 +3702,8 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
         assert r["unknown"] > 0 and r["unknownMarked"] == 0 and r["marked"]
         assert r["sum"].startswith(f"+{r['unknown']} of unknown polarity"), r["sum"]
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
-        assert r["hullStroke"] in ("none", None) or "0)" in r["hullStroke"], r["hullStroke"]   # a sector: a tint, no outline
-        assert r["hullFill"] not in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]
+        assert r["hullFill"] in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]       # a sector: framed by its corners, no tint
+        assert r["hullStroke"] == r["frame"] and r["corners"], r
         assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", r["side"]), re.I), r["side"][:600]
         # every panel: a loop's, a desired level's, a gap's, a connector's
         for sel in [".loop-marker", '.node[data-id^="desired:"]', '.node[data-id^="gap:"]']:
@@ -3392,7 +3943,7 @@ BD_LEGEND_DRAWN = {
     "a block's tier": ".bd-tier", "not linear": '.bd-node:not(.bd-collector):not([data-id^="zoh:"]) text.bd-name',
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
-    "a system as one block": ".bd-subsystem, .bd-frame-system",
+    "a system as one block": ".bd-subsystem, .bd-frame-system", "a subsystem open": ".bd-frame-system",
     "a lighter line": "g.bd-edge.bd-record, g.bd-edge.bd-aside, .bd-bus .bd-bar",
 }
 
@@ -4651,7 +5202,7 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
             drawn(pg, url, view, 1)
             if boxed:
                 assert not pg.evaluate(f"() => !!document.querySelector('svg.canvas [data-id=\"{ring}\"]')"), "drawn closed first"
-            pg.locator(".side .att button.name", has_text=f"{'loop' if view else 'goal'} short-backlog").click()
+            pg.locator(".side .att button.name", has_text="goal short-backlog").click()
             pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
             # (the closed box holding it is ringed until it is drawn open)
             pg.wait_for_function(f"(r) => JSON.stringify(({RINGED})()) === JSON.stringify([r])", arg=ring, timeout=60000)
@@ -4787,7 +5338,7 @@ def test_on_a_phone_each_goal_is_a_card_its_value_against_its_bound_and_how_long
 HINTS =("() => [...document.querySelectorAll('details.suggest .hint')].map((e) => [...e.childNodes]"   # (less its Evidence link)
          ".filter((n) => n.nodeName !== 'A').map((n) => n.textContent).join('').trim())")
 LOOP_ENTRY = ("() => [...document.querySelectorAll('.att > div')].map((e) => e.textContent)"
-              ".filter((t) => /^[a-z]+ · loop short-backlog/.test(t))")   # (after its state word)
+              ".filter((t) => /^[a-z]+ · goal short-backlog/.test(t))")   # (after its state word)
 CAUSE = re.compile(r"off \d+% of [^:]+: ([^.;]+)")
 
 
@@ -6866,6 +7417,44 @@ def test_inside_its_own_systems_box_a_part_reads_by_its_short_name_with_its_full
         assert not errors, errors
 
 
+def test_a_suggestion_about_a_goal_has_an_evidence_link_to_its_panel(browser, tmp_path):
+    """Dynamics and Blocks: a hint about a goal (its name in the ``goal`` field, its text 'goal NAME was off...')
+    has an Evidence link, and the link opens that goal's panel. The hint is put into the page's answers here,
+    as the engine says it after 10 minutes of record off (state.ladder_hints, state.attention)."""
+    goal = "disk-under-80"
+    hint = {"level": "hint", "what": f"goal {goal}", "goal": goal, "says": f"goal {goal} was off 60% of the time"}
+
+    def add_hint(rt):
+        got = rt.fetch()
+        body = got.json()
+        if isinstance(body, dict) and "attention" in body:
+            body["attention"] = [*body["attention"], hint]
+        rt.fulfill(response=got, json=body)
+
+    with served("disk-space", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/graph*", add_hint)
+        for i, view in enumerate(("view=dynamics", "view=blocks")):
+            drawn(pg, url, view, i)
+            pg.wait_for_selector(".suggest .hint", state="attached", timeout=30000)
+            pg.evaluate("() => { document.querySelector('.suggest').open = true; }")
+            rows = pg.locator(".suggest .hint")
+            assert rows.count() == 1 and rows.first.inner_text().startswith(f"goal {goal} goal {goal} was off"), view
+            rows.first.locator("a", has_text="Evidence").click()
+            pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g)", arg=goal,
+                                 timeout=30000)
+            assert pg.locator("#detail .kind").first.inner_text() in ("Goal", "Loop", "Open loop"), view   # its panel
+        # the Model page's tool link to a goal's controller: its panel scrolled to the goal's section, found by data-goal
+        pg.evaluate("""(g) => { window.scrolled = []; const f = Element.prototype.scrollIntoView;
+          Element.prototype.scrollIntoView = function (o) { window.scrolled.push(this.dataset?.goal || ""); return f.call(this, o); };
+          openTool({ view: "blocks", find: isController(g), goal: g }); }""", goal)
+        pg.wait_for_function("(g) => window.scrolled.includes(g)", arg=goal, timeout=60000)
+        pg.close()
+    assert not errors, errors
+
+
 # each subsystem drawn, closed (a block) or open (a frame): its letter's style, its name, and the text it shows
 SUBSYSTEMS = """() => [...document.querySelectorAll('svg.canvas g.bd-subsystem, svg.canvas g.bd-frame-system')].map((g) => {
   const n = S.graph.nodes.find((n) => n.id === g.dataset.id) || (S.graph.frames || []).find((f) => f.id === g.dataset.hull);
@@ -7837,10 +8426,9 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
                 and "request/" not in waiting["rows"][0], waiting                # only the person's ask
             held = [r for r in house["rows"] if r.startswith("request · ")]   # each read as its sentence
             assert len(held) == 2 and all("Modelling cannot decide it" in r for r in held), house
-            word = "loop" if view else "goal"                   # (Dynamics calls a controlled goal a goal)
-            assert off["rows"][0].startswith(f"off · {word} short-backlog"), off       # the system's first,
+            assert off["rows"][0].startswith("off · goal short-backlog"), off          # the system's first,
             assert off["rows"][1] == "---", off                                         # a rule,
-            assert off["rows"][2].startswith(f"off · {word} requests-handled"), off    # then modelling's
+            assert off["rows"][2].startswith("off · goal requests-handled"), off       # then modelling's
             assert not house["open"] or "fault · " in house["words"], house            # folded, unless a fault is in it
             for g in groups:                                    # a state or kind word first, never colour alone
                 assert all(re.fullmatch(r"[a-z]+ · ", w) for w in g["words"]), g

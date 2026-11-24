@@ -58,6 +58,7 @@ flows:
       over: 10m
   reviews-answered:
     from: reviews-briefed
+    description: a review posted on the code host, its verdict and tone mine (mine)
     sensor:
       items: review
       entering: answered

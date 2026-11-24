@@ -18,7 +18,11 @@ agents:
   claude:
     kind: ai
     at-once: 4
-    description: the AI agents that triage, investigate and summarise (stand-ins here, bin/step.py)
+    description: the AI agents that investigate and summarise (stand-ins here, bin/step.py)
+  triager:
+    kind: narrow-ai                   # a general agent's role narrowed: one prompt, two answers (triaged, dismissed)
+    at-once: 2
+    description: the narrow AI that triages each new alert (a stand-in here, bin/step.py)
   on-call:
     kind: person
     description: the on-call engineer, who answers escalated alerts in the pager

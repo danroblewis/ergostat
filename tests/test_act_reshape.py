@@ -257,12 +257,12 @@ def test_program_full_denied_by_risk_asked_anew_once_owner_back(tmp_path):
     """Denied by its act-risk under away, its target ran. The owner back (normal: auto, no reshape, a risk that
     passes), the same ask no longer finds the denied full act standing: the full act is asked anew and runs once, and
     the target is not run again (lesson-5)."""
-    p = project(tmp_path, pr_risk="risk: {severity: 3, threshold: {normal: 50, away: 2}}")
+    p = project(tmp_path, pr_risk="risk: {severity: 3, threshold: {normal: 100, away: 2}}")
     cfg = {"block": "dev", "run": "r1", "item": None, "workdir": str(tmp_path), "actions": ["pr"]}
     a = program.ask(p, p.model.spec, cfg, "pr", ARGS, key="k1")
     full = record.get(p, a["reshaped_from"])
     assert full["state"] == "denied" and full["denied_by"] == "gate" and a["state"] == "ran"
-    operating.enter(p, "normal")                    # the owner present: normal's auto, T 50
+    operating.enter(p, "normal")                    # the owner present: normal's auto, T 100 (no item: s = 1)
     b = program.ask(p, p.model.spec, {**cfg, "run": "r2"}, "pr", ARGS, key="k1")
     assert b["action"] == "pr" and b["id"] != full["id"] and b["state"] == "ran" and "reshaped_to" not in b
     c = program.ask(p, p.model.spec, {**cfg, "run": "r3"}, "pr", ARGS, key="k1")

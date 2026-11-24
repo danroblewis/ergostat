@@ -452,7 +452,7 @@ def params(t: Template, given: dict, scope: Scope, writers: dict | None = None):
             elif p.has_default:
                 v = walk(p.default, sc)
                 w = wrote(tw, p.default, v, metas)
-            elif p.required:
+            elif p.required and truthy(walk(p.required, sc)):
                 wrong.append((f"with.{n}: {t.name} needs it: {p.description or p.type}", None))
                 continue
             else:

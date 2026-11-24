@@ -26,7 +26,8 @@ def as_map(x, where: Where):
 def library(doc) -> dict[str, tp.Template]:
     got = getattr(doc, "_templates", None)
     if got is None:
-        got, notes = tp.find_all(doc.library, getattr(doc, "untrusted", ()), getattr(doc, "fetched", ()))
+        doc._offers = {}
+        got, notes = tp.find_all(doc.library, getattr(doc, "untrusted", ()), getattr(doc, "fetched", ()), doc._offers)
         doc._templates, doc._template_notes = got, notes
         for n in notes:
             doc.problems.append(Problem("finding", n, None, "template-library"))
@@ -131,8 +132,19 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
         if k not in USE_KEYS:
             err(f"unknown key {k!r} (known: {', '.join(sorted(USE_KEYS))}; the template's parameters go under with:)",
                 entry.at(k) if hasattr(entry, "at") else w, "unknown-key")
-    lib = library(doc)
-    t = lib.get(str(entry["use"]))
+    lib, name, fetched = library(doc), str(entry["use"]), getattr(doc, "fetched", [])
+    rec = next((s[2] for s in chain.steps if s[0] == "use" and s[1] == above), None) if above else None
+    inside = rec.get("library") if rec else None              # a bare name in a library's template: its own first
+    t = tp.lookup(lib, fetched, name, inside)
+    if t is None and "/" in name:
+        ln, _, bare = name.partition("/")
+        refused, known = getattr(doc, "refused", {}), getattr(doc, "libraries", [])
+        if ln in known and ln not in refused:
+            return err(f"library {ln} offers no template {bare!r} (it offers: "
+                       f"{', '.join(sorted(x.name for x in fetched if x.library == ln)) or 'none'})", at, "unknown-template")
+        why = f"; library {ln} refused: {refused[ln][0]}, {refused[ln][1]}" if ln in refused else ""
+        return err(f"no template {name!r}: {ln!r} is not a library loaded (libraries: {', '.join(known) or 'none'}){why}",
+                   at, "unknown-template")
     if t is None:
         broken = [n for n in getattr(doc, "_template_notes", []) if f"{entry['use']}." in n or "/" + str(entry["use"]) in n]
         broken += [f"library {n} refused: {code}, {why}" for n, (code, why) in getattr(doc, "refused", {}).items()]
@@ -140,10 +152,17 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
                    f"from library: in the main file)" + "".join(f"; {b}" for b in broken), at, "unknown-template")
     if t.once:
         uses = {**doc.uses, **{s[1]: s[2] for s in chain.steps if s[0] == "use"}}
-        prior = next((n for n, u in uses.items() if u["template"] == t.name), None)
+        prior = next((n for n, u in uses.items() if u["template"] == t.name and u.get("library") == t.library), None)
         if prior is not None:
             return err(f"{t.name} is used at most once a model (already as {prior}, at {uses[prior]['where']})", at,
                        "used-twice")
+    offered = getattr(doc, "_offers", {}).get(name, [])
+    if "/" not in name and (rec is None or rec["owners"] and not rec["library"]) and len(offered) > 1 and \
+            any(s.startswith("library ") for s in offered):           # the owner's to write, so the owner's to fix
+        chain.steps.append(("problem", Problem(
+            "finding", f"use {inst}: template {name} is offered by {', '.join(offered)}; {tp.source(t)} is the one used. "
+            f"Write use: " + " or ".join(f"{s[8:]}/{name}" for s in offered if s.startswith("library ")) +
+            " to say which, so adding a library cannot change it", at, "template-ambiguous", f"system.{inst}")))
     under = under or (None if tp.trusted(t) else t)          # from the first untrusted template down, all is checked
     untrusted = under is not None                            # its own template, or any instance it sits inside
     label = LABEL.format(t.name) if tp.SAFE.match(t.name) else FILE     # (a label is never library text)
@@ -162,7 +181,7 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
         for msg, key in getattr(e, "all", [(str(e), e.key)]):
             err(said(msg), given.at(key) if key and hasattr(given, "at") else at, "bad-param")
         return
-    via = Via(at.file if at else doc.root, at.line if at else 1, t.name, inst)
+    via = Via(at.file if at else doc.root, at.line if at else 1, tp.qualified(t), inst)
     parent = entry.get("within") or within or (None if t.once else defaults.get("system"))   # once a model: the model's
     parent = None if parent == inst else parent
     system = {**made.system, **({"description": str(entry["description"])} if entry.get("description") else {}),

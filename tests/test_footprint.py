@@ -92,7 +92,9 @@ def test_roadmap_kind_names_its_stocks_blocks_pools_goals_and_loops(tmp_path):
     assert blocks["developer"]["only_some"] and "unblocked" in blocks["developer"]["says"]
     goals = {g["goal"]: g for g in fp["goals"]}
     assert {"nothing-ready-waits", "in-review-clear"} <= set(goals) and goals["in-review-clear"]["hold"] == "<= 0"
-    assert all("status" in g for g in fp["goals"])
+    assert all("status" in g and "word" in g for g in fp["goals"])                # (the page words it by goalWord)
+    first = fp["definition"]["states"][0]["state"]                                 # the overview's state groups
+    assert fp["group"][first] == "waiting" and fp["group"]["done"] == "done" and fp["groups"][0] == "waiting", fp["group"]
     assert any("block.developer" in lp["through"] and lp["polarity"] for lp in fp["loops"])
     assert fp["now"] == {"done": 1, "doing": 1}
     done = next(s for s in fp["definition"]["states"] if s["state"] == "done")
