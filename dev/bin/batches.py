@@ -23,7 +23,9 @@ to say or write anything is dropped and never reaches the merge (a print that fa
 from __future__ import annotations
 
 import functools
+import itertools
 import json
+import os
 import re
 import sys
 import time
@@ -115,9 +117,46 @@ def abandoned(cfg: dict) -> None:
     NOW.clear()
 
 
+SPANS = itertools.count(1)                              # (a stage's span: unique in this process, with its pid)
+
+
+@guarded
+def _stage_start(name: str, cfg: dict | None) -> str:
+    at, span = time.time(), f"{NOW['runs']}.{name}.{os.getpid()}.{next(SPANS)}"
+    until = at + sum(fac.limits(cfg)) + 600 if cfg else None       # (a suite's limits, and a host step's wait)
+    _say("batch.stage-started", NOW["id"], stages={span: {
+        "stage": name, "run": str(NOW["runs"]), "run_kind": NOW.get("kind", ""), "started": at,
+        **({"until": until} if until else {})}})
+    return span
+
+
+@guarded
+def _stage_end(bid: str, span: str | None, outcome: str) -> None:
+    if span:
+        _say("batch.stage-finished", bid, stages={span: {"finished": time.time(), "outcome": outcome}})
+
+
+@contextmanager
+def stage(name: str, cfg: dict | None = None):
+    """One stage of the batch's run under way (ruff, unit, browser, host, demo, named; push-wait, from pending() to
+    pushed()), said started and finished (ergostat/stages.py) with the outcome the caller puts in the dict given:
+    passed unless it says, error when an exception leaves it. To end by its suite's limits (``cfg``), or it reads
+    unfinished."""
+    got: dict = {}
+    bid, span = NOW.get("id"), _stage_start(name, cfg) if NOW else None
+    try:
+        yield got
+    except BaseException:
+        got.setdefault("outcome", "error")
+        raise
+    finally:
+        _stage_end(bid, span, got.get("outcome") or "passed")
+
+
 @guarded
 def _start(kind: str, gaps: list[str]) -> int:
     NOW["runs"] += 1
+    NOW["kind"] = kind
     n, at = NOW["runs"], time.time()
     _say("batch.run-started", NOW["id"], run=n, run_kind=kind, run_gaps=list(gaps), run_started_at=at)
     _mark(run=n, kind=kind, at=at, under_way=True)
@@ -224,7 +263,7 @@ def pending() -> dict | None:
     NOW["ended"] = True
     _mark(pushing=True, under_way=False)                # (open until its push's settling ends it: pushed())
     return {"id": NOW["id"], "outcome": NOW["outcome"], "given_back": NOW["back"], "failed": NOW["failed"],
-            "began": NOW["began"], "runs": NOW["runs"]}
+            "began": NOW["began"], "runs": NOW["runs"], "stage": _stage_start("push-wait", None)}
 
 
 @guarded
@@ -234,6 +273,8 @@ def pushed(cfg: dict, b: dict | None, push: str) -> None:
     if not isinstance(b, dict) or b.get("outcome") not in OUTCOMES:
         return
     outcome = "failed" if push == "denied" else b["outcome"]
+    _stage_end(b["id"], b.get("stage") if isinstance(b.get("stage"), str) else None,
+               "passed" if push == "ran" else "failed" if push == "denied" else "stopped")   # (the push wait)
     _said(b["id"], outcome, f"its push {push}", b.get("given_back") or [], b.get("failed") or [],
           round((time.time() - float(b.get("began") or time.time())) / 60, 1), int(b.get("runs") or 0))
     m = _open(cfg)

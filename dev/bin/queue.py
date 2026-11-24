@@ -197,17 +197,21 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
         got, ts, first, said = {}, [], [], threading.Lock()
         for n in names:
             def body(n=n):
-                try:
-                    r = one(n)
-                except BaseException as e:             # (raised again below, in the queue's own thread)
-                    r = e
-                with said:                             # (which failed first, decided and kept in one hold)
-                    if isinstance(r, dict) and r.get("failure") and first:
-                        r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]} \
-                            | ({"counts": "unknown"} if n in PYTEST else {})      # (killed: its counts unsaid)
-                    elif isinstance(r, BaseException) or r.get("failure"):   # (a container that did not start:
-                        first.append(n)                                          # its sibling is stopped too)
-                    got[n] = r
+                with batches.stage(n, cfg) as st:      # (its batch's stage: ergostat/stages.py)
+                    try:
+                        r = one(n)
+                    except BaseException as e:         # (raised again below, in the queue's own thread)
+                        r = e
+                    with said:                         # (which failed first, decided and kept in one hold)
+                        if isinstance(r, dict) and r.get("failure") and first:
+                            r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]} \
+                                | ({"counts": "unknown"} if n in PYTEST else {})      # (killed: its counts unsaid)
+                        elif isinstance(r, BaseException) or r.get("failure"):   # (a container that did not start:
+                            first.append(n)                                          # its sibling is stopped too)
+                        got[n] = r
+                    st["outcome"] = ("stopped" if isinstance(r, fac.Stalled) else "error") \
+                        if isinstance(r, BaseException) else "stopped" if r.get("stopped_by") \
+                        else "failed" if r.get("failure") else "passed"
             ts.append(threading.Thread(target=body, daemon=True))
             ts[-1].start()
         try:
@@ -265,7 +269,9 @@ def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
     (a test not found, a run that could not start or crashed) None. It never counts as the green run anything lands on (land())."""
     tests = failed["tests"]
     log = logs / f"{tag}-named.txt"
-    rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, box="queue", tests=[*tests, "-rA"])
+    with batches.stage("named", cfg) as st:
+        rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, box="queue", tests=[*tests, "-rA"])
+        st["outcome"] = "failed" if rc else "passed"
     text = log.read_text()
     if crashed(rc, text):                                # (what it reports failed is whatever was running)
         return None

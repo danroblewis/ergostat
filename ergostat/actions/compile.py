@@ -11,6 +11,7 @@ import string
 from ..durations import DurationError, parse_duration
 from ..spec.ir import GATES, NAME, Action
 from . import operating as op
+from . import risk as rk
 from .risk import HIGHEST, THRESHOLD
 
 ACTION_KEYS = {"run", "gate", "class", "args", "timeout", "wait", "in", "description", "fenced", "risk"}
@@ -26,11 +27,9 @@ def actions(c, spec) -> None:
             c.err(f"{what}: run: the command it runs, a template ({{branch}}, {{item}}, and its args: filled in, quoted)",
                   m.where, "missing-key")
             continue
-        gate = str(m.get("gate") or "approve")
-        if gate not in GATES:
-            c.err(f"{what}.gate: auto (run at once), approve (held until the owner approves) or deny (never run)",
-                  m.at("gate"), "bad-value")
-            gate = "approve"
+        gates = columns(c, m, "gate", what, lambda g: g if g in GATES else None,
+                        "auto (run at once), approve (held until the owner approves) or deny (never run)")
+        gates = rk.schedule(gates.get("normal", "approve"), gates)
         args = m.get("args") or {}
         if not isinstance(args, dict):
             c.err(f"{what}.args: a map of each argument's name to what it is (title: the pull request's title)",
@@ -60,32 +59,54 @@ def actions(c, spec) -> None:
             c.err(f"{what}.fenced: true (the default: not run once a later lease is taken on its item, or its own "
                   f"expired) or false (run once approved, whatever became of that lease)", m.at("fenced"), "bad-value")
             fenced = True
-        spec.actions[name] = Action(name, str(m["run"]), gate, cls, {str(k): str(v) for k, v in args.items()},
+        s, ts = risk(c, m, what)
+        ts = {k: ts.get(k, ts.get("normal", THRESHOLD)) for k in rk.COLUMNS}      # unwritten: normal's
+        spec.actions[name] = Action(name, str(m["run"]), gates["normal"], cls, {str(k): str(v) for k, v in args.items()},
                                     c.duration(m, "timeout", what, 120.0), c.duration(m, "wait", what, 300.0),
                                     str(where) if where else None, c.text(m, "description"), m.where, fenced,
-                                    *risk(c, m, what))
+                                    s, ts["normal"], gates, ts)
 
 
-def risk(c, m, what: str) -> tuple[int | None, float]:
-    """``risk: {severity: 1..5, threshold: 1 < T ≤ 50}`` (SPEC §12k, ``risk.py``): a floor and a ceiling on each."""
+def columns(c, m, key: str, what: str, ok, says: str) -> dict:
+    """``key:`` as one value (the ``normal`` column) or a map of operating columns (SPEC §12k) to values ``ok`` takes
+    (None: refused). Each unknown column or refused value is ``bad-value`` at its line, and left unwritten."""
+    v = m.get(key)
+    if v is None:
+        return {}
+    whole = isinstance(v, dict)
+    cells, at = (v, getattr(v, "at", lambda _: m.at(key))) if whole else ({"normal": v}, lambda _: m.at(key))
+    out = {}
+    for k, x in cells.items():
+        got = ok(x) if k in rk.COLUMNS else None
+        if got is None:
+            c.err(f"{what}.{key}" + (f"{f'.{k}' if whole else ''}: {says}, not {x!r}" if k in rk.COLUMNS else
+                  f": {k!r} is not an operating column ({', '.join(rk.COLUMNS)})"), at(k), "bad-value")
+        else:
+            out[k] = got
+    return out
+
+
+def risk(c, m, what: str) -> tuple[int | None, dict]:
+    """``risk: {severity: 1..5, threshold: 1 < T ≤ 50}`` (SPEC §12k, ``risk.py``): a floor and a ceiling on each; the
+    threshold may be a map by operating column."""
     r = m.get("risk")
     if r is None:
-        return None, THRESHOLD
+        return None, {}
     if not isinstance(r, dict):
         c.err(f"{what}.risk: a map, {{severity: 1 to 5, threshold: above 1, at most 50 (default 8)}}", m.at("risk"),
               "not-a-map")
-        return None, THRESHOLD
+        return None, {}
     c.keys(r, {"severity", "threshold"}, f"{what}.risk")
-    s, t = r.get("severity"), r.get("threshold", THRESHOLD)
+    s = r.get("severity")
     if isinstance(s, bool) or not isinstance(s, int) or not 1 <= s <= 5:
         c.err(f"{what}.risk.severity: a whole number from 1 to 5 (how much harm the act can do), not {s!r}",
               r.at("severity"), "bad-value")
         s = 5
-    if isinstance(t, bool) or not isinstance(t, int | float) or not math.isfinite(t) or not 1 < t <= HIGHEST:
-        c.err(f"{what}.risk.threshold: a number above 1 and at most {HIGHEST:g} (the score that steps its gate), "
-              f"not {t!r}", r.at("threshold"), "bad-value")
-        t = THRESHOLD
-    return s, float(t)
+    def ok(t):
+        return None if isinstance(t, bool) or not isinstance(t, int | float) or not 1 < t <= HIGHEST else float(t)
+                                                        # (NaN and ±inf fail the range; a huge int never meets float())
+    return s, columns(c, r, "threshold", f"{what}.risk", ok,
+                      f"a number above 1 and at most {HIGHEST:g} (the score that steps its gate)")
 
 
 def operating(c, spec) -> None:
