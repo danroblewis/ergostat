@@ -24,7 +24,7 @@ evidence, not a fault.
 ## The rules of a simplification
 
 - Remove and simplify only, without changing behaviour: no new feature, no new option, no renamed command or field.
-- Every test green: the unit suite and the four browser files, rc 0; ruff clean.
+- Every test green: the unit suite and the four browser files, rc 0 (lint and style are not checked).
 - No test deleted unless the code it tests is deleted with it.
 - The branch removes more than it adds: its net lines over the whole diff (tests and docs aside) are below 0.
 - One commit trailer per removal, in the commit that makes it:
@@ -41,7 +41,6 @@ evidence, not a fault.
 ## Acceptance tests
 
 - The unit suite and the four browser files, rc 0, with no test deleted that still has code to test.
-- `uv run ruff check ergostat tests scripts` clean.
 
 ## Size budget
 

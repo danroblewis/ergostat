@@ -11,8 +11,8 @@ use: every implementor and reviewer brief
   acceptance tests by name, and a size budget (net lines outside tests and docs). After that it changes only by
   appending "Where it stopped". An overrun needs a written reason.
 - Done means: the acceptance tests exist and pass; the unit suite and the four browser files pass with rc 0 and no page
-  test skipped for want of a port; ruff is clean; `demo_check` passes on any example touched; origin/main merged in and
-  the suites run again.
+  test skipped for want of a port; `demo_check` passes on any example touched; origin/main merged in and the suites
+  run again. Lint and style are not checked: a pre-commit hook in each build session formats and fixes what it can.
 - An independent, deliberately disagreeable review judges the branch against its definition, SPEC and these rules. Two
   failed reviews park the branch with "Where it stopped" saying exactly what is left; nothing partial reaches main.
 - Report honestly: what failed, what was not run, numbers that did not improve. A smaller true claim beats a larger one

@@ -60,6 +60,10 @@ data-loss hole, scope outside the definition. Not blocking (put under
 overrun under 25% (say it), wording, docs polish, a finding the definition does not ask for. A finding you raised
 before and that is fixed is not raised again.
 
+Lint and style are out of scope (owner, 2026-11-23): never raise a lint warning, formatting, import order, naming
+style or ruff's output, blocking or not. The build sessions' pre-commit hook formats and fixes what can be fixed, and
+nothing checks the rest.
+
 # Your answer
 
 End with exactly one fenced JSON block:

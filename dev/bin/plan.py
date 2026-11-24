@@ -64,8 +64,8 @@ depends-on: [{deps}]
 {text}
 
 Written from the gap's own title and text by the size path (an S gap: no planner session). Done means the
-house rules: the acceptance tests exist and pass, the unit suite and the browser files pass, ruff is clean, origin/main
-is merged in and the suites run again.
+house rules: the acceptance tests exist and pass, the unit suite and the browser files pass, origin/main is
+merged in and the suites run again.
 
 ## Files to touch
 

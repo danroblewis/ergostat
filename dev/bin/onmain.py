@@ -1,7 +1,7 @@
 """main-broken: the implementor's own triage of its fast suites (implement.py), before a failure counts against the gap.
 
-The fast suites are ruff, [suites] build when set (the small set, scripts/affected_tests.py; else the full unit suite),
-and the four browser files only with [suites] build_browser = true (a browser test skipped fails them, as in the
+The fast suites are ruff when [suites] ruff is set, [suites] build when set (the small set, scripts/affected_tests.py;
+else the full unit suite), and the four browser files only with [suites] build_browser = true (a browser test skipped fails them, as in the
 queue); the merge queue runs unit and demo in full either way, browser on its paths (queue.py). The tests that
 failed (unit, build or browser) are run again alone on the branch (`alone`; `rerun`, with Playwright, for the browser's): passing, they
 are flakes (`flake.seen`), and the fast suites
@@ -46,8 +46,10 @@ def step(cfg: dict) -> str:
 
 
 def fast(cfg: dict) -> tuple[str, ...]:
-    """The implementor's fast suites: ruff, its test step (see step), then the four browser files if turned on."""
-    return ("ruff", step(cfg)) + (("browser",) if cfg["suites"].get("build_browser") is True else ())
+    """The implementor's fast suites: ruff when [suites] ruff is set (empty or absent: no lint gate), its test step
+    (see step), then the four browser files if turned on."""
+    lint = ("ruff",) if str(cfg["suites"].get("ruff") or "").strip() else ()
+    return lint + (step(cfg),) + (("browser",) if cfg["suites"].get("build_browser") is True else ())
 
 
 def failing(cfg: dict, branch: str, main: str, tests: list[str], logs: Path, tag: str, suite: str = "alone") -> dict:
