@@ -2342,9 +2342,9 @@ first, then unknown, held and queue, and within each by the items waiting on it,
 of waiting (in their state); each names its first 5 items in the order its block would take them (`takes: order:`,
 then the longest waiting). A goal is off by its last recorded crossing (`loop.off`); one whose stock or auxiliary
 counts items (`items:` sensor) is folded under the root holding most of the unfinished items it counts, and one that
-counts none is said as *not traced to an unfinished item*. The answer's `line`, also the header's line on every
-page (`/api/status`'s `held_up`, red for a stall, worked out again when the record moves or after 30 s, a failure
-said in it rather than failing the status), is the first stall in words with how much waits on it and its next
+counts none is said as *not traced to an unfinished item*. The answer's `line`, also `/api/status`'s `held_up`
+(worked out again when the record moves or after 30 s, a failure said in it rather than failing the status; not in
+the page's header, which keeps its room for the navigation), is the first stall in words with how much waits on it and its next
 step, or else *No stall found, but what holds N items is not known* (N over every unknown root, `unknown`), and
 *Nothing is stuck* only when no root is a stall or unknown, naming the most held root (most items waiting on it, then
 most held, over every root: `most` is its place in `roots`). The first 20 roots are listed, and the most held after
@@ -3592,7 +3592,9 @@ same counts as `goals`. That one count (`state.goals_off`) is the only one: the 
 the side list's "Goals off" heading, the Goals page's heading and the diagram's caption (its total the system's goals,
 model upkeep apart; Blocks: `controlled_off`, the same count of the goals a controller holds) print it as given and
 never count goals by status themselves; `ergostat` (and its `--json`, as `goals_off`) and `ergostat projects` print
-it in one form, `N goals off · M open · K unknown · model upkeep J` (a zero left out, but the first).
+it in one form, `N goals off · M open · K unknown · model upkeep J` (a zero left out, but the first). The page's
+header says only `N off`, a link to the Goals page, its title the whole wording, `model upkeep J` and the goals off
+by name; beside it `N for you` (its title `N wait for you`) links to the Diagram's *Waiting for you*.
 
 **A quiet system.** When every goal whose `system` is a system's or one within it (the `loops` filtered by it and
 its subsystems, as its closed box folds them in) is holding, the system says so: `all N goals holding, nothing being
@@ -3901,7 +3903,8 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
 - **Never a model with errors.** A model that does not load, has errors, or whose main file is empty is not taken:
   the last good one runs on, and "the edited model has errors (`file:line`); still running the last good version"
   is said in the log (with every error), at the top of `ergostat status` (with every error, even when the files do
-  not load at all) and in the page's header, from `<state>/reload.json`, until the files are fixed. The same files
+  not load at all) and in the page's header (as *Model errors*, a link to Check, the sentence and every error its
+  title), from `<state>/reload.json`, until the files are fixed. The same files
   are not read again until they change. `run --stop` and `run --service --uninstall` work while they do not load
   (the state folder found without the model).
 - **The command line on the last good model.** Every file the model's loading reads goes through one place

@@ -376,29 +376,67 @@ def test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top(browser, si
     pg.close()
 
 
-def test_the_header_says_what_holds_the_work_up_in_one_line(browser, site):
-    """What holds the work up (SPEC §5a, /api/held-up): its first line in the page's header, red for a stall, the whole
-    line as its title; here the first stall /api/held-up ranks, said as /api/status's held_up says it (the two are
-    worked out apart, and the hours of waiting in the line move with the clock)."""
+# every header link and text leaf: shown, inside the viewport, not cut (its text as wide as its box), and the element
+# at its middle the link itself (nothing over it); the nav's own box not scrolled sideways
+HEADER_FITS = """() => { const out = [], hd = document.querySelector('header.bar'), nav = document.getElementById('nav');
+  for (const el of hd.querySelectorAll('a, span, select, button')) {
+    const r = el.getBoundingClientRect(); if (el.closest('[hidden]') || !r.width) continue;
+    const cut = el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflow !== 'visible';
+    const mid = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    out.push({ text: (el.textContent || '').trim(), id: el.id, nav: !!el.closest('#nav'), when: !!el.closest('#when button'),
+               left: r.left, right: r.right,
+               top: r.top, cut, hit: !!mid && (el === mid || el.contains(mid) || mid.contains(el)) }); }
+  return { leaves: out, vw: innerWidth, navScrolled: nav.scrollWidth > nav.clientWidth + 1,
+           text: hd.innerText }; }"""
+
+
+@pytest.mark.parametrize("width", [1280, 390])
+def test_the_header_status_leaves_the_navigation_its_room(browser, site, width):
+    """header-status-out-of-the-nav: at 1280 and 390 px every navigation link and the time window are shown whole,
+    inside the page and clickable (the first page the page goes to); the status is two short counts, '<N> off' linking
+    to the Goals page with the full wording and model upkeep in its title, and '<N> for you' linking to the Diagram's
+    Waiting for you with 'N wait for you' its title; no 'Stalled' sentence (held_up) is in the header."""
     import json
-    got = json.loads(urllib.request.urlopen(f"{site}/api/held-up", timeout=30).read())
-    assert got["stall"] is True and got["line"].startswith(f"Stalled: {got['roots'][0]['says']}. "), got["line"]
-    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    st = json.loads(urllib.request.urlopen(f"{site}/api/status", timeout=30).read())
+    assert st["held_up"]["stall"] is True and st["held_up"]["line"].startswith("Stalled:"), st["held_up"]   # one to keep out
+    off, up = st["goals_off"]["system"], sum(st["goals_off"]["own"].values())
+    pg = browser.new_page(viewport={"width": width, "height": 900})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(f"{site}/items")
-    pg.wait_for_selector("header #heldup:not([hidden])")
-    line = pg.locator("#heldup")
-    for _ in range(40):                                   # (the header follows the status's next look)
-        said = pg.evaluate("() => fetch('/api/status').then((r) => r.json()).then((s) => s.held_up.line)")
-        if line.inner_text() == said:
-            break
-        pg.wait_for_timeout(500)
-    assert line.inner_text() == said and line.get_attribute("title") == said
-    assert said.startswith(f"Stalled: {got['roots'][0]['says']}. "), (said, got["line"])
-    assert "bad" in line.get_attribute("class").split(), "a stall is said in red"
-    assert pg.evaluate("() => { const b = document.querySelector('#heldup').getBoundingClientRect(); "
-                       "return b.height < 40 && b.top < 60; }"), "one line, at the top"
+    pg.wait_for_function("() => / off$|^Running$|^Not running$/.test(document.querySelector('#running')?.textContent || '')",
+                         timeout=30000)
+    got = pg.evaluate(HEADER_FITS)
+    assert "Stalled" not in got["text"] and st["held_up"]["line"][:20] not in got["text"], got["text"]
+    assert not got["navScrolled"], got
+    for x in got["leaves"]:
+        assert x["left"] >= 0 and x["right"] <= got["vw"] + 0.5 and not x["cut"], (width, x)
+    navs = [x for x in got["leaves"] if x["nav"]]
+    assert [x["text"] for x in navs] == ["Diagram", "Dashboard", "Goals", "Agents", "Items", "Record", "Model", "Check",
+                                         "Guide"], navs
+    assert all(x["hit"] for x in navs), [x for x in navs if not x["hit"]]
+    when = [x for x in got["leaves"] if x["when"]]
+    assert when and all(x["hit"] for x in when), when                   # the time window, clickable too
+    run = pg.locator("#running")
+    want = f"{off} off" if off or up else ("Running" if st["running"] else "Not running")
+    assert run.inner_text() == want and run.get_attribute("href") == "/goals", run.inner_text()
+    tip = run.get_attribute("title")
+    if off or up:
+        assert tip.startswith(f"{off} goal{'' if off == 1 else 's'} off"), tip   # the full wording
+    if up:
+        assert f"\nmodel upkeep {up}" in tip, tip
+    for name, lp in st["loops"].items():
+        if lp["word"] == "off" and not lp.get("upkeep"):
+            assert f"\n{name}: off" in tip, (name, tip)
+    n = sum(1 for a in st["attention"] if a.get("level") != "hint" and (isinstance(a.get("answer"), list)
+            and a.get("kind") != "request" or a.get("waiting")))
+    waits = pg.locator("#waits")
+    if n:
+        assert waits.inner_text() == f"{n} for you" and waits.get_attribute("title") == f"{n} wait for you"
+        assert waits.get_attribute("href") == "/diagram#waiting"
+    for i, label in enumerate(x["text"] for x in navs):                 # each link followed, there and back
+        pg.locator("#nav a").nth(i).click()
+        pg.wait_for_function(f"() => document.querySelector('#nav a.on')?.textContent === {label!r}", timeout=30000)
     assert not errors, errors
     pg.close()
 
@@ -3237,8 +3275,9 @@ def test_the_headers_tooltip_names_the_goals_its_count_counts(browser, tmp_path)
         assert sorted(n for n, lp in st["loops"].items() if lp["word"] == "off") == [
             "inbox-short", "model-fits", "requests-handled"]
         pg.wait_for_function("() => / off/.test(document.querySelector('#running').textContent)")
-        assert re.match(r"^1 goal off\b", pg.locator("#running").inner_text())
-        assert pg.locator("#running").get_attribute("title") == "inbox-short: off"
+        assert pg.locator("#running").inner_text() == "1 off"
+        tip = pg.locator("#running").get_attribute("title").split("\n")
+        assert re.match(r"^1 goal off\b", tip[0]) and tip[1:] == ["model upkeep 2", "inbox-short: off"], tip
     finally:
         pg.close()
         proc.terminate()
@@ -3280,13 +3319,12 @@ def test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart(browser
             pg.wait_for_function("() => / off/.test(document.querySelector('#running').textContent)")
             run = pg.locator("#running")
             heads[name] = run.inner_text()
-            assert re.match(r"^0 goals off\b", heads[name]), heads[name]
+            assert heads[name] == "0 off", heads[name]
             red = pg.evaluate("""() => { const p = document.createElement('span'); p.className = 'runstate bad';
                 document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; }""")
             assert run.evaluate("(e) => getComputedStyle(e).color") != red, "the first figure is red"
-            assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
-            assert pg.locator("#upkeep").evaluate("(e) => getComputedStyle(e).color") != red
-            assert "model upkeep 2" in pg.locator("header").inner_text()
+            assert re.match(r"^0 goals off\b", run.get_attribute("title")), run.get_attribute("title")
+            assert "\nmodel upkeep 2" in run.get_attribute("title")             # said apart, in the count's title
             other = next(n for n in urls if n != name)
             find = f"[...document.querySelectorAll('#project option')].find((o) => o.text.startsWith('{other} ('))"
             pg.wait_for_function(f"() => !!{find}")
@@ -3353,9 +3391,10 @@ def test_every_surface_prints_the_servers_one_count_of_goals_off(browser, tmp_pa
         pg.goto(f"{urls['small']}/diagram")
         pg.wait_for_function("() => [...document.querySelectorAll('.side h3.att-head')].some((x) => "
                              "/^Goals off/.test(x.textContent)) && "
-                             "/goals? off/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
-        assert re.match(rf"^{off} goals? off\b", pg.locator("#running").inner_text()), pg.locator("#running").inner_text()
-        assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
+                             "/ off$/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
+        assert pg.locator("#running").inner_text() == f"{off} off", pg.locator("#running").inner_text()
+        tip = pg.locator("#running").get_attribute("title")
+        assert re.match(rf"^{off} goals? off\b", tip) and "\nmodel upkeep 2" in tip, tip
         heads = [x.strip() for x in pg.locator(".side h3.att-head").all_inner_texts()]   # (Waiting: only when some wait)
         assert [x for x in heads if x.startswith("Goals off")] == [f"Goals off {off} · model upkeep 2"], heads
         # the caption: the system's goals, their off, and model upkeep apart, so no goal off is lost from it
@@ -3384,7 +3423,7 @@ def test_every_surface_prints_the_servers_one_count_of_goals_off(browser, tmp_pa
         pg.goto(f"file://{snap}")
         pg.wait_for_function("() => /^Snapshot/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
         assert re.search(rf", {off} off$", pg.locator("#running").inner_text()), pg.locator("#running").inner_text()
-        assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
+        assert "\nmodel upkeep 2" in pg.locator("#running").get_attribute("title")
         assert not errors, errors
     finally:
         pg.close()

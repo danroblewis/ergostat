@@ -8315,7 +8315,7 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
         for view in ("", "diagram?view=blocks"):
             pg.goto(f"{url}/{view}")
             pg.wait_for_function("() => document.querySelectorAll('.side h3.att-head').length === 3 && "
-                                 "/goals? off/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
+                                 "/ off/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
             groups = pg.evaluate(GROUPS)
             heads = [g["head"] for g in groups]
             assert [re.sub(r" \d+( · model upkeep \d+)?$", "", x) for x in heads] == ["Waiting for you", "Goals off",
@@ -8323,8 +8323,8 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
             waiting, off, house = groups
             assert [int(heads[i].rsplit(" ", 1)[1]) for i in (0, 2)] == [len(waiting["rows"]), len(house["rows"])], heads
             # the 'Goals off' count is the header's, the server's (state.goals_off): the system's, model upkeep apart
-            header, upkeep = pg.locator("#running").inner_text(), pg.locator("#upkeep").inner_text().strip()
-            assert int(re.match(r"(\d+) goals? off", header).group(1)) == 1 and upkeep == "· model upkeep 1", (header, upkeep)
+            header, tip = pg.locator("#running").inner_text(), pg.locator("#running").get_attribute("title")
+            assert header == "1 off" and "\nmodel upkeep 1" in tip, (header, tip)   # upkeep in the count's title
             assert heads[1] == "Goals off 1 · model upkeep 1", heads
             assert len(waiting["rows"]) == 1 and waiting["rows"][0].startswith("waiting · ") \
                 and "request/" not in waiting["rows"][0], waiting                # only the person's ask
@@ -8397,12 +8397,12 @@ def test_the_heatmap_of_rows_draws_in_each_theme(browser, tmp_path):
 
 
 # the header's link: its text, its box, and whether it is the header's first element
-WAITS_LINK = """() => { const a = [...document.querySelectorAll('header a')].find((x) => /wait/.test(x.textContent));
+WAITS_LINK = """() => { const a = document.getElementById('waits');
   if (!a || a.hidden) return null;
   const r = a.getBoundingClientRect(), box = (x) => x.getBoundingClientRect();
   const first = [...document.querySelectorAll('header *')].filter((x) => !x.children.length && box(x).width > 0)
     .sort((p, q) => box(p).top - box(q).top || box(p).left - box(q).left)[0];
-  return { text: a.textContent.trim(), bottom: r.bottom + scrollY, first: first === a }; }"""
+  return { text: a.textContent.trim(), title: a.title, bottom: r.bottom + scrollY, first: first === a }; }"""
 WAITING_HEAD = """() => { const hd = document.getElementById('waiting'); if (!hd) return null;
   const r = hd.getBoundingClientRect();
   return { text: hd.textContent, top: r.top, bottom: r.bottom, height: r.height, inner: innerHeight,
@@ -8419,7 +8419,7 @@ def waiting_shown(pg, what) -> None:
 
 
 def test_what_waits_for_you_is_one_step_from_every_page(browser, tmp_path, monkeypatch):
-    """Design review Q43: beside the loops count the header says 'N wait for you', in the first 200 px of /items,
+    """Design review Q43: beside the loops count the header says 'N for you' ('N wait for you' its title), in the first 200 px of /items,
     /agents, /loops and /record at 1440 and 390 px (at 390 the header's first thing); following it shows the Diagram's
     'Waiting for you' heading, focused, inside the viewport. N is the side list's own count of that group."""
     from ergostat import model as mdl
@@ -8459,11 +8459,11 @@ def test_what_waits_for_you_is_one_step_from_every_page(browser, tmp_path, monke
                 pg.goto(f"{url}/{path}")
                 pg.wait_for_function(WAITS_LINK, timeout=30000)
                 got = pg.evaluate(WAITS_LINK)
-                assert got["text"] == "2 wait for you", (width, path, got)
+                assert got["text"] == "2 for you" and got["title"] == "2 wait for you", (width, path, got)
                 assert got["bottom"] <= 200, (width, path, got)
                 if width < 700:
                     assert got["first"], (width, path, got)            # on a phone, the header's first thing
-                pg.locator("header a", has_text="wait for you").click()
+                pg.locator("#waits").click()
                 waiting_shown(pg, (width, path))
                 assert pg.evaluate("location.pathname") == "/diagram", path
                 head = pg.locator("#waiting").inner_text()
@@ -8524,18 +8524,18 @@ def test_a_changed_count_of_what_waits_is_announced(browser, tmp_path, monkeypat
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.add_init_script("performance.setResourceTimingBufferSize(100000)")   # every header poll counted
         pg.goto(f"{url}/items")
-        pg.wait_for_function("() => document.getElementById('waits')?.textContent === '1 wait for you'", timeout=30000)
-        assert pg.evaluate(WAITS_HEARD) == ["1 wait for you"]           # inside a polite region, watched from here
+        pg.wait_for_function("() => document.getElementById('waits')?.textContent === '1 for you'", timeout=30000)
+        assert pg.evaluate(WAITS_HEARD) == ["1 for you"]                # inside a polite region, watched from here
         polls = pg.evaluate("() => performance.getEntriesByType('resource').filter((r) => /api\\/status/.test(r.name)).length")
         pg.wait_for_function(f"() => performance.getEntriesByType('resource').filter((r) => /api\\/status/.test(r.name))"
                              f".length >= {polls + 2}", timeout=30000)   # two header polls with nothing new
-        assert pg.evaluate(WAITS_HEARD) == ["1 wait for you"]           # wrote nothing
+        assert pg.evaluate(WAITS_HEARD) == ["1 for you"]                # wrote nothing
         p.events.add("person.asked", item="approver", source="ergostat", data={"command": 2, "ask": "approve the plan"})
-        pg.wait_for_function("() => document.getElementById('waits').textContent === '2 wait for you'", timeout=30000)
+        pg.wait_for_function("() => document.getElementById('waits').textContent === '2 for you'", timeout=30000)
         polls = pg.evaluate("() => performance.getEntriesByType('resource').filter((r) => /api\\/status/.test(r.name)).length")
         pg.wait_for_function(f"() => performance.getEntriesByType('resource').filter((r) => /api\\/status/.test(r.name))"
                              f".length >= {polls + 1}", timeout=30000)
-        assert pg.evaluate(WAITS_HEARD) == ["1 wait for you", "2 wait for you"]   # the change, said once
+        assert pg.evaluate(WAITS_HEARD) == ["1 for you", "2 for you"]   # the change, said once
         pg.close()
         assert not errors, errors
     finally:
