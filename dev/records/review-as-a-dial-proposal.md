@@ -43,13 +43,25 @@ Decisions taken without the owner, each easy to undo:
 
 Run here: ruff; tests/test_gaps_doc.py. Not run: the unit suite and the browser files (no code or test changed).
 
+Round 2: the one finding answered (blocking; there were no others). The trial's mean stop, applied from the first
+pass, was the prior's ($50 against S of about $18) and stopped every trial at once. Now the mean stop (section 2) and
+the controller's mean raise (section 3d) apply only once `least` (30) items have closed windows, with a worked check
+(no escape: $12.5 at n = 30 and falling, so the trial runs to its decision; one escape: $37.5, it stops). An unreadable
+S is stated: not used before `least` treated windows, then the trial is held (share 0 for new placements, the severe
+and balance stops still on, no decision), stopped if held past 7 days. The decision count is corrected to 66 (1353 /
+(10 + n) < 18), and the round-1 "with one escape, after about 164" is dropped: the mean stop ends the trial first.
+`check` also refuses a `least` or `probation` outside 1 to 1000, and build step 3's tests name the new cases. The
+entry's title now matches the gap's, so the brief can find it.
+Decision without the owner, easy to undo: a trial held for an unreadable S stops after 7 days rather than waiting
+forever (a held trial is otherwise invisible exposure).
+
 ## Entry
 
 section: The factory (ergostat on ergostat)
 done: 2026-11-24 The proposal for review as a setting chosen from its measured value: docs/proposals/review-as-a-dial.md.
 
-- **How much review is a setting chosen from what review is measured to give** (proposal written,
-  `review-as-a-dial-proposal`; `docs/proposals/review-as-a-dial.md`): a kind may declare levels its items are placed
+- **Proposal: how much review is done is a setting chosen from the value review is measured to give**
+  (proposal written, `review-as-a-dial-proposal`; `docs/proposals/review-as-a-dial.md`): a kind may declare levels its items are placed
   on by rules (strictest when none matches), a hashed trial and a controller; the factory's levels are none, after,
   one and full, and a trial reviews a random share of low-risk gaps after merge to measure the harm review prevents.
   Left: building it (readings first, then the core levels, then the factory's), after the owner's two questions.

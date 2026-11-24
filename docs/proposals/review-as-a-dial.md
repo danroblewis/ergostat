@@ -146,23 +146,48 @@ open window is not zero escapes, lesson-3):
 2. **E2** is section 1b's estimate measured: the share of treated gaps whose after-merge review blocks.
 3. **E3**: each arm's harm escapes per gap is a Gamma posterior (shape 0.5 prior, mean `prior_escape: 0.05`, one in
    20, deliberately pessimistic). The treatment's 90% upper bound with k escapes in n gaps is
-   Q₀.₉(Gamma(0.5 + k, 10 + n)): 1.35 / (10 + n) with none, 3.13 / (10 + n) with one.
+   Q₀.₉(Gamma(0.5 + k, 10 + n)): 1.353 / (10 + n) with none, 3.126 / (10 + n) with one. Its mean is
+   (0.5 + k) / (10 + n).
 4. **The decision rule** weighs harm against saving: `H`, what one harm escape is worth in dollars (the owner's, one
    question below; **$1,000** until answered, high so that review is kept), and `S`, the measured saving per gap
-   (control's mean cost minus treatment's). At the ceilings S is about $37 − ($5 + 0.72 × $20) = **$18** and 90 min
-   off the critical path. Treatment wins for the rule when its bound × H < S: with no harm escape, after
-   1.35 × 1000 / 18 − 10 ≈ **65 treated gaps** with closed windows; with one, after about 164.
+   (control's mean cost minus treatment's, over gaps whose windows closed). At the ceilings S is about
+   $37 − ($5 + 0.72 × $20) = **$18** and 90 min off the critical path. Treatment wins for the rule when its bound × H
+   < S: with no harm escape, 1353 / (10 + n) < 18 first holds at **n = 66 treated gaps** with closed windows. One
+   non-severe escape before then stops the trial instead (the mean test below: 1500 / (10 + n) > 18 for every n up to
+   73), so 66 clean windows is the shortest way to a decision and the only one at the ceilings' S.
 5. Batch merges share `main_sha`, so a `main-broken` matched only by `main_sha` blames every gap of the batch, in both
    arms; such blames are kept and flagged `shared`, and the result is said with and without them.
 
 **Stopping, by itself.** The trial sets its share to 0 (`levels.trial-stopped`, with why) at once on: any severe
 harm escape in the treatment arm; E1's balance check failing; the treatment's posterior **mean** × H above S (the
-same test that raises a level, section 3d). Each is a trigger of the pipeline manager. A new trial needs a new seed.
+same test that raises a level, section 3d), applied only once at least `least` (30) treated gaps have closed windows.
+Each is a trigger of the pipeline manager. A new trial needs a new seed.
+
+The mean test waits for `least` because before any data it is the prior's: 0.05 × $1,000 = $50, above any S near $18,
+so applied from the first pass it would stop every trial at once. Worked check, H = $1,000, S = $18:
+
+| Closed treated windows n | Mean × H, no escape | Mean × H, one escape | Bound × H, no escape |
+|---|---|---|---|
+| 0 | $50 (test not applied) | | $135 |
+| 18 | $17.9 (test not applied) | | $48 |
+| 30 | $12.5: runs on | $37.5: stops | $34 |
+| 66 | $6.6: runs on | $19.7: stops | $17.8: **decision, treatment wins** |
+
+So with no harm escape the mean test never fires (it is $12.5 when first applied and falls), and the trial reaches its
+decision at 66. If the measured S is under $12.5 when first read, the mean test stops the trial at its 30th closed
+window: that is the rule's answer (the saving is too small for the risk at H), not a fault.
+
+**S unreadable.** S needs at least `least` closed gaps in each arm whose cost is a finite number. Before the
+treatment has `least` closed windows, S is not used (the mean test is not applied yet). From then on, while S cannot
+be read (too few costed gaps in an arm, or a cost missing or not finite), the trial is **held**: share 0 for new
+placements, gaps already treated keep their arm and post-reviews, the stops on a severe escape and on balance still
+apply, and no decision is taken (lesson-3: an unread S is never read as a saving). It resumes when S reads again; held
+past 7 days, it stops (`levels.trial-stopped`, why: `saving unreadable`).
 
 **Length.** In the 40 merges sampled, 7 (18%) changed only `docs/`, `dev/records/`, `tests/`, `examples/` and
 `ergostat/web/static/`. At the recent 116 to 198 merges a day that is about 20 to 35 eligible gaps a day, so at share
-0.3 (and at most 20 a day) 6 to 11 treated a day: 65 treated in 6 to 11 days, plus the 7-day window: **two to three
-weeks** to the first decision.
+0.3 (and at most 20 a day) 6 to 11 treated a day: 66 treated in 6 to 11 days, plus the 7-day window: **two to three
+weeks** to the first decision, if no harm escape stops it first (the worked check above).
 
 **Hands.** None of the owner's: the coordinator applies the model change that declares the trial (the boundary);
 assignment, the post-reviews, the fix gaps, the readings, the stops and the bound are all programs and blocks. What
@@ -198,14 +223,16 @@ What core does, and nothing more:
    (so the item falls to the strictest, never to a lower level, lesson-3). Placement is an event
    (`<kind>.levelled`: level, rule, arm, seed), so it is in the record and `takes: {where: {care: [one, full]}}` routes
    on it like any field. A remade item is placed afresh (lesson-5).
-2. **Trial.** As section 2: the hash, the share, the ceilings, the arm on the event.
+2. **Trial.** As section 2: the hash, the share, the ceilings, the arm on the event; its mean stop uses `control`'s
+   `least`, and a trial without a `control` stops only on its model's own triggers.
 3. **Moves.** A rule's level now is its declared level moved by its recorded `levels.moved` events (by `seq`,
    lesson-2), held within `lowest` and the top of `order`. The default (no rule) never moves.
 4. **Measures.** Per rule and level: items placed, harm per item (the sum of the field `control.harm` names over items
    whose window closed), cost per item (the field `control.cost`). These are readings a goal may hold.
 5. **`check` refuses** (`bad-levels`): an unknown state, a level not in `order`, a `lowest` above `level`, a glob on a
    field not declared as a list, a share outside 0 to `most_share` or `most_share` above 0.5, `most_per_day` outside
-   1 to 100, a trial naming no rule, a `control` without `worth`. A missing or non-number limit is refused at its key,
+   1 to 100, a trial naming no rule, a `control` without `worth`, a `least` or `probation` not a whole number from 1
+   to 1000. A missing or non-number limit is refused at its key,
    never read as 0 or unlimited.
 
 Core never knows what a level means: the model's blocks take items by it.
@@ -259,9 +286,12 @@ A rule-rung controller, `levels-tune`, one pass an hour, per rule r at level L, 
   windows (from the trial, or from an earlier stay at L₋), the 90% bound of harm per item at L₋ times `worth` is below
   the measured saving S(L → L₋), no severe escape at L₋ in 30 days, and `probation` (10) items were placed since the
   last move. It asks `lower-level` in the inbox with the evidence, and checks it all again when approved (lesson-1).
-- **Raise by one step at once:** when the **mean** harm per item at L times `worth` exceeds S(L₊ → L), or on any
-  severe escape at L. Lowering on the bound and raising on the mean leaves a band between them, so the level does not
-  flip each pass.
+- **Raise by one step at once:** on any severe escape at L; or when the **mean** harm per item at L times `worth`
+  exceeds S(L₊ → L), a test applied only when at least `least` items at L have closed windows (the trial's count, so
+  it applies from the first pass after a lowering, which needs `least` at L₋). Below `least` the mean is mostly the
+  prior's (0.05 × $1,000 = $50 against an S near $18) and would raise every rule at once; with `least` = 30 and no
+  escape it is $12.5 or less. Lowering on the bound and raising on the mean leaves a band between them, so the level
+  does not flip each pass.
 - **Unreadable** (a measure missing, a cost not a finite number): no lowering; after 24 h unread, the rule returns to
   its declared level and says so (lesson-3).
 
@@ -314,8 +344,9 @@ Nothing here is built by this gap. In order, each a gap of at most 250 net lines
    ceilings.
 3. **Core levels: moves and the controller (about 200 lines).** `levels.moved` by `seq`, the per-rule measures, the
    rule-rung controller and its `lower-level` request. Tests: a lowering only with `least` closed items and the
-   bound under the saving; a raise at once on a severe escape; unreadable holds then returns to declared; an approval
-   re-checked when stale.
+   bound under the saving; a raise at once on a severe escape; no mean raise, and no trial stop on the mean, below
+   `least` closed items (a fresh trial with no data is not stopped); a trial held, not stopped, while the saving is
+   unreadable; unreadable holds then returns to declared; an approval re-checked when stale.
 4. **Factory: the fields, the levels in shadow (about 150 lines).** The finish writes `paths`, `net_lines`,
    `escapes_in_paths_30d`; the model declares section 3c with `share: 0` and every rule at `full`, so placement is
    recorded and shown and nothing changes. A week of it gives section 2's eligible share measured, not sampled.
