@@ -61,7 +61,10 @@ counted).
 
 **Measured** (the budget test on image-squeeze seeded as test_page_polling seeds it; a warm second load; this
 container, quiet): the Agents page was usable after 263 ms; its calls were status 43 ms, agents 5 ms, daemons 3 ms,
-projects 3 ms. Nothing over 300 ms.
+projects 3 ms. Nothing over 300 ms. A walk of the image-squeeze demo (`demo_up.py`, cold, not a budget test)
+showed the overlay working from /agents?timing=1 to the Diagram. There the header's `status` took 305 ms on one
+cold call and `series` 297 ms: over or near 300 ms, named here for the Diagram's gap. No screenshot was kept:
+`walk.py --shots /shots` was refused writing to /shots (PermissionError).
 
 **Tests run** (each by id, under the watchdog; all passed):
 - New, `tests/test_frontend_core.py` (all five): the shell and old pages; a module exporting `page` mounted, timed,
