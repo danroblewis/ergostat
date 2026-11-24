@@ -201,6 +201,24 @@ runs. Each time it was the `counts` source, at a best of 104 to 109 ms against i
 Refused in this session: `git worktree add --detach /tmp/mainwt main` (to time the test on main), and
 `ps -A -o pcpu=,command= --sort=-pcpu` (to see the load).
 
+### Round 4
+
+The only finding was the conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. Round 3's
+merge (097de0eb) had already resolved them. Main has not moved since: it is still fa51005d, which is the merge-base,
+`git merge main` says "Already up to date", and no conflict markers are left in the tree. No code changed in this
+round. Outside tests, docs and dev the branch is still 388 lines added and 59 removed.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62). test_result_shapes,
+  test_query_engine and test_web_access (92), including
+  `test_a_factory_sized_record_answers_each_source_within_100_ms_without_the_log`, which failed 4 of 6 runs in round 3
+  and passed on its single run here. One pass doesn't make it reliable, so round 3's note on it still stands.
+- Browser, all rc 0: test_result_frames_page with test_result_shapes_page (13); test_data_source_panels, test_panels
+  and test_sql_editor (30).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently
