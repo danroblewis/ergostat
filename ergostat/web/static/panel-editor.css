@@ -39,8 +39,8 @@
 .pq-box .pq-area::placeholder { color: var(--muted); }
 .pq-hl { position: absolute; inset: 0; overflow: hidden; color: var(--ink); background: var(--bg); border-color: transparent; pointer-events: none; }
 .pq-function, .pq-keyword { color: var(--accent); }
-.pq-metric { color: var(--ink); font-weight: 600; }
-.pq-label { color: var(--info); }
+.pq-metric, .pq-view { color: var(--ink); font-weight: 600; }
+.pq-label, .pq-column { color: var(--info); }
 .pq-string { color: var(--ok); }
 .pq-number { color: var(--warn); }
 .pq-comment { color: var(--muted); font-style: italic; }

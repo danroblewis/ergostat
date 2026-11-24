@@ -21,6 +21,8 @@ when nothing in the window to measure, but for the twelve named at the end, whic
                       result (a timeout, a crash) or a result silent on them is left out and counted on stderr, and
                       with none that said there is no value (exit 1)
   tool-denials-unknown  the sessions left out of tool-denials
+  refused-commands-per-session  the mean Bash calls refused per session (its `denied` list), over the sessions that
+                      said; the others left out and counted on stderr, and with none that said no value (exit 1)
   interventions-trend the coordinator's interventions over the last 7 days less the 7 before
   lessons-per-brief   review lessons carried per first implementor brief (knowledge.py)
   first-pass-with-lessons  first-pass-yield, of the gaps whose first brief carried review lessons
@@ -55,6 +57,9 @@ when nothing in the window to measure, but for the twelve named at the end, whic
                       XL > 400. The window is on the latest merge (merged_at). A gap whose latest merge has no
                       merged_lines is left out of the share, never a hit, and named on stderr.
   size-accuracy-high  the same, of the gaps sized with high confidence only
+  main-still-minutes, main-stalled-minutes, batch-runs, batch-first-green, crash-lost-minutes, gaps-landed-per-hour
+                      the merge pipeline's, from its batch items (landing.py says each); main-stalled-why prints
+                      the goal main-moving's reason: the current batch, its run and the cause
   planning-cost-share planning dollars (planning_cost_usd: the planner's and the plan review's sessions, the whole
                       reservation of one that failed; 0 for an S gap and a sub-gap) over all AI dollars (ai_cost_usd),
                       summed over the gaps merged in the window that carry planning_cost_usd. A gap without it is left
@@ -93,6 +98,7 @@ import time
 sys.dont_write_bytecode = True
 import brief  # noqa: E402
 import fac  # noqa: E402
+import landing  # noqa: E402
 import parks  # noqa: E402
 import times  # noqa: E402
 
@@ -137,12 +143,19 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         return float(sum(int(r["tool_denials"] or 0) for r in rows if "tool_denials" in r))
     if name == "env-parks":
         return env_parks(since)
+    if name == "refused-commands-per-session":
+        return refused_commands([r["fields"] for r in recent(fac.items("session"), "started", since)])
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
     if name in ("size-accuracy", "size-accuracy-high"):
         return size_accuracy(name, since)
     if name == "planning-cost-share":
         return planning_cost_share(since)
+    if name in landing.MEASURES:                        # from the batch items (landing.py)
+        try:
+            return landing.reading(name, fac.items("batch"), fac.items("gap"), now, since)
+        except landing.NoValue as e:
+            raise SystemExit(str(e)) from None
     gaps = fac.items("gap")
     if name in SPLITS:
         return split_reading(name, gaps, since)
@@ -188,6 +201,19 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
                    if isinstance(g.get("suites_queue"), dict) and g["suites_queue"].get("excused")}
         return round((sum(int(g.get("retries") or 0) for g in queued) + len(excused)) / len(runs), 3)
     raise SystemExit(f"measure.py: no measure {name!r}")
+
+
+def refused_commands(rows: list[dict]) -> float:
+    """The mean Bash calls refused per session (its `denied` list, sessions.py), over the sessions that said; one whose
+    list is missing or not a list (a timeout, a crash, a result silent on them) is left out and counted on stderr, and
+    with none that said there is no value."""
+    said = [r["denied"] for r in rows if isinstance(r.get("denied"), list)]
+    if len(said) < len(rows):
+        print(f"refused-commands-per-session: left out, {len(rows) - len(said)} session(s) whose refusals are unknown",
+              file=sys.stderr)
+    if not said:
+        raise SystemExit("refused-commands-per-session: no value (no session in the window said what it was refused)")
+    return round(sum(sum(str(d).startswith("Bash:") for d in ds) for ds in said) / len(said), 3)
 
 
 KNOWLEDGE = ("lessons-per-brief", "first-pass-with-lessons", "lessons-recurring", "plan-risks-held", "splits-clean")
@@ -485,6 +511,8 @@ if __name__ == "__main__":
         print(code_reading(name))
     elif name.removesuffix("-change") in (*CODE, "code-coverage"):
         print(code_change(name))
+    elif name == "main-stalled-why":                    # the goal main-moving's reason (landing.py)
+        print(landing.reason(fac.items("batch"), fac.items("gap"), time.time()))
     elif name in ("coverage", "coverage-below-floor"):
         print(coverage_reading(name, sys.argv[2:]))
     else:

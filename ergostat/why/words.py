@@ -23,14 +23,16 @@ def summary(a: dict) -> str:
     if a["done"]:
         return f"{_now(a)}, which its kind counts as finished: it is done."
     r = a.get("root")
+    from .within import words
     if r is None:
-        return f"{_now(a)}. What holds it could not be worked out: " + ("; ".join(a["missing"]) or "nothing found") + "."
+        return (f"{_now(a)}.{words(a.get('place'))} What holds it could not be worked out: "
+                + ("; ".join(a["missing"]) or "nothing found") + ".")
     n = a["now"] or {}
     usual = f" ({n['said']})" if n.get("usual") else ""
     through = "" if len(r["path"]) < 2 or r["kind"] == "cycle" else \
         f" It waits on {', which waits on '.join(r['path'][1:])}."
     more = f" ({len(a['roots']) - 1} other cause{'s' if len(a['roots']) > 2 else ''} found too.)" if len(a["roots"]) > 1 else ""
-    return (f"{_now(a)}{usual}.{through} The cause, {WORDS.get(r['kind'], r['kind'])}: {r['says']}. Next: "
+    return (f"{_now(a)}{usual}.{through}{words(a.get('place'))} The cause, {WORDS.get(r['kind'], r['kind'])}: {r['says']}. Next: "
             f"{r['owner']} to {r['action']}" + (f" (`{r['command']}`)" if r.get("command") else "") + f".{more}"
             + (" Not known: " + "; ".join(a["missing"]) + "." if a["missing"] and r["kind"] != "unknown" else ""))
 

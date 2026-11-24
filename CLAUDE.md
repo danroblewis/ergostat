@@ -67,7 +67,7 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
   - unit (about 2 min; 12 serial): `uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`
   - browser (about 6 min; 21 serial): `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m
     pytest -q -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py
-    tests/test_page_refresh.py`
+    tests/test_page_refresh.py tests/test_keyboard_story.py`
   - the serial fallback (a test that fails only in parallel, or a busy machine): the same without `-n ... --dist
     worksteal`, e.g. `uv run python -m pytest -q`.
 
