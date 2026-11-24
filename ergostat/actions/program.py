@@ -57,7 +57,7 @@ def key_of(name: str, args: dict, key: str | None = None) -> str:
 
 def known(p, spec, cfg: dict, name: str, k: str, scoped: bool) -> dict | None:
     """The same act asked for before, when it still stands: held, approved, ran, or denied by the owner (or by a gate
-    that is deny still). None for one that failed, or was denied by a gate since changed, or by fencing."""
+    whose cell in force is deny still). None for one that failed, or was denied by a gate since changed, or by fencing."""
     item = cfg.get("item")
     if not item and not scoped:                       # no item, no --key: every run's request is its own
         return None
@@ -74,7 +74,7 @@ def known(p, spec, cfg: dict, name: str, k: str, scoped: bool) -> dict | None:
         if a.get("denied_by") != rec.GATE:
             return a
         act = spec.actions.get(name)
-        if act is not None and act.gate == "deny" and not note.startswith("fenced"):
+        if act is not None and gt.in_force(p, act)[0] == "deny" and not note.startswith("fenced"):
             return a
     return None
 
