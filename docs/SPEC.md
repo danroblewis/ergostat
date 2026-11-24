@@ -1639,6 +1639,42 @@ reads the event log.
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
   is never sent, and `datasources` lists to them only the `model` source below; their other queries are answered as
   before.
+- **Variables.** A Dashboard draft's `vars` names at most 8 variables (`$kind`, `${kind}`): a custom list
+  (`{"type": "custom", "values": [...], "multi": true}`, or a bare list, which takes several), a constant
+  (`{"type": "constant", "value": "prod"}`), or a query (`{"type": "query", "source": "prom", "text":
+  "label_values(ergostat_items, kind)", "multi": false}`; `label_values(label)` lists every series'). Each but a constant
+  is a choice at the top of the Dashboard, and what is chosen is kept in the address (`var-kind=a&var-kind=b`); a
+  variable not chosen takes its first value, or every value when it takes several. A query variable's text may name
+  the variables before it; when one of them changes it is listed again, and so are those that name it in turn. Each
+  listing is numbered, and a variable keeps only its newest, so an earlier listing answering later is dropped. A
+  choice its newest listing does not offer is let go, from the choice and the address (when none is left, the
+  variable takes its default again), so a dependent never keeps a value of a parent value no longer chosen; this is
+  also so of an address opened with such a choice, and of a listing that fails (it offers nothing). A
+  query's values are asked of
+  `GET /api/query/values?q=` (base64url of `{source, text, since, until, vars}`), answered `{"values": [...]}`: at
+  most 200, each at most 200 characters, else refused (`error_kind: limit`), and refused to a public reader as any
+  data source query. A source type lists them by offering `values` beside `query` (for `prometheus`,
+  `GET /api/v1/label/NAME/values`). A data source query is sent `vars` (name to the values chosen, only those its text
+  names), and the server writes them in by the source's language, so no value can change what the query means: inside
+  a string literal a value is that literal's content, escaped for it (a raw `` ` `` string refuses a value holding a
+  backtick); in PromQL a string after `=~` or `!~`, and `label_replace`'s regex (its 5th argument), takes each value
+  escaped as a literal regular expression, several as `(?:a|b)`; `label_replace`'s replacement (3rd) takes one value
+  with each `$` written `$$`, so it names no group; and any other string exactly one value; outside a string a value must be one plain name or number or
+  duration (never a keyword), else the query is refused (`error_kind: refused`); a comment is left as written. The
+  `analysis` call language has the same rules without regular expressions. The `model` source's language (below) has
+  no strings, a quote being part of a word, so a value there is always one plain name, number or duration, one word,
+  else refused. A language with no rules (`sql` among them) refuses every variable used in it. In the older query forms a field takes a variable's one value, and a list element
+  that is the variable alone takes every value; with several chosen, a field is left as written (`$kind`), which
+  matches nothing. Changing a variable asks again only the panels whose queries then
+  change (those that use it, and the copies of a panel repeated by it); each panel takes only the answer of the last
+  ask it was in, by sequence, and a duration stat's *still waiting* note comes with that ask (the first draw's too,
+  with no poll). Leaving the page drops every ask still out: it is neither said nor asked again. A panel repeated by a variable (section 4f's design, *Repeated panels*) shows one panel
+  for each value chosen. A query is sent its variables' values in full, so the page splits its asks by length as well
+  as by count (at most 35,000 bytes of JSON each, within the 48,000 characters of `q`): many panels using a long
+  variable are asked in several asks, each within the bound. A query that alone is longer (a variable of 200 values of
+  200 characters, all chosen, is about 41,000) is never sent: its panel says how long it is and asks for fewer values,
+  nothing is asked again for it, and the other panels still answer. A multi-value choice left empty is not kept in
+  the address, so a reload takes the default again.
 - **The model as a data source.** A source of type `model` is the project's own model and record, so one named `model`
   is there without declaring it (a source declared under that name takes the name; another may be declared
   `{type: model}`, with no connection keys). It reads nothing outside the project, so a reader under `open: read` may ask
@@ -5268,8 +5304,9 @@ sources:
 
 A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
 (`GET /api/v1/query_range`) through the server (section 4e, *Data sources*); its editor's names come from GETs of its
-metadata API (section 4e, *The query editor*). It makes no other request. A `model` source (no fields) is a dashboard
-data source only: the project's own model and record as transfer functions (section 4e, *The model as a data
+metadata API (section 4e, *The query editor*), and a dashboard variable's `label_values` is
+`GET /api/v1/label/NAME/values` (section 4e, *Variables*). It makes no other request. A `model` source (no fields) is a
+dashboard data source only: the project's own model and record as transfer functions (section 4e, *The model as a data
 source*); one named `model` is there undeclared.
 
 A `sql` source (no keys: `record: {type: sql}`) is a dashboard data source only. Its connection is the asking project's
@@ -5279,9 +5316,10 @@ More types (Datadog, CloudWatch) can follow the same shape. A type that reads th
 finds it in `datasources.ASKING` while it answers. A panel data source type is one module in
 `ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
 `sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points, and
-optionally `suggest(source, what, prefix, metric, label, seconds, most)`, the names its editor completes; a type offering
-any other public function or class is refused, so the only operations ergostat can call on a source are `query` and
-`suggest` (each must itself only read; the `prometheus` ones send only GETs). Panels need no change for a new type (the
+optionally `suggest(source, what, prefix, metric, label, seconds, most)`, the names its editor completes, and
+`values(source, selector, label, window)`, a label's values, for a variable; a type offering any other public function
+or class is refused, so the only operations ergostat can call on a source are `query`, `suggest` and `values` (each
+must itself only read; the `prometheus` ones send only GETs). Panels need no change for a new type (the
 model's JSON schema lists the types by name, so a new one is added there too).
 
 ## 12. What ergostat derives and checks
