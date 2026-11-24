@@ -34,8 +34,8 @@ FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this 
 KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
 # names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "dashboard", "goals", "loops", "agents", "items", "item", "record", "model", "check", "guide",
-            "fit", "residuals")
+UI_PAGES = ("diagram", "dashboard", "goals", "loops", "agents", "agent", "items", "item", "record", "model", "check",
+            "guide", "fit", "residuals")
 
 
 _VERSIONS: dict = {}                 # a static file's version, by name: (mtime, size, hash of its content)
@@ -60,6 +60,25 @@ def _item_cost(p, m, fields: dict, until: float) -> dict | None:
     ai = [b for b in ends if b not in m.agents or m.agents[b].rung in (1, 2, 3)]
     return {**costs.totals([r for rs in ends.values() for r in rs]), "taken": len(taken), "ai": bool(ai),
             "unknown": costs.totals([r for b in ai for r in ends[b]])["unknown"]}
+
+
+def _agent_place(p, spec, b, at: float) -> dict:
+    """An agent's block in the model, for its page: its system and mode, the blocks it commands and those that command
+    it, and the items it is working now (their lease held by one of its runs), with the Items page's set of them. A
+    count that cannot be read is None, said as not known, never 0."""
+    from ..spec.item_sets import ItemSet, taken_by
+    to_it = {o.name for o in spec.blocks.values() for rs in o.outputs.values() for r in rs if r.kind == "block" and r.name == b.name}
+    out = {"system": b.system, "mode": b.mode, "goal": b.goal,
+           "commands": sorted({r.name for rs in b.outputs.values() for r in rs if r.kind == "block"}),
+           "commanded_by": sorted(to_it | {r.name for r in b.inputs.values() if r.kind == "block"})}
+    if b.takes:
+        x = ItemSet(b.takes.kind, taken=b.name)
+        try:
+            n = len(taken_by(p.events, spec, x, at))
+        except Exception:                                # said as not known on the page
+            n = None
+        out["working"] = {"n": n, "kind": x.kind, "set": x.params()}
+    return out
 
 
 def asset_version(name: str) -> str | None:
@@ -1036,7 +1055,8 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:], "asked": asked,
                     "ended": ended,
                     **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
-                    "log": _tail(log, 40), "log_path": str(log),
+                    "log": agent_spec.plain(p, _tail(log, 40)), "log_path": str(log),
+                    "place": _agent_place(p, m.spec, b, snap["at"]) if b is not None else None,
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
                     "spec": agent_spec.spec(p, snap, name),          # what it is: its block as written, law, files
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
