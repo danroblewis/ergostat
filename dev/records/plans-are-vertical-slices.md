@@ -42,3 +42,17 @@ Tests run: tests/test_plan.py (6 passed), tests/test_factory_knowledge.py and te
 on ergostat, tests and scripts is clean. `ruff check dev/bin` reports two findings on lines this branch did not touch:
 B023 at plan.py's join_brief and E501 at review.py:47. Not run here: the full unit suite and the four browser files
 (no page changed). Main has not moved since the branch was cut, so no merge was needed.
+
+Round 2: main (49a47c01) merged in. It removed the plan review (dev/records/plan-review-removed.md), which conflicted in
+three files. Each was resolved by keeping main's change and the branch's addition:
+- dev/factory.toml: main dropped `[plan]` along with the review. The section comes back holding only `own_tests = false`.
+- dev/bin/plan.py: main's `size_settings` now returns two values, not three. The branch keeps its `own_tests(cfg)`
+  call before any session.
+- dev/README.md: main's sentence "There is no plan review" stays. The branch's paragraph on vertical slices stays
+  before it, and the old review's text is gone.
+- tests/test_plan.py: main's fixture config no longer has `[plan]`, so the old `replace('[plan]\n', ...)` would have
+  set nothing. On, the first test would have failed. Off, the second would have passed without testing anything
+  (lesson-9). The test now appends the section and asserts that the fixture had none.
+Tests run after the merge: tests/test_plan.py (6 passed), tests/test_factory_knowledge.py (104 passed),
+tests/test_gapsdoc.py (39 passed). Ruff on ergostat, tests and scripts is clean. `ruff check dev/bin/plan.py` reports
+B023 at join_brief and E501 at line 207, both on main's lines.
