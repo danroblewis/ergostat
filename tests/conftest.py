@@ -217,6 +217,7 @@ def home(tmp_path, monkeypatch):
         monkeypatch.delenv(k)
     monkeypatch.setenv("ERGOSTAT_CALL_RETRY", "5")    # a run outliving its test's engine gives up soon (rs-calls)
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ERGOSTAT_DEFAULT_MEASUREMENTS", "sqlite")   # a new record never reaches a VictoriaMetrics here
     return tmp_path / "home"
 
 
@@ -282,7 +283,8 @@ class FactoryState:
 def clean_env(**more: str) -> dict:
     """This process's environment without what an ergostat running the suite gave it (its socket, run, home: as the
     ``home`` fixture clears for a test), but the watchdog's tag; a session fixture is set up before ``home`` runs."""
-    return {**{k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_") or k == "ERGOSTAT_SUITE_WATCH"}, **more}
+    return {**{k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_") or k == "ERGOSTAT_SUITE_WATCH"},
+            "ERGOSTAT_DEFAULT_MEASUREMENTS": "sqlite", **more}
 
 
 def build_factory_state(out: Path, *args: str) -> dict:
