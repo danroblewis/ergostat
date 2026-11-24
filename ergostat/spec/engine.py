@@ -1112,6 +1112,11 @@ class Engine:
                 with self.lock:
                     killed = self.killing.pop(begun["id"], None)
                 note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
+                from ..daemons import kept as kept_daemon
+                if note == kept_daemon.LEFT:                 # we stop, its daemon goes on with it: its end, and its
+                    if outcome is not None:                  # lease, the next engine's (SPEC §9.7)
+                        outcome["left"] = True
+                    return []
             else:
                 kept = spec.outlive_engine                   # held by a keeper, never stopped with us (SPEC §9.1)
                 name = begun["id"] if not kept or keeper.RUN.fullmatch(begun["id"]) else uuid.uuid4().hex
@@ -1237,7 +1242,9 @@ class Engine:
             if ready.full:                                       # no workspace free: given back, put off, not counted
                 outcome["nack"] = {"why": note, "after": POOL_FULL_AFTER, "count": False}
         ended = ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data,
-                       id=adopt.end_id(begun["id"]) if kept_end else None)   # (a kept run's: one end, SPEC §9.1)
+                       id=adopt.end_id(begun["id"]) if kept_end or b.params.get("daemon") else None)   # (a kept run's,
+        if b.params.get("daemon"):                               # a daemon's: one end, SPEC §9.1, §9.7)
+            self.daemons.acked(begun["id"])
         budget.OPEN.discard(begun["id"])                          # (ended: nothing after this closes it again)
         if kept_end and item and outcome is not None:            # its files go once its lease's end is written too
             outcome["done"] = lambda: adopt.let_go(*kept_end)

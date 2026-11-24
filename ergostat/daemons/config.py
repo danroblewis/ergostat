@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from ..spec.ir import Daemon
 
-KEYS = {"run", "concurrency", "heartbeat", "restart", "stdin-timeout", "description", "warm", "recycle"}
+KEYS = {"run", "concurrency", "heartbeat", "restart", "stdin-timeout", "description", "warm", "recycle",
+        "outlive-engine"}
 RESTART = {"max", "within", "backoff"}
 WARM_MOST = 32                 # a warm daemon's processes, at most (two engine threads each)
 STORE = "victoriametrics"      # the daemon of storage: measurements: run: (the metrics store ergostat supervises)
@@ -20,7 +21,7 @@ def whole(c, m, key: str, least: int, default: int, what: str, says: str) -> int
     return v
 
 
-def one(c, m, name: str, what: str) -> Daemon | None:
+def one(c, m, name: str, what: str, outlive: bool = False) -> Daemon | None:
     c.keys(m, KEYS, what)
     if not m.get("run"):
         c.err(f"{what}: run: the command that starts it (it reads JSON lines on its standard input, SPEC §9.7)",
@@ -50,18 +51,23 @@ def one(c, m, name: str, what: str) -> Daemon | None:
         c.err(f"{what}.concurrency: at most {WARM_MOST} for a warm daemon (a process each, two engine threads each)",
               m.at("concurrency"), "bad-number")
         warm = False
+    kept = m.get("outlive-engine", outlive and not warm)    # (as runs: outlive_engine says, unless it says itself)
+    if not isinstance(kept, bool) or kept and warm:
+        c.err(f"{what}.outlive-engine: true or false (true: kept by a keeper, going on through an engine restart; "
+              f"never a warm daemon's)", m.at("outlive-engine"), "bad-daemon")
+        kept = False
     return Daemon(name, str(m["run"]), whole(c, m, "concurrency", 1, 10, what, "the most runs it holds at once"),
                   c.duration(m, "heartbeat", what), whole(c, r, "max", 0, 5, f"{what}.restart", "restarts allowed within:"),
                   c.duration(r, "within", f"{what}.restart", 600.0) if r else 600.0, backoff,
                   c.duration(m, "stdin-timeout", what, 10.0), warm is True,
-                  whole(c, m, "recycle", 1, 1000, what, "the most runs one warm process serves"), m.where)
+                  whole(c, m, "recycle", 1, 1000, what, "the most runs one warm process serves"), m.where, kept)
 
 
 def section(c, spec) -> None:
     """The top-level ``daemons:``, then each block's and sensor's ``daemon:`` (a map: its own, named for it; a name:
     the top-level one), resolved to a name in ``spec.daemons``."""
     for name, m, what in c.named("daemons"):
-        if (d := one(c, m, name, what)) is not None:
+        if (d := one(c, m, name, what, spec.outlive_engine)) is not None:
             spec.daemons[name] = d
     if run := getattr(getattr(spec, "storage", None), "run", None):
         if STORE in spec.daemons:
@@ -77,7 +83,7 @@ def section(c, spec) -> None:
     for own, x, raw, what in users:
         name = None
         if isinstance(raw, dict):
-            if (d := one(c, raw, own, f"{what}.daemon")) is not None:
+            if (d := one(c, raw, own, f"{what}.daemon", spec.outlive_engine)) is not None:
                 spec.daemons[own] = d
                 name = own
         elif isinstance(raw, str) and raw in spec.daemons:

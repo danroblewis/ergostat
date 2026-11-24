@@ -49,6 +49,8 @@ class Hands:
                 ready = self._room(slot)
                 if ready and checked:
                     held = slot.proc
+                    if item and getattr(held, "kept", False):     # (its lease never given back as we stop: the
+                        self.e.dispatch.keeping.add(run)          # daemon goes on with it, kept.py)
                     held.hold(run, h, None if slot.d.warm else line)
                     break
             if ready and not checked:                # its lease still its own (read outside the lock), then held

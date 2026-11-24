@@ -21,6 +21,7 @@ Pick the shape:
 | readings that arrive by themselves | push daemon | `sensor: {daemon: {run: ...}, push: true}` |
 | a program block taking many items | block daemon | `daemon: {run: ..., concurrency: N, heartbeat: 30s}` instead of `run:`, with `takes:`, `pool:`, `lease:` |
 | a block's program slow to start, one item at a time, keeping nothing between items | warm block daemon (SPEC §9.7, *Warm*) | `daemon: {run: ..., warm: true, concurrency: N}`: N processes, one run each at a time, each run charged its CPU |
+| a block daemon whose items take long, kept going through an engine restart | kept block daemon (SPEC §9.7, *A daemon that outlives its engine*) | `daemon: {run: ..., outlive-engine: true}`: an item may be sent again with the same `run` id after a restart; keep the ids taken and drop a repeat |
 
 A warm daemon's program reads one item, does it, reaps everything it started, and says `done`; it never writes
 `os.environ` (pass `{**os.environ, **env}` to what it starts) and keeps nothing for the next item. A process that
