@@ -91,13 +91,16 @@ def _graphs(listed: dict) -> list[dict]:
     rel = {n for k in listed.get("kinds") or [] for ts in (k.get("relations") or {}).values() for n in (k["name"], *ts)}
     counts = {k["name"]: k.get("counts") or {} for k in listed.get("kinds") or []}
     out: dict[str, dict] = {}
+    sys_ = {}
     for g in listed.get("systems") or [{"kinds": [k["name"] for k in listed.get("kinds") or []]}]:
         want = [n for n in g.get("kinds") or [] if n in rel]
+        on = {"system": g["name"]} if g.get("name") else {}          # asked by its system, as the page does
+        sys_.update({n: on for n in g.get("kinds") or []})
         held = want or [n for n in g.get("kinds") or [] if any((counts.get(n) or {}).values())]
         for kinds in ([",".join(held)] if held else []) + want:
-            out[kinds] = {"kinds": kinds}
+            out[kinds] = {"kinds": kinds, **on}
     for k in listed.get("kinds") or []:
-        out.setdefault(k["name"], {"kinds": k["name"]})
+        out.setdefault(k["name"], {"kinds": k["name"], **sys_.get(k["name"], {})})
     return list(out.values())
 
 

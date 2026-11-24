@@ -1156,6 +1156,14 @@ button.rg-key.on { outline: var(--hair) solid var(--accent); }
 .rg-edge.rg-member path { stroke: var(--line-strong); stroke-dasharray: 2 3; }
 .rg-edge.rg-other path { stroke: var(--line-strong); stroke-dasharray: 4 3; }
 .rg-edge.rg-other .rg-head { fill: var(--line-strong); }
+.rg-stub { cursor: pointer; }
+.rg-stub text { font-size: var(--canvas-sm); fill: var(--ink-2); pointer-events: none; }
+.rg-stub .rg-sub { fill: var(--muted); }
+.rg-stub .rg-box { fill: var(--chrome); stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 2; }
+.rg-stub:hover .rg-box, .rg-stub:focus-visible .rg-box { fill: var(--fill); }
+.rg-stub:focus { outline: none; }
+.rg-edge.rg-outside path { stroke: var(--line-strong); stroke-dasharray: 3 2; }
+.rg-edge.rg-outside .rg-head { fill: var(--line-strong); }
 .rg-edge.rg-crit path { stroke: var(--bad); stroke-width: 2.2; }
 .rg-edge.rg-crit .rg-head { fill: var(--bad); }
 .rg-elabel { fill: var(--muted); font-size: var(--canvas-sm); }

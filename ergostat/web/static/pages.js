@@ -871,7 +871,8 @@ async function pageItems(main, q, only = false) {
       const related = g.kinds.filter((n) => relKinds.has(n));     // none: the Timeline still draws each item's states
       const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : related.length || view === "graph" ? related
         : g.kinds.filter((n) => Object.values(kindOf[n]?.counts || {}).some(Boolean));
-      relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }, signal).catch((err) => ({ err })) : null };
+      // (by its system: only its own kinds' dependency network is drawn, another system's items stubs at its edge)
+      relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...(g.name ? { system: g.name } : {}), ...whatifParams() }, signal).catch((err) => ({ err })) : null };
     }));
     const trust = await trustAsked, classes = (await classesAsked)?.asked ?? null;
     if (gone()) return;
@@ -1005,6 +1006,12 @@ async function pageItems(main, q, only = false) {
       if (only && view === "graph" && !relKinds.has(one)) return none;     // the kind's page: a kind with no relations
       if (!want.length) return kind || view !== "graph" ? [] : none;
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
+      if (view === "graph" && rd.waits === false) {      // nothing to draw: said once, and where what they name is
+        const seen = new Set();                         // (each a link to the named kind's page, its Graph)
+        const where = (rd.about || []).filter((a) => a.system && a.system !== g.name && !seen.has(`${a.kind}>${a.to}`) && seen.add(`${a.kind}>${a.to}`))
+          .flatMap((a, i) => [i ? "; " : "", `${a.kind}s are about ${a.to}s: see `, h("a", { href: kindHref(a.to, "view=graph"), class: "rg-where" }, a.system)]);
+        return [h("p", { class: "muted rg-none", key: `rel-flat:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.", ...(where.length ? [" ", ...where, "."] : []))];
+      }
       const o = { finished: fin(), group: ro.group, q: needle, status: ro.status,
                   where: kind && d.set ? where : [] };     // a set's where on a relation (a milestone's gaps) narrows them
       const m = rgModel(rd, o);

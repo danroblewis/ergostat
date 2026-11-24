@@ -1175,18 +1175,24 @@ def test_a_snapshot_holds_the_items_graph_the_page_asks_for(tmp_path):
     rel = {n for k in listed["kinds"] for ts in (k["relations"] or {}).values() for n in (k["name"], *ts)}
     groups = {g["name"]: [n for n in g["kinds"] if n in rel] for g in listed["systems"]}
     assert groups["planning"] == ["epic", "goal"] and groups["delivery"] == ["ticket"]      # notes: no relations
-    want = {key("items-graph", {"kinds": ",".join(ks)}) for ks in groups.values() if ks}
-    want |= {key("items-graph", {"kinds": k["name"]}) for k in listed["kinds"]}    # a kind chosen: related or not
+    sys_ = {n: g["name"] for g in listed["systems"] for n in g["kinds"]}             # asked by its system
+    want = {key("items-graph", {"kinds": ",".join(ks), "system": g}) for g, ks in groups.items() if ks}
+    want |= {key("items-graph", {"kinds": k["name"], "system": sys_[k["name"]]}) for k in listed["kinds"]}   # one chosen
     own = {k["name"] for k in listed["kinds"] if k["name"].startswith("ergostat.")}    # ergostat's own kinds, alone too
-    assert own and want == {"items-graph?kinds=epic,goal", "items-graph?kinds=epic", "items-graph?kinds=goal",
-                            "items-graph?kinds=ticket", "items-graph?kinds=note", *(f"items-graph?kinds={k}" for k in own)}
+    assert own and want == {"items-graph?kinds=epic,goal&system=planning", "items-graph?kinds=epic&system=planning",
+                            "items-graph?kinds=goal&system=planning", "items-graph?kinds=ticket&system=delivery",
+                            "items-graph?kinds=note&system=delivery",
+                            *(f"items-graph?kinds={k}&system={sys_[k]}" for k in own)}
     got = {k for k in data if k.startswith("items-graph")}
     assert got == want, got
-    t = {x["id"]: x for x in data["items-graph?kinds=ticket"]["items"]}
+    tk = data["items-graph?kinds=ticket&system=delivery"]
+    t = {x["id"]: x for x in tk["items"]}
     assert t["ticket/b"]["status"] == "blocked" and t["ticket/b"]["links"]["parent"] == ["epic/e1"]
-    assert "epic/e1" in t and t["ticket/a"]["status"] == "active"                   # what its relations reach
-    both = {x["id"] for x in data["items-graph?kinds=epic,goal"]["items"]}
-    assert {"epic/e1", "epic/e2", "goal/g"} <= both and data["items-graph?kinds=epic,goal"]["asked"] == ["epic", "goal"]
+    assert t["ticket/a"]["status"] == "active"
+    assert "epic/e1" not in t and [x["id"] for x in tk["outside"]] == ["epic/e1"]   # another system's parent: a stub
+    both = {x["id"] for x in data["items-graph?kinds=epic,goal&system=planning"]["items"]}
+    assert {"epic/e1", "epic/e2", "goal/g"} <= both
+    assert data["items-graph?kinds=epic,goal&system=planning"]["asked"] == ["epic", "goal"]
 
 
 def test_a_snapshot_holds_the_timeline_of_a_system_without_relations(tmp_path):
@@ -1203,7 +1209,7 @@ def test_a_snapshot_holds_the_timeline_of_a_system_without_relations(tmp_path):
     p.events.add("ticket.opened", item="ticket/a", data={"title": "printer"})
     p.events.add("call.taken", item="call/c", data={"title": "a call"})
     data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
-    got = data.get("items-graph?kinds=ticket,call") or data.get("items-graph?kinds=call,ticket")
+    got = data.get("items-graph?kinds=ticket,call&system=desk") or data.get("items-graph?kinds=call,ticket&system=desk")
     assert got is not None, sorted(k for k in data if k.startswith("items-graph"))
     assert {x["id"] for x in got["items"]} == {"ticket/a", "call/c"}                # memo: no items, not asked
     assert not any("memo" in k and "," in k for k in data if k.startswith("items-graph"))
@@ -1233,8 +1239,9 @@ def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monk
     kinds = {k["name"]: k for k in data["items"]["kinds"]}
     assert {"epic", "goal", "ticket", "note"} <= set(kinds)                       # and ergostat's own kinds
     want = []
+    sys_ = {n: g["name"] for g in data["items"]["systems"] for n in g["kinds"]}
     for name, k in kinds.items():
-        want += [("items", {"kind": name}), ("items-graph", {"kinds": name})]
+        want += [("items", {"kind": name}), ("items-graph", {"kinds": name, "system": sys_[name]})]
         want += [("items", {"kind": name, "state": s}) for s in k["states"]]
     live = Live(p)
     for path, params in want:
@@ -1247,7 +1254,7 @@ def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monk
     assert ids("items?kind=ticket") == ["ticket/a", "ticket/b"]
     assert ids("items?kind=ticket&state=doing") == ["ticket/a"]                     # ticket.started: doing
     assert ids("items?kind=ticket&state=todo") == ["ticket/b"]
-    assert "note/n" in {i["id"] for i in data["items-graph?kinds=note"]["items"]}
+    assert "note/n" in {i["id"] for i in data["items-graph?kinds=note&system=delivery"]["items"]}
 
 
 def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_path, monkeypatch):
@@ -1255,7 +1262,7 @@ def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_pa
     real = snapshot.api
     every = {"finished": "show"}                                   # each items answer is asked with the finished too
     broken = [("items", {"kind": "ticket", **every}), ("items", {"kind": "epic", "state": "underway", **every}),
-              ("items-graph", {"kinds": "note"})]
+              ("items-graph", {"kinds": "note", "system": "delivery"})]
 
     seen = []
 
@@ -1274,7 +1281,8 @@ def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_pa
     assert ("items", {"kind": "ticket", "state": "doing", **every}) not in seen   # no states asked without the kind's own answer
     assert not any(k.startswith("items?kind=ticket") for k in data)    # its states, from its own answer: none to be had
     assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
-            "items-graph?kinds=ticket", "items-graph?kinds=epic,goal", "status", "graph"} <= set(data)
+            "items-graph?kinds=ticket&system=delivery", "items-graph?kinds=epic,goal&system=planning", "status",
+            "graph"} <= set(data)
     assert sorted(i["id"] for i in data["items?kind=epic"]["items"]) == ["epic/e1", "epic/e2"]
 
 

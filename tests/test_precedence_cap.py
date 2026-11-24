@@ -108,6 +108,17 @@ def test_an_unfinished_dependency_beyond_the_cap_blocks_and_is_named(tmp_path):
     assert dispatched(p) == ["ticket/free"]
 
 
+def test_a_systems_graph_draws_another_kinds_dependencies_as_stubs_and_counts_them_all(tmp_path):
+    p = record(tmp_path, last_open=True)
+    g = pr.build(p.events, p.model.spec, ["ticket"], time.time(), time.time(), own=["ticket"])
+    last = f"part/p{N - 1:03d}"
+    assert sorted(x["id"] for x in g["items"]) == ["ticket/free", "ticket/w"]       # no part a full item
+    assert len(g["outside"]) == pr.MOST_PULLED and g["capped"]["outside"] == N - pr.MOST_PULLED
+    assert last not in {x["id"] for x in g["outside"]}                              # cut from the stubs...
+    w = next(x for x in g["items"] if x["id"] == "ticket/w")
+    assert w["waiting"] == [last] and w["status"] == "blocked"                      # ...and its status still counts
+
+
 def test_an_unreadable_dependency_blocks_and_is_named(tmp_path):
     p = record(tmp_path, never=True)
     g = graph(p)
