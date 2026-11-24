@@ -99,3 +99,12 @@ at plan time against the allowlist, a measure need leaves the gap ready with `me
 definition until `gap.need-met`, and `env-parks` is counted beside `first-pass-yield`, which leaves those reviews
 out. It says the classifier is a pattern list that both misses and over-matches, and points to dev/README.md for the
 patterns. Item 4 is now done on both sides. No code changed; size unchanged, 134 net lines in dev/bin against main.
+
+### Round 6
+
+The queue's one finding, a second conflict with main in dev/bin/measure.py, is resolved. Main moved the readings
+from `fac.items` to the shared `listing.items` (measure-sensors-share-one-listing). The branch's `first-pass-yield`
+keeps leaving env-parks out. It and `env_parks` now read gaps and reviews through `listing.items` too, so the
+branch's reads share the one listing as main's do. tests/test_measure.py, tests/test_plan.py and
+tests/test_measure_sharing.py pass after the merge, and ruff is clean. Size: unchanged, 134 net lines in dev/bin
+against main (154 added, 20 removed).
