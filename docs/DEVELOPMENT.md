@@ -185,11 +185,9 @@ off. The rules:
 **When a flag is worth it.** Use one for work that sits apart from everything else: a new page, a new panel, a new
 view or export, a new command. Two conditions should both hold. First, the work's own unit tests are slow or many,
 so skipping them while the work is unfinished saves real suite time (a page's browser tests wait for the turn-on
-change instead). Second, the guard is one
-`if` at the place where the work is entered (a route, a command, the server's answer that tells a page to show it),
-with nothing shared below it. The flags are read in Python only: a page's scripts see a flag only through what the
-server sends them. A flag
-is not worth it:
+change instead). Second, the guard is one `if` at the place where the work is entered (a route, a command, the
+server's answer that tells a page to show it), with nothing shared below it. The flags are read in Python only: a
+page's scripts see a flag only through what the server sends them. A flag is not worth it:
 
 - on an engine path: the runner, the store, the fold, scheduling, leases, the model compiler, or anything else a
   running instance depends on. There the off path and the on path both matter, and both would need testing.
