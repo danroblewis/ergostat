@@ -9,6 +9,7 @@ import contextvars
 import glob as _glob
 import hashlib
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -32,7 +33,9 @@ class Reads:
         self.files: dict[str, bytes | str | None] = dict(kept.get("files") or {})    # (replay: the hashes)
         self.dirs: dict[str, bool] = dict(kept.get("dirs") or {})
         self.globs: dict[str, list[str]] = {k: list(v) for k, v in (kept.get("globs") or {}).items()}
-        here = {str(Path(p).parent) for p in self.files} | set(self.dirs) | {k.split("\n")[0] for k in self.globs}
+        self.trees: dict[str, dict[str, list]] = dict(kept.get("trees") or {})    # root → rel → [kind, hash | target]
+        here = {str(Path(p).parent) for p in self.files} | set(self.dirs) | {k.split("\n")[0] for k in self.globs} | \
+            set(self.trees)
         self.guarded = tuple(sorted(here))
 
     def ask(self, table: str, key: str, live):
@@ -141,3 +144,77 @@ def replay(kept: dict, fetch):
         yield
     finally:
         _NOW.reset(tok)
+
+
+class TreeError(ValueError):
+    """A library copy refused at ``path``: ``code`` bad-library-tree (a kind or shape not allowed) or library-too-big."""
+
+    def __init__(self, code: str, path: str, why: str):
+        super().__init__(f"{code}: {path!r}: {why}")
+        self.code, self.path = code, path
+
+
+_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+DEPTH = 64
+
+
+def tree(root, max_entries: int = 2000, max_bytes: int = 20_000_000) -> dict[str, tuple[str, bytes | str | None]]:
+    """Every entry under ``root`` by its ``/``-joined path: (``dir``, None), (``file`` or ``exec``, its bytes) or
+    (``link``, its target). Walked with lstat through folder handles opened O_NOFOLLOW; a FIFO, socket or device is
+    refused unopened; a file is opened O_NOFOLLOW|O_NONBLOCK and refused unless its handle is S_ISREG. Past
+    ``max_entries``, ``max_bytes`` read or ``DEPTH`` folders is refused. Noted: the listing in ``Reads.trees``, each
+    file's bytes in ``Reads.files``; the last good model's replay answers both from its snapshot, never the disk."""
+    root, r = str(root), _NOW.get()
+    if r is not None and r.replay:
+        if root not in r.trees:
+            raise NotKept(f"{root}: not in the last good model's snapshot")
+        return {rel: (k, r.ask("files", os.path.join(root, rel), None) if k in ("file", "exec") else v if k == "link"
+                      else None) for rel, (k, v) in r.trees[root].items()}
+    out: dict = {}
+    top = os.open(root, _DIR)
+    try:
+        _walk(top, "", out, max_entries, [max_bytes], 0)
+    finally:
+        os.close(top)
+    if r is not None:
+        r.trees[root] = {rel: [k, hashlib.sha256(v).hexdigest() if k in ("file", "exec") else v if k == "link" else ""]
+                         for rel, (k, v) in out.items()}
+        r.files.update({os.path.join(root, rel): v for rel, (k, v) in out.items() if k in ("file", "exec")})
+    return out
+
+
+def _walk(fd: int, at: str, out: dict, cap: int, left: list, depth: int) -> None:
+    if depth >= DEPTH:
+        raise TreeError("library-too-big", at, f"more than {DEPTH} folders deep")
+    for name in sorted(os.listdir(fd)):
+        p = at + name
+        if len(out) >= cap:
+            raise TreeError("library-too-big", p, f"more than {cap} entries")
+        st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        if stat.S_ISLNK(st.st_mode):
+            out[p] = ("link", os.readlink(name, dir_fd=fd))
+        elif stat.S_ISDIR(st.st_mode):
+            out[p] = ("dir", None)
+            sub = os.open(name, _DIR, dir_fd=fd)
+            try:
+                _walk(sub, p + "/", out, cap, left, depth + 1)
+            finally:
+                os.close(sub)
+        elif stat.S_ISREG(st.st_mode):
+            h = os.open(name, _FILE, dir_fd=fd)
+            try:
+                hs = os.fstat(h)
+                if not stat.S_ISREG(hs.st_mode):
+                    raise TreeError("bad-library-tree", p, "not a regular file once opened")
+                data = bytearray()
+                while len(data) <= left[0] and (b := os.read(h, min(1 << 20, left[0] + 1 - len(data)))):
+                    data += b
+            finally:
+                os.close(h)
+            if len(data) > left[0]:
+                raise TreeError("library-too-big", p, "past the byte cap")
+            left[0] -= len(data)
+            out[p] = ("exec" if hs.st_mode & 0o111 else "file", bytes(data))
+        else:
+            raise TreeError("bad-library-tree", p, "a FIFO, socket or device")

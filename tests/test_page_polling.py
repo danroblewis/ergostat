@@ -48,7 +48,7 @@ REF_MS = 8.5                   # measured 8.2 to 8.8 ms on the reference laptop 
 SPEED_PROBE = """() => { const t0 = performance.now(); let x = 0;
   for (let i = 0; i < 2e6; i++) x = (x * 31 + i) % 1000003;
   return [performance.now() - t0, x]; }"""
-PAGES = ["diagram", "diagram?view=dynamics&open=*", "diagram?view=blocks", "diagram?view=process", "loops",
+PAGES = ["diagram", "diagram?view=dynamics&open=*", "diagram?view=blocks", "diagram?view=process", "goals",
          "agents", "items", "item/hypothesis%2F1", "record", "model"]
 INIT = f"""window.ERGOSTAT_POLL_SPEED = {SPEED}; window.__lt = [];
 try {{ new PerformanceObserver((l) => {{ for (const e of l.getEntries()) window.__lt.push(e.duration); }})
@@ -277,9 +277,9 @@ def test_leaving_a_page_stops_its_polling(browser, site):
     """Pages left quickly, each before its first answer came: only the header's and the last page's polls go on."""
     pg = browser.new_page()
     pg.add_init_script(INIT)
-    pg.goto(f"{site}/loops")
+    pg.goto(f"{site}/goals")
     pg.wait_for_timeout(3000)
-    for r in ["/diagram", "/items", "/loops", "/diagram?view=blocks", "/agents", "/model", "/diagram"] * 2 + ["/record"]:
+    for r in ["/diagram", "/items", "/goals", "/diagram?view=blocks", "/agents", "/model", "/diagram"] * 2 + ["/record"]:
         pg.evaluate(f"navigate({r!r})")
         pg.wait_for_timeout(150)
     pg.wait_for_timeout(4000)
@@ -292,13 +292,104 @@ def test_leaving_a_page_stops_its_polling(browser, site):
     assert set(asked) <= {"events", "status", "projects"}, f"pages left behind still ask: {sorted(set(asked))}"
 
 
+def test_the_goals_page_and_its_old_address(browser, site):
+    """What is held or off is a goal: /goals is the page (h1 'Goals', first column 'goal'), /loops lands there with
+    its query, the header never says 'loop', a goal's panel is a Goal; 'control loop' and 'Feedback loops' stay."""
+    pg = browser.new_page()
+    rows = "() => [...document.querySelectorAll('#main tr.click td:first-child b')].map((b) => b.textContent)"
+    pg.goto(f"{site}/goals?status=off")
+    pg.wait_for_function("() => document.querySelector('#main tr.click')", timeout=30000)
+    assert pg.locator("#main h1").inner_text().split(" · ")[0] == "Goals"      # main adds ' · goals off N' after it
+    assert pg.locator("#main th").first.inner_text() == "goal"
+    nav = pg.locator("#nav").inner_text()
+    assert "Goals" in nav and "Loops" not in nav, nav
+    goals = pg.evaluate(rows)
+    pg.goto(f"{site}/loops?status=off")
+    pg.wait_for_function("() => location.pathname === '/goals' && document.querySelector('#main tr.click')", timeout=30000)
+    assert pg.evaluate("location.search") == "?status=off" and pg.evaluate(rows) == goals
+    pg.wait_for_function("() => document.querySelector('#running').textContent", timeout=10000)
+    assert "loop" not in pg.locator("header").first.inner_text().lower()
+    pg.locator("#main tr.click").first.click()
+    pg.wait_for_function("() => document.querySelector('#detail .kind')", timeout=20000)
+    assert pg.locator("#detail .kind").first.inner_text() in ("Goal", "Goal, open loop")
+    pg.goto(f"{site}/diagram?view=blocks&open=*")
+    pg.wait_for_function("() => S.graph?.nodes?.length && document.querySelector('.side h3')", timeout=60000)
+    ctl = "S.graph.nodes.find((n) => n.role === 'controller' && (n.loops || []).length)"
+    assert pg.evaluate(f"() => !!{ctl}"), pg.evaluate("() => S.graph.nodes.map((n) => [n.kind, n.role, n.loops])")
+    pg.evaluate(f"() => openBlock({ctl})")
+    pg.wait_for_function("() => document.querySelector('#detail .kind')", timeout=20000)
+    assert "control loop" in pg.locator("#detail").inner_text()
+    assert pg.locator(".side details.loops > summary").first.inner_text().startswith("Control loops")
+    pg.goto(f"{site}/diagram?view=dynamics&open=*")
+    pg.wait_for_function("() => [...document.querySelectorAll('.side details.loops > summary')]"
+                         ".some((x) => x.textContent.startsWith('Feedback loops'))", timeout=60000)
+    pg.close()
+
+
+FETCHES ="""window.__fetches = []; const realFetch = window.fetch;
+window.fetch = (url, opts = {}) => { const f = { url: String(url), signal: opts.signal || null, failed: null };
+  window.__fetches.push(f);
+  return realFetch(url, opts).catch((e) => { f.failed = e.name; throw e; }); };"""
+
+
+def test_leaving_a_page_cancels_its_fetches_in_flight(browser, site):
+    """The Goals page's answer held on its way; the page left for Agents: that fetch is aborted (the server can
+    drop it), the left page says nothing of it, and the header's and the new page's fetches are not aborted."""
+    pg = browser.new_page()
+    pg.add_init_script(FETCHES)
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    held = []
+    pg.route("**/api/loops?*", lambda r: held.append(r))          # never answered while held
+    pg.goto(f"{site}/goals")
+    pg.wait_for_function("window.__fetches.some((f) => f.url.includes('/api/loops'))", timeout=60000)
+    pg.wait_for_function("window.__fetches.some((f) => f.url.includes('/api/status'))", timeout=60000)
+    pg.evaluate("navigate('/agents')")
+    pg.wait_for_function("window.__fetches.some((f) => f.url.includes('/api/agents'))", timeout=60000)
+    pg.wait_for_timeout(1000)
+    got = pg.evaluate("""window.__fetches.map((f) => ({ url: f.url.split('/api/')[1].split('?')[0],
+                                                          aborted: !!(f.signal && f.signal.aborted), failed: f.failed }))""")
+    pg.unroute("**/api/loops?*")
+    pg.close()
+    loops = [f for f in got if f["url"] == "loops"]
+    assert loops and all(f["aborted"] and f["failed"] == "AbortError" for f in loops), got
+    assert not any(f["aborted"] for f in got if f["url"] in ("status", "projects", "agents")), got
+    assert not errors, errors
+
+
+def test_leaving_the_model_page_mid_fetch_and_coming_back_fills_whats_available(browser, site):
+    """The Model page's loop summaries (loops?perf=1) held on their way; the page left for Agents, so that fetch is
+    aborted. Back on Model, the summaries are asked for again and fill in: the abort ended the first ask (its
+    ``finally`` ran), so the second is not refused as still busy."""
+    pg = browser.new_page()
+    pg.add_init_script(FETCHES)
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    perf = "window.__fetches.filter((f) => f.url.includes('/api/loops?') && f.url.includes('perf=1')).length"
+    pg.route("**/api/loops?*", lambda r: None)                   # never answered while held
+    pg.goto(f"{site}/model")
+    pg.wait_for_function(f"{perf} >= 1", timeout=60000)
+    pg.evaluate("navigate('/agents')")
+    pg.wait_for_function("window.__fetches.some((f) => f.url.includes('/api/agents'))", timeout=60000)
+    pg.unroute("**/api/loops?*")
+    first = pg.evaluate(f"({perf})")
+    pg.evaluate("navigate('/model')")
+    pg.wait_for_function(f"{perf} > {first}", timeout=60000)
+    pg.wait_for_function("() => { const t = document.querySelector('table.avail'); return t && t.rows.length > 1"
+                         " && !t.innerText.includes('analysing'); }", timeout=90000)
+    aborted = pg.evaluate("window.__fetches.filter((f) => f.url.includes('perf=1')).map((f) => f.failed)")
+    pg.close()
+    assert aborted[0] == "AbortError", aborted
+    assert not errors, errors
+
+
 def test_the_loops_page_asks_once_for_every_goal(browser, site):
-    """Opening Loops sends at most four API requests (status, loops, projects and one more), none of them the graph
+    """Opening Goals sends at most four API requests (status, loops, projects and one more), none of them the graph
     and none per goal; its performance column fills within a few polls, each goal's as loop-control says."""
     pg = browser.new_page()
     asked: list[str] = []
     pg.on("request", lambda r: asked.append(r.url.split("/api/")[1]) if "/api/" in r.url else None)
-    pg.goto(f"{site}/loops")
+    pg.goto(f"{site}/goals")
     pg.wait_for_selector("td[data-perf]", timeout=30000)
     pg.wait_for_timeout(1500)                            # the first tick's answers all asked (the next poll is at 3 s)
     opening = list(asked)
@@ -318,6 +409,7 @@ def test_the_loops_page_asks_once_for_every_goal(browser, site):
     assert {"status", "loops"} <= set(names), opening
     assert not [a for a in later if a.startswith(("graph", "loop-control"))], later
     assert len(goals) >= 3 and cells == each, (cells, each)
+
 
 def test_a_hidden_tab_asks_for_nothing(browser, site):
     pg = browser.new_page()

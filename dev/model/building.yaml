@@ -48,6 +48,16 @@ auxiliaries:
     exogenous: true
     description: 1 while the coordinator lets the implementor take gaps, 0 (or never read) while the intake is paused
     sensor: {manual: true}
+  stale-stacks:
+    unit: gaps
+    description: stacked gaps (approved or built) whose base was approved again at a new reviewed head, or landed, and is not yet merged forward into them (a stacked_on that cannot be read counts)
+    driven-by: [+stock.gaps-approved, -flow.sent-back-by-stack-forward]
+    sensor: {run: python3 dev/bin/stack.py stale, every: 5m, timeout: 2m, description: the stacked gaps' record}
+  gaps-stacked:
+    unit: gaps
+    description: gaps built stacked on approved dependencies not yet on main (stacked_on, or one that cannot be read), in any state until merged or closed; a view across the chain, its gaps counted in their own states' stocks too (so an auxiliary, not a stock with flows of its own)
+    driven-by: [+stock.gaps-approved]
+    sensor: {run: python3 dev/bin/deps.py stacked, every: 5m, timeout: 2m, description: the stacked gaps' record}
 
 flows:
   gaps-found:
@@ -109,6 +119,14 @@ flows:
     driven-by: [+stock.gaps-in-review]
     equation: park-share * stock.gaps-in-review / review-time
     sensor: {items: gap, entering: parked, where: {parked_in: review}, over: 1d}
+
+  sent-back-by-stack-forward:
+    from: gaps-approved
+    to: gaps-fix
+    description: a moved base's new head does not merge forward into a gap stacked on it - aborted, back to the implementor with the files (not a failed gate)
+    driven-by: [+auxiliary.stale-stacks]
+    equation: auxiliary.stale-stacks / take-time
+    sensor: {items: gap, entering: fix, where: {sent_back_by: stack-forward}, over: 1d}
 
   dead-letters-parked:
     from: gaps-dead
@@ -208,9 +226,10 @@ blocks:
     run: python3 dev/bin/implement.py
     prompt: dev/prompts/implementor.md
     takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true, order: rank,
-            where: {waits_on_parked: null, waits_on_main: null}}
-    # (its dependencies finished, none of them parked; not waiting for main to move past tests failing on it; by the
-    # backlog's rank, the critical first among equals)
+            where: {waits_on_parked: null, waits_on_main: null, waits_on_milestone: null}}
+    # (its dependencies finished, none of them parked; not waiting for main to move past tests failing on it; its
+    # milestone active, or it pulled, once [milestones] enforce: dev/bin/milestones.py; by the backlog's rank, the
+    # critical first among equals)
     # the engine reads implementor-pool (dev/model/pools.yaml) at each dispatch and takes no more than it, never
     # more than 9; implement-when also holds it to the machine's headroom
     pool: {now: stock.implementor-pool, most: 9}
@@ -253,3 +272,19 @@ blocks:
     goal: no-dead-letters
     timeout: 5m
     out: flow.dead-letters-parked
+
+  stack-forward-when:
+    type: expr
+    description: merge forward while a stacked gap's base has moved or landed (stale-stacks above 0)
+    in:
+      stale: auxiliary.stale-stacks
+    expr: stale > 0
+    out: block.stack-forward
+  stack-forward:
+    type: program
+    description: merges each moved base's new reviewed head forward into the gaps stacked on it, bottom-up (--no-ff, never a rebase or a squash; leased, building and in-review gaps never touched); a conflict sends the gap back to fix, uncounted
+    run: python3 dev/bin/stack.py
+    every: 5m
+    in: block.stack-forward-when
+    timeout: 30m
+    out: flow.sent-back-by-stack-forward

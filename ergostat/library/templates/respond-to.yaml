@@ -20,6 +20,12 @@ example: |
         within: 4h
         command: ./bin/questions.sh          # prints the open questions as JSON: [{"id": 7, "title": ...}]
         answer: ./bin/draft-answer.sh        # given each question on standard input; prints {"draft": ...}
+exports:      # what the rest of a model may read; the fast loop (picked-up, its answer block) and escalate are internal
+  - stock.waiting
+  - auxiliary.oldest
+  - flow.arriving
+  - flow.answered
+  - goal.on-time
 params:
   kind:
     type: name

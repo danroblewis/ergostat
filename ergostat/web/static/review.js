@@ -141,6 +141,8 @@ function scorecardView(c) {
     ["coherence", arrow(co.mismatches_before, co.mismatches_after), (kinds ? `agree on the record: ${kinds}` : "nothing on the record to compare") + (co.introduced?.length ? `; new: ${co.introduced.join(", ")}` : "")],
     ["craft notes", arrow(cr.before, cr.after), `closed ${cr.closed.length}, opened ${cr.opened.length}`],
     ["fit", h("span", { class: ft.worse ? "s-open" : "" }, ft.worse ? "worse" : ft.made_measurable ? "made measurable" : ft.measurable_before ? "no worse" : "not measurable"), ft.says || ""],
+    ...(c.systems ? [["systems", h("span", { class: c.systems.worse.length ? "s-open" : c.systems.improved ? "s-ok" : "" }, c.systems.worse.length ? "worse" : c.systems.improved ? "improved" : "no better"),
+      "links inside/across: " + Object.entries(c.systems.by_system).map(([s, v]) => `${s} ${v.before ? `${v.before.inside}/${v.before.crossing}` : "–"} → ${v.after.inside}/${v.after.crossing}`).join(", ")]] : []),
     ["behaviour", h("span", { class: (c.lost || []).length ? "s-open" : "s-ok" }, (c.lost || []).length ? `${c.lost.length} lost` : "kept"), (c.lost || []).join("; ") || "what the old model explained, the new still explains"],
   ];
   return h("div", { class: "scorecard" },
@@ -248,7 +250,7 @@ function reviewEntry(e, { onDone }) {
                     where.new.length ? h("div", { class: "small muted" }, "new: ", ...partWords(where.new)) : null,
                     where.gone.length ? h("div", { class: "small muted" }, "removed: ", ...partWords(where.gone)) : null,
                     where.files.length ? h("div", { class: "small muted mono" }, where.files.map((f) => `${f.file}:${f.lines.join(",")}`).join("  ")) : null)],
-        ["made by", e.by_block ? proposedBy(e) : e.made_by === "owner" ? "you (a what-if)" : null],
+        ["made by", e.by_block ? proposedBy(e) : e.made_by === "owner" ? (e.kind === "display" ? "you (Keep, on the Dashboard)" : "you (a what-if)") : null],
         ["why", e.by_block && (e.reasons || []).length ? reasonsView(e.reasons) : e.why],
         ["scorecard", e.redesign?.rescoring ? h("div", { class: "small muted" }, e.redesign.rescore_error ? `rescoring: ${e.redesign.rescore_error}; the judge scores it again once it can be read` : "rescoring: carried to the model as it is, the judge scores it again")
           : e.redesign?.scorecard?.why ? h("div", { class: e.redesign.scorecard.verdict === "better" ? "small s-ok" : "small s-open" }, e.redesign.scorecard.why) : null],
@@ -303,14 +305,14 @@ async function availLoops(goals, redraw, box) {
       if (i && (await new Promise((ok) => setTimeout(ok, 3000)), !box.isConnected)) return;
       if (document.hidden) continue;
       let loops;
-      try { loops = await api("loops", { perf: 1 }); } catch (e) { for (const g of goals) AVAIL.set(g, { d: null, err: String(e.message || e) }); redraw(); return; }
+      try { loops = await api("loops", { perf: 1 }); } catch (e) { if (pageLeft(e)) return; for (const g of goals) AVAIL.set(g, { d: null, err: String(e.message || e) }); redraw(); return; }
       for (const g of goals) { const s = loops[g]?.perf; if (s?.working) AVAIL.delete(g); else AVAIL.set(g, s?.failed ? { d: null, err: `could not be worked out: ${s.failed}` } : { d: s && !s.not_analysed ? s : null }); }
       redraw();
       if (SNAP || goals.every((g) => AVAIL.has(g))) return;
     }
   } finally { availBusy = false; }
 }
-const toolLink = (text, how, title = null) => h("a", { href: "#", title, onclick: (ev) => { ev.preventDefault(); typeof how === "function" ? how() : openTool(how); } }, text);
+const toolLink = (text, how, title = null, label = null) => h("a", { href: "#", title, "aria-label": label, onclick: (ev) => { ev.preventDefault(); typeof how === "function" ? how() : openTool(how); } }, text);
 const linkList = (xs) => xs.filter(Boolean).flatMap((x, i) => (i ? [", ", x] : [x]));
 const isProcess = (goal) => (n) => n.role === "process" && (n.y_of || []).includes(goal);
 const isController = (goal) => (n) => n.role === "controller" && n.id?.startsWith("blk:") && (n.loops || []).includes(goal);
@@ -352,10 +354,10 @@ function loopRows(goals) {
     if (!got) return h("tr", {}, name, h("td", { class: "muted", colspan: 3 }, "analysing…"));
     if (!d) return h("tr", {}, name, h("td", { class: "muted", colspan: 3 }, got.err || "not a loop of the model's goals"));
     const u = (d.u || "").split(".").slice(1).join("."), y = (d.y || "").split(".").slice(1).join(".");
-    const links = d.why ? [toolLink("scope", { view: "blocks", find: isComparator(g) }, "its scope and how it is doing")]
-      : [toolLink("process", { view: "blocks", find: isProcess(g), goal: g }, "identification, step response, Bode, step tests"),
-         toolLink("controller", { view: "blocks", find: isController(g), goal: g }, "margins, closed-loop step and Bode, tuning"),
-         toolLink("scope", { view: "blocks", find: isComparator(g) }, "how it is doing: Harris index, oscillation, settling")];
+    const links = d.why ? [toolLink("scope", { view: "blocks", find: isComparator(g) }, "its scope and how it is doing", `${g} scope`)]
+      : [toolLink("process", { view: "blocks", find: isProcess(g), goal: g }, "identification, step response, Bode, step tests", `${g} process`),
+         toolLink("controller", { view: "blocks", find: isController(g), goal: g }, "margins, closed-loop step and Bode, tuning", `${g} controller`),
+         toolLink("scope", { view: "blocks", find: isComparator(g) }, "how it is doing: Harris index, oscillation, settling", `${g} scope`)];
     return h("tr", {}, name, h("td", { class: "small" }, u && y ? `${u} → ${y}` : "", h("div", {}, processWord(d))),
       h("td", { class: "small" }, nextWord(d)), h("td", { class: "small nowrap" }, ...linkList(links)));
   });
@@ -399,15 +401,15 @@ function availableView(d, box) {
       ["fit, residuals, history", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); document.getElementById("model-fit")?.scrollIntoView(); } }, "below")],
     ];
     patch(box,
-      h("h3", {}, "Loops"),
-      goals.length ? table(["loop", "u \u2192 y, process", "what would identify or tune it", "panels"], loopRows(one), "avail") : h("p", { class: "muted" }, "No goal: no loop to identify."),
+      h("h3", {}, "Control loops"),
+      goals.length ? table(["loop", "u \u2192 y, process", "what would identify or tune it", "panels"], loopRows(one), "avail", "Control loops") : h("p", { class: "muted" }, "No goal: no loop to identify."),
       queues.length ? h("p", { class: "small muted" }, "Closing through queues, with no one process to identify: ",
         ...linkList(queues.map((g) => toolLink(g, { view: "blocks", find: isComparator(g) }, "its scope and how it is doing"))), ".") : null,
       h("h3", {}, "Parameters to estimate"),
-      (d.to_estimate || []).length ? table(["parameter", "in", "record", "estimate"], paramRows(d), "avail")
+      (d.to_estimate || []).length ? table(["parameter", "in", "record", "estimate"], paramRows(d), "avail", "Parameters to estimate")
         : h("p", { class: "muted small" }, "None is marked estimate: true: nothing to calibrate."),
       h("h3", {}, "Tools"),
-      table(["tool", "where"], tools.map(([k, v]) => h("tr", {}, h("td", {}, k), h("td", { class: "small" }, v))), "avail"));
+      table(["tool", "where"], tools.map(([k, v]) => h("tr", {}, h("td", {}, k), h("td", { class: "small" }, v))), "avail", "Tools"));
   };
   draw();
   availLoops(goals, draw, box);

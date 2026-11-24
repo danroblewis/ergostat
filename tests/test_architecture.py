@@ -15,7 +15,7 @@ from ergostat.spec.explain import explain
 ROOT = Path(__file__).resolve().parent.parent
 CODES = ("system-splits", "systems-merge", "interface", "time-scales", "purpose")
 CLEAN = ["backups", "coordinator", "disk-space", "file-queue", "first-loop", "git-hygiene", "ops", "plain-crontab",
-         "software-factory", "talking-scripts", "this-mac", "ticket-factory"]
+         "software-factory", "talking-scripts", "the-job", "this-mac", "ticket-factory"]
 
 
 def _write(d: Path, text: str) -> Path:

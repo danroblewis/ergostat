@@ -15,6 +15,13 @@ from . import snapshot_sets
 from .server import STATIC, Live, api
 
 SKIP = {"since", "at"}            # one window, one moment: the snapshot's own
+_STYLESHEET = re.compile(r'<link rel="stylesheet" href="/static/([\w./-]+)">')      # each of the page's own, whatever its name
+
+
+def _style(mt: re.Match) -> str:
+    """A stylesheet the page links, as a style element. ``<\\/`` is the same text to CSS, and cannot close the element."""
+    css = re.sub(r"</(style)", r"<\\/\1", (STATIC / mt.group(1)).read_text(), flags=re.I)
+    return f"<style>\n{css}\n</style>"
 
 
 def key(path: str, params: dict) -> str:
@@ -30,16 +37,16 @@ def _q(name: str) -> str:
 
 def _requests(project) -> list[tuple[str, dict]]:
     m = project.model
-    reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("daemons", {}), ("items", {}),
+    reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("daemons", {}), ("items", {}), ("items-overview", {}),
                                     ("residuals", {}), ("fit", {}), ("parts", {}), ("guide", {}), ("graph", {}),
-                                    ("events", {"n": 80}), ("events", {"n": 80, "runs": 1})]
+                                    ("events", {"n": 80}), ("events", {"n": 80, "runs": 1}), ("dashboards", {})]
     for view in ("dynamics", "control", "blocks", "process"):
         for system in [None, *m.system_names()]:
             reqs.append(("graph", {"view": view, **({"system": system} if system else {})}))
             if view in ("dynamics", "control", "blocks") and getattr(m, "spec", None) is not None:   # every system opened
                 reqs.append(("graph", {"view": view, "open": "*", **({"system": system} if system else {})}))
     reqs += [(f"loops/{_q(n)}", {}) for n in m.controllers]
-    reqs += [(f"agents/{_q(n)}", {}) for n in m.agents]
+    reqs += [(f"agents/{_q(n)}{f}", {}) for n in m.agents for f in ("", "/files")]
     # the charts' series: each part's strip, each loop's scope, each item kind's flow (charts.js asks the same)
     pts = {"points": series.POINTS}
     reqs += [("series", {"refs": f"{series.kind_of(m, n)}.{n}", "strip": 1, "replay": 1, **pts}) for n in [*m.stocks, *m.flows]]
@@ -48,6 +55,7 @@ def _requests(project) -> list[tuple[str, dict]]:
         reqs.append(("dominance", pts))                  # which feedback loops drive the behaviour, for every loop's panel
         reqs += [("loop-control", {"goal": n}) for n in m.spec.goals]   # each loop as a control engineer reads it
     reqs += [("items-flow", {"kind": k, **pts}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]
+    reqs += [(f"kinds/{_q(k)}", {}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]   # what each touches
     for kind, table in m.tables().items():
         for n in table:
             k = "disturbance" if kind == "flow" and getattr(table[n], "disturbance", False) else kind
@@ -55,17 +63,41 @@ def _requests(project) -> list[tuple[str, dict]]:
     return reqs
 
 
+def untrusted(g: dict, model) -> None:
+    """Each drawn part and closed system box an untrusted template made (``untrusted.Shown``, SPEC §2a): its node's
+    ``untrusted``, the template's name escaped ("" when none is known), for the page to say so in words. A shape is
+    the part it stands for first (``corr``), never a region it holds; a system box, its system."""
+    from ..library.untrusted import Shown, escape
+    spec = getattr(model, "spec", None)
+    if spec is None or not isinstance(g.get("nodes"), list):
+        return
+    sh, shapes = Shown(spec), (g.get("corr") or {}).get("shapes") or {}
+    for n in g["nodes"]:
+        x = shapes.get(n.get("id")) or {}
+        if x.get("system"):
+            name, u = x["system"] in sh.systems, sh.uses.get(x["system"])
+            t = u.get("template") if isinstance(u, dict) else None
+        else:
+            part = sh.parts.get(".".join((x.get("is") or [""])[0].split(".")[:2])) if not x.get("region") else None
+            name, t = (part, getattr(part[1].where, "template", None)) if part else (None, None)
+        if name:
+            n["untrusted"] = escape(t) if isinstance(t, str) else ""
+
+
 def _graphs(listed: dict) -> list[dict]:
     """The Items page's Graph and Timeline requests (``pages.js``), from its ``items`` answer: per system, its kinds
-    with relations or named by one (no kind chosen), and each kind alone, related or not (one chosen)."""
+    with relations or named by one, or with none its kinds that have items (no kind chosen: the Timeline), and each
+    kind alone, related or not (one chosen)."""
     rel = {n for k in listed.get("kinds") or [] for ts in (k.get("relations") or {}).values() for n in (k["name"], *ts)}
+    counts = {k["name"]: k.get("counts") or {} for k in listed.get("kinds") or []}
     out: dict[str, dict] = {}
     sys_ = {}
     for g in listed.get("systems") or [{"kinds": [k["name"] for k in listed.get("kinds") or []]}]:
         want = [n for n in g.get("kinds") or [] if n in rel]
         on = {"system": g["name"]} if g.get("name") else {}          # asked by its system, as the page does
         sys_.update({n: on for n in g.get("kinds") or []})
-        for kinds in ([",".join(want)] if want else []) + want:
+        held = want or [n for n in g.get("kinds") or [] if any((counts.get(n) or {}).values())]
+        for kinds in ([",".join(held)] if held else []) + want:
             out[kinds] = {"kinds": kinds, **on}
     for k in listed.get("kinds") or []:
         out.setdefault(k["name"], {"kinds": k["name"], **sys_.get(k["name"], {})})
@@ -97,6 +129,8 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
     data: dict = {"projects": []}
     def ask(path: str, params: dict) -> None:
         q = {"since": [since], **{k: [str(v)] for k, v in params.items()}}
+        if path == "items":                    # every item, finished or not: the page leaves out the finished itself
+            q["finished"] = ["show"]
         try:
             got = api(live, path, q)
         except Exception:                      # one part that cannot be answered leaves the rest
@@ -108,6 +142,12 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             data[key(path, params)] = got
     for path, params in _requests(project):
         ask(path, params)
+    from .dashboard_api import answer as dashboard
+    for d in data.get("dashboards") or []:      # each dashboard's one answer, every panel worked out (none pending)
+        try:
+            data[key(f"dashboard/{_q(d['name'])}", {})] = dashboard(live, project, d["name"], {"since": [since]}, wait=True)
+        except Exception:                       # as any part that cannot be answered: left out, the rest kept
+            pass
     if isinstance(data.get("loops"), dict):     # the Loops page's one answer: each goal's summary from its analysis above
         from .control_api import summary
         data[key("loops", {"perf": 1})] = {n: {**lp, "perf": summary(data[c]) if (c := key("loop-control", {"goal": n})) in data
@@ -118,7 +158,7 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             ask("items", {"kind": k["name"], "state": st})
     for params in _graphs(data.get("items") or {}):
         ask("items-graph", params)
-    snapshot_sets.hold(data, lambda q: api(live, "items", {"since": [since], **q}))   # the sets its panels link to
+    snapshot_sets.hold(data, lambda q: api(live, "items", {"since": [since], "finished": ["show"], **q}))   # the sets its panels link to
     for it in ((data.get("items") or {}).get("items") or [])[:40]:
         got = api(live, f"items/{_q(it['id'])}", {"since": [since]})
         if got is not None:
@@ -133,8 +173,7 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
         return text.replace("<!--", "<\\!--")                          # nor open a comment that hides its end
 
     page = (STATIC / "index.html").read_text()
-    page = page.replace('<link rel="stylesheet" href="/static/style.css">',
-                        "<style>\n" + (STATIC / "style.css").read_text() + "\n</style>")
+    page = _STYLESHEET.sub(_style, page)
     # every < in the data as \u003c: no tag, comment or script end can form inside the script
     snapshot_js = "window.SNAPSHOT = " + json.dumps(snap, default=str).replace("<", "\\u003c") + ";"
 
@@ -146,4 +185,4 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             before += ("<script>window.LIBAVOID = " + json.dumps({"js": base64.b64encode((lib / "libavoid.js").read_bytes()).decode(),
                        "wasm": base64.b64encode((lib / "libavoid.wasm").read_bytes()).decode()}) + ";</script>\n")
         return before + "<script>" + body + "</script>"
-    return re.sub(r'<script src="/static/([\w./]+)"></script>', script, page)
+    return re.sub(r'<script src="/static/([\w./-]+)"></script>', script, page)

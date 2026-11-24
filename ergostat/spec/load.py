@@ -15,14 +15,15 @@ from . import files
 
 FILE = "ergostat.yaml"
 LOCAL = "ergostat.local.yaml"     # beside the main file, untracked: this machine's settings only (SPEC §2)
-PER_MACHINE = {"web": None, "intake": {"bind", "allow"}}   # what LOCAL may set (and, for a map, which of its keys)
+PER_MACHINE = {"web": None, "intake": {"bind", "allow"}, "runs": {"outlive_engine"}}   # what LOCAL may set (and keys)
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
             "loops", "claims", "contexts", "actions", "workspaces", "compute", "leases", "daemons")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",
             "daemons": "daemon"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
-       "defaults", "uses", "library", "remotes", "budget", *SECTIONS}
+       "defaults", "uses", "library", "libraries", "remotes", "budget", "operating", "runs", "dashboards",
+       *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -139,16 +140,22 @@ class Document:
     notify: object = None            # notify: where what waits on a person is sent (main file only)
     budget: object = None            # budget: the day's AI budget runs reserve from (main file only, SPEC §9.9)
     budget_at: Where | None = None
+    operating: object = None         # operating: when the owner reads as away (main file only, SPEC §12k)
+    operating_at: Where | None = None
+    runs: object = None              # runs: how a run is held, outliving the engine or not (main file only, SPEC §9.1)
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
     problems: list[Problem] = field(default_factory=list)
     library: list[Path] = field(default_factory=list)   # the folders of templates (library:, main file only)
     untrusted: set[Path] = field(default_factory=set)   # of them, those not the owner's: {folder: PATH} (SPEC §2a)
+    fetched: list = field(default_factory=list)         # the templates of libraries: (fetched, checked), in its order
+    refused: dict[str, tuple[str, str]] = field(default_factory=dict)   # each library refused: its code and reason
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
     local: dict[str, Where] = field(default_factory=dict)    # each per-machine setting LOCAL set: where it was written
+    dashboards: dict[str, tuple] = field(default_factory=dict)   # dashboards: name (SYSTEM.NAME) → (its map, where, system)
 
 
 def read_file(path: Path, problems: list[Problem]):
@@ -229,6 +236,17 @@ def load(main: Path) -> Document:
             else:
                 doc.problems.append(Problem("error", "budget: belongs in the main file only", data.at("budget"),
                                             "budget-in-include"))
+        if "operating" in data:
+            if top:
+                doc.operating, doc.operating_at = data["operating"], data.at("operating")
+            else:
+                doc.problems.append(Problem("error", "operating: belongs in the main file only", data.at("operating"),
+                                            "operating-in-include"))
+        if "runs" in data:
+            if top:
+                doc.runs = data["runs"]
+            else:
+                doc.problems.append(Problem("error", "runs: belongs in the main file only", data.at("runs"), "runs-in-include"))
         if "keep" in data:
             if top:
                 doc.keep = data["keep"]
@@ -266,6 +284,13 @@ def load(main: Path) -> Document:
             else:
                 doc.problems.append(Problem("error", "library: belongs in the main file only", data.at("library"),
                                             "library-in-include"))
+        if "libraries" in data:
+            if top:
+                from ..library import fetched
+                fetched.take(doc, data)
+            else:
+                doc.problems.append(Problem("error", "libraries: belongs in the main file only", data.at("libraries"),
+                                            "libraries-in-include"))
         for section in SECTIONS:
             body = data.get(section)
             if body is None:
@@ -276,6 +301,9 @@ def load(main: Path) -> Document:
                 continue
             for name, entry in body.items():
                 put(section, name, entry, body.at(name), defaults)
+        if data.get("dashboards") is not None:
+            from .dashboards import take as dashboards
+            dashboards(doc, data, defaults)
         if data.get("uses") is not None:
             from ..library import uses
             uses.take(doc, data, defaults, put)

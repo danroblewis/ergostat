@@ -478,3 +478,180 @@ def test_the_load_survives_another_process_s_sweep(tmp_path, monkeypatch):
         listing[0] = made_ago(name, runs.WALL / 3600 + 1)
         assert agents.sweep(cfg) == [name]          # past WALL and its slack: a leftover, swept
     assert gone(busy.pid)
+
+
+def flake_rate(f) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(BIN / "measure.py"), "flake-rate"], cwd=f.model, env=f.env,
+                          capture_output=True, text=True)
+
+
+def a_green_run_lands(f, name: str) -> None:
+    """A gap merged by a queue run of its own that excused nothing (gap.merged as queue.py says it)."""
+    now = time.time()
+    f.fold([{"event": "gap.merged", "item": f"gap/{name}", "data": {
+        "merged_at": now, "queued_at": now, "queue_attempts": 1, "batch_id": f"{name}-run", "suites_queue": {
+            "unit": {"rc": 0, "seconds": 60}}, "queue_runs": [{"run": f"{name}-run", "minutes": 5, "at": now}]}}], None)
+
+
+def test_a_run_excused_in_the_queue_moves_flake_rate(tmp_path):
+    from tests.test_factory import approved_gaps, flaky_stand_ins
+    f = flaky_stand_ins(tmp_path, ["tests/test_b.py::test_b"])
+    approved_gaps(f, {"a": 1}, bad="a")
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"]                     # red, excused, landed
+    assert f.flakes_said() == ["flake.seen"]                                          # (said by event --add)
+    assert f.item("gap/a")["fields"]["suites_queue"]["excused"]
+    r = flake_rate(f)
+    assert r.returncode == 0 and float(r.stdout) == 1.0, r.stderr                     # one run, one flake
+    a_green_run_lands(f, "b")
+    r = flake_rate(f)
+    assert r.returncode == 0 and float(r.stdout) == 0.5, r.stderr                     # two runs, one flake
+
+
+def test_an_excused_batch_counts_once(tmp_path):
+    from tests.test_factory import approved_gaps, flaky_stand_ins
+    f = flaky_stand_ins(tmp_path, ["tests/test_b.py::test_b"])
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3}, bad="q", batch=3)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.merged") == 3 and f.flakes_said() == ["flake.seen"]        # (said by event --add)
+    landed = [f.item(f"gap/{g}")["fields"] for g in "pqr"]
+    assert all(g["suites_queue"].get("excused") for g in landed)                    # each of the three carries it
+    assert len({g["batch_id"] for g in landed}) == 1
+    r = flake_rate(f)
+    assert r.returncode == 0 and float(r.stdout) == 1.0, r.stderr                     # one run excused, never three
+    a_green_run_lands(f, "s")
+    assert float(flake_rate(f).stdout) == 0.5
+
+
+def test_flake_rate_with_no_runs_has_no_value(tmp_path):
+    from tests.test_factory import Factory
+    f = Factory(tmp_path)
+    old = time.time() - 30 * 86400                                                    # a run before the window
+    f.fold([{"event": "gap.queued", "item": "gap/t", "data": {"queued_at": time.time(), "queue_attempts": 1}},
+            {"event": "gap.retried", "item": "gap/t", "data": {"approved_by": "flake-retry", "retries": 1}},
+            {"event": "gap.merged", "item": "gap/old", "data": {"merged_at": old, "queue_runs": [
+                {"run": "old-run", "minutes": 5, "at": old}]}}], None)
+    r = flake_rate(f)
+    assert r.returncode == 1 and r.stdout.strip() == "" and "no value" in r.stderr    # never 0.0
+    a_green_run_lands(f, "u")                                                         # triage's retry counts as before
+    r = flake_rate(f)
+    assert r.returncode == 0 and float(r.stdout) == 1.0, r.stderr
+
+
+def passing(f, name: str = "tests-passing") -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(BIN / "passing.py"), name], cwd=f.model, env=f.env,
+                          capture_output=True, text=True)
+
+
+def merges(f, n: int) -> list[str]:
+    """``n`` merges on the fixture's main, each its sha (seq 2, 3, ...: the start commit is seq 1)."""
+    out = []
+    for _ in range(n):
+        git(f.checkout, "commit", "-q", "--allow-empty", "-m", "a merge")
+        out.append(git(f.checkout, "rev-parse", "HEAD"))
+    return out
+
+
+def landed(f, gap: str, sha: str, passed: int | str, suites=("unit", "browser", "host"), at: float = 0.0) -> None:
+    """A gap merged at ``sha`` by a queue run whose counts are ``passed`` ("unknown": its counts unsaid)."""
+    counts = passed if isinstance(passed, str) else {"passed": passed, "failed": 0, "skipped": 1, "deselected": 0,
+                                                     "errors": 0}
+    f.fold([{"event": "gap.merged", "item": f"gap/{gap}", "data": {"merged_at": at, "main_sha": sha, "queue_runs": [
+        {"run": f"{gap}-run", "minutes": 5, "at": at, "landed": 1, "counts": counts, "suites": list(suites)}]}}], None)
+
+
+def no_passing_value(r: subprocess.CompletedProcess) -> bool:
+    return r.returncode == 1 and r.stdout.strip() == "" and "no value" in r.stderr
+
+
+def test_tests_passing_is_read_by_seq_through_the_trend_helper(tmp_path):
+    from tests.test_factory import Factory
+    f = Factory(tmp_path)
+    start, *_, a, b, c = [git(f.checkout, "rev-parse", "HEAD"), *merges(f, 12)]
+    landed(f, "c", c, 120, at=1.0)                         # recorded first, stamped earliest: seq decides, not time
+    landed(f, "b", b, 110, at=3.0)
+    landed(f, "b2", b, 110, at=3.0)                         # a batch: one sha, its run once
+    landed(f, "a", a, 100, at=2.0)
+    landed(f, "start", start, 1, at=9.0)                     # seq 1: 12 merges back, outside the window
+    git(f.checkout, "checkout", "-q", "-b", "undone")
+    landed(f, "undone", merges(f, 1)[0], 5, at=9.0)          # (a merge the queue undid: not on main)
+    git(f.checkout, "checkout", "-q", "main")
+    r = passing(f)
+    assert r.returncode == 0 and float(r.stdout) == 120, r.stderr
+    r = passing(f, "tests-passing-change")
+    assert r.returncode == 0 and float(r.stdout) == 20, r.stderr       # c less a: seq 1 is past the 10 merges
+    src = (BIN / "passing.py").read_text()                             # the code measures' helper, never a copy
+    assert "measure.by_seq(" in src and "measure.code_change(" in src and "sorted(" not in src
+
+
+def test_tests_passing_unknown_or_missing_has_no_value(tmp_path):
+    from tests.test_factory import Factory
+    f = Factory(tmp_path)
+    a, b, c = merges(f, 3)
+    assert no_passing_value(passing(f)) and no_passing_value(passing(f, "tests-passing-change"))   # no runs: not 0
+    landed(f, "a", a, 100)
+    assert float(passing(f).stdout) == 100
+    assert no_passing_value(passing(f, "tests-passing-change"))         # one full run: no change yet
+    f.fold([{"event": "gap.merged", "item": "gap/b", "data": {"main_sha": b, "queue_runs": [
+        {"run": "b-run", "minutes": 5, "at": 0, "landed": 1}]}}], None)  # no summary at all: never zero, passed over
+    assert float(passing(f).stdout) == 100
+    landed(f, "c", c, "unknown")                                        # the latest full run's counts unknown
+    assert no_passing_value(passing(f)) and no_passing_value(passing(f, "tests-passing-change"))
+    f.config.write_text(f.config.read_text().replace(f'checkout = "{f.checkout}"',
+                                                     f'checkout = "{tmp_path / "gone"}"'))
+    landed(f, "d", c, 100)
+    assert no_passing_value(passing(f)) and no_passing_value(passing(f, "tests-passing-change"))   # no checkout
+
+
+def test_a_browser_skipped_run_between_two_full_runs_changes_nothing(tmp_path):
+    from tests.test_factory import Factory
+    f = Factory(tmp_path)
+    a, b, c = merges(f, 3)
+    landed(f, "a", a, 100)
+    landed(f, "b", b, 60, suites=("unit", "host"))                      # browser not run by rule: fewer, not a fall
+    assert float(passing(f).stdout) == 100 and no_passing_value(passing(f, "tests-passing-change"))
+    landed(f, "c", c, 100)
+    assert float(passing(f).stdout) == 100 and float(passing(f, "tests-passing-change").stdout) == 0
+
+
+def test_fewer_tests_passed_turns_tests_not_falling_off(tmp_path):
+    from ergostat.spec import read
+    from tests.test_factory import Factory
+    f = Factory(tmp_path)
+    a, b = merges(f, 2)
+    landed(f, "a", a, 100)
+    landed(f, "b", b, 98)                                               # two tests skipped, still defined
+    r = passing(f, "tests-passing-change")
+    assert r.returncode == 0 and float(r.stdout) == -2, r.stderr
+    spec, _ = read(ROOT / "ergostat.yaml", extremes=False)
+    goal = spec.goals["tests-not-falling"]
+    assert (str(goal.of), goal.hold.op, goal.hold.value, goal.on_stale, goal.system) == (
+        "auxiliary.tests-passing-change", ">=", 0, "off", "guarantees")
+    assert (goal.status(float(r.stdout), False), goal.status(0, False), goal.status(3, False)) == (
+        "off", "holding", "holding")
+    for name in ("tests-passing", "tests-passing-change"):
+        (s,) = [x for x in spec.auxiliaries[name].sensors.values() if x.name != "set"]   # (restore-tests' set: never)
+        assert s.every == 1800 and s.run == f"python3 dev/bin/passing.py {name}"
+
+
+def test_the_passing_model_adds_no_finding(tmp_path):
+    """read (what check runs) on the root model, and on it without dev/model/guarantees-passing.yaml: no error, and
+    no finding more: tests-not-falling closes through restore-tests (the coordinator, until
+    regression-guarantees-wired)."""
+    from collections import Counter
+
+    from ergostat.spec import read
+    for here, there in ((ROOT, tmp_path), (ROOT / "dev", tmp_path / "dev"), (ROOT / "dev" / "model", tmp_path / "dev" /
+                                                                          "model")):
+        there.mkdir(exist_ok=True)                                     # the tree as it is, but for the one file
+        for p in here.iterdir():
+            if not (there / p.name).exists() and p.name not in ("dev", "model", "guarantees-passing.yaml"):
+                (there / p.name).symlink_to(p)
+    (tmp_path / "ergostat.yaml").unlink()                               # (its include read from here, not ROOT)
+    (tmp_path / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+    with_it, without = (read(p, extremes=False)[1] for p in (ROOT / "ergostat.yaml", tmp_path / "ergostat.yaml"))
+    assert [p for p in with_it if p.level == "error"] == []
+    key = lambda ps: Counter((p.level, p.code, p.about) for p in ps)  # noqa: E731
+    assert key(without)[("finding", "acting-on-its-own", "block.intake")] == key(with_it)[  # (the copy reads alike)
+        ("finding", "acting-on-its-own", "block.intake")]
+    assert key(with_it) - key(without) == Counter()
