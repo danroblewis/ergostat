@@ -240,3 +240,22 @@ Round 6, after the factory merged main (278f54a4):
   - `…control_view…[autoscaler]`, `test_every_part_opens_its_panel_…`, `test_an_open_system_dragged_…`, `test_blocks_crossings_hop_dots_…`, `test_the_dynamics_view_speaks_system_dynamics_…`, `test_a_goal_name_opens_its_evidence_…[False]`, `test_a_suggestion_appears_…`, `test_the_exported_png_…`, `test_a_panel_open_on_what_is_chosen_…` and `test_an_equation_…`. The last fails at tests/test_diagram_rendering.py:5898: there is no "Nothing waiting." on /model, as in every round.
   - Not shown to fail on clean main (lesson-13). Left: the factory should run them again on main and hold this gap until main passes them, or until they are shown to pass there.
 - Not run here: the other three browser files and the unit suite.
+
+## Where it stopped
+
+Round 7, after the factory merged main (b9341591):
+- The only finding was the queue's "conflicts with main" in `tests/test_graph_cli_web.py`. Both sides had added tests at the same place: the branch's `test_the_served_diagram_script_frames_what_is_drawn_and_its_edge_hint_names_the_way`, and main's `test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_counted_whole` and `test_the_record_answers_a_type_that_matches_nothing_with_no_events`. I kept all three (dc3f5c13).
+- `diagram.js` merged with no conflict. Main added a fit for a dashboard's diagram panel (`embedFit`, taken before the branch's line in `fit` when `EMBED`) and `untrustedBox`. Neither touches the branch's framing, hint or `showSystem`. The branch's code is unchanged: 37 net lines against main, within the 60-line budget.
+- Ruff: clean. `tests/test_graph_cli_web.py`: 60 passed.
+- With Playwright, under the watchdog:
+  - The Fit cases, the Open cases and `test_the_edge_hint_pans_…`: 7 passed, rc 0.
+  - `test_opening_and_closing_…_keeps_the_pins`, `test_on_a_phone_…` (2 cases) and `test_items_links_each_kind_to_its_process_map_…`: 4 passed, rc 0.
+  - `tests/test_dashboard_page.py` whole, which covers main's new embedded diagram panels and their fit: 49 passed, rc 0.
+- `tests/test_diagram_rendering.py` run whole, with Playwright, under the watchdog: 327 passed, 35 failed (rc 1, 65 min). The Fit, Open, hint, phone and Process cases all passed. The failures, from the run's own messages:
+  - `test_sensors_…_no_part_has_a_tooltip` for 21 examples. The cause is the same Dynamics-view `<title>` ("Drawn alike here with B.. requests-handled").
+  - `test_every_view_draws_cleanly_and_in_time` for autoscaler (satellite-far 10 > 0), coordinator (routing 24.5 s > 20 s), the-job (valve-orientation-mismatch 3 > 2) and ticket-factory (satellite-far 15 > 14). These are layout counts and a timing bound.
+  - `…control_view…[autoscaler]` (a 240 s wait), `test_every_part_opens_its_panel_…`, `test_an_open_system_dragged_…`, `test_blocks_crossings_hop_dots_…` (`get_by_role("button", name="fit")` matches 5 elements: four blocks named "model-fits", plus Fit), `test_the_dynamics_view_speaks_system_dynamics_…` ("goal" in the view's text), `test_a_suggestion_appears_…`, `test_the_exported_png_…` (6 legend lines), `test_a_panel_open_on_what_is_chosen_…` and `test_an_equation_…` (no "Nothing waiting." on /model, at tests/test_diagram_rendering.py:6236).
+  - `test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard` is back. It passed in round 6 and failed in rounds 2 and 3. It fails alone too: after Enter on "Open factory", focus is on BODY and Shift+Right goes nowhere. I disabled `showSystem` for one run (it returned at once) and the test still failed the same way. Then I put the code back, and the tree is clean. `showSystem` only sets the view's transform. So the branch's framing is not the cause. The edge hint is not in the svg's keyboard order either.
+  - Not shown to fail on clean main (lesson-13). No worktree of main was tried this round. Left: the factory should run these tests again on main and hold this gap until main passes them, or until they are shown to pass there.
+- Refused this round: nothing.
+- Not run here: the unit suite, and no browser file whole besides `tests/test_diagram_rendering.py` and `tests/test_dashboard_page.py` (`tests/test_items_page.py` was not run).
