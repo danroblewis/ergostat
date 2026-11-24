@@ -451,6 +451,32 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_the_served_diagram_script_frames_what_is_drawn_and_its_edge_hint_names_the_way(project):
+    """A text check the build can run without a browser: the diagram script the server sends measures the drawing
+    itself (every part, wire and label) for Fit and the edge hint, frames a system after Open, and its hint is a
+    button that names a direction. The browser half: test_fit_shows_every_line_and_label_and_no_edge_hint and
+    test_open_frames_the_system_opened_or_says_which_way_the_rest_lies in tests/test_diagram_rendering.py."""
+    import re
+
+    from ergostat.web import serve
+    server, url = serve(project, free_port())
+    try:
+        with urllib.request.urlopen(url + "/static/diagram.js", timeout=10) as r:
+            js = r.read().decode()
+    finally:
+        server.shutdown()
+        server.server_close()
+    body = lambda name: re.search(r"\nfunction " + name + r"\(.*?\n}\n", js, re.S).group(0)   # noqa: E731
+    assert "getBBox()" in body("drawnBox")
+    wide = "\n".join(x for x in body("fit").splitlines() if "NARROW" not in x)        # (a phone's fit is fitNarrow's)
+    assert "drawnBox(svg, lay)" in wide and "lay.width" not in wide                   # the drawn box, not the layout's
+    hint = body("applyView")
+    assert "drawnBox(svg" in hint and all(w in hint for w in ("left", "right", "above", "below", '"to the "', "onclick"))
+    assert all(a in hint for a in "←→↑↓")                                             # and an arrow each way
+    assert 'h("button", { id: "panhint"' in js
+    assert js.count("showSystem(svg, opened)") == 2                                   # after Open in Blocks and Dynamics
+
+
 def test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_counted_whole():
     """What the Items page's count beside its search box and the Record's 'Nothing matches' are read from (the browser
     half is tests/test_items_page.py): a search's ``matched`` counts every match of a kind, past the newest per_kind

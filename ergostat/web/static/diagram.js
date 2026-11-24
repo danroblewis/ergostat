@@ -864,15 +864,34 @@ function applyView(svg) {
   const vp = svg.querySelector("#viewport");
   if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
   if (typeof sdSparksZoomed === "function") sdSparksZoomed(svg);   // a sparkline too small to read is not drawn
-  // whether some of the diagram lies beyond the edge, after a drag or a zoom too
-  const hint = document.getElementById("panhint"), lay = S.layout, r = svg.getBoundingClientRect();
-  if (hint && lay && r.width) {
-    const k = S.view.k, x0 = S.view.x + (lay.ox || 0) * k, y0 = S.view.y + (lay.oy || 0) * k;
-    // which way the rest lies, as arrows
-    const ways = [[x0 < -2, "←"], [y0 < -2, "↑"], [x0 + lay.width * k > r.width + 2, "→"], [y0 + lay.height * k > r.height + 2, "↓"]];
-    hint.hidden = !ways.some(([off]) => off);
-    hint.textContent = "More beyond the edge " + ways.filter(([off]) => off).map(([, a]) => a).join("");
+  // whether some of the diagram lies beyond the edge, and which way (in words and arrows), after a drag or a zoom too
+  const hint = document.getElementById("panhint"), r = svg.getBoundingClientRect();
+  if (hint && S.layout && r.width) {
+    const b = drawnBox(svg, S.layout), k = S.view.k, x0 = S.view.x + b.x * k, y0 = S.view.y + b.y * k;
+    const way = { left: -x0, right: x0 + b.width * k - r.width, above: -y0, below: y0 + b.height * k - r.height };
+    const ways = Object.keys(way).filter((w) => way[w] > 2), arrow = { left: "←", right: "→", above: "↑", below: "↓" };
+    hint.hidden = !ways.length;
+    hint.textContent = "More " + ways.map((w) => (w === "left" || w === "right" ? "to the " + w : w) + " " + arrow[w]).join(" and ");
+    hint.onclick = () => {                            // on each axis, a pan most of a screen the way more lies, no further than the edge
+      const by = (a, b, room) => { const w = way[a] > way[b] ? a : b, s = w === a ? 1 : -1;
+        return way[w] > 2 ? s * Math.min(way[w] + 60, room * 0.8) : 0; };
+      S.view.x += by("left", "right", r.width); S.view.y += by("above", "below", r.height);
+      applyView(svg);
+    };
   }
+}
+
+/* what is drawn, every part, line and label, in the layout's units (the layout's own box until it is drawn) */
+function drawnBox(svg, lay) {
+  const vp = svg.querySelector("#viewport");
+  try { const b = vp && (vp._bb || vp.getBBox()); if (b?.width && b.height) return (vp._bb = b); } catch (e) { /* not drawn */ }
+  return { x: lay.ox || 0, y: lay.oy || 0, width: lay.width, height: lay.height };
+}
+
+/* the floating toolbars' room above and below the drawing, as drawn (none where they sit outside the canvas) */
+function bars(svg, r) {
+  const at = (sel, f) => { const b = document.querySelector(sel)?.getBoundingClientRect(); return b?.height ? Math.max(0, f(b) + 6) : 60; };
+  return [at(".diagram .toolbar", (b) => b.bottom - r.top), at(".diagram .zoom", (b) => r.bottom - b.top)];
 }
 
 const NARROW = "(max-width: 700px)", NARROW_K = 0.7;   // a phone (style.css's narrowest layout): fitted down to 11px text at 7.7px (the zoom a laptop still shows whole)
@@ -883,14 +902,28 @@ function fit(svg, lay, legible = false) {
   if (EMBED) return embedFit(svg, lay, r);
   // on a phone the toolbars sit above and below the canvas, not over it: the canvas is all the drawing's
   if (matchMedia(NARROW).matches) return fitNarrow(svg, lay, Math.min(1.25, (r.width - 20) / lay.width, (r.height - 20) / lay.height), legible, r);
+  const [TOP, BOTTOM] = bars(svg, r), b = drawnBox(svg, lay), room = r.height - TOP - BOTTOM;
   // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
-  const whole = Math.min(1.25, (r.width - 40) / lay.width, (r.height - 90) / lay.height);
+  const whole = Math.min(1.25, (r.width - 40) / b.width, room / b.height);
   // the first view keeps 11px text at 9px or more on screen; a wider system is panned from its left
   // nearly whole at 0.7: show it whole. The process map: its nodes' 11px text never under 11px (the hint says where more is)
   const k = Math.max(S.graph?.kind === "process" ? 1 : 0, legible ? (whole >= 0.7 ? whole : 0.8) : Math.max(0.08, whole));
-  const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 120;   // the toolbars: 56 above, 50 below
-  const ox = (lay.ox || 0) * k, oy = (lay.oy || 0) * k;
-  S.view = { k, x: (fitsW ? (r.width - lay.width * k) / 2 : 20) - ox, y: (fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60) - oy };
+  const fitsW = b.width * k <= r.width - 39, fitsH = b.height * k <= room + 1;
+  S.view = { k, x: (fitsW ? (r.width - b.width * k) / 2 : 20) - b.x * k, y: TOP + (fitsH ? (room - b.height * k) / 2 : 0) - b.y * k };
+  applyView(svg);
+}
+
+/* a system just opened, or drawn alone: panned (and zoomed out, to no less than legible) until all of it is in view */
+function showSystem(svg, name) {
+  const c = name != null && S.layout && S.graph && anchorOf(S.layout, S.graph, name), r = svg.getBoundingClientRect();
+  if (!c || !r.width) return;
+  const [TOP, BOTTOM] = bars(svg, r), room = r.height - TOP - BOTTOM, k = Math.max(Math.min(S.view.k, (r.width - 40) / c.width, room / c.height), Math.min(S.view.k, 0.8));
+  const into = (v, lo, size, span) => {               // the least move that brings [v, v + size] within [lo, lo + span]
+    const a = v * k / S.view.k;                       // (zoomed about the drawing's origin first)
+    return size > span ? lo - a : Math.min(Math.max(a, lo), lo + span - size) - a;
+  };
+  const sx = S.view.x + c.x * S.view.k, sy = S.view.y + c.y * S.view.k;
+  S.view = { k, x: S.view.x * k / S.view.k + into(sx, 20, c.width * k, r.width - 40), y: S.view.y * k / S.view.k + into(sy, TOP, c.height * k, room) };
   applyView(svg);
 }
 
@@ -1242,7 +1275,7 @@ async function pageDiagram(main, q) {
       h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ item: "", kind: "" }) }, "\u00d7")) : null,
     more, caption);
   const zoom = h("div", { class: "zoom" },
-    h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
+    h("button", { id: "panhint", class: "panhint", hidden: true, title: "Click to pan that way (or drag), or Fit to see it whole" }, "More beyond the edge"),
     h("button", { class: "z", title: "Zoom out", "aria-label": "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
     h("button", { title: "Show it whole", onclick: () => fit(svg, S.layout) }, "Fit"),
     h("button", { class: "z", title: "Zoom in", "aria-label": "Zoom in", onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
@@ -1351,9 +1384,11 @@ async function pageDiagram(main, q) {
         wrap.append(h("div", { class: "empty" }, g.subset ? `${g.subset.says}.` : "No control system here: no goal, and no block that acts."));
       } else if (!S.pressed) {
         await drawBlocksView(svg, g);
-        if (S.anchor && S.anchored) S.fitted = true;  // a system just opened or closed: the view stays as it was
+        const opened = S.anchor && S.anchored ? S.anchor.name : null;
+        if (opened != null) S.fitted = true;          // a system just opened or closed: the view stays as it was, then all of it shown
         S.anchor = null; S.anchored = false;
         if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
+        showSystem(svg, opened);
       }
       renderSide(side, g, "blocks");
       carriedPanel();                                  // a panel open before a switch of view (interact.js)
@@ -1387,11 +1422,13 @@ async function pageDiagram(main, q) {
     } else {
       // same structure: keep positions, redraw with new values (label texts may change length slightly)
     }
-    if (S.anchor && S.anchored) S.fitted = true;      // a system just opened or closed: the view stays as it was
+    const opened = S.anchor && S.anchored ? S.anchor.name : null;
+    if (opened != null) S.fitted = true;              // a system just opened or closed: the view stays as it was, then all of it shown
     S.anchor = null; S.anchored = false;
     if (S.pressed) return;                             // mid-click: a redraw now would swallow it; the next tick draws
     drawGraph(svg, g, S.layout);
     if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
+    showSystem(svg, opened);
     renderSide(side, g, view);
     carriedPanel();
     if (typeof toolArrived === "function") toolArrived();
