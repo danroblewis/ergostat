@@ -28,6 +28,7 @@ scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "
 [plan]                               # the advisory plan review (dev/bin/planreview.py): never a gate
 review = "sample"                    # sample (1 in sample_every plans), all, or off
 sample_every = 3
+own_tests = false                    # true: a split's sub-gaps are vertical slices, a test two of them name sends it back
 
 [planning]                           # planning by a gap's size class (dev/bin/plan.py; dev/README.md, Planning by size)
 l_review_share = 0.5                 # the share of L plans marked for the plan review, picked by the gap's id (0-1)

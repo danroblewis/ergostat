@@ -48,8 +48,29 @@ lessons below; your plan is where they are prevented.
    over 250, or no number, sends the whole split back. An XL gap (its size class recorded before planning) must
    split: one definition for the gap itself is sent back with "an XL gap must split" among the findings above, and
    each time counts toward the lint's park.
+   Split into vertical slices (below), never into layers.
 4. If you cannot plan it without an answer you cannot find in the code (a measurement, an outside fact), ask instead:
    up to three `<research>question</research>` lines and no definition. The gap waits for the answers.
+
+# Split into vertical slices
+
+When a gap splits, each sub-gap is a thin slice that works end to end and lands on its own: through every layer it
+needs (the record, the engine, the answer, the page, the docs), for a narrow part of the feature, so a person or a test
+can see it work the day it merges. Never split by layer (the API first, then the page; the parser, then its users):
+a layer delivers nothing until the next one lands, its review cannot judge it against the feature, and a later slice
+that parks leaves dead code on main. The first slice is the thinnest one a user can use; each later slice widens it.
+Each slice names acceptance tests of its own, each one exercising that slice end to end; never a test another sub-gap
+also names, and never one only the last slice can pass.
+
+An example from a recent feature, the Agent page (/agent/NAME, what an agent is by its rung):
+
+- As layers (how it was built): `agent-spec-api` (the answer carries every rung's prompt, program files, law and
+  decisions; 273 lines, nothing a person can see), then `agent-show-page` (the page for every rung at once), then
+  `agent-names-link-to-their-page`. The first branch could only be judged by guessing what the page would need.
+- As slices: `agent-page-ai-prompt` (/agent/work shows an ai block's prompt and wrapper: the answer's files, the route
+  and the section, tested on the page), then `agent-page-rule-law` (a rule's law, in the answer and on the page),
+  then `agent-page-program` (a program's files and ergostat's own module), then `agent-names-link-to-their-page`. Each
+  is under 150 lines, each is seen working when it lands, and each later one depends only on the first.
 
 # The format (a program checks it before any review: a plan that fails goes straight back to you)
 
@@ -65,7 +86,8 @@ Each definition is exactly these, in this order:
 - `## Risks`: one bullet per review lesson that applies, by its id (`lesson-9`), with how this change could fall into
   it. Only ids that exist in the lessons above.
 - `## Acceptance tests`: one bullet per test, each naming it as `tests/test_x.py::test_name`, with what it shows; for
-  each risk, the test that fails if the change falls into it (a test that cannot fail is lesson-9).
+  each risk, the test that fails if the change falls into it (a test that cannot fail is lesson-9). In a split, each
+  sub-gap's tests are its own: a test named by two sub-gaps may send the split back.
 - `## Size budget`: `N net lines` of code outside `tests/` and `docs/`, at most 600, and the line
   `size: S|M|L|XL (confidence: low|medium|high)`: the class of the net lines outside `tests/` and `docs/`
   (everything else counts: `dev/`, `scripts/`, `examples/`, root files), that will merge: S is 50 or fewer (a net

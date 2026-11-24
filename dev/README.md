@@ -494,6 +494,10 @@ median, over parents judged covered in 14 days by `judged_at`, of the parent's a
 sub-gap's and its continuation's both, over the median cost of merged unsplit gaps of the children's size class; a
 parent unpriced, with a child unmerged, unsized or unpriced, or with no unsplit gap of its class is left out and
 named), and `splits-covered ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
+A split is planned as vertical slices (`dev/prompts/planner.md`, with the Agent page as the example): each sub-gap
+works end to end and lands on its own, with acceptance tests of its own. `[plan] own_tests = true` (off unless set;
+not true or false stops the planner before any session) makes that a rule: a test two sub-gaps name sends the split
+back, naming the test and the sub-gaps. The rule checks that tests are not shared, not that each one is end to end.
 The plan review is advice, never a gate (which plans it reads: *Planning by size* below; `[plan] review = off`
 reads none, and `sample` 1 in `sample_every` = 3, or `all`, now marks only the lint sweep's plans;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its

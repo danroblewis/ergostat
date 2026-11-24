@@ -4,9 +4,13 @@ its tests satisfy, an owner need parked before the gap is ever ready (so never l
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
-from tests.test_factory_knowledge import PLAN, Instance
+from tests.test_factory_knowledge import PLAN, Instance, covered
+
+TEST = re.compile(r"\btests/[\w/.-]+\.py::\w+")
 
 pytestmark = pytest.mark.slow
 
@@ -24,6 +28,59 @@ def planned(tmp_path, *items: str) -> tuple[Instance, str, list[str]]:
 
 def definition(f: Instance) -> str:
     return (f.model / "run" / "defs" / "alpha-thing.md").read_text()
+
+
+TESTED = "`tests/test_x.py::test_unreadable_ledger_refuses`: fails if it fails open."
+
+
+def piece(b: str, deps: str, *tests: str) -> str:
+    """A sub-gap of the fixture feature (an Agent page), naming the acceptance tests given."""
+    return PLAN.format(b=b).replace("depends-on: []", f"depends-on: [{deps}]").replace(
+        TESTED, "\n- ".join(f"`tests/test_agent_page.py::{t}`: on the page, end to end." for t in tests))
+
+
+SLICES = (piece("alpha-ai-prompt", "", "test_an_ai_blocks_page_shows_its_prompt")
+          + piece("alpha-rule-law", "alpha-ai-prompt", "test_a_rules_page_shows_its_law")
+          + piece("alpha-program", "alpha-ai-prompt", "test_a_programs_page_shows_its_files",
+                  "test_an_own_module_is_named_never_a_venv_path")
+          + covered("alpha-ai-prompt", "alpha-rule-law", "alpha-program"))
+LAYERS = (piece("alpha-spec-api", "", "test_an_ai_blocks_page_shows_its_prompt")
+          + piece("alpha-show-page", "alpha-spec-api", "test_an_ai_blocks_page_shows_its_prompt",
+                  "test_a_rules_page_shows_its_law")
+          + covered("alpha-spec-api", "alpha-show-page"))
+
+
+def slicing(tmp_path, on: str) -> tuple[Instance, str]:
+    f = Instance(tmp_path)
+    f.config.write_text(f.config.read_text().replace('[plan]\n', f'[plan]\nown_tests = {on}\n'))
+    return f, f.opened()
+
+
+def test_a_planned_split_is_vertical_slices_each_with_its_own_test(tmp_path):
+    f, gid = slicing(tmp_path, "true")
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=LAYERS)  # the same test on the api and the page: layers
+    assert said == ["gap.plan-sent-back"] and f.item(gid)["state"] == "replan"
+    assert f.item(gid)["fields"]["plan_findings"] == [
+        "`tests/test_agent_page.py::test_an_ai_blocks_page_shows_its_prompt` is named by sub-gaps 'alpha-spec-api', "
+        "'alpha-show-page': each slice works end to end with acceptance tests of its own"]
+    assert not any(i in f.db()["items"] for i in ("gap/alpha-spec-api", "gap/alpha-show-page"))
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=SLICES)
+    assert said[-1] == "gap.split" and f.item(gid)["state"] == "split"
+    tests = {}
+    for b in ("alpha-ai-prompt", "alpha-rule-law", "alpha-program"):
+        text = (f.model / "run" / "defs" / f"{b}.md").read_text()
+        tests[b] = set(TEST.findall(text.split("## Acceptance tests", 1)[1].split("\n## ", 1)[0]))
+        assert tests[b] and f.item(f"gap/{b}")["state"] == "ready", b
+    assert sum(map(len, tests.values())) == len(set.union(*tests.values())) == 4    # each slice's own, none shared
+
+
+def test_own_tests_is_off_unless_declared_and_refuses_a_value_not_true_or_false(tmp_path):
+    f, gid = slicing(tmp_path, "false")
+    assert f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=LAYERS)[0][-1] == "gap.split"   # today's rule: layers pass
+    for bad in ('"yes"', "1"):
+        g, gid = slicing(tmp_path / bad.strip('"'), bad)
+        said, _ = g.run("plan.py", gid, fails=True, FACTORY_STANDIN_PLANNER=SLICES)
+        assert said == [] and "[plan] own_tests" in g.stderr and g.item(gid)["state"] == "open"
 
 
 def test_a_done_item_needing_a_port_server_is_marked_needs_measure(tmp_path):
