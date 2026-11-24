@@ -1533,8 +1533,8 @@ reads the event log.
   one, is one histogram's buckets (chart 16, the latency heatmap); an answer at one bound (`x_bucket{le="0.3"}` by
   instance, an SLO's numerator) stays plain series. The buckets are a `distribution` of `bins` from 0 to the highest
   finite bound, with `over_time`, the count in each bucket at each time (a time some bucket has no value at is a gap,
-  never a zero). It is refused when the buckets are of more than one histogram (`many-histograms`: add them with `sum by (le)`) or a count falls from one bound to a higher one
-  (`not-cumulative`). It is warned when counts lie above the highest finite bound, or there is no `+Inf`
+  never a zero). It is refused when the buckets are of more than one histogram (`many-histograms`: add them with
+  `sum by (le)`) or a count falls from one bound to a higher one (`not-cumulative`). It is warned when counts lie above the highest finite bound, or there is no `+Inf`
   (`open-top-bucket`). Only `le` is read: VictoriaMetrics's own `vmrange` buckets are not. The heatmap draws one
   histogram's buckets on its own: a panel with them and another answer draws nothing and says so.
 - **A graph.** Each edge's `source` and `target`, and each node's `parent`, must be one of the nodes; ids are unique;
