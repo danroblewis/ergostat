@@ -148,9 +148,16 @@ def crashed(rc: int, text: str) -> str:
 
 def browser_wanted(cfg: dict, repo, pre: str) -> bool:
     """Whether `git diff --name-only pre HEAD` (renames as both paths) names a path a `[suites] browser_paths` glob
-    matches. Absent, empty, not a list of globs, or a diff that cannot be read: True, the browser step runs."""
+    matches. Absent, empty, not a list of globs, or a diff that cannot be read: True, the browser step runs. So does a
+    batch that turns a feature flag on (ergostat/flags.py turned_on(); unreadable counts): the full checks."""
     globs = cfg["suites"].get("browser_paths")
     if not globs or not isinstance(globs, list) or not all(isinstance(g, str) and g for g in globs):
+        return True
+    try:
+        from ergostat import flags  # (here: the queue starts whether or not ergostat imports)
+    except ImportError:
+        return True
+    if flags.turned_on_between(repo, pre, "HEAD"):
         return True
     r = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", "--no-renames", "-z", pre, "HEAD"],
                        capture_output=True, text=True)
