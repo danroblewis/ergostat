@@ -231,6 +231,12 @@ def answer(p, iid: str, now: float | None = None, engine: dict | None = None) ->
         return out
     roots, cut = walk(ctx, it, iid)
     out["missing"] += cut
+    from .within import place
+    try:                                             # (what holds it as one of many: a batch of the gaps it tests)
+        out["place"] = place(ctx, it)
+    except Exception as e:                           # an unreadable holder: said, never raised
+        out["place"] = None
+        out["missing"].append(f"which items hold it could not be read: {type(e).__name__}: {e}")
     out["roots"] = roots
     if roots:
         r = out["root"] = roots[0]

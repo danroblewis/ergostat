@@ -117,16 +117,31 @@ def up_to_date(cfg: dict, repo) -> str | None:
 
 HOST = threading.Lock()                                 # the host step runs on the Mac itself: one half at a time
 NAMED_MOST = 10                                         # more failing tests than this: not a failure to chase by name
-CRASH = re.compile(r"^INTERNALERROR>|\[Errno 28\]|No space left on device|worker '\w+' crashed", re.M)
+CRASH = re.compile(r"^INTERNALERROR>|\[Errno 28\]|No space left on device|worker '\w+' crashed")
+PASSING = re.compile(r"\b(PASSED|SKIPPED|XFAIL|XPASS)\b")    # a result line naming a test: its name is not a crash
+FAILING = re.compile(r"\b(FAILED|ERROR)\b")                  # only its reason, after " - ", can report one
+
+
+def crash_text(line: str) -> str:
+    """The part of one log line a crash marker may be read from: all of an INTERNALERROR line or a plain line, none
+    of a passing result line, only the reason of a FAILED or ERROR line (`FAILED id - worker 'gw3' crashed`)."""
+    if line.startswith("INTERNALERROR>"):
+        return line
+    if PASSING.search(line):
+        return ""
+    return line.partition(" - ")[2] if FAILING.search(line) else line
 
 
 def crashed(rc: int, text: str) -> str:
     """Why a pytest run's failures are the run's and not its tests' (exit 3: pytest's internal error, or suite_watch
     stopping it; INTERNALERROR; a full disk; a lost xdist worker), or "". Such a run names no test: the tests it
-    reports failed are whatever was running."""
+    reports failed are whatever was running. Test names are not read: a parametrize id holding `[Errno 28]`, on a
+    verbose PASSED line, is no crash."""
     if rc == 3:
         return "exit 3: an internal error, or the suite's watchdog stopped it"
-    return m.group(0) if rc and (m := CRASH.search(text)) else ""
+    if not rc:
+        return ""
+    return next((m.group(0) for line in text.splitlines() if (m := CRASH.search(crash_text(line)))), "")
 
 
 def browser_wanted(cfg: dict, repo, pre: str) -> bool:
