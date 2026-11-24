@@ -250,7 +250,7 @@ function reviewEntry(e, { onDone }) {
                     where.new.length ? h("div", { class: "small muted" }, "new: ", ...partWords(where.new)) : null,
                     where.gone.length ? h("div", { class: "small muted" }, "removed: ", ...partWords(where.gone)) : null,
                     where.files.length ? h("div", { class: "small muted mono" }, where.files.map((f) => `${f.file}:${f.lines.join(",")}`).join("  ")) : null)],
-        ["made by", e.by_block ? proposedBy(e) : e.made_by === "owner" ? "you (a what-if)" : null],
+        ["made by", e.by_block ? proposedBy(e) : e.made_by === "owner" ? (e.kind === "display" ? "you (Keep, on the Dashboard)" : "you (a what-if)") : null],
         ["why", e.by_block && (e.reasons || []).length ? reasonsView(e.reasons) : e.why],
         ["scorecard", e.redesign?.rescoring ? h("div", { class: "small muted" }, e.redesign.rescore_error ? `rescoring: ${e.redesign.rescore_error}; the judge scores it again once it can be read` : "rescoring: carried to the model as it is, the judge scores it again")
           : e.redesign?.scorecard?.why ? h("div", { class: e.redesign.scorecard.verdict === "better" ? "small s-ok" : "small s-open" }, e.redesign.scorecard.why) : null],

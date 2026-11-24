@@ -13,7 +13,7 @@ const saidIn = (el) => [...el.querySelectorAll("text")].filter((t) => t.closest(
 /* what a screen reader says for it: what it is, and what is written on it ('stock backlog, 13 tickets') */
 function ariaOf(el, said) {
   const n = nodeOf(el.dataset.id), host = el.parentElement?.closest(".node, [data-hull]");
-  if (el.matches(".node")) return [`${n?.kind || "part"} ${said.join(", ") || n?.label || ""}`, n?.status].filter(Boolean).join(", ");
+  if (el.matches(".node")) return [`${n?.kind || "part"} ${said.join(", ") || n?.label || ""}`, n?.status, untrustedSays(n)].filter(Boolean).join(", ");
   if (el.matches(".edge")) { const e = S.edgeById?.[el.dataset.id], end = (x) => String(x || "").replace(/^\w+:/, "");
     const sign = SIGN_WORDS[e?.polarity] || (e?.kind === "connector" ? "sign not known" : "");
     return e ? [`${e.kind} line from ${end(e.source)} to ${end(e.target)}`, sign].filter(Boolean).join(", ") : "line"; }

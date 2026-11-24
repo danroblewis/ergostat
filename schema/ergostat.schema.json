@@ -658,8 +658,12 @@
       "type": "object",
       "required": ["panel"],
       "properties": {
-        "panel": {"enum": ["note", "goals", "chart", "items", "states", "cycle-time", "scope", "items-graph", "timeline"]},
+        "panel": {"enum": ["note", "goals", "chart", "items", "states", "cycle-time", "scope", "items-graph", "timeline", "query"]},
         "title": {"type": "string"},
+        "form": {"type": "string", "minLength": 1},
+        "queries": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "display": {"type": "object"},
+        "layout": {"type": "object"},
         "size": {"enum": ["s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall"]},
         "note": {"type": "string"},
         "text": {"type": "string"},
@@ -685,7 +689,8 @@
         {"if": {"properties": {"panel": {"const": "items"}}}, "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "title", "size", "note", "kind", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"]}}},
         {"if": {"properties": {"panel": {"enum": ["states", "cycle-time"]}}}, "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "title", "size", "note", "kind", "points"]}}},
         {"if": {"properties": {"panel": {"const": "scope"}}}, "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "title", "size", "note", "goal", "points"]}}},
-        {"if": {"properties": {"panel": {"enum": ["items-graph", "timeline"]}}}, "then": {"propertyNames": {"enum": ["panel", "title", "size", "note", "kinds", "system"]}}}
+        {"if": {"properties": {"panel": {"enum": ["items-graph", "timeline"]}}}, "then": {"propertyNames": {"enum": ["panel", "title", "size", "note", "kinds", "system"]}}},
+        {"if": {"properties": {"panel": {"const": "query"}}}, "then": {"required": ["queries"], "propertyNames": {"enum": ["panel", "title", "size", "note", "form", "queries", "display", "layout"]}}}
       ]
     },
     "duration": {
@@ -2006,7 +2011,8 @@
           "enum": [
             "prometheus",
             "command",
-            "ergostat"
+            "ergostat",
+            "sql"
           ]
         },
         "url": {
