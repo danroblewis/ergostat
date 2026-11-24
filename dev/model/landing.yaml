@@ -135,6 +135,12 @@ auxiliaries:
     description: 1 when the last daily browser run on main passed (or failed only on flakes), 0 when a test failed there or it named none; no reading when run/browser-daily.json cannot be read
     driven-by: [+flow.gaps-merged]
     sensor: {run: python3 dev/bin/browserday.py green, every: 10m, timeout: 1m, description: the daily browser run's record}
+  verify-window-hours:
+    system: merging
+    unit: hours
+    description: with [verify] after, the hours a verification window stays open - verify-hours, or sooner once the lines merged reach verify-lines (gaps landed per hour times their lines); a merge waits at most this for its full suites
+    driven-by: [-auxiliary.gaps-landed-per-hour]
+    equation: MIN(verify-hours, verify-lines / MAX(auxiliary.gaps-landed-per-hour * lines-per-gap, 0.001))
 
 flows:
   gaps-approved:
@@ -277,6 +283,12 @@ parameters:
     system: merging
     value: 2h
     description: with [verify] after, main is verified once its oldest unverified commit is this old, whatever its lines (over 0, at most 48h)
+  lines-per-gap:
+    system: merging
+    value: 300
+    unit: lines/gaps
+    estimate: true
+    description: the net lines a merged gap adds or removes (each merge's own, as its absolute value) - what turns gaps landed into lines toward verify-lines
   queue-wait:
     system: merging
     value: 30m
@@ -477,7 +489,7 @@ blocks:
     run: python3 dev/bin/verify.py run
     every: 10m
     timeout: 3h
-    in: [auxiliary.merge-to-verified-hours]
+    in: [+auxiliary.merge-to-verified-hours]   # verifies more as merges wait longer unverified
     out: [auxiliary.verify-escapes, auxiliary.verify-reverts]
 
   triage-when:
