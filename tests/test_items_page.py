@@ -3645,6 +3645,7 @@ def test_a_kinds_page_shows_its_definition_and_model_place(browser, roadmap):
     assert "pool" in rows["developer"][2] and "TTL" in rows["developer"][2], rows["developer"]
     assert "1 taken" in rows["developer"][3], rows["developer"]                      # ticket/e2-docs, leased now
     assert pg.locator("a", has_text="its states as a process map").get_attribute("href") == "/diagram?view=process&kinds=ticket"
+    assert pg.locator("a", has_text="draw what it touches").get_attribute("href") == "/diagram?view=dynamics&kind=ticket"
     d = pg.locator("details.kind-sect")
     assert d.get_attribute("open") is None and "Definition" in d.locator("summary").inner_text()
     d.locator("summary").click()
@@ -3882,6 +3883,7 @@ def test_an_uncounted_kind_says_so(browser, site):
     pg, errors = kind_page(browser, site, "/items/release")
     assert "Nothing in the model counts it" in pg.locator(".kind-uncounted").inner_text()
     assert pg.locator("table.kind-model").count() == 0
+    assert pg.locator("a", has_text="draw what it touches").count() == 0          # it touches nothing to draw
     d = pg.locator("details.kind-sect")
     assert d.locator("summary").inner_text() == "Definition" and "commit" in d.text_content()   # its fields shown
     pg.wait_for_selector("table.items tr.click")

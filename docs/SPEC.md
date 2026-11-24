@@ -2388,7 +2388,8 @@ order:
    pool, attempts and TTL, how many it has taken now and how many wait in its `at` states), its goals (how each
    holds, and its status word) and its feedback loops (R or B, and through which of its parts). Each name links to
    the diagram drawn around it (`around=stock/NAME`, a block in Blocks, a goal its control loop, a feedback loop
-   around its first part), and a last link opens its states as a process map (`view=process&kinds=K`). A kind
+   around its first part), and the last links open its states as a process map (`view=process&kinds=K`) and, when
+   anything counts or takes it, draw what it touches (`view=dynamics&kind=K`, *Drawn alone* below). A kind
    nothing counts and nothing takes says so here, and its other sections are drawn as for any kind. A goal's word is
    `goalWord`'s. When `/api/kinds/K` cannot be read, a 404 says the model declares no such kind; any other failure
    is said as an error here and in the definition, never as a fact about the model.

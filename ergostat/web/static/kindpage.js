@@ -57,7 +57,9 @@ function kindModel(fp, now) {
     rows.length ? table(["", "part", "what", ["now", "num"]], rows.map(([a, b, c, d]) => h("tr", {}, h("td", { class: "muted nowrap" }, a),
       h("td", { class: "nowrap" }, b), h("td", {}, c), h("td", { class: "num nowrap" }, d))), "kind-model", "Where the model counts, moves and takes it") : null,
     fp.uncounted.length && !fp.why ? h("p", { class: "muted small" }, `States nothing counts: ${fp.uncounted.join(", ")}.`) : null,
-    h("p", {}, link(`/diagram?view=process&kinds=${encodeURIComponent(fp.kind)}`, "its states as a process map"))].filter(Boolean);
+    h("p", { class: "kind-links" }, link(`/diagram?view=process&kinds=${encodeURIComponent(fp.kind)}`, "its states as a process map"),
+      // what it touches, drawn alone (SPEC §5a, *Drawn alone*): only when something counts or takes it
+      ...(fp.why ? [] : ["; ", link(`/diagram?view=dynamics&kind=${encodeURIComponent(fp.kind)}`, "draw what it touches")]))].filter(Boolean);
 }
 
 /* its definition as declared, read-only: events to states, the fields shown and how each folds, its relations both
