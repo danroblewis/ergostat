@@ -346,6 +346,8 @@ def sweep(sup, claimed: set[str]) -> None:
     shard is left to it; one the plan does not know, to the lead shard's engine."""
     from .. import runner
     from ..spec.ir import Daemon
+    if getattr(sup.e, "p", None) is None:
+        return                                   # (an engine with no project, a stand-in: no state folder to look in)
     root = Path(sup.e.p.dir).resolve() / "daemons"
     for base in sorted(root.iterdir()) if root.is_dir() else ():
         for name in sorted(names(base) - claimed):

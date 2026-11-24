@@ -70,6 +70,17 @@ test_engine_shard_asks, test_daemon_docs, test_runs_adopted, test_daemon_yaml_re
 clean. Not run here: the whole unit suite and the browser files. No sweep test runs with shards.
 Overrun reason: 618 net lines against 600: the 18 over are round 2's two blocking fixes (the sweep of daemons no longer kept, and runs handed back when a restart's launch fails or its holder lets them go); nothing else was added.
 
+Round 3, the queue's finding: `tests/test_metrics_store_labels.py::test_storage_run_is_a_daemon_ergostat_supervises`
+(main's, alone and in the batch of 26) failed with `AttributeError: 'E' object has no attribute 'p'`: its stand-in
+engine has no project, and the sweep added in round 2 read `sup.e.p` on the supervisor's first sync. `kept.sweep`
+now returns at once for an engine with no project (it has no state folder, so no kept process to look for); a real
+engine always has one, so nothing it sweeps changes. Seen failing before the change, passing after (the whole file:
+15 passed, 5 skipped for want of `ERGOSTAT_TEST_VM_URL`, as on main). Run again one file at a time, all passing:
+test_metrics_store_labels, test_daemons_outlive_engine (15), test_daemons (34), test_daemons_restart (6); ruff clean.
+`main` (d0f95413) is already merged in. Not run here: the whole unit suite and the browser files, so the other
+failures of the batch of 26, if any were this branch's, are not known here; only this one was named.
+Overrun reason: 620 net lines against 600: round 2's 18 (its two blocking fixes) and round 3's 2 (the guard that lets the sweep pass over an engine with no project, the queue's finding); nothing else was added.
+
 ## Entry
 
 section: Runtime, scale and latency
