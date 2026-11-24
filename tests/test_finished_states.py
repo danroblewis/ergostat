@@ -4,6 +4,7 @@ rule's own callers (process.py, series.py, messages/route.py) give what they gav
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import textwrap
@@ -19,7 +20,7 @@ from ergostat.store import Project
 
 ROOT = Path(__file__).resolve().parent.parent
 PARITY = ROOT / "tests" / "fixtures" / "finished_parity.json"
-DEMOS = ("software-factory", "ticket-factory", "image-squeeze", "the-job", "roadmap")
+DEMOS = ("first-loop", "image-squeeze", "roadmap", "software-factory", "the-job", "ticket-factory")
 
 FACTORY = """
 items:
@@ -99,21 +100,28 @@ def test_the_listing_the_relations_and_the_estimates_say_the_same(tmp_path):
     assert not [f for f, s in src.items() if "done_states" in s]        # none decides it but finish_of
 
 
-def _seed(p) -> None:
-    """Per kind, one item through every state its events name, and one left in its first."""
-    t = 1_700_000_000.0
+T0 = 1_700_000_000.0
+
+
+def _seed(p) -> float:
+    """Per kind, one item through every state its events name, one left in its first and one in its second; returns
+    when the last move was."""
+    t = T0
     for k in p.model.spec.items.values():
         if not k.states or "*" not in k.id:
             continue
         on = sorted(((e, s) for e, s in k.on.items() if "*" not in e and s in k.states), key=lambda x: k.states.index(x[1]))
-        for n, steps in (("p1", on), ("p2", on[:1])):
+        for n, steps in (("p1", on), ("p2", on[:1]), ("p3", on[:2])):
             for i, (e, _) in enumerate(steps):
-                p.events.add(e, item=k.id.replace("*", n, 1).replace("*", "x"), at=t + i)
-        t += 100
+                p.events.add(e, item=k.id.replace("*", n, 1).replace("*", "x"), at=t + 10 * i)
+            t += 100
+    return t
 
 
 def parity_outputs(tmp_path) -> dict:
-    """What process.py, series.py and messages/route.py say is finished, per demo and kind, on a seeded record."""
+    """Per demo and kind, on a seeded record: the process map (``process.process``, by states), the state counts over
+    time and their finished items (``series.items_flow``, ``/api/items-flow``), and message routing's targets for a
+    message about each item (``route.targets`` over ``route.work_items``)."""
     from ergostat import process, series
     from ergostat.messages import route
     out = {}
@@ -122,21 +130,28 @@ def parity_outputs(tmp_path) -> dict:
         shutil.copytree(ROOT / "examples" / demo, d, ignore=shutil.ignore_patterns("run", "reports", "__pycache__"))
         p = Project(mdl.load(d))
         spec = p.model.spec
-        _seed(p)
+        until = _seed(p) + 100
+        snap = {"at": until, "window": until - T0 + 100}
         for name, k in spec.items.items():
-            got = its.project(p.events, spec, name)
-            out[f"{demo}/{name}"] = {"process": sorted(process._done(spec, p.events, k)),
-                                     "series": series.finished_states(k, got),
-                                     "route": sorted(route.done_states(p, spec, k, got))}
-    return out
+            ids = sorted({e["item"] for e in p.events.query(n=None, since=T0 - 1) if k.matches(e.get("item") or "")})
+            work = {w["id"]: w for w in route.work_items(p, spec, ids=ids) if w["kind"] == name}
+            out[f"{demo}/{name}/process"] = process.process(p.events, spec, [name], T0 - 100, until, by="states")
+            out[f"{demo}/{name}/series"] = series.items_flow(p, snap, name, 20) if k.states else None
+            out[f"{demo}/{name}/route"] = route.targets(p, spec, ids, [], work, [])
+    return {k: hashlib.sha256(json.dumps(v, sort_keys=True).encode()).hexdigest() for k, v in out.items()}
 
 
-def test_the_older_rules_callers_give_what_they_gave_before(tmp_path):
-    """The snapshot: taken with process.py, series.py, messages/route.py and itemindex.done_states as they are on main
-    (written by this test when missing, which then fails until it is committed)."""
-    got = json.dumps(parity_outputs(tmp_path), sort_keys=True, indent=1)
+# What the change to finish_of changed, per demo, kind and output (and why); everything else stays byte-identical.
+CHANGED: dict[str, str] = {}
+
+
+def test_the_process_map_the_state_counts_and_routing_change_only_where_listed(tmp_path):
+    """The parity test: the outputs as main gave them before these callers took finish_of (written by this test when
+    missing, which then fails until it is committed), byte-identical but for ``CHANGED``, each of which did change."""
+    got = parity_outputs(tmp_path)
     if not PARITY.exists():
-        PARITY.write_text(got + "\n")
+        PARITY.write_text(json.dumps(got, sort_keys=True, indent=1) + "\n")
         raise AssertionError(f"{PARITY} written: check it and commit it")
-    assert got.count('"process"') > 10
-    assert got == PARITY.read_text().strip()
+    before = json.loads(PARITY.read_text())
+    assert sorted(got) == sorted(before) and len(got) > 100
+    assert sorted(k for k in got if got[k] != before[k]) == sorted(CHANGED)
