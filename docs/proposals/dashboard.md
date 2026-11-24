@@ -275,7 +275,7 @@ a row, down to the next, are its own, and a row is a guaranteed break, so a pane
 down with all its panels and never crosses it. A row folds (its panels kept in it, what is below closing up by what it
 spanned) and opens again to the same places; it is dragged by its bar, or moved with ↑ and ↓, taking its panels.
 **Repeated panels** (the editor's *Repeat*): one panel for each series a query answers with (its label's values), or
-for each value of a variable the draft names (`vars`), at most 24, and at most 64 charts on the page. The copies are
+for each value chosen of a variable the draft names (`vars`, SPEC section 4e, *Variables*), at most 24, and at most 64 charts on the page. The copies are
 drawn beside the panel in its row, line after line, and are added and removed as the values change; only they lay
 themselves out. The lines they took are kept while the page is open, so values going away move nothing below. On a
 phone the panels are one column in reading order, and dragging one there gives it the place in reading order it is
