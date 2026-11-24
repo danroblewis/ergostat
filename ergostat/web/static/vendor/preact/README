@@ -1,0 +1,4 @@
+Vendored 2026-11-24 by the coordinator (sessions have no network):
+- htm-preact-standalone.module.js: htm 3.1.1, preact/standalone.module.js (Preact 10, its hooks, and htm in one ES module), from https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js
+- Licenses: MIT (Preact), Apache-2.0 (htm).
+Exports: h, html, render, Component, createContext, useState, useReducer, useEffect, useLayoutEffect, useRef, useImperativeHandle, useMemo, useCallback, useContext, useDebugValue, useErrorBoundary.
