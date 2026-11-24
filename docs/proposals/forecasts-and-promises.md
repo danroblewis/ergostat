@@ -30,6 +30,8 @@ exactly, the binomial table of §9.2, is said as a check the build's test must r
 | what-if: `block.NAME.pool`, `block.NAME.failure` | `closedloop.parse_whatif`, the eta worker's cache | hypothetical items, run as a quote (§4) |
 | a block's gate worked out once at now; pools read from stocks | CAE §1–§3 (its build: control-aware-completion-estimates) | nothing: used as CAE settles it |
 | where an item is held as one of many (a batch naming it; how many are ahead of it), read from the record's relations, never a precedence, group or remote's | `why/within.place`, in the why answer (SPEC §5a, *Why it is not done*) | nothing: kept apart from `waits_on` (§1) |
+| one worker thread that simulates on demand: a page's ask, at most every `EVERY` 30 s, the latest asked first, gone after a minute idle; calibration only when no ask waits | `web/eta_api.py` (`estimates`, `_worker`) | a **standing run**: on a schedule, asked by no page, taken before any page's ask, the worker kept alive for it (§1, *Standing runs*) |
+| a background thread the runner starts beside the engine, bounded per period | `remote/refresh.start` (in `cli/running.py`), `remote/items.period` (`LEAST`/`MOST`) | the standing schedule started the same way, its periods clamped the same way (§1) |
 | take order (`takes:` order, `unblocked`, `order:`) shared by the dispatcher and the simulation | `leases/ready.take_key` | a frozen term at the front of the key (§5) |
 | backtest at past cuts: p50 MAE, p90 coverage, bias | `numbers/etacheck.score`, `tests/eta_backtest.py` | promises scored, and the forecasts as said recorded and scored (§6) |
 | the Timeline's calibration line ("8 in 10 tickets finished by their p90") | `etacheck.calibration`, `relations.js` | a second clause for the recorded forecasts, and promises kept against their level (§6) |
@@ -42,7 +44,9 @@ The forecast is one JSON answer, `forecast/v1`, made by a new small module `ergo
 `eta.simulate`'s runs. The Gantt (Timeline and Lanes), the Items tab, an item's page, promises, quotes, the CLI
 (`ergostat forecast [--json]`), `GET /api/forecast` and the remote API all read this one shape. The Timeline's
 `eta_api.merge` takes its bars and words from it, so the Gantt is one reader among several and not the owner of
-the estimates. It is worked out in the eta worker, never on a request, as now (SPEC §5a).
+the estimates. It is worked out in the eta worker, never on a request, as now (SPEC §5a). When a model
+declares something that must happen whether or not anyone is looking, it is also worked out on a schedule
+(*Standing runs*, at the end of this section).
 
 ```
 {"schema": "forecast/v1", "at": T, "version": MODEL_VERSION, "runs": 200, "seed": 1, "horizon": 7776000,
@@ -91,10 +95,56 @@ the estimates. It is worked out in the eta worker, never on a request, as now (S
 The answer is versioned by `schema`. A new key may be added, and a key's meaning is never changed under the same
 schema. That is what "stable" means here, and what a remote reader relies on (§7).
 
+**Standing runs.** Today's worker is demand-driven: it simulates only when a page asks, and it stops after a minute
+idle. A frozen window (§5) and recorded calibration (§6) cannot rest on that. The order would lapse whenever no page
+is open, and the forecasts recorded "as said" would sample only the moments someone looked, a biased sample. So:
+
+- **Started by the runner, not by a page.** A new small module, `numbers/standing.py`, is started by the runner
+  beside the engine, as `remote/refresh.start` is (`cli/running.py`), also under `--no-web`. It runs only when the
+  model declares `frozen:` on a block or `forecast: {record: …}`. Otherwise it is never started and nothing changes.
+  The worker loop and its queues move from `web/eta_api.py` to `numbers/etaworker.py` unchanged, so the engine does
+  not import the web package. `web/eta_api.py` keeps `estimates` and `merge`, which call it.
+- **One schedule per model.** Its period is the shortest declared `frozen.every` or `forecast.record`, each clamped
+  to its bounds below. When a pass is due, it puts one job, `standing`, on the worker's queue. The job runs the plain
+  forecast (no what-if) once, at the standing seed. From that one result it writes each due frozen list (§5) and the
+  due recorded forecast (§6), so the two never read different runs.
+- **Never starved.** The worker takes a due `standing` job before any page's ask and before calibration. The
+  last-asked-first order of page asks is kept below it. A page waits behind at most one standing simulation (the
+  existing `BUDGET` of 5 s). While a standing schedule is declared, the worker does not exit when idle.
+- **A pass that does not happen is said, never read as fine** (lesson 3). Each pass stamps its `at` and its model
+  version. When a standing pass fails, or is more than two periods late, the engine's health reports it, and each
+  frozen block's why says "frozen list 3h old (refresh every 1h)". The last list stays in force up to its `until`
+  and lapses after it (§5). A missed recorded pass is counted in the next pass's summary as `missed: n`. It is never
+  filled in afterwards, since a forecast made late is not what was said then.
+- **Page forecasts are never recorded.** Only standing passes write `forecast.made`, so the recorded sample is the
+  schedule's and does not depend on who looked when.
+
+**Bounds** (lesson 4). Each one is refused outside its range when the model is checked (`bad-frozen`,
+`bad-forecast`, `bad-promise`) and clamped again at run time, as `remote/items.period` clamps a remote's `every`:
+
+| number | range | default | why it is bounded |
+|---|---|---|---|
+| `frozen.every` | 15 min … 1 d | 1 h | standing passes a day: at most 96 |
+| `frozen.for` | `every` … 7 d | 1 d | how far a list reaches |
+| `frozen.most` | 1 … 200 | 100 | ids in one `block.frozen` event |
+| `forecast.record` | 1 h … 1 d | (none: off) | recorded passes a day: at most 24 |
+| items in one recorded pass | at most 200 | | the side file's growth (§6) |
+| `forecast.keep` (how long recorded forecasts are kept) | 7 d … 400 d | 90 d | the side file's size on disk |
+| `extra.most` (k tried per group) | 0 … 10 | 6 | quotes per group |
+| `extra` quotes in one standing period, every group together | at most 24 | | worker time (§2) |
+| quote items | at most 200 | | as §4 |
+
+The worker's time per standing period is then at most one forecast and 24 `extra` quotes, each within `BUDGET` 5 s,
+so at most 125 s. At the 15-minute floor that is 14% of the one worker at worst. The record's growth is said with
+§5 and §6.
+
 ## 2. Promise types a model may use
 
 A promise is declared on an item kind, in the model, under `promises:`. With none declared, nothing below runs. A
-promise never acts. It is a question the forecast answers on every refresh, for each open item or group it covers.
+promise never acts. It is a question the forecast answers for each open item or group it covers. Date, quantity and
+level are read from the forecast already worked out, on every refresh, and cost no simulation. Only `extra` costs
+simulations. It is worked out in standing passes and in quotes (§4) only, never for a page's refresh, within the
+bounds of §1.
 
 ```yaml
 messages:
@@ -127,9 +177,14 @@ stocks:
   a dropped order) or a dead letter, from the kind's path shares and attempts. No yield parameter is declared or
   fitted apart from the record.
 - **`extra` is searched from k = 0 upwards**, as one quote with k extra members for each k. It stops at the first k
-  that reaches α, or at `most`, which is a hard ceiling (at most 50 when the model is checked; lesson 4). The chance
-  is not monotone in k when added members compete for the same capacity before the date, so the search never
-  bisects, and it reports each k it tried.
+  that reaches α, or at `most`, which is a hard ceiling (at most 10 when the model is checked, and again at run time;
+  lesson 4). The chance is not monotone in k when added members compete for the same capacity before the date, so
+  the search never bisects, and it reports each k it tried. k = 0 is the forecast itself and costs no quote.
+- **`extra` has a total ceiling as well as a per-group one.** One standing period runs at most 24 `extra` quotes,
+  across every group together, each within `BUDGET`. The groups go earliest date first. A quote item's own `extra`
+  counts against the same 24. These quotes run as worker jobs below page asks, so a page never waits behind them. A
+  group not reached in its period, whether for the ceiling or because page asks kept the worker busy, is said
+  **unknown** ("extra not worked out this period: 24 quotes used"), never "no k reaches", and never kept.
 - **A field that is missing, not a time, or not a number** leaves that promise **unknown**, with why ("order/207:
   due is not a time"). It is never counted as kept (lesson 3). A group with no `need` is unknown in the same way.
 - **The make-to-stock level** uses the stock-and-flow model's existing risk run. It is the one promise answered from
@@ -208,13 +263,19 @@ blocks:
     frozen: {for: 1d, every: 1h, urgent: {field: rush, is: true}, most: 100}
 ```
 
-- Every `every`, the eta worker freezes: the items whose forecast start at this block (`stages` of the block's
-  `takes.at` states, which a frozen window names and so keeps: the p50 of `enter`) falls
-  within `for` of now, ordered by that start. They are recorded as one event, `block.frozen` {block, items in order,
-  until, the forecast's `at` and version}. `most` caps the list, with a ceiling of 500 at check (lesson 4), and the
-  rest are counted. An item stays frozen until it is first taken by that block, or it finishes, or the list's `until`
-  passes without a newer list. A rework return then queues normally. The newest list for a block is the one in force,
+- Every `every`, the standing pass (§1, *Standing runs*) freezes, whether or not a page is open. It takes the items
+  whose forecast start at this block falls within `for` of now, ordered by that start. The start is read from
+  `stages` of the block's `takes.at` states, which a frozen window names and so keeps: the p50 of `enter`. The list
+  is recorded as one event, `block.frozen` {block, items in order, until = `at` + `for`, the forecast's `at` and
+  version}. `every`, `for` and `most` have the floors and ceilings of §1. `most` caps the list, and the rest are
+  counted. An item stays frozen until it is first taken by that block, or it finishes, or the list's `until` passes
+  without a newer list. A rework return then queues normally. The newest list for a block is the one in force,
   ordered by the event's `seq` and never by time (lesson 2).
+- **What it adds to the record.** A new list is written only when its order or its members differ from the one in
+  force; an unchanged pass writes nothing. At most one list per block per pass is written, so at worst
+  96 × 200 ids a day per block. The event is about the item `ergostat.frozen/BLOCK`, so the existing roll-up
+  (`rollup.py`, per item, a prefix by `seq`) replaces lists older than its horizon with one snapshot, the way it
+  rolls up any item. Only the newest list is ever read. The build's `test_frozen_lists_roll_up` checks it.
 - **The engine and the simulation read the same order.** `leases/ready.take_key` gains one leading term: urgent 0,
   frozen 1 (then its frozen rank), the rest 2, before the existing order. The dispatcher and `eta._Run` already share
   that function, so the window has the same effect in the simulation as on the floor. In the simulation that effect
@@ -237,11 +298,20 @@ Two calibrations, side by side.
    against what happened. It judges the *method* as it is now, which is what the backtest and the flags need. It
    stays as it is.
 2. **Recorded** (new; on when a model declares `forecast: {record: 1h}`). It judges what was *said*, including the
-   model and code as they were then. Every `record` period, the eta worker appends one event, `forecast.made`:
-   {at, model version, runs, flags, basis summary}, plus each item's ladder (p05…p95, `beyond`), for at most 500
-   items, those with a promise first and then the earliest p50. The rest are counted, never silently dropped. Each
-   promise's chance and its level are included, as is each frozen list's id. It is an event because it is what was
-   said, append-only, so it is never edited, and the remote API's `events` serves it (§7).
+   model and code as they were then. Every `record` period, the standing pass (§1) records it, whether or not a page
+   is open. A forecast worked out for a page is never recorded, so the sample is the schedule's and not the moments
+   someone looked. `record` lies between 1 h and 1 d (§1). A pass records two things:
+   - **the ladders, in a side file**, `forecasts/YYYY-MM.jsonl.gz` under the run folder, one line a pass. Each line
+     has each item's ladder (p05…p95, `beyond`) for at most 200 items, those with a promise first and then the
+     earliest p50. The rest are counted, never silently dropped. Each promise's chance and its level are included,
+     as is each frozen list's `seq`. The file is append-only and never edited. Month files older than
+     `forecast: {keep: 90d}` (7 d … 400 d) are deleted, matched by the name pattern the module writes and never
+     by a keep-list (lesson 11). Raw, that is at most 24 × 200 ladders a day, about 0.5 MB before compression, so
+     at most about 200 MB raw at the 400-day ceiling.
+   - **one small event**, `forecast.made` {at, model version, runs, flags, basis summary, items recorded, items
+     counted out, `missed`, the side file's name and line}, at most 1 kB. It is about the item
+     `ergostat.forecast/MODEL`, so roll-up treats it as any item's events. It is an event because it is what was
+     said, and the remote API's `events` serves it (§7).
 
 **How it is scored** (in `etacheck`, the same tallies as now):
 
@@ -274,8 +344,10 @@ Two calibrations, side by side.
 **Exposed.** `/remote/v1/forecast?kinds=…&items=…&groups=…` serves `forecast/v1` as the remote last worked it out.
 It is read only, under the existing token and its rate bucket, with at most 200 ids a call (as `process`'s `at=`). It
 never starts a simulation on a request: it asks the remote's worker as a page does, and answers the last result with
-its `at`, or 503 "being worked out". Promises, frozen lists (`block.frozen` events) and the recorded forecasts
-(`forecast.made`) are also served through the existing `events`. Calibration is in the forecast's own key. A remote
+its `at`, or 503 "being worked out". Promises and frozen lists (`block.frozen` events) are also served through the
+existing `events`, as are the recorded passes' summaries (`forecast.made`). The ladders in the side file (§6) are
+not served. A reader that wants to calibrate a remote records what it read itself. Calibration is in the
+forecast's own key. A remote
 quote, `/remote/v1/quote`, is served only when the remote model declares `forecast: {quotes: remote}`, at most 10
 an hour per token. Off by default, since each costs a simulation there.
 
@@ -307,31 +379,40 @@ on any of these, and none waits on it.
 | gap | builds | files | depends on | budget (net lines) |
 |---|---|---|---|---|
 | forecast-stable-result | §1: `forecast/v1`, ladder, groups, stages, `waits_on` with `binding`, basis; `ergostat forecast`, `/api/forecast`; the Timeline reads it | new `numbers/forecast.py`; `numbers/eta.py`; `web/eta_api.py`; `cli/`; SPEC §5a | (none) | 150 |
+| forecast-standing-runs | §1, *Standing runs*: `numbers/standing.py` started by the runner; the worker moved to `numbers/etaworker.py` with a `standing` job taken first and no idle exit while one is declared; the schedule's clamps; health's late or failed pass; `missed` | new `numbers/standing.py`; `numbers/etaworker.py` (moved from `web/eta_api.py`); `cli/running.py`; health | forecast-stable-result | 110 |
 | forecast-promises | §2: `promises:` schema and check (`promise-field-unknown`, `bad-promise`), date, quantity, level, the stock level from `closedloop.risk`; the Items tab's "at risk" in each row's why | `spec/`, `numbers/forecast.py`, `web/static/` (the row's existing why) | forecast-stable-result | 160 |
 | forecast-quotes | §4: quote items, per-item random streams (guarded by the backtest), the effect report, `extra` of §2, `ergostat quote`, dashed rows by address | `numbers/eta.py`, `numbers/etamodel.py`, `numbers/forecast.py`, `web/eta_api.py`, `relations.js` | forecast-promises | 170 |
-| frozen-windows | §5: `frozen:` schema and check, the freeze in the worker, `block.frozen`, `block.frozen.broken`, the `take_key` term | `leases/ready.py`, `web/eta_api.py`, `spec/`, the dispatcher | forecast-stable-result | 140 |
-| forecast-calibration-recorded | §6: `forecast.made`, PIT and promise scoring, the second calibration clause, `calibrate: true`, `forecast-miscalibrated` | `numbers/etacheck.py`, `web/eta_api.py`, `relations.js` | forecast-promises | 140 |
+| frozen-windows | §5: `frozen:` schema and check with its bounds, the freeze in the standing pass, `block.frozen` written only when changed, `block.frozen.broken`, the `take_key` term | `leases/ready.py`, `numbers/standing.py`, `spec/`, the dispatcher | forecast-standing-runs | 140 |
+| forecast-calibration-recorded | §6: the side file and its keep, `forecast.made`, PIT and promise scoring, the second calibration clause, `calibrate: true`, `forecast-miscalibrated` | `numbers/etacheck.py`, `numbers/standing.py`, `relations.js` | forecast-promises, forecast-standing-runs | 160 |
 | remote-forecasts | §7: `/remote/v1/forecast`, the opt-in remote quote, `forecast: true` relations, the draw and the fail-closed read | `web/remote_api.py`, `remote/`, `numbers/etamodel.py` | forecast-stable-result | 160 |
 
 Acceptance tests each gap must carry (named here so the definitions can take them):
 
 - forecast-stable-result: `test_forecast_ladder_brackets_p50_p90` (p05 ≤ … ≤ p95 and today's p50/p90 unchanged on
   `owners_record`); `test_group_finish_is_latest_member`; `test_waits_on_binding_names_the_late_prerequisite`.
+- forecast-standing-runs: `test_standing_pass_runs_with_no_page_asking` (no `estimates` call, a pass made in its
+  period); `test_standing_before_a_queue_of_whatifs` (nine what-if asks waiting, the due pass is taken first);
+  `test_late_pass_is_said` (a pass held up past two periods is reported by health, never read as current);
+  `test_periods_clamped_at_check_and_run` (`every: 1s` refused at check and clamped to 15 min at run time).
 - forecast-promises: `test_date_promise_unknown_when_field_missing` (never kept); `test_stock_level_reads_risk`.
 - forecast-quotes: `test_quote_writes_nothing` (event `last_seq` and the files are unchanged);
   `test_quote_prerequisite_first`; `test_quote_effect_zero_for_unrelated_kind` (paired streams);
   `test_extra_matches_binomial` (§9.2: no time pressure, 8% scrap, need 10 at level 0.9 → 12 started, within the runs'
-  spread); `test_backtest_unchanged_by_item_streams`.
+  spread); `test_backtest_unchanged_by_item_streams`; `test_extra_quotes_capped_per_period` (30 groups asking: 24
+  quotes run, the groups left said unknown, none kept).
 - frozen-windows: `test_frozen_order_holds_against_a_later_arrival` (engine and simulation both);
-  `test_urgent_breaks_and_is_recorded`; `test_unreadable_freeze_takes_plain_order`; `test_newest_list_by_seq`.
+  `test_urgent_breaks_and_is_recorded`; `test_unreadable_freeze_takes_plain_order`; `test_newest_list_by_seq`;
+  `test_unchanged_list_writes_nothing`; `test_frozen_lists_roll_up`.
 - forecast-calibration-recorded: `test_pit_coverage_on_a_calibrated_record` (coverage at 0.9 in [0.8, 1.0]);
-  `test_below_level_only_past_wilson`; `test_calibrated_promise_moves_to_the_covering_level`.
+  `test_below_level_only_past_wilson`; `test_calibrated_promise_moves_to_the_covering_level`;
+  `test_page_forecast_never_recorded`; `test_side_file_kept_to_keep` (only month files past `keep`, by the
+  module's own name pattern, are deleted).
 - remote-forecasts: `test_remote_forecast_stale_is_not_scheduled`; `test_remote_draw_matches_ladder`;
   `test_remote_quote_off_by_default`.
 
-Six gaps, about 920 net lines of code in total, plus tests. Order: the stable result first. Then promises and
-frozen windows in parallel. Then quotes and recorded calibration. Remote forecasts may follow the first gap at any
-time.
+Seven gaps, about 1,050 net lines of code in total, plus tests. Order: the stable result first. Then standing runs
+and promises in parallel. Then frozen windows (after standing runs), quotes (after promises) and recorded
+calibration (after both). Remote forecasts may follow the first gap at any time.
 
 **Not filed:** a batch block that loads several items into one run (an oven), so that they start and end together.
 Today such a block is drawn as that many lanes whose runs start apart. The Timeline's "not modelled" sentence says
@@ -411,8 +492,14 @@ declaration needed beyond the relations it already has.
 
 ## Decisions taken alone (each the more reversible)
 
-- The frozen list is made by the worker every `every` and recorded as an event. A list made by hand is not proposed.
-  Recorded events can be read back and replaced by a newer list, while a list never recorded could not be judged.
+- The frozen list is made by the standing pass every `every` and recorded as an event. A list made by hand is not
+  proposed. Recorded events can be read back and replaced by a newer list, while a list never recorded could not be
+  judged.
+- Standing runs share the one eta worker, taken first, rather than getting a thread of their own. This keeps one
+  simulation at a time on the machine (lesson 4), and giving them a thread later is a small change.
+- The ceilings (§1, *Bounds*) are set low. Raising one later loosens a check without breaking a model that passed it.
+- The recorded ladders go to a side file with a keep, and the event carries only a summary. Moving them into events
+  later stays possible, while ladders written into the append-only record could not be taken back out.
 - An unreadable freeze takes the plain order (§5): a lost preference, never a stopped block.
 - The conformal correction is off unless a promise says `calibrate: true`.
 - Remote quotes are off unless the remote declares them.

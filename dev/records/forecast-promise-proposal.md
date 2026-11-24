@@ -96,6 +96,34 @@ Round 6 (no review findings to answer): main has no commit the branch lacks. Two
   appended below (section Modelling), the reversible choice: the queue may place or reword it.
 - Still 0 net lines of code. Only ruff was run.
 
+Round 7: both review findings answered (both blocking; there were no others). Both are changes of design, made
+in the proposal only:
+- Finding 1 (frozen windows and recorded calibration rested on a periodic forecast that does not exist; the eta
+  worker in web/eta_api.py is demand-driven and exits after a minute idle). Answered by adding *Standing runs* to
+  §1. `numbers/standing.py` is started by the runner beside the engine, as `remote/refresh.start` is, also under
+  `--no-web`, and only when a model declares `frozen:` or `forecast: {record:}`. The worker moves to
+  `numbers/etaworker.py`. A due `standing` job is taken before any page's ask, so the last-asked-first what-if
+  queue cannot starve it. The worker does not exit when idle while a standing schedule is declared. A late or failed
+  pass is reported by health and said in each frozen block's why, never read as current. Only standing passes are
+  recorded, so calibration samples the schedule and not the moments someone looked. The table of what exists now
+  names the demand-driven worker and `remote/refresh.start`. §8 gains the gap forecast-standing-runs (110 lines,
+  four acceptance tests), on which frozen-windows and forecast-calibration-recorded now depend.
+- Finding 2 (no bound on `extra` quotes, on `record` or `every`, or on the record's growth). Answered by a *Bounds*
+  table in §1, refused at check and clamped at run time as `remote/items.period` does: `frozen.every` 15 min to
+  1 d; `frozen.for` up to 7 d; `frozen.most` at most 200; `record` 1 h to 1 d; at most 200 items a recorded pass;
+  `keep` 7 d to 400 d; `extra.most` at most 10, down from 50; at most 24 `extra` quotes a standing period across
+  every group. That makes the worker time per period at most 125 s, 14% of the worker at the 15-minute floor.
+  `extra` is never worked out for a page's refresh; it runs as jobs below page asks, and a group not reached is
+  unknown, never kept. A frozen list is written only when it changes, and it is about `ergostat.frozen/BLOCK` so
+  roll-up folds old lists. The recorded ladders go to a side file `forecasts/YYYY-MM.jsonl.gz` with a keep
+  (about 0.5 MB a day raw at most), and `forecast.made` is a summary of 1 kB at most. §7 no longer serves the ladders
+  remotely. The new tests are named in §8.
+- §8 is now seven gaps, about 1,050 net lines. The Entry below was updated to match (it said six and 920).
+- The new figures (125 s, 14%, 0.5 MB a day, 200 MB at 400 d) are worked by hand from the stated ceilings and
+  `BUDGET`, and were not run or measured. The roll-up of `ergostat.frozen/BLOCK` was read from `rollup.py`'s
+  description, not tried; `test_frozen_lists_roll_up` is the check.
+- Still 0 net lines of code. Only ruff was run.
+
 ## Entry
 
 section: Modelling
@@ -105,8 +133,9 @@ section: Modelling
   settles `forecast/v1`, one stable result from the existing Monte Carlo (`numbers/eta.py`), per item, group, kind
   and stage, with a quantile ladder, `waits_on`, basis and runs; promises a model may declare (a date, N of M by a
   date, a service level, extra started to cover loss); quotes of hypothetical items through the what-if path,
-  writing nothing; frozen windows as a term at the front of `take_key`, broken by urgent work and recorded;
+  writing nothing; standing runs on a bounded schedule, started by the runner and taken before page asks, for what
+  must happen unwatched; frozen windows as a term at the front of `take_key`, broken by urgent work and recorded;
   calibration of recorded forecasts and promises beside the backtest; `/remote/v1/forecast` read by `forecast: true`
-  relations. Worked for a job shop with rework and a batch process with yield loss. *Left*: the six build gaps of its
-  §8 (about 920 net lines), not yet filed; two owner's questions (whole-lot loss or yield inside a lot; a frozen
+  relations. Worked for a job shop with rework and a batch process with yield loss. *Left*: the seven build gaps of
+  its §8 (about 1,050 net lines), not yet filed; two owner's questions (whole-lot loss or yield inside a lot; a frozen
   window refreshed hourly or only on request).
