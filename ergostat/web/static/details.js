@@ -65,7 +65,12 @@ function whatIs(kind) {
 }
 
 function dl(pairs) { return h("dl", {}, pairs.filter(([, v]) => v != null && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])); }
-function agentLink(a) { return a ? h("span", {}, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, a.name), h("span", { class: "muted" }, ` ${a.kind}`)) : h("span", { class: "s-open" }, "unfilled"); }
+/* an agent's name as a link to its page (/agent/NAME): Tab reaches it, a middle click opens it in a new tab */
+const agentHref = (n) => `/agent/${encodeURIComponent(n)}`;
+const agentA = (n, attrs = {}) => h("a", { href: agentHref(n), class: "agent-link", ...attrs }, n);
+const plainClick = (ev) => ev.button === 0 && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey);
+// in a panel a plain click opens the agent's panel in place; its page is the link's own
+function agentLink(a) { return a ? h("span", {}, agentA(a.name, { onclick: (ev) => { if (plainClick(ev)) { ev.preventDefault(); openAgent(a.name); } } }), h("span", { class: "muted" }, ` ${a.kind}`)) : h("span", { class: "s-open" }, "unfilled"); }
 
 /* a remote system (run by another ergostat, SPEC §4c): where it runs, the version of its model read here, how old
    its readings are, and that nothing of it runs here */
@@ -183,7 +188,7 @@ function runbookLines(lp) {
   const usual = lp.back_in != null ? `it usually holds again ${dur(lp.back_in)} after going off (${lp.times_off} times)`
     : "it has not gone off and come back in this window, so there is no usual time yet";
   // each that acts for it, from the counts Agents and the Record use
-  const acts = (lp.actors || []).map((a) => h("span", { class: "actor-line" }, h("b", {}, a.name), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
+  const acts = (lp.actors || []).map((a) => h("span", { class: "actor-line" }, h("b", {}, agentA(a.name)), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
     + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
   return [line(statusEl(word), `: ${lp.row?.measure ?? lp.stock} should be ${goalBound(lp)}${lp.per ? `, each ${lp.per}` : ""}; it is ${fmt(lp.row ? lp.row.value : lp.value)} now${far}.`),
     line(off ? `${off.charAt(0).toUpperCase()}${off.slice(1)}; ${usual}.` : `${exceptional(word) ? `Not known to be off (${word})` : "Not off now"}; when off, ${usual}.`),
@@ -317,11 +322,20 @@ async function openAgentNow(name) {
   try { a = await api(`agents/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; throw e; }
   const kids = [h("div", { class: "kind" }, `Agent, ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
-        ["runs", a.schedule || (a.leased ? "started per item by its lease, not on a schedule"
-          : a.runs_itself ? "on demand, not on a schedule" : "not run by ergostat")],
-        ["fills", rolesText(a.roles) || "nothing"],
-        ["the load", (a.loads || []).map((x) => `disturbance ${x}`).join(", ") || null],
-        ["in window", `${a.runs} runs: ${a.runs - a.failed - (a.pool_full || 0)} done, ` +
+        ["runs", engagedText(a)], ["fills", rolesText(a.roles) || "nothing"],
+        ["the load", (a.loads || []).map((x) => `disturbance ${x}`).join(", ") || null], ...agentTally(a),
+        ["log", a.log_path ? h("code", {}, a.log_path.split(/[\\/]/).pop()) : null]]),   // its file, not where it lies
+    h("p", {}, h("a", { href: agentHref(name), class: "agent-page-link" }, "Open its page")), ...agentRuns(a, name)];
+  showDetail(...kids);
+}
+
+/* how an agent is set going: its schedule, per item by its lease, on demand, or not by ergostat (its panel and page) */
+const engagedText = (a) => a.schedule || (a.leased ? "started per item by its lease, not on a schedule"
+  : a.runs_itself ? "on demand, not on a schedule" : "not run by ergostat");
+
+/* what an agent did in the window, as rows: its runs' tally, their durations, its stale readings, its daemon */
+function agentTally(a) {
+  return [["in window", `${a.runs} runs: ${a.runs - a.failed - (a.pool_full || 0)} done, ` +
           (a.pool_full ? `${a.pool_full} refused (workspace pool full), ` : "") + `${a.failed} failed` + (a.refused ? `, ${a.refused} lines refused` : "") + (a.unread ? `, ${a.unread} unreadable` : "")],
         ["durations", (() => { const ss = (a.recent || []).slice(-40).map((e) => e.data.seconds).filter((x) => x != null);
                                return ss.length ? `${Math.min(...ss)}s to ${Math.max(...ss)}s over its last ${ss.length} runs` : null; })()],
@@ -330,8 +344,12 @@ async function openAgentNow(name) {
           `, ${a.daemon.restarts || 0} restarts` + (a.daemon.last_line ? `, last line ${ago(a.daemon.last_line)}` : "") +
           (a.daemon.alarm ? ` (alarm: ${a.daemon.alarm.why})` : "") +
           (a.daemon.processes ? "; " + Object.entries(a.daemon.processes).map(([k, v]) => `#${k.split("#").pop()} ${v.state}` +
-            (v.pid ? ` (pid ${v.pid})` : "")).join(", ") : "") : null],
-        ["log", a.log_path ? h("code", {}, a.log_path.split(/[\\/]/).pop()) : null]])];   // its file, not where it lies
+            (v.pid ? ` (pid ${v.pid})` : "")).join(", ") : "") : null]];
+}
+
+/* an agent's runs (its panel and page): the chart of the last ones, what they cost, the newest ten, the end of its log */
+function agentRuns(a, name) {
+  const kids = [];
   if ((a.recent || []).length > 1) kids.push(h("h3", {}, `Last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
   if (a.use?.runs?.length) kids.push(...useSection(a.use, a));
   kids.push(h("h3", {}, "Recent runs"));
@@ -352,8 +370,9 @@ async function openAgentNow(name) {
       headRow(th("when"), ...["readings", "openings", "decisions", "tokens", "CPU", "memory"].map((t) => th(t, "num"))),
       last.map((e) => { const r = costOf(e), n = (k) => h("td", { class: "num" }, String(e.data[k] || 0)); return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
         n("readings"), n("openings"), n("decisions"), h("td", { class: "num" }, tokensText(r.tokens)), h("td", { class: "num" }, cpuText(r.cpu)), h("td", { class: "num" }, bytesText(r.memory))); })))));
-  if (a.log?.length) kids.push(h("h3", {}, "End of its log"), h("pre", {}, a.log.slice(-15).join("\n")));
-  showDetail(...kids);
+  const file = a.log_path ? a.log_path.split(/[\\/]/).pop() : "";   // its file, not where it lies
+  if (a.log?.length) kids.push(h("h3", {}, `End of its log${file ? `, ${file}` : ""}`), h("pre", { class: "log-tail" }, a.log.slice(-15).join("\n")));
+  return kids;
 }
 
 /* what an agent's runs cost over the window (SPEC §9.1): its totals, then one chart per number, sharing a cursor */

@@ -4,7 +4,7 @@
 # groomer (an AI session) proposes links, value, size and risk, closes and splits; the solver (dev/bin/solve.py) ranks;
 # the coordinator approves the whole as one gated action. dev/bin/backlog.py is the coordinator's by hand.
 defaults:
-  system: intake
+  system: open-gaps
 
 auxiliaries:
   grooming-open:

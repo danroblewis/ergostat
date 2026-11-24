@@ -567,14 +567,19 @@ def unrouted_messages(project, now: float) -> list[dict]:
             for m in got.values() if m["state"] == "unrouted"][-20:]
 
 
+def decision_kind(words) -> str:
+    """A decision's words with the numbers taken out (``12 waiting`` is ``# waiting``): what decisions are grouped by."""
+    import re
+    return re.sub(r"-?\d+(\.\d+)?", "#", str(words)).strip() or "(no words)"
+
+
 def decisions(project, controller: str, since: float, until: float | None = None) -> dict:
     """What a controller decided in the window, grouped by its words with the numbers taken out:
     how many decisions, and how often each kind came up, commonest first."""
-    import re
     kinds: dict[str, int] = {}
     total = 0
     for words, n in project.events.decided(controller, since, until):
-        k = re.sub(r"-?\d+(\.\d+)?", "#", str(words)).strip() or "(no words)"
+        k = decision_kind(words)
         kinds[k] = kinds.get(k, 0) + n
         total += n
     return {"count": total, "kinds": sorted(kinds.items(), key=lambda kv: -kv[1])}

@@ -104,6 +104,8 @@ def continue_gap(cfg: dict, gap: str, depends_on: str = "", cleared: str = "", o
         g, gaps = item(gap), {x["id"]: x for x in fac.items("gap")}
         if g["state"] not in ("parked", "dead"):
             raise Refused(f"{gap} is {g['state']}: only a parked or dead gap is continued")
+        if g["fields"].get("parked_by") == "plan-env" and g["state"] == "parked":     # (no branch built to continue)
+            raise Refused(f"{gap} was parked at plan time for the owner: record gap.need-met, and parks.py readies it")
         branch = fac.branch_of(g)
         if held := holders(g, gaps):
             raise Refused(f"{branch} is held by {', '.join(held)}")

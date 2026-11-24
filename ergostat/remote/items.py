@@ -1,4 +1,4 @@
-"""A remote's items, read in place for the Items page (SPEC §4c): its counts, listings and details, asked of
+"""A remote's items, read in place for the Items page (SPEC §4c): its counts, listings, details and forecast, asked of
 ``/remote/v1/`` and kept in memory, bounded and failing closed.
 
 Each remote has one lock (``_lock(name)``), held across reading the cache, deciding whether to ask (fresh? a failure
@@ -25,6 +25,7 @@ N_MOST, OFFSET_MOST = 500, 100_000
 WAIT = 2 * cache.TIMEOUT + 1.0           # the longest a caller waits on a remote's lock (its holder asks twice at most)
 ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]{0,199}")   # one /-separated segment of an id (``incident/3``)
 ID_MOST = 200
+FORECAST_IDS = 200                       # item ids one forecast ask names (the remote API's AT_MOST)
 
 _state: dict[str, dict] = {}
 _locks: dict[str, threading.Lock] = {}
@@ -82,7 +83,7 @@ def _ask(spec, name: str, r: dict, table: str, key, path: str, params: dict | No
     now, every = time.time(), period(r)
     st = _state.setdefault(f"{name}|{r['url']}", {"start": now, "asks": 0, "failed": None, "why": "",
                                                   "counts": OrderedDict(), "listings": OrderedDict(),
-                                                  "details": OrderedDict()})
+                                                  "details": OrderedDict(), "forecasts": OrderedDict()})
     if now - st["start"] >= every:
         st["start"], st["asks"] = now, 0
     kept = st[table].get(key)
@@ -107,6 +108,8 @@ def _ask(spec, name: str, r: dict, table: str, key, path: str, params: dict | No
     code, body, _, why = client.get(r["url"], path, token, params, timeout=cache.TIMEOUT, tls=r.get("tls"))
     if code == 404 and table == "details":                      # that item is missing there, not the remote down
         raise RemoteRefused(404, f"no such item at {name}")
+    if code == 503 and table == "forecasts":                    # not worked out there yet: this ask, not the remote down
+        return served(False, f"{name} is still working out its forecast; ask again shortly", 503)
     if code == 200 and not shaped(body):
         code, why = -1, "unexpected answer"
     if code != 200:
@@ -156,3 +159,25 @@ def detail(spec, name: str, item_id: str) -> dict:
                    lambda b: isinstance(b, dict))
     return {"remote": name, "ok": got["ok"], "why": got["why"], "read": got["read"], "age": got["age"],
             "item": {**got["body"], "remote": name}}
+
+
+def forecast(spec, name: str, ids: list[str] | None = None, kinds: list[str] | None = None,
+             ask: dict | None = None) -> dict:
+    """The remote's forecast (``forecast/v1``, numbers/forecast.py), as it last worked it out: of the items ``ids``
+    (at most ``FORECAST_IDS``, each checked as ``detail`` checks one) and ``kinds``, or all it serves; with ``ask``
+    (numbers/yields.py ``parse``, checked here), a group's counts asked of it there (``asked``). An answer of
+    another schema is a failure, never read as no estimate. One still being worked out there (its 503) refuses this
+    ask alone (503, or the last one kept, not ok), and the remote's counts, listings and details are asked as before."""
+    ask = ask or {}
+    if ask and not openable(ask.get("group", "")):
+        raise RemoteRefused(400, f"group: /-separated segments matching {ID.pattern}, {ID_MOST} characters at most")
+    r = remote(spec, name)
+    ids, kinds = list(dict.fromkeys(ids or [])), sorted(set(kinds or []))
+    if len(ids) > FORECAST_IDS or not all(openable(i) for i in ids):
+        raise RemoteRefused(400, f"at most {FORECAST_IDS} item ids, each /-separated segments matching {ID.pattern}")
+    with held(name):
+        got = _ask(spec, name, r, "forecasts", (tuple(ids), tuple(kinds), tuple(sorted(ask.items()))), "forecast",
+                   {"item": ids or None, "kinds": ",".join(kinds) or None, **{k: str(v) for k, v in ask.items()}},
+                   lambda b: isinstance(b, dict) and b.get("schema") == "forecast/v1" and isinstance(b.get("items"), dict))
+    return {"remote": name, "ok": got["ok"], "why": got["why"], "read": got["read"], "age": got["age"],
+            "forecast": got["body"]}

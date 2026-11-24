@@ -1,0 +1,110 @@
+# plan-routes-unbuildable-done-items: a definition of done whose items need what the implementor's container cannot do (a server on a port, screenshots looked at by a person, CORR_SHOTS-style env on a command, Docker --sandbox or macOS, input files not in the repository) is marked at plan time, and those items become a measure-runs request or an owner need before the gap is built
+depends-on: []
+## Definition of done
+1. dev/bin/plan.py classifies each done item against an allowlist of what an implementor session can run (pytest under suite_watch, ruff, demo_check, git); any item outside it is marked `needs: owner|measure` in the definition with the reason.
+2. A gap whose definition has such an item is not leased to an implementor until that item is either a measure-runs request that the gap's tests can satisfy, or an owner need answered (needs park before building, not after a review).
+3. The velocity record counts the parks caused by such items (`env-parks`) beside first-pass-yield.
+4. SPEC and dev/README (The pipeline manager) say so.
+## Acceptance tests
+- tests/test_plan.py::test_a_done_item_needing_a_port_server_is_marked_needs_measure
+- tests/test_plan.py::test_a_done_item_needing_files_outside_the_repo_is_a_needs_park_before_building
+- tests/test_plan.py::test_a_plain_pytest_done_item_is_not_marked
+- tests/test_measure.py::test_env_parks_are_counted_and_left_out_of_first_pass_failures_they_caused
+Each is broken (classifier returns buildable for all) and seen to fail.
+## Size budget
+180 net lines outside tests and docs.
+
+## Where it stopped
+
+Built, round 1: items 1-3 and dev/README's half of item 4. About 114 net lines in dev/bin (128 added, 14 removed),
+within the 180.
+
+Not done: docs/SPEC.md. SPEC describes ergostat itself and never the factory: it has no mention of the implementor,
+plan.py, the pipeline, or dev/README. A factory section in the product spec would be the first. Leaving it out is
+the more reversible choice, so the text is in dev/README instead (*Plans, research and what the factory knows*:
+"Done items the implementor cannot do"; *The pipeline manager*: measure-runs and the velocity record). The owner
+decides whether SPEC should carry it.
+
+Choices made without anyone to ask (each easy to undo):
+- The allowlist is applied to backticked spans that read as commands. A span counts as a command when it starts
+  with a known program name (uv, python, git, npm, docker, ergostat, ...) or is a script path with arguments.
+  Prose is checked against a pattern list of needs (a port, an env variable, screenshots by a person,
+  Docker/--sandbox/macOS/seatbelt, files outside the repo). Wording outside both is not caught, and dev/README says
+  so.
+- A command off the allowlist, a port server and an env variable are `measure` needs. They become owner needs when the
+  definition names no acceptance test a measure-runs request could run.
+- An owner need parks the gap in the same event that records its definition, so it is never ready and never leased.
+  `parks.py resume` readies it again as itself once `gap.need-met` is recorded. `manage.py continue` refuses such a
+  park, since there is no branch to continue.
+- Readying again records `gap.defined` with the gap's original `defined_by`. So knowledge.yaml's "entering ready by
+  defined_by" flows count that gap a second time. The model is unchanged.
+- `env-parks` counts the plan-time parks (`env_parked_at`, which a later park keeps) plus every review whose verdict
+  parked a marked gap (`env_needs`) for a need. `first-pass-yield` leaves out those first reviews.
+- A definition the coordinator wrote before planning, which the intake readies, is not classified. The planner's own
+  path, the S path, splits, the lint sweep, and a coordinator file that lands while the planner runs are classified.
+
+### Round 2
+
+Both findings of the round-1 review are answered:
+- The owner patterns are narrowed to what the definition names. The sandbox is `--sandbox`, "docker sandbox",
+  seatbelt or `sandbox-exec`. macOS counts only as a platform the item runs or is checked on ("runs on macOS",
+  "checked on a Mac"). An input file counts when an input file, or a read, load or import, is followed by `~/`,
+  `/Users/`, `/home/`, `$HOME` or "outside/not in the repo", and the item does not say the path is refused,
+  rejected or denied. A bare `docker` (e.g. `docker run --init` in a test), "macOS's five-entry limit" and "a path
+  outside the repository is refused" are not owner needs; tests/test_plan.py has these as negative cases. A
+  backticked `docker run ...` is still a measure need, as a command off the allowlist. dev/README now says the lists
+  both miss and over-match (lesson-8).
+- Every definition the coordinator wrote is now classified (`plan.coordinated`, then `plan.route`, which `define`
+  also uses), its file left unmarked. That covers the intake (intake.py) and the planner's own check (plan.py's
+  `planner`). One with an owner item is parked in the event that records it, never readied. New test:
+  test_a_coordinator_definition_with_an_owner_item_is_parked_not_readied. The last bullet of the round-1 choices
+  above no longer holds. A coordinator definition that cannot be read when it is routed records nothing, so it is
+  not readied.
+
+Each new case was seen to fail under a break: `\bdocker\b` put back, `\bmacOS\b` put back, the refusal guard
+removed, and `coordinated` readying without classifying.
+
+Size: about 134 net lines in dev/bin against main (154 added, 20 removed), within the 180. docs/SPEC.md is still
+left to the owner, as above.
+
+### Round 3
+
+The one finding of the round-2 review is answered. The bare `\bseatbelt\b` and `\bsandbox-exec\b` are gone from the
+owner pattern. Seatbelt and sandbox-exec now count only as what the item runs or loads under, the same form as
+macOS: "runs/loads/checked ... on/under/in (the) macOS|a Mac|seatbelt|sandbox-exec". tests/test_plan.py adds the
+owner cases "The profile runs under sandbox-exec." and "The daemon is loaded in the seatbelt.". It also adds
+negative cases that name both words in passing: "The profile keeps its seatbelt filter lists to 5 entries." and "A
+profile handed to sandbox-exec has no syscall-unix rules (checked by pytest).". dev/README's list says the same.
+Each negative case was seen to fail under its own break: `\bseatbelt\b` put back alone, then `\bsandbox-exec\b`
+put back alone. A backticked `sandbox-exec ...` span is still a measure need, as a command off the allowlist.
+
+Size: unchanged, about 134 net lines in dev/bin (the pattern was rewritten in place). docs/SPEC.md is still left
+to the owner, as above.
+
+### Round 4
+
+The queue's one finding, a conflict with main in dev/bin/measure.py, is resolved. Both sides are kept: the
+branch's `env-parks` and main's `refused-commands-per-session` now sit one after the other in `reading`. Nothing
+else changed. tests/test_measure.py and tests/test_plan.py pass after the merge, and ruff is clean on ergostat,
+tests and scripts. Size: unchanged, 134 net lines in dev/bin against main (154 added, 20 removed).
+
+### Round 5
+
+The one finding (done item 4 half done, on a false reason) is answered. The round-1 reason, that SPEC never
+describes the factory, was wrong: docs/SPEC.md already has "A kept slot: the factory's merge queue is never starved
+by its builders", which names the implementors and the merge queue and points to dev/README.md. Beside it, SPEC now
+has "Done items the implementor cannot do: found at plan time, routed before building": done items are classified
+at plan time against the allowlist, a measure need leaves the gap ready with `measure_runs_wanted`, an owner need
+(or a measure need of a definition naming no acceptance test) parks the gap in the event that records its
+definition until `gap.need-met`, and `env-parks` is counted beside `first-pass-yield`, which leaves those reviews
+out. It says the classifier is a pattern list that both misses and over-matches, and points to dev/README.md for the
+patterns. Item 4 is now done on both sides. No code changed; size unchanged, 134 net lines in dev/bin against main.
+
+### Round 6
+
+The queue's one finding, a second conflict with main in dev/bin/measure.py, is resolved. Main moved the readings
+from `fac.items` to the shared `listing.items` (measure-sensors-share-one-listing). The branch's `first-pass-yield`
+keeps leaving env-parks out. It and `env_parks` now read gaps and reviews through `listing.items` too, so the
+branch's reads share the one listing as main's do. tests/test_measure.py, tests/test_plan.py and
+tests/test_measure_sharing.py pass after the merge, and ruff is clean. Size: unchanged, 134 net lines in dev/bin
+against main (154 added, 20 removed).
