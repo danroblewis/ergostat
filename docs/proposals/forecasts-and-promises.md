@@ -335,7 +335,7 @@ time.
 
 **Not filed:** a batch block that loads several items into one run (an oven), so that they start and end together.
 Today such a block is drawn as that many lanes whose runs start apart. The Timeline's "not modelled" sentence says
-so. Also not filed: yield inside an item (a lot of 50 that comes out 46), which is the second owner's question. And,
+so. Also not filed: yield inside an item (a lot of 50 that comes out 46), which is the first owner's question. And,
 as CAE decided, nothing projected over the horizon for gates and capacity.
 
 ## 9. Worked examples

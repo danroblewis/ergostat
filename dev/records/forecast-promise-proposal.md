@@ -89,3 +89,24 @@ lanes, ...") ran past the file's width and was rewrapped; the only lines still l
   hand (0.3383 + 0.3824 + 0.1995 + 0.0636 = 0.9837) and agrees. `test_extra_matches_binomial` in the quote gap
   remains the check.
 - Still 0 net lines of code. Only ruff was run.
+
+Round 6 (no review findings to answer): main has no commit the branch lacks. Two corrections, no change of design:
+- §8 called yield inside an item "the second owner's question"; it is the first in the list. Now says first.
+- The record had no `## Entry`, so docs/GAPS.md, written from the records, would carry nothing for this gap. One is
+  appended below (section Modelling), the reversible choice: the queue may place or reword it.
+- Still 0 net lines of code. Only ruff was run.
+
+## Entry
+
+section: Modelling
+
+- **Forecasts, promises, quotes, frozen windows and calibration** (done as a proposal, on
+  `forecast-promise-proposal`; `docs/proposals/forecasts-and-promises.md`, built on control-aware-estimates.md):
+  settles `forecast/v1`, one stable result from the existing Monte Carlo (`numbers/eta.py`), per item, group, kind
+  and stage, with a quantile ladder, `waits_on`, basis and runs; promises a model may declare (a date, N of M by a
+  date, a service level, extra started to cover loss); quotes of hypothetical items through the what-if path,
+  writing nothing; frozen windows as a term at the front of `take_key`, broken by urgent work and recorded;
+  calibration of recorded forecasts and promises beside the backtest; `/remote/v1/forecast` read by `forecast: true`
+  relations. Worked for a job shop with rework and a batch process with yield loss. *Left*: the six build gaps of its
+  §8 (about 920 net lines), not yet filed; two owner's questions (whole-lot loss or yield inside a lot; a frozen
+  window refreshed hourly or only on request).
