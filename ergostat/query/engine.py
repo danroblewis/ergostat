@@ -328,9 +328,12 @@ def _analysis(p, q: SourceQuery, queries: dict, answered: dict, since: float, un
             raise datasources.SourceError("limit", f"not answered, past the {parsing.MOST_ANALYSIS} analysis queries "
                                                    "one request may ask")
         c = analysis.call(q.text)
-        ref = analysis.referenced(c, q, queries, answered)
+        refs = analysis.referenced(c, q, queries, answered)
+        ref = refs[0]
         if work.late():
             raise datasources.SourceError("limit", f"busy: this request ran past {REQUEST_SECONDS:g} s; try again")
+        if c.name != "raw":                           # pair, psd, spectrogram, ccf: on the raw re-reads alone
+            return {"id": q.id, **analysis.called(c, [_reread(p, r, since, until, work, reader, c) for r in refs], refs)}
         if isinstance(ref, SourceQuery):
             got = _from_source(p, ref, since, until, datasources.MOST_POINTS, work, reader)
             return {**got, "id": q.id} if got.get("error") else {**analysis.reasked(got, ref), "id": q.id}
@@ -340,6 +343,17 @@ def _analysis(p, q: SourceQuery, queries: dict, answered: dict, since: float, un
     except Exception as e:                            # one query's failure is its own: the others still answer
         log.warning("ergostat: query %s (analysis) failed: %s", q.id, e)
         return {"id": q.id, "error": f"analysis: could not be read ({type(e).__name__}: {e})", "read_log": False}
+
+
+def _reread(p, ref, since: float, until: float, work: Work, reader: bool, c) -> dict:
+    """``raw`` of one query a call reads: a refusal of it is the call's."""
+    if not isinstance(ref, SourceQuery):
+        return analysis.raw(p.measurements, ref, since, until, c)
+    got = _from_source(p, ref, since, until, datasources.MOST_POINTS, work, reader)
+    if got.get("error"):
+        raise datasources.SourceError(got.get("error_kind") or "unanswerable", f"query {ref.id!r}: {got['error']}",
+                                      None, got.get("error_code"))
+    return analysis.reasked(got, ref)
 
 
 def _graph(p, q: Query, since: float, until: float, past: bool, work: Work) -> dict:
@@ -353,7 +367,7 @@ def _graph(p, q: Query, since: float, until: float, past: bool, work: Work) -> d
         return {"id": q.id, "error": f"graph: could not be read ({type(e).__name__}: {e})", "read_log": False}
 
 
-READER_REFUSED ="a data source is not asked for anyone under a public name (web: open: read); the owner or a login may ask"
+READER_REFUSED = "a data source is not asked for anyone under a public name (web: open: read); the owner or a login may ask"
 
 
 def answer(live, p, raw: str | None, reader: bool = False) -> dict:
