@@ -211,9 +211,10 @@ What this does **not** stop:
   copies a library's command there makes it your command.
 
 - **Its words reaching agents.** An untrusted template's descriptions, `example:` and `reading:` are still shown to
-  the AI agents that use the authoring tools, and may try to steer them. In the `templates` tool and in three kinds
-  of `check` problem they are marked as the library's (SPEC §2a, *Untrusted libraries*), which tells an agent what
-  they are but does not stop it reading them; the text of the parts a template makes is not marked.
+  the AI agents that use the authoring tools, and may try to steer them. In the `templates` tool, in `check` and in
+  the MCP `check`, `explain`, `status` and `context` answers they, and the text of the parts a template makes, are
+  marked as the library's (SPEC §2a, *Untrusted libraries*), which tells an agent what they are but does not stop it
+  reading them; the diagrams do not mark the parts' text yet.
 - **What you trusted.** A path entry, or a map entry with `trust: owner`, is trusted wholesale: its templates may make
   anything, and may take the place of ergostat's own. Read a folder before you mark it so.
 - **An agent that can write the main file.** It can mark a folder trusted, as you can. The agent guide tells agents

@@ -1202,6 +1202,7 @@ class Compiler:
         self.references(spec)
         compute.pools_used(self, spec)                       # runs-on: a pool there is, its blocks in one shard (§9.8)
         self.equations(spec)
+        self.internal(spec)
         self.ends(spec)
         self.watched(spec)
         self.renamed()
@@ -1755,6 +1756,47 @@ class Compiler:
                 if why:
                     self.err(f"sensor {s.of.name}.{s.name}: {why}", s.where, "bad-query")
         self.algebraic(spec)
+
+    def internal(self, spec: Spec) -> None:
+        """A reference from outside an instance to a part its template does not export (SPEC §2a): a finding at the
+        referring part. An instance holds its own parts and every inner instance's; a part it holds refers freely.
+        A part named by a parameter (``named``) is held, so it refers freely, but is the owner's, so never internal."""
+        uses = spec.uses
+        holds = {u: set(r.get("parts") or ()) for u, r in uses.items()}
+        inside = {u: holds[u] | set(r.get("named") or ()) for u, r in uses.items()}
+        for u, r in uses.items():
+            seen, at = {u}, r
+            while at.get("outer") in uses and at["outer"] not in seen:    # the instance it was planned under, not
+                seen.add(at["outer"])                                        # its system placement (within:)
+                holds[at["outer"]] |= set(r.get("parts") or ())
+                inside[at["outer"]] |= set(r.get("parts") or ()) | set(r.get("named") or ())
+                at = uses[at["outer"]]
+        closed = [(u, r) for u, r in uses.items() if r.get("exports") is not None]
+        if not closed:
+            return
+
+        def reads(kind: str, x) -> list:
+            if kind == "goal":
+                return [x.of]
+            if kind == "block":
+                return [*x.inputs.values(), *x.targets(), *([Ref("goal", x.goal)] if x.goal else [])]
+            eq = [Ref.parse(s) for s in (x.equation.refs if x.equation else ())]
+            ends = [Ref("stock", s) for s in (getattr(x, "source", None), getattr(x, "target", None)) if s]
+            return [*ends, *x.driven_by, *eq]
+        said = set()
+        for kind, table in (("flow", spec.flows), ("auxiliary", spec.auxiliaries), ("goal", spec.goals),
+                            ("block", spec.blocks)):
+            for x in table.values():
+                me = f"{kind}.{x.name}"
+                for ref in reads(kind, x) if not getattr(x, "implied", False) else ():   # (keep-GOAL: its block's)
+                    key = f"{ref.kind}.{ref.name}" if ref else ""
+                    for u, r in closed:
+                        if key in holds[u] and me not in inside[u] and key not in r["exported"] and (me, key, u) not in said:
+                            said.add((me, key, u))
+                            self.problems.append(Problem(
+                                "finding", f"{me}: {key} is internal to instance {u} (template {r['template']} exports: "
+                                f"{', '.join(r['exports']) or 'nothing'}); name one of its exports instead",
+                                x.where, "template-internal-reference", key))
 
     def algebraic(self, spec: Spec) -> None:
         """A cycle of built-in blocks with no delay in it has no order to compute in."""
