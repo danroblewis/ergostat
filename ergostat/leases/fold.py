@@ -70,6 +70,9 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
         lease.pop("not_before", None)
         lease.pop("news", None)
         lease.pop("woken", None)
+        lease.pop("on", None)                                  # (a lane's: what it runs on top of, leases/lanes.py)
+        if isinstance(d.get("on"), list) and all(isinstance(x, str) for x in d["on"]) and d["on"]:
+            lease["on"] = list(d["on"])
         lease["history"].append({"fence": want, "run": d.get("run"), "block": d.get("block"), "taken": now})
         to = LEASED
     elif t == REDRIVEN:

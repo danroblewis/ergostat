@@ -892,6 +892,24 @@ class Takes:
     healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
     hold_by: list[str] = field(default_factory=list)   # ``faults: {hold-by: [F]}``: a value failing together is held
     frozen: Frozen | None = None    # ``frozen: {first: N, urgent: F}``: its next N keep their order (leases/frozen.py)
+    lanes: Lanes | None = None      # ``lanes: {apart: F, ...}``: items apart by F run at once (leases/lanes.py)
+
+
+@dataclass(frozen=True)
+class Lanes:
+    """A block's lanes (SPEC §9.5): items whose ``apart`` lists share no entry run at once, one sharing an entry on top
+    of a lane ``ahead`` deep at most; ``most`` lanes, each costed ``cpu`` cores and ``memory`` bytes (or more, as
+    measured; 0: not declared, so one lane until runs measure it), within ``within_cpu`` and ``within_memory``; a lane
+    passed only when left in ``passed`` (needed with ``ahead`` above 0; empty: none passes)."""
+
+    apart: str
+    most: int
+    within_cpu: float
+    within_memory: int
+    cpu: float = 0.0
+    memory: int = 0
+    ahead: int = 0
+    passed: tuple = ()
 
 
 @dataclass(frozen=True)
