@@ -4379,8 +4379,9 @@ holders never wait on each other), and each item let through holds its areas for
 look. OWNER says what a stream is: `lane` (the default), each item its own, one at a time; `{field: F}`, the items
 sharing a value of F (they share the area, the next value waits until they are out; an item with no value is a
 stream of its own); `{block: B}`, the area is block B's: another block declaring the area leaves its items alone. A
-FIELD that cannot be read (not a text or a list of texts, or more than 5,000 values) touches every area: the item
-waits while any is held, and held, it holds them all. Each wait is said once in the engine's log (`ITEM waits:
+FIELD that cannot be read (never said, null, not a text or a list of texts, or more than 5,000 values) touches every
+area: the item waits while any is held, and held, it holds them all. An item touching nothing says so with an empty
+text or list, so whatever makes an item takeable should say its FIELD in the same event. Each wait is said once in the engine's log (`ITEM waits:
 HOLDER holds AREA`); nothing is recorded. At most 200 areas of at most 200 patterns; a holding state not of the kind,
 a block owner not in the model, or a malformed map is refused whole (`bad-areas`). `ergostat block NAME --now` takes
 by the same rule. The completion estimates do not simulate it: an item held out is projected as if it were not.

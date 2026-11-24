@@ -187,41 +187,65 @@ def as_yaml(amap: dict) -> str:
                    f"{v['landed_by']}, load {v['load']}\n" for k, v in amap.items())
 
 
-def touches(cfg: dict | None = None, gaps: list[dict] | None = None) -> int:
-    """For each gap in a state the implementor takes or that holds an area: the files its branch changed from main
-    (the checkout's or the drop's factory/<branch>), and the paths its definition names, said as `touches` when they
-    differ from the field (the intake's pass calls it with what it read). A definition or branch that cannot be read
-    is said and its gap left as it was. With `[areas] route` off (or not set) each gap's `touches` is emptied instead,
-    so no gap touches any area; a route that is not true or false is a ValueError, and nothing is said. Returns how
-    many gaps were said."""
-    import brief
-    import fac
-    cfg = cfg or fac.config()
-    base, route = cfg["git"]["base"], cfg.get("areas", {}).get("route", False)
+def routed(cfg: dict) -> bool:
+    route = cfg.get("areas", {}).get("route", False)
     if not isinstance(route, bool):
         raise ValueError(f"[areas] route = {route!r}: true or false")
-    repos = [r for r in (fac.path(cfg, "checkout"), fac.path(cfg, "live") / "drop.git") if r.exists()] if route else []
+    return route
+
+
+def measure(cfg: dict, g: dict, text: str | None = None) -> list | dict:
+    """What a gap touches, as its `touches` field: with `[areas] route` on, the paths its definition names (``text``,
+    or its definition read now) and the files its branch changed from main (the checkout's or the drop's
+    factory/<branch>); off, [] (it touches no area). What cannot be read (the definition, the branch, the setting) is
+    ``{"unread": why}``, which the rule reads as touching every area (lesson-3), never as touching none."""
+    import brief
+    import fac
+    try:
+        if not routed(cfg):
+            return []
+        branch = fac.branch_of(g)
+        if text is None:
+            text = brief.definition_text(cfg, str(g["fields"].get("definition") or ""), branch)
+        if not text.strip():
+            raise ValueError("its definition cannot be read")
+        paths = set(named(text))
+        for repo in (fac.path(cfg, "checkout"), fac.path(cfg, "live") / "drop.git"):
+            ref = fac.git_branch(branch)
+            if repo.exists() and fac.git_ok(repo, "rev-parse", "--verify", "-q", ref):
+                paths |= set(filter(None, git(repo, "diff", "--name-only", f"{cfg['git']['base']}...{ref}").splitlines()))
+                break
+    except (ValueError, KeyError, RuntimeError, OSError, subprocess.SubprocessError) as e:
+        why = f"{type(e).__name__}: {e}"[:300]
+        print(f"{g['id']}: what it touches not read ({why}): every area", file=sys.stderr)
+        return {"unread": why}
+    return sorted(paths)[:TOUCHES]
+
+
+def at_ready(gid: str, text: str | None, fields: dict) -> list | dict:
+    """`touches` for the event that makes a gap ready (plan.route, parks.ready_again), so it is routed from its first
+    look: what it touches, measured now, from the definition ``text`` it is made ready with (None: read now)."""
+    import fac
+    try:
+        cfg = fac.config()
+    except (OSError, ValueError, KeyError) as e:
+        return {"unread": f"the factory's configuration ({type(e).__name__})"}
+    return measure(cfg, {"id": gid, "state": "ready", "fields": fields}, text)
+
+
+def touches(cfg: dict | None = None, gaps: list[dict] | None = None) -> int:
+    """For each gap in a state the implementor takes or that holds an area, what it touches (measure()), said as
+    `touches` when it differs from the field (the intake's pass calls it with what it read). With `[areas] route` off
+    (or not set) that is [] (no gap touches any area), and any other gap's touches is emptied too; a route that is not
+    true or false is a ValueError, and nothing is said. Returns how many gaps were said."""
+    import fac
+    cfg = cfg or fac.config()
+    route = routed(cfg)
     n = 0
     for g in fac.items("gap") if gaps is None else gaps:
-        if not route:
-            if g["fields"].get("touches"):
-                fac.say("gap.measured", g["id"], touches=[])
-                n += 1
+        if g["state"] not in STATES and (route or not g["fields"].get("touches")):
             continue
-        if g["state"] not in STATES:
-            continue
-        try:
-            branch = fac.branch_of(g)
-            paths = set(named(brief.definition_text(cfg, str(g["fields"].get("definition") or ""), branch)))
-            for repo in repos:
-                ref = fac.git_branch(branch)
-                if fac.git_ok(repo, "rev-parse", "--verify", "-q", ref):
-                    paths |= set(filter(None, git(repo, "diff", "--name-only", f"{base}...{ref}").splitlines()))
-                    break
-        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as e:
-            print(f"{g['id']}: what it touches not read ({type(e).__name__}: {e})", file=sys.stderr)
-            continue
-        got = sorted(paths)[:TOUCHES]
+        got = measure(cfg, g)
         if got != g["fields"].get("touches"):
             fac.say("gap.measured", g["id"], touches=got)
             n += 1

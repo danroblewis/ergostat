@@ -90,7 +90,7 @@ def test_a_lane_takes_one_item_at_a_time(tmp_path, monkeypatch):
     p = model(tmp_path)
     d, taken, said = dispatcher(p, monkeypatch)
     opened(p, {"a": {"files": ["src/q/x.py", "README"]}, "b": {"files": "src/queue.py"}, "c": {"files": ["lib.py"]},
-               "e": {}})
+               "e": {"files": []}})
     tick(d, p)
     assert ids(taken) == ["a", "c", "e"]
     assert any("ticket/b waits: ticket/a holds queue" in s for s in said)
@@ -139,14 +139,16 @@ def test_a_block_owner_alone_takes_its_area(tmp_path, monkeypatch):
 
 
 def test_an_unreadable_field_is_the_worst_case(tmp_path, monkeypatch):
-    """A field that is not a text or a list of texts (or too long) touches every area: only the block owning one takes
-    it, it waits while any is held, and once held it holds them all."""
+    """A field that is not a text or a list of texts (or too long), or was never said (or null), touches every area:
+    only the block owning one takes it, it waits while any is held, and once held it holds them all. Only an empty
+    text or list says it touches nothing."""
     p = model(tmp_path)
     d, taken, said = dispatcher(p, monkeypatch)
-    opened(p, {"a": {"files": ["src/queue.py"]}, "u": {"files": {"x": 1}}, "v": {"files": ["x"] * (areas.TOUCHES + 1)}})
+    opened(p, {"a": {"files": ["src/queue.py"]}, "u": {"files": {"x": 1}}, "v": {"files": ["x"] * (areas.TOUCHES + 1)},
+               "s": {}, "n": {"files": None}})
     tick(d, p)
     assert ids(taken) == ["a"]
-    assert any("ticket/u's files cannot be read" in s for s in said)
+    assert all(any(f"ticket/{i}'s files cannot be read" in s for s in said) for i in ("u", "s", "n"))
     assert any("ticket/v is left to block ops" in s for s in said)
     tick(d, p, "ops")
     assert ids(taken) == ["a"]                                # a holds queue: u and v wait at ops too

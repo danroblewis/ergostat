@@ -151,15 +151,68 @@ def run_touches(areas, monkeypatch, history, route) -> list:
 
 
 def test_the_route_switch_writes_or_empties_touches(areas, monkeypatch, history):
-    """Off (the shipped setting): every gap's touches is emptied, so the map holds no gap. On: a gap in flight or
-    waiting gets its branch's files from main and the paths its definition names; a merged one is left alone."""
+    """Off (the shipped setting): every gap's touches is emptied (said []: touching nothing), so the map holds no gap.
+    On: a gap in flight or waiting gets its branch's files from main and the paths its definition names; one whose
+    definition cannot be read is said unread (every area, never none); a merged one is left alone."""
     assert run_touches(areas, monkeypatch, history, False) == [
-        ("gap.measured", "gap/x", {"touches": []}), ("gap.measured", "gap/m", {"touches": []})]
+        ("gap.measured", "gap/x", {"touches": []}), ("gap.measured", "gap/d", {"touches": []}),
+        ("gap.measured", "gap/m", {"touches": []})]
     assert run_touches(areas, monkeypatch, history, True) == [
-        ("gap.measured", "gap/x", {"touches": []}),
+        ("gap.measured", "gap/x", {"touches": {"unread": "ValueError: its definition cannot be read"}}),
         ("gap.measured", "gap/d", {"touches": ["dev/records/d.md", "ergostat/cold.py", "ergostat/hot.py"]})]
     with pytest.raises(ValueError):
         run_touches(areas, monkeypatch, history, "yes")
+
+
+def test_a_gap_made_ready_is_routed_from_its_first_look(areas, monkeypatch, history):
+    """The event that makes a gap ready (gap.defined: the planner's and the intake's plan.route, parks.ready_again)
+    says its touches, so the implementor's first look routes it; unreadable is every area (the rule's None), never
+    none; with the route off, []. The rule reads a gap with no touches said as every area too."""
+    from contextlib import nullcontext
+
+    import fac
+    import manage
+    import parks
+    import plan
+
+    from ergostat.leases.areas import touched
+    from ergostat.spec import read
+    said: list = []
+    cfg = {"git": {"base": "main"}, "areas": {"route": True}}
+    monkeypatch.setattr(fac, "config", lambda: cfg)
+    monkeypatch.setattr(fac, "path", lambda c, key: history if key == "checkout" else history / "nowhere")
+    monkeypatch.setattr(fac, "say", lambda ev, item=None, **d: said.append((ev, item, d)))
+    rule = read(ROOT / "ergostat.yaml")[0].blocks["implementor"].takes.areas
+
+    def ready(text, branch):
+        said.clear()
+        assert plan.route(f"gap/{branch}", text, branch=branch) == "ready"
+        (ev, _, d), = said
+        assert ev == "gap.defined"
+        return d["touches"]
+    assert ready("Touches dev/bin/queue.py.", "n") == ["dev/bin/queue.py"]                 # new: no branch yet
+    assert touched(rule, {"touches": ready("Touches dev/bin/queue.py.", "n")}) == {"dev-bin-queue-py"}
+    assert ready("Touches docs/x.md.", "d") == ["dev/records/d.md", "docs/x.md", "ergostat/cold.py"]  # and its branch
+    assert "unread" in ready("  ", "e") and touched(rule, {"touches": ready("  ", "e")}) is None
+    assert touched(rule, {}) is None and touched(rule, {"touches": None}) is None      # never said: every area
+    cfg["areas"]["route"] = False
+    assert ready("Touches dev/bin/queue.py.", "n") == []
+    monkeypatch.setattr(fac, "config", lambda: (_ for _ in ()).throw(OSError("gone")))
+    assert "unread" in ready("Touches dev/bin/queue.py.", "n")
+
+    import brief
+    monkeypatch.setattr(fac, "config", lambda: cfg)
+    monkeypatch.setattr(brief, "definition_text", lambda c, where, branch: "See dev/bin/fac.py." if where else "")
+    monkeypatch.setattr(manage, "continue_lock", lambda c: nullcontext())
+    monkeypatch.setattr(manage, "record", lambda ev, item=None, **d: said.append((ev, item, d)))
+    cfg["areas"]["route"] = True
+    for fields, want in (({"definition": "run/defs/p.md"}, ["dev/bin/fac.py"]), ({}, None)):
+        monkeypatch.setattr(manage, "item", lambda gid, f=fields: {"id": gid, "state": "parked", "fields": {
+            "branch": "p", "parked_by": parks.ENV_PARK, **f}})
+        said.clear()
+        assert parks.ready_again(cfg, "gap/p", "met") == "gap/p"
+        got = dict((ev, d) for ev, _, d in said)["gap.defined"]["touches"]
+        assert got == want if want else "unread" in got
 
 
 def test_the_intake_says_touches_after_its_definitions():

@@ -82,13 +82,62 @@ Decisions taken alone (each the more reversible):
 - **The intake writes touches, not a block of its own.** A block that only writes fields drew a `no-visible-effect`
   finding on the factory model.
 
+### Round 2
+
+Built. This round answers the review's one finding: a gap made ready had no `touches` until the intake's next pass,
+and the core read a missing field as touching nothing (a fail-open, lesson-3). The fix does both things the finding
+offered:
+
+- **Core: a field never said is unreadable.** `touched()` now reads a FIELD that is absent or null as touching every
+  area, like one that cannot be parsed. Only an empty text or list says an item touches nothing (SPEC §9.5 *Areas*
+  and the agent guide say so, and say to write the field in the event that makes an item takeable).
+- **The factory writes touches in the event that makes a gap ready.** In the model only `gap.defined` makes a gap
+  ready, and only `plan.route` (the planner, and the intake's coordinator definitions through `plan.coordinated`) and
+  `parks.ready_again` say it. Both now carry `touches=areas.at_ready(...)`:
+  - With `[areas] route` on: the paths the definition names, plus the branch's files when the branch exists.
+  - With it off: `[]`.
+  - When the definition, the branch or the configuration cannot be read (or `route` is not true or false):
+    `{"unread": why}`, which the rule reads as every area.
+  - The intake's pass now uses the same `measure()`. A gap whose definition or branch cannot be read is no longer
+    skipped: it is said `{"unread": ...}`. With the route off, it also says `[]` to a waiting or unmerged gap that
+    has none.
+- **What fail-closed costs, and where.** A gap that reaches `ready` or `fix` without `touches` waits as touching every
+  area until the intake's next pass (every 5 minutes) measures it. Examples: a gap that was in flight before this
+  lands, or one sent back from a park by measure-runs. This is so even with the route off, so the switch is inert
+  only once each gap has been said `[]`. On the live instance that is one intake pass after this lands.
+- **The replay's "named" mode.** It assumes a gap's named paths are known at its start. That is now what the live
+  rule reads for a gap made ready by `gap.defined`. It does not model the wait (up to 5 minutes) of a gap that
+  reaches the implementor some other way without touches.
+- **Test:** `test_a_gap_made_ready_is_routed_from_its_first_look` (tests/test_code_areas_factory.py) checks these
+  cases:
+  - `plan.route` with the route on, for a new gap and for one with a branch.
+  - An unreadable definition, and an unreadable configuration.
+  - The route off.
+  - `parks.ready_again`, with a definition and without.
+  - The rule reading no field, and a null one, as every area, on the factory's own map.
+
+  `test_an_unreadable_field_is_the_worst_case` adds an item with no field and one with a null field. Both wait while
+  an area is held. `test_the_route_switch_writes_or_empties_touches` now expects `{"unread": ...}` for a gap with no
+  readable definition. The factory's `Slots` fixture (tests/test_factory.py) says `touches: []` in its `gap.defined`,
+  as `plan.route` now does.
+- **Seen to fail** (each mutation reverted):
+  - The core reading a missing field as touching nothing fails both new checks.
+  - `plan.route` without `touches` fails the new test.
+  - `parks.ready_again` without `touches` fails it too.
+- **Run here:** tests/test_code_areas.py, tests/test_code_areas_factory.py, tests/test_factory.py, tests/test_plan.py,
+  tests/test_ai_limit_hold.py, tests/test_factory_knowledge.py and tests/test_factory_split_systems.py. ruff is clean
+  on ergostat, tests and scripts. **Not run here:** the whole unit suite and the four browser files (no page changed).
+  Other files whose fixtures say `gap.defined` without `touches` and then dispatch the real implementor on the
+  factory model would now hold a gap that never got touches. Only `Slots` was found doing that.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)
 
 - **Areas of the code have owners, and work is routed to avoid collisions** (built, on `code-area-ownership`; SPEC
   §9.5 *Areas*): `takes: {areas: {touches, holding, map}}` keeps an item out of an area another stream holds (a lane,
-  a field's value such as a milestone, or a block). The implementor's map is the 34 hot files drawn from main's 419
+  a field's value such as a milestone, or a block); an item whose field is unsaid or unreadable touches every area,
+  and each gap is said its touches in the event that makes it ready. The implementor's map is the 34 hot files drawn from main's 419
   conflicted merges (`dev/bin/areas.py draw`). Its replay cuts them to 373-397 only by stretching 97 h of work to
   225-240 h, so routing ships off (`[areas] route = false`). *Left*: the owner's choice of map and owners; a replay
   over the live record's send-backs; waits recorded, and simulated in the estimates.

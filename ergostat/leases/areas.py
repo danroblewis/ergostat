@@ -10,8 +10,9 @@ items sharing a value of F (a milestone's items together, and the next value onc
 area is block B's: no other block with this option takes an item touching it. Within one look, each item let through
 holds its areas for the items after it.
 
-A FIELD that cannot be read (not a text or a list of texts, or past ``TOUCHES`` values) touches every area: such an
-item waits while any area is held, and, held, keeps every area (lesson-3: an unknown is the worst case). Said once."""
+A FIELD that cannot be read (never said, null, not a text or a list of texts, or past ``TOUCHES`` values) touches
+every area: such an item waits while any area is held, and, held, keeps every area (lesson-3: an unknown is the worst
+case). Said once. An item touching nothing says so: an empty text or list."""
 
 from __future__ import annotations
 
@@ -102,9 +103,9 @@ def check(c, spec, b) -> None:
 # ---- the rule
 
 def touched(a: Areas, fields: dict) -> set[str] | None:
-    """The areas an item touches; None when its field cannot be read (it touches them all)."""
+    """The areas an item touches; None when its field cannot be read, or was never said (it touches them all)."""
     v = (fields or {}).get(a.touches)
-    if v is None or v == "" or v == []:
+    if v == "" or v == []:
         return set()
     v = [v] if isinstance(v, str) else v
     if not isinstance(v, list) or len(v) > TOUCHES or not all(isinstance(x, str) for x in v):

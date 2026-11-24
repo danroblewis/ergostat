@@ -110,8 +110,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    bookings of one room), record what each touches in a field and map the areas on the block: `takes: {..., areas:
    {touches: files, holding: [doing], map: {billing: {paths: ["src/billing/*"]}}}}`. An item touching an area that
    another item holds (leased, or in a `holding` state) waits; `owner: {field: team}` lets one team's items share it,
-   and `owner: {block: B}` leaves it to block B (SPEC §9.5, *Areas*). Each area held one at a time is work done in
-   series: map only where collisions cost more than the wait. Leave it out unless the person asks for it.
+   and `owner: {block: B}` leaves it to block B (SPEC §9.5, *Areas*). Say the field in the event that makes the item
+   takeable (`files: []` for one touching nothing): an item with no field touches every area. Each area held one at a
+   time is work done in series: map only where collisions cost more than the wait. Leave it out unless the person asks for it.
    **When items are knowledge about the system** (a lesson, a runbook entry, a known cause), let them say which parts
    of the model they bear on: declare `about: FIELD` on the kind and record the names in that field (`{"data":
    {"about": ["goal.inbox-short", "stock.inbox"]}}`; SPEC §5a, *About*). An event that sets the field replaces the

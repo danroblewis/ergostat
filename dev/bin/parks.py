@@ -182,7 +182,9 @@ def ready_again(cfg: dict, gid: str, why: str) -> str:
         g = manage.item(gid)
         if g["state"] != "parked" or g["fields"].get("resumed_as") or g["fields"].get("parked_by") != ENV_PARK:
             raise manage.Refused(f"{gid} is {g['state']} (resumed as {g['fields'].get('resumed_as')}): not readied")
-        manage.record("gap.defined", gid, ready_at=time.time(), released_from="parked")
+        import areas  # (touches in the same event: routed from its first look)
+        manage.record("gap.defined", gid, ready_at=time.time(), released_from="parked",
+                      touches=areas.at_ready(gid, None, g["fields"]))
         manage.record("gap.resumed", gid, resumed_as=gid, resumed_at=time.time(), resumed_for="needs",
                       resumed_by=manage.BY[0], cleared=why)
     return gid

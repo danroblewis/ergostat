@@ -240,8 +240,9 @@ def route(gid: str, kept: str, **data) -> str:
     owner = [x for x in needs if x["needs"] == "owner"]
     data |= dict(env_needs=needs or None, measure_runs_wanted={"tests": tests, "items": [x["item"] for x in needs]}
                  if needs and not owner else None)
-    if not owner:
-        fac.say("gap.defined", gid, ready_at=now, **data)
+    if not owner:                                        # (touches in the same event: routed from its first look)
+        import areas
+        fac.say("gap.defined", gid, ready_at=now, touches=areas.at_ready(gid, kept, {"branch": data.get("branch")}), **data)
         return "ready"
     why = "Done items it cannot build here, for the owner before it is built:\n" + "".join(
         f"- done item {x['item']}: {x['why']}\n" for x in owner)

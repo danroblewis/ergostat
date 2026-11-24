@@ -258,7 +258,8 @@ blocks:
         # (patterns: ergostat/web/static/*). The first map was drawn from main's conflicted merges (python3
         # dev/bin/areas.py draw): each file named in 3 or more, whose gaps' hours in flight summed are at most twice
         # the history's (a lane carries them in series); the 26 hot files past that (docs/SPEC.md, pages.js, ...) are
-        # left out. Inert until [areas] route = true (dev/factory.toml): until then the intake writes no gap's touches.
+        # left out. Inert until [areas] route = true (dev/factory.toml): until then every gap's touches is said [] (in
+        # the gap.defined that makes it ready, and the intake's pass). A gap with no touches said touches every area.
         touches: touches
         holding: [building, built, in-review, approved, queued, push-pending, queue-failed, fix]
         map:
