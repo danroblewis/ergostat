@@ -228,7 +228,8 @@ def test_the_model_source_is_there_undeclared_and_a_declared_source_of_that_name
     (tmp_path / "ergostat.yaml").write_text("name: x\nstocks:\n  q: {unit: t}\nsources:\n"
                                             "  model: {type: prometheus, url: 'http://127.0.0.1:9'}\n  own: {type: model}\n")
     spec = mdl.load(tmp_path).spec
-    assert sorted((s["name"], s["type"]) for s in datasources.listed(spec)) == [("model", "prometheus"), ("own", "model")]
+    assert sorted((s["name"], s["type"]) for s in datasources.listed(spec)) == [("analysis", "analysis"), ("model", "prometheus"),
+                                                                                ("own", "model")]
     assert not datasources.own(spec, "model") and datasources.own(spec, "own") and not datasources.own(spec, "nope")
 
 
@@ -239,7 +240,7 @@ def test_a_public_reader_may_ask_the_model_source_but_no_outside_one(tmp_path):
     assert "error" not in own and own["frequency"]["hz"]
     assert "public name" in outside["error"]
     offered = api(Live(p), "query/fields", {}, reader=True)["datasources"]
-    assert offered == [{"name": "model", "type": "model", "language": "model"}]
+    assert offered == [datasources.ANALYSIS, {"name": "model", "type": "model", "language": "model"}]
 
 
 def test_a_public_reader_is_not_given_an_identification_and_the_owner_is(tmp_path, monkeypatch):

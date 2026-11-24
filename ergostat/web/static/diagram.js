@@ -9,11 +9,22 @@ const WRAP_GAIN = 1.25;      // a chain far wider than tall is wrapped into rows
 
 function labelLines(n) {
   if (n.sd) return sdLabelLines(n);                    // the system dynamics view's (dynamics.js)
-  if (n.kind === "valve") return [n.label, `${n.position != null ? "open " + fmt(n.position) + " · " : ""}${n.rateText}${n.max ? ` · ≤ ${fmt(n.max)} a run` : ""}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
-  if (n.kind === "disturbance") return [n.label, `${n.rateText}${n.estimated ? " (est.)" : ""}`, n.agent ? "§badge" : null].filter(Boolean);
-  if (n.kind === "sensor") return [n.label, n.reading != null ? `reads ${n.reading}` : "no reading", n.agent ? "§badge" : null].filter(Boolean);
-  if (n.kind === "auxiliary") return [n.label, n.agent ? "§badge" : null].filter(Boolean);
+  if (n.kind === "valve") return [nameOf(n),`${n.position != null ? "open " + fmt(n.position) + " · " : ""}${n.rateText}${n.max ? ` · ≤ ${fmt(n.max)} a run` : ""}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
+  if (n.kind === "disturbance") return [nameOf(n),`${n.rateText}${n.estimated ? " (est.)" : ""}`, n.agent ? "§badge" : null].filter(Boolean);
+  if (n.kind === "sensor") return [nameOf(n),n.reading != null ? `reads ${n.reading}` : "no reading", n.agent ? "§badge" : null].filter(Boolean);
+  if (n.kind === "auxiliary") return [nameOf(n),n.agent ? "§badge" : null].filter(Boolean);
   return [];
+}
+/* a part's name as drawn: its short name inside its own system's box (shown.py), else its full name */
+function nameOf(n) { return n.shown || n.label; }
+/* pointed at, a part drawn by its short name reads by its full name (in its own text: no tooltip on a part) */
+function fullOnHover(el, x) {
+  if (!x.shown) return el;
+  const swap = (from, to) => { for (const t of el.tagName === "text" ? [el] : el.querySelectorAll("text")) {
+    for (const c of t.childNodes) if (c.nodeType === 3 && c.textContent === from) c.textContent = to; } };
+  el.addEventListener("pointerenter", () => swap(x.shown, x.label));
+  el.addEventListener("pointerleave", () => swap(x.label, x.shown));
+  return el;
 }
 function badgeText(a) { return a ? `${a.kind} · ${a.name}${a.when ? " · " + a.when : ""}` : ""; }
 function textWidth(t) { return t.length * CH; }
@@ -380,7 +391,7 @@ function drawStock(n, w, hgt) {
     const d = vs.map((v, i) => `${i ? "L" : "M"}${10 + (i / (vs.length - 1)) * (w - 20)},${yOf(v)}`).join("");
     g.append(s("path", { d, fill: "none", stroke: tone, "stroke-width": 1.4, opacity: 0.8, class: "live" }));
   }
-  g.append(s("text", { x: 10, y: 17, class: "t-label" }, n.label));
+  g.append(s("text", { x: 10, y: 17, class: "t-label" }, nameOf(n)));
   g.append(s("text", { x: 10, y: 50, class: "t-value live" }, n.valueText, s("tspan", { class: "t-unit", dx: 4 }, n.unit || "")));
   return g;
 }
@@ -454,7 +465,7 @@ function drawController(n, w, hgt) {
   else g.append(s("text", { x: 20, y: 26, "text-anchor": "middle", class: "sigma" }, "Σ"),
                 s("text", { x: 8, y: 13, "text-anchor": "middle", class: "sign" }, "+"),
                 s("text", { x: 8, y: 37, "text-anchor": "middle", class: "sign" }, "−"));
-  g.append(s("text", { x: 36, y: 20, class: "t-label" }, n.label));
+  g.append(s("text", { x: 36, y: 20, class: "t-label" }, nameOf(n)));
   g.append(s("text", { x: 36, y: 36, class: "t-sub" }, "holds " + n.setpoint));
   if (n.decision) {
     const when = n.decisionAt ? " · " + ago(n.decisionAt) : "";
@@ -474,7 +485,7 @@ function drawController(n, w, hgt) {
 function drawAgent(n, w, hgt) {
   const g = s("g");
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 10, fill: "var(--panel)", stroke: n.failing ? "var(--bad)" : "var(--line)", "stroke-width": 2 }));
-  g.append(s("text", { x: 16, y: 20, class: "t-label" }, n.label));
+  g.append(s("text", { x: 16, y: 20, class: "t-label" }, nameOf(n)));
   g.append(s("text", { x: w - 26, y: 20, class: "t-sub", "text-anchor": "end" }, `${n.agentKind}`));
   g.append(rungDot(n.rung, w - 14, 16, 6.5));
   const when = n.schedule || "";
@@ -518,8 +529,8 @@ function drawSystem(n, w, hgt) {
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 12, fill: "var(--panel)", stroke: "var(--system-line)", "stroke-width": 2,
                        ...(n.remote ? { "stroke-dasharray": "9 5" } : {}) }));
   g.append(s("rect", { x: 4, y: 4, width: w - 8, height: hgt - 8, rx: 9, fill: "var(--system)", stroke: "var(--system-line)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
-  g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
-  g.append(s("circle", { cx: 16 + textWidth(n.label) * 1.25 + 12, cy: 19, r: 5, fill: tone, class: "live" }));
+  g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, nameOf(n)));
+  g.append(s("circle", { cx: 16 + textWidth(nameOf(n)) * 1.25 + 12, cy: 19, r: 5, fill: tone, class: "live" }));
   g.append(s("text", { x: 16, y: 42, class: "t-sub live" }, n.remote ? n.remote.says
     : loopsText(n) + (n.subsystems?.length ? ` · ${n.subsystems.length} inside` : "")));
   // its measures, as a control panel: each one's health, value, setpoint and trend (click: the part itself)
@@ -530,7 +541,7 @@ function drawSystem(n, w, hgt) {
                          onclick: (ev) => { ev.stopPropagation(); openNode({ id: m.part, kind: m.part.startsWith("flow:") ? "disturbance" : "stock", label: m.label, flow: m.label }); } },
       s("rect", { x: 8, y: 0, width: w - 16, height: MEAS_ROW - 3, rx: 5, class: "measure-bg" }),
       m.goal ? s("circle", { cx: 18, cy: 10.5, r: 4, fill: mt, class: "live" }) : null,
-      s("text", { x: 28, y: 15, class: "t-sub" }, m.label),
+      fullOnHover(s("text", { x: 28, y: 15, class: "t-sub" }, nameOf(m)), m),
       s("text", { x: w - 112, y: 15, class: "t-label live", "text-anchor": "end" }, m.value, s("tspan", { class: "t-unit", dx: 3 }, m.unit || ""),
         m.setpoint ? s("tspan", { class: "t-sub", dx: 6 }, m.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=")) : null));
     if ((m.points || []).length > 1) {
@@ -555,7 +566,7 @@ function drawSystem(n, w, hgt) {
     const px = left ? 0 : w, inward = (p.side === "in") === left;    // which way it carries, across the edge
     g.append(s("path", { d: inward ? `M${px - 2.5},${y - 2.5} L${px + 2},${y} L${px - 2.5},${y + 2.5} Z` : `M${px + 2.5},${y - 2.5} L${px - 2},${y} L${px + 2.5},${y + 2.5} Z`,
                          fill: "var(--system-line)" }));
-    g.append(s("text", { x: left ? 12 : w - 12, y: y + 4, class: "t-sub", "text-anchor": left ? "start" : "end" }, p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
+    g.append(fullOnHover(s("text", { x: left ? 12 : w - 12, y: y + 4, class: "t-sub", "text-anchor": left ? "start" : "end" }, nameOf(p), p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null), p));
   }
   return g;
 }
@@ -819,6 +830,7 @@ function drawGraph(svg, g, lay) {
                         },
                         ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
     untrustedBox(ng, n).append(((sd && SD_DRAW[n.kind]) || DRAW[n.kind] || drawCloud)(n, ln.width, ln.height, ln));
+    fullOnHover(ng, n);                               // drawn by its short name, inside its own system: its full name on hover
     const pid = pinId(n.id, n);                       // (a system's box and its open outline share one)
     if (S.pins?.[pid]) pinsG.append(pinMark(pid, ln.x + ln.width - 4, ln.y - 6, undefined, n.kind));   // (its kind: hidden with it, flows only)
     for (const lb of ln.labels || []) {

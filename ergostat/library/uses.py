@@ -3,6 +3,7 @@ model as if they had been written, each pointing at the entry's ``use:`` line.""
 
 from __future__ import annotations
 
+from ..spec.belongs import own
 from ..spec.ir import NAME
 from ..spec.load import SECTIONS, Map, Problem, Where
 from . import templates as tp
@@ -109,10 +110,12 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
 
 
 def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, depth: int, within: str | None,
-         under: tp.Template | None, writers: dict | None = None, above: str | None = None) -> None:
+         under: tp.Template | None, writers: dict | None = None, above: str | None = None,
+         mine: tuple | None = None) -> None:
     """One instance of the chain; ``under``: the first untrusted template above it (or it), from which all is untrusted.
     ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a); ``above``: the
-    instance whose template uses this one."""
+    instance whose template uses this one. ``mine``: a nested use's (outer instance, its name there), the system its
+    own system belongs to."""
     def err(msg, where=None, code="bad-use"):
         chain.steps.append(("problem", Problem("error", f"use {inst}: {msg}", where or w, code, f"system.{inst}")))
 
@@ -191,7 +194,8 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
                          *((under, tw, tt, s, n, x) for s, entries in made.marked.items() for n, x in entries.items()),
                          *((under, tw, tt, "uses", n, x) for n, x in made.sections.get("uses", {}).items())]
     if not (t.once and ("systems", inst) in doc.defined):     # a once template's system, when the model declares it, is the model's
-        chain.steps.append(("put", "systems", inst, as_map(system, via), via))
+        sw = own(via, *mine) if mine else via                  # a nested use's system: the outer instance's
+        chain.steps.append(("put", "systems", inst, as_map(system, sw), sw))
         if t.once:
             chain.steps.append(("soft", ("systems", inst)))
     for section, entries in made.sections.items():
@@ -201,7 +205,9 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
             err(said(f"template {t.name} writes {section}:, which is not a section"), at, "bad-template")
             continue
         for name, got in entries.items():
-            chain.steps.append(("put", section, name, as_map(got, via), via))
+            short = (made.shorts or {}).get(section, {}).get(name)
+            pw = own(via, inst, short) if short else via        # the instance's own name: it belongs to the instance
+            chain.steps.append(("put", section, name, as_map(got, pw), pw))
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
                                       "depth": depth, "trust": t.trust, "untrusted": untrusted, "outer": within,
@@ -214,10 +220,12 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
                                                f"real", via, "template-stand-in", f"system.{inst}")))
     start = len(chain.steps)
     for sub, e in (made.sections.get("uses") or {}).items():
+        short = (made.shorts or {}).get("uses", {}).get(sub)
         given_on = made.writers.get(sub, {})
         if under is not None and named:                     # what it gives may hold the name: only the owner's known
             given_on = {k: w if w in trust.fine(trust.NAMED) else LIBRARY for k, w in given_on.items()}
-        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on, inst)
+        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on, inst,
+             (inst, short) if short else None)
     unmade(t, inst, chain, start, at, said)
 
 

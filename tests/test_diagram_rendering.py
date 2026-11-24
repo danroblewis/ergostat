@@ -3343,8 +3343,10 @@ def test_a_goal_and_its_feedback_loops_link_each_other_across_the_views(browser,
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
         r = pg.evaluate("""() => ({ head: document.querySelector('.sd-loops-head').textContent,
+          count: document.querySelector('.side details.loops > summary .sd-count').textContent,
           all: S.graph.causalLoops.length, closing: S.graph.causalLoops.filter((c) => c.goal).length })""")
-        assert r["closing"] and r["head"] == f" {r['all']}, {r['closing']} close a goal", r
+        assert r["closing"] and r["head"] == f", {r['closing']} close a goal", r
+        assert sum(int(x) for x in re.findall(r"\d+", r["count"])) == r["all"], r     # named and minor: every loop
         for goal in pg.evaluate("() => Object.keys(S.status.loops)"):      # every goal names at least its control loop
             pg.evaluate("(g) => openLoop(g)", goal)
             pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g) && "
@@ -3700,7 +3702,7 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                                   return s.textContent; })() };
         }""")
         assert r["unknown"] > 0 and r["unknownMarked"] == 0 and r["marked"]
-        assert r["sum"].startswith(f"+{r['unknown']} of unknown polarity"), r["sum"]
+        assert r["sum"].startswith(f"{r['unknown']} of unknown polarity"), r["sum"]
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
         assert r["hullFill"] in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]       # a sector: framed by its corners, no tint
         assert r["hullStroke"] == r["frame"] and r["corners"], r
@@ -3972,18 +3974,18 @@ def test_a_loop_marker_moves_with_its_system_when_the_system_is_dragged(browser,
         pg.wait_for_timeout(300)
         where = ("(n) => { const r = document.querySelector(`.loop-marker[data-loop=\"${n}\"]`).getBoundingClientRect(); "
                  "return [r.x, r.y]; }")
-        before = pg.evaluate(where, "missing-ops")                          # inside product: missing-ops → asks … shipped
+        before = pg.evaluate(where, "long-tail")                            # inside product: users → asks → missing-ops → churn
         grip = pg.locator('svg.canvas g.hull[data-hull="product"] rect.hull-grip').bounding_box()
         x, y = grip["x"] + 60, grip["y"] + 10
         pg.mouse.move(x, y)
         pg.mouse.down()
         for i in range(1, 11):
             pg.mouse.move(x + 12 * i, y + 8 * i)
-        mid = pg.evaluate(where, "missing-ops")                             # during the drag it goes along
+        mid = pg.evaluate(where, "long-tail")                           # during the drag it goes along
         assert mid[0] - before[0] > 60 and mid[1] - before[1] > 40, (before, mid)
         pg.mouse.up()
         pg.wait_for_timeout(500)
-        after = pg.evaluate(where, "missing-ops")                           # and placed again where its loop now is
+        after = pg.evaluate(where, "long-tail")                         # and placed again where its loop now is
         assert after[0] - before[0] > 60 and after[1] - before[1] > 40, (before, after)
         pg.close()
 
@@ -4012,7 +4014,7 @@ LOOP_SIGNS = """(label) => {
 def test_a_loop_is_called_r_or_b_only_when_every_link_has_a_sign(browser, tmp_path):
     """software-factory's product system: R2's 'Around the loop' gives every link (all of them, through delivery
     too) a sign, or its marker reads '?'; each part by its plain name; a connector drawn here shows the row's sign;
-    no marker reads '+1' (loops drawn alike: 'N alike')."""
+    no marker reads '+1' or carries a count of loops drawn alike (their panel names them)."""
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         errors: list[str] = []
@@ -4030,7 +4032,130 @@ def test_a_loop_is_called_r_or_b_only_when_every_link_has_a_sign(browser, tmp_pa
             assert not named, (v, named)
             assert not [t for t in r["markers"] if re.search(r"\+\d$", t)], (v, r["markers"])
             assert all(shown == row for _, shown, row in r["drawnSigns"]), (v, r["drawnSigns"])
-            assert all(re.fullmatch(r"\d+ alike", t) and re.search(r"[RB?]\d+ ", title) for t, title in r["alike"]), (v, r["alike"])
+            assert not r["alike"], (v, r["alike"])
+        assert not errors, errors
+        pg.close()
+
+
+SD_SHOWN = """() => [...document.querySelectorAll('svg.canvas .loop-marker')].filter((m) => getComputedStyle(m).display !== 'none')
+  .map((m) => ({ loop: m.dataset.loop, text: m.textContent, minor: m.classList.contains('minor'),
+                 name: [...m.querySelectorAll('.marker-name')].map((t) => t.textContent).join(' ') }))"""
+
+
+def test_dynamics_marks_the_named_loops_and_one_per_goal_and_a_minor_loop_only_while_chosen(browser, tmp_path):
+    """dynamics-minor-loops-folded-and-named: on software-factory ?system=product (1) at most the model's named loops
+    plus one per goal have a marker, none minor, and no marker text has a '+'; (2) a minor loop chosen in the list's
+    'minor loops (N)' has its marker and its lines lit, and chosen again both go; (3) a named loop's marker prints
+    its name, its panel its path; (4) product's box (its panel, everything closed) and the list drawing product alone
+    give the same 'N named, M minor'."""
+    from ergostat import model as mdl
+    spec = mdl.load(ROOT / "examples" / "software-factory").spec
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        by = {c["name"]: c for c in pg.evaluate("() => S.graph.causalLoops")}
+        shown = pg.evaluate(SD_SHOWN)
+        assert shown and len(shown) <= len(spec.named_loops) + len(spec.goals), shown                      # 1
+        assert not [m for m in shown if m["minor"] or by[m["loop"]]["minor"]], shown
+        assert not [m["text"] for m in shown if "+" in m["text"]], shown
+        named = [m for m in shown if by[m["loop"]]["named"]]                                               # 3
+        assert {m["loop"] for m in named} >= {"bug-fixing", "regressions", "features-shipped", "users-won", "long-tail"}, named
+        assert all(m["name"] == m["loop"] for m in named), named
+        pg.locator('.loop-marker[data-loop="bug-fixing"]').dispatch_event("click")
+        pg.wait_for_function("() => document.querySelector('#detail .loop-path')", timeout=5000)
+        path = pg.locator("#detail .loop-path").inner_text()
+        assert pg.locator("#detail .subtitle").inner_text() == "bug-fixing"
+        steps = path.split(" → ")                                                     # round the loop, back to its start
+        assert len(steps) > 3 and steps[0] == steps[-1] and {"bugs-live", "filed-bugs", "fixes"} <= set(steps), path
+        pg.locator('.loop-marker[data-loop="bug-fixing"]').dispatch_event("click")                       # (let go)
+        minor = pg.evaluate("() => [...document.querySelectorAll('svg.canvas .loop-marker.minor')].map((m) => m.dataset.loop)")
+        assert minor, "no minor loop drawn here to choose"                                                 # 2
+        pg.evaluate("() => { for (const d of document.querySelectorAll('.side details.loops, .side details.sd-minor')) d.open = true; }")
+        summary = pg.locator(".side details.sd-minor > summary").inner_text()
+        rows = pg.locator(".side details.sd-minor .looprow")
+        assert summary == f"minor loops ({rows.count()})" and rows.count() >= len(minor), (summary, rows.count())
+        row = pg.locator(f'.side details.sd-minor .looprow[data-loop="{minor[0]}"]')
+        lit = "() => document.querySelectorAll('svg.canvas .edge.in-loop').length"
+        assert pg.evaluate(lit) == 0
+        row.hover()                                                                                        # pointed at: drawn
+        assert minor[0] in [m["loop"] for m in pg.evaluate(SD_SHOWN)]
+        row.click()                                                                                        # chosen: drawn, lit
+        pg.mouse.move(5, 500)
+        assert minor[0] in [m["loop"] for m in pg.evaluate(SD_SHOWN)] and pg.evaluate(lit) >= 2
+        assert pg.locator("#detail .subtitle").inner_text() == minor[0]
+        pg.keyboard.press("Escape")                                                                        # let go (its panel
+        pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)              # closes): gone
+        assert minor[0] not in [m["loop"] for m in pg.evaluate(SD_SHOWN)] and pg.evaluate(lit) == 0
+        said = pg.locator(".side details.loops > summary .sd-count").inner_text().strip()                  # 4
+        assert re.fullmatch(r"\d+ named, \d+ minor", said), said
+        drawn(pg, url, "open=-", 1)
+        click_part(pg, "system:product")
+        pg.wait_for_function("() => document.querySelector('#detail .sd-count')", timeout=10000)
+        box = pg.locator("#detail .sd-count").inner_text()
+        assert box.startswith(f"Feedback loops with a part in it: {said}"), (box, said)
+        assert not errors, errors
+        pg.close()
+
+
+def test_every_minor_row_draws_its_marker_from_the_top_and_in_a_system(browser, tmp_path):
+    """dynamics-minor-loops-folded-and-named (2), round 5: in the top view (systems closed: no minor loop is drawable
+    there, so none is listed), with product open, and drawing product alone, each row of 'minor loops (N)' chosen
+    shows its marker; the list holds only loops drawable here, and those counted but not drawable are said in a note,
+    so rows plus the note add up to the summary's count."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        unfold = ("() => { for (const d of document.querySelectorAll("
+                  "'.side details.loops, .side details.sd-minor, .side details.sd-unknown')) d.open = true; }")
+        for i, v in enumerate(["", "open=product", "system=product"]):    # (from the top, every system closed: none)
+            drawn(pg, url, v, i)
+            pg.evaluate(unfold)
+            minor = pg.evaluate("() => [...document.querySelectorAll('.side details.sd-minor .looprow')].map((r) => r.dataset.loop)")
+            assert minor or not v, v
+            for name in minor:
+                pg.evaluate(unfold)
+                pg.locator(f'.side details.sd-minor .looprow[data-loop="{name}"]').click()
+                pg.mouse.move(5, 500)
+                assert name in [m["loop"] for m in pg.evaluate(SD_SHOWN)], (v, name)
+                pg.keyboard.press("Escape")
+                pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)
+                assert name not in [m["loop"] for m in pg.evaluate(SD_SHOWN)], (v, name)
+            said = pg.locator(".side details.loops > summary .sd-count").inner_text().strip()
+            total = sum(int(x) for x in re.findall(r"\d+", said))
+            rows = pg.evaluate("() => new Set([...document.querySelectorAll('.side details.loops .looprow[data-loop]')]"
+                               ".map((r) => r.dataset.loop)).size")
+            note = pg.evaluate("() => document.querySelector('.side .sd-elsewhere')?.textContent || ''")
+            assert rows + (int(note.split()[0]) if note else 0) == total, (v, said, rows, note)
+        assert not errors, errors
+        pg.close()
+
+
+def test_the_dominant_loop_heads_the_list_after_the_side_is_redrawn(browser, tmp_path):
+    """dynamics-minor-loops-folded-and-named (4): 'Dominant now' (from a faked /api/dominance) heads the loop list,
+    and still does after the list is redrawn (a chart chosen, a poll), asked once for the address."""
+    fake = {"stocks": [{"stock": "product.users", "dominant": [None, "bug-fixing"], "relative": {"bug-fixing": [0, 0.9]}}]}
+    asked: list[str] = []
+
+    def answer(route):
+        asked.append(route.request.url)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(fake))
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/dominance*", answer)
+        drawn(pg, url, "system=product", 0)
+        label = pg.evaluate("() => S.graph.causalLoops.find((c) => c.name === 'bug-fixing').label")
+        line = "() => document.querySelector('.side .sd-dominant')?.textContent || ''"
+        pg.wait_for_function(f"() => ({line})().startsWith('Dominant now')", timeout=10000)
+        assert pg.evaluate(line) == f"Dominant now: {label} bug-fixing (at users)"
+        for _ in range(3):
+            pg.evaluate("() => S.redrawSide()")
+            assert pg.evaluate(line) == f"Dominant now: {label} bug-fixing (at users)"
+        assert len(asked) == 1, asked
         assert not errors, errors
         pg.close()
 
@@ -5230,6 +5355,93 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
         proc.wait(10)
 
 
+RUNBOOK = """() => {
+  const d = document.querySelector('#detail'), kids = [...d.children];
+  const at = (sel) => kids.findIndex((k) => k.matches(sel) || k.querySelector(sel));
+  const less = (e) => [...e.childNodes].filter((n) => n.nodeName !== 'A').map((n) => n.textContent).join('').trim();
+  return { lines: [...d.querySelectorAll('.runbook .runbook-line')].map((p) => p.textContent),
+           word: d.querySelector('.runbook .runbook-line .status')?.textContent,
+           remedy: [...d.querySelectorAll('p.remedy')].map((p) => less(p).replace(/^Remedy: /, '')),
+           evidence: [...d.querySelectorAll('p.remedy a')].map((a) => a.textContent),
+           order: { runbook: at('.runbook'), remedy: at('p.remedy'), charts: at('.scope'), parts: at('table.parts'),
+                    prose: kids.findIndex((k) => k.matches('dl')) },   // (its own rows, not the scope's numbers)
+           text: d.innerText,
+           wide: [d, ...d.querySelectorAll('.runbook-line, p.remedy')].filter((e) => e.scrollWidth > e.clientWidth + 1)
+             .map((e) => e.className) };
+}"""
+NO_ONE = "nothing its controller moves is one setting or one valve, so it has no one process to identify"
+
+
+def test_a_goals_evidence_opens_with_its_four_lines_and_its_remedy_then_the_charts_then_parts_and_prose(
+        browser, tmp_path, monkeypatch):
+    """Acceptance (evidence-panel-reads-as-a-runbook): an off goal's panel opens, before any chart, with four
+    one-sentence lines (the first saying /api/loops' word) and one remedy line, the Suggestions entry for that goal
+    word for word, with its Evidence link; the charts follow, its parts and prose last; nothing in it says 'Not
+    worked out'; at 390 px the lines fit without scrolling sideways."""
+    d = goal_named(tmp_path, monkeypatch, False)
+    y = (d / "ergostat.yaml").read_text()                 # and a goal no block acts for (worker moves its stock for another),
+    (d / "ergostat.yaml").write_text(y.replace("    tolerance: 1\n",   # and one on an auxiliary a block sets with no goal: key
+                                               '    tolerance: 1\n  small-backlog:\n    stock: backlog\n    hold: "<= 50"\n'
+                                               '  low-throttle:\n    auxiliary: throttle\n    hold: "<= 0.5"\n')
+                                       .replace("auxiliaries:\n",
+                                                "auxiliaries:\n  throttle:\n    unit: share\n    sensor:\n      manual: true\n")
+                                       + "  damper:\n    type: program\n    run: echo 0.1\n    in: goal.low-throttle.error\n"
+                                         "    out: auxiliary.throttle\n")
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        word = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())["short-backlog"]["word"]
+        assert word == "off", word
+        errors: list[str] = []
+        for width, view in ((1500, ""), (1500, "view=blocks"), (390, "")):   # (each drawing words its Suggestions)
+            pg = browser.new_page(viewport={"width": width, "height": 900})
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            if width < 400:                              # a loop with no one process (control/loop.py): its scope says so
+                pg.route("**/api/loop-control?*", lambda r: r.fulfill(json={"goal": "short-backlog", "why": NO_ONE}))
+            drawn(pg, url, view, 0)
+            pg.wait_for_function(f"() => ({HINTS})().some((t) => t.includes('short-backlog'))", timeout=30000)
+            (hint,) = [t for t in pg.evaluate(HINTS) if "short-backlog" in t]
+            pg.evaluate("() => openLoop('short-backlog')")
+            pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=30000)
+            pg.wait_for_selector("#detail .control h3", timeout=30000)   # how it is doing, under the scope
+            got = pg.evaluate(RUNBOOK)
+            assert width > 400 or f"Read it by its time off and its crossings (below): {NO_ONE}." in got["text"], got["text"]
+            assert len(got["lines"]) == 4, got["lines"]
+            for t in got["lines"]:                       # one sentence each
+                assert re.fullmatch(r"[^.]*(\.\d[^.]*)*[.…]", t.strip()) and not re.search(r"[.;]\s+[A-Z]", t), t
+            assert got["word"] == word, got
+            assert got["remedy"] == [hint] and got["evidence"] == ["Evidence"], (got["remedy"], hint)
+            o = got["order"]
+            assert -1 < o["runbook"] < o["remedy"] < o["charts"] < o["parts"] and o["charts"] < o["prose"], o
+            assert "Not worked out" not in got["text"], got["text"]
+            assert not got["wide"], (width, got["wide"])
+            assert got["lines"][2].startswith("worker: commanded"), got["lines"]   # its block, listed as an actor
+            if not view and width > 400:                 # a goal nothing acts for: said so, never that nothing ran
+                for goal, says in (("small-backlog", "No block acts for it: nothing that reads it or backlog moves backlog,"
+                                                      " directly or through what it commands."),
+                                   ("low-throttle", "damper: commanded ")):        # the block that sets it, listed
+                    pg.evaluate(f"() => openLoop('{goal}')")
+                    pg.wait_for_function(f"() => document.querySelector('#detail h2')?.textContent.startsWith('{goal}')"
+                                         " && document.querySelectorAll('#detail .runbook-line').length === 4", timeout=30000)
+                    third = pg.evaluate("() => document.querySelectorAll('#detail .runbook-line')[2].textContent")
+                    assert third == says if says.endswith(".") else third.startswith(says), third
+            pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 PHONE_GOALS = """
 name: phone
 stocks:
@@ -5848,7 +6060,9 @@ EXPORTED_PNG = """async () => {
   host.remove();
   // what is seen through on the page (a loop marker's ground over the lines under it) is seen through in the picture
   const thin = (el) => +getComputedStyle(el).fillOpacity < 1;
-  const shown = [...document.querySelectorAll('svg.canvas *')].filter((el) => el.checkVisibility() && thin(el)).length;
+  // (checkVisibility() passes an SVG element inside a group not displayed, as a minor loop's marker is at rest)
+  const seen = (el) => { for (let x = el; x; x = x.parentElement) if (getComputedStyle(x).display === 'none') return false; return true; };
+  const shown = [...document.querySelectorAll('svg.canvas *')].filter((el) => el.checkVisibility() && seen(el) && thin(el)).length;
   const kept = (out.text.match(/fill-opacity:0\\.\\d+/g) || []).length;
   return { texts, corner: [...ctx.getImageData(1, 1, 1, 1).data], shown, kept };
 }"""
@@ -7379,6 +7593,44 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+SAYS ="""(id) => { const g = document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(id)}"]`);
+  const said = () => [...g.querySelectorAll("text")].map((t) => t.childNodes[0]?.textContent || "").join("|");
+  if (!g) return null;
+  const now = said();
+  g.dispatchEvent(new PointerEvent("pointerenter"));
+  const pointed = said();
+  g.dispatchEvent(new PointerEvent("pointerleave"));
+  return { text: now, pointed, left: said(), label: S.graph.nodes.find((n) => n.id === id)?.label }; }"""
+
+ROWS = """() => [...document.querySelectorAll('svg.canvas g.node[data-id^="system:"]')].flatMap((g) => {
+  const said = (t) => [...t.childNodes].filter((c) => c.nodeType === 3).map((c) => c.textContent).join("").replace("\\u21c4 ", "");
+  return [...g.querySelectorAll("text.t-sub, text[data-part]")].map((t) => {
+    const text = said(t); t.dispatchEvent(new PointerEvent("pointerenter")); const pointed = said(t);
+    t.dispatchEvent(new PointerEvent("pointerleave"));
+    return { box: g.dataset.id.slice(7), text, pointed, left: said(t) }; }); })"""
+
+
+def test_inside_its_own_systems_box_a_part_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
+    """Drilled into the use help-queue, its stock reads ``waiting``; pointed at, ``help-queue-waiting`` (in its own
+    text: a part has no tooltip), its full name kept in the graph (links, lookups); drawn where no system is around
+    it, it reads ``help-queue-waiting`` (SPEC §2a, *A part's system*)."""
+    with served("small-requests", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for n, view in enumerate(("system=help-queue&open=", "view=dynamics&system=help-queue&open=")):
+            drawn(pg, url, view, n)
+            got = pg.evaluate(SAYS, "stock:help-queue-waiting")
+            assert got and "waiting" in got["text"].split("|") and "help-queue-waiting" not in got["text"], (view, got)
+            assert "help-queue-waiting" in got["pointed"].split("|") and got["left"] == got["text"], (view, got)
+            assert got["label"] == "help-queue-waiting" and not pg.evaluate(NO_TOOLTIPS), (view, got)
+        drawn(pg, url, "around=stock/help-queue-waiting", 3)        # no system drawn around it: its full name
+        got = pg.evaluate(SAYS, "stock:help-queue-waiting")
+        assert got and "help-queue-waiting" in got["text"].split("|") and got["pointed"] == got["text"], got
+        pg.close()
+        assert not errors, errors
+
+
 def test_a_suggestion_about_a_goal_has_an_evidence_link_to_its_panel(browser, tmp_path):
     """Dynamics and Blocks: a hint about a goal (its name in the ``goal`` field, its text 'goal NAME was off...')
     has an Evidence link, and the link opens that goal's panel. The hint is put into the page's answers here,
@@ -7456,7 +7708,6 @@ def test_the_blocks_legend_defines_the_subsystem_letter_and_its_size_and_a_name_
         assert {x["letter"] for _, x in seen if x["frame"]} & {x["letter"] for v, x in seen if v == "view=blocks"}, seen
         pg.close()
         assert not errors, errors
-
 
 
 MAY_DO ="You can look at everything. Approving or denying these is the only thing that changes the system."
@@ -8064,6 +8315,65 @@ def test_open_all_on_a_model_that_will_not_fit_opens_the_first_level_and_says_in
                 pg.wait_for_function(OPENED, arg=",".join(first), timeout=DRAWN_S * 1000)
         pg.close()
         assert not errors, errors
+
+
+def _reads_the_queue(d: Path) -> None:
+    with (d / "ergostat.yaml").open("a") as f:
+        f.write("flows:\n  queue-moved-on: {from: help-queue-waiting, system: work}\n")
+
+
+def test_a_closed_boxs_port_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
+    """A hand-written part in work reads help-queue's stock: the closed help-queue box's port for it reads ``waiting``,
+    pointed at ``help-queue-waiting`` (SPEC §2a, *A part's system*)."""
+    with served("small-requests", tmp_path, edit=_reads_the_queue) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics&system=work&open=", 0)          # (the page's one systems view)
+        rows = [r for r in pg.evaluate(ROWS) if r["box"] == "help-queue"]
+        assert {"box": "help-queue", "text": "waiting", "pointed": "help-queue-waiting", "left": "waiting"} in rows, rows
+        assert not [r for r in rows if "help-queue-waiting" in r["text"]], rows
+        pg.close()
+        assert not errors, errors
+
+
+# every closed box's sparkline: its box, its name as drawn, pointed at, and left again
+SPARK_NAMES = """() => [...document.querySelectorAll('svg.canvas g.node[data-id^="system:"] .sd-spark')].map((r) => {
+  const t = r.querySelector(".sd-spark-name"), said = () => t.textContent;
+  const text = said(); r.dispatchEvent(new PointerEvent("pointerenter")); const pointed = said();
+  r.dispatchEvent(new PointerEvent("pointerleave"));
+  return { box: r.closest("g.node").dataset.id.slice(7), text, pointed, left: said() }; })"""
+SPARKED_HQ = """() => document.querySelectorAll('svg.canvas g.node[data-id="system:help-queue"] .sd-spark').length > 0"""
+
+
+def _no_review_reminders(d: Path) -> None:              # (re-ping's measure is ``oldest`` too)
+    f = d / "ergostat.yaml"
+    f.write_text(re.sub(r"  review-reminders:.*?(?=\n  morning:)", "", f.read_text(), flags=re.S))
+
+
+def test_a_closed_boxs_sparkline_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
+    """The closed help-queue box's headline measure (a sparkline, drawn once its answer comes) reads ``oldest``, pointed
+    at ``help-queue-oldest``. Beside review-reminders, whose own measure is also ``oldest``, both read by their full
+    names, so two never read alike (SPEC §2a, *A part's system*)."""
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    with served("small-requests", tmp_path / "both") as url:
+        drawn(pg, url, "view=dynamics&system=work&open=", 0)
+        pg.wait_for_function(SPARKED_HQ, timeout=30000)
+        rows = pg.evaluate(SPARK_NAMES)
+        full = "help-queue-oldest"
+        assert {"box": "help-queue", "text": full, "pointed": full, "left": full} in rows, rows
+        other = pg.evaluate("""() => { const n = S.graph.nodes.find((x) => x.id === "system:review-reminders");
+          return [...n.charted, ...n.ports].filter((x) => x.label === "review-reminders-oldest").map((x) => x.shown || x.label); }""")
+        assert other and set(other) == {"review-reminders-oldest"}, other    # (its measure, drawn by its full name too)
+    with served("small-requests", tmp_path / "one", edit=_no_review_reminders) as url:
+        drawn(pg, url, "view=dynamics&system=work&open=", 1)
+        pg.wait_for_function(SPARKED_HQ, timeout=30000)
+        rows = [r for r in pg.evaluate(SPARK_NAMES) if r["box"] == "help-queue"]
+        assert rows == [{"box": "help-queue", "text": "oldest", "pointed": "help-queue-oldest", "left": "oldest"}], rows
+    pg.close()
+    assert not errors, errors
 
 
 @pytest.mark.serial

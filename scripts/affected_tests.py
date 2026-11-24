@@ -1,7 +1,10 @@
 """The implementor's small test set ([suites] build in dev/factory.toml): runs the pytest command it is given on the
 test files the branch changed (``git diff main...HEAD``), plus tests/test_<module>.py for each changed
 ergostat/**/<module>.py that has one. With none, only checks that the tests collect (--collect-only). A diff that
-cannot be read runs the command as given: the full unit suite, never a silent pass.
+cannot be read runs the command as given: the full unit suite, never a silent pass. So does a branch that turns a
+feature flag on (ergostat/flags.py turned_on(); flags.json unreadable at either end counts): turning one on is its
+own change with the full checks. Flags the branch declares anew are on for its run (ERGOSTAT_FLAGS), so the tests
+of its flagged path run in its own build while they skip everywhere else.
 
     uv run python scripts/affected_tests.py [--base main] -- uv run python -m pytest -q -n 8 --dist worksteal
 
@@ -13,7 +16,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 
 def changed(base: str) -> list[str] | None:
@@ -24,6 +27,20 @@ def changed(base: str) -> list[str] | None:
     except (OSError, subprocess.TimeoutExpired):
         return None
     return got.stdout.splitlines() if got.returncode == 0 else None
+
+
+def flags_said(base: str) -> tuple[list[str], list[str]]:
+    """(why the branch turns a feature flag on since it left ``base``, the flags it declares anew). Anything that
+    cannot be read, the flags module included, is a reason: the full suite."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # (the tree under test's ergostat)
+    try:
+        from ergostat import flags
+        mb = subprocess.run(["git", "merge-base", base, "HEAD"], capture_output=True, text=True, timeout=60)
+    except (ImportError, OSError, subprocess.TimeoutExpired) as e:
+        return [f"feature flags not read ({e})"], []
+    if mb.returncode != 0 or not mb.stdout.strip():
+        return [f"feature flags not read (no merge base with {base})"], []
+    return flags.turned_on_between(".", mb.stdout.strip()), flags.added_between(".", mb.stdout.strip())
 
 
 def selected(paths: list[str]) -> list[str]:
@@ -45,8 +62,15 @@ def main(argv: list[str]) -> int:
         print("usage: affected_tests.py [--base REF] -- <pytest command> [args]", file=sys.stderr)
         return 2
     cmd, paths = argv[1:], changed(base)
+    turned, added = flags_said(base)
+    if added:
+        os.environ["ERGOSTAT_FLAGS"] = ",".join(sorted({*filter(None, os.environ.get("ERGOSTAT_FLAGS", "").split(",")),
+                                                        *added}))
+        print(f"affected_tests: the branch declares {', '.join(added)}: on for this run", flush=True)
     if paths is None:
         print(f"affected_tests: cannot read the diff {base}...HEAD: the full suite", file=sys.stderr, flush=True)
+    elif turned:
+        print(f"affected_tests: {'; '.join(turned)}: the full suite", flush=True)
     else:
         tests = selected(paths)
         print(f"affected_tests: {len(paths)} changed, running {' '.join(tests) or 'collection only'}", flush=True)

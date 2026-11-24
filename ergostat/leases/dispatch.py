@@ -41,7 +41,7 @@ from ..costs import budget
 from ..library import bounds
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
-from . import ENDED, EXPIRED, RENEWED, TAKEN, areas, faults, frozen, groups, poolnow
+from . import ENDED, EXPIRED, RENEWED, TAKEN, areas, faults, frozen, groups, lanes, poolnow
 from . import gone as run_gone
 from .fold import held
 from .kill import kill
@@ -292,14 +292,22 @@ class Dispatcher:
             if room <= 0:
                 return
             got, hurry = self.in_order(b, self.ready(b, every, now))
-            taken = []
+            got, on = areas.only(self, b, self.groups.only(b, got, every, now), every), {}
+            if b.takes.lanes:                        # (apart by a field, on top, within its resources: SPEC §9.5)
+                got, on = lanes.choose(self, b, every, got, room, now)
+            taken, missed = [], set()
             try:
-                for it in areas.only(self, b, self.groups.only(b, got, every, now), every)[:room]:
+                for it in got[:room]:
+                    if missed.intersection(on.get(it.id, ())):   # (on a lane planned this look and not taken: no lane)
+                        missed.add(it.id)
+                        continue
                     self.stale = True
-                    if self.take(b, self.whole(ix, it)):
+                    if self.take(b, self.whole(ix, it), **({"on": on[it.id]} if on.get(it.id) else {})):
                         taken.append(it.id)
                         if it.id in hurry:
                             frozen.broken(self, b, it.id, hurry[it.id], SOURCE)
+                    else:
+                        missed.add(it.id)
             finally:
                 if b.takes.frozen:                       # (the window less what was taken, even past an error)
                     frozen.settle(self, b, taken, SOURCE)
@@ -370,7 +378,7 @@ class Dispatcher:
             return []
         return self._work(*started, why=why)
 
-    def take(self, b, it, inline: bool = False, out: dict | None = None):
+    def take(self, b, it, inline: bool = False, out: dict | None = None, on: tuple = ()):
         self.due_now.discard(it.id)
         mark = self.holds.mark(b.name)                            # (before the take: an outage from here on counts)
         t = terms(self.spec, b)
@@ -387,7 +395,8 @@ class Dispatcher:
             bounds.hold(self.e, key, b)
             self.ours.add(run)                                    # (before its write: a lease of ours is never missed)
         data = {"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"], "max": t["attempts"],
-                "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1, "engine": self.me}
+                "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1, "engine": self.me,
+                **({"on": list(on)} if on else {})}             # (a lane on top of these: leases/lanes.py)
         spec = self.spec
         try:
             def write(more: dict | None = None) -> dict:
@@ -420,7 +429,7 @@ class Dispatcher:
         self.marks[run] = mark
         self.groups.taken(b, it.fields, run)                      # (of a held group: its probe)
         self.resources(ev)
-        self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b}
+        self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b, **({"on": tuple(on)} if on else {})}
         if self.e.stop.is_set():                                  # it raced the stop: given back, not counted, not run
             self.give_back(b.name, it.id)
             if run in budget.OPEN:                                # (nothing ran: its reserve given back)
@@ -431,7 +440,7 @@ class Dispatcher:
         self.e.say(f"{b.name}: took {it.id} (lease {fence}, {t['ttl'] / 60:g} min)")
         item = {"id": it.id, "kind": it.kind, "state": it.state, "fields": {k: v for k, v in it.fields.items() if k != "lease"}}
         given = {"fence": fence, "ttl": t["ttl"], "expires": got.get("expires"), "attempt": int(lease.get("attempts") or 0) + 1,
-                 "attempts": t["attempts"], "tier": t["tier"], "back": it.state}
+                 "attempts": t["attempts"], "tier": t["tier"], "back": it.state, **({"on": list(on)} if on else {})}
         with self.e.lock:
             given["model"] = (self.e.spec, self.e.version)       # it runs to its end under the model it was taken under
         if inline:
@@ -488,13 +497,20 @@ class Dispatcher:
     def adopt(self, b, item: str, fence: int, run: str, live: bool) -> None:
         """A kept run an engine before this one started, taken up (``spec/adopt.py``): its lease is ours to end, and
         never given back as we stop. Still going, its lease is renewed now: the time no engine was up is not held
-        against it (a lease held by another, a newer fence, is left as it is: the fold refuses its run's lines)."""
+        against it (a lease held by another, a newer fence, is left as it is: the fold refuses its run's lines). A lane
+        on top keeps its lease's ``on``, so a base that does not pass stops it (leases/lanes.py ``discard``)."""
+        it = its.one(self.p.events, self.spec, item) if b.takes and b.takes.lanes else None
+        lease = (held(it.fields) if it else None) or {}
+        on = lease.get("on") if lease.get("holder") == run and lease.get("fence") == fence else None
         with self.lock:
             self.ours.add(run)
             self.mine[run] = (b, item, fence)
             self.keeping.add(run)
             self.adopted.add(run)
-            self.going.setdefault(b.name, {})[item] = {"run": run, "fence": fence, "block": b}
+            self.going.setdefault(b.name, {})[item] = {"run": run, "fence": fence, "block": b,
+                                                       **({"on": tuple(on)} if on else {})}
+        if on:
+            lanes.taken_up(self, b, item, run, fence, on)      # (a base that failed before it was in going)
         if live:
             self.renew(item, run, fence, "taken up")
 
@@ -563,6 +579,8 @@ class Dispatcher:
             self.ends.release()
         if ev is not None:
             self.resources(ev)
+            if b.takes and b.takes.lanes and not lanes.passed(b, ev["data"]["how"], ev["data"].get("state")):
+                lanes.discard(self, b, item, run, ev["data"].get("why") or f"left {ev['data'].get('state')}")
             if ev["data"]["how"] == "nack":
                 dead = (its.one(self.p.events, self.spec, item) or it).state == DEAD
                 self.e.say(f"{b.name}: gave {item} back ({ev['data']['why']})" + (": a dead letter now" if dead else ""))
@@ -575,7 +593,10 @@ class Dispatcher:
         data = {"run": run, "fence": fence, "exit": out.get("exit"), **({"note": out["note"]} if out.get("note") else {})}
         nack = out.get("nack")
         stopping = self.e.stop.is_set() or out.get("stopped")
-        if nack is not None:
+        thrown = lanes.out(self, run)
+        if thrown and not moved_on(b, it):       # its lane's base did not pass: discarded, no attempt spent
+            data.update({"how": "nack", "why": thrown, "count": False})
+        elif nack is not None:
             data.update({"how": "nack", "why": nack.get("why") or "given back", **{k: nack[k] for k in ("after", "count", "news")
                                                                                      if nack.get(k) is not None}})
         elif moved_on(b, it):                    # (its lines moved it on as it ran: stopped after, the work stands)
@@ -587,6 +608,9 @@ class Dispatcher:
         else:
             data.update({"how": "nack", "why": out.get("note") or f"the run ended with {item} still {it.state}"})
         failed = data["how"] == "nack" and data.get("count", True) is not False
+        if failed and b.takes.lanes and (under := lanes.unproven(self, b, lease)):    # red on a base not passed
+            data.update({"count": False, "why": f"{data['why']} (not counted: it ran on top of {under}, not passed)"})
+            failed = None
         if failed and (fault := self.holds.fault(b, self.marks.get(run))):    # its environment down: no attempt spent
             data.update({"count": False, "fault": fault, "why": f"{data['why']} (not counted: {fault})"})
             failed = None                                                       # (nor evidence against its group)
@@ -739,6 +763,8 @@ class Dispatcher:
         self.groups.ended(b, fresh.fields, it.id, lease["holder"], False if failed else None)
         kill(self.e, lease["holder"], f"its lease on {it.id} expired: silent {silent:.0f}s, its TTL {ttl:g}s",
              it.id, lease["fence"], lease.get("block"))
+        if b is not None and b.takes and b.takes.lanes:          # (an expired lane did not pass: those on it go)
+            lanes.discard(self, b, it.id, lease["holder"], "its lease expired")
         self.e.say(f"{lease.get('block')}: the lease on {it.id} expired (silent {silent / 60:.1f} min)"
                    + (": a dead letter now" if after.state == DEAD else ""))
 

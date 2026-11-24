@@ -152,6 +152,7 @@ class Document:
     fetched: list = field(default_factory=list)         # the templates of libraries: (fetched, checked), in its order
     refused: dict[str, tuple[str, str]] = field(default_factory=dict)   # each library refused: its code and reason
     libraries: list[str] = field(default_factory=list)  # the names under libraries:, loaded or refused
+    listed: dict[str, dict] = field(default_factory=dict)      # each library as load read it (fetched.described)
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace

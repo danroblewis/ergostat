@@ -892,6 +892,7 @@ class Takes:
     healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
     hold_by: list[str] = field(default_factory=list)   # ``faults: {hold-by: [F]}``: a value failing together is held
     frozen: Frozen | None = None    # ``frozen: {first: N, urgent: F}``: its next N keep their order (leases/frozen.py)
+    lanes: Lanes | None = None      # ``lanes: {apart: F, ...}``: items apart by F run at once (leases/lanes.py)
     areas: Areas | None = None      # ``areas: {touches: F, holding: [S], map: {...}}``: one stream an area (leases/areas.py)
 
 
@@ -913,6 +914,23 @@ class Areas:
     touches: str
     holding: tuple[str, ...]
     map: tuple[Area, ...]
+
+
+@dataclass(frozen=True)
+class Lanes:
+    """A block's lanes (SPEC §9.5): items whose ``apart`` lists share no entry run at once, one sharing an entry on top
+    of a lane ``ahead`` deep at most; ``most`` lanes, each costed ``cpu`` cores and ``memory`` bytes (or more, as
+    measured; 0: not declared, so one lane until runs measure it), within ``within_cpu`` and ``within_memory``; a lane
+    passed only when left in ``passed`` (needed with ``ahead`` above 0; empty: none passes)."""
+
+    apart: str
+    most: int
+    within_cpu: float
+    within_memory: int
+    cpu: float = 0.0
+    memory: int = 0
+    ahead: int = 0
+    passed: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -1104,8 +1122,10 @@ class Spec:
     operating: dict[str, OperatingState] = field(default_factory=dict)  # the operating states declared (SPEC §9.5)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
+    libraries: dict = field(default_factory=dict)                      # each libraries: entry as load read it (SPEC §2a)
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
+    belongs: dict = field(default_factory=dict)                        # stock.NAME → its system and short name (belongs.py)
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
     away_after: float = 7200.0       # operating.away-after: no event from the owner this long reads as away (SPEC §12k)
     dashboards: dict[str, Dashboard] = field(default_factory=dict)     # the shared, named dashboards (SPEC §4f)
