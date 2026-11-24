@@ -151,7 +151,7 @@ another title's record, goes to `dev/records/GAPS-unplaced.md` and is said as `g
 writes GAPS.md from the records and commits it as `docs/GAPS.md from the records` (a render that fails says
 `gaps_md: why` on the run and lands the batch without it), and the implementor refuses, uncounted, a branch whose own
 commits change GAPS.md. The intake reads the entries from main's records (`gapsdoc.entries`: what GAPS.md renders,
-without the file; before the split, `docs/GAPS.md`); a record it cannot read, and two records of one title, are said
+without the file; before the split, `docs/GAPS.md`); a record it cannot read, and two entries of one branch (two records of one title, in any section, *Done recently* too), are said
 by name, as a dependency problem on the gap or on stderr, never read as no entry and never one picked; the pass goes
 on. Other readers still read GAPS.md. A gap that is not in GAPS.md is asked for as an
 event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):

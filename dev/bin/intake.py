@@ -4,7 +4,7 @@
   main's docs/GAPS.md), outside *Done recently* and not itself done, that the record does not hold yet: `gap.found`
   (open); one GAPS.md marks done or superseded (`head`: the first clause of its opening parenthetical, or after its
   colon, begins with "done" or "superseded by") that the record holds not yet started: `gap.closed` (end done or
-  duplicate); two entries of one id neither, and a record that cannot be read is drawn nowhere: each a dependency
+  duplicate); two entries of one branch (in any section) neither, and a record that cannot be read is drawn nowhere: each a dependency
   problem on its gap, or said on stderr;
 - requests submitted as events (`ergostat event --add gap.requested --item gap/NAME --data '{"title": ...}'`) are in
   the record already, open;
@@ -58,10 +58,10 @@ def head(rest: str) -> str:
     return re.split(r"[;,)]", paren or t, maxsplit=1)[0].strip().lower()
 
 
-def gaps_md(text: str) -> list[dict]:
-    """Every entry of GAPS.md outside *Done recently*: title, section, its line, what it says of itself (gaps_says:
-    done when its head's first clause begins with the word done, superseded when with "superseded by"; else parked,
-    in progress or open, from that clause)."""
+def gaps_md(text: str, done: bool = False) -> list[dict]:
+    """Every entry of GAPS.md outside *Done recently* (in it too, with ``done``): title, section, its line, what it
+    says of itself (gaps_says: done when its head's first clause begins with the word done, superseded when with
+    "superseded by"; else parked, in progress or open, from that clause)."""
     out, section, cur = [], "", None
     for n, line in enumerate(text.splitlines(), 1):
         m = ENTRY.match(line)
@@ -71,7 +71,7 @@ def gaps_md(text: str) -> list[dict]:
         cur = None
         if line.startswith("## "):
             section = line[3:].strip()
-        elif m and not section.lower().startswith("done"):
+        elif m and (done or not section.lower().startswith("done")):
             cur = {"title": m.group(1).rstrip(":").strip(), "section": section, "line": n, "rest": m.group(2)}
             out.append(cur)
     for e in out:
@@ -87,17 +87,20 @@ def gaps_md(text: str) -> list[dict]:
 def read(cfg: dict) -> tuple[str, list[dict], list[tuple[str, str]]]:
     """GAPS.md's text as main's records render it (gapsdoc.entries; before the split, main's docs/GAPS.md), its
     entries, and the problems as (gap id or record name, what): a record that cannot be read, and two entries of one
-    gap id (two records' titles), which is neither found nor closed, never resolved by picking one."""
+    gap branch (two records' titles, in any section, *Done recently* too), which are neither found nor closed, never
+    resolved by picking one."""
     repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
     got = gapsdoc.entries(repo, base)
     text, said = got if got is not None else (fac.git(repo, "show", f"{base}:docs/GAPS.md"), [])
     problems = [(p.split(": ", 1)[0], p.split(": ", 1)[-1]) for p in said]
     at: dict[str, list[dict]] = {}
-    for e in gaps_md(text):
-        at.setdefault(e["id"], []).append(e)
-    problems += [(gid, f"GAPS.md lists it {len(es)} times, lines {', '.join(str(e['line']) for e in es)}: two "
-                       "records of one title; retitle one") for gid, es in at.items() if len(es) > 1]
-    return text, [es[0] for es in at.values() if len(es) == 1], problems
+    for e in gaps_md(text, done=True):                      # (counted over every section: one copy done recently)
+        at.setdefault(fac.slug(e["id"][4:], 32), []).append(e)
+    twice = {e["id"]: es for es in at.values() if len(es) > 1 for e in es}
+    problems += [(gid, f"GAPS.md lists it {len(es)} times, lines "
+                       + ", ".join(f"{e['line']} ({e['section']})" for e in es)
+                       + ": two records of one title (one branch); retitle one") for gid, es in twice.items()]
+    return text, [e for e in gaps_md(text) if e["id"] not in twice], problems
 
 
 def closed_by_gaps(known: dict[str, dict], entries: list[dict]) -> int:

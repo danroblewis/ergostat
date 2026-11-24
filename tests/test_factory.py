@@ -5203,7 +5203,7 @@ def test_two_gaps_editing_gaps_md_merge_cleanly(tmp_path):
     assert rc == 0 and "<<<<<<<" not in text
     assert {e["title"]: e["gaps_says"] for e in intake.gaps_md(text)} == {"Beta": "open"}
     def twice(text: str) -> list[str]:                # the ids intake.read() says as listed more than once
-        ids = [e["id"] for e in intake.gaps_md(text)]
+        ids = [e["id"] for e in intake.gaps_md(text, done=True)]          # (every section, Done recently too)
         return sorted({i for i in ids if ids.count(i) > 1})
     assert "**Alpha** (done, 2222222)" in text and "**Gamma** (done, 3333333)" in text and twice(text) == []
     rc, text = merge_two(tmp_path / "c", "docs/GAPS.md", MERGED_GAPS, MERGED_GAPS.replace("(open): a.", "(open): a!"),

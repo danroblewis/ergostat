@@ -5,6 +5,7 @@ and the Items page's graph of the gaps' dependencies."""
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import time
@@ -225,7 +226,7 @@ def test_two_records_of_one_title_are_reported_never_one_picked(tmp_path):
     assert "intake: gap/epsilon: GAPS.md lists it 2 times" in f.stderr                    # no gap to say it on
     a = f.item("gap/alpha-thing")
     assert a["state"] == "open" and a["fields"]["dependency_problem"] is True
-    assert "GAPS.md lists it 2 times, lines 5, 10" in a["fields"]["dependency_problems"][0]
+    assert "GAPS.md lists it 2 times, lines 5 (Modelling), 10 (Modelling)" in a["fields"]["dependency_problems"][0]
     g = Instance(tmp_path / "pre-split")                                    # (a GAPS.md with no records: the same)
     g.opened()
     from tests.test_factory import git
@@ -234,6 +235,33 @@ def test_two_records_of_one_title_are_reported_never_one_picked(tmp_path):
     git(g.checkout, "commit", "-qam", "a union merge left an entry twice")
     said, lines = g.run("intake.py")
     assert "gap/epsilon" not in {x["item"] for x in lines} and "gap/epsilon: GAPS.md lists it 2 times" in g.stderr
+
+
+def test_one_copy_in_done_recently_is_counted_never_the_open_one_picked(tmp_path):
+    """An entry listed in an open section and again in *Done recently* (two records of one title, one sectioned Done
+    recently; before the split, a union merge's GAPS.md) is two entries of one gap: the open copy is neither found
+    nor, when it says done, closes its gap; it is said, with each copy's line and section."""
+    f = Instance(tmp_path)
+    f.opened()
+    again = {**RECORDS, "GAPS-head": RECORDS["GAPS-head"].replace("@entry delta", "@entry delta\n@entry gamma-2"),
+             "gamma-2": "## Entry\n\nsection: Modelling\n\n- **Gamma** (open): listed again, open.\n"}
+    on_records(f, again)
+    said, lines = f.run("intake.py")
+    assert "gap/gamma" not in {x["item"] for x in lines}                              # never found from the open copy
+    said_gamma = [ln for ln in f.stderr.splitlines() if ln.startswith("intake: gap/gamma: GAPS.md lists it 2 times")]
+    assert len(said_gamma) == 1 and re.search(r"lines \d+ \(Modelling\), \d+ \(Done recently\)", said_gamma[0])
+    g = Instance(tmp_path / "pre-split")
+    g.fold([{"event": "gap.requested", "item": "gap/zeta", "data": {"title": "Zeta", "source": "request",
+                                                                     "branch": "zeta"}}], None)
+    from tests.test_factory import git
+    md = g.checkout / "docs" / "GAPS.md"
+    md.write_text(md.read_text().replace("- **Delta**", "- **Zeta** (done, 5555555): the open copy.\n- **Delta**")
+                  .replace("- **Gamma**: done.", "- **Gamma**: done.\n- **Zeta** (open): the done copy."))
+    git(g.checkout, "commit", "-qam", "a union merge left an entry in a section and in Done recently")
+    said, lines = g.run("intake.py")
+    assert "gap.closed" not in said and g.item("gap/zeta")["state"] == "open"              # not closed by one copy
+    problems = g.item("gap/zeta")["fields"]["dependency_problems"]
+    assert any("GAPS.md lists it 2 times" in p and "(Done recently)" in p for p in problems), problems
 
 
 def said_by_intake(f: Instance) -> list[dict]:

@@ -58,3 +58,27 @@ Run here, each file alone: tests/test_backlog.py (29 passed), tests/test_gaps_do
 alone). Ruff clean. Not run here: the whole unit suite and the four browser files (the factory's and the queue's;
 no page is changed). `scripts/suite_watch.py` and background runs were refused in this session, so the files ran
 under `scripts/named_tests.py` alone.
+
+Round 2, the review's one finding (blocking): read() counted repeated ids with gaps_md(), which skips *Done recently*,
+so an entry in an open section and again in Done recently was acted on from the open copy (a regression from twice()).
+
+- Fixed in `intake.read()`: repeats are counted over every section (`gaps_md(text, done=True)`, a new keyword), and
+  keyed by the gap's branch (`fac.slug(id, 32)`, what the intake gives a found gap), so two titles whose ids differ
+  but that slug to one branch (render()'s `slug to one branch` problem, which named no gap) are caught too. Every
+  gap of such a group is neither found nor closed, and each gets the problem `GAPS.md lists it N times, lines L
+  (section), ...` on itself (or on stderr when no gap has it). dev/README.md and the module docstring say "two
+  entries of one branch, in any section, Done recently too".
+- New test `tests/test_backlog.py::test_one_copy_in_done_recently_is_counted_never_the_open_one_picked`: on records
+  (`gamma` in Done recently and `gamma-2` open in Modelling: gap/gamma not found, said with both sections), and
+  before the split (a GAPS.md with `Zeta` done in an open section and open in Done recently: the requested gap/zeta
+  is not closed, and the problem is on it). With the count put back to skip Done recently, it fails (gap/gamma
+  found). Only the records half was seen to fail that way, since the test stops at its first assert.
+- The helper in `tests/test_factory.py::test_two_gaps_editing_gaps_md_merge_cleanly` counts over every section, as
+  read() now does. The line asserted in `test_two_records_of_one_title_are_reported_never_one_picked` now names
+  sections.
+
+Size: +40 net lines in dev/bin (budget 50). Run here, each file alone: tests/test_backlog.py (30 passed),
+tests/test_factory.py (239 passed, 2 skipped for Docker), tests/test_gaps_doc.py and tests/test_gapsdoc.py (50
+together). `ruff check ergostat tests scripts` is clean, and so is dev/bin/intake.py. Ruff on all of dev/bin finds two
+errors in plan.py and review.py, which this gap does not touch. Not run here: the whole unit suite and the four
+browser files (no page is changed).
