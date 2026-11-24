@@ -1462,7 +1462,8 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
         u = cls[a.split(":", 1)[1]]["letter"] == "C"                          # a subsystem's outputs, one vector: u from a C
         d.sig[f"vec:{a}>{b}"] = {"key": f"vec:{a}>{b}", "sym": "u" if u else "y",
                                  "sub": a.split(":", 1)[1], "what": "vector", "n": len(keys)}
-    _top_loops(d, cls, boxes, edges, out, _coupled(boxes, edges))
+    alone = _uncoupled(spec, boxes, out, edges) if focus is None and keep is None else []
+    rows = _top_loops(d, cls, boxes, edges, out, _coupled(boxes, edges), alone)
     for i, e in enumerate(edges):
         e["id"] = f"w{i}:{e['sourcePort']}>{e['targetPort']}"
         sg = d.sig.get(e["key"]) or d.signal(e["key"])
@@ -1522,7 +1523,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
     for n in node_list:
         n.setdefault("loops", [])
     return {"kind": "blocks", "nodes": node_list, "edges": edges, "frames": list(frames.values()),
-            "open": sorted(open_), "focus": focus,
+            "open": sorted(open_), "focus": focus, **({"rows": rows, "caption": ROWS_CAPTION} if rows else {}),
             "tree": {s: {"within": spec.within.get(s), "description": desc, **({"modelling": True} if s in modelling_systems(spec) else {})}
                      for s, desc in spec.systems.items()}}
 
@@ -1533,10 +1534,65 @@ def _coupled(boxes: dict, edges: list[dict]) -> list[tuple[str, str]]:
                    boxes[e["source"]]["fn"]["letter"] == "C" and boxes[e["target"]]["fn"]["letter"] == "P"})
 
 
-def _top_loops(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict, groups: list[tuple[str, str]]) -> None:
-    """Each group of closed systems drawn as its loop: here each coupled C and P (_top_loop)."""
+ROWS_CAPTION = "no signals between these systems"
+
+
+def _uncoupled(spec: Spec, boxes: dict, out: dict, edges: list[dict]) -> list[str]:
+    """The top-level systems, closed or open, that no wire joins to anything outside them, in the model's order (the
+    Dynamics view's, the model's upkeep last, read last as everywhere); a group only when two or more, else none (one
+    alone stays as it was drawn)."""
+    from .fold import upkeep
+
+    def unit(nid: str) -> str:                     # the top-level system a drawn part is in (else the part itself)
+        ch = spec.chain((boxes.get(nid) or {}).get("system_name") or (out.get(nid) or {}).get("system"))
+        return ch[-1] if ch else nid
+    drawn = {unit(x) for x in [*boxes, *out]}
+    joined = {unit(x) for e in edges if unit(e["source"]) != unit(e["target"]) for x in (e["source"], e["target"])}
+    alone = sorted((s for s in spec.systems if not spec.within.get(s) and s in drawn and s not in joined),
+                   key=lambda s: upkeep(spec, s))
+    return alone if len(alone) > 1 else []
+
+
+def _top_loops(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict, groups: list[tuple[str, str]],
+               alone: list[str]) -> list[dict]:
+    """Each group of closed systems drawn as its loop: each coupled C and P (_top_loop), and the uncoupled systems as
+    parallel rows, each its own r in and y out (_top_row), or its open frame. The rows, top to bottom, after the
+    coupled group."""
     for c, p in groups:
         _top_loop(d, cls, boxes, edges, out, c, p)
+    return [_top_row(d, boxes, edges, out, s) if f"sys:{s}" in boxes else {"system": s, "nodes": [], "frame": f"frame:{s}"}
+            for s in alone]
+
+
+def _top_row(d: _Diagram, boxes: dict, edges: list[dict], out: dict, S: str) -> dict:
+    """An uncoupled system as one row (docs/proposals/blocks-levels.md §3): r, the references of its goals (a vector
+    when several), into its block's west side; y, what those goals hold, out of its east side. A system with no goal
+    is its block alone."""
+    spec, b = d.s, f"sys:{S}"
+    goals = [g for g, x in spec.goals.items() if S in spec.chain(x.system)]
+    if not goals:
+        return {"system": S, "nodes": [b]}
+    rk, ys = [f"goal.{g}.r" for g in goals], list(dict.fromkeys(str(spec.goals[g].of) for g in goals))
+    n, m, rid, oid = len(rk), len(ys), f"ref:top:{S}", f"out:top:{S}"
+    vec = lambda ks: {"key": "vec", "n": len(ks), "keys": ks} if len(ks) > 1 else {"key": ks[0]}    # noqa: E731
+    for k, s_, what, w in (("r", "r", "reference", n), ("y", "y", "output", m)):
+        d.sig[f"top:{k}:{S}"] = {"key": f"top:{k}:{S}", "sym": s_, "sub": S, "what": what, "n": w}
+    out[rid] = {"id": rid, "system": None, "loops": list(goals), "signals": rk, "kind": "input", "role": "reference",
+                "label": f"r {S}", "ins": [], "outs": [{"id": f"{rid}|out|r", "side": "E"}],
+                "fn": {"sym": "r", "sub": S, "bold": n > 1,
+                       "value": f"{goals[0]} {_hold(spec.goals[goals[0]])}" if n == 1 else ", ".join(goals) if n <= 4
+                       else f"{n} goals"},             # (more, written beneath it, widen the row past the screen)
+                "math": [sym("r", S, None, n > 1)], "rows": [["goals", ", ".join(goals)]],
+                "says": f"the references of {S}, {n}: " + "; ".join(f"{g} {_hold(spec.goals[g])}" for g in goals) + "."}
+    out[oid] = {"id": oid, "system": None, "loops": list(goals), "signals": ys, "kind": "output", "role": "output",
+                "label": f"y {S}", "fn": {"sym": "y", "sub": S, "bold": m > 1}, "ins": [{"id": f"{oid}|in|y", "side": "W"}],
+                "outs": [], "math": [sym("y", S, None, m > 1)],
+                "says": f"what {S} puts out, {m}: {', '.join(_keyname(k) for k in ys)}."}
+    boxes[b]["ins"].append({"id": f"{b}|in|r", "side": "W", "row": True, **vec(rk)})    # (its row's: not on its border)
+    boxes[b]["outs"].append({"id": f"{b}|out|y", "side": "E", "row": True, **vec(ys)})
+    for k, a, ap, t, tp, ks in (("r", rid, f"{rid}|out|r", b, f"{b}|in|r", rk), ("y", b, f"{b}|out|y", oid, f"{oid}|in|y", ys)):
+        edges.append({"key": f"top:{k}:{S}", "source": a, "sourcePort": ap, "target": t, "targetPort": tp, "keys": ks})
+    return {"system": S, "nodes": [rid, b, oid]}
 
 
 def _top_loop(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict, c: str, p: str) -> None:

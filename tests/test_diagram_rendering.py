@@ -519,7 +519,8 @@ UPKEEP_BOX = """(id) => {
   const me = S.layout.children.find((c) => c.id === id);
   if (!me) return null;
   const el = document.querySelector(`g.node[data-id="${CSS.escape(id)}"]`);
-  const others = S.layout.children.filter((c) => c !== me);
+  const own = (S.layout.rowMembers || []).find((r) => r.ids.includes(id))?.ids || [id];   // its own row's r and y go with it
+  const others = S.layout.children.filter((c) => !own.includes(c.id));
   const ahead = others.filter((c) => !(me.x >= c.x + c.width - 0.5 || me.y >= c.y + c.height - 0.5)).map((c) => c.id);
   const rule = document.querySelector("path.bd-upkeep-rule")?.getBBox();
   const dashed = [...(el?.querySelectorAll("rect") || [])].some((r) => r.getAttribute("stroke-dasharray"));
@@ -534,7 +535,9 @@ UPKEEP_BOX = """(id) => {
 def test_modelling_is_drawn_last_set_apart_and_labelled(browser, tmp_path, example):
     """The design review (Q13): at the top level ergostat's model of its own upkeep was the top-left box, read first,
     unexplained. In both views it comes last: its top-left corner below or right of every other part, its outline
-    dashed, and it says it is 'ergostat's upkeep of this model, not the system'; in Blocks below a thin rule."""
+    dashed, and it says it is 'ergostat's upkeep of this model, not the system'; in Blocks below a thin rule. When it
+    is one of the uncoupled rows (big), its row's own r and y are part of it, not parts ahead of it, and the rule is
+    above its row (blocks-uncoupled-systems-parallel-rows, round 5)."""
     with served(example, tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1440, "height": 900})
         errors: list[str] = []
@@ -2271,6 +2274,88 @@ def test_the_top_of_blocks_is_a_loop_with_its_junction_ahead_of_the_controller_a
             assert len(ports) >= 2 and all(re.match(r"[uy]", p) for p in ports if p), (s, ports)
         pg.close()
         assert not errors, errors
+
+
+ROWS = """() => {
+  const at = (id) => S.layout.children.find((c) => c.id === id);
+  const cap = [...document.querySelectorAll("svg.canvas text.bd-row-caption")];
+  return { rows: (S.graph.rows || []).map((r) => ({ system: r.system, parts: r.nodes.map(at), frame: r.frame &&
+                                                     S.layout.containers.find((c) => c.id === r.frame) })),
+           outlines: [...document.querySelectorAll("svg.canvas rect.bd-row")].map((r) => ({ system: r.dataset.system,
+             x: +r.getAttribute("x"), y: +r.getAttribute("y"), w: +r.getAttribute("width"), h: +r.getAttribute("height") })),
+           caption: cap.map((t) => ({ text: t.textContent, px: parseFloat(getComputedStyle(t).fontSize), y: +t.getAttribute("y") })) };
+}"""
+
+
+@pytest.mark.parametrize("example,systems", [
+    ("big", ["api", "billing", "build", "data", "support", "web", "modelling"]),
+    ("the-job", ["job", "modelling"]),
+    ("software-factory", [])])
+def test_uncoupled_systems_are_parallel_rows_each_with_r_left_and_y_right_and_a_caption(browser, tmp_path, example, systems):
+    """big's seven systems and the-job's two, joined by no signal, are rows top to bottom in the model's order, left
+    edges aligned, each in its outline, each closed one with its r on its left and its y on its right, and one caption
+    under them, at least 11 px; software-factory's systems are coupled: no rows and no caption."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks", 0)
+        r = pg.evaluate(ROWS)
+        pg.close()
+    assert not errors, errors
+    assert [x["system"] for x in r["rows"]] == systems == [o["system"] for o in r["outlines"]], r
+    if not systems:
+        assert not r["caption"] and not r["outlines"], r
+        return
+    out = r["outlines"]
+    assert len({o["x"] for o in out}) == 1 and all(a["y"] + a["h"] <= b["y"] for a, b in zip(out, out[1:], strict=False)), out
+    within = lambda b, o: o["x"] <= b["x"] and b["x"] + b["width"] <= o["x"] + o["w"] and \
+        o["y"] <= b["y"] and b["y"] + b["height"] <= o["y"] + o["h"]                      # noqa: E731
+    for row, o in zip(r["rows"], out, strict=True):
+        if row["frame"]:
+            assert within(row["frame"], o), (row, o)
+            continue
+        ref, box, y = row["parts"]
+        assert all(within(b, o) for b in (ref, box, y)), (row, o)
+        assert ref["x"] + ref["width"] <= box["x"] and box["x"] + box["width"] <= y["x"], row
+    assert [c["text"] for c in r["caption"]] == ["no signals between these systems"], r["caption"]
+    assert r["caption"][0]["px"] >= 11 and r["caption"][0]["y"] > out[-1]["y"] + out[-1]["h"], r["caption"]
+
+
+def test_rows_keep_their_outlines_when_a_coupled_system_opens_or_closes_in_place(browser, tmp_path):
+    """image-squeeze: modelling and regressions are rows beside the service loop. Opening service, then closing it,
+    keeps it where it was (anchorLayout shifts the whole drawing): each row's parts are still inside its outline,
+    and the caption still under the last row."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks", 0)
+        seen = []
+        for opened in (True, False, True):
+            if len(seen) == 2:                          # and a row's block put by hand (pinned) far from where its row was
+                pg.evaluate("""() => { S.pins = { ...(S.pins || {}), 'hull:frame:modelling': { x: 1500, y: 40 } };
+                                       localStorage.setItem(S.pinKey, JSON.stringify(S.pins)); }""")
+            anchor = pg.evaluate("() => { S.toggleSystem('service'); return S.anchor; }")
+            pg.wait_for_function(f"() => S.graph && (S.graph.open || []).includes('service') === {str(opened).lower()} && "
+                                 "!S.anchor && S.layout && !S.layout.routing && document.querySelectorAll('svg.canvas rect.bd-row').length",
+                                 timeout=30000)
+            pg.wait_for_timeout(300)
+            seen.append((opened, anchor, pg.evaluate(ROWS)))
+        pg.close()
+    assert not errors, errors
+    assert all(a for _, a, _ in seen), [(o, a) for o, a, _ in seen]     # (each time, the drawing was to be kept in place)
+    pinned = next(p for row in seen[2][2]["rows"] for p in row["parts"] if p and p["id"] == "sys:modelling")
+    assert (pinned["x"], pinned["y"]) == (1500, 40), pinned
+    within = lambda b, o: o["x"] <= b["x"] and b["x"] + b["width"] <= o["x"] + o["w"] and \
+        o["y"] <= b["y"] and b["y"] + b["height"] <= o["y"] + o["h"]                      # noqa: E731
+    for opened, _, r in seen:
+        assert len(r["rows"]) >= 2 and [x["system"] for x in r["rows"]] == [o["system"] for o in r["outlines"]], (opened, r)
+        for row, o in zip(r["rows"], r["outlines"], strict=True):
+            parts = [b for b in [*row["parts"], row["frame"]] if b]
+            assert parts and all(within(b, o) for b in parts), (opened, row, o)
+        out = r["outlines"]
+        assert len(r["caption"]) == 1 and r["caption"][0]["y"] > max(o["y"] + o["h"] for o in out), (opened, r["caption"], out)
 
 
 def test_sensors_polled_alike_are_drawn_alike_with_a_sampler(browser, tmp_path):
