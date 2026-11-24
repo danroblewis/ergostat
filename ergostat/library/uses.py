@@ -88,10 +88,12 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         why = ("its ask, prompt, query and sources may hold only text the owner or a trusted template wrote, and this "
                "holds text the library wrote (R3)" if text else "a use of such a folder may make only structure, and "
                "run only the owner's own commands and ergostat's programs with checked arguments")
+        lib = getattr(u, "library", None)
+        src, fix = ((f"from the fetched library {lib}, not marked trust: owner in libraries:", "mark it trust: owner")
+                    if lib else ("a library folder not marked trusted", "mark a folder trusted"))
         doc.problems.append(Problem(
-            "error", f"use {inst}: refused, and nothing of it is in the model: it makes {mark(said, FILE)}, a library "
-            f"folder not marked trusted, and {why} "
-            f"(SPEC §2a). Only the owner can mark a folder trusted, after reading it.",
+            "error", f"use {inst}: refused, and nothing of it is in the model: it makes {mark(said, FILE)}, {src}, "
+            f"and {why} (SPEC §2a). Only the owner can {fix}, after reading it.",
             at, "untrusted-text" if text else "library-unsandboxed" if path.endswith(".daemon") else "library-untrusted",
             f"system.{inst}"))
         return
@@ -136,9 +138,6 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
         broken += [f"library {n} refused: {code}, {why}" for n, (code, why) in getattr(doc, "refused", {}).items()]
         return err(f"no template {entry['use']!r} (there are: {', '.join(sorted(lib)) or 'none'}; the owner's own come "
                    f"from library: in the main file)" + "".join(f"; {b}" for b in broken), at, "unknown-template")
-    if t.library and not tp.trusted(t):
-        return err(f"template {t.name} is from library {t.library}, not marked trust: owner: it is listed, never "
-                   f"expanded (SPEC §2a)", at, "library-untrusted")
     if t.once:
         uses = {**doc.uses, **{s[1]: s[2] for s in chain.steps if s[0] == "use"}}
         prior = next((n for n, u in uses.items() if u["template"] == t.name), None)
