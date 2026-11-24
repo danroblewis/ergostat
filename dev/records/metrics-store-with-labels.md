@@ -219,3 +219,28 @@ Run here, one file at a time: test_metrics_store_labels gave 12 passed and 5 ski
 test_storage and test_daemon_docs it gave 48 passed and 5 skipped. test_dashboards_doc, test_cli_fallback and
 test_spec_structure gave 63 passed. ruff is clean. `main` was already merged (it is an ancestor of HEAD). Not run: the
 whole unit suite, the browser files (no page changed) and `demo_check` (no example touched).
+
+## Where it stopped
+
+Round 5, the fix round: built, 2026-11-24. No code outside tests changed this round (one test line).
+
+The queue's one finding (blocking), answered:
+- **The old-name test's expected dict had drifted.** `test_a_record_under_the_old_single_name_is_renamed_once`
+  compared the second run with a dict that had no `missing` or `lost`, but `migrate` has returned both since round 4.
+  So on any host with a binary, this test would have failed every time. It now expects
+  `{"series": 0, "readings": 0, "sent": 0, "renamed": 0, "missing": 0, "lost": {}}`.
+- **The other four real-server tests, re-read for the same drift.** No other drift was found:
+  - `test_a_record_is_migrated_with_every_reading_and_answers_promql` already names all six keys.
+  - `test_migrating_twice_changes_nothing` compares `{**first, "sent": 0}`, which carries `missing` and `lost` over
+    from the first run.
+  - The retention test reads only `sent`, `lost` and `missing`.
+  - The rate/increase test does not call `migrate`.
+
+Still not proven: **no VictoriaMetrics binary is in reach**. `which victoria-metrics victoria-metrics-prod vmsingle`
+finds none, and fetching one would reach the network, which this session may not do. So the five real-server tests
+skipped again, and done items 1 and 2 still have no passing run behind them. The fix above was checked only by reading
+it against `migrate.py:63`, not by running it. The step left for the coordinator: run
+`tests/test_metrics_store_labels.py` with `ERGOSTAT_TEST_VM_BIN` set to a VictoriaMetrics binary before landing.
+
+Run here: test_metrics_store_labels gave 12 passed and 5 skipped (the real-server tests). ruff is clean. `main` is an
+ancestor of HEAD. Not run: the whole unit suite, the browser files and `demo_check` (nothing they cover changed).

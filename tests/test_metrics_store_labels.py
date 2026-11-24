@@ -461,7 +461,7 @@ def test_a_record_under_the_old_single_name_is_renamed_once(tmp_path, vm):
         [s] = dst.series()
         assert (s["n"], s["value"]) == (4, 4.0)                          # both names read, before it migrates
         assert migrate(tmp_path, dst)["renamed"] == 1
-        assert migrate(tmp_path, dst) == {"series": 0, "readings": 0, "sent": 0, "renamed": 0}
+        assert migrate(tmp_path, dst) == {"series": 0, "readings": 0, "sent": 0, "renamed": 0, "missing": 0, "lost": {}}
         got = dst._export(None, 0, UNTIL, sel="{" + f'project="{dst.project}"' + "}")
         assert [v for _, v in got["sensor/q.n"]] == [1.0, 2.0, 3.0, 4.0]
         assert dst._query(f'count({OLD_METRIC}{{project="{dst.project}"}})', now) == []
