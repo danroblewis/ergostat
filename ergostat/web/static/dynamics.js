@@ -233,10 +233,10 @@ function sdSparkRow(sg, m, ser, [y, from, to]) {
   const full = ser?.unit && ser.kind !== "flow" && v !== "–" ? `${v} ${ser.unit}` : v;
   const span = !d ? "no readings" : `${fmt(lo)}–${fmt(hi)}`;
   for (const said of [...new Set([full, bare])]) {
-    const row = s("g", { class: "sd-spark", "data-ref": ser?.ref || m.part, role: "img",
-                         "aria-label": `${m.label}: ${said} now; ${d ? `from ${fmt(lo)} to ${fmt(hi)}` : "nothing read"} over the window, on its own scale` });
+    const row = fullOnHover(s("g", { class: "sd-spark", "data-ref": ser?.ref || m.part, role: "img",
+                         "aria-label": `${m.label}: ${said} now; ${d ? `from ${fmt(lo)} to ${fmt(hi)}` : "nothing read"} over the window, on its own scale` }), m);
     sg.append(row);
-    const name = s("text", { y: y + 4, class: "t-sub sd-spark-name" }, m.label);
+    const name = s("text", { y: y + 4, class: "t-sub sd-spark-name" }, nameOf(m));
     const now = s("text", { y: y + 4, class: "t-sub sd-spark-value live" + (m.stale ? " sd-spark-stale" : "") }, said);
     const scale = s("text", { y: y + 4, class: "t-sub sd-spark-scale live" }, span);
     row.append(name, now, scale);

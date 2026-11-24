@@ -187,6 +187,48 @@ with Playwright, from `tests/test_diagram_rendering.py`: this branch's two hover
 in the conflict (3 passed, rc 0). Not run: the rest of the browser file, the other three browser files, the unit
 suite, `demo_check` (no example changed).
 
+## Where it stopped (round 6)
+
+No merge needed: local `main` (b20756c7) is already merged in. 128 net lines of code outside `tests/`, `docs/` and
+`dev/` (`git diff --numstat main`).
+
+The one finding, the Dynamics view's sparkline rows: `finish()` (`dynamics.py`) moves a closed box's measures into
+`charted` before `shorten` runs, so nothing marked the rows the page draws. Now:
+- `shown.py` marks `charted` as inside its box, as it does `measures` and `ports`, and counts them in the clash check.
+- `dynamics.js`'s `sdSparkRow` draws the name by `nameOf(m)`, and `fullOnHover` is on the row's group, so pointing
+  at any part of the row shows the full name. Its `aria-label` and `data-ref` keep the full name and ref.
+- SPEC §2a now says "the closed box whose port or headline-measure sparkline it is" (the page draws no measure rows).
+- Unit test: the closed box in
+  `test_inside_a_systems_box_the_short_name_is_shown_with_the_full_name_available_outside_the_full_name` now has
+  `charted` rows. One is owned and one hand-written.
+- Browser test: `test_a_closed_boxs_sparkline_reads_by_its_short_name_with_its_full_name_on_hover`. It waits for
+  help-queue's sparkline. In small-requests as it is, `help-queue-oldest` reads by its full name, because
+  review-reminders' measure is also `oldest` (the clash rule). With review-reminders taken out, it reads `oldest`,
+  and `help-queue-oldest` while pointed at.
+
+Each piece was broken in turn, and the tests caught every break:
+- `charted` taken out of `shorten`: the browser test and the unit test both failed.
+- `nameOf(m)` changed back to `m.label`: the browser test failed.
+- `fullOnHover` handed `{}`: the browser test failed.
+
+A choice made with nobody to ask: a row is fitted into its box by its short name. When pointed at, its longer full
+name may run over the value beside it until the pointer leaves. A box's port does the same. Fitting by the full name
+would drop rows that fit, and that is harder to undo.
+
+Tests run, serially: `test_parts_belong.py`, `test_dynamics_view.py`, `test_graph_cli_web.py` (92 passed). Ruff clean.
+Under the watchdog with Playwright, from `tests/test_diagram_rendering.py`, these passed with rc 0:
+- the new sparkline test;
+- `test_a_closed_module_draws_three_sparklines_after_its_structure_without_moving_a_box` (light and dark);
+- `test_an_examples_closed_modules_find_room_for_their_measures_and_nothing_read_is_no_line`;
+- `test_a_measure_the_answer_cut_past_its_ceiling_draws_nothing_never_no_readings`;
+- the two earlier hover tests.
+
+`test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip` failed on 21 of 23 examples. It is the same
+failure as round 4: "tooltip on title: Drawn alike here with B… requests-handled". That `<title>` is main's
+(`git grep` finds it at main's `dynamics.js:607`), and this branch's diff to main does not touch it, so it is not fixed
+here (lesson-13). Not run: the rest of the browser file, the other three browser files, the unit suite, `demo_check`
+(no example changed).
+
 ## Entry
 
 section: Remote systems and libraries

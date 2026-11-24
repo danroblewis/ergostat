@@ -130,9 +130,12 @@ def test_inside_a_systems_box_the_short_name_is_shown_with_the_full_name_availab
     # a closed box: its measure rows and ports are inside it
     box = {"id": "system:questions", "kind": "system", "label": "questions", "systems": ["work"],
            "measures": [{"part": "stock:questions-waiting", "label": "questions-waiting"}],
+           "charted": [{"part": "stock:questions-waiting", "label": "questions-waiting"},     # (the Dynamics view's
+                       {"part": "stock:questions-extra", "label": "questions-extra"}],         # sparkline rows)
            "ports": [{"id": "p", "label": "questions-waiting"}, {"id": "q", "label": "questions-extra"}]}
     shorten(_graph([box]), spec)
     assert box["measures"][0]["shown"] == "waiting" and box["ports"][0]["shown"] == "waiting"   # one part: no clash
+    assert box["charted"][0]["shown"] == "waiting" and "shown" not in box["charted"][1]
     assert "shown" not in box["ports"][1]
     assert [n.get("shown") for n in g["nodes"]] == ["waiting", None]              # what shorten hands back: the same nodes
 

@@ -1,6 +1,7 @@
 """A part drawn inside its own system's box by its short name (SPEC §2a, *A part's system*).
 
-Only the label changes: a node, a box's measure row or a box's port gets ``shown`` (its short name) when the system
+Only the label changes: a node, a box's measure row (``measures``, or ``charted``: the Dynamics view's sparkline rows)
+or a box's port gets ``shown`` (its short name) when the system
 it belongs to (``spec/belongs.py``) is drawn around it: the system drilled into, an open system's outline it sits in,
 or the box whose row or port it is. Its ``label`` (its full name, which links and lookups use) is kept. A part whose
 system is not known, or not drawn around it, has no ``shown``: its full name is drawn. A short name that would read
@@ -32,7 +33,7 @@ def shorten(g: dict, spec) -> dict:
         mark(n, around(n))
         drawn.append(n)
         if n.get("kind") == "system":                      # its rows and ports: inside its box
-            for x in [*(n.get("measures") or []), *(n.get("ports") or [])]:
+            for x in [*(n.get("measures") or []), *(n.get("charted") or []),*(n.get("ports") or [])]:
                 mark(x, {n.get("label"), *around(n)})
                 drawn.append(x)
     while True:                                            # never two parts alike: a clash drawn with full names

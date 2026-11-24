@@ -7534,6 +7534,45 @@ def test_a_closed_boxs_port_reads_by_its_short_name_with_its_full_name_on_hover(
         assert not errors, errors
 
 
+# every closed box's sparkline: its box, its name as drawn, pointed at, and left again
+SPARK_NAMES = """() => [...document.querySelectorAll('svg.canvas g.node[data-id^="system:"] .sd-spark')].map((r) => {
+  const t = r.querySelector(".sd-spark-name"), said = () => t.textContent;
+  const text = said(); r.dispatchEvent(new PointerEvent("pointerenter")); const pointed = said();
+  r.dispatchEvent(new PointerEvent("pointerleave"));
+  return { box: r.closest("g.node").dataset.id.slice(7), text, pointed, left: said() }; })"""
+SPARKED_HQ = """() => document.querySelectorAll('svg.canvas g.node[data-id="system:help-queue"] .sd-spark').length > 0"""
+
+
+def _no_review_reminders(d: Path) -> None:              # (re-ping's measure is ``oldest`` too)
+    f = d / "ergostat.yaml"
+    f.write_text(re.sub(r"  review-reminders:.*?(?=\n  morning:)", "", f.read_text(), flags=re.S))
+
+
+def test_a_closed_boxs_sparkline_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
+    """The closed help-queue box's headline measure (a sparkline, drawn once its answer comes) reads ``oldest``, pointed
+    at ``help-queue-oldest``. Beside review-reminders, whose own measure is also ``oldest``, both read by their full
+    names, so two never read alike (SPEC §2a, *A part's system*)."""
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    with served("small-requests", tmp_path / "both") as url:
+        drawn(pg, url, "view=dynamics&system=work&open=", 0)
+        pg.wait_for_function(SPARKED_HQ, timeout=30000)
+        rows = pg.evaluate(SPARK_NAMES)
+        full = "help-queue-oldest"
+        assert {"box": "help-queue", "text": full, "pointed": full, "left": full} in rows, rows
+        other = pg.evaluate("""() => { const n = S.graph.nodes.find((x) => x.id === "system:review-reminders");
+          return [...n.charted, ...n.ports].filter((x) => x.label === "review-reminders-oldest").map((x) => x.shown || x.label); }""")
+        assert other and set(other) == {"review-reminders-oldest"}, other    # (its measure, drawn by its full name too)
+    with served("small-requests", tmp_path / "one", edit=_no_review_reminders) as url:
+        drawn(pg, url, "view=dynamics&system=work&open=", 1)
+        pg.wait_for_function(SPARKED_HQ, timeout=30000)
+        rows = [r for r in pg.evaluate(SPARK_NAMES) if r["box"] == "help-queue"]
+        assert rows == [{"box": "help-queue", "text": "oldest", "pointed": "help-queue-oldest", "left": "oldest"}], rows
+    pg.close()
+    assert not errors, errors
+
+
 @pytest.mark.serial
 def test_open_all_on_a_flat_model_that_will_not_fit_stays_at_the_system_boxes_and_says_into(browser, tmp_path):
     """big (its systems all first level, too big open at 1600x1000): 'Open all (system boxes)' keeps every system a

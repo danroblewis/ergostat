@@ -159,7 +159,7 @@ serve. An inner instance's system belongs to the outer one (`INSTANCE-INNER` is 
 template's inner use too, since its name is prefixed), and the inner instance's parts to it. Full names do not
 change: every reference, event and record keeps them. Only the drawing uses the short name: in the Dynamics view
 (once called Control), a part drawn inside its own system (the system drilled into, an open system's outline, or
-the closed box whose measure row or port it is) reads by its short name; pointed at, it reads by its full name (in
+the closed box whose port or headline-measure sparkline it is) reads by its short name; pointed at, it reads by its full name (in
 its own text, since a part has no tooltip), and its panel and every link use the full name. Anywhere else (a
 terminal at the edge, a view of what is around a part, the Blocks and Process views) it reads by its full name, as
 does a part whose system is not recorded. A short name that would read the same as another part drawn in the same
