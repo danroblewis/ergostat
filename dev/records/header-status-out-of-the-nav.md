@@ -42,3 +42,7 @@ Built, round 1. The header status was written in util.js (refreshHeader) and ind
   lists the other project) and `test_items_page.py::test_every_surface_prints_the_servers_one_count_of_goals_off`
   (the Goals page heading is "Goals · ...", the test wants "Loops · ..."). Both now pass the header assertions this
   branch changed before reaching the failing line.
+- Round 2 (the queue's finding): `tests/test_style_tokens.py::test_below_760_px_the_tabs_wrap_and_never_scroll_sideways`
+  failed because round 1 dropped `flex-wrap: wrap; overflow-x: visible` from the 759 px rule as redundant with the
+  base rule. They are restored there (one line of style.css); the test was seen to fail without them and passes with
+  them, and the acceptance test still passes at 1280 and 390.
