@@ -1,9 +1,9 @@
 """``python -m ergostat.repair fix`` (SPEC §12r), ``repair-fix``'s run on one leased failure: a clone of the project's
 repository (its own ``.git``), the AI's fix (no tools: it is given what ergostat read), the test in ``ergostat.sandbox``,
 the impact report, and ``apply-fix`` asked for, held for the person (the ladder's first rung) or, with ``--approver
-ai``, ``program`` (``--approve-with``) or ``rule``, reviewed by ``approve.py`` behind the guard of ``allow.py`` (with ``--promote``, at the rung ``promote.py`` works out
-from the record). What to run
-comes from the compiled model and the state directory; a failure's fields are ergostat's alone (a sealed kind)."""
+ai``, ``program`` (``--approve-with``) or ``rule``, reviewed by ``approve.py`` behind the guard of ``allow.py``
+(with ``--promote``, at the rung ``promote.py`` works out from the record). What to run comes from the compiled model
+and the state directory; a failure's fields are ergostat's alone (a sealed kind)."""
 
 from __future__ import annotations
 
