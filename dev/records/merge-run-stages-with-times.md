@@ -124,6 +124,7 @@ Run here, one file at a time, rc 0 unless said:
 - browser files under the watchdog with Playwright 1.63.0, none skipped: test_dashboard_merge_queue (1),
   test_sql_editor (2), test_dashboard_page and test_panel_editor (71 with test_sql_editor);
 - test_queue_batch_item (19, Playwright): all pass but one, below.
+- the real queue's other files, together: test_queue, test_queue_host, test_queue_halves (86 passed).
 - ruff is clean.
 
 Failing, and not from this branch (lesson-13):
