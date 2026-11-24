@@ -4953,14 +4953,26 @@ other loop with that head is the head "via" the fewest of its members no sibling
 first, then stocks, auxiliaries, goals and blocks (`backlog-clear via rejected`). Never numbered,
 never a list of everything in it.
 
-**Drawn** (the dynamics view, `ergostat/dynamics.py`): each loop is labelled as Sterman numbers them,
-R1, B1 (the shortest first, the ones the model names before others of their length), with its name
-beneath. Only loops of known polarity are marked on the diagram, each inside the loop as drawn; the
-others are one entry beside it, "+N of unknown polarity", that opens to list them. A loop's panel lists
+**Drawn** (the dynamics view, `ergostat/dynamics.py`): a marker is drawn for each loop the model names
+and for one loop per goal, its **goal-seeking loop**: the shortest balancing loop through the goal's gap
+as drawn (of those alike in length, one the model names, then the first by its first flow's name); a
+loop two goals would take is the first goal's. Every other loop is **minor**: listed in the side list's
+folded *minor loops (N)*, and its marker and its lines drawn, in the accent, only while it is chosen or
+pointed at there. Each loop is labelled as Sterman numbers them, R1, B1 (the drawn before the minor,
+the shortest first, the ones the model names before others of their length); a drawn loop's marker
+prints its name beneath (the model's, else its goal's name), never a path and never a count; a minor
+loop's prints no name. The loop's panel gives its path (its members as drawn, in order, back to the
+first) under its name. Only loops of known polarity are marked on the diagram, each inside the loop as
+drawn; the others are one entry beside it, "N of unknown polarity", that opens to list them. A
+system's loop count is the loops with a part in it, said "N named, M minor" (named: drawn): its panel
+(the box, closed) and the side list of the view drawing that system alone give the same two numbers;
+drawn from the top, the list counts every loop. At the head of the list, the loop of the list's that
+dominates now (`/api/dominance`: the one dominant in the last bucket at a stock, scoring most of
+those), when one does. A loop's panel lists
 every link around it (through closed systems too) by plain names, each with the one sign its connector is
 drawn with; a flow's into its stock, and a stock's and a desired level's into its gap, are signed by
 definition. A link still without a sign (or signs that disagree with the model's) makes its marker read `?`
-and the panel name the link; loops drawn alike share one marker, "N alike", its title naming the others. A goal is drawn
+and the panel name the link; drawn loops alike here share one marker, its panel naming the others. A goal is drawn
 as a desired level (a value: `desired backlog = 0`) and the discrepancy that drives the correction +:
 for a ceiling the **excess** (actual − desired), for a floor or a level held the **gap** (desired −
 actual); when the decisions serving it switch (on while backlog > 0, off once it is ≤ 0), the panel

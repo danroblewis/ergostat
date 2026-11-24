@@ -648,7 +648,8 @@ svg.sd .edge.lit .pipe-head, svg.sd .edge.in-loop .pipe-head, svg.sd .edge.lit .
 .loop-marker .marker-arc { fill: none; stroke: var(--sd-ink); stroke-width: 1.4; }
 .loop-marker .marker-head { fill: var(--sd-ink); }
 .loop-marker .marker-letter { fill: var(--sd-ink); font-size: var(--canvas-sm); font-weight: 700; }
-.loop-marker .marker-more { fill: var(--sd-muted); font-size: var(--canvas-sm); font-weight: 600; }
+.loop-marker.minor:not(.on) { display: none; }          /* a minor loop: drawn only while chosen or pointed at in the list */
+.loop-marker.minor { cursor: auto; }                     /* (its row there is its button: keys.js) */
 .loop-marker .marker-name { fill: var(--sd-ink); font-size: var(--canvas-sm); font-style: italic; paint-order: stroke; stroke: var(--sd-paper); stroke-width: 3px; stroke-linejoin: round; }
 .loop-marker.pol-unknown .marker-arc { stroke: var(--sd-muted); }
 .loop-marker.pol-unknown .marker-head, .loop-marker.pol-unknown .marker-letter, .loop-marker.pol-unknown .marker-name { fill: var(--sd-muted); }

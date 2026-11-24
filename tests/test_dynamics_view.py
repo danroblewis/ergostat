@@ -248,6 +248,53 @@ def test_every_loop_is_labelled_and_runs_through_parts_drawn_and_lines_it_is_a_l
             assert any(c["name"] in e["causal"] and {e["from"], e["to"]} == {a, b} for e in g["edges"]), (c["name"], a, b)
 
 
+PRODUCT_LOOPS = {"bug-fixing": "no-live-bugs", "features-shipped": "few-missing", "users-won": "users-growing",
+                 "regressions": None, "long-tail": None}
+
+
+def test_the_named_loops_and_one_per_goal_are_drawn_and_every_other_loop_is_minor(factory):
+    """SPEC §12a: a `loops:` entry names one loop; each goal's goal-seeking loop is the shortest balancing loop
+    through its gap (a named one first); those are drawn, the rest are minor. software-factory's product names its
+    main loops, and each product goal's loop is the named one, so no marker carries a goal's name there."""
+    g = factory(view="dynamics", open="*")
+    spec = mdl.load(ROOT / "examples" / "software-factory").spec
+    loops = {c["name"]: c for c in g["causalLoops"]}
+    assert set(spec.named_loops) == {"rework", *PRODUCT_LOOPS}
+    assert {n for n, c in loops.items() if c["named"]} == set(spec.named_loops)      # each entry names exactly one loop
+    for name, goal in PRODUCT_LOOPS.items():
+        assert loops[name]["goal"] == goal and loops[name]["shown"] == name, loops[name]
+        assert "product" in loops[name]["systems"]
+    seekers = {c["goal"]: c for c in loops.values() if c["goal"]}
+    assert len(seekers) == sum(1 for c in loops.values() if c["goal"]) <= len(spec.goals)   # one loop per goal at most
+    for goal, c in seekers.items():                                       # balancing, through its gap, the shortest
+        assert c["polarity"] == "B" and f"gap:{goal}" in c["nodes"], c
+        rivals = [x for x in loops.values() if x["polarity"] == "B" and f"gap:{goal}" in x["nodes"]]
+        assert len(c["parts"]) == min(len(x["parts"]) for x in rivals), (goal, c["name"])
+        assert c["shown"] == (c["name"] if c["named"] else goal)
+    major = [c for c in loops.values() if not c["minor"]]
+    assert {c["name"] for c in major} == set(spec.named_loops) | {c["name"] for c in seekers.values()}
+    assert len(major) <= len(spec.named_loops) + len(spec.goals) < len(loops), (len(major), len(loops))
+    assert not [c["shown"] for c in major if " via " in c["shown"]]
+    for pol in "RB":                                                       # the drawn take the first numbers: B1, B2 …
+        ns = sorted(int(c["label"][1:]) for c in major if c["polarity"] == pol)
+        assert ns == list(range(1, len(ns) + 1)), (pol, ns)
+    assert all(not c["named"] and not c["goal"] for c in loops.values() if c["minor"])
+    # the routed read: users-won runs through the stock → block read its goal's gap is drawn on
+    assert ("stock.users", "block.product-manager") in zip(loops["users-won"]["parts"], loops["users-won"]["parts"][1:], strict=False)
+
+
+def test_a_system_s_box_and_the_list_drawing_it_alone_count_its_loops_alike(factory):
+    """Q22: a system's loop count is the loops with a part in it, named and minor: on its box (closed) and in the side
+    list of the view drawing it alone, the same two numbers."""
+    top = factory(view="dynamics", open="-")
+    box = next(n for n in top["nodes"] if n["kind"] == "system" and n["label"] == "product")["loopCount"]
+    alone = factory(view="dynamics", system="product")
+    assert alone["loopCount"] == box and box["named"] and box["minor"], (alone["loopCount"], box)
+    mine = [c for c in alone["causalLoops"] if "product" in c["systems"]]
+    assert box == {"named": sum(not c["minor"] for c in mine), "minor": sum(c["minor"] for c in mine)}
+    assert top["loopCount"]["named"] + top["loopCount"]["minor"] == len(top["causalLoops"])     # everything: every loop
+
+
 def test_closed_systems_fold_the_loops_into_their_boxes(factory):
     g = factory(view="dynamics")
     ids = {n["id"] for n in g["nodes"]}

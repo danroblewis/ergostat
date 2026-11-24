@@ -3067,7 +3067,7 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                                   return s.textContent; })() };
         }""")
         assert r["unknown"] > 0 and r["unknownMarked"] == 0 and r["marked"]
-        assert r["sum"].startswith(f"+{r['unknown']} of unknown polarity"), r["sum"]
+        assert r["sum"].startswith(f"{r['unknown']} of unknown polarity"), r["sum"]
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
         assert r["hullStroke"] in ("none", None) or "0)" in r["hullStroke"], r["hullStroke"]   # a sector: a tint, no outline
         assert r["hullFill"] not in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]
@@ -3338,18 +3338,18 @@ def test_a_loop_marker_moves_with_its_system_when_the_system_is_dragged(browser,
         pg.wait_for_timeout(300)
         where = ("(n) => { const r = document.querySelector(`.loop-marker[data-loop=\"${n}\"]`).getBoundingClientRect(); "
                  "return [r.x, r.y]; }")
-        before = pg.evaluate(where, "missing-ops")                          # inside product: missing-ops → asks … shipped
+        before = pg.evaluate(where, "long-tail")                            # inside product: users → asks → missing-ops → churn
         grip = pg.locator('svg.canvas g.hull[data-hull="product"] rect.hull-grip').bounding_box()
         x, y = grip["x"] + 60, grip["y"] + 10
         pg.mouse.move(x, y)
         pg.mouse.down()
         for i in range(1, 11):
             pg.mouse.move(x + 12 * i, y + 8 * i)
-        mid = pg.evaluate(where, "missing-ops")                             # during the drag it goes along
+        mid = pg.evaluate(where, "long-tail")                           # during the drag it goes along
         assert mid[0] - before[0] > 60 and mid[1] - before[1] > 40, (before, mid)
         pg.mouse.up()
         pg.wait_for_timeout(500)
-        after = pg.evaluate(where, "missing-ops")                           # and placed again where its loop now is
+        after = pg.evaluate(where, "long-tail")                         # and placed again where its loop now is
         assert after[0] - before[0] > 60 and after[1] - before[1] > 40, (before, after)
         pg.close()
 
@@ -3378,7 +3378,7 @@ LOOP_SIGNS = """(label) => {
 def test_a_loop_is_called_r_or_b_only_when_every_link_has_a_sign(browser, tmp_path):
     """software-factory's product system: R2's 'Around the loop' gives every link (all of them, through delivery
     too) a sign, or its marker reads '?'; each part by its plain name; a connector drawn here shows the row's sign;
-    no marker reads '+1' (loops drawn alike: 'N alike')."""
+    no marker reads '+1' or carries a count of loops drawn alike (their panel names them)."""
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         errors: list[str] = []
@@ -3396,7 +3396,69 @@ def test_a_loop_is_called_r_or_b_only_when_every_link_has_a_sign(browser, tmp_pa
             assert not named, (v, named)
             assert not [t for t in r["markers"] if re.search(r"\+\d$", t)], (v, r["markers"])
             assert all(shown == row for _, shown, row in r["drawnSigns"]), (v, r["drawnSigns"])
-            assert all(re.fullmatch(r"\d+ alike", t) and re.search(r"[RB?]\d+ ", title) for t, title in r["alike"]), (v, r["alike"])
+            assert not r["alike"], (v, r["alike"])
+        assert not errors, errors
+        pg.close()
+
+
+SD_SHOWN = """() => [...document.querySelectorAll('svg.canvas .loop-marker')].filter((m) => getComputedStyle(m).display !== 'none')
+  .map((m) => ({ loop: m.dataset.loop, text: m.textContent, minor: m.classList.contains('minor'),
+                 name: [...m.querySelectorAll('.marker-name')].map((t) => t.textContent).join(' ') }))"""
+
+
+def test_dynamics_marks_the_named_loops_and_one_per_goal_and_a_minor_loop_only_while_chosen(browser, tmp_path):
+    """dynamics-minor-loops-folded-and-named: on software-factory ?system=product (1) at most the model's named loops
+    plus one per goal have a marker, none minor, and no marker text has a '+'; (2) a minor loop chosen in the list's
+    'minor loops (N)' has its marker and its lines lit, and chosen again both go; (3) a named loop's marker prints
+    its name, its panel its path; (4) product's box (its panel, everything closed) and the list drawing product alone
+    give the same 'N named, M minor'."""
+    from ergostat import model as mdl
+    spec = mdl.load(ROOT / "examples" / "software-factory").spec
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        by = {c["name"]: c for c in pg.evaluate("() => S.graph.causalLoops")}
+        shown = pg.evaluate(SD_SHOWN)
+        assert shown and len(shown) <= len(spec.named_loops) + len(spec.goals), shown                      # 1
+        assert not [m for m in shown if m["minor"] or by[m["loop"]]["minor"]], shown
+        assert not [m["text"] for m in shown if "+" in m["text"]], shown
+        named = [m for m in shown if by[m["loop"]]["named"]]                                               # 3
+        assert {m["loop"] for m in named} >= {"bug-fixing", "regressions", "features-shipped", "users-won", "long-tail"}, named
+        assert all(m["name"] == m["loop"] for m in named), named
+        pg.locator('.loop-marker[data-loop="bug-fixing"]').dispatch_event("click")
+        pg.wait_for_function("() => document.querySelector('#detail .loop-path')", timeout=5000)
+        path = pg.locator("#detail .loop-path").inner_text()
+        assert pg.locator("#detail .subtitle").inner_text() == "bug-fixing"
+        steps = path.split(" → ")                                                     # round the loop, back to its start
+        assert len(steps) > 3 and steps[0] == steps[-1] and {"bugs-live", "filed-bugs", "fixes"} <= set(steps), path
+        pg.locator('.loop-marker[data-loop="bug-fixing"]').dispatch_event("click")                       # (let go)
+        minor = pg.evaluate("() => [...document.querySelectorAll('svg.canvas .loop-marker.minor')].map((m) => m.dataset.loop)")
+        assert minor, "no minor loop drawn here to choose"                                                 # 2
+        pg.evaluate("() => { for (const d of document.querySelectorAll('.side details.loops, .side details.sd-minor')) d.open = true; }")
+        summary = pg.locator(".side details.sd-minor > summary").inner_text()
+        rows = pg.locator(".side details.sd-minor .looprow")
+        assert summary == f"minor loops ({rows.count()})" and rows.count() >= len(minor), (summary, rows.count())
+        row = pg.locator(f'.side details.sd-minor .looprow[data-loop="{minor[0]}"]')
+        lit = "() => document.querySelectorAll('svg.canvas .edge.in-loop').length"
+        assert pg.evaluate(lit) == 0
+        row.hover()                                                                                        # pointed at: drawn
+        assert minor[0] in [m["loop"] for m in pg.evaluate(SD_SHOWN)]
+        row.click()                                                                                        # chosen: drawn, lit
+        pg.mouse.move(5, 500)
+        assert minor[0] in [m["loop"] for m in pg.evaluate(SD_SHOWN)] and pg.evaluate(lit) >= 2
+        assert pg.locator("#detail .subtitle").inner_text() == minor[0]
+        pg.keyboard.press("Escape")                                                                        # let go (its panel
+        pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)              # closes): gone
+        assert minor[0] not in [m["loop"] for m in pg.evaluate(SD_SHOWN)] and pg.evaluate(lit) == 0
+        said = pg.locator(".side details.loops > summary .sd-count").inner_text().strip()                  # 4
+        assert re.fullmatch(r"\d+ named, \d+ minor", said), said
+        drawn(pg, url, "open=-", 1)
+        click_part(pg, "system:product")
+        pg.wait_for_function("() => document.querySelector('#detail .sd-count')", timeout=10000)
+        box = pg.locator("#detail .sd-count").inner_text()
+        assert box.startswith(f"Feedback loops with a part in it: {said}"), (box, said)
         assert not errors, errors
         pg.close()
 
@@ -5105,7 +5167,9 @@ EXPORTED_PNG = """async () => {
   host.remove();
   // what is seen through on the page (a loop marker's ground over the lines under it) is seen through in the picture
   const thin = (el) => +getComputedStyle(el).fillOpacity < 1;
-  const shown = [...document.querySelectorAll('svg.canvas *')].filter((el) => el.checkVisibility() && thin(el)).length;
+  // (checkVisibility() passes an SVG element inside a group not displayed, as a minor loop's marker is at rest)
+  const seen = (el) => { for (let x = el; x; x = x.parentElement) if (getComputedStyle(x).display === 'none') return false; return true; };
+  const shown = [...document.querySelectorAll('svg.canvas *')].filter((el) => el.checkVisibility() && seen(el) && thin(el)).length;
   const kept = (out.text.match(/fill-opacity:0\\.\\d+/g) || []).length;
   return { texts, corner: [...ctx.getImageData(1, 1, 1, 1).data], shown, kept };
 }"""

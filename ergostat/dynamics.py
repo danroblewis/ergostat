@@ -14,7 +14,9 @@ agents. Drawn from the control graph (``graph.control``) and the model's causal 
   block that sets a goal's setpoint (a cascade) feeds its desired level. When the decision switches
   (on above a ceiling, off once back under), that is said in the panel, not drawn;
 - every feedback loop is given, beside its members and polarity, its members as drawn and a label as
-  Sterman numbers them (R1, B2, and ?3 for one whose polarity is not known);
+  Sterman numbers them (R1, B2, and ?3 for one whose polarity is not known); whether the model names it,
+  the goal it is the goal-seeking loop of (``seeking``), and so whether it is minor (neither: drawn only
+  while chosen), the name its marker prints, and the systems it has a part in (``counted``);
 - after folding (``finish``): a connector out of a closed module into an open system is drawn from
   a shadow variable ``<name>`` inside the receiving system, as Vensim and Stella draw a link from
   another view (a line between two parts both drawn is drawn as itself); a shadow is an input
@@ -104,11 +106,12 @@ def _drawn_id(part: str, as_target: bool = False, via: str = "") -> str | None:
 
 
 def labels(loops: list[dict]) -> dict[str, str]:
-    """Each loop's label as Sterman numbers them, by polarity, the shortest (the most basic) first, the
-    ones the model names before the rest of a length: R1, R2, B1, ?1."""
+    """Each loop's label as Sterman numbers them, by polarity, the drawn before the minor (SPEC §12a), the shortest
+    (the most basic) first, the ones the model names before the rest of a length: R1, R2, B1, ?1."""
     count: dict[str, int] = {}
     out = {}
-    for c in sorted(loops, key=lambda c: (len(c.get("parts") or c.get("nodes") or []), " via " in c["name"], c["name"])):
+    for c in sorted(loops, key=lambda c: (bool(c.get("minor")), len(c.get("parts") or c.get("nodes") or []),
+                                          " via " in c["name"], c["name"])):
         letter = c.get("polarity") or "?"
         count[letter] = count.get(letter, 0) + 1
         out[c["name"]] = f"{letter}{count[letter]}"
@@ -366,12 +369,42 @@ def dynamics(g: dict, model) -> dict:
     nodes = [n for n in nodes if n["id"] not in idle]
     edges = [e for e in edges if e["source"] not in idle and e["target"] not in idle]
     causal = [{**c, "nodes": _loop_nodes(c, decide, routes)} for c in g.get("causalLoops") or []]
-    tags = labels(causal)
     names = {n["id"]: n["label"] for n in nodes}
+    seeks = seeking(spec, causal) if spec is not None else {}
+    from .spec.architecture import _chains
+    chains = _chains(spec) if spec is not None else {}
+    for c in causal:
+        c["around"] = _around(spec, c["nodes"], conns, names)
+        c["named"] = spec is not None and c["name"] in spec.named_loops
+        c["goal"] = seeks.get(c["name"])
+        c["minor"] = spec is not None and not (c["named"] or c["goal"])     # (an older model: every loop drawn, as before)
+        c["shown"] = c["name"] if c["named"] or not c["goal"] else c["goal"]
+        c["systems"] = sorted({s for p in c.get("parts") or [] for s in chains.get(p, [])})
+    tags = labels(causal)
     for c in causal:
         c["label"] = tags[c["name"]]
-        c["around"] = _around(spec, c["nodes"], conns, names)
     return finish({**g, "kind": "dynamics", "nodes": nodes, "edges": edges, "causalLoops": causal})
+
+
+def seeking(spec, causal: list[dict]) -> dict[str, str]:
+    """Each goal's goal-seeking loop (Sterman ch. 4), by loop name → goal: the shortest balancing loop through its
+    gap as drawn; of those alike in length, one the model names, then the first by its first flow's name, then by
+    name. A loop two goals would take is the first goal's (by name); the other goal then has none of its own."""
+    out: dict[str, str] = {}
+    for goal in sorted(spec.goals):
+        mine = [c for c in causal if c.get("polarity") == "B" and f"gap:{goal}" in c["nodes"]]
+        if mine:
+            best = min(mine, key=lambda c: (len(c["parts"]), c["name"] not in spec.named_loops,
+                                            next((p for p in c["parts"] if p.startswith("flow.")), "~"), c["name"]))
+            out.setdefault(best["name"], goal)
+    return out
+
+
+def counted(loops: list[dict], system: str | None = None) -> dict[str, int]:
+    """The feedback loops with a part in ``system`` (every loop when None), drawn (named) and minor: the one count a
+    system's panel and the side list drawing that system alone both give (SPEC §12a)."""
+    mine = [c for c in loops if system is None or system in (c.get("systems") or [])]
+    return {"named": sum(not c.get("minor") for c in mine), "minor": sum(bool(c.get("minor")) for c in mine)}
 
 
 def finish(g: dict) -> dict:
@@ -389,8 +422,10 @@ def finish(g: dict) -> dict:
         a, b = e.get("from", e["source"]), e.get("to", e["target"])
         e["loops"] = []
         e["causal"] = [k for k, ps in pairs.items() if (a, b) in ps or (e["kind"] == "pipe" and (b, a) in ps)]
+    g["loopCount"] = counted(g.get("causalLoops") or [], g.get("focus"))
     for n in g["nodes"]:
         if n["kind"] == "system":
+            n["loopCount"] = counted(g.get("causalLoops") or [], n["label"])
             n["charted"] = [{"part": x["part"], "label": x["label"], **{k: x[k] for k in ("value", "stale", "missing",
                             "unchecked") if k in x}} for x in n.get("measures") or []]   # its panel charts them,
             n["measures"] = []                         # its box draws three as sparklines (dynamics.js: sdSparks), no rows
