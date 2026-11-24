@@ -82,6 +82,24 @@ Round 2: the review's one finding answered (it was the only finding, blocking; n
   tests/test_templates.py (38), tests/test_library_tree.py (6), one file at a time, all pass; ruff clean. `main` has not
   moved since the clone (nothing to merge). The unit suite and browser files were not run here; no page changed.
 
+Round 3: main (d0f95413c74d) merged in; its conflicts in docs/SPEC.md, ergostat/library/author.py,
+ergostat/library/fetched.py and ergostat/spec/load.py resolved, keeping both sides. No review finding was raised for
+this round beyond the conflicts.
+- Main added `Document.libraries` as a list of the names under `libraries:` (uses.py reads it for `use: LIB/TEMPLATE`).
+  The branch's dict of descriptions clashed with it under the same name, so main's list is kept as it is and the
+  descriptions moved to a new field, `Document.listed` (fetched.take, compile's copy into `Spec.libraries`, `ergostat
+  library` and the templates tool read it). A refused `libraries:` section is described in `listed` only, so main's
+  list, and so the `LIB/TEMPLATE` messages, behave as on main.
+- The templates tool: main now names every fetched template `LIB/TEMPLATE` and lists each one; each such entry, in the
+  list and the single view, still carries `library: {name, version, commit}`. test_templates_tool_carries_library_pin
+  now looks entries up by `a/greet` and `b/other` (main's names); what it asserts is unchanged.
+- SPEC §2a keeps both paragraphs, *The listing* and main's `use: LIB/TEMPLATE`.
+- Size: `git diff --stat main -- ergostat`: 96 added, 9 removed, about 87 net, within 110.
+- Run, one file at a time or three at most: tests/test_library_fetch.py (27), tests/test_library_fetch_load.py,
+  tests/test_library_qualified.py and tests/test_templates.py (58), tests/test_cli_fallback.py,
+  tests/test_library_tree.py and tests/test_library_provenance.py (78), all pass; ruff clean. The unit suite and the
+  browser files were not run here; no page changed.
+
 ## Entry
 
 entry-of: shared-libraries

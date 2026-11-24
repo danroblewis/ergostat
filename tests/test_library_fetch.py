@@ -646,13 +646,13 @@ def test_listing_says_refused_section(tmp_path, capsys):
 def test_templates_tool_carries_library_pin(tmp_path, capsys):
     d, e = two(tmp_path, capsys)
     got = {t["template"]: t for t in author.library(d)["templates"]}
-    assert got["greet"]["library"] == {"name": "a", "version": "v1", "commit": e["a"]["commit"][:12]}
-    assert got["other"]["library"] == {"name": "b", "version": "v1", "commit": e["b"]["commit"][:12]}
-    assert got["greet"]["description"] == "Greetings waiting." and "untrusted" not in got["greet"]
-    assert got["other"]["untrusted"] is True and got["other"]["description"].startswith("⟦untrusted: template other⟧")
-    assert all("library" not in t for n, t in got.items() if n not in ("greet", "other"))   # ergostat's own: none
-    one = author.library(d, "other")
-    assert one["library"] == got["other"]["library"] and one["untrusted"] is True
+    assert got["a/greet"]["library"] == {"name": "a", "version": "v1", "commit": e["a"]["commit"][:12]}
+    assert got["b/other"]["library"] == {"name": "b", "version": "v1", "commit": e["b"]["commit"][:12]}
+    assert got["a/greet"]["description"] == "Greetings waiting." and "untrusted" not in got["a/greet"]
+    assert got["b/other"]["untrusted"] is True and got["b/other"]["description"].startswith("⟦untrusted: template other⟧")
+    assert all("library" not in t for n, t in got.items() if n not in ("a/greet", "b/other"))   # ergostat's own: none
+    one = author.library(d, "b/other")
+    assert one["library"] == got["b/other"]["library"] and one["untrusted"] is True
 
 
 def test_library_listing_offline(tmp_path, capsys, monkeypatch):
