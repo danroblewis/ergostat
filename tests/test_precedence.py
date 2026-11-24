@@ -156,6 +156,23 @@ def test_capacity_comes_from_one_function(tmp_path, monkeypatch):
     assert most_at_once(bars(g)) == 2 and g["end"] - now == pytest.approx(6 * MEDIAN)
 
 
+def test_levelled_pass_uses_measured_concurrency(tmp_path):
+    """The gated record (a pool of 20, a gate admitting 4 at once): the first paint's levelled pass takes the 4 the
+    record measured, not the 20, from the same etamodel.capacities: never more than 4 at once, 4 starts in the first
+    projected hour (the owner's picture: not every item started at once)."""
+    from .eta_synthetic import GATED_BATCH, gated_record
+    p = gated_record(tmp_path)
+    now = 1_790_000_000.0 + GATED_BATCH + 900
+    lanes = etamodel.capacities(p, {"at": now})
+    assert lanes["dev"]["lanes"] == 4 and lanes["dev"]["source"].startswith("4 at once while items waited")
+    g = pr.build(p.events, p.model.spec, ["ticket"], now, now - 3600, until=now, lanes=lanes)   # (as it stood then)
+    dev = [s for s in bars(g) if len(s) == 6 and s[4] == "dev"]
+    assert len({s[0] for s in dev}) >= 40 and most_at_once(dev) == 4
+    assert 0 < len({s[0] for s in dev if s[2] < now + 3600}) <= 4, sorted((s[0], s[1], round(s[2] - now)) for s in dev if s[2] < now + 3600)
+    pool = pr.build(p.events, p.model.spec, ["ticket"], now, now - 3600, until=now, lanes={**lanes, "dev": {"lanes": 20}})
+    assert most_at_once([s for s in bars(pool) if len(s) == 6 and s[4] == "dev"]) > 4     # (what the pool alone gives)
+
+
 REVIEWED = """
 items:
   ticket:
