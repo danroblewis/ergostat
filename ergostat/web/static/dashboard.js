@@ -447,15 +447,24 @@ function dashPipeline(pipe, src) {
                         ` from item_stages where kind = ${K} and outcome = 'passed' and finished >= :since and finished < :until group by 1 order by 1`) });
   return out;
 }
+/* the states the work of the three leading kinds, and of the kinds their relations name, waits in: from the fields
+   (as the Graph gives them, which asked for them started its schedule's simulation, and on a cold server that held
+   back every panel's first answer) */
+function dashQueues(fields, infos) {
+  const by = new Map(infos.map((x) => [x.name, x])), moves = fields?.sources?.moves?.kinds || {}, queues = {};
+  const todo = dashKinds(fields, infos).filter((k) => !k.name.startsWith("ergostat.")).slice(0, 3).map((k) => k.name);
+  for (const seen = new Set(todo); todo.length;) {
+    const name = todo.shift();
+    if (moves[name]?.queue?.length) queues[name] = moves[name].queue;
+    for (const to of Object.values(by.get(name)?.relations || {}).flat())
+      if (typeof to === "string" && !seen.has(to)) { seen.add(to); todo.push(to); }
+  }
+  return queues;
+}
 async function dashBuildDefault() {
   const fields = await queryFields();
-  const infos = (await api("items", { n: 1 }).catch(() => null))?.kinds || [];
-  const top = dashKinds(fields, infos).filter((k) => !k.name.startsWith("ergostat.")).slice(0, 3).map((k) => k.name), queues = {};
-  if (top.length) {
-    const graph = await api("items-graph", { kinds: top.join(",") }).catch(() => null);
-    for (const k of graph?.kinds || []) if (k.queue?.length) queues[k.name] = k.queue;
-  }
-  return dashDefault(fields, infos, queues);
+  const infos = (await api("items", { n: 1, eta: 0 }).catch(() => null))?.kinds || [];   // (its kinds: no estimate)
+  return dashDefault(fields, infos, dashQueues(fields, infos));
 }
 
 /* what a panel is told of an answer: a labelled query's one series goes by the label alone ("completions", not
@@ -694,8 +703,8 @@ function dashWholeBucket(since, until) {
     if (Math.floor(since / step) === Math.floor((until + 120) / step)) return step;
   return null;
 }
-function dashWithWhole(panels) {
-  const until = S.at || nowS(), bucket = dashWholeBucket(until - WINDOWS[S.since], until);
+function dashWithWhole(panels, until = S.at || nowS()) {
+  const bucket = dashWholeBucket(until - WINDOWS[S.since], until);
   if (!bucket) return panels;
   return panels.map((p) => (p.display?.whole ? { ...p, queries: p.queries.map((q) => ({ ...q, bucket })) } : p));
 }
@@ -720,9 +729,19 @@ async function dashStill(n) {
     if (note !== c.still) { c.still = note; c.panel.setConfig?.({ ...p, note }); }
   }
 }
-function dashAsk(panels, ctrl) {
+function dashAsk(panels, ctrl, until = S.at || null) {
   const gaveUp = new Promise((_, no) => ctrl.signal.addEventListener("abort", () => no(new DOMException("gave up", "AbortError")), { once: true }));
-  return Promise.race([queryPanels(dashWithWhole(panels), { since: WINDOWS[S.since], until: S.at || null, signal: ctrl.signal }), gaveUp]);
+  return Promise.race([queryPanels(dashWithWhole(panels, until || undefined), { since: WINDOWS[S.since], until, signal: ctrl.signal }), gaveUp]);
+}
+/* the panels asked for first: those whose cell begins above the fold, so what is seen is drawn before what is
+   scrolled to (a cold server answers a request's queries in turn, so fewer come back sooner); none placed: all at once */
+function dashFirst(panels) {
+  const fold = window.innerHeight, first = [], rest = [];
+  for (const p of panels) {
+    const top = DASH.cells.get(p.id)?.el?.getBoundingClientRect().top;
+    (Number.isFinite(top) && top >= fold ? rest : first).push(p);
+  }
+  return first.length ? [first, rest] : [panels, []];
 }
 /* an answer still to come is late (a panel with nothing drawn yet says it is still loading); only one that failed is an error */
 function dashSayLate(words, failed = false) {
@@ -737,8 +756,17 @@ async function dashRefresh() {
   const late = setTimeout(() => { if (n === DASH.asked) dashSayLate(`waiting ${dur(DASH_LATE / 1000)} for the answer`); }, DASH_LATE);
   const giveUp = setTimeout(() => ctrl.abort(), DASH_GIVE_UP);
   try {
-    const got = await dashAsk(dashView(d).panels.filter(dashAsks), ctrl);
+    const [first, rest] = dashFirst(dashView(d).panels.filter(dashAsks));
+    let got = await dashAsk(first, ctrl);
     if (n !== DASH.asked) return;
+    if (rest.length) {                                 // what is seen drawn, then the rest asked of the same moment
+      DASH.got = got;
+      dashFeed();
+      const until = [...got.values()].find((a) => a.meta?.until != null)?.meta.until;
+      const more = await dashAsk(rest, ctrl, S.at || until || null);
+      if (n !== DASH.asked) return;
+      got = new Map([...got, ...more]);
+    }
     DASH.got = got;
     let changed = false;                               // a repeated panel's values, as its query now answers
     for (const p of d.panels.filter((x) => x.repeat?.query)) {

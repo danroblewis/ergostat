@@ -39,7 +39,9 @@ FIELDS = {
             "part": {"fields": [{"name": "weight", "unit": "g"}], "states": ["queued", "cut", "ground", "done"], "group_by": ["state"]},
             "ergostat.note": {"fields": [], "states": ["open", "doing", "more", "shut"], "group_by": ["state"]},
         }},
-        "moves": {"kinds": {}}, "counts": {"kinds": ["log", "widget", "part"]},
+        # the states work waits in, as /api/items-graph gives them (GRAPH): the default reads them here
+        "moves": {"kinds": {"widget": {"queue": ["new", "ready", "redo", "checked"]}, "part": {"queue": ["queued"]},
+                            "log": {"queue": ["started"]}}}, "counts": {"kinds": ["log", "widget", "part"]},
         "series": {"series": [{"name": "stock.x", "unit": "items"}]}, "events": {"types": []},
     },
     "aggregations": ["count", "sum"], "transforms": ["none", "rate"],
@@ -72,6 +74,7 @@ window.fetch = (url, opts) => {
     window.__queries++;
     window.__since = asked.since;
     window.__asked = asked.queries;
+    window.__every = [...(window.__every || []), ...asked.queries];   // (the panels above the fold are asked first)
   }
   return realFetch(url, opts);
 };
@@ -617,7 +620,7 @@ def test_a_duration_stat_is_over_the_whole_window_and_says_who_is_still_waiting(
     pg = opened(ctx, f"{site}/dashboard")
     stat = default(pg)["widget: median wait of items that left ready"]
     assert stat["display"]["whole"] is True and stat["display"]["still"] == {"kind": "widget", "state": "ready"}
-    asked = [q for q in pg.evaluate("() => window.__asked") if q.get("measure") == "time_in_state" and "bucket" in q]
+    asked = [q for q in pg.evaluate("() => window.__every") if q.get("measure") == "time_in_state" and "bucket" in q]
     assert asked and all(q["bucket"] >= 86400 for q in asked)
     assert "whole" not in asked[0] and "still" not in asked[0]                    # the server is sent only query keys
     assert pg.evaluate("""() => [[1795390000, 1795400000], [86400 * 20000 - 50, 86400 * 20000 + 50], [1000, 87400]]

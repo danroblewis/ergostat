@@ -1392,7 +1392,11 @@ machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**
 ## 4e. Asking for numbers: the query API
 
 Every chart reads through one read-only endpoint, `GET /api/query?q=<base64url of JSON>` (a GET, so a read-only public
-name can use it). `GET /api/query/fields` lists what can be charted. Nothing here writes, and only the `events` source
+name can use it). `GET /api/query/fields` lists what can be charted (each kind under `moves` with its states, its
+finished states and its `queue`, the states its work waits in to be taken, as the Graph gives them: the default
+Dashboard reads them there, and asks `GET /api/items` with `eta=0`, which leaves out the completion estimates and so
+never starts their simulation, so neither holds back its panels on a cold server; it asks first for the panels whose
+cell begins above the fold, then the rest at the same `until`). Nothing here writes, and only the `events` source
 reads the event log.
 
 ```json

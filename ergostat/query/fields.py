@@ -7,6 +7,7 @@ import time
 from .. import datasources
 from ..spec import codec, numberreads
 from ..spec import items as its
+from ..spec.finished import finish_of
 from . import transforms
 from .axes import X_OF, X_TYPES
 from .labels import STATE_GROUP, word
@@ -57,7 +58,8 @@ def _read(p) -> dict:
     for name, k in kinds.items():
         types |= set(k.on)
         finished = list(its.finishes(p.events, spec, name)["finished"])
-        moves[name] = {"states": list(k.states), "finished": finished}
+        # the states its work waits in to be taken (the default dashboard's "waiting"), as the Graph gives them
+        moves[name] = {"states": list(k.states), "finished": finished, "queue": finish_of(spec, name, set())["queue"]}
         ix = its._index(p.events, spec, its.asks_transcript([k]))
         if ix is None:
             items_[name] = {"fields": [], "states": list(k.states), "finished": finished, "group_by": ["state", "kind"]}

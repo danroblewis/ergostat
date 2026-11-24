@@ -1157,7 +1157,8 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                                                                       for i in out["items"]))}
         if getattr(spec, "remotes", None):            # each remote's own section, asked by the page on its own
             out["remotes"] = [{"name": k, "url": r["url"]} for k, r in spec.remotes.items()]
-        est = _estimates(p, m, snap, one("whatif"))
+        # eta=0: without the estimates, whose first asking starts their simulation (the dashboard reads the kinds alone)
+        est = _estimates(p, m, snap, one("whatif")) if one("eta") != "0" else None
         if est and est.get("items"):                  # each open item's estimate (SPEC §5a, Completion estimates)
             out["items"] = [{**i, "eta": {k: est["items"][i["id"]].get(k) for k in ("p50", "p90", "why", "runs")}}
                             if i["id"] in est["items"] else i for i in out["items"]]
