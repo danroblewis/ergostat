@@ -5054,7 +5054,12 @@ SD_TONES = """(tok) => {
 }"""
 BD_TONES = """(tok) => {
   const svg = document.querySelector('svg.canvas'), of = (sel, p) => [...svg.querySelectorAll(sel)].map((el) => getComputedStyle(el)[p]);
-  return { ink: tok['--ink'], ink2: tok['--ink-2-line'], record: of('g.bd-edge.bd-record .bd-wire', 'stroke'),
+  const file = standaloneSvg(svg, exportTitle()).text, html = document.documentElement;   // the saved file, legend and all
+  html.classList.add('export-light');
+  const light = getComputedStyle(document.body).getPropertyValue('--ink-2-line').trim();
+  html.classList.remove('export-light');
+  return { saved: { vars: file.split('var(').length - 1, tone2: file.includes(`stroke="${light}"`) },
+           ink: tok['--ink'], ink2: tok['--ink-2-line'], record: of('g.bd-edge.bd-record .bd-wire', 'stroke'),
            aside: of('g.bd-edge.bd-aside .bd-wire', 'stroke'), bus: of('.bd-bus .bd-bar', 'fill'),
            main: of('g.bd-edge:is(.bd-reference, .bd-error, .bd-control, .bd-output, .bd-measured):not(.bd-aside) .bd-wire', 'stroke'),
            refErr: of('g.bd-edge:is(.bd-reference, .bd-error):not(.bd-aside) .bd-wire', 'stroke') };
@@ -5097,6 +5102,7 @@ def test_line_tones_information_lighter_than_the_material_path(browser, tmp_path
         bd = pg.evaluate(BD_TONES, tok)
         assert set(bd["main"]) == {bd["ink"]}, bd                       # (no reference here: no loop closes inside)
         assert bd["aside"] and set(bd["record"] + bd["aside"] + bd["bus"]) == {bd["ink2"]}, bd
+        assert bd["saved"] == {"vars": 0, "tone2": True}, bd["saved"]   # the legend's light line, resolved in the file
         guide(pg, url, tok)
         pg.close()
     with served("the-job", tmp_path / "c") as url:                    # a collector: what it records, lighter than r and e

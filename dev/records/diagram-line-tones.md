@@ -99,3 +99,19 @@ lighter-line row and takes main's rename of "loop holding" to "goal holding".
 Tests run this round: ruff is clean. tests/test_style_tokens.py passes (15) and tests/test_guide.py passes (8).
 test_each_blocks_legend_row_is_a_symbol_drawn (3), test_line_tones_information_lighter_than_the_material_path (2) and
 test_flows_only_export_legend_lists_only_what_is_shown pass. The exported-PNG test fails as described above.
+
+Round 4: main (fa51005d) is merged (commit ed168652). The one conflict, in tests/test_diagram_rendering.py, keeps both
+sides: the branch's line-tones test and guide() helper, and main's
+test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_same.
+- The blocking finding is fixed. bdExportLegend (export.js) resolves each var() in an icon's markup from the page's
+  tokens, as sdExportLegend does. It runs under export-light, so the light tokens are used. A var() with a fallback
+  (`var(--x, #fff)`) takes the token, then the fallback, then the ink.
+- The line-tones test now checks the saved Blocks SVG (software-factory open=product,factory): no 'var(' in the file,
+  and the light --ink-2-line written as a stroke. With the resolve taken out, both cases failed
+  ({'vars': 1, 'tone2': False}). With it put back, both pass.
+- test_the_exported_png_shows_every_loop_name_the_values_and_its_legend_on_white_in_dark_mode still fails on
+  `len(rows) > 10` (7 rows). Main still has that line (main:tests/test_diagram_rendering.py:5153). It is not run on clean
+  main. The fix is outside this gap.
+Tests run this round: ruff is clean. tests/test_style_tokens.py and tests/test_guide.py pass (24).
+test_line_tones_information_lighter_than_the_material_path (2) and test_each_blocks_legend_row_is_a_symbol_drawn (3)
+pass. The exported-PNG test fails as described above. Not run: the unit suite and the four browser files in full.

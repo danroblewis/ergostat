@@ -92,13 +92,15 @@ function exportLegend(x, y, ink, muted, design = false, width = 1e9) {
 function bdExportLegend(width) {
   const ink = getComputedStyle(document.body).color, per = Math.max(30, Math.floor((width - 36) / 6.2));
   const g = s("g", { style: `font-size:11px;fill:${ink};color:${ink}` }), kids = [...blocksLegend().children];
+  const css = (v) => getComputedStyle(document.body).getPropertyValue(v).trim();   // a var() would not survive the file
+  const resolve = (t) => t.replace(/var\((--[\w-]+)(?:,\s*([^)]*))?\)/g, (_, v, fb) => css(v) || fb?.trim() || ink);
   let y = 0;
   for (let i = 0; i + 1 < kids.length; i += 2) {
     const icon = kids[i].querySelector("svg"), lines = [];
     for (const word of kids[i + 1].textContent.split(" "))
       if (lines.length && (lines.at(-1) + " " + word).length <= per) lines[lines.length - 1] += " " + word; else lines.push(word);
     const ic = s("g", { transform: `translate(0,${y - 13})` });
-    if (icon) ic.innerHTML = icon.innerHTML; else lines[0] = kids[i].textContent + "  " + lines[0];
+    if (icon) ic.innerHTML = resolve(icon.innerHTML); else lines[0] = kids[i].textContent + "  " + lines[0];
     g.append(ic, ...lines.map((t, j) => s("text", { x: 36, y: y + j * 14 }, t)));
     y += lines.length * 14 + 8;
   }
