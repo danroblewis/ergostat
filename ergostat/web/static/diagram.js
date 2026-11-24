@@ -590,6 +590,19 @@ function edgePoints(e) {
   return [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
 }
 
+/* an open system's frame, in every view, as technical drawings draw one: no fill, a hairline (rect.frame, which
+   the rings and the cross-pane mark read) joining its corners, each an L mark (8 px arms for one nested in another) */
+function frameMarks(x, y, w, hgt, nested) {
+  const a = Math.min(nested ? 8 : 13, w / 3, hgt / 3), X = x + w, Y = y + hgt;
+  return [s("rect", { class: "frame", x, y, width: w, height: hgt }),
+          s("path", { class: "frame-corners", d: `M${x},${y + a}V${y}H${x + a}M${X - a},${y}H${X}V${y + a}M${X},${Y - a}V${Y}H${X - a}M${x + a},${Y}H${x}V${Y - a}` })];
+}
+/* a closed system with a goal in it off (its box drawn heavier): a box's loops by state (dynamics) or by name (blocks) */
+function systemOff(n) {
+  const l = n.loops;
+  return Array.isArray(l) ? l.some((k) => goalRank(S.status?.loops?.[k]) === 0) : (l?.off || 0) > 0;   // (off: the server's word, goalWord)
+}
+
 /* the pin on a part (or a system) put by hand: clicked, it is let go, and the layout places it again */
 function pinMark(pid, x, y, title = "pinned here: click to let the layout place it again", kind = "system") {
   return s("g", { class: `pin k-${kind}`,"data-act": "unpin", "data-id": pid, transform: `translate(${x},${y})`,
@@ -656,22 +669,21 @@ function drawGraph(svg, g, lay) {
   // systems as hulls behind everything (overlapping freely)
   const hullPins = [];                                     // (drawn on top, with the parts' pins)
   const sd = g.kind === "dynamics";                         // the system dynamics view: monochrome (dynamics.js)
-  const hueOf = () => (sd ? "fill:var(--sd-hull);stroke:none" : "fill:none;stroke:var(--system-line)");
   const inkOf = () => (sd ? "fill:var(--sd-ink)" : "fill:var(--muted)");
   if ((g.kind === "control" || sd) && lay.containers?.length) {      // open systems: laid out as containers, drawn as outlines
     const hulls = s("g", { class: "sys-hull" });
     const names = Object.keys(g.tree || {}).sort();
     for (const c of lay.containers) {
       const hue = (210 + names.indexOf(c.name) * 137.5) % 360;
-      const hg = s("g", { class: "hull", "data-hull": c.name });
+      const hg = s("g", { class: "hull" + (g.tree?.[c.name]?.modelling ? " frame-modelling" : ""), "data-hull": c.name });
       hulls.append(hg);
       // its top is a handle: dragged, the system moves with everything in it, and stays there (places.js)
-      const grip = s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: c.width, height: 32, rx: 16,
+      const grip = s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: c.width, height: 32,
                                onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, cx: c.x, cy: c.y, moved: false }; } });
-      hg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: hueOf(hue, 0.45) }), grip,
-        s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", "data-act": "close", style: inkOf(hue), onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
+      hg.append(...frameMarks(c.x, c.y, c.width, c.height, c.depth > 0), grip,          // (its name on the top edge)
+        s("text", { x: c.x + 14, y: c.y + 4, class: "sys-hull-label", "data-act": "close", style: inkOf(hue), onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
           "▾ " + c.name + (g.tree?.[c.name]?.remote ? " (remote)" : "")),
-        s("text", { x: c.x + 14 + textWidth("▾ " + c.name + (g.tree?.[c.name]?.remote ? " (remote)" : "")) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: inkOf(hue),
+        s("text", { x: c.x + 14 + textWidth("▾ " + c.name + (g.tree?.[c.name]?.remote ? " (remote)" : "")) * 1.15 + 10, y: c.y + 4, class: "sys-hull-label", "data-act": "into", style: inkOf(hue),
                     onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, "⤓"));
       if (S.pins?.["hull:" + c.name]) hullPins.push(pinMark("hull:" + c.name, c.x + c.width - 14, c.y + 4, "moved here: click to let the layout place it again"));
     }
@@ -724,8 +736,8 @@ function drawGraph(svg, g, lay) {
         }
         taken.push({ x: lx, y: y0, w: lw });
         ext.x0 = Math.min(ext.x0, x0); ext.y0 = Math.min(ext.y0, y0); ext.x1 = Math.max(ext.x1, x1); ext.y1 = Math.max(ext.y1, y1);
-        hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16, style: hueOf(hue, 0.45) }),
-                     s("text", { x: lx, y: y0 + 18, class: "sys-hull-label", style: inkOf(hue),
+        hulls.append(s("g", { class: "hull" }, ...frameMarks(x0, y0, x1 - x0, y1 - y0, false)),    // (a g.hull: the frame rules)
+                     s("text", { x: lx, y: y0 + 4, class: "sys-hull-label", style: inkOf(hue),
                                  onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(name); } },
                        name + (S.graph?.tree ? " ▾" : "")));
       });

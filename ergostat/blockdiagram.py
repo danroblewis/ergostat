@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from . import rates, sensing
 from .library.untrusted import Shown
-from .spec.ir import KIND_OF_TYPE, Ref, Spec
+from .spec.ir import KIND_OF_TYPE, Ref, Spec, modelling_systems
 
 WORLD_NOTE = "a block that reads nothing and is commanded by nothing: the world, from the control system's side"
 
@@ -1522,7 +1522,8 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
         n.setdefault("loops", [])
     return {"kind": "blocks", "nodes": node_list, "edges": edges, "frames": list(frames.values()),
             "open": sorted(open_), "focus": focus,
-            "tree": {s: {"within": spec.within.get(s), "description": desc} for s, desc in spec.systems.items()}}
+            "tree": {s: {"within": spec.within.get(s), "description": desc, **({"modelling": True} if s in modelling_systems(spec) else {})}
+                     for s, desc in spec.systems.items()}}
 
 
 def _coupled(boxes: dict, edges: list[dict]) -> list[tuple[str, str]]:

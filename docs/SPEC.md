@@ -5238,8 +5238,10 @@ where its other end is not on the canvas is it cut: a connector out of a closed 
 open system comes from a shadow variable `<x>` inside the receiving system, and a shadow is an
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a
 pipe out ends in a cloud with the part beyond named under it. An
-open system is a sector, a light tint with its name at the top left; a closed one is a module, its
-connection points named on its edge. The view's panels use system dynamics' words only, but for
+open system is a sector, framed by its corners (as in every view: no fill, a hairline joining short L
+marks at its corners, its name on the top edge at the top left; modelling's hairline dashed); a closed
+one is a module, its connection points named on its edge, its outline light unless a goal in it is
+off, then full ink and heavier. The view's panels use system dynamics' words only, but for
 the goal a loop closes (above). The side
 list's cards are said in those words too, but only a sentence's own words: a code, an id or a part
 name (`queue-goal-tolerance`, `goal.ci-upgrade-planned`) and the tier a request names are kept as

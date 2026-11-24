@@ -2891,6 +2891,169 @@ def test_the_dynamics_view_draws_only_system_dynamics_symbols_each_loop_marked_e
         pg.close()
 
 
+PROBE ="""(v) => { const e = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); e.style.stroke = `var(${v})`;
+  document.querySelector('svg.canvas').append(e); const c = getComputedStyle(e).stroke; e.remove(); return c; }"""
+FRAMES = """() => { const probe = PROBE;
+  return { frame: probe('--frame'), paper: getComputedStyle(document.body).backgroundColor,
+    frames: [...document.querySelectorAll('svg.canvas g.hull')].map((g) => {
+      const r = g.querySelector(':scope > rect.frame'), c = g.querySelector(':scope > path.frame-corners');
+      const rs = r && getComputedStyle(r), cs = c && getComputedStyle(c);
+      return { name: g.dataset.hull || '', modelling: g.classList.contains('frame-modelling'), fill: rs?.fill, stroke: rs?.stroke,
+               dash: rs?.strokeDasharray, rx: r?.getAttribute('rx'), corners: !!c, cornerDash: cs?.strokeDasharray,
+               cornerWidth: cs && parseFloat(cs.strokeWidth) }; }) }; }""".replace("PROBE", PROBE)
+
+
+def luminance(rgb: str) -> float:
+    import re
+    c = [int(x) / 255 for x in re.findall(r"\d+", rgb)[:3]]
+    c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = sorted([luminance(a), luminance(b)], reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+@pytest.mark.parametrize("example", ["software-factory", "ticket-factory"])
+def test_an_open_system_is_framed_by_its_corners_in_every_view_and_both_themes_and_modellings_hairline_is_dashed(browser, tmp_path,
+                                                                                                                example):
+    """Every open system's frame, in Dynamics, Blocks and Process and in both themes: no fill, a square-cornered
+    hairline in --frame (at least 1.6:1 on the paper) and a path of corner marks; modelling's hairline dashed, its
+    corners solid."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served(example, tmp_path) as url:
+        seed_workflows(Project(mdl.load(tmp_path / example)), time.time())
+        time.sleep(1.6)
+        for scheme in ("light", "dark"):
+            pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+            for i, view in enumerate(["open=*", "view=blocks&open=*", *(["view=process"] if example == "software-factory" else [])]):
+                if view == "view=process":
+                    pm_served(pg, url, 10 + i)
+                else:
+                    drawn(pg, url, view, i)
+                r = pg.evaluate(FRAMES)
+                assert r["frames"], (scheme, view)
+                assert contrast(r["frame"], r["paper"]) >= 1.6, (scheme, r["frame"], r["paper"])
+                for f in r["frames"]:
+                    assert f["fill"] in ("none", "rgba(0, 0, 0, 0)"), (scheme, view, f)
+                    assert f["stroke"] == r["frame"] and f["rx"] is None, (scheme, view, f)
+                    assert f["corners"] and 1.2 <= f["cornerWidth"] <= 1.4 and f["cornerDash"] == "none", (scheme, view, f)
+                    assert (f["dash"] != "none") == (f["modelling"] or f["name"].startswith("casc:")), (scheme, view, f)
+                if view != "view=process":                     # modelling, open, in Dynamics and Blocks: dashed
+                    assert [f for f in r["frames"] if f["modelling"]], (scheme, view, [f["name"] for f in r["frames"]])
+            pg.close()
+
+
+def test_a_graph_with_no_tree_frames_its_systems_by_their_corners_and_fills_nothing(browser, tmp_path):
+    """The second drawing path (a graph with no tree, e.g. a TOML model: its systems outlined around their parts)
+    draws the same frame: no fill on the rect or the corners, the hairline in --frame."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
+        drawn(pg, url, "open=*", 0)
+        r = pg.evaluate("""() => { const svg = document.querySelector('svg.canvas'), g = { ...S.graph };
+          delete g.tree; const lay = { ...S.layout, containers: [] };
+          const names = [...new Set(g.nodes.flatMap((n) => n.systems || []))];
+          S.status = { ...S.status, systems: names }; S.showHulls = true; drawGraph(svg, g, lay);
+          return { names, frame: (PROBE)('--frame'),
+            frames: [...svg.querySelectorAll('.sys-hull rect.frame, .sys-hull path.frame-corners')].map((e) => {
+              const cs = getComputedStyle(e);
+              return { tag: e.tagName, hull: !!e.closest('g.hull'), fill: cs.fill, stroke: cs.stroke }; }) }; }"""
+                        .replace("PROBE", PROBE))
+        pg.close()
+    assert r["names"] and len(r["frames"]) >= 2 * len(r["names"]), r
+    for f in r["frames"]:
+        assert f["hull"] and f["fill"] in ("none", "rgba(0, 0, 0, 0)"), f
+        assert f["tag"] != "rect" or f["stroke"] == r["frame"], (f, r["frame"])
+
+
+def test_the_exported_blocks_legend_draws_the_frame_glyphs_hairline_and_corners(browser, tmp_path):
+    """The Blocks legend in a saved picture: its frame row's hairline and corners are stroked in the file itself,
+    where none of the page's custom properties exist (rendered here in a blank page with no stylesheet)."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
+        drawn(pg, url, "view=blocks&open=*", 0)              # (open: the legend has a row only for what is drawn)
+        markup = pg.evaluate("() => bdExportLegend(600).g.outerHTML")
+        pg.close()
+    blank = browser.new_page()
+    blank.set_content(f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900">{markup}</svg>')
+    r = blank.evaluate("""() => {
+      const corners = [...document.querySelectorAll('path')].find((p) => p.getAttribute('d').startsWith('M2,7V2H7'));
+      const ic = corners && corners.parentNode, rect = ic && ic.querySelector('rect');
+      return corners ? { corners: getComputedStyle(corners).stroke, rect: getComputedStyle(rect).stroke,
+                         halo: getComputedStyle(ic.querySelector('text')).stroke, html: ic.innerHTML } : null; }""")
+    blank.close()
+    assert r, markup[:400]
+    assert all(r[k] not in ("none", "") for k in ("corners", "rect", "halo")) and "var(" not in r["html"], r
+
+
+def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, tmp_path):
+    """A closed system (a module in Dynamics, a subsystem block in Blocks) is outlined in --frame-mark at 1.2 px; with
+    a goal in it off, in full ink at 2 px: darker on the paper and thicker."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
+        drawn(pg, url, "", 0)
+        # (a box drawn by the view's own code, put on the canvas, its outline's computed style read, taken off)
+        put = """const put = (g, sel) => { document.querySelector('svg.canvas #viewport').append(g);
+            const cs = getComputedStyle(g.querySelector(sel)), out = [cs.stroke, parseFloat(cs.strokeWidth)]; g.remove(); return out; };"""
+        sd = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.kind === 'system'); PUT
+          const draw = (loops) => put(sdSystem({ ...n, loops }, 220, 120), 'rect.sd-module');
+          return { calm: draw({ holding: 2 }), off: draw({ holding: 1, off: 1 }), mark: (PROBE)('--frame-mark'),
+            drawn: [...document.querySelectorAll('svg.canvas rect.sd-module')].map((r) => [r.classList.contains('sys-off'),
+                                                                                         getComputedStyle(r).stroke]),
+            legend: (() => { const was = S.graph; S.graph = { ...was, nodes: [...was.nodes, { ...n, loops: { off: 1 } }] };
+                             // (with a module off; the frame rows only: main's tone row speaks of "a goal's gap")
+                             try { return [...sdLegend().children].map((c) => c.textContent)
+                                     .filter((t) => /^(module|sector)/.test(t)).join(' | '); }
+                             finally { S.graph = was; } })(),
+            paper: getComputedStyle(document.body).backgroundColor }; }""".replace("PROBE", PROBE).replace("PUT", put))
+        drawn(pg, url, "view=blocks", 1)
+        bd = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem'); PUT
+          const was = S.status.loops;
+          S.status.loops = { ...was, 'fixture-goal': { status: 'off', word: 'off' }, 'calm-goal': { status: 'holding', word: 'holding' } };
+          const draw = (loops) => put(bdNode({ ...n, loops }, { x: 0, y: 0, width: 120, height: 60 }), ':scope > rect.bd-line');
+          const out = { calm: draw(['calm-goal']), off: draw(['calm-goal', 'fixture-goal']) }; S.status.loops = was; return out; }"""
+                         .replace("PUT", put))
+        pg.close()
+    for v in (sd, bd):
+        assert v["calm"][1] == 1.2 and v["off"][1] == 2, v
+        assert contrast(v["off"][0], sd["paper"]) > contrast(v["calm"][0], sd["paper"]) + 2, v
+    assert sd["calm"][0] == sd["mark"], sd
+    assert "drawn heavy" in sd["legend"] and not re.search(SD_WORDS, sd["legend"], re.I), sd["legend"]
+    assert sd["drawn"] and all(st == (sd["off"][0] if off else sd["calm"][0]) for off, st in sd["drawn"]), sd
+
+
+def test_a_closed_subsystems_outline_follows_its_goals_as_the_status_polls_change(browser, tmp_path):
+    """A closed subsystem block draws no comparator, so its outline is not redrawn by a loop's error label changing:
+    a goal in it going off after the first draw must still make it heavy on the next poll, and light again after."""
+    off: set[str] = set()
+
+    def status(route):
+        resp = route.fetch()
+        body = resp.json()
+        for k in off:
+            body.setdefault("loops", {}).setdefault(k, {}).update(status="off", word="off")   # (the server's word too)
+        route.fulfill(response=resp, body=json.dumps(body))
+
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        pg.route("**/api/status*", status)
+        drawn(pg, url, "view=blocks", 0)
+        sub = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem' && (n.loops || []).length
+                                       && !n.loops.some((k) => goalWord(S.status.loops?.[k]) === 'off'));
+                                     return n && { id: n.id, loops: n.loops }; }""")
+        assert sub, "no closed subsystem with a goal in it, none off"
+        heavy = f"""() => document.querySelector(`g.bd-node[data-id="${{CSS.escape({json.dumps(sub['id'])})}}"]`)
+                             ?.classList.contains('sys-off')"""
+        assert pg.evaluate(heavy) is False
+        off.update(sub["loops"][:1])                     # (a goal in it gone off, after the first draw)
+        pg.wait_for_function(heavy, timeout=20000)
+        off.clear()                                      # (and back)
+        pg.wait_for_function(f"() => !({heavy})()", timeout=20000)
+        pg.close()
+
+
 SIGNS_CHECK = """() => {
   // every link drawn has one sign (+, − or ?); no two signs' boxes overlap or lie within 10 px; each sign's nearest
   // link line is its own (data-edge, and the line it is drawn with); a link declared with driven-by is dashed
@@ -3462,6 +3625,10 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                      .length,
                    sizes: [...new Set(sizes)], sum,
                    hullStroke: hull && getComputedStyle(hull).stroke, hullFill: hull && getComputedStyle(hull).fill,
+                   frame: (() => { const e = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                                   e.style.stroke = 'var(--frame)'; hull.parentNode.append(e);
+                                   const c = getComputedStyle(e).stroke; e.remove(); return c; })(),
+                   corners: !!hull?.parentNode.querySelector(':scope > path.frame-corners'),
                    // the panel but its legend (first now) and Q42's group words ('Goals off', 'No goal is off.', the
                    // same in every view), every fold opened: no control word in any of it
                    side: (() => { const s = document.querySelector('.side').cloneNode(true);
@@ -3473,8 +3640,8 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
         assert r["unknown"] > 0 and r["unknownMarked"] == 0 and r["marked"]
         assert r["sum"].startswith(f"+{r['unknown']} of unknown polarity"), r["sum"]
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
-        assert r["hullStroke"] in ("none", None) or "0)" in r["hullStroke"], r["hullStroke"]   # a sector: a tint, no outline
-        assert r["hullFill"] not in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]
+        assert r["hullFill"] in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]       # a sector: framed by its corners, no tint
+        assert r["hullStroke"] == r["frame"] and r["corners"], r
         assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", r["side"]), re.I), r["side"][:600]
         # every panel: a loop's, a desired level's, a gap's, a connector's
         for sel in [".loop-marker", '.node[data-id^="desired:"]', '.node[data-id^="gap:"]']:
@@ -3714,7 +3881,7 @@ BD_LEGEND_DRAWN = {
     "a block's tier": ".bd-tier", "not linear": '.bd-node:not(.bd-collector):not([data-id^="zoh:"]) text.bd-name',
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
-    "a system as one block": ".bd-subsystem, .bd-frame-system",
+    "a system as one block": ".bd-subsystem, .bd-frame-system", "a subsystem open": ".bd-frame-system",
     "a lighter line": "g.bd-edge.bd-record, g.bd-edge.bd-aside, .bd-bus .bd-bar",
 }
 

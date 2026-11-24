@@ -150,8 +150,12 @@ The control diagram is the product's main view. Conventions:
   Colour (§8): the material path in full ink, information in the ink's second tone.
 - **Layout** (ELK layered, vendored): the plant runs left to right along the pipes (pipes carry the
   highest straightness and direction priority), the feedback path above it; each loop a row.
-  Systems are drawn as thin outlines named in muted type (one ink: no colour per system), overlapping where they
-  share parts, labels never stacked. A chain of loops in series folds into rows at the pipes that
+  An open system is framed by its corners, the same in Dynamics, Blocks and Process: no fill, a hairline
+  (`--frame`, square-cornered) joining L marks at its corners (`--frame-mark`, 13 px arms, 8 px when nested),
+  its name in muted type on the top edge with the line broken behind it (one ink: no colour per system), labels
+  never stacked. Modelling's hairline is dashed (its corners solid), a cascade's inner loop in Blocks dotted, a
+  remote's kind in Process dashed. A closed system's outline is `--frame-mark` at 1.2 px, so the top level is not
+  ruled by its boxes; with a goal in it off it is full ink at 2 px. A chain of loops in series folds into rows at the pipes that
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
   would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
   all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or

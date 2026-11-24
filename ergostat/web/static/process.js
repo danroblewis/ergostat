@@ -285,10 +285,10 @@ function pmDraw(svg, g, lay) {
     const k = g.kinds.find((x) => x.name === f.name) || {};
     // its top is a handle: dragged, the kind's map moves with it, and stays there (interact.js, places.js)
     frames.append(s("g", { class: "pm-frame hull" + (k.remote ? " pm-remote" : ""), "data-kind": f.name, "data-hull": f.name },
-      s("rect", { x: f.x, y: f.y, width: f.width, height: f.height, rx: 10, ...(k.remote ? { "stroke-dasharray": "9 5" } : {}) }),
-      s("text", { x: f.x + 14, y: f.y + 22, class: "pm-title" }, k.remote ? `remote ${k.remote}: ${f.name}` : k.schedule ? "schedules" : f.name,   // read from that ergostat
+      ...frameMarks(f.x, f.y, f.width, f.height, false),                           // (a remote's hairline dashed: style.css)
+      s("text", { x: f.x + 14, y: f.y + 5, class: "pm-title" }, k.remote ? `remote ${k.remote}: ${f.name}` : k.schedule ? "schedules" : f.name,   // read from that ergostat
         s("tspan", { class: "t-sub", dx: 8 }, k.schedule ? `${k.items} run${k.items === 1 ? "" : "s"}` : `${k.items} item${k.items === 1 ? "" : "s"} · ${k.by}`)),
-      s("rect", { class: "hull-grip", "data-act": "hull-drag", x: f.x, y: f.y, width: Math.max(0, f.width - 24), height: PM.TITLE + 6, rx: 10,
+      s("rect", { class: "hull-grip", "data-act": "hull-drag", x: f.x, y: f.y, width: Math.max(0, f.width - 24), height: PM.TITLE + 6,
                   onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: f.name, x0: ev.clientX, y0: ev.clientY, moved: false }; } })));
     if (S.pins?.["hull:" + f.name]) pinsG.append(pinMark("hull:" + f.name, f.x + f.width - 14, f.y + 4, "moved here: click to let the layout place it again"));
   }
