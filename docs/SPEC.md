@@ -7335,7 +7335,13 @@ actions:
   `approve`, never reshaped.
 - **The session** (and a program's `ergostat act`) is answered by the target: its state, exit and output, waited for
   under the target's `wait:`, never the full act's. The answer carries `reshaped_from` and, under `full`, the full
-  act's id and state. Every action's result names `reshaped_to` or `reshaped_from` when it has one.
+  act's id and state (the session's answer; a program's carries `reshaped_from`). Every action's result names
+  `reshaped_to` or `reshaped_from` when it has one.
+- **A program asking again** (the same act and key, §12k's program actions) finds the full act. While it is held,
+  the answer is the target: a held target is taken over by the asking run's lease along with the full act (so the
+  owner's approval of it is not fenced out), and a target that no longer stands (failed, fenced, or denied by a gate
+  since changed) is asked anew, once, the full act's new `reshaped_to` written first. Once the owner has answered
+  the full act (approved, ran, failed, or denied it), the answer is the full act's own.
 - **At the act** a reshape cell reads as `approve` for the full act. An owner-approved full act runs through the
   act check as any held act does, and one approved by the gate is held again. The two are answered apart: denying one,
   or the other's failing, never answers the other.

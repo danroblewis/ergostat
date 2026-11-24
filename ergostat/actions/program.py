@@ -13,7 +13,9 @@ The same request again (the same action, arguments and ``--key``, about the same
 answered as it stands, and taken over by the asking run's lease (``ergostat.action.reasked``), so a step that gives
 its item back while it waits, and is taken again, finds its action and its result when the owner has answered; one
 that ran is never run again, its result given back; one the owner denied stays denied. One that failed is asked for
-anew. Every result given to the run that asked is ``delivered`` (``how: run``)."""
+anew. A reshaped act (SPEC §12k) is answered by its smaller act while the full one is held, and by the full one once
+the owner answers it; asked again, the smaller act is taken over with it, or asked anew when it failed. Every result
+given to the run that asked is ``delivered`` (``how: run``)."""
 
 from __future__ import annotations
 
@@ -64,16 +66,18 @@ def known(p, spec, cfg: dict, name: str, k: str, scoped: bool) -> dict | None:
     same = [a for a in rec.stored(p).values()
             if a.get("action") == name and a.get("key") == k
             and (a.get("item") == item if item else a.get("block") == cfg.get("block"))]
-    if not same:
-        return None
-    a = max(same, key=lambda a: a["time"])
+    return stands(p, spec, max(same, key=lambda a: a["time"])) if same else None
+
+
+def stands(p, spec, a: dict) -> dict | None:
+    """``a`` when it still stands (``known``), else None."""
     if a["state"] in ("requested", "approved", "ran"):
         return a
     if a["state"] == "denied":
         note = str(a.get("note") or "")
         if a.get("denied_by") != rec.GATE:
             return a
-        act = spec.actions.get(name)
+        act = spec.actions.get(a.get("action") or "")
         if act is not None and gt.in_force(p, act)[0] == "deny" and not note.startswith("fenced"):
             return a
     return None
@@ -92,10 +96,46 @@ def reask(p, a: dict, cfg: dict) -> dict:
 def ask(p, spec, cfg: dict, name: str, args: dict, key: str | None = None, wait: float = 0.0) -> dict:
     """A run asks for an action; returns it as it stands when the call returns (ran, failed, denied, or still held)."""
     a = start(p, spec, cfg, name, args, key)
-    if a.get("reshaped_to"):                        # reshaped: answered by the smaller act (keyless), the full one held
+    if a.get("reshaped_to") and not answered(a):    # reshaped: answered by the smaller act (keyless) while the full is held
         a = rec.get(p, a["reshaped_to"]) or a
     a = settle(p, spec, cfg, a, wait)
     return finish(p, cfg, a)
+
+
+def answered(a: dict) -> bool:
+    """Whether a reshaped full act answers for itself: past its request, approved or denied by someone (never the gate,
+    which only holds it, or denies it at the request under its own act-risk or fencing)."""
+    return a["state"] != "requested" and bool(a.get("approved_by") or a.get("denied_by") not in (None, gt.GATE))
+
+
+def context(cfg: dict) -> dict:
+    return {x: cfg.get(x) for x in ("block", "run", "item", "workdir", "branch", "lease")}
+
+
+def target(p, spec, cfg: dict, a: dict) -> dict | None:
+    """The smaller act a held full act ``a`` was reshaped to (SPEC §12k), asked again with it: a held one taken over by
+    the asking run's lease too; one that no longer stands (failed, fenced, denied by a gate since changed) asked anew,
+    the full act's new ``reshaped_to`` written first, once only (a lock file named by the old target). None when it was
+    never recorded."""
+    t = rec.get(p, a["reshaped_to"])
+    if t is None:
+        return None
+    if t["state"] in ("requested", "approved"):
+        t = reask(p, t, cfg)
+        if not (t["state"] == "requested" and gt.fenced(p, spec, t)):
+            return t
+    elif stands(p, spec, t):
+        return t
+    try:
+        os.close(os.open(gt.folder(p) / f"{rec.short(t['id'])}.asked-anew", os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:                           # another ask took it: its new target, once written
+        return rec.get(p, rec.get(p, a["id"]).get("reshaped_to") or t["id"]) or t
+    tid = rec.new_id(t["action"])
+    rec.step(p, a["id"], "reshaped", {"reshaped_to": tid}, by=cfg.get("block") or "program", causedby=cfg.get("run"))
+    try:
+        return gt.request(p, spec, t["action"], a.get("args") or {}, context(cfg), asker="program", shaped=(tid, a["id"]))
+    except gt.GateError as e:
+        raise AskError(str(e)) from None
 
 
 def start(p, spec, cfg: dict, name: str, args: dict, key: str | None = None) -> dict:
@@ -117,10 +157,11 @@ def start(p, spec, cfg: dict, name: str, args: dict, key: str | None = None) -> 
         why = gt.fenced(p, spec, a)
         if why and a["state"] == "requested":         # a run whose own lease is over asks again: refused, as new
             a = None
+        elif a["state"] == "requested" and a.get("reshaped_to") and target(p, spec, cfg, a):
+            a = rec.get(p, a["id"])                   # (its link, written again when its target was asked anew)
     if a is None:
-        ctx = {x: cfg.get(x) for x in ("block", "run", "item", "workdir", "branch", "lease")}
         try:
-            a = gt.request(p, spec, name, args, ctx, asker="program", key=k)
+            a = gt.request(p, spec, name, args, context(cfg), asker="program", key=k)
         except gt.GateError as e:
             raise AskError(str(e)) from None
     return a

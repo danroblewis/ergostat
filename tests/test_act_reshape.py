@@ -15,9 +15,12 @@ from ergostat.store import Project
 PR = "{normal: auto, away: {reshape: push}}"
 
 
-def model(pr_gate=PR, push_gate="auto", pr_risk="", push_args="{title: its title}") -> str:
+def model(pr_gate=PR, push_gate="auto", pr_risk="", push_args="{title: its title}",
+          push_run="echo push {title} >> ran.txt") -> str:
     return textwrap.dedent(f"""
         name: t
+        items:
+          ticket: {{id: ticket/*, states: [open, done]}}
         actions:
           pr:
             run: "echo pr {{title}} >> ran.txt"
@@ -27,7 +30,7 @@ def model(pr_gate=PR, push_gate="auto", pr_risk="", push_args="{title: its title
             in: .
             {pr_risk}
           push:
-            run: "echo push {{title}} >> ran.txt"
+            run: "{push_run}"
             args: {push_args}
             gate: {push_gate}
             wait: 1s
@@ -166,6 +169,63 @@ def test_program_answered_by_target_keyless(tmp_path):
     assert full["state"] == "requested" and full["key"]
     b = program.ask(p, p.model.spec, {**cfg, "run": "r2"}, "pr", {"title": "t1", "body": "b1"}, key="k1")
     assert b["id"] == a["id"] and len(record.stored(p)) == 2 and ran(tmp_path) == ["push t1"]
+
+
+ARGS = {"title": "t1", "body": "b1"}
+
+
+def leased(p, tmp_path, fence: int, run: str) -> dict:
+    """ticket/1 leased to ``run`` under ``fence`` (and given back to wait), and the run's cfg."""
+    if fence == 1:
+        p.events.add("ticket.opened", item="ticket/1", source="watch", data={})
+    p.events.add("ergostat.lease.taken", item="ticket/1", source="ergostat", data={
+        "item": "ticket/1", "run": run, "block": "dev", "fence": fence, "ttl": 300, "max": 3, "back": "open",
+        "tier": "program", "attempt": fence})
+    p.events.add("ergostat.lease.ended", item="ticket/1", source="ergostat", causedby=run,
+                 data={"run": run, "fence": fence, "how": "nack", "why": "waits", "count": False})
+    return {"block": "dev", "run": run, "item": "ticket/1", "lease": fence, "workdir": str(tmp_path),
+            "actions": ["pr"], "runner": "here"}
+
+
+def test_program_reask_takes_target_over_with_lease(tmp_path):
+    p = project(tmp_path, push_gate="approve")
+    a = program.ask(p, p.model.spec, leased(p, tmp_path, 1, "r1"), "pr", ARGS)
+    assert a["action"] == "push" and a["state"] == "requested" and a["lease"] == 1
+    b = program.ask(p, p.model.spec, leased(p, tmp_path, 2, "r2"), "pr", ARGS)
+    assert b["id"] == a["id"] and b["fence"] == 2 and b["run"] == "r2", "the held target taken over with the full act"
+    assert record.get(p, a["reshaped_from"])["fence"] == 2 and len(record.stored(p)) == 2
+    t = gate.approve(p, p.model.spec, a["id"])
+    assert t["state"] == "ran" and not t.get("fenced") and ran(tmp_path) == ["push t1"]
+
+
+def test_program_failed_target_asked_anew(tmp_path):
+    p = project(tmp_path, push_run="test -f ok || exit 3; echo push {title} >> ran.txt")
+    cfg = {"block": "dev", "run": "r1", "item": "ticket/1", "workdir": str(tmp_path), "actions": ["pr"]}
+    a = program.ask(p, p.model.spec, cfg, "pr", ARGS)
+    assert a["action"] == "push" and a["state"] == "failed" and a["exit"] == 3
+    (tmp_path / "ok").write_text("")
+    b = program.ask(p, p.model.spec, {**cfg, "run": "r2"}, "pr", ARGS)
+    assert b["id"] != a["id"] and b["state"] == "ran" and ran(tmp_path) == ["push t1"], "a failed target asked anew"
+    full = record.get(p, a["reshaped_from"])
+    assert full["state"] == "requested" and full["reshaped_to"] == b["id"] and b["reshaped_from"] == full["id"]
+    c = program.ask(p, p.model.spec, {**cfg, "run": "r3"}, "pr", ARGS)
+    assert c["id"] == b["id"] and len(record.stored(p)) == 3 and ran(tmp_path) == ["push t1"], "one that ran stands"
+    assert [d["run"] for d in c["deliveries"]] == ["r2", "r3"]
+
+
+def test_program_answered_by_full_once_owner_answers(tmp_path, monkeypatch):
+    p = project(tmp_path)
+    monkeypatch.setattr(operating, "presence", lambda *a: ("away", "test"))   # (the owner's answers would be presence)
+    cfg = {"block": "dev", "run": "r1", "item": None, "workdir": str(tmp_path), "actions": ["pr"]}
+    for key, answer in (("k1", "approve"), ("k2", "deny")):
+        t = program.ask(p, p.model.spec, cfg, "pr", ARGS, key=key)
+        assert t["action"] == "push" and t["state"] == "ran"
+        getattr(gate, answer)(*((p, p.model.spec) if answer == "approve" else (p,)), t["reshaped_from"])
+        full = program.ask(p, p.model.spec, {**cfg, "run": f"r2-{key}"}, "pr", ARGS, key=key)
+        assert full["id"] == t["reshaped_from"] and full["action"] == "pr", "the full act's own answer, once given"
+        assert full["state"] == {"approve": "ran", "deny": "denied"}[answer]
+        assert full["deliveries"][-1]["run"] == f"r2-{key}"
+    assert ran(tmp_path) == ["push t1", "pr t1", "push t1"]
 
 
 def test_reshape_refused_at_compile(tmp_path):
