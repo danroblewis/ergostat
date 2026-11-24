@@ -86,6 +86,17 @@ review into *Done recently*). Newest decisions from the owner first within each 
   them, and the `library-untrusted` refusal's folder path); `fetch` by package; the provenance gate and the sandbox
   for fetched libraries without `trust: owner` (today never expanded); then running untrusted library blocks' scripts
   through `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
+  - *Done 2026-11-23* (`library-diagram-text-marked`): The Dynamics and Blocks diagrams mark what an untrusted library
+    instance made: the graph answer (and a snapshot page) gives each such box its template's name, escaped, the page
+    says "untrusted library, template NAME" in the box's title and accessible name (text only, never colour alone),
+    and the Blocks view's own text marks such a part's name and description and the system's description, all through
+    `untrusted.Shown` (`library-diagram-text-marked`).
+  - *Done 2026-11-23* (`library-model-text-marked`): The text an untrusted instance makes (descriptions, prompts,
+    asks, runs, equations, its system's description) is marked where the MCP `explain` and `context` answers write it,
+    its parts' names and the findings about them are marked in `ergostat check` and the MCP `check`, `status`,
+    `explain` and `context` answers, with the markers' meaning once per answer, through one helper
+    (`untrusted.Shown`), and the `library-untrusted`/`untrusted-text` refusals mark the refused key's path, template
+    and folder (`library-model-text-marked`).
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
@@ -500,6 +511,20 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `--warn`, each repeat only about 12 from its hue. A repeat toward the paper that keeps 3:1 forces every hue to one
   lightness. To try next: mark the paper round by an ink outline or a dash instead of lightness, or alternate the
   hues' lightness (light hues repeated toward the ink only).
+- **A read-only SQL data source over stable item views** (`sql-source-over-item-views`): a `sql` source answers
+  SQLite SELECTs over the views `transitions`, `item_fields`, `item_spans` and one per item kind.
+  - It has exact `median` and `percentile`.
+  - Writes, ATTACH, PRAGMA and the index's own tables are refused.
+  - Each query is bounded in time, rows, bytes and memory.
+  - Its editor highlights SQL and completes views and columns.
+  - Left: real views in place of per-query copies, if the authorizer can be made to tell a view's reads apart.
+- **Keep: a dashboard draft becomes a declared dashboard** (done, on `dashboard-keep-display-proposal`; SPEC §4f,
+  §12e): Keep on a draft files one `ergostat.model-change` of kind `display`, made by the owner, whose `dashboards:`
+  edit the server works out (panels of the new `query` kind, checked by the query engine's parser); the judge passes
+  a display change on `check` without a replay; Accept writes it, Dismiss lets it go; a change touching anything but
+  `dashboards:` is refused as display. `/dashboard?name=NAME` draws a declared dashboard's query panels. Not done:
+  drafts with rows, variables or repeated panels; listing the declared dashboards on `/dashboard`; drawing the
+  declared endpoint kinds on the page.
 
 ## The owner's work setup
 

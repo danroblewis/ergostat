@@ -597,6 +597,56 @@ def test_the_model_changes_are_found_by_heading_search_and_panel(browser, site):
     pg.close()
 
 
+def test_a_search_says_its_count_beside_the_box_and_draws_only_the_kinds_it_matched(browser, site):
+    """The search's count is beside its box, and 'nothing matches' there when it finds none; while it is active a
+    kind (with its charts) or a system that matched nothing is not drawn."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/items")
+    pg.wait_for_selector('section.sys-group[data-system="lab"] .kind-flow .uplot')
+    box, said = pg.locator('input[aria-label="Search"]'), pg.locator(".search-hits")
+    box.fill("zzqx")                                    # the overview's box: a search goes to /items?q=, the lists
+    box.press("Enter")
+    pg.wait_for_function("() => location.search === '?q=zzqx'")
+    pg.wait_for_function("() => document.querySelector('.search-hits').textContent === 'nothing matches'")
+    pg.wait_for_function("() => !document.querySelector('section.sys-group')")
+    a, b = box.bounding_box(), said.bounding_box()
+    gap = max(b["x"] - (a["x"] + a["width"]), a["x"] - (b["x"] + b["width"]),
+              b["y"] - (a["y"] + a["height"]), a["y"] - (b["y"] + b["height"]), 0)
+    assert gap < 100, (a, b)
+    assert pg.locator(".kind-flow, .uplot").count() == 0
+    box.fill("hypothesis/2")
+    pg.wait_for_function("() => document.querySelector('.search-hits').textContent === '1'")
+    pg.wait_for_selector("section.sys-group table tr.click")
+    assert pg.locator("section.sys-group table tr.click td:first-child").all_inner_texts() == ["hypothesis/2"]
+    assert systems(pg) == ["lab"]
+    assert pg.locator(".kind-flow").count() == 1                                 # the one kind matched, its chart alone
+    assert "1 item matches" in pg.locator("section.sys-group .sys-head").inner_text()
+    box.fill("")
+    pg.wait_for_function("() => document.querySelectorAll('section.sys-group').length === 4")
+    assert said.inner_text() == ""
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_record_filter_that_matches_nothing_says_so_and_clears(browser, site):
+    """The Record answers a filter that matches nothing with 'Nothing matches', and a control that empties it."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/record?type=zzz")
+    pg.wait_for_selector("text=Nothing matches")
+    body = pg.inner_text("body")
+    assert "Nothing matches “zzz”" in body and "Nothing recorded yet." not in body
+    pg.click("a.clear-filter")
+    pg.wait_for_function("() => !document.body.innerText.includes('Nothing matches')")
+    assert pg.input_value('input[aria-label^="Event type"]') == ""
+    pg.wait_for_selector("table tr td")                                           # the record's events, unfiltered
+    assert not errors, errors
+    pg.close()
+
+
 def test_a_valves_leased_items_are_listed_live(browser, site):
     """A valve moved by a block that takes items: its panel names the kind, how many are leased now and to whom, and
     links to exactly those items; the list follows leases taken and given back without a reload."""
@@ -3433,6 +3483,27 @@ def test_a_kinds_search_reaches_every_item_and_its_sort_is_the_whole_sets(browse
     assert pg.locator("table button.sort", has_text="points").locator("xpath=..").get_attribute("aria-sort") == "descending"
     second = sorted(every, key=lambda i: -i["fields"]["points"])[25]["id"]
     assert pg.evaluate(ROWS)[0] == second
+    assert not errors, errors
+    pg.close()
+
+
+@pytest.mark.slow
+def test_a_search_on_a_kinds_own_page_keeps_its_one_count_and_its_section(browser, paged_roadmap):
+    """A search on /items/KIND: the server's matched counts only the page shown, so the count beside the box is the
+    kind's own (`found`), the system's heading is not a page's count, and a miss keeps the kind's section."""
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{paged_roadmap}/items/ticket?finished=show")                     # every item, the finished too
+    says(pg, f"1-25 of {PAGED}")
+    pg.fill("input[type=search]", "ticket/n11")                                 # 111 matches, more than a page
+    pg.wait_for_function("() => document.querySelector('.search-said')?.textContent.startsWith('111 matches')")
+    heads = pg.locator(".sys-head").all_inner_texts()
+    assert heads and not any("match" in t for t in heads), heads                # no "25 items match" from one page
+    assert pg.locator(".search-hits").inner_text() == ""                        # one count beside the box, not two
+    pg.fill("input[type=search]", "zzqx")
+    pg.wait_for_function("() => document.querySelector('.search-said')?.textContent.startsWith('0 matches')")
+    assert pg.locator(".sys-head").count() >= 1                                 # the kind's section stays
     assert not errors, errors
     pg.close()
 

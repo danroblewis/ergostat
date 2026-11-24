@@ -113,6 +113,8 @@ def blocks_shapes(g: dict, spec) -> dict[str, dict]:
     def of(nid: str) -> tuple[list[str], bool]:
         kind, _, rest = nid.partition(":")
         n = nodes.get(nid, {})
+        if rest.startswith("top:"):                   # a loop drawn between closed systems: the signals it stands for
+            return list(dict.fromkeys(p for k in n.get("signals") or [] for p in _key_parts(spec, k))), True
         if kind in ("blk", "smp", "zoh", "jsum"):
             b = rest.split(":")[0]
             if b not in spec.blocks:

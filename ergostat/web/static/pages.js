@@ -184,13 +184,16 @@ async function pageRecord(main, q) {
   runs.addEventListener("change", () => tick());
   filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") tick(); });
   const ans = answers();
+  const empty = () => (filt.value ? h("p", { class: "muted" }, `Nothing matches “${filt.value}” · `,     // a filter's miss, said as one
+    h("a", { href: "#", class: "clear-filter", onclick: (ev) => { ev.preventDefault(); filt.value = ""; tick(); } }, "clear"))
+    : h("p", { class: "muted" }, "Nothing recorded yet."));
   async function tick(force = true) {
     const u = new URLSearchParams(kept()).toString();
     if (p.isConnected && parseRoute().path === "/record") replaceRoute("/record" + (u ? "?" + u : ""));
     if (remote) {                                       // what failed said, with how old what is shown is; never "nothing"
       const d = await remoteApi("events", { remote, n: 80, ...(filt.value ? { type: filt.value } : {}) });
       if (!p.isConnected) return;
-      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false, true) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
+      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false, true) : d.ok ? empty() : null;
       patch(box, ...[remoteSaid(remote, d), list].filter(Boolean));
       return;
     }
@@ -201,7 +204,7 @@ async function pageRecord(main, q) {
       evs = await ans.api("events", { n: 80, ...asked });
     } catch (err) { patch(box, h("p", { class: "muted" }, String(err.message || err))); return; }
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
-    patch(box, evs.length ? eventsTable(evs, false, true) : h("p", { class: "muted" }, "Nothing recorded yet."));
+    patch(box, evs.length ? eventsTable(evs, false, true) : empty());
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -720,7 +723,8 @@ async function pageItems(main, q, only = false) {
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
-  const filters = h("div", { class: "filters" }, search, found, showFin, viewBar, chip);
+  const hitsSaid = h("span", { class: "muted search-hits", "aria-live": "polite" });   // the search's count, beside it
+  const filters = h("div", { class: "filters" }, search, hitsSaid, found, showFin, viewBar, chip);
   const mayDo = h("p", { class: "may-do", hidden: true }, MAY_DO);   // on the gated actions: what a person may do
   if (only) p.append(box, h("h2", { class: "kind-sect" }, "Items"), notes, filters, mayDo, loading, compose, lbox);
   else p.append(notes, filters, mayDo, loading, compose, box, rbox);
@@ -822,8 +826,8 @@ async function pageItems(main, q, only = false) {
     if (!only) remoteTick(d.remotes || []);             // (not waited on; a kind's page asks for no other kind's items)
     const got = paged() && d.offset != null ? Math.floor(d.offset / per) + 1 : wanted;   // past the end: the last page
     if (got !== wanted && pg === wanted && size === per) { pg = got; go(false); }   // (unless another was asked meanwhile)
-    const hits = d.total ?? 0;
-    const foundSaid = paged() && search.value.trim() ? `${hits} match${hits === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "";
+    const total = d.total ?? 0;   // (written with the rows it counts, below)
+    const foundSaid = paged() && search.value.trim() ? `${total} match${total === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "";
     const flowsWere = JSON.stringify([flows, gps]);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
@@ -919,6 +923,12 @@ async function pageItems(main, q, only = false) {
       const m = needle && !paged() ? its.filter(isHidden).length : 0;   // (a kind's page: said beside the search)
       return m ? h("p", { class: "note finished-note", key: `fin:${name}` }, `${m} finished match${m === 1 ? "" : "es"}`) : null;
     };
+    // a search: how many each kind matched (the server's count, a snapshot's own), its kinds without one not drawn;
+    // not on a kind's own paged page: there d.matched counts one page only, and `found` says the kind's whole count
+    const hits = !needle || paged() ? null : !SNAP && d.matched ? d.matched : rows.reduce((a, i) => ({ ...a, [i.kind || ""]: (a[i.kind || ""] || 0) + 1 }), {});
+    const hitsN = hits && Object.values(hits).reduce((a, b) => a + b, 0);
+    setText(hitsSaid, hits ? (hitsN ? String(hitsN) : "nothing matches") : "");
+    const hit = (k) => !hits || hits[k] > 0;
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
     const isNum = (its, f) => its.some((i) => typeof i.fields[f] === "number") && its.every((i) => i.fields[f] == null || typeof i.fields[f] === "number");
     const tableOf = (its, show, limit) => {
@@ -1025,14 +1035,15 @@ async function pageItems(main, q, only = false) {
     } else for (const g of systems) {
       if (d.set && !g.kinds.includes(kind)) continue;     // a set: the page is about its kind alone, until its chip goes
       const names = [...g.kinds, ...(g.name === "other" && d.unkinded ? [""] : [])];
-      const n = g.kinds.reduce((a, k) => a + Object.values(kindOf[k]?.counts || {}).reduce((x, y) => x + y, 0), 0) + (names.includes("") ? d.unkinded : 0);
+      if (!names.some(hit)) continue;                    // a search: a system none of whose kinds matched, not drawn
+      const n = hits ? names.reduce((a, k) => a + (hits[k] || 0), 0) : g.kinds.reduce((a, k) => a + Object.values(kindOf[k]?.counts || {}).reduce((x, y) => x + y, 0), 0) + (names.includes("") ? d.unkinded : 0);
       const open = isOpen(g.name);
       const head = h("h2", { class: "sys-head" },
         h("button", { class: "ghost disclose", "aria-expanded": String(!!open), title: open ? "Fold away this system's lists of items" : "Show this system's lists of items",
                       onclick: () => toggle(g.name) }, h("span", { class: "tri", "aria-hidden": "true" }, open ? "▾" : "▸"), g.name),
-        h("span", { class: "muted" }, ` ${n} item${n === 1 ? "" : "s"}, ${g.kinds.length} kind${g.kinds.length === 1 ? "" : "s"}`),
+        h("span", { class: "muted" }, ` ${n} item${n === 1 ? "" : "s"}${hits ? (n === 1 ? " matches" : " match") : ""}, ${g.kinds.length} kind${g.kinds.length === 1 ? "" : "s"}`),
         g.description ? h("span", { class: "muted sys-desc" }, g.description) : null);
-      const charts = h("div", { class: "kind-flows" }, g.kinds.filter((k) => !d.set || k === kind).map((k) => kindOf[k]).filter(Boolean).map(card));
+      const charts = h("div", { class: "kind-flows" }, g.kinds.filter((k) => (!d.set || k === kind) && hit(k)).map((k) => kindOf[k]).filter(Boolean).map(card));
       if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head, charts)); continue; }   // the charts, not the lists
       const t = view === "list" ? await tables(names) : await relPart(g);
       anyRows ||= t.length > 0;
@@ -1257,7 +1268,7 @@ async function pageItem(main, id, q) {
     // what its kind touches in the model (unread: the lifecycle strip, saying nothing of the model)
     const fp = k && d.path?.length ? await ans.api(`kinds/${encodeURIComponent(k.name)}`).catch(() => null) : null;
     const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
-      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
+      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])]), w.place]);
     if (!p.isConnected || late()) return;
     const same = wsig === whySig;
     whySig = wsig;
