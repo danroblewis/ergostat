@@ -2006,7 +2006,8 @@
           "enum": [
             "prometheus",
             "command",
-            "ergostat"
+            "ergostat",
+            "sql"
           ]
         },
         "url": {

@@ -14,7 +14,9 @@ section: Runtime, scale and latency
   unknown shard is a `ShardError` (`engine-runs-its-shard-join-1`). `ergostat run` still runs one engine for the
   whole model. Also done (`route-one-large-system-in-parts`): a line group of more than 100, one system's view
   included, routed in parts of at most 100 (`static/routeparts.js`; `docs/layout-rules.md`), the shared group past
-  100 lines routed free. Left: the wires carried between shards, and refused until then (`shard-wires`); a process
-  per shard (`shard-supervisor`); `daemons.json` per shard; a moving flow's sensors read wherever they are; the
-  measurements; for the lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's
+  100 lines routed free. Also done (`shard-moved-flow-read-by-owner`): a moved flow's stocks are read at once by the
+  shard engine that owns each, the others following the run's ended event by `seq`. Also done
+  (`shard-daemons-file-each`): each shard engine writes `daemons.SHARD.json`, and the pages' daemon status merges
+  every shard's file, a dead writer's daemons read as stopped. Left: the wires carried between shards, and refused
+  until then (`shard-wires`); a process per shard (`shard-supervisor`); the measurements; for the lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's
   one-system view measured again. A reshard on swap is not needed: a swap clears what moved out.

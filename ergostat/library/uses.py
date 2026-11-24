@@ -67,14 +67,16 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
             doc.defined.pop(key, None)
         at = entry.at("use") if hasattr(entry, "at") else w
         text = isinstance(path, trust.Text)
+        said = f"{path}, under template {u.name} from {u.path.parent}"          # its key, name and folder: the library's
+        said = "".join(ch if ch.isprintable() else repr(ch)[1:-1] for ch in said)  # a newline written \n
         why = ("its ask, prompt, query and sources may hold only text the owner or a trusted template wrote, and this "
                "holds text the library wrote (R3)" if text else "a use of such a folder may make only structure, and "
                "run only the owner's own commands and ergostat's programs with checked arguments")
         doc.problems.append(Problem(
-            "error", f"use {inst}: refused, and nothing of it is in the model: it makes {path}, under template {u.name} "
-            f"from {u.path.parent}, a library folder not marked trusted, and {why} (SPEC §2a). Only the owner can "
-            f"mark a folder trusted, after reading it.", at, "untrusted-text" if text else "library-unsandboxed"
-            if path.endswith(".daemon") else "library-untrusted",
+            "error", f"use {inst}: refused, and nothing of it is in the model: it makes {mark(said, FILE)}, a library "
+            f"folder not marked trusted, and {why} "
+            f"(SPEC §2a). Only the owner can mark a folder trusted, after reading it.",
+            at, "untrusted-text" if text else "library-unsandboxed" if path.endswith(".daemon") else "library-untrusted",
             f"system.{inst}"))
         return
     for step in chain.steps:

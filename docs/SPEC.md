@@ -170,7 +170,7 @@ recorded in its `uses` entry (`untrusted`, a bool).
 
 *Marked.* Library text is shown between ergostat's markers, `⟦untrusted: LABEL⟧` and `⟦end of untrusted⟧`, every
 `⟦` and `⟧` inside it written `[` and `]`, so no marker character inside a marked span is the library's. `LABEL` is
-never library text: `template NAME` (the name checked above) or the words `library file`. Three places are marked,
+never library text: `template NAME` (the name checked above) or the words `library file`. These places are marked,
 for an untrusted template only; a trusted template's output is unchanged:
 
 - the `templates` tool (MCP, `author.library`), listed and in full: `description`, `reading`, `example`, `from`, and
@@ -181,12 +181,37 @@ for an untrusted template only; a trusted template's output is unchanged:
   refused): `untrusted library folder FOLDER:` (the owner's path), then the rest, file name included, marked as
   `library file`;
 - the problems a use of an untrusted template gives: **bad-param** and **bad-template** messages after
-  `use INSTANCE:`, the stand-ins in **template-stand-in**, and a broken template's note in **unknown-template**.
+  `use INSTANCE:`, the stand-ins in **template-stand-in**, and a broken template's note in **unknown-template**;
+- the **library-untrusted** and **untrusted-text** refusals: `it makes ⟦untrusted: library file⟧PATH, under template
+  NAME from FOLDER⟦end of untrusted⟧`. PATH ends in the library's own key, so it sits inside the mark with the
+  folder, and any character in them that does not print (a newline) is written as its escape (`\n`): neither a
+  folder's name nor a key can close a mark or start a line of its own;
+- the text an untrusted instance makes in the model (`untrusted.Shown`, the one place that decides; a part is
+  untrusted as under *Bounded* below, and a part with no `where` counts as untrusted too), labelled `template NAME`
+  (`library file` when its instance is gone from `uses`). Each field is marked where a view writes it, never by
+  matching its words elsewhere: the MCP `explain` and `context` answers are written from a copy of the model whose
+  untrusted parts' `description`, `run`, `prompt`, `ask`, equation and sensors' `run` and `description`, and the
+  system's description, are marked. Where a view cuts such text short (`explain` keeps 120 characters of a prompt, a
+  `context` part its budget), the cut keeps the mark and closes it. A finding at an untrusted instance's `use:` line,
+  or about an untrusted part, is marked whole in `ergostat check`'s lines and its `--json` messages, in the MCP
+  `check` answer and in a `context` recipe's findings. The names of untrusted parts (identifiers, by NAME, each
+  `INSTANCE-NAME`) are marked as whole words where those answers, the notes' lines of `check` and the values (never
+  the keys) of the MCP `status` answer write them, but never inside a mark, nor inside an owner's own field (a
+  description, run, prompt, ask, equation, sensor's run or description, or system description) where the `explain`
+  and `context` answers write that field from the model's copy: there it is as written. The same words anywhere else
+  in an answer (a finding's message, a `status` value, another line of `explain`) have their names marked. An
+  answer that carries a mark, a refusal's or a bad-param's included, ends with what the markers mean once (`check`'s
+  last line; `"untrusted"` in a JSON answer). The owner's parts and those of trusted and built-in templates are not
+  marked, even where their text is the same as a library's, and an answer with no
+  untrusted part or mark in it is unchanged.
 
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
-known types), and everything an untrusted template makes in the model: its system's description, its parts'
-descriptions, prompts, commands, equations and names, however `check`, the diagrams and the MCP model views show
-them. A held chain's `ask`, `prompt`, `query` and `sources` are gated by who wrote them instead (R3, below).
+known types); a finding's `about` and `id` in JSON, and the keys of the MCP `status` answer (a goal by its name):
+references, kept as they are so the thing can be named back; a library's description or command quoted in a finding
+about an owner's part (only the untrusted names in it are marked); the diagrams; and the MCP `spec` answer, which is
+the format's document and holds none of the model's text; and an untrusted instance's own name, which the owner
+wrote under `uses:` (its system's description is marked). A held chain's `ask`, `prompt`, `query` and `sources` are gated by
+who wrote them instead (R3, below).
 
 *Bounded.* A part is untrusted when it was made by an instance whose `uses` entry does not say `untrusted: false`
 (an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After
@@ -792,6 +817,8 @@ together inside its outline, its own systems still boxed), or is drawn alone: it
 what it reaches outside as terminals at its edge, each naming the system it is in. A system alone
 at its level starts open; the others start as boxes. A `once` library template's system (`use: modelling`) is not
 counted beside it: a model's one system and `modelling` start with the system open and `modelling` a box.
+Its lines are drawn from a quick routing first and refined in the background, the careful lines taking their place
+only if nothing was dragged or laid out again meanwhile.
 
 ## 4b. Storage: where the record is kept
 
@@ -845,7 +872,11 @@ page, the command line); every 32,768 events sealed into a segment of gzip block
 block, read alone) with an index (each item's and each type's rows, the times and seqs as
 columns, a Bloom filter of the ids, and what its events add up to per valve, controller and block:
 openings, decisions, runs), so a query by item, type and time reads only the rows and
-blocks that match, and a month's tallies and crossings are read from headers and columns, not event by event. `sqlite` is `events.db`, as before. Both keep a transcript's lines
+blocks that match, and a month's tallies and crossings are read from headers and columns, not event by event. Beside
+each segment, an index of what caused each event and one of its source (`.cby`, `.src`: hashed keys and their rows),
+and the head keeps the same in memory, so what a run caused (`caused_by`) and a query by source read only the
+segments, blocks and rows that hold a match; a segment sealed before these were written has them built once, from
+its blocks, the first time it is asked, and kept. `sqlite` is `events.db`, as before. Both keep a transcript's lines
 (`claude.*`) out of item counts without reading them (SQLite by a partial index, the log by its
 type columns).
 
@@ -1394,6 +1425,59 @@ reads the event log.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
   is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
+- **The SQL source.** A `sql` source answers what PromQL cannot: which items, one item against another, exact medians,
+  cohorts. A query is one SQLite SELECT over these documented, stable views of the project's items, and nothing else
+  (`ergostat/datasources/_itemviews.py`). Times are Unix seconds, and `:since`, `:until` and `:step` are the panel's window.
+  - `transitions(id, kind, at, from_state, to_state, event, type)`: every move of every item. An arrival has no
+    `from_state`, and a lease's moves into and out of `leased` are moves like any other.
+  - `item_fields(id, kind, field, value)`: each item's top-level fields now, a list or a map as JSON.
+  - `item_spans(id, kind, state, entered, left, entry, reason)`: one row per move of an item into a state.
+    - `left` is null while the item is there, so an open item's current span is open.
+    - `entry` is 1 the first time the item is in that state, 2 when it came back, and so on.
+    - `reason` is the finished state the item ended in (the kind's finished states, as the Items listing reckons
+      them), and null while the item is open.
+    - Write `left` quoted (`"left"`) where SQL would read it as a join.
+  - One view per item kind, named for the kind with `-` read as `_`: `(id, state, first, last, entered, events, ...)`,
+    then the kind's `show:` fields that are plain words. A kind whose name is not then a plain word, or that is named
+    like a view above, has none.
+
+  The aggregates `median(x)`, `percentile(x, p)` (p from 0 to 100) and `percentile_cont(x, p)` (p from 0 to 1) are exact.
+  They interpolate linearly between the two nearest values, as PostgreSQL's `percentile_cont` does, and ignore nulls.
+  Text is refused.
+
+  How a query is kept read only:
+  - Each query gets a connection of its own to the item index's file, opened read only, under the file's shared lock.
+  - The views the text names are copied into the connection's own temporary tables.
+    - The copies, and the finished states that make `reason`, are read in one read transaction. So they all show one
+      state of the index: a query that joins two views sees each item the same in both, even if a catch-up is committed
+      while they are copied.
+  - Then SQLite's authorizer allows only SELECT, reading those copies and the query's own `WITH` names, and an
+    allowlist of functions (no `load_extension`, no internal helper).
+  - So a write, `ATTACH`, `PRAGMA`, a transaction or a read of any of the index's own tables (`items`, `moves`, `names`,
+    `sqlite_master`, a `pragma_` table) is refused with `error_kind: refused`, naming what it tried.
+  - A copy and not a SQLite view: SQLite does not say which view a read is for once a view is flattened into a query.
+
+  Bounds:
+  - Time: the data source's time bound (a progress handler stops it).
+  - Rows: 5,000.
+  - Bytes: 8 MB of text and blobs in the answer.
+  - Values: 16 MB for any value the query makes.
+  - Medians: 1,000,000 numbers in one median or percentile.
+  - Memory: SQLite's page cache is held to 8 MB each for the index and for the query's temporaries, which go to a
+    temporary file past that.
+
+  Past a bound the query is stopped, with `error_kind: limit`. Not bounded: catching the index up with the record before
+  the query, which every item panel does too.
+
+  The answer is typed by its columns. A first column named `time` makes series. Otherwise the leading columns that are
+  not all numbers are a table's dims, and the rest are its measures. An answer of numbers only is named by row (dim
+  `row`), and a number meant as a name is cast to text.
+
+  The views keep their names and columns whatever the index's layout: a column or a table added, columns reordered, or
+  the file built again under a new layout version (`tests/test_sql_source.py`). Its editor (`static/sql.js`,
+  `queryEditors.SQL`) highlights keywords, functions, the source's views and columns, strings, numbers and comments. It
+  completes the views after `FROM` or `JOIN`, and elsewhere the columns of the views the text names, with SQL's words.
+  Both come from `GET /api/query/suggest`: `what=metrics` for the views, `what=labels&metric=VIEW` for a view's columns.
 - **Result shapes.** Every answer says which of six shapes it is (`shape`), so a chart is chosen by what the data is and
   not by where it came from: `series` (values over time; `roles` `input` and `output` when it is two signals, one drawn
   against the other, as an X of another query gives; `open`, `high`, `low`, `close` for candles), `table` (`dims`,
@@ -4016,7 +4100,9 @@ goals:
 ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease on a second look at the same
 expiry, a grace after it first found it past its TTL (a tenth of the TTL, at least a second and at most 30 s; renewed
 meanwhile, the grace starts again: a renewal the run asked for in time may still be on its way into the record, the
-engine or the machine busy), and the item is taken again. Each dead letter, and each lease that expired in the
+engine or the machine busy), and the item is taken again. A watchdog pass looks at leases for at most 0.2 s, and the
+dispatcher takes work between passes, so many overdue leases never hold up a take for another block; the leases a
+pass did not reach are looked at in the passes after, each once a round, its first look kept. Each dead letter, and each lease that expired in the
 last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease ITEM --redrive` gives a
 dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every
@@ -4559,7 +4645,11 @@ A `prometheus` source is also a dashboard data source: a panel's query is PromQL
 (`GET /api/v1/query_range`) through the server (section 4e, *Data sources*); its editor's names come from GETs of its
 metadata API (section 4e, *The query editor*). It makes no other request.
 
-More types (Datadog, CloudWatch, SQL) can follow the same shape. A panel data source type is one module in
+A `sql` source (no keys: `record: {type: sql}`) is a dashboard data source only. Its connection is the asking project's
+own record: a panel's query is a SQLite SELECT over the item views (section 4e, *The SQL source*).
+
+More types (Datadog, CloudWatch) can follow the same shape. A type that reads the asking project's own record (`sql`)
+finds it in `datasources.ASKING` while it answers. A panel data source type is one module in
 `ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
 `sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points, and
 optionally `suggest(source, what, prefix, metric, label, seconds, most)`, the names its editor completes; a type offering
@@ -4912,7 +5002,12 @@ the goal) is drawn reading the gap (stock → gap → flow, its sign kept, no lo
 link crosses to another system as any line does (to a stub, or a closed module's port); a goal nothing
 in the model acts on (no block serves it, or an open loop) keeps its gap, marked *→ no feedback* with no
 link out, and the legend says what the mark means. The stock's panel names the same goals, each bound
-as the goal writes it (`desired users ≥ 180`). A line between two parts both drawn, in open systems or not, is drawn as itself; only
+as the goal writes it (`desired users ≥ 180`). A goal not holding says so on its gap, after the gap's value: the
+goal's word from `/api/loops` (goalWord; nothing in dynamics.js maps a status), `off` with the one phrase of how far
+(`7 · off by 7 tickets`), `no feedback` for an open goal not already so marked, `stale` or `unknown` muted; a goal
+holding says nothing. Off, the word, the gap's outline and the marker of each balancing loop through the gap are
+`--bad`, never the accent (a marker chosen still takes the accent); the gap → flow link stays ink. The word follows
+the status poll on the value's own line, so it comes and goes with no new layout. A line between two parts both drawn, in open systems or not, is drawn as itself; only
 where its other end is not on the canvas is it cut: a connector out of a closed module into an
 open system comes from a shadow variable `<x>` inside the receiving system, and a shadow is an
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a

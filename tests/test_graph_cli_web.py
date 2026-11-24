@@ -451,6 +451,39 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_counted_whole():
+    """What the Items page's count beside its search box and the Record's 'Nothing matches' are read from (the browser
+    half is tests/test_items_page.py): a search's ``matched`` counts every match of a kind, past the newest per_kind
+    listed, and holds no kind for a miss, so the page draws no kind; a kind matched by name keeps all of its items."""
+    from ergostat.web.server import _as_listed
+    its = [{"id": f"ticket/{n}", "kind": "ticket", "fields": {"title": f"t{n}"}} for n in range(1, 31)]
+    got = {"kinds": [{"name": "ticket", "show": ["title"]}, {"name": "bug", "show": []}],
+           "items": [*its, {"id": "bug/1", "kind": "bug", "fields": {}}]}
+    assert _as_listed(got, "zzqx", 25, True)["matched"] == {}
+    one = _as_listed(got, "ticket/2", 25, True)            # ticket/2 and ticket/20..29: eleven, all counted
+    assert one["matched"] == {"ticket": 11} and len(one["items"]) == 11
+    assert _as_listed(got, " TICKET ", 25, True)["matched"] == {"ticket": 30}   # by the kind's name: all 30, 25 listed
+    assert len(_as_listed(got, "ticket", 25, True)["items"]) == 25
+
+
+def test_the_record_answers_a_type_that_matches_nothing_with_no_events(project):
+    """The Record's 'Nothing matches “zzz” · clear' is drawn on an empty answer to its type filter: the answer must be
+    empty for a miss, and the record's events come back once the filter is cleared."""
+    from ergostat.web import serve
+    project.events.add("cleanup.done", item="disk/1")
+    server, url = serve(project, free_port())
+    try:
+        def events(query):
+            with urllib.request.urlopen(url + "/api/events?n=80" + query, timeout=10) as r:
+                return json.loads(r.read())
+        assert events("&type=zzz") == []
+        assert [e["type"] for e in events("&type=cleanup.done")] == ["cleanup.done"]
+        assert events("")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them(tmp_path):
     """In States, each state's node of /api/graph?view=process carries ``now``: the count /api/items gives that
     state (the browser half of this check is tests/test_diagram_rendering.py's Items-to-process-map test)."""
