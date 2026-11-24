@@ -195,9 +195,11 @@ def test_a_flake_retried_is_never_the_changes_failure(tmp_path):
 
 
 def run(p, t: float, id: str, *steps: str) -> None:
-    """One gap's events: each an event type, or a lease step (`take:BLOCK`, `ack`, `nack`) as the runner writes it."""
+    """One gap's events: each an event type (`TYPE@RUN`: caused by that run), or a lease step (`take:BLOCK`, `ack`,
+    `nack`) as the runner writes it."""
     evs, fence = [], 0
     for j, x in enumerate(steps):
+        x, _, by = x.partition("@")
         if x.startswith("take:"):
             fence += 1
             data = {"run": f"r{fence}", "block": x[5:], "fence": fence, "ttl": 1800, "max": 3}
@@ -206,7 +208,7 @@ def run(p, t: float, id: str, *steps: str) -> None:
             data, x = {"run": f"r{fence}", "fence": fence, "how": x}, ENDED
         else:
             data = {"paths": ["ergostat/flaky.py"]} if x == "gap.built" else {}
-        evs.append({"at": t + j, "type": x, "item": id, "data": data})
+        evs.append({"at": t + j, "type": x, "item": id, "data": data, **({"causedby": by} if by else {})})
     p.events.add_many(evs)
 
 
@@ -234,6 +236,35 @@ def test_a_lease_moving_the_item_never_judges_or_reopens_an_attempt(tmp_path):
     assert itemrisk.backtest(p.events, p.model.spec, "gap")["held"] == 1
     itemrisk._CACHE.clear()                                                  # a replay from the start agrees
     assert itemrisk.learned(p.events, p.model.spec, "gap", state) == got
+
+
+def test_an_event_the_fold_refused_never_undoes_or_fails_an_attempt(tmp_path):
+    """A triage run that outlives its lease (nacked, then taken again by another run) and then says gap.retried is
+    fenced: the gap stays queue-failed, so its failure stays held, and the next run's gap.sent-back judges it failed.
+    A fenced gap.queue-failed fails nothing."""
+    p = project(tmp_path, factory_kinds())
+    factory_record(p, n=20)
+    t = T0 + 10 ** 6
+    head = ("gap.found", "gap.built", "gap.approved", "take:merge-queue", "gap.queued", "gap.queue-failed", "ack",
+            "take:flake-triage", "nack", "take:flake-triage", "gap.retried@r2")
+
+    def state(lr):
+        a = lr.last["gap/late"]
+        return lr.n, lr.f, lr.withdrawn, a["failed"], a.get("held"), lr.items["gap/late"].state
+    run(p, t, "gap/late", *head)
+    base = itemrisk.learned(p.events, p.model.spec, "gap", state)
+    assert its.one(p.events, p.model.spec, "gap/late").refused[-1]["type"] == "gap.retried"      # fenced
+    assert base[3:] == (None, True, "leased")                                 # still held: the fenced retry undid nothing
+    p.events.add("gap.sent-back", item="gap/late", causedby="r3", data={}, at=t + 50)
+    got = itemrisk.learned(p.events, p.model.spec, "gap", state)
+    assert got[:5] == (base[0] + 1, base[1] + 1, base[2], True, False)
+    run(p, t + 100, "gap/stale", "gap.found", "gap.built", "gap.approved", "take:merge-queue", "nack",
+        "take:merge-queue", "gap.queue-failed@r1")
+    stale = itemrisk.learned(p.events, p.model.spec, "gap", lambda lr: (lr.last["gap/stale"]["failed"],
+                                                                         lr.last["gap/stale"].get("held")))
+    assert stale == (None, None)                                             # a fenced failure is no failure
+    itemrisk._CACHE.clear()                                                  # a replay from the start agrees
+    assert itemrisk.learned(p.events, p.model.spec, "gap", state)[:5] == got[:5]
 
 
 def test_without_undone_a_failure_is_judged_at_once(tmp_path):

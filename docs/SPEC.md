@@ -2690,8 +2690,10 @@ item's, such as a flake retried after the failure was said: a kind that declares
 change of state judges it failed; while held it is judged neither way (the backtest counts it as open and held). A
 change of state here is always one the item's own events make: a lease's moves (§9.5: taken into `leased`, given back,
 to `dead`) are its runner's, and neither judge, withdraw nor open an attempt, so a block that takes the item to triage
-it does not judge the failure it is triaging. The kind's events are replayed in the record's order, by `seq` and never by time, so each attempt is scored only from the
-attempts judged before it.
+it does not judge the failure it is triaging. An event the item's fold refused (a run whose lease ended, a sealed kind,
+an `if-unchanged` stale read, `moves-from`, `final`) is never a `failed` or an `undone` event: a fenced retry leaves
+the failure held. Only a move it still made (`final`'s) counts as a change of state. The kind's events are replayed in
+the record's order, by `seq` and never by time, so each attempt is scored only from the attempts judged before it.
 
 How the score is worked out:
 - It is naive Bayes. It starts from the failure base rate, and each field adds the log odds by which its value failed

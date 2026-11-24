@@ -8,7 +8,8 @@ while an attempt is open withdraws that attempt, so it is never judged. A kind t
 types that say a failure was not the item's: a flake retried) has a failure of an open attempt **held** until the
 item's next change of state: an ``undone`` event first withdraws the attempt unjudged, any other change judges it
 failed. A change of state is one the item's own events make: a lease's moves (taken into ``leased``, given back,
-dead) are the runner's, and neither judge, withdraw nor open an attempt. The record is replayed in its own order
+dead) are the runner's, and neither judge, withdraw nor open an attempt. An event the fold refused (from a run whose
+lease ended, a stale read, a move from the wrong state) neither fails nor undoes an attempt. The record is replayed in its own order
 (each event's ``seq``, never its time), so an attempt is scored only from the attempts judged before it.
 
 The score is a naive Bayes estimate. It starts from the base rate of failure, and then, for each declared field, adds
@@ -163,16 +164,19 @@ class Learner:
             if e["type"] == SNAPSHOT:
                 self.rolled.add(id)
             it = self.items.get(id)
-            before = it.state if it else None
+            before, said = (it.state, len(it.refused)) if it else (None, 0)
             it = self.items[id] = fold(id, [e], self.kind, it=it)
             if e["type"].startswith(LEASE_PREFIX):      # a lease's moves (to leased, back, dead) are its runner's:
                 continue                                 # never the item's own change of state
+            # an event the fold refused (fenced, sealed, a stale read, moves-from, final) never fails or undoes
+            # the attempt: the item's page shows it refused. Only a move it still made (final's) counts as one
+            typ = None if e["type"] != SNAPSHOT and len(it.refused) > said else e["type"]
             was = self.own.get(id)
             now = self.own[id] = it.state if it.state != before else was
             a = self.last.get(id)
-            if a is not None and a.get("held") and e["type"] in d["undone"]:
+            if a is not None and a.get("held") and typ in d["undone"]:
                 self.withdraw(a)                         # the failure was not the item's: never judged
-            elif e["type"] in d["failed"] and a is not None and a["failed"] in (None, False):
+            elif typ in d["failed"] and a is not None and a["failed"] in (None, False):
                 if a["failed"] is None and d["undone"]:
                     a["held"] = True                     # judged at the next change of state, unless undone first
                 else:

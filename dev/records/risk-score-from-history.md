@@ -200,6 +200,45 @@ Round 3, 2026-11-24. The review had two findings, both blocking. Both are answer
   were not run either. `main` has not moved past the merge already on this branch.
 - **Size.** About 10 more net lines outside tests/, docs/ and dev/, within the budget.
 
+Round 4, 2026-11-24. The review had one finding, and it was blocking. It is fixed, and there were no others to
+answer (lesson 12).
+
+- **The finding: a refused event still judged or withdrew.** `Learner.feed` read only the event's type and never
+  asked whether the fold had refused the event. So a `gap.retried` from a triage run whose lease had ended was fenced,
+  and the gap stayed queue-failed, but the attempt was still withdrawn. A refused `failed` event still held or judged
+  the attempt too. The reviewer was right (lessons 3 and 8).
+- **The fix, in the core option.** I took the reviewer's way. `feed` compares the item's `refused` count before and
+  after the fold, and an event the fold refused counts as neither a `failed` nor an `undone` event. That covers
+  fencing, a sealed kind, an `if-unchanged` stale read, `moves-from` and `final`. A move the event still made
+  (`final`'s mapped state) still counts as a change of state, so the item's own state stays true to its fold.
+  - **Choice taken alone: `final` too.** A `failed` event that `final` refuses is not counted either, because the
+    item's page shows it as refused. The other way, counting it as a revert, is a one-line change. No kind in the
+    factory declares `final` on `gap`.
+  - **Where it is said.** SPEC §5a, the agent guide, the schema's `undone` description, the module docstring and the
+    entry.
+- **The new test.** `test_an_event_the_fold_refused_never_undoes_or_fails_an_attempt` runs on the factory's own kind.
+  - **A fenced retry.** Queue-failed, then triage's lease r2 taken and nacked, then r3 taken. Then `gap.retried`,
+    caused by r2, which the fold fences. The test asserts the refusal is on the item, and that the attempt is still
+    held, not withdrawn.
+  - **The real failure after it.** A `gap.sent-back` from r3 then judges the attempt failed: one more judged and one
+    more failed.
+  - **A fenced `gap.queue-failed`.** One from a nacked queue run fails nothing: the attempt is neither held nor
+    judged.
+  - **A fresh replay** agrees with the kept one.
+  - `run()` now takes `TYPE@RUN` for an event caused by that run.
+- **Seen to fail with the code broken, then put back.** With the event's type read alone (round 3's behaviour), the
+  new test failed at its first check: the attempt was `withdrawn` where it should have been held. All 23 pass with the
+  fix.
+- **Run here, one file at a time.**
+  - tests/test_item_risk.py: 23 passed.
+  - tests/test_spec_schema.py, tests/test_library_trust.py and tests/test_cli_fallback.py: 106 passed.
+  - tests/test_spec_structure.py, tests/test_queue.py and tests/test_item_search.py: see below.
+  - `ruff check ergostat tests scripts`: clean.
+- **Not run.** The factory's `ergostat check` tests were not run (neither `ergostat.yaml` nor a dev/ model changed).
+  The whole unit suite, the four browser files (no page changed) and the live backtest were not run either. `main`
+  has not moved past the merge already on this branch.
+- **Size.** About 5 more net lines outside tests/, docs/ and dev/, within the budget.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)
@@ -208,7 +247,8 @@ section: The factory (ergostat on ergostat)
   *Risk score*). A kind may declare `risk-score:` (off unless declared). An attempt opens each time an item enters a
   state. It fails at the declared events (a revert after passing too) and passes at the declared states. With
   `undone` declared, a failure is held until the item's next change of state by its own events (never a lease's), and
-  an `undone` event (a flake retried) first withdraws it unjudged. It is scored
+  an `undone` event (a flake retried) first withdraws it unjudged. An event the fold refused (a fenced retry) neither
+  fails nor undoes an attempt. It is scored
   from the attempts judged before it, in the record's order: naive Bayes over declared fields (a value, a list's
   riskiest element, a size band), calibrated by Platt scaling, a missing value learned as its own, and no score before
   `least`. It is on each item's detail (`risk_score`) and in `ergostat item --kind K --risk-score [--backtest]`. The

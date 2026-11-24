@@ -857,7 +857,7 @@ declares `risk-score:`: `at` (the state an attempt is scored on entering), `fail
 a revert too), `passed` (the states that pass it), `undone` (optional: the event types that say a failure was not the
 item's, such as a flake retried after a failure event was already said; declare it whenever such a retry exists, or
 every flake is learned as the item's failure; a lease taking or giving back the item is never a change of state
-here) and `from` (the fields it learns from: `value`, `each` for a list
+here, and an event the fold refused, such as a fenced retry, neither fails nor undoes anything) and `from` (the fields it learns from: `value`, `each` for a list
 such as the paths a change touched, `size` for a number). Before routing anything by it, run `ergostat item --kind K
 --risk-score --backtest` and read its calibration: each score band's failure rate beside its mean score, and the AUC.
 `ergostat item --kind K --risk-score` lists every item's score; an item's detail carries `risk_score`.
