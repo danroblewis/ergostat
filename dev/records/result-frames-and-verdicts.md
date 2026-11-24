@@ -170,6 +170,37 @@ Not run here: the whole unit suite and the four browser files (the factory's), `
 
 Refused in this session: a stray `python3 - <<'EOF'` with an empty body (nothing depended on it).
 
+### Round 3
+
+The only finding was the conflicts with main (fa51005d, the `sql` data source) in `docs/SPEC.md` and
+`ergostat/datasources/__init__.py`. Both are resolved, keeping both sides:
+- `__init__.py`: main's `ASKING` context around `mod.query`, then the branch's `_lint.warnings` (G22 reads PromQL
+  only, so SQL text gets no warnings).
+- SPEC §4e: main's *The SQL source* is kept, followed by the branch's *Result shapes*, which says six shapes.
+
+No code changed besides the merge. Outside tests, docs and dev the branch is still 388 lines added and 59 removed.
+SQL answers go through the branch's envelope: `tests/test_sql_source.py` passed.
+
+Run here, none skipped:
+- Unit: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62) all passed. test_result_shapes,
+  test_query_engine and test_web_access (92) had 91 pass and 1 fail (below). test_query_engine, test_web_access and
+  test_dashboards (110) had 109 pass and the same 1 fail.
+- Browser, all rc 0: test_result_frames_page with test_result_shapes_page (13); test_data_source_panels,
+  test_panel_editor and test_panels (62); test_sql_editor, test_plot_forms and test_promql_suggest (137).
+- ruff is clean.
+
+`test_query_engine.py::test_a_factory_sized_record_answers_each_source_within_100_ms_without_the_log` failed 4 of 6
+runs. Each time it was the `counts` source, at a best of 104 to 109 ms against its 100 ms bound. It passed in round 2.
+- I don't think the branch caused it. With the branch's `n`/`sampling` line in `frames.framed` turned off, it passed
+  once. With it on, it also passed once. The answer holds about 120 values per series, so that line costs microseconds.
+  The two runs were then restored, and `git status` was clean.
+- Main also changed this path since the branch's base (`spec/itemindex.py`, +17 lines, in `fde8110a`).
+- I could not compare with main on this machine. The commands that would have done it were refused (below). It is
+  reported, not fixed (lesson 13), and the bound was left as it is.
+
+Refused in this session: `git worktree add --detach /tmp/mainwt main` (to time the test on main), and
+`ps -A -o pcpu=,command= --sort=-pcpu` (to see the load).
+
 ## Entry
 
 section: Done recently
