@@ -223,29 +223,58 @@ def test_a_narrow_ais_page_shows_its_prompt_rendered_and_its_specification_rows(
     pg.close()
 
 
-def test_a_decisions_page_counts_its_declared_answers_and_flags_the_rest(browser, tmp_path, monkeypatch):
+def approver(tmp_path, monkeypatch, seed):
+    """The approver fixture served, its record seeded before the page starts."""
     from ergostat import model as mdl
     from ergostat.store import Project
-    from tests.test_agent_means import MODEL, seed_approver
+    from tests.test_agent_means import MODEL
     d = tmp_path / "approver"
     (d / "bin").mkdir(parents=True)
     (d / "bin" / "x.py").write_text("print('x')\n")
     (d / "ergostat.yaml").write_text(MODEL)
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
-    seed_approver(Project(mdl.load(d)))                           # the record the page reads, before it starts
+    seed(Project(mdl.load(d)))
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
                             env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    deadline = time.monotonic() + 120
+    while True:
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=2)
+            return proc, url
+        except Exception:
+            if time.monotonic() > deadline or proc.poll() is not None:
+                proc.kill()
+                pytest.fail("the page never answered")
+            time.sleep(0.2)
+
+
+def test_a_decisions_page_shows_each_span_of_versions_counted_apart(browser, tmp_path, monkeypatch):
+    from tests.test_agent_means import seed_before_rungs
+    proc, url = approver(tmp_path, monkeypatch, seed_before_rungs)
     try:
-        url = f"http://127.0.0.1:{port}"
-        deadline = time.monotonic() + 120
-        while True:
-            try:
-                urllib.request.urlopen(url + "/api/status", timeout=2)
-                break
-            except Exception:
-                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
-                time.sleep(0.2)
+        pg = opened(browser, url, "approve")
+        pg.wait_for_selector("#what-it-is ul.spans")
+        heads = pg.eval_on_selector_all("#what-it-is h3", "es => es.map((e) => e.textContent)")
+        assert heads[0] == "What it may decide, and what it did in the window, since v3 (its rung now)", heads
+        now = pg.eval_on_selector_all("#what-it-is ul.answers:not(.earlier) li", "ls => ls.map((l) => l.textContent)")
+        assert now == ["approved never given", "denied never given", "deferred (1)"], now
+        spans = pg.eval_on_selector_all("#what-it-is ul.spans > li.span", "ls => ls.map((l) => l.textContent)")
+        assert len(spans) == 1 and spans[0].startswith("not recorded: v1 to v2"), spans     # its counts shown, apart
+        assert "approved (2)" in spans[0] and "other: a dead letter (1)" in spans[0] and "unattributed: 1" in spans[0]
+        assert "decision: v3" in pg.inner_text("#its-place")
+        assert not pg.errors, pg.errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+def test_a_decisions_page_counts_its_declared_answers_and_flags_the_rest(browser, tmp_path, monkeypatch):
+    from tests.test_agent_means import seed_approver
+    proc, url = approver(tmp_path, monkeypatch, seed_approver)    # the record the page reads, before it starts
+    try:
         pg = opened(browser, url, "approve")
         assert first_h2(pg) == "How it decides"
         pg.wait_for_selector("#what-it-is ul.answers")

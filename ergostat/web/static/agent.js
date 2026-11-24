@@ -57,29 +57,43 @@ function lawPart(sp) {
     ["table", "points", "schedule"].filter((k) => P[k] && typeof P[k] === "object").map((k) => [h("h3", {}, k), fieldView(P[k])]),
     sp?.implied_by ? h("p", { class: "implied-by" }, "implied by ", agentA(sp.implied_by), "'s goal") : null];
 }
-/* how a decision decides, its rung's span now: for item work its declared answers (takes.to) each with its count in
-   the window, what left the item elsewhere flagged; for a controller what it said and its commands acted on, apart */
-function decidesPart(sp) {
-  const d = sp?.decisions, hint = d?.hint, m = sp?.means, c = m?.spans?.at(-1)?.counts || {};
+/* how a decision decides: for item work its declared answers (takes.to) each with its count in the window, what left
+   the item elsewhere flagged; for a controller what it said and its commands acted on, apart. Counted per span of
+   versions: the list is the span now ("since vN" when there is more than one), each earlier span's counts below it */
+const spanName = (x) => (x.first == null ? "the model now" : x.first === x.last ? `v${x.first}` : `v${x.first} to v${x.last}`);
+function tally(sp, c, items, cls) {
   const n = (x) => h("span", { class: "muted" }, ` (${x})`), word = (w) => w.replaceAll("#", "N");
-  if (m?.work === "items") {
-    return [h("h3", {}, "What it may decide, and what it did in the window"), h("ul", { class: "answers" },
-      c.to.map(([s, k]) => h("li", { class: k ? "answer" : "answer never" }, s, k ? n(k) : h("span", { class: "muted" }, " never given"))),
-      c.other.map(([w, k]) => h("li", { class: "answer other" }, h("b", {}, "other: "), w, n(k))),
-      c.unattributed ? h("li", { class: "answer unattributed" }, `unattributed: ${c.unattributed} ${sp.params?.takes?.kind || "item"} lease ends whose take is not in the record`) : null)];
+  if (items) {
+    return h("ul", { class: cls },
+      (c.to || []).map(([s, k]) => h("li", { class: k ? "answer" : "answer never" }, s, k ? n(k) : h("span", { class: "muted" }, " never given"))),
+      (c.other || []).map(([w, k]) => h("li", { class: "answer other" }, h("b", {}, "other: "), w, n(k))),
+      c.unattributed ? h("li", { class: "answer unattributed" }, `unattributed: ${c.unattributed} ${sp.params?.takes?.kind || "item"} lease ends whose take is not in the record`) : null);
   }
-  return [h("h3", {}, "What it said in the window"), (c.said || []).length
-    ? h("ol", { class: "decisions" }, c.said.map(([w, k]) => h("li", {}, word(w), n(k)))) : h("p", { class: "muted" }, "no decisions in the window"),
-    hint ? h("p", { class: "ladder-hint" }, `${hint.controller}: “${hint.decision}” in ${Math.round(hint.share * 100)}% of ${hint.count} decisions; a cheaper rung could fill it.`) : null,
-    (c.carried || []).length ? [h("h3", {}, "Commands acted on"), dl(c.carried.map((r) => [r.port, r.note || String(r.n)]))] : null];
+  return [(c.said || []).length ? h("ol", { class: cls }, c.said.map(([w, k]) => h("li", {}, word(w), n(k)))) : h("p", { class: "muted" }, "no decisions"),
+    (c.carried || []).length ? [h("h4", {}, "Commands acted on"), dl(c.carried.map((r) => [r.port, r.note || String(r.n)]))] : null];
+}
+function decidesPart(sp) {
+  const hint = sp?.decisions?.hint, m = sp?.means, all = m?.spans || [], now = all.at(-1), c = now?.counts || {};
+  const items = m?.work === "items", since = all.length > 1 ? `, since ${spanName(now)} (its rung now)` : "";
+  const before = all.slice(0, -1).reverse().map((x) => h("li", { class: "span" }, h("b", {}, `${x.rung ?? "not in the model"}: ${spanName(x)}`),
+    tally(sp, x.counts || {}, items, items ? "answers earlier" : "decisions earlier")));
+  const earlier = before.length ? [h("h3", {}, "In the window before it, by span of versions, each counted apart"), h("ul", { class: "spans" }, before)] : null;
+  if (items) {
+    return [h("h3", {}, `What it may decide, and what it did in the window${since}`), tally(sp, c, true, "answers"), earlier];
+  }
+  return [h("h3", {}, `What it said in the window${since}`), (c.said || []).length
+    ? h("ol", { class: "decisions" }, c.said.map(([w, k]) => h("li", {}, w.replaceAll("#", "N"), h("span", { class: "muted" }, ` (${k})`))))
+    : h("p", { class: "muted" }, "no decisions in the window"),
+    hint ? h("p", { class: "ladder-hint" }, `${hint.controller}: “${hint.decision}” in ${Math.round(hint.share * 100)}% of ${hint.count} decisions in the window${since ? ", all its spans" : ""}; a cheaper rung could fill it.`) : null,
+    (c.carried || []).length ? [h("h3", {}, "Commands acted on"), dl(c.carried.map((r) => [r.port, r.note || String(r.n)]))] : null, earlier];
 }
 /* a narrow AI's specification: its block's contract as declared, in the proposal's order, and what its runs wrote */
 const specRows = (sp) => (sp?.means?.spec || []).map(([shown, kv]) => [h("h3", {}, shown),
   dl(kv.map(([k, v]) => [k, v != null && typeof v === "object" ? fieldView(v) : noSpec(String(v))]))]);
 /* the block's rung per span of the model's recorded versions: a ladder move as its history */
 function rungsText(sp) {
-  const s = sp?.means?.spans || [], v = (x) => (x.first == null ? "the model now" : x.first === x.last ? `v${x.first}` : `v${x.first} to v${x.last}`);
-  return s.length > 1 ? s.map((x) => `${x.rung ?? "not in the model"}: ${v(x)}`).join(", ") : null;
+  const s = sp?.means?.spans || [];
+  return s.length > 1 ? s.map((x) => `${x.rung ?? "not in the model"}: ${spanName(x)}`).join(", ") : null;
 }
 
 /* what it is, by its rung: the section a person, an AI, a narrow AI, a decision, a program or a rule is read by */

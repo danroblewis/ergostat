@@ -151,6 +151,30 @@ def test_a_ladder_move_splits_the_counts_by_span_and_a_remake_keeps_the_gap(tmp_
     assert sp[-1]["counts"]["to"][1] == ["denied", 0] and sp[2]["counts"]["to"][1] == ["denied", 1]
 
 
+def seed_before_rungs(p):
+    """A record from before rungs were kept: two versions with no ``rungs``, the approver's ends under them, then the
+    model loaded now recorded (with its rungs) and one end after it."""
+    from ergostat import history
+    for i, n in enumerate(("old-1", "old-2")):                    # as history.note wrote them, but for rungs
+        p.events.add("model.changed", item="t", source="ergostat",
+                     data={"added": [], "removed": [], "changed": [], "parts": {}, "version": n, "first": not i})
+    seed_approver(p)
+    history.note(p)
+    lease(p, "request/9", "r9")
+    end(p, "request/9", "r9", "ack", "deferred")
+
+
+def test_versions_recorded_before_rungs_keep_their_counts_in_a_span_of_their_own(tmp_path):
+    p = project(tmp_path)
+    seed_before_rungs(p)
+    sp = means(p, "approve")["spans"]
+    assert [(s["rung"], s["first"], s["last"]) for s in sp] == [("not recorded", 1, 2), ("decision", 3, 3)]
+    old, now = sp[0]["counts"], sp[1]["counts"]
+    assert old["to"] == [["approved", 2], ["denied", 1], ["deferred", 0]] and old["unattributed"] == 1   # not dropped
+    assert dict(old["other"]) == {"given back to new": 1, "a dead letter": 1, "expired": 1}
+    assert now["to"] == [["approved", 0], ["denied", 0], ["deferred", 1]] and not now["other"]       # never merged in
+
+
 def test_no_key_declares_answers_a_decisions_are_its_takes_to(tmp_path):
     """The compile test for the key: the proposal declares none, so ``answers:`` is refused as any unknown key is, and a
     decision's answers are its ``takes.to``, which check already holds to its kind's states (``bad-states``)."""

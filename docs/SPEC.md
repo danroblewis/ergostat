@@ -4809,7 +4809,7 @@ agents:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `kind` | `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` | from its blocks | Its rung on the ladder, when it adds something to the blocks' types. A narrow AI's page shows each of its blocks' contract (§9.3, §12k); a decision's shows its program and, for item work, its `takes.to` states against what it decided; for a controller, what it said and which of its commands were carried out (it has no closed answer set). Each block's rung is kept with each recorded version (`model.changed`'s `rungs`), so a page lists its rung per span of versions, each span counted apart |
+| `kind` | `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` | from its blocks | Its rung on the ladder, when it adds something to the blocks' types. A narrow AI's page shows each of its blocks' contract (§9.3, §12k); a decision's shows its program and, for item work, its `takes.to` states against what it decided; for a controller, what it said and which of its commands were carried out (it has no closed answer set). Each block's rung is kept with each recorded version (`model.changed`'s `rungs`), so a page lists its rung per span of versions, each span counted apart: the list is the span now (said "since vN" when there is more than one), each earlier span's counts below it, and versions recorded before rungs were kept are a span `not recorded` of their own, never read as the rung now |
 | `external` | bool | false | ergostat never runs it; it only observes what its blocks do |
 | `at-once` | integer | 1 | How many of its blocks may run at the same time |
 | `model` | string | none | For an AI machine: which model |

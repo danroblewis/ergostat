@@ -70,4 +70,32 @@ may use, costs and how it is answered, and the event types its runs wrote, from 
 decision it shows each `takes.to` state with its count in the window (0: never given), the other ends flagged, and the
 ends whose take is not in the record. For a controller it shows what it said (once per run) and, per `out` port, its
 commands acted on. A block's rung is kept with each recorded version, so the page lists its rung per span of versions,
-each counted apart. alert-triage's triage runs on a narrow AI.
+each counted apart: the list is the span now ("since vN" when there is more than one), each earlier span's counts
+below it, versions recorded before rungs were kept a "not recorded" span of their own. alert-triage's triage runs on a
+narrow AI.
+
+## Where it stopped, round 2
+
+Built. The one finding of round 1 (blocking; no other findings were listed) and what changed:
+- agent.js showed only the newest span's counts under "in the window", so on a record from before rungs were kept,
+  earlier decisions vanished from view, and the ladder hint (whole window) contradicted the list. Now: when there is
+  more than one span, the list's heading says "since vN (its rung now)", and a section below it, "In the window before
+  it, by span of versions, each counted apart", lists each earlier span (newest first) with its rung, its versions and
+  its own counts (answers, other, unattributed; or what it said and commands acted on). The controller's ladder hint
+  says "in the window, all its spans" when there is more than one span. I took the second fix the review offered,
+  not the first. Joining a "not recorded" version to the span after it would read an unknown rung as a known one
+  (lesson-3). This way nothing is merged and nothing is dropped. `agent_means.py` is unchanged; it already computed
+  each span's counts.
+- Tests: `tests/test_agent_means.py::test_versions_recorded_before_rungs_keep_their_counts_in_a_span_of_their_own`
+  (two old `model.changed` events shaped as history.note wrote them, with no `rungs`: the record splits into "not
+  recorded" v1-v2 and "decision" v3, each with its own counts) and
+  `tests/test_agent_page.py::test_a_decisions_page_shows_each_span_of_versions_counted_apart` (the same record on the
+  page: the heading says since v3, the list now holds only v3's count, and the earlier span shows approved (2), a dead
+  letter and unattributed). I made the page skip the earlier spans, and the browser test failed; then I restored it.
+- SPEC's agents table (the `kind` row) says what the list and the earlier spans are.
+
+Size: about 12 net lines more in agent.js, about 229 in all, within the proposal's figure of about 250.
+
+Tests run in round 2: `tests/test_agent_means.py` 8 passed; `tests/test_agent_page.py` whole, under suite_watch with
+Playwright: 39 passed, rc 0, none skipped. ruff is clean. Merged with `main`: already up to date. `demo_check` was not
+run in round 2: no example changed. As in round 1, the commands that could run it were refused.
