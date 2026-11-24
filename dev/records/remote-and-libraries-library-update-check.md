@@ -15,3 +15,56 @@ Acceptance tests: test_dry_run_changes_nothing (copy and lock hashes equal befor
 Size budget: 260 net lines.
 
 Area: remote-and-libraries. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: every definition-of-done item is in the code, with its acceptance test. 260 net lines outside tests,
+docs and dev (the budget).
+
+- Item 1: `fetch.candidate(root, name, src)` holds the libraries flock for the whole review (the fetch, both compiles
+  and the diff, so no fetch can swap the copy between them: lesson 1), fetches with fetch's own `_get` (same git
+  environment, caps, time limit) into a `mkdtemp` `.tmp-` folder, and removes it in `finally`. The flock code of
+  `fetch` moved into `fetch.held`, shared by both. A version given to `library_update` passes `sources.check` before
+  any git process (test_bad_version_refused_without_git: `calls == []`). test_dry_run_changes_nothing hashes every
+  file under the project (the copy and the lock among them) before and after;
+  test_dry_run_removes_its_folder_when_it_fails covers a failing compile.
+- Item 2: `library/compare.py`. Tags: one `git ls-remote --tags --end-of-options URL` under `_run`, names kept only
+  when they match the `version:` allowlist, then `rev-parse --verify` of the pinned commit and
+  `rev-list --ancestry-path ^PINNED SHA...` in the clone. When that cannot be told (a git failure or limit, the pinned
+  commit gone upstream, more than 1,000 tags) `tags` is null with `tags_why`, never an empty list
+  (test_tags_that_cannot_be_told_are_unknown_never_none). template-exports has landed, so exports removed are given.
+- Item 3: rc 0/1 from `ok`; test_mcp_library_update_matches_cli checks the command's lines are `compare.lines` of
+  the MCP answer.
+- Item 4: the candidate is compiled with `fetched.OVER` (a context variable) standing in for NAME's copy and lock
+  entry, never a file; `compare` opens no Project, so nothing is recorded, and `goodmodel.keep` is not called.
+  `files._NOW` is set to None during both compiles so a surrounding snapshot recorder notes nothing; no test opens
+  such a recorder around it.
+- Item 5: SPEC §2a (*Before an update*), AGENT-GUIDE (*Templates from a folder the owner did not write*). GAPS: the
+  entry is below, as the house rules say (a branch editing docs/GAPS.md is refused).
+- Choices made alone (each the most reversible, a line or two):
+  - `ergostat/library/fetched.py` changed although not in the Files list: the context variable is the smallest way to
+    compile the candidate without writing the lock or the copy.
+  - The command takes no version (the definition gives one to the MCP tool only); `--dry-run` needs `--update` and
+    exactly one NAME, else rc 2. A fetch failure is rc 1, an unreadable lock or linked folder rc 2, as fetch.
+  - "Parameter values that moved": the use's parameter values as expanded, and the model `parameters:` the use makes
+    (`parameter.INSTANCE-NAME`, their `value`). A number a template writes straight into a part's field is not
+    compared (said in SPEC).
+  - A problem is new when no current problem has its level, code, `about` and message (the temporary folder's path
+    in a message read as `.libraries/NAME`). Errors first; among them `unknown-ref` and `bad-ref` first.
+  - For a library without `trust: owner`, defaults and values are marked as the library's text and problems as
+    `check` marks them (test_untrusted_librarys_values_are_marked); names are references, not marked.
+- Tests shown to fail when the code they guard is broken: the broken-reference ordering removed
+  (test_report_lists_removed_param_and_part fails); the tag filter made to keep every tag
+  (test_report_names_newer_tags fails); the temporary folder left in place (four tests fail).
+- Not run here: the whole unit suite and the four browser files (the factory and merge queue run them; no page is
+  changed). Run: tests/test_library_update.py (9 passed), tests/test_library_fetch.py (22), test_spec_mcp_explain.py,
+  test_gated_actions.py; ruff clean. Local main had nothing past this branch's base to merge.
+
+## Entry
+
+- **An update to a library reviewed before it is taken** (SPEC §2a, *Before an update*): `ergostat library fetch NAME
+  --update --dry-run` and the MCP `library_update` (name, version) fetch the candidate into a temporary folder under
+  the libraries flock, never swapping it in or writing the lock, compile the model on both in memory, and report the
+  commits, newer tags, templates added and removed, per use the parameters, defaults, exports, parts and values that
+  moved, and the new errors and findings (a broken reference first); exit 1 when it adds an error. *Left*: what the
+  candidate does when run (only what it compiles to is compared).
