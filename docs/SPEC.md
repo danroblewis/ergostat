@@ -7288,7 +7288,7 @@ actions:
     risk: {severity: 3, threshold: {normal: 8, away: 4}}
 ```
 
-- **Each cell** is `auto`, `approve` or `deny`, and each threshold 1 < T ≤ 50. Any other column or value is
+- **Each cell** is `auto`, `approve`, `deny` or a reshape (*Reshaping an act*, below), and each threshold 1 < T ≤ 50. Any other column or value is
   `bad-value` at its line, and that cell is read as unwritten.
 - **Unwritten cells never loosen.** `away` and `maintenance` take `normal`'s gate, `freeze` takes `normal`'s one step
   stricter (`auto` → `approve` → `deny`), `incident` is `deny`. Every unwritten threshold takes `normal`'s. A written
@@ -7310,6 +7310,35 @@ actions:
   still sent, and an unreadable record never turns a channel's messages into denials counted as told.
 - `gate.in_force` (`ergostat/actions/gate.py`) reads the state; `risk.cell` and `risk.schedule`
   (`ergostat/actions/risk.py`) pick the column and fill the defaults.
+
+### Reshaping an act
+
+A cell may instead be **`{reshape: ACTION}`**: under that column the act asked for is held for the owner, and a
+smaller declared action is asked for at once in its place.
+
+```yaml
+actions:
+  push-and-open-pr: {run: ./pr.sh {branch} {title}, args: {title: its title}, gate: {normal: auto, away: {reshape: push-branch}}}
+  push-branch: {run: git push origin {branch}, gate: auto}
+```
+
+- **Compile** refuses, as `bad-reshape` at the cell's line (the cell then reads as plain `approve`): a target that is
+  not one of the `actions:`; a target taking an arg the full act does not; and a chain, a target whose own column
+  is a reshape under some state and presence (and set of named maintenance actions) in which the full act's column is
+  this one. Each action's column is resolved as at a request (`risk.column`). A reshape cell is written only where it
+  is written: an unwritten `away` takes `normal`'s plain gate, never its reshape.
+- **At the request** the full act is recorded with gate `approve` (whatever its own cell compiled to, so `auto` never
+  runs it, and act-risk can only step it to `deny`), and `reshaped_to: ID`, the target's id, taken first. That
+  `requested` event is written first. Then the target is asked for with the args it takes, under its own gate and
+  act-risk, with `reshaped_from: ID` in its first event and no program `key`. A crash between the two leaves the full
+  act held and nothing run. A reshape is followed once: a target whose own column is a reshape anyway is held as
+  `approve`, never reshaped.
+- **The session** (and a program's `ergostat act`) is answered by the target: its state, exit and output, waited for
+  under the target's `wait:`, never the full act's. The answer carries `reshaped_from` and, under `full`, the full
+  act's id and state. Every action's result names `reshaped_to` or `reshaped_from` when it has one.
+- **At the act** a reshape cell reads as `approve` for the full act. An owner-approved full act runs through the
+  act check as any held act does, and one approved by the gate is held again. The two are answered apart: denying one,
+  or the other's failing, never answers the other.
 
 ### Compute pools
 

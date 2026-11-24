@@ -511,6 +511,7 @@ class Action:
     threshold: float = 8.0
     gates: dict[str, str] = field(default_factory=dict)
     thresholds: dict[str, float] = field(default_factory=dict)
+    reshapes: dict[str, str] = field(default_factory=dict)   # column -> the smaller action asked for there (its cell: approve)
 
 
 @dataclass

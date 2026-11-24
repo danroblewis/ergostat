@@ -92,6 +92,8 @@ def reask(p, a: dict, cfg: dict) -> dict:
 def ask(p, spec, cfg: dict, name: str, args: dict, key: str | None = None, wait: float = 0.0) -> dict:
     """A run asks for an action; returns it as it stands when the call returns (ran, failed, denied, or still held)."""
     a = start(p, spec, cfg, name, args, key)
+    if a.get("reshaped_to"):                        # reshaped: answered by the smaller act (keyless), the full one held
+        a = rec.get(p, a["reshaped_to"]) or a
     a = settle(p, spec, cfg, a, wait)
     return finish(p, cfg, a)
 
