@@ -223,6 +223,21 @@ def test_a_loop_off_most_of_the_time_is_a_hint_to_sample_faster(project):
     assert 0.8 < snap["loops"]["disk-under-80"]["off_share"] < 0.85
     (hint,) = [h for h in snap["hints"] if h["controller"] == "disk-under-80"]
     assert "off 8" in hint["says"] and "slowest stage" in hint["says"] and "saturated" not in hint["says"]
+    assert hint["goal"] == "disk-under-80" and hint["says"].startswith("goal disk-under-80 was off")   # the engine's own
+    (entry,) = [a for a in state.attention(snap, True, project.model) if a["level"] == "hint"]   # what the page links by
+    assert (entry["what"], entry["goal"]) == ("goal disk-under-80", "disk-under-80"), entry
+
+
+def test_a_goal_feeding_one_that_is_off_is_a_hint_about_that_goal_by_its_field():
+    """The anti-windup hint, as the engine makes it: about the feeding goal, by its field and its name."""
+    from types import SimpleNamespace as NS
+    c = NS(agent=None, target=lambda: ("<=", 0))
+    m = NS(controllers={"up": c, "down": c}, flows={"f": NS(target="s")}, agents={})
+    snap = {"at": 1000.0, "window": 100.0, "recorded": 0, "flows": {"f": {"rate": 2.0}},
+            "loops": {"up": {"flows": ["f"], "stock": "r", "off_share": 0, "observed": True},
+                      "down": {"flows": [], "stock": "s", "off_share": 0.7, "observed": True}}}
+    (hint,) = state.ladder_hints(NS(model=m), snap)
+    assert hint["goal"] == "up" and hint["says"].startswith("goal up keeps feeding s (2/h) while goal down is off 70%"), hint
 
 
 def test_a_week_of_readings_is_sampled_in_sql_and_the_ends_kept_exact(project):
@@ -271,12 +286,13 @@ def test_a_suggestion_waits_for_its_verdict_and_names_its_goal_once(project):
     snap = state.snapshot(project)
     assert not [h for h in snap["hints"] if h["controller"] == "disk-under-80"]
     att = state.attention(snap, True, project.model)
-    (entry,) = [a for a in att if a["what"] == "loop disk-under-80"]
-    assert entry["level"] == "bad" and 250 < entry["diagnosis_in"] <= 300
-    snap["hints"] = [{"controller": "disk-under-80", "about": "loop", "says": "loop disk-under-80 was off 90% of the time: x"}]
+    (entry,) = [a for a in att if a.get("goal") == "disk-under-80"]
+    assert entry["what"] == "goal disk-under-80" and entry["level"] == "bad" and 250 < entry["diagnosis_in"] <= 300
+    snap["hints"] = [{"controller": "disk-under-80", "goal": "disk-under-80", "about": "loop",
+                      "says": "goal disk-under-80 was off 90% of the time: x"}]
     snap["loops"]["disk-under-80"].pop("diagnosis_in")
     (hint,) = [a for a in state.attention(snap, True, project.model) if a["level"] == "hint"]
-    assert (hint["what"], hint["says"]) == ("loop disk-under-80", "was off 90% of the time: x")
+    assert (hint["what"], hint["goal"], hint["says"]) == ("goal disk-under-80", "disk-under-80", "was off 90% of the time: x")
 
 
 def test_a_loop_whose_valve_moves_nothing_acts_but_moves_nothing_not_more_per_run(project):
