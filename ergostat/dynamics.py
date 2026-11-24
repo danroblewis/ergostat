@@ -400,6 +400,17 @@ def seeking(spec, causal: list[dict]) -> dict[str, str]:
     return out
 
 
+def drawn_labels(spec, loops: list[dict]) -> dict[str, str]:
+    """The graph's causal loops' labels as the dynamics view prints them (``labels`` with the minor ones last), for a
+    goal's answer (``graph.goal_loops``) to name them alike."""
+    from .spec.causal import links
+    routes = _routes(spec)
+    decide = _decisions(spec, links(spec))
+    causal = [{**c, "nodes": _loop_nodes(c, decide, routes)} for c in loops]
+    seeks = seeking(spec, causal)
+    return labels([{**c, "minor": not (c["name"] in spec.named_loops or c["name"] in seeks)} for c in causal])
+
+
 def counted(loops: list[dict], system: str | None = None) -> dict[str, int]:
     """The feedback loops with a part in ``system`` (every loop when None), drawn (named) and minor: the one count a
     system's panel and the side list drawing that system alone both give (SPEC §12a)."""

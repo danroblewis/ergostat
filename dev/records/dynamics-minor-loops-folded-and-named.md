@@ -94,3 +94,31 @@ software-factory`, which was refused here (`uv run python scripts/demo_check.py 
 the watchdog and `--shots`). The new `loops:` entries pass `check` (test_daemon_docs).
 Left, outside this definition: `/api/export`'s "drawn" column still means two parts drawn, not minor or not; the
 proposal's marker cap and dominance ranking.
+
+### Round 2: main (e8669794, with goals-and-loops-cross-referenced) merged
+
+The only finding was the conflicts with main, in docs/SPEC.md, dynamics.js, style.css and tests/test_dynamics_view.py.
+Each now keeps both sides:
+- Main gives each loop `goal` (the goal it closes, from the graph). The branch had written over that field with the goal
+  a loop seeks. That field is now `seeks` (dynamics.py, dynamics.js, the branch's tests, SPEC §12a), so main's "Serves
+  goal X" link and the branch's "the loop seeking the desired level of X" both stand in a loop's panel.
+- The list's summary keeps both counts: "Feedback loops 11 named, 23 minor, 28 close a goal" (`.sd-count`, then main's
+  `.sd-loops-head`). The goals that close are counted over the list's loops. Main's cross-reference test now reads
+  ", K close a goal", and checks that the named and minor counts add up to every loop.
+- style.css: the minor rules are kept, and main's `--sd-ink-2` name tone too. `.marker-more` is gone with the count it
+  styled.
+- SPEC §12a: main's cross-reference paragraph, then the branch's "Drawn" paragraph, with the summary example updated.
+- A merge break that main's own unit test found (`test_each_loop_through_a_gap_names_its_goal_and_the_goal_names_its_loops`,
+  B2 against B1): `loops/NAME` numbered loops without the drawn-before-minor order, so a goal's panel and the diagram
+  disagreed. Now `graph.goal_loops` takes `dynamics.drawn_labels` (+10 lines), the labels as the view prints them.
+
+Run after the merge, passing: tests/test_dynamics_view.py (27), test_graph_cli_web, test_correspond, test_guide,
+test_model, test_spec_systems, test_daemon_docs. Browser: this gap's acceptance test, main's goal↔loop link test, the
+SD-symbols test, marker lights its loop, module counts, marker moves with its system, R/B only when signed, markers
+inside their loops, a lit loop lets go, markers hidden and remembered, leftover ellipsis, both panes, "a goal is called a
+goal", and the keyboard test (passed this run). Ruff clean.
+Still failing, as in round 1 and not this gap's: the "speaks system dynamics" test (it matches "open · goal …" in main's
+attention cards; this branch's summary words are stripped by main's own SD_GOAL_SAID), the PNG export's Blocks half (7
+legend rows where it wants more than 10), and tests/test_export.py's export menu test (it waits for a visible
+`.looprow`, which now sits in a folded list).
+Not run: the whole unit suite, the four browser files, and demo_check.
