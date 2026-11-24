@@ -994,6 +994,11 @@ moved. The pass says what it did with each gap on stderr, in the block's log.
 
 ## Time in each state
 
+(The measure sensors, `dev/bin/measure.py`, share one listing of each kind: run by the engine, the first reading of a
+kind lists it, under that kind's lock in `<state>/listings/`, and the readings within the next 120 s, `listing.SHARE`,
+read that listing, so readings due together make one listing of the gaps, not one each. A listing that fails is not kept. The
+15-second load sensors, `dev/model/interlock.yaml`, read on the engine's fast lane, never behind them.)
+
 Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of each gap whose events grew since it was
 last read (at most 50 a run, those never read first) and writes `gap.timed` on it when its timing changed, for any gap
 whatever its end (merged, parked, dead or still open). Its bookmark, each gap's count of events read, is kept in

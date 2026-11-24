@@ -3337,7 +3337,10 @@ after readings land, after a run ends, and every second (the clock's pass):
 - Readings are taken in **batches**: those due together, and those a run asked for when it moved a flow, are begun
   together; counts of items are read from what ergostat keeps as the record folds (an `items` sensor's value is its
   count at the reading's time, kept as events arrive: it costs nothing to read), a flow read from its stock's changes
-  is worked out at once, and commands and queries run on a fixed pool of eight. The batch is recorded together and
+  is worked out at once, and commands and queries run on a fixed pool of eight. A sensor read every 60 s or more
+  often whose timeout is 60 s or less reads on a **fast lane** of its own (four threads, fixed; `engine.lane`), so a
+  reading every 15 s never queues behind readings that take minutes (a cron schedule is the slow lane); an alarm's
+  sensors keep their own pool of two. The batch is recorded together and
   followed by one pass. What lands within 50 ms of a pass (readings, runs ending) waits for the next pass together.
 - When the record is written (by ergostat, a run, a push, or another process: each wakes it), every count of items
   is read at once, and those that changed are recorded and worked out with the batch: a goal on a queue sees its first
@@ -3606,8 +3609,8 @@ the engine recovering meanwhile cancels it. The last restart is kept in `<state>
 outlives the process. **A start that hangs** (a lock held by another process, say) is caught by a startup deadline
 (120 s, `ERGOSTAT_STARTUP`): its stacks dumped (`stalls/*-start.txt`) and the process restarted under the same
 back-off. Every 5 s the watchdog writes `<state>/heartbeat.json` (when the last pass finished, the pid, and under
-`use: upkeep` the `stale` the outer watcher uses), and the run writes it as it starts. The alarms' own sensor pool
-is watched as the sensors' is: replaced when wedged, and a third time in ten minutes restarts the process. `kill -USR1`
+`use: upkeep` the `stale` the outer watcher uses), and the run writes it as it starts. The alarms' own sensor pool,
+and the fast lane's, are watched as the sensors' is: replaced when wedged, and a third time in ten minutes restarts the process. `kill -USR1`
 on the runner writes every thread's stack to `<state>/threads.txt` at any time, and the socket's `ping` says how long
 ago the last pass finished.
 
