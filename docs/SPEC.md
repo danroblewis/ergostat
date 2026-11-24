@@ -4532,11 +4532,24 @@ whichever engine writes it).
   run's (`taken_up: true`), then its lease's ack or nack.
 - **A process found ended** (its keeper's exit written, or its pid gone or another process's): its journal is read to
   its end, it is restarted (`ergostat.daemon.restarted`, `why`: `ended while no engine was up (exit N)`, not counted
-  toward giving up), and the runs it had not answered are handed to the new process with their lines. A process
-  whose command is not the model's now (the model changed meanwhile), or an older one beside it, is taken up only to
-  finish what it holds: sent `stop` and drained, as on a model swap, while a new process takes the new work. A
-  keeper under the folder no state names (one whose state could not be read) is stopped, so none goes on unknown
-  beside the one the engine holds.
+  toward giving up), and the runs it had not answered are handed to the new process with their lines (each in the new
+  one's state before the old one's is removed). Should the new process fail to start, those runs end as
+  `agent.failed` (`its daemon NAME could not be started again: ...`) and their items are given back, uncounted; the
+  daemon is restarted after its back-off as any other. A run taken up that no process holds any more (its holder
+  ended or let go without it) ends the same way, `its daemon NAME no longer holds it`, never left leased for the
+  engine's life. A process whose command is not the model's now (the model changed meanwhile), or an older one
+  beside it, is taken up only to finish what it holds: sent `stop` and drained, as on a model swap, while a new
+  process takes the new work; so is one taken up whose daemon was drained while it was being taken up.
+- **A daemon no longer kept** (removed from the model, its block renamed, `outlive-engine: false` now, or the
+  project's `runs: outlive_engine` dropped, while no engine was up): on its first start of its daemons the engine
+  looks in every folder of `<state>/daemons/` and takes up each process no kept daemon of the model claims, as
+  above, then drains it (one still going: the runs of a block that still uses that daemon finish under it and are
+  recorded; it is stopped once it holds nothing past the grace) or lets it go (one ended: what it held given back,
+  uncounted). A run whose block no longer uses that daemon is not taken up: its lease expires as any other's, and
+  the process is stopped within the grace, so its item is not worked on twice for longer than that. A daemon of
+  another shard (section 9.8) is left to that shard's engine; one the plan does not name, to the lead's. A keeper
+  under a folder no state names (one whose state could not be read) is stopped, so none goes on unknown beside the
+  ones the engine holds.
 - **Not reading its input**: its relay behind its inbox for `stdin-timeout` counts as a write waiting that long
   (restarted, an alarm). The inbox and journal of a process grow for its life and are removed when it ends.
   A reading asked of it and not answered before the engine stopped is not sent again (the next engine asks its own);

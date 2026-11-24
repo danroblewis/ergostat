@@ -46,6 +46,30 @@ answered before the engine stopped is not sent again; a kept daemon's journal is
 500), so its event ids are per line; the restart-in-place path (the watchdog's exec) is untested for kept daemons;
 nothing was run on macOS (the start time a kept process is known by comes from `ps` there).
 
+Round 2, the review's two findings (both blocking; there were no others):
+1. A kept daemon no longer kept (removed, renamed, `outlive-engine: false`, `runs: outlive_engine` dropped) was never
+   looked at again. Now `kept.sweep`, on the engine's first sync, looks in every `<state>/daemons/KEY/`, takes up each
+   process no kept slot claims (its runs of a block still using that daemon held and recorded), and drains it (still
+   going) or lets it go (ended, its runs given back uncounted); another shard's daemon is left to it, one the plan
+   does not name to the lead. The supervisor's loop now also runs while only processes draining are left. Tests:
+   `test_a_daemon_no_longer_kept_is_taken_up_drained_and_its_run_recorded`, `test_a_daemon_removed_from_the_model_is_stopped`.
+   SPEC §9.7 says what holds, including that a run whose block no longer uses the daemon is not taken up (its lease
+   expires as any other's) and the process is stopped within the grace.
+2. Runs left held by no process. The dead process's runs now move into the new process's state before the old
+   state is removed; if the launch fails they end `agent.failed` and their items are given back uncounted
+   (`test_a_run_whose_daemon_cannot_be_started_again_is_given_back`, with `keeper.launch` made to raise). The stale
+   path in `_spawn` now drains the process instead of killing it with its taken-up runs in it
+   (`test_a_daemon_taken_up_but_no_longer_wanted_finishes_what_it_holds`). `_through` now ends a run its holder no
+   longer has at two looks in a row (`kept.unheld`; the holder changes under the holder's lock with the run in its
+   runs, `test_a_run_taken_up_that_no_process_holds_is_ended`).
+Each fix was broken by hand and seen to fail its test: the sweep call removed (both sweep tests fail), the hand-back
+on a failed launch removed (fails), the old stop-and-kill stale path restored (fails). Run again one file at a time,
+all passing: test_daemons_outlive_engine (15), test_daemons, test_daemons_restart, test_warm, test_daemon_lines,
+test_daemon_observations, test_resilience, test_engine_shard, test_ticket_factory_daemons, test_runs_outlive_engine,
+test_engine_shard_asks, test_daemon_docs, test_runs_adopted, test_daemon_yaml_review, test_agents, test_runlog; ruff
+clean. Not run here: the whole unit suite and the browser files. No sweep test runs with shards.
+Overrun reason: 618 net lines against 600: the 18 over are round 2's two blocking fixes (the sweep of daemons no longer kept, and runs handed back when a restart's launch fails or its holder lets them go); nothing else was added.
+
 ## Entry
 
 section: Runtime, scale and latency
@@ -54,5 +78,6 @@ section: Runtime, scale and latency
   (default `runs: outlive_engine`; never warm) runs a daemon under a keeper through a relay that feeds its input from
   an inbox file, its output a journal read from a saved offset. Stopped or killed, the engine leaves it going; the
   next takes up the runs it held (saved before each hand-over), reads the journal to its end, sends again what is
-  unanswered with the same `run` id (at least once), restarts one found ended with its runs, and drains one whose
-  command changed. Not done: inbox and journal rotation, readings sent again, the restart-in-place path tested.
+  unanswered with the same `run` id (at least once), restarts one found ended with its runs (given back, uncounted,
+  if the restart fails), drains one whose command changed, and drains or lets go a process of a daemon no longer
+  kept. Not done: inbox and journal rotation, readings sent again, the restart-in-place path tested.

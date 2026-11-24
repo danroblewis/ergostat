@@ -135,8 +135,9 @@ class KeptProcess(Process):
         with self.saving:
             self.lines[run] = line
             self._save()
-        h.kept = self                           # (its end acked here, wherever the supervisor has it then)
-        return super().hold(run, h, line)
+        with self.lock:                          # (its holder and its runs changed together: ``_through`` reads both)
+            self.runs[run], self.idle_since, h.sent, h.kept = h, None, line is not None, self
+            return self.send(line) if line is not None else True
 
     def acked(self, run: str) -> bool:
         """Its run's end recorded: no longer taken up or sent again."""
@@ -267,47 +268,115 @@ def spawn(sup, slot, cwd, env: dict, log, push, observe) -> tuple[KeptProcess, s
     Returns it, and why it is a restart (None: not one)."""
     eng, d = sup.e, slot.d
     base = folder(eng.p.dir, d.name)
-    carried, why, live = {}, None, []
     if d.name in sup.looked:
         return KeptProcess(d, base, cwd, env, log, push, observe), None
     sup.looked.add(d.name)
-    for st in states(base, d.name):
-        old = KeptProcess(d, base, cwd, env, open(log.name, "a", encoding="utf-8"), push, observe, old=st)
-        take_up(sup, old, st["held"])
-        gone = adopt.alive(old.rec) is False or keeper.ended(str(old.f["keeper"])) is not None
-        while old.take(eof=gone):                # (its journal read to its end now, before anything is sent again)
-            pass
-        if not gone:
-            for run in list(old.runs):           # (not answered: sent again, its id the same)
-                old.send(old.lines[run])
-            old.start_reader()
-            live.append(old)
-            continue
-        with old.lock:
-            mine = dict(old.runs)
-            old.runs.clear()
-        carried |= {r: (h, old.lines[r]) for r, h in mine.items()}
-        old.finish()
-        old.log.close()
-        why = f"ended while no engine was up (exit {old.proc.poll()})"
+    live, dead = found(sup, d, base, log.name, push, observe)
+    why = f"ended while no engine was up (exit {dead[0].proc.poll()})" if dead else None
     p = next((x for x in live if x.rec["run"] == d.run), None)
     for x in live:
         if x is not p:                           # (as a model swap's: its runs finish under it, SPEC §9.7)
-            s = type(slot)(x.d)
-            s.proc = x
-            with sup.lock:
-                sup._drain(s, "its command changed while no engine was up" if x.rec["run"] != d.run else
-                           "an older process of it, left going")
+            drain(sup, x, "its command changed while no engine was up" if x.rec["run"] != d.run else
+                  "an older process of it, left going")
     if p is None:
-        p = KeptProcess(d, base, cwd, env, log, push, observe)
+        try:
+            p = KeptProcess(d, base, cwd, env, log, push, observe)
+        except (OSError, ValueError) as err:     # (what the dead held given back, uncounted: never held by none)
+            let_go(dead, f"its daemon {d.name} could not be started again: {err}")
+            raise
     else:
         log.close()                              # (it writes to its own, of the same file)
         why = None
         eng.say(f"daemon {d.name}: taken up, still going ({len(p.runs)} run(s) held)")
+    for old in dead:                             # (each held by the new one, in its state, before the old one's goes)
+        with old.lock:
+            mine = list(old.runs.items())
+        for run, h in mine:
+            p.hold(run, h, old.lines[run])
+            with old.lock:
+                old.runs.pop(run, None)
+    let_go(dead, "")
     tidy(base, {x.procid for x in live} | {p.procid})
-    for run, (h, line) in carried.items():
-        p.hold(run, h, line)
     return p, why
+
+
+def found(sup, d, base: Path, log: str, push, observe) -> tuple[list[KeptProcess], list[KeptProcess]]:
+    """The processes an engine before left of ``d``, each one's runs taken up and its journal read to its end: those
+    still going (what they had not answered sent again, their journals followed), and those found ended."""
+    live, dead = [], []
+    for st in states(base, d.name):
+        old = KeptProcess(d, base, None, {}, open(log, "a", encoding="utf-8"), push, observe, old=st)
+        take_up(sup, old, st["held"])
+        gone = adopt.alive(old.rec) is False or keeper.ended(str(old.f["keeper"])) is not None
+        while old.take(eof=gone):                # (its journal read to its end now, before anything is sent again)
+            pass
+        if gone:
+            dead.append(old)
+            continue
+        for run in list(old.runs):               # (not answered: sent again, its id the same)
+            old.send(old.lines[run])
+        old.start_reader()
+        live.append(old)
+    return live, dead
+
+
+def let_go(dead: list[KeptProcess], why: str) -> None:
+    """Processes found ended, never taken up again: what they still hold (``why``) given back uncounted."""
+    for old in dead:
+        if why:
+            old.fail_all(why, True)
+        old.finish()
+        old.log.close()
+
+
+def drain(sup, x: KeptProcess, why: str) -> None:
+    """A process taken up only to finish what it holds: sent ``stop``, its group ended once it holds nothing past the
+    grace (the supervisor's loop, ``supervise._drain``)."""
+    from .supervise import Slot
+    s = Slot(x.d)
+    s.proc = x
+    with sup.lock:
+        sup._drain(s, why)
+
+
+def sweep(sup, claimed: set[str]) -> None:
+    """On an engine's first start of its daemons: each kept process in ``<state>/daemons/`` that no kept daemon of
+    the model claims (the daemon removed, renamed, no longer kept, while no engine was up) taken up as ``found``
+    does, then drained (one still going) or let go (one ended), so nothing goes on out of sight. A daemon of another
+    shard is left to it; one the plan does not know, to the lead shard's engine."""
+    from .. import runner
+    from ..spec.ir import Daemon
+    root = Path(sup.e.p.dir).resolve() / "daemons"
+    for base in sorted(root.iterdir()) if root.is_dir() else ():
+        for name in sorted(names(base) - claimed):
+            try:
+                mine = sup.e.own(f"daemon.{name}")
+            except Exception:                    # (not in the plan: no shard's, the lead's)
+                mine = sup.e.leads()
+            newest = next(iter(states(base, name)), None)
+            if not mine or newest is None:
+                continue
+            d = Daemon(name, newest["run"], outlive=True)
+            log = str(runner.log_path(sup.e.p, f"daemon-{name}"))
+            live, dead = found(sup, d, base, log, lambda *a: False, lambda *a: False)
+            for x in live:
+                drain(sup, x, "no longer a kept daemon of the model")
+            let_go(dead, f"its daemon {name} ended while no engine was up and is no longer kept")
+            sup.e.say(f"daemon {name}: no longer kept: {len(live)} process(es) left going drained, {len(dead)} ended")
+            tidy(base, {x.procid for x in live})
+
+
+def names(base: Path) -> set[str]:
+    """The daemons whose processes' states ``base`` holds: only a name whose own folder it is."""
+    got = set()
+    for f in base.glob("*.json") if base.is_dir() else ():
+        try:
+            name = json.loads(f.read_text()).get("name") if keeper.RUN.fullmatch(f.stem) else None
+        except (OSError, ValueError, RecursionError, AttributeError):
+            continue
+        if isinstance(name, str) and folder(base.parent.parent, name) == base:
+            got.add(name)
+    return got
 
 
 def take_up(sup, p: KeptProcess, held: dict) -> None:
@@ -346,6 +415,21 @@ def take_up(sup, p: KeptProcess, held: dict) -> None:
                          name="daemon-run-taken-up").start()
 
 
+def unheld(h: Handle, run: str, missed):
+    """A run taken up that no process holds (its holder ended, let go or stopped without it): ended, given back
+    uncounted, at the second look that finds its same holder without it (a ``done`` or a ``fail_all`` takes it out
+    of its runs just before it ends it). Its holder (``h.kept``) changes only with the run in the new one's runs
+    (``hold``), before it leaves the old one's. What to pass the next look."""
+    holder = h.kept
+    with holder.lock:
+        held = holder.runs.get(run) is h
+    if held or h.done.is_set():
+        return None
+    if missed is holder:
+        h.end(None, f"its daemon {holder.d.name} no longer holds it", requeue=True)
+    return holder
+
+
 def _through(sup, b, begun: dict, h: Handle, said, usage, item, fence, key: str) -> None:
     """A run taken up, to its end: recorded as the engine that handed it over would have (``agent.ran`` or
     ``agent.failed``, once: ``adopt.end_id``), then its lease's ack or nack. Its timeout counts from now."""
@@ -353,10 +437,11 @@ def _through(sup, b, begun: dict, h: Handle, said, usage, item, fence, key: str)
     from ..spec.engine import STOPPED_BY_OWNER
     eng, run, left = sup.e, begun["id"], False
     try:
-        t0 = time.monotonic()
+        t0, missed = time.monotonic(), None
         while not h.done.wait(0.5):
             if b.timeout and time.monotonic() - t0 > b.timeout and h.cancelled is None:
                 sup.cancel(run, "its timeout")
+            missed = unheld(h, run, missed)
         left = getattr(h, "left", False)
         if left:
             return

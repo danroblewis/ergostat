@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 
 import pytest
@@ -306,6 +307,132 @@ def test_stop_runs_stops_a_daemon_left_going(tmp_path, daemons):
                          capture_output=True, text=True, timeout=60)
     assert "stopped 1 of 1 runs left going" in out.stdout, out
     assert wait_for(lambda: adopt.alive({"pid": st["pid"]}, start=False) is False, 10), "the daemon goes on"
+
+
+@pytest.mark.slow
+def test_a_daemon_no_longer_kept_is_taken_up_drained_and_its_run_recorded(tmp_path, daemons):
+    """``outlive-engine: false`` written while no engine was up: no kept slot claims its process, yet the next engine
+    takes up its run (its lease kept, never leased again meanwhile), drains it once it is done, and records the run
+    once; the daemon of the model, not kept now, is started beside it."""
+    p = project(tmp_path)
+    daemons(p)
+    run = killed_mid_item(p, tmp_path)
+    old = state(p)
+    first = got(tmp_path)[0]["pid"]
+    text = (tmp_path / "ergostat.yaml").read_text()
+    (tmp_path / "ergostat.yaml").write_text(text.replace("outlive-engine: true", "outlive-engine: false"))
+    p = Project(mdl.load(tmp_path))
+    e = taken_up(p)
+    try:
+        assert wait_for(lambda: "stop" in [x["op"] for x in got(tmp_path) if x["pid"] == first]), "not drained"
+        lease = its.one(p.events, p.model.spec, "ticket/1").fields["lease"]
+        assert lease["holder"] == run, "its run not taken up: its item leased again while it still works on it"
+        assert e.daemons.status()["block.worker"]["pid"] not in (None, old["pid"]), "the model's daemon not started"
+        (tmp_path / "go").write_text("")
+        assert wait_for(lambda: ends(p)), "the run of the process no longer kept was never recorded"
+        ended_once(p, run)
+        assert wait_for(lambda: adopt.alive({"pid": old["pid"]}, start=False) is False, 15), "the old one goes on"
+        assert wait_for(lambda: not list(kept.folder(p.dir, "block.worker").glob("*.json")), 10), "its state stays"
+    finally:
+        e.daemons.close()
+
+
+@pytest.mark.slow
+def test_a_daemon_removed_from_the_model_is_stopped(tmp_path, daemons, monkeypatch):
+    """The daemon gone from the model (its block renamed) while no engine was up: its process, of no daemon now and
+    holding nothing taken up, is stopped by the next engine, its files removed."""
+    from ergostat.leases import kill
+    monkeypatch.setattr(kill, "GRACE", 1.0)
+    p = project(tmp_path)
+    daemons(p)
+    killed_mid_item(p, tmp_path)
+    old = state(p)
+    text = (tmp_path / "ergostat.yaml").read_text()
+    (tmp_path / "ergostat.yaml").write_text(text.replace("  worker:", "  doer:").replace(", outlive-engine: true", ""))
+    p = Project(mdl.load(tmp_path))
+    e = taken_up(p)
+    try:
+        assert wait_for(lambda: adopt.alive({"pid": old["pid"]}, start=False) is False, 20), "the orphan goes on"
+        base = kept.folder(p.dir, "block.worker")
+        assert wait_for(lambda: not any(base.glob("*.*")), 10), "its files stay"
+    finally:
+        e.daemons.close()
+
+
+@pytest.mark.slow
+def test_a_run_whose_daemon_cannot_be_started_again_is_given_back(tmp_path, daemons, monkeypatch):
+    """The process found ended, and its new one fails to launch: the run it held is not left held by none (leased
+    for the engine's life, then lost): it is ended as failed and its item given back, uncounted."""
+    p = project(tmp_path)
+    daemons(p)
+    run = killed_mid_item(p, tmp_path)
+    old = state(p)
+    (tmp_path / "go.die").write_text("")
+    assert wait_for(lambda: keeper.ended(str(kept.files(kept.folder(p.dir, "block.worker"), old["proc"])["keeper"]))
+                    is not None), "it never died"
+    (tmp_path / "go.die").unlink()
+
+    def refused(*a, **k):
+        raise OSError("no keeper here")
+    monkeypatch.setattr(keeper, "launch", refused)
+    e = taken_up(p)
+    try:
+        assert wait_for(lambda: ends(p), 15), "the run its daemon held is held by none and never ended"
+        end = ends(p)
+        assert len(end) == 1 and end[0]["type"] == "agent.failed" and end[0]["causedby"] == run, end
+        assert "could not be started again" in end[0]["data"]["note"]
+        back = wait_for(lambda: p.events.query(n=None, type=ENDED, item="ticket/1"), 10)
+        assert [x["data"]["how"] for x in back] == ["nack"] and back[0]["data"].get("count") is False, back
+        assert state(p) is None, "a state of the dead one stays"
+    finally:
+        e.daemons.close()
+
+
+@pytest.mark.slow
+def test_a_daemon_taken_up_but_no_longer_wanted_finishes_what_it_holds(tmp_path, daemons, monkeypatch):
+    """Its slot drained while it was being taken up (``_spawn``'s stale path): the process is drained, not killed with
+    the run it took up in it, and that run's end is recorded once."""
+    p = project(tmp_path)
+    daemons(p)
+    run = killed_mid_item(p, tmp_path)
+    first = got(tmp_path)[0]["pid"]
+    spawn = kept.spawn
+
+    def drained_meanwhile(sup, slot, *a):
+        got_ = spawn(sup, slot, *a)
+        slot.state = "stopped"
+        return got_
+    monkeypatch.setattr(kept, "spawn", drained_meanwhile)
+    e = taken_up(p)
+    try:
+        assert wait_for(lambda: "stop" in [x["op"] for x in got(tmp_path) if x["pid"] == first]), "not drained"
+        (tmp_path / "go").write_text("")
+        assert wait_for(lambda: ends(p)), "the run it took up was never recorded"
+        ended_once(p, run)
+    finally:
+        e.daemons.close()
+
+
+def test_a_run_taken_up_that_no_process_holds_is_ended(tmp_path):
+    """``unheld``: its holder without it at two looks in a row ends it, given back; held, or moved to another holder
+    between the looks, it is not."""
+    from types import SimpleNamespace
+
+    from ergostat.daemons.proc import Handle
+    a = SimpleNamespace(lock=threading.Lock(), runs={}, d=SimpleNamespace(name="x"))
+    b = SimpleNamespace(lock=threading.Lock(), runs={}, d=SimpleNamespace(name="x"))
+    h = Handle()
+    h.kept = a
+    a.runs["r"] = h
+    assert kept.unheld(h, "r", None) is None
+    del a.runs["r"]
+    missed = kept.unheld(h, "r", None)
+    assert missed is a and not h.done.is_set(), "ended at the first look (a done ends it just after)"
+    h.kept, b.runs["r"] = b, h                       # (moved meanwhile: held)
+    assert kept.unheld(h, "r", missed) is None and not h.done.is_set()
+    del b.runs["r"]
+    assert kept.unheld(h, "r", kept.unheld(h, "r", None)) is b and h.done.is_set()
+    assert h.requeue and "no longer holds it" in h.note
 
 
 def test_a_run_is_in_its_daemon_s_state_before_its_line_is_sent(tmp_path):

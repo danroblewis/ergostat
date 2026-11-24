@@ -118,6 +118,7 @@ class Supervisor(Hands):
         self.thread: threading.Thread | None = None
         self.written = 0.0
         self.looked: set[str] = set()                # kept daemons looked for, as an engine before left them (kept.py)
+        self.swept = False                           # kept processes no kept daemon claims, looked for (kept.sweep)
 
     # ---- the model's daemons
 
@@ -150,11 +151,21 @@ class Supervisor(Hands):
                 start.append(slot)
             self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon in used and s.push}
             self.observers = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon in used}
-            if self.slots and (self.thread is None or not self.thread.is_alive()):
-                self.thread = threading.Thread(target=self._loop, name="ergostat-daemons", daemon=True)
-                self.thread.start()
+            self._loop_going()
         for slot in start:                           # at once, before sync returns: the first readings asked find it
             self._spawn_claimed(slot)                # running (not "starting", a failure until the sensor is next due)
+        if not self.swept:                           # (once: kept processes no kept daemon of the model claims, kept.py)
+            self.swept = True
+            from . import kept
+            kept.sweep(self, {n for n, d in want.items() if d.outlive})
+            self._loop_going()
+
+    def _loop_going(self) -> None:
+        """Its loop started while it has daemons or processes draining."""
+        with self.lock:
+            if (self.slots or self.draining) and (self.thread is None or not self.thread.is_alive()):
+                self.thread = threading.Thread(target=self._loop, name="ergostat-daemons", daemon=True)
+                self.thread.start()
 
     def revive(self, name: str) -> bool:
         """The owner's ``block NAME --restart``: a daemon given up (or any) started afresh, its restarts forgotten."""
@@ -315,9 +326,12 @@ class Supervisor(Hands):
                 slot.proc, slot.tracked = p, SAMPLER.track(p.proc)
                 slot.state, slot.why = "running", ""
                 slot.up.set()
-        if stale:
-            p.stop()
-            self._kill(p)
+        if stale:                                    # (what a kept one took up finishes under it, as a drain's)
+            s = Slot(slot.d)
+            s.proc = p
+            with self.lock:
+                self._drain(s, "not wanted once started")
+            self._loop_going()
             return
         if again:                                    # (a kept one found ended by this engine: SPEC §9.7)
             self.e.p.events.add("ergostat.daemon.restarted", item=slot.d.name, source=SOURCE,
