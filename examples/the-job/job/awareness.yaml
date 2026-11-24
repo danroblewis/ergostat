@@ -81,6 +81,7 @@ flows:
       over: 10m
   mentions-answered:
     from: mentions-triaged
+    description: a mention answered in its channel, by me (mine)
     sensor:
       items: mention
       entering: answered

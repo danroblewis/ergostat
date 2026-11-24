@@ -176,6 +176,22 @@ three actions, filed as it ends (`actions-filed`, driven by `postmortems` at onc
 and by `actions-per-postmortem`, the ratio). In documents, each approval opens the change's next
 document at once (`paper-trail`, the one reinforcing loop), until the board approves it.
 
+## What only I move, and the drafting capacity
+
+Every flow that only I move (I post, approve, reject, declare, dismiss, send, present) says so: its description ends
+`(mine)`, and it is the `out` of a person block on `me` and of nothing else. `tests/test_the_job_model.py` reads that
+set from the model, so a preparer pointed at one of them, or one left unmarked, fails it.
+
+How many alert companions may draft at once is a setting, `drafting-capacity` (rhythm.yaml): the companions' pool reads
+it (`pool: {now: stock.drafting-capacity, most: 3}`), and `capacity-law`, a program, steps it by integral action on the
+alert backlog's error (`alert-drafting-paced`: about one alert waiting for its draft), u_k = u_(k−1) + gain × e_k: a run
+more for each alert over one waiting, a run less while none waits. Its `gain`, `deadband`, `resolution` and `limits`
+([1, 3]) are the block's, given to it as `params` (`bin/capacity.py` holds none). The setting starts at 2 (its sensor's
+start value, read until the first step, or when what is stored can't be read: never a pool of 0), and the law never
+steps on an error it can't read or that is stale. `JOB_POLICY=off ergostat run` holds it fixed, to compare the law off
+and on. The loop through the setting, the drafting and the backlog is balancing (`comment-drafting` is driven by
+`+stock.drafting-capacity`, so ergostat finds it).
+
 ## The numbers
 
 Every rate that another rate sets is written as an equation (docs/SPEC.md §7b), in the world's own

@@ -109,12 +109,14 @@ flows:
       over: 10m
   ramps-approved:
     from: ramps-briefed
+    description: a ramp approved in the flag system, by me (mine)
     sensor:
       items: ramp
       entering: approved
       over: 10m
   ramps-rejected:
     from: ramps-briefed
+    description: a ramp rejected in the flag system, by me (mine)
     sensor:
       items: ramp
       entering: rejected
