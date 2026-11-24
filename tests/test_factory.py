@@ -5678,13 +5678,19 @@ def test_an_unfetchable_continue_raises_a_situation(tmp_path):
 
 # ---- the implementor's small test set ([suites] build, scripts/affected_tests.py)
 
-def affected(tmp: Path, change: dict[str, str | None], base: str = "main") -> subprocess.CompletedProcess:
+BROWSER_SUITE = ('[suites]\nbrowser = "uv run python -m pytest -q -n 4 tests/test_bar.py tests/test_foo.py"\n'
+                 'browser_paths = ["ergostat/web/**", "tests/test_bar.py"]\n')   # (test_foo.py: named, not on a path)
+
+
+def affected(tmp: Path, change: dict[str, str | None], base: str = "main",
+             config: str = BROWSER_SUITE) -> subprocess.CompletedProcess:
     """scripts/affected_tests.py on a branch of a fixture repository that makes ``change`` (a path's new text, or None
-    to delete it), the command it runs being `echo given`: what it would hand pytest, printed."""
+    to delete it), the command it runs being `echo given`: what it would hand pytest, printed. ``config`` is the
+    repository's dev/factory.toml."""
     repo = tmp / "repo"
     start = {"ergostat/foo.py": "x = 1\n", "ergostat/sub/baz.py": "y = 1\n", "ergostat/lone.py": "z = 1\n",
              "tests/test_foo.py": "", "tests/test_bar.py": "", "tests/test_baz.py": "", "tests/test_gone.py": "",
-             "docs/a.md": "a\n"}
+             "docs/a.md": "a\n", "dev/factory.toml": config}
     for rel, text in start.items():
         (repo / rel).parent.mkdir(parents=True, exist_ok=True)
         (repo / rel).write_text(text)
@@ -5743,6 +5749,22 @@ def test_a_browser_only_test_file_is_left_to_the_browser_suite_without_playwrigh
     assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t tests/test_bar.py"
 
 
+def test_a_browser_file_the_browser_suite_does_not_run_is_still_named(tmp_path):
+    """A top-level browser file is left out only when the queue's browser suite runs it: named in [suites] browser
+    and matched by browser_paths. Any other (test_baz.py: named nowhere; test_foo.py: named, but on no browser path;
+    every file when dev/factory.toml cannot be read) is still handed to pytest, so alone it fails (rc 5)."""
+    browser = 'import pytest\nplaywright = pytest.importorskip("playwright.sync_api")\n'
+    for case, change, config in (("unnamed", "tests/test_baz.py", BROWSER_SUITE),
+                                 ("unpathed", "tests/test_foo.py", BROWSER_SUITE),
+                                 ("unread", "tests/test_bar.py", "[suites\n"),
+                                 ("nobrowser", "tests/test_bar.py", '[suites]\nunit = "pytest"\n')):
+        (tmp_path / case).mkdir()
+        r = affected(tmp_path / case, {change: browser}, config=config)
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines()[-1] == f"given --deselect tests/test_q.py::t {change}", case
+        assert "left to the browser suite" not in r.stdout, case
+
+
 def test_only_a_top_level_importorskip_of_playwright_makes_a_file_browser_only():
     spec = importlib.util.spec_from_file_location("affected_tests", ROOT / "scripts" / "affected_tests.py")
     m = importlib.util.module_from_spec(spec)
@@ -5761,6 +5783,12 @@ def test_only_a_top_level_importorskip_of_playwright_makes_a_file_browser_only()
     for name in ("test_agents_page.py", "test_dashboard_page.py", "test_export.py", "test_walk_scripts.py"):
         assert not whole((ROOT / "tests" / name).read_text()), name   # (their API tests need no browser)
     assert whole((ROOT / "tests" / "test_diagram_rendering.py").read_text())
+    suite = m.in_browser_suite(str(ROOT / "dev" / "factory.toml"))       # (the shipped config: what the queue runs)
+    assert "tests/test_diagram_rendering.py" in suite
+    for name in ("test_inbox_page.py", "test_sql_editor.py", "test_promql_editor.py", "test_forecast_panel.py",
+                 "test_data_source_panels.py", "test_dashboard_keep_page.py", "test_dashboard_merge_queue.py"):
+        assert whole((ROOT / "tests" / name).read_text()), name           # browser files the browser suite never
+        assert f"tests/{name}" not in suite, name                          # runs: never left out of the build
 
 
 def test_an_unreadable_diff_runs_the_full_suite(tmp_path):

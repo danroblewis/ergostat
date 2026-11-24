@@ -2188,6 +2188,9 @@ def crossing_rules(geo) -> list:
 # drawn and routed, or (a system with no goal and no block that acts, drawn alone) saying it holds no control system
 BLOCKS_OR_NONE = (f"() => ({READY[6:]}) || "
                   "/^No control system here/.test(document.querySelector('.canvas-wrap .empty')?.textContent || '')")
+# the only systems that, drawn alone in Blocks, hold no control system (by example): each must say so, and every
+# other system must draw. autoscaler's rescales is the observed HPA, an outside controller: no goal, no block that acts
+NO_CONTROL_SYSTEM = {"autoscaler": {"rescales"}}
 
 
 def blocks_views(tree: dict) -> list[str]:
@@ -2202,13 +2205,14 @@ def test_the_control_view_draws_every_example_cleanly_as_a_block_diagram(browser
     drawn(pg, url, "view=blocks", 0)
     problems = []
     for i, v in enumerate(blocks_views(pg.evaluate("() => S.graph.tree || {}"))):
-        if "&system=" in v:                   # a system drawn alone may hold no loop (autoscaler's rescales: an outside
-            pg.goto(f"{url}/diagram?v={i + 1}&{v}", timeout=DRAWN_S * 1000)    # controller, observed): the canvas says so
-            pg.wait_for_function(BLOCKS_OR_NONE, timeout=DRAWN_S * 1000)
-            if not pg.evaluate(READY):
-                continue
-        else:
-            drawn(pg, url, v, i + 1)
+        pg.goto(f"{url}/diagram?v={i + 1}&{v}", timeout=DRAWN_S * 1000)
+        pg.wait_for_function(BLOCKS_OR_NONE, timeout=DRAWN_S * 1000)
+        none, ready = v.partition("&system=")[2] in NO_CONTROL_SYSTEM.get(name, ()), bool(pg.evaluate(READY))
+        if none or not ready:                 # only a listed system may say it holds none; every other view must draw
+            if none == ready:
+                problems.append(f"[{v}] " + ("draws a control system, though NO_CONTROL_SYSTEM lists it as holding none"
+                                             if none else "draws no control system: 'No control system here'"))
+            continue
         r = pg.evaluate(AUDIT)
         problems += [f"[{v}] {k}: {x}" for k in ("through", "overlap", "netCrossings", "partOverlap") for x in r[k]]
         problems += [f"[{v}] {x}" for x in pg.evaluate(BLOCKS_DOM)]

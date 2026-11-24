@@ -10,9 +10,10 @@ of its flagged path run in its own build while they skip everywhere else.
 
 Arguments after the command (the suites' --deselect of quarantined tests) go to pytest as they are. Only files that
 exist are named, so a deleted test file never fails the selection. A browser file (an importorskip of Playwright
-at the file's top level, so the whole file skips without it) is left out where Playwright cannot be imported: it
-would only skip, and the merge queue's browser suite runs it. A file whose importorskip is inside a fixture or a
-test is still run: its other tests need no browser."""
+at the file's top level, so the whole file skips without it) that dev/factory.toml's ``[suites] browser`` names, and
+its browser_paths match, is left out where Playwright cannot be imported: it would only skip, and the merge queue's
+browser suite runs it. Any other browser file is still named, so a branch changing only it fails (rc 5: nothing
+ran). A file whose importorskip is inside a fixture or a test is still run: its other tests need no browser."""
 
 from __future__ import annotations
 
@@ -79,15 +80,34 @@ def skips_whole_without_playwright(text: str) -> bool:
     return False
 
 
+def in_browser_suite(config: str = "dev/factory.toml") -> set[str]:
+    """The test files the merge queue's browser suite runs for a branch that changes them: named in ``[suites]
+    browser``'s command and, where ``browser_paths`` is set, matched by it (else the queue never runs the suite for
+    that branch). A config that cannot be read, or a command that names no file: none (nothing is left out)."""
+    import fnmatch
+    import shlex
+    import tomllib
+    try:
+        suites = tomllib.loads(Path(config).read_text(encoding="utf-8"))["suites"]
+        named = {w for w in shlex.split(suites["browser"]) if w.startswith("tests/") and w.endswith(".py")}
+        paths = suites.get("browser_paths") or []
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+    if not isinstance(paths, list):
+        return set()
+    return {t for t in named if not paths or any(fnmatch.fnmatch(t, str(p)) for p in paths)}
+
+
 def browser_only(tests: list[str]) -> list[str]:
     """Those of ``tests`` that skip whole without Playwright (skips_whole_without_playwright), when it cannot be
-    imported here: run alone they make pytest's rc 5 (nothing ran), and the merge queue's browser suite runs them.
-    With Playwright, none."""
+    imported here, and that the merge queue's browser suite runs (in_browser_suite): run alone they make pytest's
+    rc 5 (nothing ran). A browser file outside that suite is kept, and its rc 5 stands. With Playwright, none."""
     import importlib.util
     if importlib.util.find_spec("playwright") is not None:
         return []
-    return [t for t in tests
-            if skips_whole_without_playwright(Path(t).read_text(encoding="utf-8", errors="replace"))]
+    suite = in_browser_suite()
+    return [t for t in tests if t in suite
+            and skips_whole_without_playwright(Path(t).read_text(encoding="utf-8", errors="replace"))]
 
 
 def main(argv: list[str]) -> int:

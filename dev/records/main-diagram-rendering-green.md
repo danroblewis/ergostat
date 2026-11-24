@@ -109,3 +109,36 @@ tests/test_factory.py::test_a_browser_only_test_file_is_left_to_the_browser_suit
   be one ("cannot close"), and no control word and no "valve" may be left once the kept goal names and part names
   are set aside (words() says flow there). It fails on "valves" with the wiring removed, and again with
   words()' translations emptied (dynamics._WORDS). With both restored it passes.
+
+### Round 3 (the two review findings; what rounds 1 and 2 say above about them is replaced by this)
+
+- scripts/affected_tests.py (finding 1: fail-open for browser files the browser suite never runs). A top-level
+  browser file is now left out of the build only when the merge queue's browser suite runs it: `in_browser_suite()`
+  reads dev/factory.toml, takes the `tests/*.py` that `[suites] browser`'s command names, and keeps only those that
+  `browser_paths` matches (where it is set: otherwise the queue never runs the suite for a branch that changes only
+  that file). Every other top-level browser file (test_inbox_page, test_sql_editor, test_promql_editor,
+  test_forecast_panel, test_data_source_panels, test_dashboard_keep_page, test_dashboard_merge_queue, …) is still
+  handed to pytest, so a branch changing only one gets rc 5 again, as before round 1. A config that cannot be read,
+  or has no browser command, leaves nothing out (fail closed). The docstring and browser_only's say this. Tests:
+  test_factory.py::test_a_browser_file_the_browser_suite_does_not_run_is_still_named (a file named nowhere, a file
+  named but on no browser path, an unreadable config, a config with no browser command: each still named), and
+  test_only_a_top_level_importorskip_… now checks that the shipped config's suite holds test_diagram_rendering and
+  none of the seven files. The fixture repository of `affected()` now carries a dev/factory.toml (BROWSER_SUITE).
+  Seen failing: with round 2's filter put back (no suite check), the new test fails on its first case
+  (`--collect-only` for test_baz.py). With the fix, the three factory tests pass.
+- `test_the_control_view_draws_every_example_cleanly_as_a_block_diagram` (finding 2: any empty system skipped
+  unaudited). The empty canvas is now allowed only for a listed system: `NO_CONTROL_SYSTEM = {"autoscaler":
+  {"rescales"}}` (the observed HPA: no goal, no block that acts). Every view is waited on for drawn-or-empty; a listed
+  system must say "No control system here" (if it draws, the test fails and says to take it out of the list), and
+  every other view (the whole, the open ones, each other system alone) must draw, or the test fails naming it. I
+  chose a hand-kept allowlist over deriving "no goal and no block that acts" from the model, since a derivation in
+  the test would share the server's reading and could empty with it. Broken both ways and seen failing: with
+  server.py made to return no nodes for any `system=` other than rescales, it fails with
+  `[view=blocks&system=modelling] draws no control system`; with modelling added to the list, it fails with
+  `… draws a control system, though NO_CONTROL_SYSTEM lists it as holding none`. Both breaks reverted. With them
+  gone it passes for autoscaler, the-job, ticket-factory, big, software-factory and image-squeeze (each by id, with
+  Playwright, under suite_watch). The other examples were not run here (the queue's browser suite runs them).
+
+Round 3 not run: the unit suite, the four browser files whole, demo_check (no example touched). main merged in:
+already up to date with the clone's main. ruff clean. Outside tests/ and dev/, this round changes only
+scripts/affected_tests.py.
