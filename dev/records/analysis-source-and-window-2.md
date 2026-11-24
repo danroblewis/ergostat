@@ -122,6 +122,12 @@ above; psd of the same signal peaks at 300 s with `0 < flat_segments < segments`
 (`spectrogram: ...` refused), then restored. SPEC §4e's refusals and the agent guide say the same. No other finding
 was raised. Tests run in round 2: `tests/test_analysis_calls.py` (9 passed); ruff clean.
 
+Round 3 (the queue's one finding: conflicts with main in `query/engine.py` and `query/verdicts.py`): main
+(f8a4a520) merged in, keeping both sides: the branch's `_reread` beside main's `_graph`, and the branch's `windowed`
+and `unanalysable` codes beside main's three `graph-*` codes. No other change. Run after the merge:
+`test_analysis_calls.py`, `test_analysis_source.py`, `test_result_frames_and_verdicts.py`, `test_query_engine.py`,
+`test_graph_result_and_panel.py`, `test_query_frequency.py` (160 passed); ruff clean.
+
 Overrun reason: 297 lines added and 19 removed outside tests, docs and dev against the branch's base, 278 net against 240 (round 2 adds 5 for answering a flat stretch as zero power and counting it). The four calls, each with its four refusals, its bounds and its words naming them, the G1, G2 and G4 guards, an exact chi-square quantile in the standard library for the psd band, the common grid for two signals, and the engine's re-read of each query are each asked for and cost a few lines; the rest is docstrings.
 
 ## Entry
