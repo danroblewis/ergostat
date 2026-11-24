@@ -1,0 +1,68 @@
+template: regressions
+once: true
+description: Regression guarantees, each asked for through with:, - the model's tests passing, its blocks' claims kept, its model changes and its repair fixes holding - each goal served by a person.
+reading: |
+  System dynamics: four auxiliaries, each a count or share over the record, none a stock: tests-failing (the model's
+  claims: tests command run every `every`, read by python -m ergostat.regressions counts: failed and errors from its
+  pytest-style summary), escapes (ergostat.trust.contradicted@BLOCK: of that block's claims checked over the last
+  week, the share the record contradicted), regressed-changes (ergostat.model.regressed: model changes the prediction
+  check flagged for revert over the last week), and, when the model uses repair, repair's own fixes-regressed-recent.
+  Control: a balancing loop on each, held at 0 (claims-kept at escape-share) by a person (the ladder's first rung,
+  `agent` naming who): tests-green, claims-kept, changes-hold, and repair's fixes-hold, read here and not made again.
+  Every goal is off while its reading is stale: a test run that cannot be read gives no value, never a pass.
+  It is used once a model, and its parts keep the names written here. Flakes and quarantine are not in it: they need
+  an item kind of the model's own.
+example: |
+  uses:
+    regressions:
+      use: regressions
+      with:
+        every: 1h                     # the model's claims: tests command, run every hour
+        changes: true                 # the model's own changes that regressed
+        # block: developer            # whose claims escapes reads (a block of the model)
+        # repair: repair              # the model's use: repair, whose fixes-hold is read
+params:
+  every: {type: duration, min: 1m, description: "how often the model's claims: tests command is run (the passing counts; left out: not run)"}
+  timeout: {type: duration, default: 10m, min: 10s, max: 6h, description: "the most one test run may take (and the claim's own timeout, if less)"}
+  block: {type: name, description: "the block whose contradicted claims are escapes (left out: no escapes part)"}
+  escape-share: {type: number, default: 0.1, min: 0, max: 1, description: "the share of that block's checked claims that may be contradicted"}
+  changes: {type: bool, default: false, description: "hold the model changes that regressed (ergostat.model.regressed) at 0"}
+  repair: {type: name, description: "the instance of repair the model uses: its fixes-hold is read, and a person serves it too"}
+  agent: {type: name, description: "the agent, of kind person, who is asked (left out: a person block with no agent named)"}
+  count-every: {type: duration, default: 1m, description: how often the escapes and the regressed changes are read}
+auxiliaries:
+  tests-failing:
+    if: ${every}
+    unit: tests
+    driven-by: -flow.tests-fixed
+    description: "tests the model's claims: tests command failed (failed and errors), its last run"
+    sensor: {run: "${python} -m ergostat.regressions counts --within ${timeout:seconds}", every: "${every}", timeout: "${timeout}"}
+  escapes:
+    if: ${block}
+    unit: share
+    driven-by: -flow.escapes-corrected
+    description: "of ${block}'s claims checked over the last week, the share the record contradicted"
+    sensor: {builtin: "ergostat.trust.contradicted@${block}", every: "${count-every}"}
+  regressed-changes:
+    if: ${changes}
+    unit: changes
+    driven-by: -flow.changes-corrected
+    description: model changes written over the last week that the prediction check flagged for revert
+    sensor: {builtin: ergostat.model.regressed, every: "${count-every}"}
+stocks:                               # what the people have done, so far: each fix lowers what its auxiliary counts
+  tests-fixes: {if: "${every}", unit: fixes, cumulative: true, description: fixes made to the failing tests}
+  escape-corrections: {if: "${block}", unit: fixes, cumulative: true, description: "corrections made to ${block}, so its claims hold"}
+  change-corrections: {if: "${changes}", unit: fixes, cumulative: true, description: regressed model changes reverted or corrected}
+flows:
+  tests-fixed: {if: "${every}", to: tests-fixes}
+  escapes-corrected: {if: "${block}", to: escape-corrections}
+  changes-corrected: {if: "${changes}", to: change-corrections}
+goals:
+  tests-green: {if: "${every}", auxiliary: tests-failing, hold: "<= 0", on-stale: "off", description: "the model's tests pass, as its last run read"}
+  claims-kept: {if: "${block}", auxiliary: escapes, hold: "<= ${escape-share}", on-stale: "off", description: "${block}'s claims hold"}
+  changes-hold: {if: "${changes}", auxiliary: regressed-changes, hold: "<= 0", on-stale: "off", description: no model change regressed in the last week}
+blocks:
+  tests-fixer: {if: "${every}", type: person, agent: "${agent}", goal: tests-green, out: flow.tests-fixed, ask: "Fix the failing tests (the model's claims: tests command)"}
+  escapes-reviewer: {if: "${block}", type: person, agent: "${agent}", goal: claims-kept, out: flow.escapes-corrected, ask: "Look at ${block}'s contradicted claims (Items → ergostat.claim) and fix what lets them through"}
+  changes-reviewer: {if: "${changes}", type: person, agent: "${agent}", goal: changes-hold, out: flow.changes-corrected, ask: "Revert or correct the model changes the prediction check flagged (Items → ergostat.model-change)"}
+  fixes-reviewer: {if: "${repair}", type: person, agent: "${agent}", goal: fixes-hold, out: flow.fixes-reverted, ask: "A fix ${repair} applied regressed: answer its revert-fix and see why it failed"}
