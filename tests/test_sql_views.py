@@ -57,6 +57,11 @@ def test_a_name_only_the_index_has_is_refused_before_the_text_reaches_the_index(
               "as m" for t in ("items", "sqlite_master", "meta", "links", "numbers", '"left"', "json_each")]
     texts += ["select (select count(*) from json_each('[1]')) as n, (with json_each as (select 1) select count(*) "
               "from json_each) as m"]
+    # A no-column read after a part the planner works on: the whole text is prepared, not only its first part.
+    texts += ["select (select id from transitions where id > '' limit 1) as m, (select count(*) from main.items) as n",
+              "select id from transitions where id > '' union all select count(*) from main.items",
+              "select t.id as m, count(*) as n from transitions t join item_spans s on s.id = t.id where t.id > '' "
+              "and s.id in (select id from transitions where at > 0) and exists (select count(*) from main.moves)"]
     for text in texts:
         r = ask(p, text)
         assert r.get("error_kind") == "refused", (text, r)
@@ -76,7 +81,7 @@ def test_a_check_that_fails_or_runs_out_of_time_does_not_run_the_query(p, spy, m
         r = ask(p, "select count(*) as n from transitions")
     assert r.get("error_kind") == "refused" and "could not be checked" in r["error"], r
     monkeypatch.setattr(datasources, "MOST_SECONDS", 1.0)
-    monkeypatch.setattr(_itemviews, "_prepared", lambda deadline: lambda: int(time.monotonic() > deadline))
+    monkeypatch.setattr(_itemviews, "_prepared", lambda c, text, params: c.execute(text, params))
     t0 = time.monotonic()                                           # (the check run to the end, not only prepared)
     r = ask(p, "with recursive r(n) as (select 1 union all select n + 1 from r) select count(*) as n from r")
     assert r.get("error_kind") == "limit" and "ran past 1 s" in r["error"], r

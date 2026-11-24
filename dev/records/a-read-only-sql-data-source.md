@@ -143,6 +143,30 @@ no column, through anywhere in the text, and on the index that read counted the 
 
 Overrun reason: 78 net lines against 60. Round 1's 5 over were the no-database read handling. Round 2 adds 13 for the review's blocking hole in that handling (`_resolves`, the probe that a `WITH` name names nothing else, and its docstring). Neither was in the plan.
 
+Round 3: the one finding (blocking) is fixed, as the review suggested.
+- The finding, seen on the installed SQLite: the check's progress handler stopped at its first call. SQLite also
+  calls it while it plans, so preparing stopped partway, and a no-column read in a later part was never authorized.
+  `select (select id from transitions where id > '' limit 1) as m, (select count(*) from main.items) as n` passed the
+  check and answered the index's real row count.
+- The fix: `_itemviews._prepared(c, text, params)` now prepares `explain <text>` on the stand-in under the query's own
+  deadline handler (from `_bounded`), so all of the text is prepared and authorized, and its program is listed, not
+  run. Any error raises, including the deadline, so a check stopped partway is `limit`, never a pass (lesson-3). The
+  "interrupted means passed" rule is gone. A text that is itself an `explain`, or holds no statement, is now a syntax
+  error on the stand-in, so it is `refused`. Before, it was also refused, but with other words.
+- Tests: `test_a_name_only_the_index_has_...` adds the review's two texts and a third (a join, then an `in` subquery,
+  then `exists (select count(*) from main.moves)`). `test_a_check_that_fails_...` now forces the check to run the text
+  (it monkeypatches `_prepared` to execute it) for its 1 s recursive-CTE case.
+- Lesson-9: I put back the old stop-at-first-step check and ran only the three new texts. The scalar-subquery text
+  and the join text got through (the test failed). The `union all` text was refused even by the old check, on this
+  SQLite. I kept it as a guard. With the fix back in, the test passes.
+- SPEC §4e and the `check` docstring say that all of the text is prepared (its `explain`).
+- Run here, each passing: `tests/test_sql_views.py` (4), `tests/test_sql_source.py`, `tests/test_stages.py` (27 in
+  all), and `tests/test_sql_editor.py` (2, with Playwright under the watchdog, rc 0, nothing skipped). ruff is clean.
+  Not run: the whole unit suite and the four browser files. Local `main` is still the base, so there was nothing to
+  merge.
+
+Overrun reason: 74 net lines against 60 (round 3 removed 4). The 14 over are round 1's no-database read handling and round 2's `_resolves` probe for the review's blocking hole in it. Neither was in the plan.
+
 ## Entry
 
 entry-of: sql-source-over-item-views

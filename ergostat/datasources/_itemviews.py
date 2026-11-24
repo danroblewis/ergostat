@@ -231,9 +231,11 @@ def _authorizer(why: list, readable, functions=FUNCTIONS, own: set | None = None
     return allowed
 
 
-def _prepared(deadline: float):
-    """The check's progress handler: stop at the first step, since the authorizer has run when the text was prepared."""
-    return lambda: 1
+def _prepared(c, text: str, params: dict) -> None:
+    """The check's run: ``explain`` of the text, so the whole text is prepared (and authorized) under the deadline, and
+    only its program listed, not run. (SQLite may call the progress handler while it plans, so stopping early would
+    leave the rest of the text unauthorized.)"""
+    c.execute(f"explain {text}", params)
 
 
 def _resolves(c, name: str) -> bool:
@@ -247,11 +249,11 @@ def _resolves(c, name: str) -> bool:
 
 
 def check(spec, deadline: float, text: str, params: dict, why: list) -> set[str]:
-    """Prepare ``text`` on a stand-in of the index: an in-memory database of the index's own tables, empty, in its
-    ``main`` (so a name resolves as on the index, and is refused by the same words) and an empty temp table per view
-    (its name and columns), bounded and authorized as a query is. Returns, only if the text passed, the names it may
-    read with no database: the views, and its ``WITH`` names that name nothing else (so each read of one is a ``WITH``'s,
-    wherever it is); raises otherwise (a refusal's words in ``why``)."""
+    """Prepare all of ``text`` (``_prepared``: its ``explain``) on a stand-in of the index: an in-memory database of the
+    index's own tables, empty, in its ``main`` (so a name resolves as on the index, and is refused by the same words)
+    and an empty temp table per view (its name and columns), bounded and authorized as a query is. Returns, only if the
+    text passed, the names it may read with no database: the views, and its ``WITH`` names that name nothing else (so
+    each read of one is a ``WITH``'s, wherever it is); raises otherwise (a refusal's words in ``why``)."""
     from ..spec import itemindex, projections
     c = sqlite3.connect(":memory:", isolation_level=None)
     try:
@@ -263,14 +265,8 @@ def check(spec, deadline: float, text: str, params: dict, why: list) -> set[str]
         names = {v.lower() for v in every}
         auth = _authorizer(why, lambda db, a: db == "temp" and a in names)
         c.set_authorizer(auth)
-        c.set_progress_handler(_prepared(deadline), 1)
-        try:
-            c.execute(text, params)
-        except sqlite3.OperationalError as e:
-            if why or "interrupted" not in str(e) or time.monotonic() > deadline:
-                raise
+        _prepared(c, text, params)          # (any error raises: a refusal, the deadline, anything else)
         c.set_authorizer(None)
-        c.set_progress_handler(None, 0)
         own = names | {n for n in auth.unsure & auth.ctes if not _resolves(c, n)}
         if bad := sorted(auth.unsure - own):
             why.append(("refused", f"only a SELECT of the views is allowed, and this reads main.{bad[0]}"))

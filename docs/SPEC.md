@@ -1604,7 +1604,8 @@ reads the event log.
 
   How a query is kept read only: it is checked first on a stand-in of the index, then run on the index's real views.
   - SQLite does not say which view a read is for once a view is flattened into a query, so on the index a query's own
-    read of `items` would look like a view's. The text is therefore first prepared (not run) on a stand-in: an
+    read of `items` would look like a view's. The text is therefore first prepared (not run) on a stand-in, all of it:
+    its `explain` is prepared under the time bound, since SQLite authorizes part by part as it plans. The stand-in is an
     in-memory database holding the index's own tables, empty, in its `main`, and one empty temporary table per view,
     with the view's name and columns. It has the same limits, aggregates and time bound as a query.
     - There SQLite's authorizer allows only SELECT, reads of `temp.<view>` and of the query's own `WITH` names, and an
