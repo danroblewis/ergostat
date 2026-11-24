@@ -331,3 +331,52 @@ three times: 96, 96 and 97 passed of 100. Failures:
   not shown to be unrelated.
 Not run: the unit suite, tests/test_diagram_rendering.py as a whole and the other browser files. Commands refused
 in this session: `git grep -n -A3 "def test_the_graph_and_the_timeline_left_open_change_nothing" main -- tests/test_items_page.py`.
+
+Continued, round 2, 2026-11-24. Main (b9341591) merged in (2f90069f). It conflicted in static/pages.js only. Main's
+ui-a-filter-that-matches-nothing-says-so-with-a-way had added the search's count beside the box (`hitsSaid`) and
+renamed `hits` to `total`. Both sides are kept: `hitsSaid` sits in the filters of both layouts, and the branch's
+`foundSaid` (the count written with its rows, round 6) is computed from main's `total`.
+
+**The review's finding (the only one): the left-open graph test's flake, found and fixed.**
+- *The cause, reproduced.* `relations_api` keeps the `items-graph` answer for `KEPT` = 300 s while the record is
+  quiet, and its `now` and `since` are those of the moment it was built. When it is built again, `now` moves on by up
+  to 300 s in one step. The legend's levelled finish (`now` plus the chain of unstarted work) moves, so the
+  `rg-key rg-eta` span's title changes. Finished items whose last move has left the 3600 s window drop out (the
+  roadmap's are seeded 47 to 22 minutes back), so the "finished not drawn" span and the status keys change. The
+  estimates (`eta_api`, `KEPT` = 120 s) are worked out again the same way. The page is right to draw these: each is a
+  new answer. The test failed when its watch straddled a rebuild, which depends on where in the file it falls. The
+  repro opened the page, then slept until 1.5 s before the cached answer's `now` + 300 and watched. It failed with
+  4 mutations, the first the `rg-key rg-eta` span's `title`. Timed instead to a ticket leaving the window, the same
+  test passed, because the 300 s cache hides the exit until the rebuild.
+- *A second cause, found by the same repro once the first was fixed.* The test watched `document.body`, so it also
+  saw the header's held-up line (`#heldup`, util.js). Its title, "… 7 items wait on it …, 4h40m of waiting in all",
+  counts up with the clock. That line is on every page, main's `/items?view=graph` included.
+- *The fix (tests only).* `between_rebuilds(url, kind, span)` asks `items-graph` until neither answer will be made
+  again by age within `span` s (from the answer's own `now` and `eta.at`, against the two modules' `KEPT`), waiting
+  past a rebuild when one is due. The test calls it before opening the page, with 25 s. The page's load and watch take
+  about 17 s, so the watch ends before the next rebuild and before the kind's chart asks for its flow again (every
+  30 s). OBSERVE now watches `#main`, the page, not the header. It assumes that nothing writes the roadmap's record
+  during the test, which holds: no test in the file writes to it after seeding.
+- *Shown.* The same repro, timed to 10 s before a rebuild, with the fix: passed. tests/test_items_page.py as a whole,
+  under the watchdog with Playwright, twice after the fix: 100 passed and 3 failed each time. The graph test passed in
+  both, and also in one whole-file run before the fix (99 passed, 4 failed). The `rg-eta` span that failed the repro
+  is inside `#main`, so the narrower watch still catches a change in the legend.
+
+**Found by the merge's tests.** Main's test_a_search_on_a_kinds_own_page_keeps_its_one_count_and_its_section opens
+`/items/ticket` and reads `.sys-head`, the system headings that main's kind page drew. The branch's kind page has
+none (the-kind-page: the bar is its h1, then its sections). It failed in the whole-file run before this change. Its
+assertions are kept, on the kind page's headings: no heading says a page's "match" count (the bar's title and the
+sections' h2s), the count beside the box is one, and a miss keeps the one `.kind-items` section. The reason is in
+the test. It passed after the change.
+
+**Failures that are not this branch's** (each failed in all three whole-file runs, and each was reported in the round
+before): test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel (the order of two of main's tests on
+`hypothesis/4`), test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (the project switcher), and
+test_every_surface_prints_the_servers_one_count_of_goals_off (main's test expects `Loops ·`, main's page says
+`Goals ·`).
+
+**Tests run.** ruff is clean. The runs above. Not run: the unit suite, tests/test_diagram_rendering.py and the other
+browser files. One background run (the repro timed to the ticket's exit, superseded) was still sleeping in a test
+when the next single-test run started, so two browser runs overlapped for about five minutes. Commands refused in
+this session: `uv run python -c "import time; time.sleep(540)"` and `ps -A -o pid=,ppid=,command=` (to find that
+background run and stop it).
