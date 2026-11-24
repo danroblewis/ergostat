@@ -88,7 +88,7 @@ async function pageAgents(main) {
     const w = WINDOW_WORDS[S.since] ? `over the ${WINDOW_WORDS[S.since].toLowerCase()}` : windowNote();
     setText(cap, `What the runs cost${w ? ", " + w : ""}: dollars their AI sessions cost (as Claude Code reported them; ` +
       `"est." where only tokens were known and a price table priced them), their tokens, the CPU time of each run's ` +
-      `processes (user and system), and the most memory one run held. Open an agent for its history, run by run.`);
+      `processes (user and system), and the most memory one run held. Open an agent for what it is and its history, run by run.`);
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const cols = [...RUNG_NAMES, "retired"];
     const of = (i) => Object.entries(agents).filter(([, a]) => a.rung === i);
@@ -123,8 +123,8 @@ async function pageAgents(main) {
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
         h("tr", {}, h("th", { colspan: 6 + nums.length, scope: "colgroup", "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
           h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
-        xs.flatMap(([name, a]) => [h("tr", { class: "click", key: name, "data-row": name, onclick: () => openAgent(name) },
-          h("td", { class: "nowrap" }, h("b", {}, name), exc(a) ? h("span", { class: "exception", title: exc(a)[1] }, ` ${exc(a)[0]}`) : null),
+        xs.flatMap(([name, a]) => [h("tr", { class: "click", key: name, "data-row": name, ...rowLink(agentHref(name)) },
+          h("td", { class: "nowrap" }, h("a", { href: agentHref(name), class: "agent-link" }, h("b", {}, name)), exc(a) ? h("span", { class: "exception", title: exc(a)[1] }, ` ${exc(a)[0]}`) : null),
           h("td", {}, rolesText(a.roles) || h("span", { class: "muted" }, "no roles"),
             (a.hints || []).length ? h("ul", { class: "hints" }, a.hints.map((hint) => h("li", { class: hint.about === "loop" ? "warn" : "", title: hint.says },
               hint.about === "loop" ? op(hint.says)
@@ -172,7 +172,7 @@ async function pageRecord(main, q) {
   const remote = q.get("remote") || "";                // a remote's events, read there (SPEC §4c): never the local record's
   const about = q.get("about") || "", from = q.get("from") || "", to = q.get("to") || "";   // a goal's, from its crossing
   const at = stamp;                                   // one time format (util.js)
-  const scope = machine || inWindow || item || remote || about || from || to ? h("span", { class: "muted" }, [item ? `about ${item}` : "", about ? `of goal ${about}` : "", machine ? `from ${machine}` : "", remote ? `of remote ${remote}` : "", inWindow ? "in the window" : "", from ? `from ${at(from)}` : "", to ? `to ${at(to)}` : ""].filter(Boolean).join(", "),
+  const scope = machine || inWindow || item || remote || about || from || to ? h("span", { class: "muted" }, [item ? `about ${item}` : "", about ? `of goal ${about}` : "", machine ? ["from ", agentA(machine)] : "", remote ? `of remote ${remote}` : "", inWindow ? "in the window" : "", from ? `from ${at(from)}` : "", to ? `to ${at(to)}` : ""].filter(Boolean).flatMap((x, i) => (i ? [", ", x] : [x])),
     " ", h("a", { href: "/record" + (filt.value ? "?match=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
   const kept = () => Object.fromEntries([["match", filt.value], ["runs", runs.checked ? "1" : ""], ["about", about], ["from", from], ["to", to],
     ["machine", machine], ["item", item], ["remote", remote], ["window", inWindow ? "1" : ""]].filter(([, v]) => v));
@@ -578,10 +578,11 @@ function actionsAbout(as, done) {
   // who answered is the record's own words (record.who: an approval a later denial overrode, the gate's own denial)
   const said = (a) => (a.state === "denied" ? `${a["approved by"]}${at(a, "denied")}`
     : `approved by ${a["approved by"]}${at(a, "approved")}` + (a.state === "approved" ? "" : `, ${a.state}${at(a, a.state)}`));
+  const by = (a) => (a.block ? agentA(a.block) : a.by);              // a block that asked: its agent's page
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
-    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), a.state === "requested" ? " " : `: asked by ${a.by}, `,
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), a.state === "requested" ? " " : [": asked by ", by(a), ", "],
       h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : said(a)),
-      a.state === "requested" ? h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}`) : null),
+      a.state === "requested" ? h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by `, by(a)) : null),
     commandBox(a.command),
     actionAnswer(a, done))));
 }
@@ -598,11 +599,11 @@ function actionView(d, refresh) {
   const f = d.fields;
   const by = f.approved_by ? `approved by ${f.approved_by}` : f.denied_by ? `denied by ${f.denied_by}` : "";
   return h("div", { class: "claim" },
-    h("p", { class: "action-says" }, h("b", {}, actionSays(f)), f.item ? `, for ${f.item}` : "", f.block ? `, asked by ${f.block}` : ""),
+    h("p", { class: "action-says" }, h("b", {}, actionSays(f)), f.item ? `, for ${f.item}` : "", f.block ? [", asked by ", agentA(f.block)] : ""),
     h("p", {}, h("span", { class: d.state === "requested" ? "s-open" : d.state === "denied" || d.state === "failed" ? "s-off" : "status" }, d.state === "requested" ? "waiting for approval" : d.state),
       h("span", { class: "muted" }, ` ${f.action}, class ${f.class}, gate ${f.gate}`), by ? `: ${by}` : "", f.note ? ` (${f.note})` : ""),
     commandBox(f.command),
-    h("p", { class: "muted" }, `in ${f.in || "?"}`, f.item ? [", for ", itemLink(f.item)] : null, f.session ? [", asked by ", itemLink(f.session)] : f.block ? `, asked by block ${f.block}` : ""),
+    h("p", { class: "muted" }, `in ${f.in || "?"}`, f.item ? [", for ", itemLink(f.item)] : null, f.session ? [", asked by ", itemLink(f.session)] : f.block ? [", asked by block ", agentA(f.block)] : ""),
     actionAnswer(d, refresh),
     d.state === "ran" || d.state === "failed" ? [h("h3", {}, `Output (exit ${f.exit ?? "none"})`), h("pre", { class: "mono small" }, f.output || "")] : null,
     (f.deliveries || []).length ? h("p", { class: "muted" }, "Given to ", f.deliveries.map((x, i) => [i ? ", " : "", x.session ? itemLink(x.session) : `block ${x.block}`, ` (${x.how})`])) : null);
@@ -666,12 +667,18 @@ function itemsFinished(q) { const v = q.get("finished"); return v === "show" || 
 /* the states the list leaves out unless shown: a kind's finished and dead, none for a kind that lives on (items.hidden_states) */
 const hiddenStates = (k) => (!k || k.lives_on ? [] : [...(k.finished || []), ...(k.dead ? ["dead"] : [])]);
 
-async function pageItems(main, q, only = false) {     // only: a kind's own page (/items/KIND), that kind alone
-  const p = page(main, "Items");
+/* the list of every kind (/items?view=list, a search); with ``only``, the kind's page (/items/K, SPEC §5a): its bar
+   (the page's h1), its chart and cycle time, where the model counts it (kinds.js), its definition, and its list,
+   asking for that kind's items alone */
+async function pageItems(main, q, only = false) {
+  const p = only ? main.appendChild(h("div", { class: "page kind-page" })) : page(main, "Items");
   const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
+  const lbox = only ? h("div", { class: "item-systems" }) : box;     // the kind's page: its list under the filters
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const found = h("span", { class: "muted search-said", "aria-live": "polite" });   // a kind's: its matches, the finished apart
   let kind = q.get("kind"), state = q.get("state"), finished = itemsFinished(q), finChosen = q.get("finished") != null;
+  const one = only ? kind : null;                      // the kind's page's kind (route: /items/K)
+  const shut = new Set();                              // the kinds whose bar's disclosure hides their list (/items only)
   // an old address's Frontier and Collapse done, read once: both off every item, Collapse done off the waited on
   if (!finChosen && (q.get("frontier") != null || q.get("collapse") != null)) {
     finChosen = true;
@@ -695,7 +702,9 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   let asked = null;                                   // what the page shown was asked with: anything else starts at 1
   // how the items are shown (relations.js): as lists, as a graph of their relations, or as a timeline; the graph's
   // and the timeline's choices, in the address too
-  let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
+  // (on the kind's page only: /items lists, the overview draws no view of its items)
+  let view = only && ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
+  let all = q.get("states") === "all";                // the kind's chart: its state groups, or every state (the overview's switch)
   // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
   let sort = ofKind(q.get("sort"));
   const ro = { group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
@@ -716,8 +725,11 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
   const hitsSaid = h("span", { class: "muted search-hits", "aria-live": "polite" });   // the search's count, beside it
+  const filters = h("div", { class: "filters" }, search, hitsSaid, found, showFin, viewBar, chip);
   const mayDo = h("p", { class: "may-do", hidden: true }, MAY_DO);   // on the gated actions: what a person may do
-  p.append(notes, h("div", { class: "filters" }, search, hitsSaid, found, showFin, viewBar, chip), mayDo, loading, compose, box, rbox);
+  if (only) p.append(box, h("h2", { class: "kind-sect" }, "Items"), notes, filters, mayDo, loading, compose, lbox);
+  else p.append(notes, filters, mayDo, loading, compose, box, rbox);
+  const unpick = () => { if (!only) kind = null; state = null; dropSet(); go(); };
   let rbusy = false;
   const remoteTick = async (rs) => {
     if (rbusy || SNAP || !rs.length) return;
@@ -752,13 +764,13 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     try { await run; } finally { if (busy === run) { busy = null; ctl = null; } }
   }
   const ans = answers();
-  const go = (load = true) => { const u = new URLSearchParams(); if (state) u.set("state", state);
+  const go = (load = true) => { const u = new URLSearchParams(); if (state) u.set("state", state); if (one && all) u.set("states", "all");
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
                      if (finChosen && (finished !== "hide" || view === "timeline")) u.set("finished", finished);
                      finPress();
                      loading.hidden = false;           // and the rows already drawn filtered, before the answer
-                     for (const tr of box.querySelectorAll("tr[data-kind]")) tr.hidden = !!kind && (tr.dataset.kind !== kind || (state != null && tr.dataset.state !== state));
+                     for (const tr of lbox.querySelectorAll("tr[data-kind]")) tr.hidden = !!kind && (tr.dataset.kind !== kind || (state != null && tr.dataset.state !== state));
                      if (sort && view === "list") u.set("sort", paged() ? `${kind}:${sort}` : sort);
                      if (paged() && view === "list" && pg > 1) u.set("page", `${kind}:${pg}`);
                      if (paged() && view === "list" && size !== 25) u.set("size", String(size));
@@ -769,7 +781,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
                      if (only && !kind) return navigate("/items" + (u.toString() ? "?" + u : ""));   // the kind let go
                      if (!kind && !u.toString()) u.set("view", "list");      // every kind's list (bare, /items is the overview)
                      const qs = u.toString().replace(/%3A/g, ":");      // page=gap:3, as it is read
-                     replaceRoute((kind ? `/items/${encodeURIComponent(kind)}` : "/items") + (qs ? "?" + qs : "")); if (load) refresh(); };
+                     replaceRoute((kind ? kindHref(kind) : "/items") + (qs ? "?" + qs : "")); if (load) refresh(); };
   search.addEventListener("input", () => go());
   let sysOf = {};                                      // each kind's system, as last listed
   const toggle = (sys) => {                            // a chosen kind's system is open: folding it lets the kind go
@@ -809,14 +821,14 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       box.querySelector(".page-loading")?.remove();
       loaded();
       patch(chip, h("span", { class: "set-chip bad" }, String(err.message || err), " ",
-        h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
+        h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: unpick }, "\u00d7")));
       return;
     }
-    remoteTick(d.remotes || []);                        // (not waited on)
+    if (!only) remoteTick(d.remotes || []);             // (not waited on; a kind's page asks for no other kind's items)
     const got = paged() && d.offset != null ? Math.floor(d.offset / per) + 1 : wanted;   // past the end: the last page
     if (got !== wanted && pg === wanted && size === per) { pg = got; go(false); }   // (unless another was asked meanwhile)
-    const total = d.total ?? 0;
-    setText(found, paged() && search.value.trim() ? `${total} match${total === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "");
+    const total = d.total ?? 0;   // (written with the rows it counts, below)
+    const foundSaid = paged() && search.value.trim() ? `${total} match${total === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "";
     const flowsWere = JSON.stringify([flows, gps]);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
@@ -827,7 +839,9 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     // each open kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
     // a click on one shows its items; a kind without states, one line of its count. A flow over the window
     // hardly moves in seconds: each asked for every 30s, not on every refresh of the list, and only while shown
-    const shownKinds = systems.flatMap((g) => g.kinds.map((n) => kindOf[n]).filter(Boolean));   // folded or not: the charts stay
+    const shownKinds = one ? [kindOf[one]].filter(Boolean) : systems.flatMap((g) => g.kinds.map((n) => kindOf[n]).filter(Boolean));   // folded or not: the charts stay
+    const fp = one ? await ans.api(`kinds/${encodeURIComponent(one)}`)      // where the model has it (unread: kinds.js says why)
+      .catch((err) => ({ err: String(err.message || err), status: err.status })) : null;
     const due = shownKinds.filter((k) => k.states.length && !(Date.now() - (flowsAt[k.name] || 0) < 30000));
     await Promise.all(due.map(async (k) => {
       flowsAt[k.name] = Date.now();
@@ -865,7 +879,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     if (!force && !ans.changed && JSON.stringify([flows, gps]) === flowsWere) return;     // nothing changed: nothing touched
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
       h("button", { class: on ? "on" : "", "aria-pressed": String(!!on), title, onclick: fn }, text)));
-    patch(viewBar, seg("Show", [[view === "list", "List", "Each kind's items, newest first", () => { view = "list"; go(); }],
+    if (one) patch(viewBar, seg("Show", [[view === "list", "List", "Each kind's items, newest first", () => { view = "list"; go(); }],
                                 [view === "graph", "Graph", "The items and their relations: what each waits on, the critical path", () => { view = "graph"; go(); }],
                                 [view === "timeline", "Timeline", "A Gantt chart: each item's states over time, and what is projected for the unfinished", () => { view = "timeline"; go(); }]]),
       ...(view === "list" ? [] : [
@@ -875,28 +889,27 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
                           [ro.lanes, "Lanes", "A row a lane of each block that takes items: at most its capacity at once, the projected runs in them", () => { ro.lanes = true; go(); }]])])]));
     patch(chip, ...(d.set ? [h("span", { class: "set-chip", title: "The items shown are this set: the address is shareable" },
       d.set.says + setSpan(d.set.params), h("b", { class: "n" }, d.moves != null ? ` ${d.total} item${d.total === 1 ? "" : "s"}, ${d.moves} move${d.moves === 1 ? "" : "s"}` : ` ${d.total}`),
-      h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7"))] : []));
+      h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: unpick }, "\u00d7"))] : []));
     used = new Set();
-    const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; dropSet(); go(); };
-    const card = (k) => {
-      const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
-        k.title || k.name, h("span", { class: "mono" }, k.title ? k.name : k.id));
-      const pm = h("a", { class: "pm-link", href: `/diagram?view=process&kind=${encodeURIComponent(k.name)}&mode=states`,   // where its work queues
-                          title: "Its process map: how many are in each state now, and how they moved" }, "process map");
-      const fl = flows[k.name];
-      const gp = groupRows(gps[k.name], { more: !!gpMore[k.name], chosen: kind === k.name ? where : [],
-        onMore: () => { gpMore[k.name] = !gpMore[k.name]; refresh(); },
-        onPick: (r) => { const on = kind === k.name && JSON.stringify(where) === JSON.stringify(r.params.where);
-                         kind = k.name; state = null; dropSet(); if (!on) where = [...r.params.where]; go(); } });
-      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, pm, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
-        h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
-          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])), finishSaid(k), gp);
-      const chosen = kind === k.name ? state : null;
-      return h("div", { class: "kind-flow", key: k.name }, name, pm,
-        keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen, k.finished, k.paused, k.finished_from]),
-             () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st), kind: k }),
-             (el) => el.update?.(fl, chosen, k)), gp);
+    let hid = false;                                    // a kind's rows hidden by its bar's disclosure (tables)
+    // a state chip (the bar's or the chart's): its items, a second click clears it; the same on both pages
+    const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [one, null] : [k.name, st]; dropSet(); go(); };
+    const bar = (k, level) => kindBar(k, { level, open: !shut.has(k.name), state: kind === k.name ? state : null, onState: (st) => pick(k, st),
+                                           onOpen: () => { if (!shut.delete(k.name)) shut.add(k.name); refresh(); } });
+    const cfd = (k) => {
+      const fl = flows[k.name], chosen = kind === k.name ? state : null;
+      return fl ? keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen, k.finished, k.paused, k.finished_from]),
+                       () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st), kind: k }), (el) => el.update?.(fl, chosen, k)) : null;
     };
+    // where its work queues: its process map in States (the overview's card has the same link)
+    const pmOf = (k) => h("a", { class: "pm-link", href: `/diagram?view=process&kind=${encodeURIComponent(k.name)}&mode=states`,
+                                 title: "Its process map: how many are in each state now, and how they moved" }, "process map");
+    // its progress per group (a gap's milestone, itemsets.js groupRows): a click on one, its items under that group's where
+    const gpOf = (k) => groupRows(gps[k.name], { more: !!gpMore[k.name], chosen: kind === k.name ? where : [],
+      onMore: () => { gpMore[k.name] = !gpMore[k.name]; refresh(); },
+      onPick: (r) => { const on = kind === k.name && JSON.stringify(where) === JSON.stringify(r.params.where);
+                       kind = k.name; state = null; dropSet(); if (!on) where = [...r.params.where]; go(); } });
+    const card = (k) => h("div", { class: "kind-flow", key: k.name }, bar(k, 3), pmOf(k), cfd(k), gpOf(k));
     patch(notes, ...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
@@ -960,10 +973,13 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
         h("select", { "aria-label": "Rows a page", sig: String(size), onchange: (ev) => { size = +ev.target.value; pg = 1; go(); } },
           [25, 100, 300].map((x) => h("option", { value: String(x), selected: x === size }, `${x} a page`))));
     };
+    const cycle = (name) => { const fl = flows[name];
+      return fl ? keyed(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group), (el) => el.update?.(fl)), `cycle:${name}`) : null; };
     const tables = async (names) => {                    // one table per kind, each with its own columns
       const parts = [];
       for (const name of names) {
         if (kind && name !== kind) continue;
+        if (shut.has(name)) { if (rows.some((i) => (i.kind || "") === name)) hid = true; continue; }   // folded, not empty
         const its = rows.filter((i) => (i.kind || "") === name), note = finNote(name, its);
         if (!its.length && !note) continue;
         const limit = paged() ? size : kind ? 300 : 25, many = paged() ? d.total : d.matched?.[name] ?? its.length;
@@ -977,7 +993,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
         if (note) parts.push(note);
         if (name === CLAIM_KIND && trust) parts.push(keyed(trustView(trust), "trust"));   // how far each block's claims held
         const fl = flows[name];                            // under its table: how long its finished items took
-        if (fl) parts.push(keyed(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group), (el) => el.update?.(fl)), `cycle:${name}`));
+        if (fl && !only) parts.push(cycle(name));
       }
       return parts;
     };
@@ -985,7 +1001,9 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const openItem = (id) => navigate(`/item/${encodeURIComponent(id)}`);
     const relPart = async (g) => {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
-      if (!want.length) return kind || view !== "graph" ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
+      const none = [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
+      if (only && view === "graph" && !relKinds.has(one)) return none;     // the kind's page: a kind with no relations
+      if (!want.length) return kind || view !== "graph" ? [] : none;
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
       const o = { finished: fin(), group: ro.group, q: needle, status: ro.status,
                   where: kind && d.set ? where : [] };     // a set's where on a relation (a milestone's gaps) narrows them
@@ -997,7 +1015,25 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     };
     const groups = [];
     let anyRows = false;
-    for (const g of systems) {
+    if (only) {                                           // the kind's page: its sections in order (SPEC §5a), then its list
+      const k = kindOf[one], g = systems.find((x) => x.kinds.includes(one)) || { name: k?.system || "" };
+      const t = view === "list" || shut.has(one) ? await tables([one]) : await relPart(g);
+      anyRows = t.length > 0;
+      if (!p.isConnected) return;
+      // its chart as the overview's: its state groups by default, every state by the one switch (?states=all)
+      const of = !fp?.err && fp?.group, fl = flows[one];
+      const grouped = k && fl && of && !all ? keep(`gcfd:${one}`, JSON.stringify([fl.times, fl.counts, fl.now]),
+        () => flowChart(groupedFlow(fl, of, fp.groups), group, { kind: k, onState: () => { all = true; go(); } })) : null;
+      const pickAll = (to) => () => { if (all !== to) { all = to; go(); } };
+      patch(box, k ? keyed(bar(k, 1), "bar") : h("h1", { key: "bar" }, one),
+        h("section", { class: "kind-sect", key: "now" }, h("h2", {}, "Now"), of && fl ? seg("States", [
+            [!all, "State groups", "Its states as waiting, working, stopped and done", pickAll(false)],
+            [all, "Every state", "Each of its own states", pickAll(true)]]) : null,
+          k ? h("div", { class: "kind-flow" }, grouped || cfd(k), gpOf(k)) : null, cycle(one)),
+        h("section", { class: "kind-sect", key: "model" }, h("h2", {}, "In the model"), ...kindModel(fp, fp?.now || k?.counts || {})),
+        h("details", { class: "kind-sect", key: "def" }, h("summary", {}, "Definition"), kindDefinition(fp)));
+      groups.push(h("section", { class: "sys-group kind-items", "data-system": g.name, key: "items" }, ...t));
+    } else for (const g of systems) {
       if (d.set && !g.kinds.includes(kind)) continue;     // a set: the page is about its kind alone, until its chip goes
       const names = [...g.kinds, ...(g.name === "other" && d.unkinded ? [""] : [])];
       if (!names.some(hit)) continue;                    // a search: a system none of whose kinds matched, not drawn
@@ -1020,9 +1056,11 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     if (!p.isConnected) return;
     for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go
     const listed = d.listed ?? d.items.length;          // what the server's list held, before the search and the cut per kind
-    const none = !anyRows && listed && (needle || state || kind) ? h("p", { class: "muted" }, folded.size ? "Nothing matches in the systems shown." : "Nothing matches.") : null;
-    patch(box, ...groups, ...(none ? [none] : []));
-    sweepPlots();                                         // the charts just replaced (or folded away) let go now, not at the next one drawn
+    // a kind whose rows its own disclosure hides is folded, not a miss (lesson-3): no "Nothing matches." for it
+    const none = !anyRows && !hid && listed && (needle || state || kind) ? h("p", { class: "muted" }, folded.size ? "Nothing matches in the systems shown." : "Nothing matches.") : null;
+    patch(lbox, ...groups, ...(none ? [none] : []));
+    setText(found, foundSaid);                            // with the rows it counts, never before them
+    sweepPlots();                                        // the charts just replaced (or folded away) let go now, not at the next one drawn
   }
   await refresh();
   S.timer = poll(() => refresh(false), 4000, p);
@@ -1062,7 +1100,7 @@ function leaseView(l, state) {
       left < 0 ? h("b", { class: "bad" }, `overdue ${dur(-left)}`) : `expires in ${dur(left)}`, `; renewed ${ago(l.renewed)} (TTL ${dur(l.ttl)}).`]
     : state === "dead" ? [h("b", { class: "bad" }, "A dead letter"), `: given up on after ${l.attempts} attempts.`]
     : [l.not_before && l.not_before > nowS() ? `Not taken again for ${dur(l.not_before - nowS())}.` : ""];
-  const rows = (l.history || []).slice().reverse().map((x) => h("tr", { key: `${x.fence}|${x.run || ""}` }, h("td", { class: "num" }, String(x.fence)), h("td", {}, x.block || ""),
+  const rows = (l.history || []).slice().reverse().map((x) => h("tr", { key: `${x.fence}|${x.run || ""}` }, h("td", { class: "num" }, String(x.fence)), h("td", {}, x.block ? agentA(x.block) : ""),
     h("td", { class: "mono small" }, (x.run || "").slice(0, 8)), h("td", { class: "nowrap" }, when(x.taken)),
     h("td", { class: x.how === "ack" ? "" : "bad" }, x.how || "holding"), h("td", { class: "num nowrap" }, dur((x.ended || nowS()) - x.taken)),
     h("td", { class: "num" }, x.exit == null ? "" : String(x.exit)), h("td", {}, (x.why || "") + (x.silent ? ` (silent ${dur(x.silent)})` : "") + (x.counted === false ? " (not counted)" : ""))));
@@ -1103,6 +1141,44 @@ function whereView(d, fp, links) {
   };
   return h("section", { class: "went" }, h("h2", {}, "Where it went"),
     h("div", { class: "wv-path" }, steps.map((s, i) => [i ? move(steps[i - 1], s) : s.flow ? move(null, s) : null, box(s, i)])), links);
+}
+
+/* its path drawn on its page, on demand (SPEC §5a, *Drawn alone*): a closed section; opened, the Dynamics or the Blocks
+   diagram of what it passed through (item=ID), fitted in its box by the renderers' own drawStatic, nothing to drag or
+   pin. A click on a part opens the diagram with that part chosen. Laid out again only when its path or the view
+   changed, and nothing (no ELK, no libavoid) is loaded while it has never been opened */
+function pathDrawing(id) {
+  let view = "dynamics", path = "", drawn = "";
+  const stage = h("div", { class: "path-stage" }), seg = h("span", { class: "seg", role: "group", "aria-label": "View" });
+  const el = h("details", { class: "draw-path", ontoggle: () => draw() }, h("summary", {}, "Draw its path"), seg, stage);
+  const pick = (to) => {                                 // the switch, drawn again only when the view changes
+    view = to;
+    seg.replaceChildren(...[["dynamics", "Dynamics"], ["blocks", "Blocks"]].map(([v, w]) => h("button", { class: v === view ? "on" : "",
+      "aria-pressed": String(v === view), onclick: () => { pick(v); draw(); } }, w)));
+  };
+  pick(view);
+  async function draw() {
+    const want = JSON.stringify([view, path]);
+    if (!el.open || want === drawn) return;
+    drawn = want;
+    const g = await api("graph", { view, item: id }).catch(() => null);
+    if (drawn !== want || !el.isConnected) return;
+    if (!g) drawn = "";                                  // (asked again on the next refresh)
+    if (!g?.nodes?.length) return stage.replaceChildren(h("p", { class: "muted" }, !g ? "The server is not answering." : `${g.subset?.says || "Nothing to draw"}.`));
+    const svg = s("svg", { class: "g-canvas path-canvas", role: "img", "aria-label": `What ${id} passed through (${view})` });
+    svg.addEventListener("pointerdown", (ev) => ev.stopPropagation(), true);    // no drags, no pins, no panel
+    svg.addEventListener("dblclick", (ev) => ev.stopPropagation(), true);
+    svg.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const shape = ev.target.closest?.(".node[data-id]")?.dataset.id;
+      if (!shape) return;
+      const parts = g.corr?.shapes?.[shape]?.is || [];
+      navigate(`/diagram?view=${view}&item=${encodeURIComponent(id)}` + (parts.length ? `&select=${encodeURIComponent(parts.join(","))}` : ""));
+    }, true);
+    stage.replaceChildren(svg);
+    if (await drawStatic(svg, g, view, { aspect: Math.max(1, (stage.clientWidth || 900) / 420) })) svg.dataset.drawn = view;
+  }
+  return { el, update(d) { path = JSON.stringify((d.path || []).map((x) => [x.state, x.stock, x.flow, x.block, x.attempts])); draw(); } };
 }
 
 /* an item's changes, in one section at its page's end (SPEC §5a, History), asked for only while it is open: each
@@ -1155,7 +1231,7 @@ function relationsView(r, k) {
   const item = (i) => { const x = r.items?.[i]; return h("span", { class: "rel-item", key: i }, h("a", { href: `/item/${encodeURIComponent(i)}` }, i),
     x ? h("span", { class: "muted" }, ` ${x.done ? "✓ " : ""}${x.state || ""}${x.title ? " · " + x.title : ""}`) : h("span", { class: "muted" }, " not recorded")); };
   const rows = [...Object.entries(r.out).map(([n, ids]) => [n, ids, r.relations?.[n]]), ...Object.entries(r.in).map(([n, ids]) => [n, ids, null])];
-  const graph = k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}&view=graph` }, "the graph") : null;
+  const graph = k ? h("a", { href: kindHref(k.name, "view=graph") }, "the graph") : null;
   return [h("h2", {}, "Relations"),
     r.waiting?.length ? h("p", { class: "note" }, h("b", {}, "Waiting on "), `${r.waiting.join(", ")}: not finished yet.`)
       : r.relations && Object.values(r.relations).some((x) => x.precedence) ? h("p", { class: "note" }, "Nothing it waits on is unfinished.") : null,
@@ -1196,6 +1272,7 @@ async function pageItem(main, id, q) {
   const body = h("div");
   p.append(body);
   const note = messageBox({ about: id, title: "Send a note about this", done: () => tick() });   // lives across refreshes: what is typed stays
+  const drawing = pathDrawing(id);                   // its path drawn, on demand: kept across refreshes
   let full = null;                                   // its full history, once asked for: kept across refreshes
   let changesOpen = false, changesOf = "";           // the Changes section open, and the field it is narrowed to
   OPENED.clear();
@@ -1239,7 +1316,7 @@ async function pageItem(main, id, q) {
     owed = false;
     const pair = (label, value) => h("span", {}, h("span", {}, label), value);
     const head = h("div", { class: "meta" },
-      pair("Kind", k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
+      pair("Kind", k ? h("a", { href: kindHref(k.name) }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
       d.state ? pair("State", h("span", {}, h("b", {}, d.state), ` for ${dur(nowS() - d.entered)}`)) : null,
       d.eta?.unscheduled ? pair("Expected done", h("span", { "data-eta": "" }, `not scheduled: ${d.eta.said || "it cannot move"}`))
       : d.eta ? pair("Expected done", h("span", { "data-eta": "" }, h("b", {}, etaWhen(d.eta.p50)), h("span", { class: "muted" }, ` (${etaP90(d.eta)}`
@@ -1258,14 +1335,15 @@ async function pageItem(main, id, q) {
       rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
     // its path drawn alone in Dynamics and Blocks, when anything there counted it; else it says nothing counts it
     const toDiagram = (view, by, v) => `/diagram?view=${view}&${by}=${encodeURIComponent(v)}`;
-    const links = !d.path ? null : d.path.some((st) => st.stock || st.flow || st.block)
+    const counted = !!d.path?.some((st) => st.stock || st.flow || st.block), draw = counted ? live(drawing.el) : null;
+    const links = !d.path ? null : counted
       ? h("p", { class: "went" }, h("a", { href: toDiagram("dynamics", "item", id) }, "Draw its path in Dynamics"), ", ",
         h("a", { href: toDiagram("blocks", "item", id) }, "in Blocks"), k ? ["; ",
         h("a", { href: toDiagram("dynamics", "kind", k.name) }, `what every ${k.name} touches`)] : null, ".")
       : h("p", { class: "went muted uncounted" }, "Its moves are not counted anywhere in the model.");
     // a path through the model; else the strip, and a kind nothing counts says so
-    const where = fp && !fp.why ? whereView(d, fp, links) : null;
-    const went = where ? [where] : [links ? h("h2", {}, "Where it went") : null, strip, links];
+    const where = fp && !fp.why ? whereView(d, fp, [links, draw]) : null;
+    const went = where ? [where] : [links ? h("h2", {}, "Where it went") : null, strip, links, draw];
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, when(m.time)), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
@@ -1314,10 +1392,11 @@ async function pageItem(main, id, q) {
     if (!impact && (/^ergostat\.failure\//.test(id) || k?.name === "ergostat.model-change")) impact = impactBox(id);
     const imp = impact ? [h("h2", {}, "Impact"), live(impact)] : [];
     const why = d.eta?.why ? h("p", { class: "note eta-why" }, h("b", {}, d.eta.waits_in ? `Waiting in ${d.eta.waits_in}` + (d.eta.position ? `, ${ordinal(d.eta.position)} in its queue` : "") + ": " : ""),
-      d.eta.why, h("span", { class: "muted" }, ` (estimated from the record: ${d.eta.runs} runs of a simulation of every open item, which leaves out a goal that switches a block off and a capacity no block declares; `, h("a", { href: `/items?kind=${encodeURIComponent(k?.name || "")}&view=timeline` }, "the timeline"), ")")) : null;
+      d.eta.why, h("span", { class: "muted" }, ` (estimated from the record: ${d.eta.runs} runs of a simulation of every open item, which leaves out a goal that switches a block off and a capacity no block declares; `, h("a", { href: kindHref(k?.name || "", "view=timeline") }, "the timeline"), ")")) : null;
     patch(body, whyBox(w), head, ...went, ...lease, why, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true), changes);
+    if (counted) drawing.update(d);
   }
   await tick();
   // not while the owner is answering (a reason being typed in a decision's or an action's row)

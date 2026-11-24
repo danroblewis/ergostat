@@ -83,6 +83,7 @@ flows:
       over: 10m
   reviewed-after-nudge:
     from: my-prs-nudged
+    description: a nudged PR reviewed, after I sent its nudge or asked in person (mine)
     sensor:
       items: pr
       entering: reviewed

@@ -89,6 +89,7 @@ def take(doc, data) -> None:
     except ValueError as x:
         entries, broken = None, Refusal("library-lock-unreadable", f"{LOCK} cannot be read: {x}")
     for name, e in cfg.items():
+        doc.libraries.append(name)
         try:
             if broken and name not in (OVER.get() or {}):
                 raise broken

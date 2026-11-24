@@ -677,7 +677,7 @@ function bdAlarm(el, n) {
 
 function bdNode(n, c) {
   const w = c.width, hgt = c.height;
-  const g = s("g", { class: `node bd-node bd-${n.kind} bd-${n.role || n.kind}${n.remote ? ` bd-remote remote-${n.remote.state}` : ""}`, transform: `translate(${c.x},${c.y})`,
+  const g = s("g", { class: `node bd-node bd-${n.kind} bd-${n.role || n.kind}${n.remote ? ` bd-remote remote-${n.remote.state}` : ""}${n.role === "subsystem" && systemOff(n) ? " sys-off" : ""}`, transform: `translate(${c.x},${c.y})`,
                      "data-id": n.id, "data-fn": bdFnText(n) });
   const fn = n.fn || {};
   if (n.role === "sensor" || n.role === "collector") {
@@ -822,9 +822,10 @@ function bdDraw(svg, g, lay) {
   for (const c of [...lay.containers].sort((a, b) => a.depth - b.depth)) {
     const f = frames[c.id];
     if (!f) continue;
-    const fg = s("g", { class: `sys-hull hull bd-frame bd-frame-${f.frame}`, "data-hull": c.id });
-    fg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height }));
-    const t = bdSym(fg, c.x + 10, c.y + 19, f.fn?.named ? {} : f.fn || {}, { anchor: "start", size: 13 });   // a named one: its name once
+    const mod = f.frame === "system" && g.tree?.[f.label]?.modelling;
+    const fg = s("g", { class: `sys-hull hull bd-frame bd-frame-${f.frame}${mod ? " frame-modelling" : ""}`, "data-hull": c.id });
+    fg.append(...frameMarks(c.x, c.y, c.width, c.height, c.depth > 0));
+    const t = bdSym(fg, c.x + 10, c.y + 5, f.fn?.named ? {} : f.fn || {}, { anchor: "start", size: 13 });   // on the top edge; a named one: its name once
     if (f.frame === "cascade" || f.fn?.named || f.fn?.sub !== f.label)      // C_name, P_name: the name is the subscript, not printed twice
       t.append(s("tspan", { class: "bd-frame-name", dx: f.fn?.named ? 0 : 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
     if (f.frame === "system" && f.fn?.expr) t.append(s("tspan", { class: "bd-frame-dims", dx: 8 }, f.fn.expr));   // p × m, as on the closed block
@@ -1117,15 +1118,37 @@ function mathml(tree, display = true) {
   return m;
 }
 
+const BD_KINDS = { controller: "controller", actuator: "actuator", process: "process", sensor: "sensor (feedback path)",
+                   collector: "collector (feedback path)",
+                   subsystem: "subsystem", comparator: "summing junction", "process-sum": "summing junction", reference: "reference input",
+                   disturbance: "disturbance input", output: "output", "in-port": "In port", "out-port": "Out port",
+                   sampler: "sampler (A/D)", hold: "zero-order hold (D/A)", junction: "summing junction" };
+const bdKind = (n) => (n.kind === "frame" ? (n.frame === "cascade" ? "inner loop (cascade)" : "subsystem, open") :
+  n.kind === "mux" || n.kind === "demux" ? n.kind : BD_KINDS[n.role] || n.kind);
+/* a block's, a frame's or a signal's spoken name (its aria-label), in control's words only: what it is, its symbol
+   and name, what it computes, its control loops each with its goal's word (the server's, goalWord) */
+function bdSpoken(x, g) {
+  const fn = x.fn || {}, minus = (v) => String(fmt(v)).replace(/^[-−]/, "minus ");
+  const loop = (l) => { const lp = S.status?.loops?.[l]; return `control loop ${l}${lp ? `, ${goalWord(lp)}` : ""}`; };
+  if (x.source != null) {                              // a signal: its symbol, what it is, and a loop's error its value
+    const sg = x.signal || {}, src = (g?.nodes || []).find((n) => n.id === x.source);
+    const lp = src?.role === "comparator" ? S.status?.loops?.[(src.loops || [])[0]] : null;
+    return [`signal ${sg.sym || "unnamed"}${sg.sub ? " " + sg.sub : ""}`, sg.n > 1 ? `vector of ${sg.n}` : sg.what,
+            lp?.error != null ? minus(lp.error) : null, lp ? goalWord(lp) : null].filter(Boolean).join(", ");
+  }
+  if (x.kind === "frame") return x.frame === "cascade" ? `inner loop (cascade) of ${x.label}` : `subsystem ${x.label}, open`;
+  const name = String(x.label || "").replace(/^Σ /, ""), sym = fn.sym && name !== fn.sym && !name.startsWith(fn.sym + " ");
+  const said = [x.kind === "sum" ? `summing junction of ${name}` : x.kind === "mux" || x.kind === "demux" ? `${x.kind} of ${x.n} signals`
+    : x.kind === "sampler" ? `sampler (A/D), T = ${fn.T || "not known"}` : `${bdKind(x)}${sym ? " " + fn.sym : ""} ${name}`,
+    x.role === "comparator" ? "reference minus measurement"
+      : x.kind === "sum" ? (x.ins || []).filter((p) => p.sign).map((p) => (p.sign === "+" ? "plus" : "minus")).join(" ") : fn.kind || fn.value,
+    x.role === "subsystem" ? x.description : null, ...(x.loops || []).map(loop), x.alarm ? `alarm ${x.alarm}` : null];
+  return said.filter((w, i) => w && (i === 0 || w !== name && w !== x.role)).join(", ");   // (never its name or kind twice)
+}
+
 function openBlock(n) {
   const fn = n.fn || {};
-  const kinds = { controller: "controller", actuator: "actuator", process: "process", sensor: "sensor (feedback path)",
-                  collector: "collector (feedback path)",
-                  subsystem: "subsystem", comparator: "summing junction", "process-sum": "summing junction", reference: "reference input",
-                  disturbance: "disturbance input", output: "output", "in-port": "In port", "out-port": "Out port",
-                  sampler: "sampler (A/D)", hold: "zero-order hold (D/A)", junction: "summing junction" };
-  const kind = n.kind === "frame" ? (n.frame === "cascade" ? "inner loop (cascade)" : "subsystem, open") :
-    n.kind === "mux" ? "mux" : n.kind === "demux" ? "demux" : kinds[n.role] || n.kind;
+  const kind = bdKind(n);
   const title = fn.sym ? mathml(["mrow", fn.sub ? ["msub", ["mi", fn.sym], ["mtext", fn.sub]] : ["mi", fn.sym],
                                   ...(fn.arg ? [["mo", "("], ["mi", fn.arg], ["mo", ")"]] : [])], false) : (fn.name || n.label);
   const defs = (n.math || []).map((m) => h("div", { class: "bd-math" }, mathml(m)));
@@ -1150,7 +1173,9 @@ function openBlock(n) {
   }
   if (n.says) kids.push(h("p", { class: "what" }, rich(op(n.says))));
   if (defs.length) kids.push(h("h3", {}, fn.linear === false || fn.name ? "What it computes" : "Its function"), ...defs);
-  if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
+  const me = n.id?.startsWith("blk:") ? n.id.slice(4) : null;          // a machine block: its name, a link to its agent's page
+  if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, k === "block" && me && String(v).startsWith(me)
+    ? h("span", {}, agentA(me), v.slice(me.length)) : typeof v === "string" ? rich(op(v)) : v])));
   if (["output", "sensor", "process"].includes(n.role)) kids.push(partItemsSection(n.part));   // what goes through it (itemsets.js)
   if (n.role === "process" && !(n.y_of || []).length && !n.mimo)
     kids.push(h("p", { class: "muted small" }, "Not identified: no goal holds what comes out of it, so no loop's record or step test can tell its dynamics."));
@@ -1193,9 +1218,10 @@ async function drawBlocksView(svg, g) {
     for (const n of g.nodes) n.systems = [...(within[n.id] || [])].reverse();
     const moved = bdStates(g) !== S.layout.states;     // a loop's state changed: its error's label placed again
     if ((S.layout.undrawn || moved) && !S.layout.routing) bdDraw(svg, g, S.layout);    // (or routed while it was held: drawn now)
-    for (const n of g.nodes) {                         // an alarm raised or cleared: its label, nothing laid out again
-      const el = svg.querySelector(`g.bd-node[data-id="${CSS.escape(n.id)}"]`);
+    for (const n of g.nodes) {                         // an alarm raised or cleared, a closed system's goal gone off or
+      const el = svg.querySelector(`g.bd-node[data-id="${CSS.escape(n.id)}"]`);   // back: its label, its outline; nothing laid out again
       if (el) bdAlarm(el, n);
+      if (el && n.role === "subsystem") el.classList.toggle("sys-off", systemOff(n));
     }
     return S.layout;
   }
@@ -1250,7 +1276,8 @@ function blocksLegend() {
     row(es.some((e) => e.signal?.what === "record") || has((n) => n.kind === "port" || n.role === "disturbance"), `<path d="M2,6 H28" ${ink}/><path d="M2,14 H28" stroke="var(--ink-2-line)" stroke-width="1.2"/>`,
         "a lighter line: information, not material: what a collector records (and its bus), a port's line, a disturbance's input; r, e, u, y and y_m in full ink"),
     row(es.some((e) => (e.signal?.n || 0) > 1) || has((n) => n.kind === "mux" || n.kind === "demux"), `<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
-    row(fr.some((f) => f.frame === "cascade"), `<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
+    row(fr.some((f) => f.frame === "system"), FRAME_GLYPH, "a subsystem open: framed by its corners, its function and name on the top edge (− closes it; modelling's frame dashed)"),
+    row(fr.some((f) => f.frame === "cascade"), `<rect x="2" y="2" width="26" height="16" stroke="currentColor" fill="none" stroke-width="1" stroke-dasharray="1.5 2.5"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop (dotted)"),
     es.some((e) => e.signal?.sym) && [h("span", { class: "sym" }, "r e u y d"), h("span", {},"reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample")]);
 }
 

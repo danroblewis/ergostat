@@ -41,6 +41,12 @@ stocks:
       items: day
       state: ended
       every: 5s
+  drafting-capacity:
+    unit: runs
+    description: how many alert companions may draft at once (their pool), stepped by the capacity law; 2 to start
+    sensor:
+      run: python3 bin/capacity.py read 2          # 2: the start value, read until the law first steps it
+      every: 5s
 
 flows:
   days-starting:
@@ -68,6 +74,10 @@ flows:
       items: day
       entering: recorded
       over: 10m
+  capacity-steps:
+    to: drafting-capacity
+    two-way: true
+    description: the drafting capacity stepped up or down by the capacity law
 
 goals:
   morning-brief-ready:
@@ -78,6 +88,11 @@ goals:
     stock: days-to-record
     hold: "<= 0"
     description: every working day is in the ledger
+  alert-drafting-paced:
+    stock: alerts-to-draft
+    hold: "== 1"
+    tolerance: 2                                    # off at four waiting; holding again at two or fewer
+    description: about one alert waits for its draft - more, and the preparers fall behind; none, and capacity idles
 
 blocks:
   brief-builder:
@@ -94,3 +109,14 @@ blocks:
     max: 1
     every: 5s
     out: flow.ledgers-written
+  capacity-law:
+    type: program
+    description: integral action on the alert backlog - u_k = u_(k-1) + gain x e_k, a run more for each alert over one waiting, a run less while none waits; no step inside the deadband or on a missing reading, kept within limits
+    run: python3 bin/capacity.py step 2             # 2: the start value, as the sensor's
+    in: [goal.alert-drafting-paced.error]
+    every: 30s
+    gain: -1                                        # e = 1 - backlog: a backlog over one raises the capacity
+    deadband: 0.5
+    resolution: 1
+    limits: [1, 3]                                  # at least 1 (a pool of 0 stops the preparers), at most the pool's most
+    out: flow.capacity-steps

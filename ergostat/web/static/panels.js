@@ -67,7 +67,7 @@
     choice("color", "Colour", ["none", "thresholds"]),
   ] });
   registerPlotForm("table", { label: "Table", group: "single value", needs: { x: ["time"], text: "a measure over time" },
-    shapes: { series: { roles: "none" }, table: { dims: 1 } }, reshape: "ask for values over time, or a table", options: [
+    shapes: { series: { roles: "none" }, table: { dims: 1 }, graph: {} }, reshape: "ask for values over time, or a table", options: [
     { key: "columns", label: "Columns", type: "choice", multiple: true, choices: ["last", "avg", "min", "max"], default: ["last", "avg", "max"] },
     choice("sort", "Sort", ["none", "name", "last", "avg", "min", "max"]),
     choice("bars_in_cells", "Bars in cells", ["off", "on"]),
@@ -689,7 +689,7 @@
       const first = good[0] || {};
       return { ...first, shape: shapeOf(first), x: first.x || { type: "time" }, series, capped: good.reduce((n, r) => n + (r.capped || 0), 0) };
     }
-    const hasPoints = (r) => (r.frequency ? (r.frequency.hz || []).length > 0
+    const hasPoints = (r) => (r.shape === "graph" ? r.nodes.id.length > 0 : r.frequency ? (r.frequency.hz || []).length > 0
       : r.series.some((x) => (x.close || x.values || []).some((v) => v != null)) || !!(r.poles?.length || r.zeros?.length));
     function drawForm(def) {
       const results = st.shown, { meta } = st.last;
@@ -698,13 +698,18 @@
       const good = drawn.filter((r) => !r.error), failed = drawn.filter((r) => r.error);
       if (failed.length && !good.length) {
         st.hasData = st.hasData && !!st.view;
-        setState("error", failed.map((r) => r.error).join("; "));
+        setState("error", failed.map((r) => r.error).join("; "), fixOf(failed), failedHead(failed));
         return;
       }
       if (allHidden(st.cfg)) { dropView(); setState("empty", ALL_HIDDEN); return; }
-      const result = mergedResult(good);
+      const graphed = good.some((r) => r.shape === "graph");
+      const result = graphed ? good[0] : mergedResult(good);
       const accepted = def.needs?.source === "frequency" ? ["frequency"] : def.needs?.x;
+      /* a histogram's buckets over time, or a graph, fill the whole plot: a second answer beside them would be dropped or misread */
+      const alone = good.length > 1 && (graphed || good.some((r) => r.over_time))
+        ? `${def.label || st.form} draws ${graphed ? "one graph" : "one histogram's buckets over time"}, and this panel has ${good.length} answers: show one query, or give each its own panel.` : "";
       const why = !good.length ? "This panel has no query yet."
+        : alone ? alone
         : accepted && !good.some((r) => r.shape) && !accepted.includes(result.shape) ? `${def.label || st.form} needs ${def.needs?.text || `an X axis of ${accepted.join(" or ")}`}; this query has ${result.shape}.`
         : def.check?.(result, st.cfg) || (hasPoints(result) ? "" : `Nothing recorded for ${shownQueries(st.cfg).map(queryWord).join(", ") || "this query"}.`);
       if (why) { dropView(); setState("empty", why); return; }
@@ -874,7 +879,14 @@
     }
     const dataBody = () => (st.form === "stat" ? "stat" : st.form === "table" ? "table" : "chart");
     const WORDS = { empty: "No data", late: "Late", error: "Could not load" };
-    function setState(asked, reason = "") {
+    /* what failed queries' verdicts say to do (query/verdicts.py), and whether each was refused rather than unread */
+    const cap = (w) => `${w.charAt(0).toUpperCase()}${w.slice(1)}`;
+    const fixOf = (failed) => [...new Set(failed.flatMap((r) => (r.meta?.verdict?.reasons || []).map((x) => x.fix)).filter(Boolean))]
+      .map((w) => `${cap(w)}.`).join(" ");
+    const failedHead = (failed) => (failed.every((r) => r.error_kind === "refused") ? "Refused" : "");
+    const MADE = { declared: "From the model, not measured.", fitted: "Fitted to the record, not measured.",
+                   simulated: "Simulated, not measured.", hypothesis: "A hypothesis, not measured." };
+    function setState(asked, reason = "", fix = "", head = "") {
       /* late with nothing yet to show is a first load still under way: it is never said as a failure */
       const state = asked === "late" && !st.hasData ? "loading" : asked;
       if (asked === "late" && state === "loading") reason = `Still loading: ${reason || "waiting for the answer"}`;
@@ -895,14 +907,15 @@
       if ((state === "late" || state === "error") && st.hasData) {
         setBody(dataBody());
         flag.classList.add(`is-${state}`);
-        flag.textContent = state === "late" ? "Late" : "Error";
-        if (reason) flag.title = reason;
+        flag.textContent = state === "late" ? "Late" : head || "Error";
+        if (reason) flag.title = fix ? `${reason} Fix: ${fix}` : reason;
         return;
       }
       if (state === "empty") { st.hasData = false; readout.textContent = ""; }
       message.className = `panel-message is-${state}`;
-      message.replaceChildren(h("p", { class: "panel-message-head" }, WORDS[state] || state),
-                              reason ? h("p", { class: "panel-message-text" }, reason) : null);
+      message.replaceChildren(h("p", { class: "panel-message-head" }, head || WORDS[state] || state),
+                              reason ? h("p", { class: "panel-message-text" }, reason) : null,
+                              fix ? h("p", { class: "panel-message-fix" }, `Fix: ${fix}`) : null);
       setBody("message");
     }
 
@@ -923,7 +936,11 @@
         const q = shown.find((x) => x.id === r.id);
         if (!q || r.error) continue;
         const words = r.note || (r.truncated ? "Only part of the record was read, so this chart is incomplete." : "");
-        if (words) said(`${shown.length > 1 ? `${queryWord(q)}: ` : ""}${words.charAt(0).toUpperCase()}${words.slice(1)}${/[.!?]$/.test(words) ? "" : "."}`);
+        const who = shown.length > 1 ? `${queryWord(q)}: ` : "";
+        for (const w of [words, ...(r.said || [])]) if (w) said(`${who}${cap(w)}${/[.!?]$/.test(w) ? "" : "."}`);
+        /* a warning of the verdict is drawn with the chart, and what made the numbers when it was not a measurement */
+        for (const x of r.meta?.verdict?.reasons || []) if (x.code !== "partial") said(`${who}${cap(x.says)}. ${cap(x.fix)}.`);
+        if (MADE[r.meta?.provenance]) said(`${who}${MADE[r.meta.provenance]}`);
       }
     }
     function draw() {
@@ -952,7 +969,7 @@
       const span = (meta?.until ?? 0) - (meta?.since ?? 0);
       if (answer.failed.length && !answer.items.length) {
         st.hasData = st.hasData && st.items.length > 0;
-        setState("error", answer.failed.map((r) => r.error).join("; "));
+        setState("error", answer.failed.map((r) => r.error).join("; "), fixOf(answer.failed), failedHead(answer.failed));
         return;
       }
       for (const it of answer.items) it.stats = statsOf(it.values);
@@ -1231,12 +1248,12 @@
     });
     const out = new Map(configs.map((c) => [c.id, { results: [], meta: null }]));
     if (!asked.size) return out;
-    const batches = batched([...asked.values()]);
-    const q = encodeQuery({ since, until, points, queries: batches[0] });
+    const { batches, left } = batched([...asked.values()]);
     let answer;
-    if (typeof SNAP !== "undefined" && SNAP) answer = await api("query", { q });
+    if (!batches.length) answer = { results: [] };
+    else if (typeof SNAP !== "undefined" && SNAP) answer = await api("query", { q: encodeQuery({ since, until, points, queries: batches[0] }) });
     else {
-      const r = await fetch(`/api/query?q=${q}`, { signal });
+      const r = await fetch(`/api/query?q=${encodeQuery({ since, until, points, queries: batches[0] })}`, { signal });
       if (!r.ok) throw new Error(`the query answered ${r.status}`);
       answer = await r.json();
       await askAgainWhenBusy(answer, batches[0], points, signal);
@@ -1250,8 +1267,9 @@
         answer.results.push(...next.results.filter((x) => !have.has(x.id)));
       }
     }
-    const meta = { now: answer.now, since: answer.since, until: answer.until, step: answer.step };
+    const meta = batches.length ? { now: answer.now, since: answer.since, until: answer.until, step: answer.step } : null;
     const byId = new Map((answer.results || []).map((r) => [r.id, r]));
+    for (const [x, n] of left) byId.set(x.id, { id: x.id, error: `not asked: with what it reads from and the values its variables take, this query is ${n} bytes, more than the ${MOST_SENT} one ask may carry. Choose fewer values` });
     for (const c of configs) out.get(c.id).meta = meta;
     for (const w of wanted) {
       const r = byId.get(w.as);
@@ -1259,19 +1277,24 @@
     }
     return out;
   }
-  /* at most what one request may hold, a query always beside the one it reads its X from */
-  const MOST_IN_REQUEST = 64;
+  /* at most what one request may hold, by count and by length (the server's q is at most 48,000 base64 characters,
+     so 36,000 bytes of JSON, less room for the window), a query always beside the one it reads its X from. A query
+     too long to go even alone (a variable's many long values) is left out, with its length, and the others still go */
+  const MOST_IN_REQUEST = 64, MOST_SENT = 35000;
   function batched(queries) {
-    const byId = new Map(queries.map((x) => [x.id, x])), out = [[]];
+    const byId = new Map(queries.map((x) => [x.id, x])), out = [[]], left = [], sizes = new Map();
+    const size = (x) => (sizes.has(x) ? sizes.get(x) : sizes.set(x, new TextEncoder().encode(JSON.stringify(x)).length + 1).get(x));
+    let bytes = 0;
     for (const x of queries) {
       const feeds = typeof x.x?.query === "string" ? byId.get(x.x.query) : null;
+      const adds = (now) => [...new Set([feeds, x])].filter((y) => y && !now.includes(y));
+      const cost = (now) => adds(now).reduce((a, y) => a + size(y), 0);
+      if (cost([]) > MOST_SENT) { left.push([x, cost([])]); continue; }
       let now = out[out.length - 1];
-      const need = 1 + (feeds && !now.includes(feeds) ? 1 : 0);
-      if (now.length + need > MOST_IN_REQUEST) out.push(now = []);
-      if (feeds && !now.includes(feeds)) now.push(feeds);
-      if (!now.includes(x)) now.push(x);
+      if (now.length + adds(now).length > MOST_IN_REQUEST || bytes + cost(now) > MOST_SENT) { out.push(now = []); bytes = 0; }
+      for (const y of adds(now)) { now.push(y); bytes += size(y); }
     }
-    return out;
+    return { batches: out.filter((b) => b.length), left };
   }
   /* the server reads the event log for only a few charts at once and refuses the rest at once. Those are asked for again,
      alone, on the same window, a few times with a growing pause: what was read is kept there, so each round gets further */

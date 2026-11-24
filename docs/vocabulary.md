@@ -170,6 +170,7 @@ for it.
 | What can be changed | — | Controllability | A goal no controller serves (missing feedback) |
 | Amplification along a chain | Bullwhip effect | Noise or disturbance amplification | Loops in series; work piling up |
 | Who does the work | — | — (machines are outside the theory) | Agent (person, ai, program, rule) |
+| A decision | Decision rule: a policy in a flow's equation | Control law | Two words kept apart: the *decision rule* is ergostat's controller, filled at any rung (often a built-in on the rule rung); ergostat's *decision* is a rung, a short call with fixed answers (an item-taking block's `takes.to`) |
 
 In ergostat's own words, "loop" alone is never a goal: what is held or off is a **goal**, a
 **control loop** (sensor, controller, valve) serves it, and a **feedback loop** (R or B) is a cycle of

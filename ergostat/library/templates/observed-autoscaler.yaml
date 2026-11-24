@@ -1,0 +1,70 @@
+template: observed-autoscaler
+description: An autoscaler ergostat observes and never runs, holding utilisation at its target by setting the replicas; its law declared, and identified from the record.
+reading: |
+  Control: an observed controller (an external block: ergostat reads it, never runs or sets it), a stepper of the
+  replicas holding utilisation at `target`. r is the target (the goal at-target), y the utilisation it reads, u the
+  replicas it sets. Its law is declared, the HPA's ⌈replicas × utilisation / target⌉ within `min`..`max` (an
+  assumption), and identified from the record of utilisation and replicas (the evidence).
+  System dynamics: the replicas a stock, its two-way flow the scaling (pods added or removed); the load an input
+  nothing here controls (a disturbance); utilisation the auxiliary load / replicas, so more replicas, less each: the
+  balancing loop the autoscaler closes.
+example: |
+  sources:
+    prom: {type: prometheus, url: http://prometheus:9090}
+  uses:
+    web:
+      use: observed-autoscaler
+      with:
+        target: 0.6
+        min: 2
+        max: 20
+        replicas: kubectl get deploy web -o jsonpath='{.spec.replicas}'
+        load-query: {source: prom, promql: 'sum(rate(container_cpu_usage_seconds_total{pod=~"web-.*"}[1m]))'}
+params:
+  target: {type: number, default: 0.7, min: 0, description: "the utilisation the autoscaler holds, per replica (0.7: 70% of what each requests)"}
+  min: {type: integer, default: 1, min: 1, description: the fewest replicas it keeps}
+  max: {type: integer, default: 10, min: 1, description: the most replicas it sets}
+  tolerance: {type: number, description: "how far off the target, as a share, before it scales (the HPA's: 0.1)"}
+  stabilize-down: {type: duration, description: "the window a scale-down waits for (the HPA's: 5m)"}
+  stabilize-up: {type: duration, description: "the window a scale-up waits for (the HPA's: 0)"}
+  every: {type: duration, default: 15s, description: how often it acts, and the sensors read}
+  unit: {default: cores, description: the load's unit}
+  replicas: {type: command, default: "${lib} standin replicas --name ${name} --target ${target} --min ${min} --max ${max}", stand-in: replicas that follow a made-up load, description: the sensor of the replicas, a command printing how many there are}
+  replicas-query: {type: map, stand-in: replicas that follow a made-up load, description: "the sensor of the replicas as a query ({source: prom, promql: ...}), in place of the command"}
+  load: {type: command, default: "${lib} standin load --name ${name} --target ${target} --min ${min} --max ${max}", stand-in: a made-up load swelling over half an hour, description: the sensor of the load, a command printing it}
+  load-query: {type: map, stand-in: a made-up load swelling over half an hour, description: the sensor of the load as a query, in place of the command}
+  utilisation: {type: command, description: "utilisation measured, a command (left out: load / replicas)"}
+  utilisation-query: {type: map, description: utilisation measured, as a query}
+  description: {default: "the autoscaler, observed: ergostat never runs or sets it", description: what the external block says it is}
+stocks:
+  replicas:
+    unit: pods
+    description: the replicas, as reported (what the autoscaler sets)
+    sensor: {if: "${replicas-query}", value: {query: "${replicas-query}", every: "${every}"}, else: {run: "${replicas}", every: "${every}"}}
+auxiliaries:
+  load:
+    unit: ${unit}
+    description: the load the replicas carry (a disturbance nothing here controls)
+    sensor: {if: "${load-query}", value: {query: "${load-query}", every: "${every}"}, else: {run: "${load}", every: "${every}"}}
+  utilisation:
+    unit: ${unit}/pods
+    description: the load per replica, the autoscaler's metric
+    equation: ZIDZ(auxiliary.load, stock.replicas)
+    driven-by: [+auxiliary.load, "- stock.replicas"]     # more replicas, less each (the space: so it is renamed)
+    sensor:
+      if: "${utilisation-query}"
+      value: {query: "${utilisation-query}", every: "${every}"}
+      else: {if: "${utilisation}", value: {run: "${utilisation}", every: "${every}"}}
+flows:
+  scale: {to: replicas, two-way: true, description: replicas added or removed by the autoscaler}
+goals:
+  at-target: {auxiliary: utilisation, hold: "<= ${target}", description: "utilisation at or under the autoscaler's target, ${target}"}
+blocks:
+  hpa:
+    type: external
+    description: ${description}
+    in: auxiliary.utilisation
+    out: flow.scale
+    law: {kind: kubernetes-hpa, target: "${target}", min: "${min}", max: "${max}", tolerance: "${tolerance}",
+          stabilize-down: "${stabilize-down}", stabilize-up: "${stabilize-up}", every: "${every}"}
+    identify: {input: auxiliary.utilisation, output: stock.replicas}

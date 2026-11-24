@@ -29,7 +29,8 @@ RESUMED = ("waits_on", "needs", "split")                          # resumed by t
 WAITING = ("waits_on", "needs")                                  # past [manager] park_wait_hours: a situation
 GAP = re.compile(r"(?:gap/)?([a-z0-9][a-z0-9-]{0,63})")
 SHA = re.compile(r"[0-9a-f]{7,40}")
-HOPS = 20                                    # a hard ceiling (lesson-4): continuations followed from a gap waited on
+ENV_PARK = "plan-env"                        # parked_by of plan.py's park for a done item's needs (plan.ENV_PARK)
+HOPS = 20                                   # a hard ceiling (lesson-4): continuations followed from a gap waited on
 KILLERS = ("implementor", "plan-lint", "merge-queue", "dead-letters", "join-judge")   # parked_by of the kill rule's parks
 COORDINATORS = ("plan-review", "pipeline-manager")                   # parked_by of the cancelled and deferred parks
 CARRIED = re.compile(r"Merge branch '(?:factory/)?([a-z0-9][a-z0-9-]{0,63})'")
@@ -151,8 +152,8 @@ def resume(cfg: dict) -> list[str]:
         if not why:
             continue
         try:
-            done.append(split_again(g, gaps, why) if f["parked_for"] == "split" else
-                        manage.continue_gap(cfg, g["id"], cleared=why, once=True)[0])
+            done.append(split_again(g, gaps, why) if f["parked_for"] == "split" else ready_again(cfg, g["id"], why)
+                        if f.get("parked_by") == ENV_PARK else manage.continue_gap(cfg, g["id"], cleared=why, once=True)[0])
         except manage.Refused as e:                                 # (held by another gap: tried again next pass)
             print(f"parks: {g['id']} not resumed: {e}", file=sys.stderr)
     return done
@@ -171,6 +172,20 @@ def split_again(g: dict, gaps: dict, why: str) -> str:
     manage.record("gap.resumed", g["id"], resumed_as=g["id"], resumed_at=time.time(), resumed_for="split",
                   resumed_by=manage.BY[0], cleared=why)
     return g["id"]
+
+
+def ready_again(cfg: dict, gid: str, why: str) -> str:
+    """A park at plan time (ENV_PARK: nothing built, no branch to continue) whose need was met: ready again as itself,
+    re-read under the continue lock, so a pass before (or a resume by hand) is never repeated (lesson-1)."""
+    import manage
+    with manage.continue_lock(cfg):
+        g = manage.item(gid)
+        if g["state"] != "parked" or g["fields"].get("resumed_as") or g["fields"].get("parked_by") != ENV_PARK:
+            raise manage.Refused(f"{gid} is {g['state']} (resumed as {g['fields'].get('resumed_as')}): not readied")
+        manage.record("gap.defined", gid, ready_at=time.time(), released_from="parked")
+        manage.record("gap.resumed", gid, resumed_as=gid, resumed_at=time.time(), resumed_for="needs",
+                      resumed_by=manage.BY[0], cleared=why)
+    return gid
 
 
 def waiting(g: dict, now: float, hours: float) -> bool:

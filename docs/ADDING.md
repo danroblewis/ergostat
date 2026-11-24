@@ -46,6 +46,8 @@ proposal for the judge (that is the modelling subsystem's, which alone changes a
 | `collect` | recording what a command or an API says, as items | (an instrument: none) | a made-up feed |
 | `todo` | your own to-dos, with instructions, done by hand in batches by where (a bastion, a VPN) | nothing new left unwritten; nothing ready left undone | to-dos you record (no feed: nothing made up) |
 | `modelling` | the model itself, improved as a loop of its own (every model should have one) | the model's replay off the record by at most `fit` | an improver that proposes nothing of its own and asks ergostat's finders to look again |
+| `observed-autoscaler` | an autoscaler that runs on its own (a Kubernetes HPA), observed: its law declared and identified | utilisation at or under `target` | a made-up load swelling over half an hour; replicas that follow it |
+| `alert-rule` | a threshold alert that runs on its own, observed, and what it pages | (none: what it pages holds one) | a made-up signal swelling past the threshold; firing while it is past |
 
 Every template runs on its free stand-ins until you give it the real thing, so it can be seen and tried before any
 access exists; `check` says which instances still do (`template-stand-in`). `ergostat help adding` is this page;
@@ -203,6 +205,49 @@ uses:
   reads is the new items per hour. It never acts on what it reads.
 - **System dynamics:** the inflow of whatever the source holds, into its own running total, or into a stock of
   yours (`into:`) that something else drains. `respond-to`, `re-ping` and `steps` each have one inside.
+
+### observed-autoscaler
+
+```yaml
+uses:
+  web:
+    use: observed-autoscaler
+    with:
+      target: 0.6                         # the utilisation it holds per replica
+      min: 2
+      max: 20
+      replicas: kubectl get deploy web -o jsonpath='{.spec.replicas}'
+      load-query: {source: prom, promql: 'sum(rate(container_cpu_usage_seconds_total{pod=~"web-.*"}[1m]))'}
+```
+
+- **Control:** an observed controller: an `external` block ergostat reads and never runs or sets, a stepper of the
+  replicas holding utilisation at `target`. On Blocks its loop is r (the target, goal `at-target`), y (utilisation)
+  and u (the replicas). Its law is declared, `kubernetes-hpa` (⌈replicas × utilisation / target⌉ within `min`..`max`,
+  and the HPA's optional `tolerance`, `stabilize-down`, `stabilize-up`, `every`), and identified from the record.
+- **System dynamics:** the replicas a stock, its two-way flow the scaling; the load an input nothing here controls;
+  utilisation the auxiliary load / replicas (or measured, with `utilisation` or `utilisation-query`), so more
+  replicas, less each. Each sensor is a command or, with `-query`, a query of a source.
+
+### alert-rule
+
+```yaml
+uses:
+  slow-checkout:
+    use: alert-rule
+    with:
+      threshold: 0.3
+      for: 5m                             # past the threshold this long before it fires
+      signal-query: {source: prom, promql: 'histogram_quantile(0.99, sum(rate(checkout_seconds_bucket[5m])) by (le))'}
+      pages: checkout-page                # the item kind of its pages (their events come from the alerting system)
+```
+
+- **Control:** an observed controller with the declared law `alert-rule`: on-off, 0 or 1, firing once the signal is
+  past `threshold` (`side`: above or below) for `for`, resolving as soon as it is back. It holds no goal itself.
+- **System dynamics:** a stock of alerts firing, its two-way flow their firing and resolving; the signal an
+  auxiliary nothing here controls. The stock is always measured, by the `firing` command or `firing-query` (or
+  the stand-in): ergostat never runs the rule, so it makes no pages. `pages: KIND` declares their item kind (states
+  firing, resolved); its events must come from the alerting system, posted as
+  `ergostat event --add KIND.fired --item KIND/ID` (and `KIND.resolved`), or they never appear.
 
 ### todo
 

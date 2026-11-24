@@ -88,6 +88,10 @@ librarian = true                     # true runs the librarian after each review
 image = "ergostat-agent:latest"      # docker build -t ergostat-agent:latest dev/agent (after the dev image)
 proxy_image = "ergostat-dev:latest"  # runs the egress proxy, dev/agent/egress.py
 hosts = ["api.anthropic.com"]        # the only hosts a session can reach, on 443
+research_hosts = ["*"]               # what else a researcher (alone, on ergostat-research through its own proxy,
+                                     # ergostat-egress-research) reaches on 443 for WebFetch and the walker: "*" any
+                                     # host whose addresses are all public (never loopback, private, link-local), or a
+                                     # list of names, those alone; [] the API alone. Not a list of names: refused
 token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude setup-token`; mode 600, or no session
                                      # Docker's VM has 24 CPUs, split three ways so none slows another (the owner,
                                      # 2026-11-21); an empty cpuset pins nothing (agents.limits)
