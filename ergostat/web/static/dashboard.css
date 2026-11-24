@@ -6,6 +6,11 @@
 .dash-title-input { font-size: var(--text-lg); font-weight: 600; min-width: 0; max-width: 100%; box-sizing: border-box;
                     height: var(--sp-6); min-height: 0; padding-block: 0; line-height: normal; }
 .dash-said { white-space: nowrap; }
+/* the variables, at the top: a name over its choice */
+.dash-vars { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--sp-2) var(--sp-4); margin-bottom: var(--sp-3); }
+.dash-vars[hidden] { display: none; }
+.dash-var { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; max-width: 100%; }
+.dash-var select { max-width: 24rem; }
 .dash-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1); margin-left: auto; }
 .dash-grid { --dash-row: calc(var(--sp-5) + var(--sp-2)); --dash-gap: var(--sp-2); --rows: 0;
              --col-step: calc((100cqw + var(--dash-gap)) / 12); --row-step: calc(var(--dash-row) + var(--dash-gap));
