@@ -140,3 +140,22 @@ branch's corner frame and title on the top edge, main's rule that a C_name / P_n
   from main were not rerun.
 - Refused command: `node --check ergostat/web/static/blocks.js` (and the same for diagram.js); the console-error
   test was run instead.
+
+Round 7. main (e8669794) merged; conflicts resolved keeping both sides:
+
+- SPEC (Dynamics): the branch's frame sentence, with main's "but for the goal a loop closes (above)". blockdiagram.py:
+  main's `Shown` import and the branch's `modelling_systems`. export.js: main's `resolve` helper (the same var()
+  resolving the branch had inline). dynamics.js legend: main's ink-2 stub and shadow glyphs and its tone row, the
+  branch's module, moduleOff and corner-frame sector; the export items keep main's tone row and the branch's module and
+  sector rows. Test file: the branch's no-tint frame checks with main's SD_GOAL_SAID filter; BD_LEGEND_DRAWN keeps the
+  branch's "a subsystem open" and main's "a lighter line".
+- `test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off` read the whole Dynamics legend against SD_WORDS,
+  and main's new tone row says "a goal's gap"; it now reads only the module and sector rows (the branch's own words). An
+  old-wording "a goal in it is off" would still be in the "module drawn heavy" row it reads.
+- Ran (passed): `test_an_open_system_is_framed_...` (both examples), `test_each_blocks_legend_row_is_a_symbol_drawn`
+  (3), `test_a_closed_systems_outline_...`, `test_the_exported_blocks_legend_...`, `test_a_graph_with_no_tree_...`,
+  `test_a_closed_subsystems_outline_follows_...`, `test_every_view_loads_with_no_console_error_or_warning` (23);
+  tests/test_blockdiagram.py (124); ruff clean.
+- Failing, judged from main as in round 4: `test_the_dynamics_view_speaks_system_dynamics_...` passes its frame
+  checks, then fails on the side cards' "open · goal developer-honest cannot close" (main's text; the branch changes no
+  side-list text). Not rerun on main. The whole file was not run.

@@ -2830,7 +2830,9 @@ def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, t
             drawn: [...document.querySelectorAll('svg.canvas rect.sd-module')].map((r) => [r.classList.contains('sys-off'),
                                                                                          getComputedStyle(r).stroke]),
             legend: (() => { const was = S.graph; S.graph = { ...was, nodes: [...was.nodes, { ...n, loops: { off: 1 } }] };
-                             try { return sdLegend().textContent; } finally { S.graph = was; } })(),   // (with a module off)
+                             // (with a module off; the frame rows only: main's tone row speaks of "a goal's gap")
+                             try { return [...sdLegend().children].map((c) => c.textContent).filter((t) => /^(module|sector)/.test(t)).join(' | '); }
+                             finally { S.graph = was; } })(),
             paper: getComputedStyle(document.body).backgroundColor }; }""".replace("PROBE", PROBE).replace("PUT", put))
         drawn(pg, url, "view=blocks", 1)
         bd = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem'); PUT
