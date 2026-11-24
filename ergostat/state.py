@@ -664,16 +664,16 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             # the cause, in words no view rewrites, so every page says it alike (dynamics.words)
             cause = "saturated, moving its most each run" if at_limit else "falling behind the load"
             did = "it acts but moves nothing" if acted else "nothing ran to move any"
-            says = (f"loop {name} was off {off}% of the time: {cause}: {did} {way[0]} of {stock} "
+            says = (f"goal {name} was off {off}% of the time: {cause}: {did} {way[0]} of {stock} "
                     f"while {fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "")
                     if not ours else
-                    f"loop {name} was off {off}% of the time: {cause}. Its valve moved {fmt(ours)}/h {way[0]} while "
+                    f"goal {name} was off {off}% of the time: {cause}. Its valve moved {fmt(ours)}/h {way[0]} while "
                     f"{fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "") + ". "
                     + ((f"Its openings ran at its max of {fmt(limits[0])}" if limits else f"Every opening moved {fmt(amounts[0])}")
                    + ": it needs more per run, or less load" if at_limit else
                        "More per run, or acting more often" + (f" ({slowest} is the slowest stage)" if slowest else "")))
         else:
-            says = (f"loop {name} was off {off}% of the time: answering too late, though it keeps up on average"
+            says = (f"goal {name} was off {off}% of the time: answering too late, though it keeps up on average"
                     + (f"; {slowest} is the slowest stage" if slowest else ""))
         # a job that empties the stock on a schedule holds only if load × period fits the room under the setpoint
         pts = snap["stocks"].get(stock, {}).get("points") or []
@@ -686,7 +686,7 @@ def ladder_hints(project, snap: dict) -> list[dict]:
                          + (" (cron cannot: once a minute is its finest)" if needed < 60 and any(
                              x.cron for x in m.agents.values() if x.name in slowest) else ""))
         out.append({"controller": name, "agent": c.agent, "kind": a.kind if a else "", "share": lp["off_share"],
-                    "count": 0, "decision": "", "about": "loop", "says": says})
+                    "count": 0, "decision": "", "about": "loop", "goal": name, "says": says})
     # upstream action piling up behind a loop that is off: the anti-windup question for loops in series
     for up, lp in snap["loops"].items():
         for f in lp["flows"]:
@@ -699,8 +699,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
                 moved = snap["flows"].get(f, {}).get("rate") or 0
                 if moved > 0:
                     out.append({"controller": up, "agent": m.controllers[up].agent, "kind": "", "share": dl["off_share"],
-                                "count": 0, "decision": "", "about": "loop",
-                                "says": f"loop {up} keeps feeding {down_stock} ({fmt(moved)}/h) while loop {down} is off "
+                                "count": 0, "decision": "", "about": "loop", "goal": up,
+                                "says": f"goal {up} keeps feeding {down_stock} ({fmt(moved)}/h) while goal {down} is off "
                                         f"{round(dl['off_share'] * 100)}% of the time: work piles up downstream. Hold it back "
                                         f"while {down} is off (its controller can read {down_stock}, or listen for loop.holding@{down})"})
     for c in m.controllers.values():
@@ -813,24 +813,25 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
             continue
         if lp["status"] == "open" and f"stock.{lp['stock']}" in theirs:   # a goal here on a remote's stock: watched,
             continue                                                       # acted on there (nothing here may act on it)
+        of = {"what": f"goal {name}", "goal": name}     # the goal by its name, a field: never parsed from the words
         if lp["status"] == "off" and lp.get("breaking"):
             n, each = lp["breaking_n"], lp["per"]
-            out.append({"level": "bad", "what": f"loop {name}", "says": f"{n} {each}{'' if n == 1 else 's'} break{'s' if n == 1 else ''} "
+            out.append({"level": "bad", **of, "says": f"{n} {each}{'' if n == 1 else 's'} break{'s' if n == 1 else ''} "
                         f"it (each {each}'s {lp['stock']} {setpoint_text(lp)}): {per_says(lp)}"})
         elif lp["status"] == "off" and lp.get("per"):        # off, and none past its tolerance: holding only back within
-            out.append({"level": "bad", "what": f"loop {name}", "says": f"the worst {lp['per']}'s {lp['stock']} is "
+            out.append({"level": "bad", **of, "says": f"the worst {lp['per']}'s {lp['stock']} is "
                         f"{fmt(lp['value'])}, setpoint {setpoint_text(lp)}: none is past its tolerance now; it holds again "
                         "once each is back within the setpoint"})
         elif lp["status"] == "off":
-            out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
+            out.append({"level": "bad", **of, "says": f"{lp['stock']} is {fmt(lp['value'])}, "
                         f"setpoint {setpoint_text(lp)} ({lp.get('off_by_words')})"})
         elif lp["status"] == "stale":
             does = {"act": "its controllers act on it as it was", "hold": "what it commands is held",
                     "off": "it counts as off"}[lp["on_stale"]]
-            out.append({"level": "warn", "what": f"loop {name}", "says": f"{lp['stock']} was last read {human(lp['stale'])} "
+            out.append({"level": "warn", **of, "says": f"{lp['stock']} was last read {human(lp['stale'])} "
                         f"ago, too long for its sensor: stale ({does}; on-stale: {lp['on_stale']})"})
         elif lp["status"] == "open":
-            out.append({"level": "warn", "what": f"loop {name}", "says": "cannot close: " + "; ".join(lp["gaps"])})
+            out.append({"level": "warn", **of, "says": "cannot close: " + "; ".join(lp["gaps"])})
         elif lp["status"] == "unknown" and running and snap.get("recorded", 0) > UNKNOWN_GRACE:
             who = ""
             if model is not None:
@@ -838,9 +839,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                 kinds = {model.agents[a].kind for a in fillers}
                 who = (" (its sensor is filled by a person, who has reported no reading)" if kinds == {"person"}
                        else f" (sensor {', '.join(lp['sensors'])})")
-            out.append({"level": "warn", "what": f"loop {name}", "says": f"no reading of {lp['stock']} yet: "
+            out.append({"level": "warn", **of, "says": f"no reading of {lp['stock']} yet: "
                         f"the loop cannot tell whether it holds{who}"})
-        if out and out[-1]["what"] == f"loop {name}":   # its state word, and whether the goal is modelling's (the page groups)
+        if out and out[-1].get("goal") == name:   # its state word, and whether the goal is modelling's (the page groups)
             out[-1].update(state=lp["status"], **({"modelling": True} if mod and getattr(spec.goals.get(name), "system",
                                                                                      None) in mod else {}))
             if lp.get("diagnosis_in"):                  # its suggestion, not yet due
@@ -914,10 +915,10 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         out.append({"level": "warn", "what": "reports upstream", "waiting": True, **({"item": rs[0]["id"]} if len(rs) == 1 else {}),
                     "says": (f"{len(rs)} drafted" if len(rs) > 1 else f"\u201c{rs[0]['title'][:70]}\u201d drafted")
                     + " about ergostat itself, scrubbed, for you to read and submit by hand if you choose: ergostat report"})
-    for h in snap.get("hints", []):                  # a loop's: the goal named once, as its heading
-        loop = f"loop {h['controller']}"
-        out.append({"level": "hint", "what": loop, "says": h["says"].removeprefix(loop + " ")} if h["about"] == "loop"
-                   else {"level": "hint", "what": f"controller {h['controller']}", "says": h["says"]})
+    for h in snap.get("hints", []):                  # a goal's: the goal named once, as its heading
+        goal = f"goal {h['goal']}" if h.get("goal") else None
+        out.append({"level": "hint", "what": goal, "goal": h["goal"], "says": h["says"].removeprefix(goal + " ")} if goal
+                   else {"level": "hint", "what": f"controller {h['controller']}", "controller": h["controller"], "says": h["says"]})
     for name, r in snap["residuals"].items():
         if r["significant"]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "
