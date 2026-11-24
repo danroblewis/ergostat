@@ -10,7 +10,8 @@ one:
 
   broken     before the schedule, when the merge pipeline has been broken past [manager] broken_minutes (the queue
              blocked, a push pending, no merge while approved gaps wait, the same test failing on two main commits,
-             the load interlock holding the queue or its limits unreadable; at once, the dispatcher meeting an error
+             the load interlock holding the queue, named by the readings that hold it (suites-running, threads,
+             memory, push-waiting), or its limits unreadable; at once, the dispatcher meeting an error
              in every look past 2 minutes, from the engine's heartbeat, live.py): when each began is kept in
              run/manager.json; never sooner than broken_minutes after the last session of any kind
   scheduled  every [manager] every (2h), the routine review
@@ -29,11 +30,13 @@ import math
 import os
 import re
 import secrets
+import subprocess
 import sys
 import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import landing  # noqa: E402
 import live  # noqa: E402
 import load  # noqa: E402
 import measure  # noqa: E402
@@ -48,6 +51,7 @@ STUCK = {"ready": 6, "fix": 6, "leased": 3, "building": 5, "built": 2, "in-revie
          "push-pending": 4, "queue-failed": 1}      # hours, the defaults of [manager.stuck_hours]
 MOST_ACTIONS = 12                                   # the ceiling of [manager] most_actions, whatever the settings say
 EVERY_FLOOR, BROKEN_FLOOR = 15.0, 5.0              # minutes: the floors of [manager] every and broken_minutes
+CURRENT = ("building",)                          # states judged by the visit they are in now, not the sum of visits
 AT_ONCE = ("main-twice", "dispatch")               # broken conditions counted at once (the dispatcher's: 2 min already)
 
 
@@ -102,9 +106,10 @@ def visit_start(moves: list[dict], state: str) -> float | None:
 
 
 def hours_in(g: dict, start: float, now: float) -> float:
-    """Its time in its state: state-times' closed visits (time_in) and the one it is in, else this visit alone."""
+    """Its time in its state: state-times' closed visits (time_in) and the one it is in, else this visit alone. Building
+    is this visit alone (CURRENT): rounds of rebuilding are bounded by the kill rule, not by this."""
     t = (g["fields"].get("time_in") or {}).get(g["state"])
-    if isinstance(t, dict):
+    if isinstance(t, dict) and g["state"] not in CURRENT:
         return float(t.get("hours") or 0) + (now - float(g.get("entered") or start)) / 3600
     return (now - start) / 3600
 
@@ -238,6 +243,17 @@ def triggers(cfg: dict, gaps: dict, opened: list[dict], now: float) -> list[dict
 
 HOLD = r"^  {name}:\s*$.*?hold: \"(<=|>=) ([\d.]+)\""
 INTERLOCK = {"suites": "machine-quiet", "threads": "suite-threads-within", "memory": "suite-memory-within"}
+READING = {"suites": "suites-running", "threads": "threads", "memory": "memory"}    # (as queue-when's text names them)
+
+
+def push_waiting() -> str:
+    """The push-waiting reading as its sensor reads it (`queue.py waiting`); one not read is "unreadable", never 0."""
+    try:
+        r = subprocess.run([sys.executable, str(fac.HERE / "bin" / "queue.py"), "waiting"], capture_output=True,
+                           text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return "unreadable"
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() in ("0", "1") else "unreadable"
 
 
 def hold(file: str, name: str) -> float | None:
@@ -260,7 +276,11 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
         starts["push"] = q["pending"].get("at")
     last = max([float(g["fields"].get("merged_at") or 0) for g in gaps.values()] or [0])
     if waited and now - last > s["broken"] * 60:
-        out["no-merge"] = f"no merge for {(now - last) / 60:.0f} minutes while {len(waited)} approved gaps wait"
+        try:                                   # (the goal main-moving's reason: the current batch, its run, the cause)
+            why = landing.reason(fac.items("batch"), list(gaps.values()), now)
+        except Exception as e:  # noqa: BLE001 - said as unreadable, never left out
+            why = f"the batch items cannot be read ({type(e).__name__}: {e})"
+        out["no-merge"] = f"no merge for {(now - last) / 60:.0f} minutes while {len(waited)} approved gaps wait: {why}"
         starts["no-merge"] = max(last, min(float(g["fields"]["approved_at"]) for g in waited))
     seen: dict[str, set] = {}
     for i in fac.items("intervention", "open"):             # (unremedied only: a remedied one clears it)
@@ -273,7 +293,9 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
     limits = {w: hold("interlock.yaml", g) for w, g in INTERLOCK.items()}
     unknown = [INTERLOCK[w] for w, lim in limits.items() if lim is None]
     probe = approved and cfg.get("load", {}).get("wait", True)      # (the tests' machine is not the factory's)
-    over = [w for w, lim in limits.items() if lim is not None and load.reading(w) > lim] if probe else []
+    read = {w: load.reading(w) for w, lim in limits.items() if lim is not None} if probe else {}
+    over = [f"{READING[w]} {read[w]:g} over {limits[w]:g}" for w in read if read[w] > limits[w]]
+    over += [f"push-waiting {push}" for push in [push_waiting() if probe else "0"] if push != "0"]
     try:                                       # (no instance, no heartbeat or a stale one: a dead engine, not this; health's
         beat = live.heartbeat(cfg)             # own engine check says so)
         stopped = live.dispatch_failing(beat, now) if now - float(beat["written"]) <= live.PASS_FRESH else None
@@ -284,7 +306,7 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
     if unknown:                                # (a goal renamed or reworded: never read as within its limit)
         out["interlock"] = f"the load interlock's goals {', '.join(unknown)} have no hold in dev/model/interlock.yaml"
     elif over:
-        out["interlock"] = f"the load interlock holds the queue ({', '.join(over)} over) while {len(approved)} gaps wait"
+        out["interlock"] = f"the load interlock holds the queue ({', '.join(over)}) while {len(approved)} gaps wait"
     return out
 
 

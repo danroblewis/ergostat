@@ -24,7 +24,12 @@
   Just before it writes the expiry, it reads the lease again from the record, and writes nothing when it was renewed
   past the expiry it judged. The expiry names the ``expires`` it judged, so a renewal recorded in the moment between
   that read and the write still wins (the fold refuses it); what reads expiries raw leaves those out
-  (``fold.refused_expiries``)."""
+  (``fold.refused_expiries``). A pass looks for at most ``SLICE`` seconds and the dispatch takes work between passes,
+  so many overdue leases never hold up a take for another block: the rest are looked at in the passes after, each
+  lease once a round, its first look kept.
+- **Runs their keepers hold** (``runs: outlive_engine``, SPEC §9.1): as ergostat stops, their leases are not given
+  back (``keeping``); a run taken up by the next engine (``adopt``, ``spec/adopt.py``) has its lease renewed as it is
+  taken up and, while its keeper says it lives, by the watchdog instead of expired."""
 
 from __future__ import annotations
 
@@ -36,7 +41,8 @@ from ..costs import budget
 from ..library import bounds
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
-from . import ENDED, EXPIRED, RENEWED, TAKEN, poolnow
+from . import ENDED, EXPIRED, RENEWED, TAKEN, faults, groups, poolnow
+from . import gone as run_gone
 from .fold import held
 from .kill import kill
 from .ready import Ready, ordered, unblocked
@@ -47,6 +53,7 @@ LOOK = 0.25           # seconds between looks at the record for something new, w
 EVERY = 1.0           # a look at every block's queue, and the watchdog's pass, at least this often
 GAP = 0.005           # seconds a look waits after a write wakes it, for the writes that come with it
 HOLD = 360.0          # seconds a given-up end stays in ``failing`` once its lease is let go (one 5 min watch.py pass)
+SLICE = 0.2           # seconds a watchdog pass looks at leases before the dispatch takes work again (the rest: next pass)
 
 
 def moved_on(b, it) -> bool:
@@ -72,6 +79,8 @@ class Dispatcher:
         self.going: dict[str, dict[str, dict]] = {}   # block → item → {run, fence, block}: the runs going here
         self.ours: set[str] = set()                   # the runs this engine took whose leases have not ended
         self.holding = False                          # whether the last watch found a lease held (one outlives its block)
+        self.me = run_gone.me(self)                   # the engine its leases name (gone.py)
+        self.watched = False                         # whether a watch has read every lease (the engine's start behind it)
         self.lock = threading.RLock()
         self.ends = threading.Lock()                  # finish's read and its write of lease.ended, as one
         self.seq = 0
@@ -80,11 +89,18 @@ class Dispatcher:
         self.due = float("inf")                       # when the first item put off (not_before) may be taken
         self.due_now: set[str] = set()                # items put off that may be taken now (their daemon revived)
         self.overdue: dict[tuple, float] = {}         # (item, fence, expires) → when (monotonic) a pass first found it overdue
+        self.passed: set[str] = set()                 # the held items a round of the watchdog has looked at so far
+        self.behind = False                           # the last pass ran out of its slice: the next comes at the next look
         self.mine: dict[str, tuple] = {}              # run → (block, item, fence): the leases taken here, not yet ended
         self.unread: set[str] = set()                 # blocks whose pool's stock has no reading, said once
         self.looks_failing: tuple[str, float] | None = None  # (the latest error, since when: wall) while every look meets one
         self.ending: dict[str, tuple] = {}            # run → (block, item, fence, out, since): its end tried, not done
         self.dropped: dict[str, tuple] = {}           # run → (item, since, let go at|None): the ends given up (``failing``)
+        self.holds = faults.Holds(eng)                # each queue held while its shared environment is not healthy
+        self.groups = groups.Groups(eng)              # each value of a hold-by field held while it fails together
+        self.marks: dict[str, int] = {}               # run → its block's count of unhealthy looks when it was taken
+        self.keeping: set[str] = set()                # runs their keepers hold (SPEC §9.1): never given back as we stop
+        self.adopted: set[str] = set()                # of those, the ones taken up from an engine before this one
 
     @property
     def spec(self):
@@ -113,15 +129,17 @@ class Dispatcher:
             try:
                 seq = self.p.events.last_seq()
                 mono = time.monotonic()
-                if seq != self.seq or mono - last >= EVERY or time.time() >= self.due:
+                if seq != self.seq or mono - last >= EVERY or time.time() >= self.due or self.behind:
                     self.seq = seq
                     self.due = float("inf")
-                    if mono - last >= EVERY:
-                        last = mono
-                        try:                                 # (on its own: a failed recovery skips no watch, no tick)
-                            budget.recover(self.p, self.spec)    # (at most once a minute: SPEC §9.9)
-                        except Exception as e:
-                            self.e.say(f"budget: recovery: {type(e).__name__}: {e}")
+                    if mono - last >= EVERY or self.behind:
+                        if mono - last >= EVERY:
+                            last = mono
+                            try:                             # (on its own: a failed recovery skips no watch, no tick)
+                                budget.recover(self.p, self.spec)    # (at most once a minute: SPEC §9.9)
+                            except Exception as e:
+                                self.e.say(f"budget: recovery: {type(e).__name__}: {e}")
+                        self.behind = False
                         if self.blocks or self.holding:      # (a model with no block that takes: nothing to watch)
                             self.watch()
                     self.note(self.tick())
@@ -163,6 +181,10 @@ class Dispatcher:
 
     def going_items(self) -> set[str]:
         return {i for g in self.going.values() for i in g}
+
+    def going_runs(self) -> list[dict]:
+        with self.lock:
+            return [g for runs in self.going.values() for g in runs.values()]
 
     @property
     def failing(self) -> tuple[str, float] | None:
@@ -206,6 +228,8 @@ class Dispatcher:
         return first
 
     def tick_block(self, b, now: float) -> None:
+        if not self.holds.open(b):                             # its shared environment is down, or unknown: it waits
+            return
         cmd, _ = self.e.command_of(b)
         if cmd is not None and not cmd:                        # commanded, and nothing commands it now: it takes nothing
             return
@@ -217,7 +241,7 @@ class Dispatcher:
                 room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
             if room <= 0:
                 return
-            for it in ordered(b, unblocked(self, b, self.ready(b, every, now)))[:room]:
+            for it in self.groups.only(b, ordered(b, unblocked(self, b, self.ready(b, every, now))), every, now)[:room]:
                 self.stale = True
                 self.take(b, self.whole(ix, it))
 
@@ -271,6 +295,7 @@ class Dispatcher:
 
     def take(self, b, it, inline: bool = False, out: dict | None = None):
         self.due_now.discard(it.id)
+        mark = self.holds.mark(b.name)                            # (before the take: an outage from here on counts)
         t = terms(self.spec, b)
         lease = it.fields.get("lease") if isinstance(it.fields.get("lease"), dict) else {}
         fence = int(lease.get("fence") or 0) + 1
@@ -285,7 +310,7 @@ class Dispatcher:
             bounds.hold(self.e, key, b)
             self.ours.add(run)                                    # (before its write: a lease of ours is never missed)
         data = {"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"], "max": t["attempts"],
-                "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1}
+                "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1, "engine": self.me}
         spec = self.spec
         try:
             def write(more: dict | None = None) -> dict:
@@ -313,6 +338,8 @@ class Dispatcher:
                 self.e.running.discard(key)
             return None
         self.mine[run] = (b, it.id, fence)                        # (close() gives it back, whatever its run's end does)
+        self.marks[run] = mark
+        self.groups.taken(b, it.fields, run)                      # (of a held group: its probe)
         self.resources(ev)
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b}
         if self.e.stop.is_set():                                  # it raced the stop: given back, not counted, not run
@@ -361,19 +388,49 @@ class Dispatcher:
                 mine = self.going.get(b.name, {}).get(item["id"], {}).get("run") == run
                 if mine:
                     self.going[b.name].pop(item["id"], None)
-            if mine:                         # (its lease still held in the fold: a look counts it till it ends)
+                if out.get("left"):          # we stop, its keeper goes on: its lease stays held, for the next engine
+                    self.mine.pop(run, None)
+            if mine and not out.get("left"):  # (its lease still held in the fold: a look counts it till it ends)
                 try:
                     self.finish(b, item["id"], lease["fence"], run, out)
                 except Exception as e:                         # the watchdog ends it later
                     self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
+            if not out.get("left"):
+                self.keeping.discard(run)
+                if out.get("done"):          # a kept run's files, once its lease's end is written (SPEC §9.1)
+                    out["done"]()
             with self.e.lock:
-                for s in self.e.after_acting(moved):
-                    self.e.read_cause[s.series] = run
-                    self.e.read_soon(s)
+                self.e._read_moved(moved, run)              # (its shard's; another's reads them itself)
                 self.e.running.discard(f"{b.name} {item['id']}")
                 self.e.finished[b.name] = time.time()
         self.e.poke(b.name)
         return moved
+
+    def adopt(self, b, item: str, fence: int, run: str, live: bool) -> None:
+        """A kept run an engine before this one started, taken up (``spec/adopt.py``): its lease is ours to end, and
+        never given back as we stop. Still going, its lease is renewed now: the time no engine was up is not held
+        against it (a lease held by another, a newer fence, is left as it is: the fold refuses its run's lines)."""
+        with self.lock:
+            self.ours.add(run)
+            self.mine[run] = (b, item, fence)
+            self.keeping.add(run)
+            self.adopted.add(run)
+            self.going.setdefault(b.name, {})[item] = {"run": run, "fence": fence, "block": b}
+        if live:
+            self.renew(item, run, fence, "taken up")
+
+    def renew(self, item: str, run: str, fence: int, seen: str) -> None:
+        it = its.one(self.p.events, self.spec, item)
+        lease = held(it.fields) if it else None
+        if lease and lease.get("holder") == run and lease.get("fence") == fence:
+            self.p.events.add(RENEWED, item=item, source=SOURCE, data={"run": run, "fence": fence, "seen": seen})
+
+    def taken_up_ended(self, block: str, item: str | None, run: str) -> None:
+        with self.lock:
+            if item and self.going.get(block, {}).get(item, {}).get("run") == run:
+                self.going[block].pop(item, None)
+            self.keeping.discard(run)
+            self.adopted.discard(run)
 
     def give_back(self, block: str | None = None, item: str | None = None) -> None:
         """Ergostat stopping: each lease taken here and still going (or the one named) is given back, not counted, so
@@ -386,6 +443,7 @@ class Dispatcher:
                     if (block, item) in ((None, None), (name, i)) and (g := runs.pop(i))]
             if block is None:                                  # and every lease taken here not ended yet (its run's
                 back += [(b, i, f, run) for run, (b, i, f) in self.mine.copy().items()]   # own end failed, or under way)
+            back = [x for x in back if x[3] not in self.keeping]   # (a run its keeper holds goes on, its lease with it)
         finally:
             self.lock.release()
         for b, i, fence, run in back:
@@ -419,6 +477,7 @@ class Dispatcher:
                 it = its.one(self.p.events, self.spec, item)
             ev = self._finish(b, it, item, fence, run, out)
             self.mine.pop(run, None)
+            self.marks.pop(run, None)
             self.ending.pop(run, None)
             self.let_go({run})
         finally:
@@ -442,14 +501,23 @@ class Dispatcher:
                                                                                      if nack.get(k) is not None}})
         elif moved_on(b, it):                    # (its lines moved it on as it ran: stopped after, the work stands)
             data["how"] = "ack"
+        elif out.get("gone"):                    # its run's process gone with the engine that held it (gone.py)
+            data.update({"how": "nack", "why": out["gone"], "count": False})
         elif stopping:
             data.update({"how": "nack", "why": "stopped with ergostat", "count": False})
         else:
             data.update({"how": "nack", "why": out.get("note") or f"the run ended with {item} still {it.state}"})
+        failed = data["how"] == "nack" and data.get("count", True) is not False
+        if failed and (fault := self.holds.fault(b, self.marks.get(run))):    # its environment down: no attempt spent
+            data.update({"count": False, "fault": fault, "why": f"{data['why']} (not counted: {fault})"})
+            failed = None                                                       # (nor evidence against its group)
+        if failed and (fault := self.groups.fault(b, it.fields)):            # its group held: no attempt spent
+            data.update({"count": False, "fault": fault, "why": f"{data['why']} (not counted: {fault})"})
         data.update(self.after(it, lease, data["how"] == "nack" and data.get("count", True) is not False,
                                it.state if data["how"] == "ack" else None))
         ev = self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data)
         self.ours.discard(run)
+        self.groups.ended(b, it.fields, item, run, True if data["how"] == "ack" else (False if failed else None))
         return ev
 
     def resources(self, ev: dict) -> None:
@@ -477,10 +545,13 @@ class Dispatcher:
 
     def watch(self, now: float | None = None, mono: float | None = None) -> None:
         """Every held lease past its expiry: renewed by what its holder was seen to do since, or, on a second look
-        ``grace(ttl)`` after the first, expired."""
+        ``grace(ttl)`` after the first, expired. A pass looks for at most ``SLICE`` seconds, so reading leases' activity
+        never keeps the dispatch from taking work for long: the leases not reached are the next pass's (``passed``: a
+        round goes on until every held lease has been looked at once), at the next look, after the dispatch's."""
         now = time.time() if now is None else now
         mono = time.monotonic() if mono is None else mono
-        holding = False
+        stop, was = time.monotonic() + SLICE, len(self.passed)     # (at least one lease a pass: each pass gets on)
+        holding = cut = False
         overdue: dict[tuple, float] = {}
         looked, holders = set(), set()
         self.stale = True                                 # (read once a pass: what it records is about the item it looks at)
@@ -489,18 +560,44 @@ class Dispatcher:
                 for it in self.items_of(kind)[0]:
                     lease = held(it.fields)
                     holding = holding or lease is not None
-                    looked.add(it.id)
                     holders |= {lease["holder"]} if lease else set()
-                    if not lease or now <= float(lease.get("expires") or 0):
+                    if lease and (it.id in self.passed or len(self.passed) > was and time.monotonic() > stop):
+                        cut = cut or it.id not in self.passed     # (not reached: its first look, if any, is kept)
                         continue
-                    try:
-                        self.look(it, lease, now, mono, overdue)
+                    looked.add(it.id)
+                    if not lease:
+                        continue
+                    self.passed.add(it.id)
+                    try:                                   # (its run's process gone: released now, whatever its TTL)
+                        if run_gone.released(self, it, lease, first=not self.watched):
+                            continue
+                        if now > float(lease.get("expires") or 0):
+                            self.look(it, lease, now, mono, overdue)
                     except Exception as e:                 # (one item's trouble stops no other's look)
                         self.e.say(f"leases: the lease on {it.id}: {type(e).__name__}: {e}")
-            self.let_go(set(self.dropped) - holders)     # (a whole pass read: ended or expired, here or elsewhere)
+            self.let_go(set(self.dropped) - holders)     # (every lease read: ended or expired, here or elsewhere)
+            if not cut:
+                self.watched = True                        # (a round read whole: the engine's start is behind it)
+                self.passed = set()
         finally:                                           # (the first looks kept, of the items not reached too)
             self.overdue = {**{k: v for k, v in self.overdue.items() if k[0] not in looked}, **overdue}
-        self.holding = holding
+        self.holding, self.behind = holding, cut
+
+    def release(self, b, it, lease: dict, why: str) -> bool:
+        """End a lease whose run is gone (gone.py), uncounted: under the ends' lock, the item read again there, so an
+        end written meanwhile (the run's own, an expiry) wins and nothing is written twice. Whether it was ended."""
+        if not self.ends.acquire(timeout=self.e.lock_wait):
+            return False                                   # (the next pass tries again)
+        try:
+            fresh = its.one(self.p.events, self.spec, it.id)
+            ev = self._finish(b, fresh, it.id, lease["fence"], lease["holder"], {"gone": why}) if fresh else None
+        finally:
+            self.ends.release()
+        if ev is None:
+            return False
+        self.resources(ev)
+        self.e.say(f"{b.name}: gave {it.id} back: {why}")
+        return True
 
     def let_go(self, runs: set[str]) -> None:
         """These runs' given-up ends hold no lease now: each stays in ``failing`` for ``HOLD`` more."""
@@ -519,6 +616,11 @@ class Dispatcher:
                 self.e.say(f"leases: ending the lease on {it.id}: {type(e).__name__}: {e}: it expires")
             self.ending.pop(lease["holder"], None)
             return self.expire(it, lease, now, ttl)
+        if lease["holder"] in self.adopted:                # taken up: its keeper says whether it lives (SPEC §9.1)
+            proc = self.e.live.get(lease["holder"])
+            if proc is not None and proc.poll() is None:
+                return self.renew(it.id, lease["holder"], lease["fence"], "keeper")
+            return                                         # (ended: its end is being written, by its own thread)
         seen = self.activity(it.id, lease)
         if seen is not None and seen > now - ttl:
             self.p.events.add(RENEWED, item=it.id, source=SOURCE, at=seen,
@@ -540,14 +642,22 @@ class Dispatcher:
             return                                                    # renewed, or ended, since the look: nothing written
         silent = now - float(lease.get("renewed") or lease.get("taken") or now)
         counted = lease["holder"] in self.ours
+        fault = counted and self.holds.fault(self.spec.blocks.get(lease.get("block") or ""), self.marks.get(lease["holder"]))
+        counted = counted and not fault                               # (silent through an outage: no attempt spent)
+        b = self.spec.blocks.get(lease.get("block") or "")
+        failed = counted
+        if counted and (fault := self.groups.fault(b, fresh.fields)):    # (its group held: no attempt spent)
+            counted = False
         ev = self.p.events.add(EXPIRED, item=it.id, source=SOURCE,
                                data={"run": lease["holder"], "fence": lease["fence"], "block": lease.get("block"),
                                      "silent": round(silent, 1), "ttl": ttl, "expires": lease.get("expires"),
-                                     **({} if counted else {"count": False}), **self.after(it, lease, counted)})
+                                     **({} if counted else {"count": False}), **({"fault": fault} if fault else {}),
+                                     **self.after(it, lease, counted)})
         after = its.one(self.p.events, self.spec, it.id)
         if after is None or any(r["event"] == ev["id"] for r in after.refused):    # (renewed meanwhile: it holds on)
             return
         self.resources(ev)
+        self.groups.ended(b, fresh.fields, it.id, lease["holder"], False if failed else None)
         kill(self.e, lease["holder"], f"its lease on {it.id} expired: silent {silent:.0f}s, its TTL {ttl:g}s",
              it.id, lease["fence"], lease.get("block"))
         self.e.say(f"{lease.get('block')}: the lease on {it.id} expired (silent {silent / 60:.1f} min)"

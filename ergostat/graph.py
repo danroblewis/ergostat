@@ -16,8 +16,12 @@ def _edge(src, dst, kind, **kw):
     return {"id": f"{kind}:{src}->{dst}", "source": src, "target": dst, "kind": kind, **kw}
 
 
-def select(model, system: str | None = None, around: str | None = None, depth: int = 1) -> set[str]:
-    """The parts to draw: a system's members, everything, or the parts within ``depth`` steps of one."""
+def select(model, system: str | None = None, around: str | None = None, depth: int = 1,
+           parts: set[str] | None = None) -> set[str]:
+    """The parts to draw: a system's members, everything, the parts within ``depth`` steps of one, or ``parts`` as
+    given (what an item passed through, or what a kind touches: ``touched``)."""
+    if parts is not None:
+        return set(parts)
     if around is None:
         return model.members(system)
     kind, _, name = around.rpartition("/")
@@ -170,7 +174,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         c = m.controllers[n]
         lp = snap["loops"].get(n, {})
         nodes.append(_node(f"controller:{n}", "controller", n, setpoint=f"{c.holds} {c.setpoint}", status=lp.get("status"),
-                           error=lp.get("error"), agent=agent_of.get(n), description=c.description,
+                           error=lp.get("error"), offBy=lp.get("off_by_words"), agent=agent_of.get(n), description=c.description,
                            decision=((lp.get("last_decision") or {}).get("data") or {}).get("decision"),
                            decisionAt=(lp.get("last_decision") or {}).get("time"), openLoop=c.open_loop,
                            systems=in_system.get(n, [])))
@@ -230,6 +234,30 @@ def node_of(spec, part: str) -> str | None:
     return None
 
 
+def touched(fp: dict, steps: list[dict] | None = None) -> dict:
+    """The model's parts (``kind.name``) a kind touches (``fp``, its footprint: ``spec/footprint.py``), or, given an
+    item's ``steps`` (its path), the ones it passed through: each stock that counted it, with its steps' numbers in
+    move order, and each block that took it with the flows it moves, and how many runs of it took the item."""
+    part_of = {c["name"]: c["part"] for c in fp["counted_in"] if c["kind"] != "flow"}
+    out_of = {t["block"]: t["out"] for t in fp["taken_by"]}
+    if steps is None:
+        return {"parts": {c["part"] for c in fp["counted_in"]} | {f"block.{b}" for b in out_of} |
+                {f for o in out_of.values() for f in o}, "numbers": {}, "attempts": {}}
+    parts, numbers, runs, n = set(), {}, {}, 0
+    for s in steps:
+        if s.get("stock") in part_of:
+            n += 1
+            parts.add(part_of[s["stock"]])
+            numbers.setdefault(s["stock"], []).append(n)
+        if s.get("flow"):
+            parts.add(f"flow.{s['flow']}")
+        if s.get("block"):
+            parts |= {f"block.{s['block']}", *out_of.get(s["block"], ())}
+            runs.setdefault(s["block"], set()).add(s.get("run") or s.get("entered"))
+    return {"parts": parts, "numbers": numbers,
+            "attempts": {f.split(".", 1)[1]: len(r) for b, r in runs.items() for f in out_of.get(b, ())}}
+
+
 def causal_loops(model) -> list[dict]:
     """The model's feedback loops for the system dynamics view (``spec/causal.py``): each with its
     members (as parts and as the nodes drawn for them), its polarity (R, B, or None: not known), a
@@ -242,6 +270,22 @@ def causal_loops(model) -> list[dict]:
         kept["graph.causal_loops"] = _causal_loops(spec)
     return [{**c, "goals": list(c["goals"]), "parts": list(c["parts"]), "nodes": list(c["nodes"]),
              "links": [dict(x) for x in c["links"]], "_pairs": set(c["_pairs"])} for c in kept["graph.causal_loops"]]
+
+
+def goal_loops(model, goal: str) -> dict:
+    """A goal's loops, from the spec only: the feedback loops that close it (each with its Dynamics label, R1, B2),
+    and its control loop's parts (sensor, controller, actuator), as Blocks draws them."""
+    from .dynamics import labels
+    spec = getattr(model, "spec", None)
+    if spec is None or goal not in spec.goals:
+        return {"feedback_loops": [], "control_loop": None}
+    every = causal_loops(model)
+    tags = labels(every)
+    lp = spec.loop(goal)
+    return {"feedback_loops": [{"name": c["name"], "label": tags[c["name"]], "polarity": c["polarity"]}
+                               for c in every if goal in c["goals"]],        # each loop through its gap, as SPEC says
+            "control_loop": {"name": goal, "sensors": list(lp.sensors), "controllers": list(lp.controllers),
+                             "actuators": list(lp.actuators)}}
 
 
 def _causal_loops(spec) -> list[dict]:
@@ -260,7 +304,7 @@ def _causal_loops(spec) -> list[dict]:
         if len(nodes) > 1 and nodes[0] == nodes[-1]:
             nodes.pop()
         pairs = {(a, b) for a, b in zip(nodes, nodes[1:] + nodes[:1], strict=False) if a != b}
-        out.append({"name": lp.name, "polarity": lp.polarity, "goals": lp.goals, "parts": lp.parts, "nodes": nodes,
+        out.append({"name": lp.name, "polarity": lp.polarity, "goal": lp.goal, "goals": lp.goals, "parts": lp.parts, "nodes": nodes,
                     "links": [{"source": x.source, "target": x.target, "polarity": sign_text(x.sign), "kind": x.kind}
                               for x in lp.links], "_pairs": pairs})
     return out

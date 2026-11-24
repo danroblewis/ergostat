@@ -266,4 +266,6 @@ def test_a_reading_is_never_left_under_way_when_writing_it_fails(tmp_path, monke
     assert s.series not in e.reading
     e.read_soon(s)                                        # asked again: it is
     assert s.series in e.wanted
-    e.pool.shutdown(wait=False)
+    for pool in (e.pool, e.alarm_pool, e.fast_pool):      # whichever lane read it (engine.lane)
+        if pool is not None:
+            pool.shutdown(wait=False)

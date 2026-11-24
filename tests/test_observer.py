@@ -370,10 +370,21 @@ def _record(src: Path, tmp: Path, monkeypatch) -> dict:
             "problems": [(x.level, x.code, x.about, x.message.replace(str(d), "")) for x in m.problems]}
 
 
-@pytest.mark.parametrize("example", [x for x in EXAMPLES if mdl.load(x).spec and mdl.load(x).spec.goals],
-                         ids=lambda p: p.name)
+# Examples that ask the observer for something, and the goals they ask it of: image-squeeze uses the regressions
+# template, whose goals are off while stale (SPEC §12r, "Regression guarantees"), and asks nothing else of it.
+ASKS = {"image-squeeze": {"tests-green": "off", "changes-hold": "off"}}
+
+
+def test_an_example_that_asks_the_observer_asks_only_what_is_listed():
+    for name, goals in ASKS.items():
+        o = ob.opted(mdl.load(next(x for x in EXAMPLES if x.name == name)).spec)
+        assert o.goals == goals and not o.stocks and not o.blocks, name
+
+
+@pytest.mark.parametrize("example", [x for x in EXAMPLES if mdl.load(x).spec and mdl.load(x).spec.goals
+                                     and x.name not in ASKS], ids=lambda p: p.name)
 def test_models_that_use_none_of_it_record_what_they_did_without_it(tmp_path, example, monkeypatch):
-    """Every example asks nothing of the observer: driven alike, as it is and with the observer stubbed out entirely,
+    """Every example not in ASKS asks nothing of the observer: driven alike, as it is and with the observer stubbed out entirely,
     it records the same, section by section."""
     assert not ob.opted(mdl.load(example).spec), example.name
     with monkeypatch.context() as mp:

@@ -72,12 +72,13 @@ function exportLegend(x, y, ink, muted, design = false, width = 1e9) {
     [`<path d="M10,-10 L18,-3 L10,4 L2,-3 Z" style="fill:none;stroke:${css("--dist")};stroke-width:1.6"/>`, "disturbance"],
     [`<circle cx="10" cy="-3" r="7" style="fill:${css("--sensor")};stroke:${css("--sensor-line")};stroke-width:1.6"/>`, "sensor"],
     [`<rect x="0" y="-9" width="20" height="12" rx="3" style="fill:${css("--ctl")};stroke:${css("--ctl-line")};stroke-width:1.6"/>`, "controller"],
-    [`<path d="M0,-3 H20" style="stroke:${css("--ok")};stroke-width:2"/>`, "loop holding"],
+    [`<path d="M0,-3 H20" style="stroke:${css("--ink-2-line")};stroke-width:1.2"/>`, "a lighter line: information, not material"],
+    [`<path d="M0,-3 H20" style="stroke:${css("--ok")};stroke-width:2"/>`, "goal holding"],
     [`<path d="M0,-3 H20" style="stroke:${css("--bad")};stroke-width:2"/>`, "off"],
     ["", "agents: " + RUNG_NAMES.map((k, i) => `${RUNG_LETTER[i]} ${k}`).join(" · ")],
   ];
   let cx = x, cy = y;
-  for (const [icon, text] of items.filter(([, t]) => !design || !["loop holding", "off"].includes(t))) {
+  for (const [icon, text] of items.filter(([, t]) => !design || !["goal holding", "off"].includes(t))) {
     const need = (icon ? 26 : 0) + text.length * 6.2;
     if (cx > x && cx + need > x + width) { cx = x; cy += 20; }         // the next row
     if (icon) { const ic = s("g", { transform: `translate(${cx},${cy})` }); ic.innerHTML = icon; g.append(ic); cx += 26; }
@@ -91,13 +92,15 @@ function exportLegend(x, y, ink, muted, design = false, width = 1e9) {
 function bdExportLegend(width) {
   const ink = getComputedStyle(document.body).color, per = Math.max(30, Math.floor((width - 36) / 6.2));
   const g = s("g", { style: `font-size:11px;fill:${ink};color:${ink}` }), kids = [...blocksLegend().children];
+  const css = (v) => getComputedStyle(document.body).getPropertyValue(v).trim();   // a var() would not survive the file
+  const resolve = (t) => t.replace(/var\((--[\w-]+)(?:,\s*([^)]*))?\)/g, (_, v, fb) => css(v) || fb?.trim() || ink);
   let y = 0;
   for (let i = 0; i + 1 < kids.length; i += 2) {
     const icon = kids[i].querySelector("svg"), lines = [];
     for (const word of kids[i + 1].textContent.split(" "))
       if (lines.length && (lines.at(-1) + " " + word).length <= per) lines[lines.length - 1] += " " + word; else lines.push(word);
     const ic = s("g", { transform: `translate(0,${y - 13})` });
-    if (icon) ic.innerHTML = icon.innerHTML; else lines[0] = kids[i].textContent + "  " + lines[0];
+    if (icon) ic.innerHTML = resolve(icon.innerHTML); else lines[0] = kids[i].textContent + "  " + lines[0];
     g.append(ic, ...lines.map((t, j) => s("text", { x: 36, y: y + j * 14 }, t)));
     y += lines.length * 14 + 8;
   }
@@ -119,6 +122,18 @@ function exportSvg(svg, name, design = false) {
   const out = standaloneSvg(svg, title);
   if (design) svg.classList.remove("design");
   if (out) download(new Blob([out.text], { type: "image/svg+xml" }), name);
+}
+
+/* the model behind the picture, as Markdown (export_api.py): the server writes it for the system drawn, so a
+   snapshot file, which has no server, says it cannot */
+async function exportMarkdown(view) {
+  if (SNAP) { alert("A snapshot file cannot export the model: it has no server. Export it from ergostat web, where the model is."); return; }
+  const q = new URLSearchParams({ view, format: "json", since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
+  for (const [k, v] of Object.entries(S.graphQ || {})) if (v) q.set(k, v);
+  const r = await fetch(`/api/export?${q}`);
+  if (!r.ok) { alert(`The export failed: ${r.status}`); return; }
+  const d = await r.json();
+  download(new Blob([d.markdown], { type: "text/markdown" }), d.file);
 }
 
 /* the same picture as a PNG at twice the size, for slides and chat */

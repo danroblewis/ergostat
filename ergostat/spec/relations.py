@@ -24,14 +24,14 @@ from __future__ import annotations
 
 import re
 
-from .ir import Relation
+from .ir import DEAD, LEASED, Relation
 
 PRECEDENCE = ("blocked_by", "after", "depends_on")          # precedence unless declared otherwise
 INVERSES = {"blocked_by": "blocks", "after": "before", "depends_on": "dependents", "parent": "children",
             "duplicates": "duplicated_by", "relates_to": "related_from"}
 GROUPS = ("parent",)
 REL_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
-REL_KEYS = {"kind", "precedence", "inverse", "group", "description"}
+REL_KEYS = {"kind", "precedence", "inverse", "group", "starts_at", "done_when", "description"}
 REL_FOLDS = ("relation", "union", "replace")                # how a relation's field may fold: a set of ids
 
 
@@ -88,14 +88,38 @@ def compile_relations(c, m, what: str, rules: dict) -> dict[str, Relation]:
             c.err(f"{what}.relations.{name}.inverse: the other direction's name, a field name unlike its own (blocks)",
                   at, "bad-relation")
             continue
+        starts = opts.get("starts_at", [])
+        starts = [starts] if isinstance(starts, str) else starts
+        if not isinstance(starts, list) or not all(isinstance(s, str) and s for s in starts):
+            c.err(f"{what}.relations.{name}.starts_at: a list of the target kind's states ([approved])", at,
+                  "bad-relation")
+            continue
+        if starts and not prec:
+            c.err(f"{what}.relations.{name}.starts_at: only a precedence relation's targets block, so only it may say "
+                  f"where they stop blocking", at, "starts-at-not-precedence")
+            continue
+        done_when = opts.get("done_when", {})
+        states = m.get("states") or []
+        if "done_when" in opts and (not isinstance(done_when, dict) or not done_when or not group or not all(
+                s in states and isinstance(w, dict) and w and all(isinstance(f, str) and _plain(x) for f, x in w.items())
+                for s, w in done_when.items())):
+            c.err(f"{what}.relations.{name}.done_when: a group's, a map of the item's state to the fields it counts as "
+                  f"done work in ({{closed: {{end: done}}}}: each a value, or a list of them)", at, "bad-relation")
+            continue
         rule = rules.get(name)
         if rule is None:
             rules[name] = "relation"
         elif rule not in REL_FOLDS:
             c.err(f"{what}.fold.{name}: a relation folds as a set of ids ({', '.join(REL_FOLDS)}), not {rule}", at,
                   "bad-fold")
-        out[name] = Relation(name, [str(k) for k in kinds], prec, inv, group, remote, there)
+        out[name] = Relation(name, [str(k) for k in kinds], prec, inv, group, remote, there, list(starts),
+                             {s: dict(w) for s, w in done_when.items()})
     return out
+
+
+def _plain(x) -> bool:
+    """A value a field is matched to: a string, number, boolean or null, or a list of them."""
+    return all(x is None or isinstance(x, str | int | float | bool) for x in (x if isinstance(x, list) else [x]))
 
 
 def remote_of(remotes, local, kind: str) -> tuple[str, str]:
@@ -128,6 +152,32 @@ def check_relations(c, spec) -> None:
                 if t not in spec.items:
                     c.err(f"item kind {k.name}.relations.{r.name}: {t!r} is not a kind of item" + c.suggest(t, spec.items),
                           k.where, "unknown-ref")
+            check_starts_at(c, spec, k, r)
+
+
+def check_starts_at(c, spec, k, r) -> None:
+    """Each ``starts_at`` state is a state of a kind the relation names, and not one it counts as finished or paused
+    (``messages: done:``, else its last state other than ``leased`` and ``dead``; ``messages: paused:``; ``dead``): a
+    finished target blocks nothing already. ``leased`` is refused: a held target counts by the state it was taken
+    from (``precedence.starts``), so name that one."""
+    targets = [spec.items[t] for t in r.kinds if t in spec.items]
+    msgs = getattr(spec, "messages", None)
+    done, paused = (getattr(msgs, "done", None) or {}), (getattr(msgs, "paused", None) or {})
+    last = lambda t: [x for x in t.states or [] if x not in (LEASED, DEAD)][-1:]      # noqa: E731
+    for s in r.starts_at:
+        has = [t for t in targets if s in (t.states or [])]
+        where = f"item kind {k.name}.relations.{r.name}.starts_at: {s!r}"
+        if s == LEASED:
+            c.err(f"{where}: a leased target counts by the state it was taken from, so name that state", k.where,
+                  "starts-at-leased")
+        elif s == DEAD:
+            c.err(f"{where}: a dead letter is not under way", k.where, "starts-at-finished")
+        elif not has:
+            c.err(f"{where} is not a state of {', '.join(r.kinds)}" + c.suggest(s, [x for t in targets for x in t.states or []]),
+                  k.where, "starts-at-unknown-state")
+        elif any(s in (done.get(t.name) or last(t)) or s in (paused.get(t.name) or ()) for t in has):
+            c.err(f"{where} is a finished or paused state: a finished target never blocks, and a paused one is not "
+                  f"under way", k.where, "starts-at-finished")
 
 
 def ids_in(v) -> list[str]:

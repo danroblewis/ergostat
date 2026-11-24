@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from ergostat import model as mdl
-from ergostat.correspond import _reaches, inside, system_of, universe
+from ergostat.correspond import _key_parts, _reaches, inside, system_of, universe
 from ergostat.store import Project
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -106,6 +106,10 @@ def test_no_shape_is_more_than_its_rule_allows(example):
             for sid, x in g["corr"]["shapes"].items():
                 kind, _, rest = sid.partition(":")
                 where = f"{name} {view} {q} {focus} {sid}: {x['is']}"
+                if rest.startswith("top:"):               # a loop between closed systems: the parts of the vector it is
+                    sg = {p for k in nodes[sid]["signals"] for p in _key_parts(spec, k)}
+                    assert x["region"] and x["is"] and set(x["is"]) == sg and not any("top:" in p for p in sg), where
+                    continue
                 if x.get("region"):                       # only these hold what is in them
                     assert kind in ("system", "hull", "sys", "frame", "proc", "psum", "mux", "demux"), where
                     if kind == "psum":
@@ -238,3 +242,25 @@ def test_each_part_has_one_colour_in_every_view_and_parts_drawn_together_differ(
     assert {x["system"] for x in shut.values() if x.get("system")} == {s for s in spec.systems if not spec.within.get(s)}
     frames = {x["system"] for sid, x in blocks["shapes"].items() if sid.startswith("frame:")}
     assert frames and frames <= set(spec.systems)
+
+
+def test_a_carried_panel_finds_its_part_in_the_block_diagram_words(squeeze):
+    """What a panel carried across a switch of view stands on in Blocks (interact.js carriedPanel): the stock
+    quality is stood for by its output y_quality, fed from the process P_service; the flow quality-steps by the
+    controller tuner, and the actuating signal u_tuner leaves one of its shapes; the goal's reference by the input r."""
+    graph = squeeze[3]
+    g = graph(view="blocks", system="service")
+    by, parts = {n["id"]: n for n in g["nodes"]}, g["corr"]["parts"]
+
+    def fed(i):                                        # what feeds a shape, through any demux (as carriedPanel reads)
+        s = by[next(e["source"] for e in g["edges"] if e["target"] == i)]
+        return fed(s["id"]) if s["kind"] == "demux" else s
+    out = by["out:stock.quality"]
+    assert "out:stock.quality" in parts["stock.quality"] and out["kind"] == "output"
+    assert (out["fn"]["sym"], out["fn"].get("sub")) == ("y", "quality")
+    assert (fed(out["id"])["fn"]["sym"], fed(out["id"])["fn"].get("sub")) == ("P", "service")
+    assert "blk:tuner" in parts["flow.quality-steps"]
+    assert any((e.get("signal") or {}).get("sym") == "u" and e["signal"].get("sub") == "tuner"
+               and e["source"] in parts["flow.quality-steps"] for e in g["edges"])
+    ref = by["ref:quality-held"]
+    assert "ref:quality-held" in parts["goal.quality-held.r"] and ref["kind"] == "input" and ref["fn"]["sym"] == "r"

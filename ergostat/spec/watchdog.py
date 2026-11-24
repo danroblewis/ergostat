@@ -49,6 +49,7 @@ HARD = 20.0                 # seconds the run loop is given to restart the proce
 EVERY = 1.0
 KEPT = 20                   # stack dumps kept
 BEAT = 5.0                  # seconds between writes of heartbeat.json
+POOLS = {"": "sensor pool", "alarm_": "alarms pool", "fast_": "sensor pool (the fast lane)"}   # engine.LANES, by name
 STARTUP = float(os.environ.get("ERGOSTAT_STARTUP") or 120.0)   # seconds a start may take before it is restarted
 
 
@@ -57,7 +58,7 @@ class Watchdog:
         self.e = eng
         self.thread: threading.Thread | None = None
         self.looped_at: float | None = None       # when it last started the loop again (this stall)
-        self.pools: dict[str, list[float]] = {}   # when it replaced each pool (the sensors' "", the alarms' "alarm_")
+        self.pools: dict[str, list[float]] = {}   # when it replaced each pool (the sensors' "", the alarms' "alarm_", "fast_")
         self.asked_at: float | None = None        # when it asked for a restart
         self.stalls = 0
         self.beat_at = 0.0
@@ -82,7 +83,17 @@ class Watchdog:
             heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls,
                       heartbeat_stale(getattr(self.e, "spec", None)),   # (the model as it is now: a reload moves it)
                       getattr(getattr(self.e, "dispatch", None), "failing", None),
-                      shard=getattr(self.e, "shard", None))
+                      shard=getattr(self.e, "shard", None), compute=self.compute())
+
+    def compute(self) -> dict | None:
+        """The pools' status (SPEC §12s.4) for the heartbeat; None without pools, or when it cannot be read (said:
+        the heartbeat is written all the same, and /api/status then shows each pool's status as unknown)."""
+        pools = getattr(self.e, "compute", None)
+        try:
+            return pools.status() if pools is not None else None
+        except Exception as e:
+            self.e.say(f"watchdog: compute status: {type(e).__name__}")
+            return None
 
     # ---- looking
 
@@ -111,19 +122,19 @@ class Watchdog:
                 e.restart_hard(e.wedged)
             return
         if self.held is not None:                  # a restart backed off: done when its turn comes, unless mended
-            if now - e.passed_at <= STALL and self.pool_wedged(now) is None and self.pool_wedged(now, "alarm_") is None:
+            if now - e.passed_at <= STALL and all(self.pool_wedged(now, w) is None for w in POOLS):
                 e.say("watchdog: the engine recovered while a restart waited its turn")
                 self.held = None
             elif now >= self.held[0]:
                 self.restart(self.held[1], self.held[2], force=True)
             return
-        for which in ("", "alarm_"):              # the sensors' pool, and the alarms' own
+        for which in POOLS:                       # the sensors' pool, the alarms' own, and the fast lane's
             wedged = self.pool_wedged(now, which)
             if wedged is not None:
                 pools = self.pools.setdefault(which, [])
                 pools[:] = [t for t in pools if now - t < WINDOW] + [now]
                 if len(pools) >= 3:
-                    return self.restart(f"the {'alarms' if which else 'sensor'} pool wedged {len(pools)} times in "
+                    return self.restart(f"the {POOLS[which]} wedged {len(pools)} times in "
                                         f"{WINDOW / 60:g} min", "pool")
                 self.new_pool(*wedged, which)
         quiet = now - e.passed_at
@@ -155,7 +166,7 @@ class Watchdog:
             finally:
                 e.lock.release()
         e.wake.set()
-        self.said("pool", quiet, f"a new {'alarms' if which else 'sensor'} pool; {n} reading{'s' if n != 1 else ''} "
+        self.said("pool", quiet, f"a new {POOLS[which]}; {n} reading{'s' if n != 1 else ''} "
                   f"asked again", dump)
 
     def new_loop(self, quiet: float) -> None:
@@ -283,18 +294,35 @@ def startup(state: Path, say, restart, deadline: float | None = None) -> threadi
 
 
 def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None = None,
-              failing: tuple[str, float] | None = None, shard: str | None = None) -> None:
+              failing: tuple[str, float] | None = None, shard: str | None = None, start: bool = False,
+              compute: dict | None = None) -> None:
     """``heartbeat.json`` (a shard engine's: ``heartbeat.SHARD.json``, SPEC §9.8): when the last pass finished (wall
     clock), and this pid. Written at start too, so a watcher never reads a slow start by the last process's heartbeat.
     ``stale``: the limit of ``use: upkeep``'s ``heartbeat-fresh`` (``ir.heartbeat_stale``), for the outer watcher; the
     file is written whole each time, so a model without the template leaves no ``stale`` in it. With ``failing``, the
-    dispatcher's error while every look meets one, and since when (``dispatch_error``)."""
+    dispatcher's error while every look meets one, and since when (``dispatch_error``). With ``start`` (the write as
+    the run starts, before the model is read): the previous file's ``stale`` when it passes ``stale_ok`` and is at
+    least the watcher's 180 s (which comes after ``STARTUP``: a start only ever gets a longer limit), else none."""
     path = state / ("heartbeat.json" if shard is None else f"heartbeat.{shard}.json")
+    stale = _last_stale(path) if start and stale is None else stale
     tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
     err = {"dispatch_error": {"why": failing[0], "since": round(failing[1], 3)}} if failing else {}
+    err.update({"compute": compute} if compute else {})          # (the pools' status, SPEC §12s.4: with pools only)
     try:
         tmp.write_text(json.dumps({"pass": round(passed, 3), "written": round(time.time(), 3), "stalls": stalls,
                                    "pid": os.getpid(), **({"stale": stale} if stale_ok(stale) else {}), **err}))
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+def _last_stale(path: Path) -> float | None:
+    """The ``stale`` of the heartbeat file at ``path`` when it passes ``stale_ok``; None for anything else (no file,
+    one unreadable, not JSON or not an object, a ``stale`` missing, a bool, NaN, out of range, not a number, or under
+    the watcher's ``STALE``, so a carried limit never stops a start still inside its own start-up deadline)."""
+    from ..watcher import STALE
+    try:
+        got = json.loads(path.read_text()).get("stale")
+    except (OSError, ValueError, AttributeError, RecursionError):
+        return None
+    return got if stale_ok(got) and got >= STALE else None

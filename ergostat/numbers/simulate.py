@@ -7,7 +7,8 @@ weather) is driven by what was measured, on the accounting basis of ``observe.py
 what moved, when it moved). So the replay tests exactly the equations the model writes: where they
 are right it follows the record, where they are wrong it drifts, and the drift is the fit. With
 ``integrate=set()`` no stock is integrated: every input is as measured, and each equation is judged
-on its own (the partial-model test proper).
+on its own (the partial-model test proper). A remote's stock (SPEC §4c) is endogenous there and exogenous
+here: unless ``integrate`` asks for it, it is given (its readings), never integrated, in the replay and the projection.
 
 **The step** follows the model's own dynamics, never the units its parameters are written in
 (Sterman, *Business Dynamics*, app. A: a step of a quarter to a tenth of the shortest time
@@ -54,6 +55,7 @@ class Plan:
     flows_in: dict[str, list[str]]
     flows_out: dict[str, list[str]]
     left_out: dict[str, str]            # an equation not run, and why (a parameter with no value)
+    remote: dict[str, str] = field(default_factory=dict)   # a remote's stock, taken as read, never integrated: its remote
 
 
 def plan(spec: Spec, params: dict[str, float] | None = None, extra: dict[str, Equation] | None = None,
@@ -62,7 +64,9 @@ def plan(spec: Spec, params: dict[str, float] | None = None, extra: dict[str, Eq
     an equation (a proposal being tried), with ``extra_params`` (name → (value, unit)) it names;
     ``integrate`` limits the stocks integrated (``set()``: none, the partial-model test); ``given`` are
     parts whose equations are not run, taken as measured (a system calibrated alone: what comes in from
-    outside it is what was measured)."""
+    outside it is what was measured). With ``integrate`` None, a remote's stock (SPEC §4c) is taken as read, never
+    integrated here (``Plan.remote``); a set given is honoured as it is."""
+    from ..remote import remote_of, remote_parts
     values = {n: p.value for n, p in spec.parameters.items() if p.value is not None}
     values.update({n: v for n, (v, _) in (extra_params or {}).items()})
     values.update(params or {})
@@ -93,10 +97,13 @@ def plan(spec: Spec, params: dict[str, float] | None = None, extra: dict[str, Eq
     for r in sorted(eqs):
         visit(r, ())
     stocks = [s for s in spec.stocks if spec.flows_of(s) and (integrate is None or s in integrate)]
+    theirs = remote_parts(spec) if integrate is None else set()
+    remote = {s: remote_of(spec, f"stock.{s}") or "" for s in stocks if f"stock.{s}" in theirs}
+    stocks = [s for s in stocks if s not in remote]
     return Plan(values, eqs, order, stocks,
                 {s: [f"flow.{f.name}" for f in spec.flows_of(s) if f.target == s] for s in stocks},
                 {s: [f"flow.{f.name}" for f in spec.flows_of(s) if f.source == s] for s in stocks},
-                left_out)
+                left_out, remote)
 
 
 @dataclass
@@ -331,6 +338,7 @@ def replay(spec: Spec, data: Data, pl: Plan | None = None, trace: set[str] | Non
     w = w_s / 3600.0
     edges = g.edges()
     notes: list[str] = [f"{r}: its equation is not run ({why}); it is taken as measured" for r, why in pl.left_out.items()]
+    notes += [f"stock.{s} is remote {name}'s: taken as read, never integrated here" for s, name in pl.remote.items()]
     for c in pl.eqs.values():
         c.faults.clear()
     st = _Stepper(pl, pl.integrate)
@@ -477,6 +485,9 @@ def replay(spec: Spec, data: Data, pl: Plan | None = None, trace: set[str] | Non
         if c.decay and all(c.decay):
             tc[r] = sum(1.0 / d for d in c.decay)
     how = {f"stock.{s}": "integrated" for s in pl.integrate} | {r: "equation" for r in pl.eqs}
+    for s in pl.remote:                                  # a remote's stock: its readings, never integrated (SPEC §4c)
+        r = f"stock.{s}"
+        out[r], at_edges[r], how[r] = [data.level_at(r, t) for t in g.times()], [data.level_at(r, t) for t in edges], "given"
     for s in pl.integrate:                               # a reading at the first moment of the replay is where it started
         for i in range(n):
             tr = reading[s][i]
@@ -552,7 +563,8 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
     """From now (``data.grid.until``) for ``horizon`` seconds, open loop: stocks from their last
     readings (the mean of the last few; the replay's end where they have none), delays as the replay
     left them; every input held where it was (``inputs="hold"``) or carried on along its recent trend
-    (``"trend"``; a one-way flow never below 0). What a controller's flow moves is left out.
+    (``"trend"``; a one-way flow never below 0). What a controller's flow moves is left out. A remote's stock
+    (``Plan.remote``) is one of the inputs, held or trended, never integrated; it is in the run, ``given``.
 
     ``rescale`` is the plan the replay ran with, when this one has other values (a sensitivity sample): a
     material delay's contents are then rescaled to this plan's delay time at the same outflow (what is in a
@@ -592,7 +604,9 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
     for r in data.values:
         V[r] = 0.0                                       # what was never measured is taken as 0, as in the replay
     held = controlled(spec) if held is None else held
+    theirs = [f"stock.{s}" for s in pl.remote]           # a remote's stock: an input, held or trended as any other
     out: dict[str, list[float | None]] = {f"stock.{s}": [None] * n for s in pl.integrate} | {r: [None] * n for r in pl.eqs}
+    out |= {r: [None] * n for r in theirs}
     for r, v in (override or {}).items():
         ahead[r] = (v, 0.0)
     mine = control.flows if control is not None else set()
@@ -634,14 +648,16 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
             out[f"stock.{s}"][i] = state[s]
         for r in pl.eqs:
             out[r][i] = V[r]
-    left = sorted(r for r in out if r in held)
+        for r in theirs:
+            out[r][i] = V.get(r) if r in ahead else None
+    left = sorted(r for r in out if r in held and r not in theirs)
     for r in left:
         out[r] = [None] * n
     notes = control.notes() if control is not None else \
         [f"open loop: inputs {'held where they were' if inputs == 'hold' else 'carried on along their trend'}, controllers held"]
     if left:
         notes.append(f"left out downstream of a controller's flow ({len(left)} part{'s' if len(left) > 1 else ''})")
-    how = {f"stock.{s}": "integrated" for s in pl.integrate} | {r: "equation" for r in pl.eqs}
+    how = {f"stock.{s}": "integrated" for s in pl.integrate} | {r: "equation" for r in pl.eqs} | dict.fromkeys(theirs, "given")
     counted = st.counted()
     for r, c in pl.eqs.items():
         c.faults.clear()

@@ -40,6 +40,7 @@ class ItemSet:
     through: str | None = None                                # an activity; ^ started, $ ended
     followed: tuple[str, str] | None = None                   # one activity directly followed by the other
     caused: list[tuple[str, str, str]] = field(default_factory=list)   # (cause kind, its activity, this kind's)
+    taken: str | None = None                                  # taken now by this block: its lease has a holder (SPEC §9.5)
 
     def process(self) -> bool:
         return self.through is not None or self.followed is not None or bool(self.caused)
@@ -53,6 +54,8 @@ class ItemSet:
             q["where"] = [f"{f}:{v}" for f, vs in self.where.items() for v in vs]
         if self.moved is not None:
             q["moved"] = [",".join(self.moved[0]) + ">" + ",".join(self.moved[1])]
+        if self.taken:
+            q["taken"] = [self.taken]
         if self.by:
             q["by"] = [self.by]
         if self.through is not None:
@@ -85,6 +88,8 @@ class ItemSet:
             out.append(" or ".join(f"{b} caused by {a} on a {k}" for k, a, b in self.caused))
         if self.where:
             out.append("where " + ", ".join(f"{f} = {' or '.join(vs)}" for f, vs in self.where.items()))
+        if self.taken:
+            out.append(f"being worked by {self.taken}")
         return " ".join([self.kind + ("," if out else ""), ", ".join(out)]).strip()
 
     def move_matches(self, m: dict) -> bool:
@@ -118,7 +123,7 @@ def asked(q: dict) -> bool:
     span, or more than one state."""
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
     return bool(q.get("where") or one("moved") or "," in (one("state") or "") or one("through") or one("followed")
-                or q.get("caused"))
+                or q.get("caused") or one("taken"))
 
 
 def parse(q: dict, now: float | None = None) -> ItemSet | None:
@@ -145,6 +150,7 @@ def parse(q: dict, now: float | None = None) -> ItemSet | None:
         now = now or time.time()
         s.until = when(one("moved_until"), "moved_until") if one("moved_until") else now
         s.since = when(one("moved_since"), "moved_since") if one("moved_since") else s.until - 3600.0
+    s.taken = one("taken") or None
     s.by = one("by")
     if s.by is not None and s.by not in ("states", "events"):
         raise BadSet(f"by={s.by}: states or events")
@@ -165,6 +171,8 @@ def parse(q: dict, now: float | None = None) -> ItemSet | None:
         now = now or time.time()
         s.until = s.until or (when(one("moved_until"), "moved_until") if one("moved_until") else now)
         s.since = s.since or (when(one("moved_since"), "moved_since") if one("moved_since") else s.until - 3600.0)
+    if s.taken and (s.moved is not None or s.process()):
+        raise BadSet("taken: the items taken now; leave out moved, through, followed and caused")
     return s
 
 
@@ -182,7 +190,10 @@ def select(events, spec, s: ItemSet, until: float | None = None, n: int = its.LI
     moved: dict[str, list[float]] = {}
     if s.process():                                       # the process map's node or line: read as the map was
         return _through(events, spec, s, kinds, n, offset)
-    if s.moved is None:                                   # counted and paged by the index
+    if s.taken:                                           # its lease has a holder, whatever its state: matched here
+        got = taken_by(events, spec, s, until)
+        total, page_its = len(got), got[offset:offset + n]
+    elif s.moved is None:                                 # counted and paged by the index
         total, page_its = its.in_states_page(events, spec, s.kind, s.states or None, its.typed_too(s.where), until, n, offset)
     else:                                                 # the span's moves, from the index; which count, here
         a, b = s.moved
@@ -270,7 +281,8 @@ def of_part(spec, kind: str, name: str, since: float, until: float, model=None) 
         how = f"counted by its sensor {s.name}: the {k} items " + (f"in {' or '.join(states)}" if s.items.get("state") else "in any state")
         if s.items.get("measure") == "oldest":
             how += "; its value is the hours the oldest of them has been in its state"
-        return {"set": x.params(), "says": x.says(), "how": how}
+        # counting every state, its set is its kind alone: its link says to list the finished too (SPEC §5a)
+        return {"set": {**x.params(), **({} if x.states else {"finished": ["show"]})}, "says": x.says(), "how": how}
     f = spec.flows.get(name)
     if f is None:
         return {"none": "not a stock or a flow"}
@@ -396,15 +408,27 @@ def counted_by(spec, kind: str, name: str) -> dict | None:
     return {"kind": q["kind"], "says": f"{lead.get(q.get('measure'), 'Counts')} items of kind {q['kind']} in state {states}{where}"}
 
 
+def taken_by(events, spec, s: ItemSet, until: float | None) -> list:
+    """A taken set's items (``s.taken``, a block): those whose lease has a holder of that block now, in any state (a
+    run's first event may have moved one on from ``leased``); an acked or given-back one has none. Latest first."""
+    from ..leases.fold import held
+    where = {**its.typed_too(s.where), "lease.block": [s.taken]}
+    _, got = its.in_states_page(events, spec, s.kind, s.states or None, where, until, n=10**9)
+    return [i for i in got if held(i.fields)]
+
+
 def leased_by(events, spec, flow: str, until: float) -> list[dict]:
     """The blocks that take items (``takes:``, leased one to a run) and move this flow: for its valve's panel, each
-    with its kind, how many it holds now, and the Items page's set of exactly those (``leased``, by that block)."""
-    from .ir import LEASED, Ref
+    with its kind, how many it has taken now (``taken``: a lease with a holder, whatever the item's state), the Items
+    page's set of exactly those (``set``), and how many wait for it (``waiting``: in its ``at`` states, matching its
+    ``where``, not taken)."""
+    from ..leases.fold import held
+    from .ir import Ref
     out = []
     for b in (spec.blocks.values() if spec else ()):
         if b.takes and Ref("flow", flow) in b.targets():
-            x = ItemSet(b.takes.kind, states=[LEASED], where={"lease.block": [b.name]})
-            n, _, _ = its.in_states(events, spec, x.kind, x.states, {"lease.block": b.name}, until=until)
-            out.append({"block": b.name, "agent": b.agent, "kind": x.kind, "held": n,
-                        "set": x.params()})
+            x = ItemSet(b.takes.kind, taken=b.name)
+            _, _, at = its.in_states(events, spec, x.kind, b.takes.at, b.takes.where or {}, until=until, items=True)
+            out.append({"block": b.name, "agent": b.agent, "kind": x.kind, "taken": len(taken_by(events, spec, x, until)),
+                        "waiting": sum(1 for i in at if not held(i.fields)), "at": list(b.takes.at), "set": x.params()})
     return out

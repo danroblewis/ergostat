@@ -11,6 +11,9 @@
 "use strict";
 
 const PANE = new URLSearchParams(location.search).has("pane");      // this page is the second pane, in a frame
+/* ?pane=embed: a Dashboard's diagram panel (panels.js: diagramPanel), drawn read-only and fitted, with no toolbar or
+   side panel, asked again only on the dashboard's poll, and saying to it whether it fits (diagram.js: embedFit) */
+const EMBED = new URLSearchParams(location.search).get("pane") === "embed";
 const SPLIT_MIN = 240, SPLIT_CLOSE = 96, SPLIT_NARROW = 700;
 const SPLIT_EDGES = ["left", "right", "top", "bottom"];
 const SPLIT = (() => {
@@ -23,7 +26,7 @@ function splitSave() {
 }
 let splitPane = null, splitSep = null, splitFrame = null;
 
-const OTHER_PAGES = ["/loops", "/agents", "/record", "/items", "/model", "/fit", "/residuals", "/check", "/guide", "/item/"];
+const OTHER_PAGES = ["/dashboard", "/goals", "/loops", "/agents", "/record", "/items", "/model", "/fit", "/residuals", "/check", "/guide", "/item/"];
 function diagramHash(r) {                            // a route (or an old #/ address) that draws a diagram
   const path = (String(r || "").replace(/^#/, "") || "/diagram").split("?")[0];
   return !OTHER_PAGES.some((p) => path === p || (p.endsWith("/") && path.startsWith(p)));
@@ -38,6 +41,7 @@ function peerSay(msg) {
 }
 window.addEventListener("message", (ev) => {
   const m = ev.data;
+  if (EMBED && m?.ergostat === "embed" && m.type === "poll" && ev.source === window.parent) { S.embedTick?.(); return; }
   if (!m || m.ergostat !== "split" || ev.source !== (PANE ? window.parent : splitFrame?.contentWindow)) return;
   if (m.type === "sel") {                              // chosen there: chosen here, and this pane's panel lets go
     S.sel = new Set(m.parts || []);
@@ -151,10 +155,10 @@ function splitGrips(wrap) {
 
 if (PANE) {
   /* the second pane: no header; the side panel over it; a page that is not a diagram opens in the page */
-  document.body.classList.add("pane", "split-on");
+  document.body.classList.add("pane", "split-on", ...(EMBED ? ["embed"] : []));
   for (const k of ["--main-top", "--main-right", "--main-bottom", "--main-left"]) document.body.style.setProperty(k, "0px");
   // (a link to a page that is not a diagram is sent to the page itself: navigate, util.js)
-  peerSay({ type: "hello" });                         // what is chosen already, please
+  if (!EMBED) peerSay({ type: "hello" });             // what is chosen already, please
 } else {
   window.addEventListener("resize", () => splitLayout());
   const bar = document.querySelector("header.bar");

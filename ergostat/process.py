@@ -13,8 +13,10 @@ Each map's nodes are its kind's activities, by one of two readings (``by``):
 
 and two more nodes, where its items start (their first event, in the window) and end (they reached a
 state the kind counts as finished). Each node has how many times it happened in the window, each line
-how many times and the median time between its two ends. A line from a later step to an earlier one is
-rework (``rework``): a loop.
+how many times and the median time between its two ends. A passage along a line is a **return** when it
+takes its item back to a step that item has already done (by States, its moves before the window count too):
+rework is a repeated step, and a line is ``rework`` when any passage along it is a return, with how many
+(``returns``). The order in which different items take steps never counts.
 
 Bounded: the newest ``MOST_EVENTS`` events in the window are read, the moves of at most ``MOST_ITEMS``
 items, and the ``MOST_NODES`` most frequent nodes and ``MOST_EDGES`` most frequent lines are drawn; what
@@ -174,6 +176,7 @@ class Window:
         self.started: dict[str, bool] = {}
         self.ended: dict[str, bool] = {}
         self.before: dict[str, float] = {}       # (states) when it entered the state its first move in the span left
+        self.done_before: dict[str, set[str]] = {}   # (states) the states it entered before the span
         self.folded: dict[str, object] = {}
         for k in kinds:
             if self.by == "states" and spec.items[k].states:
@@ -190,11 +193,13 @@ class Window:
         done = _done(self.spec, self.events, self.spec.items[kind])
         for id, it in got.items():
             self.kind_of.setdefault(id, kind)
-            steps, prev = [], None
+            steps, prev, earlier = [], None, set()
             for m in unleased(it.moves):
                 if m["time"] > self.until:
                     break
-                if m["time"] >= self.since:
+                if m["time"] < self.since:
+                    earlier.add(m["to"])
+                else:
                     if not steps:
                         self.started[id] = m["from"] is None
                         if prev is not None:
@@ -203,6 +208,7 @@ class Window:
                 prev = m
             if steps:
                 self.steps[id] = steps
+                self.done_before[id] = earlier
                 self.ended[id] = prev is not None and prev["to"] in done and prev["time"] >= self.since
 
     def _events(self, kind: str) -> None:
@@ -376,6 +382,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
                                          "label": label, "count": 0, "_items": set()}
         return x
 
+    returns: dict[str, int] = {}                           # each kind's passages back to a step its item had done
     pos: dict[tuple[str, str], list[float]] = {}           # each activity's place in its items' runs (events: its order)
     for id, steps in w.steps.items():
         kind = w.kind_of[id]
@@ -392,15 +399,23 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
             x = node(kind, END)
             x["count"] += 1
             x["_items"].add(id)
+        seen = set(w.done_before.get(id, ()))                # the steps this item has done: one again is a return
         for (t0, a, _, _), (t1, b, _, _) in w._pairs(id, steps):
+            if a != START:
+                seen.add(a)
+            back = b != END and b in seen
+            seen.add(b)
             node(kind, a)
             node(kind, b)
             key = f"f:{kind}:{a}>{b}"
             e = edges.get(key)
             if e is None:
                 e = edges[key] = {"id": key, "kind": "follows", "source": nid(kind, a), "target": nid(kind, b),
-                                  "itemKind": kind, "from": a, "to": b, "count": 0, "_times": [], "_items": set()}
+                                  "itemKind": kind, "from": a, "to": b, "count": 0, "returns": 0, "_times": [],
+                                  "_items": set()}
             e["count"] += 1
+            e["returns"] += back
+            returns[kind] = returns.get(kind, 0) + back
             e["_items"].add(id)
             if t0 is not None and t1 is not None and a not in (START,) and b not in (END,):
                 e["_times"].append(max(0.0, t1 - t0))
@@ -468,10 +483,8 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
             order[x["id"]] = float(k.states.index(a))
         else:                                  # an event: its usual place in its items' runs (the first, 0)
             order[x["id"]] = median(pos.get((x["itemKind"], a), [0.0]))
-    def place(id):                                         # as the page lays them out: ties by name
-        return order[id], nodes[id]["activity"]
     for e in edges.values():
-        e["rework"] = e["kind"] == "follows" and (e["source"] == e["target"] or place(e["target"]) < place(e["source"]))
+        e["rework"] = e.get("returns", 0) > 0              # a repeated step on one item (SPEC §5b), never other items' order
         e["self"] = e["source"] == e["target"]
     total = {"nodes": len(nodes), "edges": len(edges)}
     # the frequency filter: lines below the share of their kind's most frequent left out
@@ -525,7 +538,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         ki = spec.items[k]
         info.append({"name": k, "states": list(ki.states), "drawn": k in present,
                      "by": by if (by == "events" or ki.states) else "events",
-                     "items": sum(1 for id in w.steps if w.kind_of.get(id) == k)})
+                     "items": sum(1 for id in w.steps if w.kind_of.get(id) == k), "returns": returns.get(k, 0)})
     out = {"kind": "process", "by": by, "paths": paths, "kinds": info, "nodes": out_nodes, "edges": out_edges,
            "since": since, "until": until, "events": len(w.evs), "capped": {k: v for k, v in capped.items() if v},
            "total": total, "hidden": hidden, "most": {"nodes": MOST_NODES, "edges": MOST_EDGES, "events": MOST_EVENTS},
