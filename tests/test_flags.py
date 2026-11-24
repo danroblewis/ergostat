@@ -76,8 +76,9 @@ def test_a_flagged_off_path_is_unreachable_by_default(tmp_path, monkeypatch):
     with pytest.raises(flags.UnknownFlag):                              # the env var never declares one
         monkeypatch.setenv(flags.ENV, "bored")
         flags.on("bored", decl)
-    # the shipped file parses and gates nothing
-    assert flags.parse(flags.FILE.read_text()) == {}
+    # the shipped file parses (parse raises otherwise: a malformed file would read every flag as off and skip every
+    # flagged test silently); what it declares is the tree's own business, so a change may declare a flag
+    assert isinstance(flags.parse(flags.FILE.read_text()), dict)
     assert flags.REL == str(flags.FILE.relative_to(ROOT))
 
 

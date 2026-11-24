@@ -75,6 +75,18 @@ Run here (round 2): tests/test_flags.py (6 passed); ruff clean on ergostat, test
 `git merge main`: already up to date. Not run here: the unit suite and the four browser files. No test in the tree
 carries a flag marker, so the new check runs for none of them.
 
+Round 3. The review's one finding, which blocked: tests/test_flags.py pinned the shipped ergostat/flags.json to `{}`,
+so the first change declaring a flag (the guide's first step) would fail its own build. Now the test asserts only that
+the shipped file parses (`flags.parse` raises on anything but the allowed form), so a malformed flags.json still fails
+the suite rather than reading every flag as off and skipping every flagged test silently. Seen both ways (lesson-9):
+with `board` declared off in the shipped file the test passes (it failed before this change); with a malformed
+declaration (`{"board": {"on": false}}`) it fails with the parse's ValueError; the file was restored to `{}`. No code
+outside tests changed; total still 143 of 600. The "Its entry" line in the review's brief reports other gaps'
+records on main as unreadable (agent-show-page and six more); none is this gap's, and they are not touched here.
+
+Run here (round 3): tests/test_flags.py (6 passed); ruff clean on ergostat, tests, scripts; `git merge main`:
+already up to date. Not run here: the unit suite and the four browser files.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)
