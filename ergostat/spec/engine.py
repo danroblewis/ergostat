@@ -1779,6 +1779,8 @@ class Engine:
             if getattr(self.spec, "notify", None):              # what newly waits on a person, sent (SPEC §12o)
                 from ..inbox import deliver
                 deliver.start(self.p, self.spec, self.say)
+            from .. import itemmetrics
+            itemmetrics.kept(self.p, self.spec, self.say)        # the minutes of item metrics not yet written (SPEC §4b)
 
     def _follow(self, seq: int) -> None:
         """Approvals of advised commands, and the owner's asks to stop a run, from the CLI: looked for when the record is
