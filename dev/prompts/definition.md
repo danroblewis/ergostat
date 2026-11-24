@@ -12,11 +12,15 @@ Branch `BRANCH`, from main. Where the gap came from (its GAPS.md entry, or who a
 
 ## Definition of done
 
-One paragraph: what is true when this is done, said so a reviewer can check it.
+One paragraph: what is true when this is done, said so a reviewer can check it. A gap is a vertical slice: it works end
+to end and lands on its own (record, engine, answer, page and docs for a narrow part of the feature), never one layer
+that only works once another gap lands. Example: the Agent page was built as layers (`agent-spec-api`, the answer for
+every rung with nothing to see, then `agent-show-page`); as slices it is /agent/work showing an ai block's prompt end
+to end, then a rule's law, then a program's files, each seen working and tested on the page when it lands.
 
 ## Acceptance tests
 
-- `tests/test_x.py::test_name`: what it shows.
+- `tests/test_x.py::test_name`: what it shows, end to end; this gap's own test, never one another gap also names.
 
 ## Size budget
 

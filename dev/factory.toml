@@ -25,6 +25,9 @@ scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "
                                      # name: the implementor's program refuses the build before the suites
                                      # (dev/bin/implement.py strays; the last five from 2026-11-21's real strays)
 
+[plan]                               # the planner's rules (dev/bin/plan.py)
+own_tests = false                    # true: a split's sub-gaps are vertical slices, a test two of them name sends it back
+
 [planning]                           # planning by a gap's size class (dev/bin/plan.py; dev/README.md, Planning by size)
 min_size_confidence = 0.5            # a class is trusted at this confidence or above (low 0.25, medium 0.5, high
                                      # 0.75; 0-1); unset: none is, and every gap takes the full planner

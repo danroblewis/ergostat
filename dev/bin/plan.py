@@ -4,7 +4,8 @@
                       (brief.graph), a session writes its definition of done (acceptance tests by name, a budget, the
                       review lessons that apply as risks, the files to touch). Or it splits the gap into sub-gaps
                       (`depends-on` among them, `parent:` the gap, which waits in split until every one is merged; each
-                      at most 250 net lines, its <coverage> block saved as run/plans/<parent>.md), or
+                      at most 250 net lines, its <coverage> block saved as run/plans/<parent>.md; with [plan]
+                      own_tests = true, vertical slices: a test two sub-gaps name sends the split back), or
                       asks research questions and waits for their answers (a question dead, or unanswered after 12
                       waits, is planned without, and the brief says so). Each definition is linted (lint: no AI): one
                       that fails goes back with the findings (the 6th lint failure parks: a planner that cannot write
@@ -102,6 +103,25 @@ def size_settings(cfg: dict) -> tuple[float, float]:
     if bad:
         raise SystemExit("plan.py: " + "; ".join(bad))
     return m, bar
+
+
+def own_tests(cfg: dict) -> bool:
+    """[plan] own_tests: true holds a split to vertical slices, each sub-gap's acceptance tests its own (shared); off
+    unless declared. Anything but true or false stops the run before any session (SystemExit)."""
+    on = (cfg.get("plan") or {}).get("own_tests", False)
+    if type(on) is not bool:
+        raise SystemExit(f"plan.py: [plan] own_tests = {on!r} is not true or false")
+    return on
+
+
+def shared(defs: list[tuple[str, str, str]]) -> list[str]:
+    """In a split, each acceptance test that more than one sub-gap names (a layer that only the slices together pass)."""
+    by: dict[str, list[str]] = {}
+    for name, _, body in defs:
+        for t in sorted(set(TEST.findall(brief.section(body, "Acceptance tests") or ""))):
+            by.setdefault(t, []).append(name)
+    return [f"`{t}` is named by sub-gaps {', '.join(map(repr, names))}: each slice works end to end with acceptance "
+            "tests of its own" for t, names in by.items() if len(names) > 1] if len(defs) > 1 else []
 
 
 def size_path(gap: dict, bar: float) -> str | None:
@@ -363,6 +383,7 @@ def problems(defs: list[tuple[str, str, str]], branch: str, known: set[str]) -> 
 
 def planner(cfg: dict, gap: dict) -> int:
     m_cap, bar = size_settings(cfg)                     # before anything: no session under a bad setting
+    slices = own_tests(cfg)
     f, branch, now = gap["fields"], fac.branch_of(gap), time.time()
     import intake
     import research as rs
@@ -419,7 +440,8 @@ def planner(cfg: dict, gap: dict) -> int:
     cover, uncovered = coverage(said, [d[0] for d in defs]) if len(defs) > 1 else ("", [])
     whole = path == "XL" and len(defs) == 1 and defs[0][0] == branch
     xl = [f"an XL gap must split: not one definition for {branch} (sub-gaps of at most {SUB_GAP_MOST_LINES} lines)"]
-    if wrong := problems(defs, branch, known) + uncovered + (xl if whole else []) or linted(cfg, defs):
+    own = shared(defs) if slices else []
+    if wrong := problems(defs, branch, known) + uncovered + own + (xl if whole else []) or linted(cfg, defs):
         return send_back(cfg, gap, wrong, **record)
     if cover:                                            # the parent's plan, over any earlier split's (lesson-5)
         (fac.run_dir(cfg, "plans") / f"{branch}.md").write_text(f"<coverage>\n{cover}\n</coverage>\n")
