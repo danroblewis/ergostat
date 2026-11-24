@@ -300,6 +300,31 @@ Run here, none skipped:
 
 Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
 
+### Round 9
+
+The factory merged main (e8669794) into the branch, and it conflicted in three files. I resolved each one in d483a580,
+keeping both sides:
+- `ergostat/datasources/_frames.py`: main's `response` frame (`_response`, `_pairs`, `_plain`, and its docstring line)
+  sits beside the branch's `_buckets` and `_graph`. `answer` takes all six, and its refusal names them all.
+- `ergostat/query/engine.py`: a reader's refusal keeps the branch's `error_code: "reader"`, under main's new condition
+  (a reader may still ask the model's own source, `datasources.own`). It also passes main's `reader` on to
+  `_from_source`.
+- SPEC §4e *Result shapes*: the branch's paragraph, with main's `response` frame (poles and zeros as `[re, im]`, and
+  `supported: false` carrying no curve) added to the list of typed frames.
+
+The auto-merged `query/frames.py` already gives a `supported: false` response the branch's `no-coherence` reason. No
+other code changed. Outside tests, docs and dev the branch is 389 lines added and 59 removed: one more line than
+before, because the engine's condition is now split over two lines.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62); test_model_data_source,
+  test_query_engine and test_result_shapes (102), which include main's response frames; test_web_access,
+  test_dashboards and test_web_lanes (69).
+- Browser, rc 0: test_result_frames_page, test_result_shapes_page and test_data_source_panels (16).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently
