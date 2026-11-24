@@ -117,6 +117,46 @@ def picks(pg) -> list[tuple[str, str]]:
             for li in pg.locator(".pq-list .pq-pick").all()]
 
 
+def open_sql(page, site):
+    page.goto(site + "/dashboard")
+    page.wait_for_function("() => typeof openPanelEditor === 'function'")
+    page.evaluate("""() => openPanelEditor({ id: 'n', title: 'New', note: '', form: 'table', queries: [{ id: 'a' }],
+                                             display: {}, size: 'm', tall: false }, {})""")
+    page.wait_for_function("() => [...document.querySelectorAll('.pe-q select[data-slot=source] option')]"
+                           ".some((o) => o.value === 'record')")
+    page.locator('.pe-q select[data-slot="source"]').first.select_option("record")
+    area = page.locator('.pe-q textarea[data-slot="text"]')
+    area.click()
+    return area
+
+
+def test_code_editor_sql_lists_open_before_anything_is_typed(page, site):
+    """promql-code-editor: after FROM the views are listed with nothing typed; after "ALIAS." only that view's columns;
+    after WHERE the named views' columns; Ctrl+Space lists SQL's own words too; lines numbered, brackets matched."""
+    area = open_sql(page, site)
+    page.keyboard.type("select count(*) as n from ")
+    got = picks(page)
+    assert ("view", "item_spans") in got and ("view", "ticket") in got and {k for k, _ in got} == {"view"}
+    page.keyboard.type("ticket t where t.")
+    got = picks(page)
+    assert ("column", "owner") in got and {k for k, _ in got} == {"column"}
+    page.keyboard.press("Escape")
+    page.keyboard.type("owner = 'ana'\nand ")
+    got = picks(page)
+    assert ("column", "owner") in got and {k for k, _ in got} == {"column"}   # (none of SQL's words until asked)
+    page.keyboard.press("Escape")
+    page.keyboard.press("Control+Space")
+    kinds = {k for k, _ in picks(page)}
+    assert {"column", "function", "keyword"} <= kinds
+    page.keyboard.press("Escape")
+    assert area.input_value() == "select count(*) as n from ticket t where t.owner = 'ana'\nand "
+    assert page.locator(".pq-lines").inner_text().split() == ["1", "2"]
+    page.keyboard.press("Control+Home")
+    for _ in range(len("select count(*")):
+        page.keyboard.press("ArrowRight")
+    assert page.locator(".pq-hl .pq-match").all_inner_texts() == ["(", ")"]   # the ")" after the caret and its "("
+
+
 def test_the_query_box_highlights_sql_and_completes_views_and_their_columns(page, site):
     page.goto(site + "/dashboard")
     page.wait_for_function("() => typeof openPanelEditor === 'function'")

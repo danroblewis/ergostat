@@ -137,6 +137,103 @@ def test_a_metric_name_a_label_and_a_label_value_are_completed_against_the_sourc
     assert pg.locator(".pq-hl .pq-function").all_inner_texts() == ["rate"]
 
 
+def pick(pg, name: str) -> None:
+    """Choose ``name`` in the open list with the arrow keys and Enter, as one would by hand."""
+    n = [x for _, x in picks(pg)].index(name)
+    for _ in range(n):
+        pg.keyboard.press("ArrowDown")
+    pg.keyboard.press("Enter")
+
+
+def test_code_editor_lists_open_before_anything_is_typed_and_the_panel_answers(editor, site):
+    """promql-code-editor done 1: a metric, a label name and a label value each picked from a list (the label's and the
+    value's opening at an empty prefix: after "{" and after a bare "="), and the panel draws the query's answer."""
+    pg, open_on = editor
+    _, kinds = site
+    area = open_on("prom")
+    pg.keyboard.type("http_r")
+    shows(pg, "http_requests_total", "metric")
+    pick(pg, "http_requests_total")
+    pg.keyboard.type("{")
+    shows(pg, "job", "label")                                     # (nothing typed after the brace)
+    pick(pg, "job")
+    pg.keyboard.type("=")
+    shows(pg, "worker", "value")                                  # (no quote typed: it is put in)
+    assert [n for _, n in picks(pg)] == ["api", "worker"]
+    pick(pg, "worker")
+    assert area.input_value() == 'http_requests_total{job="worker"'
+    pg.keyboard.type("}")
+    want = 'http_requests_total{job="worker"}'
+    assert pg.locator(".pq-hl .pq-match").all_inner_texts() == ["{", "}"]   # the brace at the caret and its match
+    assert pg.locator(".pq-lines").inner_text().split() == ["1"]
+    asked = lambda: any(a.get("query") == want for _, path, a in kinds["prom"].seen if path == "/api/v1/query_range")  # noqa: E731
+    deadline = time.monotonic() + 10
+    while not asked() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert asked()                                                # the panel's preview asked the source the query typed
+    pg.wait_for_function("() => document.querySelector('.pe-preview [data-state]')?.dataset.state === 'drawn'", timeout=10000)
+    assert pg.locator(".pe-q-msg").inner_text().strip() == ""
+    pg.keyboard.press("Control+Home")
+    pg.keyboard.type("rate(")
+    pg.keyboard.press("Control+Space")                            # asked for: the metrics at an empty prefix
+    shows(pg, "up", "metric")
+    pg.keyboard.press("Escape")
+    assert pg.locator(".pq-list:not([hidden])").count() == 0
+    assert area.input_value() == "rate(" + want
+
+
+def test_code_editor_numbers_lines_matches_brackets_and_marks_the_refusal(editor, site):
+    """promql-code-editor done 2: a refused query of two lines marked at the place the source names, with its lines
+    numbered and the bracket at the caret drawn with its own match (or as unmatched)."""
+    pg, open_on = editor
+    area = open_on("prom")
+    text = "sum(rate(up[5m]))\n  $ 2"
+    area.fill(text)
+    err = pg.locator(".pq-hl .pq-err")
+    err.wait_for(timeout=10000)
+    assert err.inner_text() == "$" and err.get_attribute("data-at") == str(text.index("$"))
+    assert "2:3: parse error" in err.get_attribute("title")
+    assert pg.locator(".pq-lines").inner_text().split() == ["1", "2"]
+    pg.keyboard.press("Control+Home")
+    pg.keyboard.press("End")                                      # after the last ")" of line 1: it closes sum's "("
+    match = pg.locator(".pq-hl .pq-match")
+    assert match.all_inner_texts() == ["(", ")"]
+    assert match.first.evaluate("(s) => s.previousSibling.textContent") == "sum"
+    pg.keyboard.press("ArrowLeft")                                # after the one before it: it closes rate's
+    assert match.first.evaluate("(s) => s.previousSibling.textContent") == "rate"
+    assert err.count() == 1                                       # (moving the caret keeps the mark)
+    area.fill("sum(up(")
+    pg.keyboard.press("End")
+    assert pg.locator(".pq-hl .pq-nomatch").all_inner_texts() == ["("] and match.count() == 0
+
+
+def test_code_editor_page_loads_with_nothing_asked_beyond_ergostat(browser, site):
+    """promql-code-editor done 3: every request not to ergostat's own server is refused, and the page still loads and
+    the query box mounts, highlights and completes."""
+    url, _ = site
+    ctx = browser.new_context(viewport={"width": 1440, "height": 1000})
+    outside, errors = [], []
+    ctx.route("**/*", lambda r: r.continue_() if r.request.url.startswith(url + "/") else (outside.append(r.request.url), r.abort()))
+    pg = ctx.new_page()
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        pg.goto(url + "/dashboard")
+        pg.wait_for_function("() => typeof openPanelEditor === 'function' && !!window.codeBox && !!window.queryEditors?.PromQL")
+        pg.evaluate("""() => openPanelEditor({ id: 'n', title: 'New', note: '', form: 'line', queries: [{ id: 'a' }],
+                                               display: {}, size: 'm', tall: false }, {})""")
+        pg.wait_for_function("() => [...document.querySelectorAll('.pe-q select[data-slot=source] option')]"
+                             ".some((o) => o.value === 'prom')")
+        pg.locator('.pe-q select[data-slot="source"]').first.select_option("prom")
+        pg.locator('.pe-q textarea[data-slot="text"]').click()
+        pg.keyboard.type("up{")
+        shows(pg, "job", "label")
+        assert pg.locator(".pq-hl .pq-metric").all_inner_texts() == ["up"]
+        assert pg.locator(".pq-lines").is_visible()
+        assert outside == [] and errors == []
+    finally:
+        ctx.close()
+
+
 def test_a_syntax_error_is_marked_where_the_source_says_it_is_and_ctrl_enter_runs(editor, site):
     pg, open_on = editor
     _, kinds = site
