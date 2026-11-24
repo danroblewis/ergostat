@@ -12,6 +12,9 @@ interface as ``store.Events``, without SQLite.
   and the columns (seq, time, item, type, and the rows ordered by item and by type), so a query by
   item, type and time reads only what matches, and only the blocks those rows are in;
 - ``seg-<...>.ids``: the ids, a line per row, read only to find one event by its id;
+- ``seg-<...>.cby``, ``.src``: its index of what caused each event and of its source (``Keys``), so ``caused_by`` and
+  a query by source read only the segments, blocks and rows that hold them; written as it is sealed, and built once
+  (from its blocks, then kept beside it) for a segment sealed before segments had them;
 - ``meta.json``: the generation, changed whenever events are taken out (pruned, rolled up);
 - ``layout``: a token replaced (atomically, under the lock) by a seal, a roll-up or a prune, once its
   segments are written and before the head is rewritten.
@@ -49,6 +52,75 @@ BLOOM_K = 7
 COLS = (("seq", "q"), ("time", "d"), ("item", "i"), ("type", "I"), ("by_item", "I"), ("by_type", "I"), ("pos", "I"))
 SNAPSHOT = "ergostat.item.snapshot"
 INF = float("inf")
+KEYED = {"causedby": ".cby", "source": ".src"}   # the fields indexed beside each segment, and each one's file
+
+
+def _key(v) -> int:
+    """A value's key in a keyed index: a 64-bit hash (two values sharing one are told apart by the event itself)."""
+    return int.from_bytes(hashlib.blake2b(str(v).encode(), digest_size=8).digest(), "little", signed=True)
+
+
+class Keys:
+    """A segment's index of one field (``KEYED``), in a file beside it: a JSON header line, then the keys sorted
+    (``q``), where each one's rows start (``I``, one more than the keys), and the rows (``I``, by key then row). The
+    keys and starts are kept in memory; a key's rows are read from the file when asked (``rows`` kept instead when
+    the file could not be written)."""
+
+    def __init__(self, path: Path, keys, starts, at: int, rows=None):
+        self.path, self.keys, self.starts, self.at, self.rows = path, keys, starts, at, rows
+
+    @classmethod
+    def write(cls, path: Path, field: str, values: list) -> Keys:
+        pairs = sorted((_key(v), r) for r, v in enumerate(values) if v is not None)
+        keys, starts = array.array("q"), array.array("I")
+        for i, (h, _) in enumerate(pairs):
+            if not keys or keys[-1] != h:
+                keys.append(h)
+                starts.append(i)
+        starts.append(len(pairs))
+        rows = array.array("I", (r for _, r in pairs))
+        head = (json.dumps({"field": field, "keys": len(keys), "rows": len(rows)}) + "\n").encode()
+        tmp = path.with_suffix(f".{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            with open(tmp, "wb") as f:
+                f.write(head + keys.tobytes() + starts.tobytes() + rows.tobytes())
+            os.replace(tmp, path)
+        except OSError:                          # (a record this process cannot write: kept in memory instead)
+            tmp.unlink(missing_ok=True)
+            return cls(path, keys, starts, 0, rows)
+        return cls(path, keys, starts, len(head) + 8 * len(keys) + 4 * len(starts))
+
+    @classmethod
+    def read(cls, path: Path) -> Keys | None:
+        """The index in this file; None when it is not there or not whole (then it is built again)."""
+        try:
+            raw = path.read_bytes()
+            nl = raw.index(b"\n") + 1
+            h = json.loads(raw[:nl])
+            k, n = int(h["keys"]), int(h["rows"])
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        if len(raw) != nl + 8 * k + 4 * (k + 1) + 4 * n:
+            return None
+        keys, starts = array.array("q"), array.array("I")
+        keys.frombytes(raw[nl:nl + 8 * k])
+        starts.frombytes(raw[nl + 8 * k:nl + 12 * k + 4])
+        return cls(path, keys, starts, nl + 12 * k + 4)
+
+    def of(self, value) -> list[int]:
+        """The rows whose value may be ``value`` (its key's), in row order."""
+        h = _key(value)
+        i = bisect.bisect_left(self.keys, h)
+        if i == len(self.keys) or self.keys[i] != h:
+            return []
+        a, b = self.starts[i], self.starts[i + 1]
+        if self.rows is not None:
+            return list(self.rows[a:b])
+        with open(self.path, "rb") as f:
+            f.seek(self.at + 4 * a)
+            got = array.array("I")
+            got.frombytes(f.read(4 * (b - a)))
+        return list(got)
 
 
 def unpacked(e) -> dict:
@@ -153,6 +225,7 @@ class _Head:
         self.by_item: dict = {}
         self.by_type: dict = {}
         self.t_min = INF                                   # the earliest time it holds (``first_time``)
+        self.by_key: dict = {f: {} for f in KEYED}
         for e in evs:
             self.add(e)
 
@@ -163,6 +236,9 @@ class _Head:
         self.seqs.append(e["seq"])
         self.by_item.setdefault(e.get("item"), []).append(i)
         self.by_type.setdefault(e["type"], []).append(i)
+        for f, ix in self.by_key.items():
+            if e.get(f) is not None:
+                ix.setdefault(e[f], []).append(i)
 
     def __len__(self) -> int:
         return len(self.evs)
@@ -191,6 +267,7 @@ class Segment:
         self.tallies: dict | None = h.get("tallies")     # what it adds up to, per tally and item (TALLIES); older segments: none
         self.m = len(self.bloom) * 8
         self._cols: dict | None = None
+        self.keys: dict[str, Keys] = {}                  # its keyed indexes (KEYED) read so far
 
     def at(self, item) -> int | None:
         """Where ``item`` is in ``items``, or None."""
@@ -257,6 +334,8 @@ def write_segment(d: Path, events: list[dict]) -> Path:
         f.flush()
         os.fsync(f.fileno())
     ids.write_text("\n".join(e["id"] for e in events) + "\n")
+    for field, suf in KEYED.items():
+        Keys.write(d / f"{name}{suf}", field, [e.get(field) for e in events])
 
     def spans(order, key, names):
         out, at = {}, 0
@@ -316,6 +395,8 @@ class Segments:
         self._block_bytes = 0
         self._open_cols: OrderedDict = OrderedDict()
         self._tallies: OrderedDict = OrderedDict()
+        # what queries cost: blocks unpacked, events parsed, keyed indexes built for a segment that had none
+        self.reads = {"blocks": 0, "rows": 0, "built": 0}
         from .notify import key_of
         self._nkey = key_of(directory)                    # its waiters' board (notify.py)
         self._sync()
@@ -426,10 +507,7 @@ class Segments:
             if got is not None:
                 self._blocks.move_to_end(key)
                 return got[0]
-        off, n = s.blocks[b]
-        with open(s.gz(), "rb") as f:
-            f.seek(off)
-            text = gzip.decompress(f.read(n)).decode()
+        text = self._unpack(s, b)
         evs = [x for x in text.splitlines() if x]                  # parsed when read: never shared
         with self._lock:
             self._blocks[key] = (evs, len(text))
@@ -438,13 +516,48 @@ class Segments:
                 self._block_bytes -= self._blocks.popitem(last=False)[1][1]
         return evs
 
+    def _unpack(self, s: Segment, b: int) -> str:
+        off, n = s.blocks[b]
+        with open(s.gz(), "rb") as f:
+            f.seek(off)
+            text = gzip.decompress(f.read(n)).decode()
+        with self._lock:
+            self.reads["blocks"] += 1
+        return text
+
     def _event(self, s: Segment, row: int) -> dict:
         p = self._cols(s)["pos"][row]
+        self.reads["rows"] += 1
         return json.loads(self._block(s, p // BLOCK)[p % BLOCK])
 
+    def _keys(self, s: Segment, field: str) -> Keys:
+        """The segment's index of ``field``: from the file beside it, else (a segment sealed before it had one, or its
+        file unreadable) built once from its blocks and written there, every keyed field at once."""
+        got = s.keys.get(field) or Keys.read(s.path.with_suffix(KEYED[field]))
+        if got is None:
+            by_item, vals = self._cols(s)["by_item"], {f: [None] * s.count for f in KEYED}
+            p = 0
+            for b in range(len(s.blocks)):            # (unpacked here, not through the blocks kept: it reads them all)
+                for line in self._unpack(s, b).splitlines():
+                    if line:
+                        e = json.loads(line)
+                        for f in KEYED:
+                            vals[f][by_item[p]] = e.get(f)
+                        p += 1
+            if p != s.count:
+                raise ValueError(f"{s.name}: {p} events in its blocks, {s.count} in its index")
+            for f, suf in KEYED.items():
+                s.keys[f] = Keys.write(s.path.with_suffix(suf), f, vals[f])
+            with self._lock:
+                self.reads["built"] += 1
+            return s.keys[field]
+        s.keys[field] = got
+        return got
+
     def _rows(self, s: Segment, item=..., types=None, since=None, until=None, after_seq=None, before_seq=None,
-              item_test=None) -> list[int]:
-        """The rows of ``s`` matching, in seq order; ``types`` a test of a type, ``item_test`` of an item."""
+              item_test=None, key=None) -> list[int]:
+        """The rows of ``s`` matching, in seq order; ``types`` a test of a type, ``item_test`` of an item, ``key`` a
+        (field, value) of ``KEYED`` (the rows that may hold it: the caller tells a shared hash apart)."""
         if since is not None and s.t_max < since or until is not None and s.t_min > until:
             return []
         if after_seq is not None and s.last <= after_seq or before_seq is not None and s.first >= before_seq:
@@ -457,8 +570,19 @@ class Segments:
         items_ok = None if item_test is None else [i for i, x in enumerate(s.items) if item_test(x)]
         if items_ok is not None and not items_ok:
             return []
+        keyed = None if key is None else self._keys(s, key[0]).of(key[1])
+        if keyed is not None and not keyed:
+            return []
         c = self._cols(s)
-        if item is not ...:
+        if keyed is not None:
+            rows = keyed
+            if item is not ...:
+                ix = s.at(item)
+                rows = [r for r in rows if c["item"][r] == ix]
+            if want_types is not None and len(want_types) < len(s.types):
+                ok = {s.types.index(t) for t in want_types}
+                rows = [r for r in rows if c["type"][r] in ok]
+        elif item is not ...:
             a, n = s.span(item)
             rows = list(c["by_item"][a:a + n])
             if want_types is not None and len(want_types) < len(s.types):
@@ -482,15 +606,21 @@ class Segments:
                 and (after_seq is None or q[r] > after_seq) and (before_seq is None or q[r] < before_seq)]
 
     def _scan(self, *, n=None, item=..., type=None, skip=(), since=None, until=None, after_seq=None, before_seq=None,
-              item_test=None, test=None, limit=None):
-        """Matching events, oldest first (the newest ``n``); ``test``, of a whole event, last."""
+              item_test=None, test=None, limit=None, key=None):
+        """Matching events, oldest first (the newest ``n``); ``key``, a (field, value) of ``KEYED``, by its index;
+        ``test``, of a whole event, last."""
         types = _types_matcher(type, skip) if type or skip else None
+        if key is not None:
+            more, (field, value) = test, key
+            test = (lambda e: e.get(field) == value and more(e)) if more else (lambda e: e.get(field) == value)
         for attempt in range(3):
             segs, hd, hn = self._hstate()
             # each type and item of the head tested once, not once for each of its events
             ok_types = None if types is None else {t for t in list(hd.by_type) if types(t)}
             ok_items = None if item_test is None else {it for it in list(hd.by_item) if item_test(it)}
-            if item is not ...:
+            if key is not None:
+                at = list(hd.by_key[key[0]].get(key[1], ()))
+            elif item is not ...:
                 at = hd.by_item.get(item, [])
             elif types is not None and len(ok_types) < len(hd.by_type):
                 at = sorted(i for t in ok_types for i in hd.by_type.get(t, ()))
@@ -515,7 +645,7 @@ class Segments:
                         if len(out) >= n:
                             break
                         got = []
-                        for r in reversed(self._rows(s, item, types, since, until, after_seq, before_seq, item_test)):
+                        for r in reversed(self._rows(s, item, types, since, until, after_seq, before_seq, item_test, key)):
                             e = self._event(s, r)
                             if test is None or test(e):
                                 got.append(_row(e))
@@ -526,7 +656,7 @@ class Segments:
                 for s in segs:
                     if limit and len(out) >= limit:
                         return out[:limit]
-                    for r in self._rows(s, item, types, since, until, after_seq, before_seq, item_test):
+                    for r in self._rows(s, item, types, since, until, after_seq, before_seq, item_test, key):
                         if limit and len(out) >= limit:
                             break
                         e = self._event(s, r)
@@ -655,8 +785,6 @@ class Segments:
               skip: tuple[str, ...] = (), unvoided: bool = False, machine: str | None = None,
               before_seq: int | None = None, first: int | None = None) -> list[dict]:
         tests = []
-        if source is not None:
-            tests.append(lambda e: e.get("source") == source)
         if machine:
             tests.append(lambda e: (e.get("source") or "") == machine or (e.get("source") or "").startswith(machine + "/"))
         if unvoided:
@@ -668,7 +796,7 @@ class Segments:
             return []
         return self._scan(n=None if first is not None else n, item=item if item is not None else ..., type=type,
                           skip=tuple(skip), since=since, until=until, after_seq=after_seq, before_seq=before_seq,
-                          test=test, limit=first)
+                          test=test, limit=first, key=None if source is None else ("source", source))
 
     def moments(self, *, n: int, type: str | None = None, since: float | None = None, until: float | None = None,
                 skip: tuple[str, ...] = ()) -> list[tuple[float, str]]:
@@ -747,7 +875,7 @@ class Segments:
         return out
 
     def caused_by(self, id: str) -> list[dict]:
-        return self._scan(test=lambda e: e.get("causedby") == id)
+        return self._scan(key=("causedby", id))
 
     def items(self, since: float | None = None, own: bool = False) -> list[dict]:
         """Each item: how many events (a snapshot counting what it holds), the first and last, the latest type."""
@@ -972,7 +1100,7 @@ class Segments:
             new.sort(key=lambda e: e["seq"])
             if new:
                 write_segment(self.dir, new)
-            for suf in (".idx", ".gz", ".ids"):
+            for suf in (".idx", ".gz", ".ids", *KEYED.values()):
                 s.path.with_suffix(suf).unlink(missing_ok=True)
             with self._lock:
                 self._open_cols.pop(s.name, None)
