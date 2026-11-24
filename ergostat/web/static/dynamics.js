@@ -670,10 +670,12 @@ function sdLoopList(panel, g) {
 /* a loop count as a system's box and the side list give it (dynamics.py counted) */
 const sdCount = (n) => `${n?.named ?? "?"} named, ${n?.minor ?? "?"} minor`;
 /* the loop that dominates now (Loops That Matter, /api/dominance), of the list's: at each stock, the one dominant in
-   the last bucket; of those, the one scoring most. Nothing while not worked out, or when none of the list's does */
+   the last bucket; of those, the one scoring most. Nothing while not worked out, or when none of the list's does.
+   Asked once a view and window (the address), never on a poll */
 function sdDominant(mine) {
   const el = h("div", { class: "note sd-dominant", key: "dominant" }), by = new Map(mine.map((c) => [c.name, c]));
-  api("dominance", { points: CHART_POINTS }).then((d) => {
+  if (S.sdDom?.at !== location.search) S.sdDom = { at: location.search, got: api("dominance", { points: CHART_POINTS }) };
+  S.sdDom.got.then((d) => {
     let best = null;
     for (const x of d?.stocks || []) {
       const k = (x.dominant || []).at(-1), v = Math.abs((x.relative?.[k] || []).at(-1) ?? 0);
