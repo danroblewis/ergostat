@@ -265,6 +265,39 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
     assert n.labels("sensor/backlog.main") == {"__name__": "backlog", "sensor": "main"}  # (not in the model: its own)
 
 
+def test_a_kind_that_would_read_as_the_engines_is_refused(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text("name: k\nitems:\n  ergostat-jobs: {id: job/*, states: [open], on: {job.opened: open}}\n")
+    _, problems = read(tmp_path / "ergostat.yaml")
+    [p] = [x for x in problems if x.level == "error"]
+    assert p.code == "metric-clash" and "ergostat_jobs_items" in p.message and p.message.endswith("rename it")
+
+
+def test_migrate_moves_the_item_metrics_and_keeps_any_not_read_back(tmp_path):
+    """The old generic item metrics: written under the kind's own name, and the old deleted only once each sample is
+    read back; one not read back is missing, and the old is kept (lesson 3)."""
+    v = _store("http://127.0.0.1:9", tmp_path, None)
+    old = [({"__name__": im.ITEMS, "kind": "gap", "state": "open", "project": v.project}, [(T0, 2.0), (T0 + 60, 3.0)])]
+    for keep in (2, 1):                                   # every sample read back; then one lost
+        put, deleted = [], []
+        v.put = put.extend
+        v._rows = lambda sel, a=None, b=None: (old if "kind" in sel else [] if 'series!=""' in sel else [   # noqa: B023
+            ({**item_labels(lb), "project": v.project}, [(t, x)]) for lb, t, x in put[:keep]])     # noqa: B023
+        v._req = lambda path, params=None, body=None: deleted.append(params["match[]"]) or b""   # noqa: B023
+        got = migrate(tmp_path / "nothing", v)
+        assert [lb for lb, _, _ in put] == [{"__name__": im.ITEMS, "kind": "gap", "state": "open"}] * 2
+        if keep == 2:
+            assert got["renamed"] == 1 and got["missing"] == 0 and len(deleted) == 1 and "ergostat_items" in deleted[0]
+        else:
+            assert got["renamed"] == 0 and got["missing"] == 1 and deleted == [] and "(item metrics)" in got["lost"]
+
+
+@pytest.mark.parametrize("path", sorted(str(p.relative_to(ROOT)) for p in (ROOT / "examples").rglob("ergostat.yaml")))
+def test_no_example_has_a_metric_clash(path):
+    """The rule refuses nothing that ran before: no shipped example's part loses its name to another."""
+    spec, problems = read(ROOT / path)
+    assert not [str(x) for x in problems if x.code == "metric-clash"]
+
+
 def test_no_item_id_becomes_a_label(tmp_path):
     sent = []
     rec, v = _two(tmp_path, "http://127.0.0.1:9", lambda path, params=None, body=None: sent.append(body) or b"")
@@ -338,7 +371,8 @@ def test_old_queries_answer_as_before_once_migrated(tmp_path, vm):  # noqa: F811
     v = _store(vm, tmp_path, spec)
     t = time.time() - 600
     old = [{"metric": {"__name__": "ergostat_sensor", "part": "backlog", "sensor": "main", "project": v.project,
-                       "series": "sensor/backlog.main"}, "values": [1.0, 2.0, 3.0], "timestamps": [round((t + i) * 1000) for i in range(3)]},
+                       "series": "sensor/backlog.main"},
+            "values": [1.0, 2.0, 3.0], "timestamps": [round((t + i) * 1000) for i in range(3)]},
            {"metric": {"__name__": "ergostat_items", "kind": "ticket", "state": "open", "project": v.project},
             "values": [4.0, 5.0], "timestamps": [round(t * 1000), round((t + 60) * 1000)]}]
     try:

@@ -1047,14 +1047,15 @@ and old spans bucketed otherwise; a reading set aside (`forget`) is kept in
 `measurements.forgotten.json`, and the ledger of backfilled readings (section 6) in
 `measurements.backfilled.db` beside it (with `sqlite`, it is in `measurements.db`).
 
-**Names and labels in PromQL** (`victoria.promql_name`). Each label's value is a part, block or measure the model
-declares, so the labels are bounded by the model; nothing with a generated id (an item, a run) is ever a label, which
-stays in the event log.
+**Names and labels in PromQL** (`ergostat/promnames.py`). What the model declares is a metric named for itself, and
+only the engine's own internals keep the `ergostat_` prefix. A name is the model's with dashes as underscores. Each
+label's value is a part, sensor, block or measure the model declares, so the labels are bounded by the model; nothing
+with a generated id (an item, a run) is ever a label, which stays in the event log.
 
 | Series | Metric and labels |
 |---|---|
-| `sensor/STOCK.SENSOR` (a sensor; `sensor/PART.set`, a setting) | `ergostat_sensor{part="STOCK", sensor="SENSOR"}` |
-| `sensor/NAME` | `ergostat_sensor{part="NAME"}` |
+| `sensor/PART.SENSOR` (a stock's, flow's or auxiliary's sensor; `sensor/PART.set`, a setting) | `PART`, with `sensor="SENSOR"` only when the part has several (its setting counted when a block sets it) |
+| `sensor/NAME` | `NAME` |
 | `run/BLOCK/MEASURE` (`cost_usd`, `tokens`, `cpu`, `memory`, `seconds`) | `ergostat_run_MEASURE{block="BLOCK"}` |
 | `observer/NAME/MEASURE` | `ergostat_observer_MEASURE{observer="NAME"}` |
 | `valve/NAME` | `ergostat_valve_position{valve="NAME"}` |
@@ -1062,20 +1063,28 @@ stays in the event log.
 | `KIND/REST`, any other | `ergostat_KIND{name="REST"}` |
 | `NAME` (no `/`) | `ergostat_series{name="NAME"}` |
 
-A record written before these names holds every series as `ergostat_reading{project, series}`; it is still read
-(every selector takes `ergostat_.+`) until `ergostat migrate` renames it.
+A stock and a flow of one name write one series (`sensor/NAME.SENSOR`), so they share one metric. A part whose name
+an item kind's metric takes (below), or that would start `ergostat_`, has its system prepended (`desk_ticket_items`);
+one that still collides is refused by `ergostat check` (`metric-clash`), which says to rename it or put it in a system.
+A part the model no longer declares keeps its own name, with its sensor's as a label. A record written under an earlier
+name (the one old `ergostat_reading{project, series}`, the old generic `ergostat_sensor{part, sensor}`, or a part's
+name before the model changed) is still read, as every selector takes any name with the series' `series` label, until
+`ergostat migrate` moves it. A query to the built-in source naming the old generic metrics with an exact `part=` or
+`kind=` (`ergostat_items{kind="gap"}`) is read as the new (`gap_items`), with an `old-name` warning.
 
 **Item metrics** (`ergostat/itemmetrics.py`). On VictoriaMetrics, the engine's lead keeps these from the item index
 (§5a), never by replaying the log for a request and never one sample per event. Each is written once a minute, with
-`project`:
+`project`, under its item kind's own name (`KIND`, dashes as underscores: `gap_items`). Below, and in the index's own
+tally and checkpoint, they are named generically with a `kind` label (`ergostat_items{kind="gap"}`), which the store
+turns into the kind's name as it writes (`promnames.item_labels`):
 
 | Metric | Labels | What |
 |---|---|---|
-| `ergostat_items` (gauge) | `kind`, `state`, `milestone` | items in each state (a stock) |
-| `ergostat_item_transitions_total` (counter) | `kind`, `from`, `to` | moves (a flow); an arrival is `from="(new)"`, an item the index forgets (its events pruned) `to="(gone)"` |
-| `ergostat_item_last_transition_timestamp_seconds` (gauge) | `kind`, `from`, `to` | when the latest such move was |
-| `ergostat_item_time_in_state_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `kind`, `state` | how long items stayed in a state, **observed when they leave it**: an item still in it is not counted, so it cannot see stuck work (for that, SQL over the item views with open items) |
-| `ergostat_item_field_total` (counter) | `kind`, `field` | what items' numeric fields (§5a, *numbers*) went up by, added; a fall is not counted |
+| `KIND_items` (gauge) | `state`, `milestone` | items in each state (a stock) |
+| `KIND_transitions_total` (counter) | `from`, `to` | moves (a flow); an arrival is `from="(new)"`, an item the index forgets (its events pruned) `to="(gone)"` |
+| `KIND_last_transition_timestamp_seconds` (gauge) | `from`, `to` | when the latest such move was |
+| `KIND_time_in_state_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `state` | how long items stayed in a state, **observed when they leave it**: an item still in it is not counted, so it cannot see stuck work (for that, SQL over the item views with open items) |
+| `KIND_field_total` (counter) | `field` | what items' numeric fields (§5a, *numbers*) went up by, added; a fall is not counted |
 | `ergostat_events_total` (counter) | `type`, `source` | the events about items that the index folded (no transcript lines, no roll-up snapshots) |
 | `ergostat_item_index_rebuilds_total` (counter) | none | times the index was made again (below); written from the first minute, at 0 |
 
@@ -1086,7 +1095,7 @@ increase(...{to="(gone)"})`. A kind whose `state` label is refused (below) keeps
 last minute (`itemmetrics.balance`, a pure function of the two minutes' values). The verdict goes in the checkpoint's
 `balance`. It is `balanced`; or `unbalanced`, with each kind and state whose change is not its net transitions, said
 on the engine's output (nothing is ever added to make it balance); or `unsure`, where no balance is owed: nothing
-written before, or the index made again between, when `ergostat_item_index_rebuilds_total` goes up. `time() - max(ergostat_item_last_transition_timestamp_seconds{kind="gap",to="merged"})` is
+written before, or the index made again between, when `ergostat_item_index_rebuilds_total` goes up. `time() - max(gap_last_transition_timestamp_seconds{to="merged"})` is
 how long since the last merge. The buckets are 1, 5 and 15 minutes, 1 and 4 hours, 1, 3, 7 and 30 days. An item's
 state comes from its moves (a kind without states is in no gauge). `milestone` is the field of the kind's group
 relation named `milestone`, as it is held now, and only on the gauge: on a counter, an item moved to another milestone
@@ -1127,8 +1136,11 @@ no labels.
 
 **Moving the readings to VictoriaMetrics** (`ergostat migrate [--url URL] [--dry-run]`, `ergostat/migrate.py`). Every
 reading the SQLite store answers (raw, and each old bucket's last reading) is copied to the server under its name and
-labels. A series under the old single name is renamed: written under its labels, then the old name deleted, but only
-once every one of its readings is held under the new one. For each series, only the readings the server does not
+labels. A series held under a name it is no longer written under (the old single name, the old generic
+`ergostat_sensor`, a part's name before the model changed) is moved: written under its current name, then the old
+deleted, but only once every one of its readings is held under the new one. The item metrics written under the old
+generic names (`ergostat_items{kind="gap"}`) are moved the same way to their kind's own (`gap_items`), the old deleted
+only once every sample is read back under the new. For each series, only the readings the server does not
 already hold under the new name are sent: the same millisecond, and the same value to a relative 1e-9, since the
 server keeps a value's leading decimal digits, not its binary float. Each series is then read back. A reading sent
 that the server did not keep (older than its `-retentionPeriod`, one month by default, or too far ahead) is counted
@@ -1608,8 +1620,8 @@ reads the event log.
 - **The built-in source `ergostat`.** ergostat's own readings, as a `prometheus` source no model declares (one the model
   declares under that name is its own instead). Over `victoriametrics` (section 4b) it asks the server that holds them,
   with `extra_label=project=<state key>` on each query and suggestion, so the server answers only this project's series
-  whatever the text says; the names and labels are section 4b's (*Names and labels in PromQL*), e.g.
-  `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It is listed in `datasources` and offered by the editor. Over
+  whatever the text says; the names and labels are section 4b's (*Names and labels in PromQL*), e.g. `gap_items`,
+  `gaps_approved`, and the engine's own `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It is listed in `datasources` and offered by the editor. Over
   `sqlite` it is not listed, and a panel naming it is refused in its own result (`error_kind: refused`) with what it
   needs: VictoriaMetrics, `storage: measurements: victoriametrics` and `ergostat migrate`; the page's other panels are
   answered as before. **`rate()` and `increase()` differ from Prometheus's.** Prometheus takes the samples inside the

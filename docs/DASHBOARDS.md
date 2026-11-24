@@ -159,19 +159,25 @@ record starts from nothing; with the server away it refuses, and deletes nothing
 `ERGOSTAT_HOME` set elsewhere (as scripts, demos and benchmarks do), a new project uses SQLite unless its YAML names
 `victoriametrics` or `ERGOSTAT_DEFAULT_MEASUREMENTS=victoriametrics` is set.
 
-**What to write.** Each series has a name and labels from the model (SPEC §4b, *Names and labels in PromQL*):
+**What to write.** What your model declares is a metric under its own name (SPEC §4b, *Names and labels in PromQL*),
+dashes written as underscores; only ergostat's own internals start `ergostat_`:
 
-- `ergostat_sensor{part="backlog", sensor="count"}`: the backlog's `count` sensor.
-- `sum by (block) (increase(ergostat_run_cost_usd[1d]))`: each block's runs' dollars in a day.
-- `ergostat_valve_position{valve="intake"}`, `ergostat_block_output{block="hold"}`.
-
-- `sum by (state) (ergostat_items{kind="gap"})`: how many gaps in each state; `sum(increase(
-  ergostat_item_transitions_total{kind="gap",to="merged"}[1d]))`: gaps merged in a day.
-- `time() - max(ergostat_item_last_transition_timestamp_seconds{kind="gap",to="merged"})`: seconds since the last
-  merge.
-- `histogram_quantile(0.85, sum by (le) (rate(ergostat_item_time_in_state_seconds_bucket{kind="gap",state="building"}[7d])))`:
+- `backlog`: the backlog's sensor. A part with several sensors has each one's name as a label:
+  `backlog{sensor="count"}`.
+- `sum by (state) (gap_items)`: how many gaps in each state; `sum(increase(gap_transitions_total{to="merged"}[1d]))`:
+  gaps merged in a day.
+- `time() - max(gap_last_transition_timestamp_seconds{to="merged"})`: seconds since the last merge.
+- `histogram_quantile(0.85, sum by (le) (rate(gap_time_in_state_seconds_bucket{state="building"}[7d])))`:
   how long the 85th percentile of gaps stayed building. This counts only the gaps that have left `building`, so it
   cannot see one that is stuck there.
+- ergostat's own: `sum by (block) (increase(ergostat_run_cost_usd[1d]))`, each block's runs' dollars in a day;
+  `ergostat_valve_position{valve="intake"}`, `ergostat_block_output{block="hold"}`.
+
+A part whose name an item kind's metric already takes (a stock `gap-items` beside the kind `gap`) is written with its
+system first (`landing_gap_items`); with no system to keep them apart, `ergostat check` refuses the model and says to
+rename it or put it in a system. A record written under the old generic names (`ergostat_sensor{part="backlog"}`,
+`ergostat_items{kind="gap"}`) is moved to the new by `ergostat migrate`, and a saved panel still naming them is read as
+the new names, with a warning to write them.
 
 The item metrics (SPEC §4b, *Item metrics*) are written once a minute from the item index, backfilled from it when
 first turned on; an arrival is `from="(new)"` and an item forgotten after a prune `to="(gone)"`. So the items in a
@@ -181,7 +187,7 @@ ergostat checks this on each pass, and says on its output where it does not hold
 counts were taken afresh, and the two need not agree, so read no leak into it. Add a gauge over `milestone` before
 comparing it, as a move between milestones is not a transition.
 
-`count by(__name__)({__name__=~"ergostat_.+"})` lists them all. VictoriaMetrics computes `rate()` and `increase()`
+`count by(__name__)({__name__=~".+"})` lists them all. VictoriaMetrics computes `rate()` and `increase()`
 without Prometheus's extrapolation, so an integer counter's increase is a whole number (SPEC §4e, *The built-in source
 `ergostat`*).
 

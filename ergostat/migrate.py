@@ -71,9 +71,10 @@ def _stale(dst: Victoria) -> dict[str, tuple[set, list]]:
     return out
 
 
-def _items(dst: Victoria, dry: bool) -> int:
+def _items(dst: Victoria, dry: bool, got: dict) -> int:
     """The item metrics under the old generic names, moved to their kind's own: each sample written under the new,
-    read back, and the old deleted only when every one is held. Returns the series moved (or, ``dry``, to move)."""
+    read back, and the old deleted only when every one is held (else each sample not held is ``missing``, under
+    ``lost["(item metrics)"]``). Returns the series moved (or, ``dry``, to move)."""
     old_sel = "{" + f'__name__=~"{"|".join(sorted(ITEM))}",project={_q(dst.project)},kind!=""' + "}"
     old = dst._rows(old_sel, 0, UNTIL)
     if dry or not old:
@@ -83,7 +84,9 @@ def _items(dst: Victoria, dry: bool) -> int:
     dst.put([(bare(m), t, v) for m, pts in old for t, v in pts])          # (put names them for their kind)
     have = {(tuple(sorted(bare(m).items())), round(t * 1000))
             for m, pts in dst._rows("{" + f'project={_q(dst.project)},series=""' + "}", 0, UNTIL) for t, _ in pts}
-    if want - have:
+    if gone := sorted(t / 1000 for _, t in want - have):     # (the old kept: a run later tries again)
+        got["missing"] += len(gone)
+        got["lost"]["(item metrics)"] = {"n": len(gone), "first": gone[0], "last": gone[-1]}
         return 0
     dst._req("/api/v1/admin/tsdb/delete_series", {"match[]": old_sel}, body=b"")
     return len(old)
@@ -100,7 +103,7 @@ def migrate(directory: Path, dst: Victoria, tiers: list | None = None, dry: bool
             if not dry:
                 sel = "{" + f'__name__=~"{"|".join(sorted(names))}",project={_q(dst.project)},series={_q(series)}' + "}"
                 dst._req("/api/v1/admin/tsdb/delete_series", {"match[]": sel}, body=b"")
-    got["renamed"] += _items(dst, dry)
+    got["renamed"] += _items(dst, dry, got)
     if (Path(directory) / "measurements.db").exists():
         from .store import Measurements
         src = Measurements(Path(directory), tiers=tiers)

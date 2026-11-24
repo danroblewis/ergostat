@@ -70,9 +70,12 @@ class Names:
         for kind in ("stocks", "flows", "auxiliaries"):
             for n, x in (getattr(spec, kind, None) or {}).items():
                 parts.setdefault(n, []).append(x)
-        taken = {f"{word(k)}_{s}" for k in (getattr(spec, "items", None) or {}) for s in _SUFFIXES}
+        kinds = getattr(spec, "items", None) or {}
+        taken = {f"{word(k)}_{s}" for k in kinds for s in _SUFFIXES}
         self.metric: dict[str, str] = {}
-        self.clashes: list[tuple[str, str, object]] = []
+        self.clashes: list[tuple[str, str, object]] = [     # (a kind of the model's own that would read as the engine's)
+            (k, f"{word(k)}_items", x) for k, x in kinds.items() if not k.startswith("ergostat.") and word(k).startswith(ENGINE)]
+        self._kinds = len(self.clashes)                    # (the kinds' come first; the parts' after)
         later = []
         for n in sorted(parts):
             m = word(n)
@@ -108,9 +111,11 @@ class Names:
 
     def problems(self) -> list:
         from .spec.load import Problem
-        return [Problem("error", f"{n}: its PromQL name {m} is taken (an item kind's metric, or ergostat_, the "
-                                 "engine's own) and no system of its own keeps it apart: rename it, or put it in a system",
-                        getattr(x, "where", None), "metric-clash") for n, m, x in self.clashes]
+        return [Problem("error", f"item kind {n}: its PromQL names ({m}, ...) would read as the engine's own "
+                                 "(ergostat_): rename it" if i < self._kinds else
+                        f"{n}: its PromQL name {m} is taken (an item kind's metric, or ergostat_, the engine's own) and "
+                        "no system of its own keeps it apart: rename it, or put it in a system",
+                        getattr(x, "where", None), "metric-clash") for i, (n, m, x) in enumerate(self.clashes)]
 
 
 _LAST: list = [None, None]
@@ -118,9 +123,11 @@ _LAST: list = [None, None]
 
 def names_for(spec) -> Names:
     """The model's names, worked out once per model (a reload is a new one)."""
-    if _LAST[0] is not spec or _LAST[1] is None:
-        _LAST[:] = [spec, Names(spec)]
-    return _LAST[1]
+    was, got = _LAST
+    if was is not spec or got is None:
+        got = Names(spec)
+        _LAST[:] = [spec, got]
+    return got
 
 
 _OLD = re.compile(r'\b(ergostat_sensor|ergostat_items|ergostat_item_[a-z_]+)\s*\{([^{}]*)\}')
