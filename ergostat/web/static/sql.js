@@ -34,14 +34,30 @@
   }
   function prev(ts, i) { for (let j = i - 1; j >= 0; j--) if (ts[j].kind !== "space") return ts[j]; return null; }
 
-  /* what may be completed at the caret: {what: "views"|"columns", prefix, from}, or null (in a string or comment) */
+  /* what may be completed at the caret: {what: "views"|"columns", prefix, from, of, open}, or null (in a string or
+     comment). ``of``: the view after "VIEW." or "ALIAS.", whose columns alone are offered. ``open``: a list is shown
+     before anything is typed (after FROM or JOIN, after a "VIEW.", and where a column is wanted next) */
   function context(text, at, views) {
     const ts = tokens(text.slice(0, at), views), last = ts[ts.length - 1];
     if (last && ["comment", "string", "number"].includes(last.kind) && last.e === at) return null;
     const word = last && ["view", "column", "keyword", "function"].includes(last.kind) && last.e === at ? last : null;
-    const p = prev(ts, word ? ts.length - 1 : ts.length);
-    const after = p && p.kind === "keyword" && /^(from|join)$/i.test(p.w);
-    return { what: after ? "views" : "columns", prefix: word ? word.w : "", from: word ? word.s : at };
+    const i = word ? ts.length - 1 : ts.length, p = prev(ts, i);
+    const c = { prefix: word ? word.w : "", from: word ? word.s : at };
+    if (p && p.kind === "keyword" && /^(from|join)$/i.test(p.w)) return { ...c, what: "views", open: true };
+    const owner = p?.w === "." && ts[i - 1] === p ? prev(ts, ts.indexOf(p)) : null;
+    if (owner) return { ...c, what: "columns", of: viewOf(text, owner.w, views), open: true };
+    return { ...c, what: "columns", open: !!p && (p.w === "," || /^(select|where|by|on|and|or|having)$/i.test(p.w)) };
+  }
+  /* the view ``name`` stands for: itself, or the view it names as an alias ("ticket t", "ticket as t"), or "" */
+  function viewOf(text, name, views) {
+    if (views.has(name)) return name;
+    const ts = tokens(text, views).filter(t => t.kind !== "space" && t.kind !== "comment");
+    for (let j = 1; j < ts.length; j++) {
+      if (ts[j].w !== name) continue;
+      const v = ts[j - 1].kind === "keyword" && /^as$/i.test(ts[j - 1].w) ? ts[j - 2] : ts[j - 1];
+      if (v?.kind === "view") return v.w;
+    }
+    return "";
   }
   function named(text, views) {                // the views the text reads
     return [...new Set(tokens(text, views).filter(t => t.kind === "view").map(t => t.w))];
@@ -49,11 +65,11 @@
 
   function make({ source, onInput, onRun }) {
     const area = h("textarea", { "data-slot": "text", rows: 3, spellcheck: "false", class: "pe-text pq-area", placeholder: HINT,
-                                 autocomplete: "off", "aria-autocomplete": "list", "aria-expanded": "false" });
-    const shown = h("pre", { class: "pq-hl", "aria-hidden": "true" });
+                                 wrap: "off", autocomplete: "off", "aria-autocomplete": "list", "aria-expanded": "false" });
+    const shown = h("pre", { class: "pq-hl", "aria-hidden": "true" }), lines = codeBox.gutter(area);
     const list = h("ul", { class: "pq-list", role: "listbox", hidden: true, "aria-label": "Suggestions" });
-    const hint = h("div", { class: "pq-hint" }, "Views: item_spans, transitions, item_fields and one per item kind · Ctrl+Enter runs");
-    const el = h("div", { class: "pq-editor" }, h("div", { class: "pq-box" }, shown, area), list, hint);
+    const hint = h("div", { class: "pq-hint" }, "Views: item_spans, transitions, item_fields and one per item kind · Ctrl+Space suggests · Ctrl+Enter runs");
+    const el = h("div", { class: "pq-editor" }, h("div", { class: "pq-box" }, lines.el, h("div", { class: "pq-code" }, shown, area)), list, hint);
     const kept = new Map();
     let views = new Set(), ctx = null, picks = [], chosen = 0, asked = 0, timer = null;
 
@@ -64,9 +80,12 @@
       return kept.get(key);
     }
     function render() {
-      const parts = tokens(area.value, views).map(t => t.kind === "space" ? document.createTextNode(t.w) : h("span", { class: `pq-${t.kind}` }, t.w));
+      const ts = tokens(area.value, views);
+      const br = document.activeElement === area && area.selectionStart === area.selectionEnd ? codeBox.brackets(ts, area.selectionStart) : null;
+      const parts = ts.map((t, i) => t.kind === "space" ? document.createTextNode(t.w) : h("span", { class: `pq-${t.kind}${codeBox.bracketClass(br, i)}` }, t.w));
       shown.replaceChildren(...parts, document.createTextNode("\n"));
       shown.scrollTop = area.scrollTop; shown.scrollLeft = area.scrollLeft;
+      lines.draw();
     }
     function close() { list.hidden = true; picks = []; area.setAttribute("aria-expanded", "false"); }
     function show(items) {
@@ -84,13 +103,14 @@
       if (mine !== asked) return;
       render();
       const c = context(area.value, area.selectionStart, views);
-      if (!c || area.selectionStart !== area.selectionEnd || (!force && !c.prefix)) { ctx = null; close(); return; }
+      if (!c || area.selectionStart !== area.selectionEnd || (!force && !c.prefix && !c.open)) { ctx = null; close(); return; }
       let got;
       if (c.what === "views") got = [...views].map(name => ({ name, kind: "view" }));
       else {
-        const cols = await Promise.all(named(area.value, views).map(v => ask("labels", v)));
-        got = [...new Set(cols.flat())].map(name => ({ name, kind: "column" }))
-          .concat(FUNCTIONS.map(name => ({ name, kind: "function" })), KEYWORDS.map(name => ({ name, kind: "keyword" })));
+        const cols = await Promise.all((c.of ? [c.of] : named(area.value, views)).map(v => ask("labels", v)));
+        got = [...new Set(cols.flat())].map(name => ({ name, kind: "column" }));
+        if (c.of === undefined && (c.prefix || force))      // (SQL's own words once something is typed, or asked for)
+          got = got.concat(FUNCTIONS.map(name => ({ name, kind: "function" })), KEYWORDS.map(name => ({ name, kind: "keyword" })));
       }
       if (mine !== asked) return;
       ctx = c;
@@ -113,7 +133,8 @@
     }
     area.addEventListener("input", typed);
     area.addEventListener("scroll", render);
-    area.addEventListener("blur", () => setTimeout(close, 0));
+    area.addEventListener("blur", () => setTimeout(() => { close(); render(); }, 0));
+    for (const on of ["keyup", "mouseup", "focus"]) area.addEventListener(on, render);   // (the caret moved: its brackets)
     area.addEventListener("keydown", ev => {
       const own = () => { ev.preventDefault(); ev.stopPropagation(); };
       if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { own(); close(); onRun(); return; }

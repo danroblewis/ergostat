@@ -1710,8 +1710,11 @@ reads the event log.
   PromQL, registered as `queryEditors.PromQL`; the panel editor picks by the source's language and names none). The PromQL
   one highlights the text as it is written (functions, keywords, metrics, labels, strings, numbers), completes PromQL's
   functions and aggregations and the source's metric names, a metric's label names (in braces and in `by (...)`) and a
-  label's values (in a quoted matcher), and marks where `error_at` says the text is wrong. Ctrl+Enter (or Cmd+Enter) asks
-  the preview again at once. Its starting hint is `count by(__name__)({__name__=~".+"})`, every metric and how many series
+  label's values (after `=`, `!=`, `=~` or `!~`, put in quotes when none was typed), and marks where `error_at` says the
+  text is wrong. A label's names and values are listed before anything is typed (after `{`, `,`, `by(` or a matcher); the
+  metrics, and anywhere else, on Ctrl+Space. Like the SQL one, its text is not wrapped, its lines are numbered beside it,
+  and the bracket at the caret is drawn with its match, or as unmatched (`static/codebox.js`). Ctrl+Enter (or Cmd+Enter)
+  asks the preview again at once. Its starting hint is `count by(__name__)({__name__=~".+"})`, every metric and how many series
   it has. It is ergostat's own JavaScript, with no library and no build step. Its names come from
   `GET /api/query/suggest?source=&what=metrics|labels|values&prefix=&metric=&label=`, answered `{suggestions, more}`
   through the server from the source's metadata (for `prometheus`, GETs of `/api/v1/label/__name__/values`,
@@ -1869,7 +1872,10 @@ reads the event log.
   The views keep their names and columns whatever the index's layout: a column or a table added, columns reordered, or
   the file built again under a new layout version (`tests/test_sql_source.py`). Its editor (`static/sql.js`,
   `queryEditors.SQL`) highlights keywords, functions, the source's views and columns, strings, numbers and comments. It
-  completes the views after `FROM` or `JOIN`, and elsewhere the columns of the views the text names, with SQL's words.
+  completes the views after `FROM` or `JOIN`, a view's own columns after `VIEW.` or `ALIAS.` (`ticket t`, `ticket as t`),
+  and elsewhere the columns of the views the text names, with SQL's words once a word is begun or on Ctrl+Space. Its
+  lists open before anything is typed after `FROM`, `JOIN`, a `VIEW.`, and where a column comes next (after `SELECT`,
+  `WHERE`, `BY`, `ON`, `AND`, `OR`, `HAVING` or a comma); the source names no place for its errors, so none is marked.
   Both come from `GET /api/query/suggest`: `what=metrics` for the views, `what=labels&metric=VIEW` for a view's columns.
 - **Result shapes.** Every answer says which of six shapes it is (`shape`), so a chart is chosen by what the data is and
   not by where it came from: `series` (values over time; `roles` `input` and `output` when it is two signals, one drawn

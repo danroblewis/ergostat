@@ -14,6 +14,7 @@
     "timestamp vector year").split(" ");
   const AGGREGATIONS = "sum min max avg group stddev stdvar count count_values bottomk topk quantile limitk limit_ratio".split(" ");
   const KEYWORDS = "by without on ignoring group_left group_right offset bool and or unless".split(" ");
+  const MATCHERS = new Set(["=", "!=", "=~", "!~"]);
   const GROUPING = new Set(["by", "without", "on", "ignoring", "group_left", "group_right"]);
   const WORDS = new Set([...FUNCTIONS, ...AGGREGATIONS]);
   const HINT = 'count by(__name__)({__name__=~".+"})';      // the owner's way in: every metric and how many series it has
@@ -64,6 +65,10 @@
     if (last?.kind === "string" || last?.kind === "comment" || last?.kind === "number") return null;
     const p = prev(ts, before);
     const inBrace = word ? word.inBrace : last?.inBrace || (last?.kind === "punct" && last.w === "{");
+    if (inBrace && p?.kind === "op" && MATCHERS.has(p.w)) {      // a value not yet quoted: it is put in quotes
+      const lab = prev(ts, ts.indexOf(p));
+      return lab?.kind === "label" ? { what: "values", label: lab.w, metric: metricOf(ts), prefix, from, quote: '"', bare: true } : null;
+    }
     if (inBrace) return p && (p.w === "{" || p.w === ",") ? { what: "labels", metric: metricOf(ts), prefix, from } : null;
     const inGroup = word ? word.inGroup : last?.inGroup;
     if (inGroup) return p && (p.w === "(" || p.w === ",") ? { what: "labels", metric: "", prefix, from } : null;
@@ -89,28 +94,29 @@
   /* ``source()``: the data source's name now (the query may be moved to another source of the same language) */
   function make({ source, onInput, onRun }) {
     const area = h("textarea", { "data-slot": "text", rows: 3, spellcheck: "false", class: "pe-text pq-area", placeholder: HINT,
-                                 autocomplete: "off", "aria-autocomplete": "list", "aria-expanded": "false" });
-    const shown = h("pre", { class: "pq-hl", "aria-hidden": "true" });
+                                 wrap: "off", autocomplete: "off", "aria-autocomplete": "list", "aria-expanded": "false" });
+    const shown = h("pre", { class: "pq-hl", "aria-hidden": "true" }), lines = codeBox.gutter(area);
     const list = h("ul", { class: "pq-list", role: "listbox", hidden: true, "aria-label": "Suggestions" });
-    const hint = h("div", { class: "pq-hint" }, "Try ", h("code", {}, HINT), " to list every metric · Ctrl+Enter runs");
-    const el = h("div", { class: "pq-editor" }, h("div", { class: "pq-box" }, shown, area), list, hint);
+    const hint = h("div", { class: "pq-hint" }, "Try ", h("code", {}, HINT), " to list every metric · Ctrl+Space suggests · Ctrl+Enter runs");
+    const el = h("div", { class: "pq-editor" }, h("div", { class: "pq-box" }, lines.el, h("div", { class: "pq-code" }, shown, area)), list, hint);
     const kept = new Map();
     let mark = null, ctx = null, picks = [], chosen = 0, asked = 0, timer = null;
 
     function render() {
-      const text = area.value, err = mark ? offsetOf(text, mark.at) : -1, parts = [];
-      for (const t of tokens(text)) {
+      const text = area.value, err = mark ? offsetOf(text, mark.at) : -1, parts = [], ts = tokens(text);
+      const br = document.activeElement === area && area.selectionStart === area.selectionEnd ? codeBox.brackets(ts, area.selectionStart) : null;
+      ts.forEach((t, i) => {
         const hit = err >= t.s && err < t.e;
         parts.push(t.kind === "space" && !hit ? document.createTextNode(t.w)
-          : h("span", { class: `pq-${t.kind}${hit ? " pq-err" : ""}`, ...(hit ? { title: mark.words, "data-at": String(t.s) } : {}) }, t.w));
-      }
+          : h("span", { class: `pq-${t.kind}${hit ? " pq-err" : ""}${codeBox.bracketClass(br, i)}`, ...(hit ? { title: mark.words, "data-at": String(t.s) } : {}) }, t.w));
+      });
       if (err >= text.length) parts.push(h("span", { class: "pq-err", title: mark.words, "data-at": String(text.length) }, " "));
       parts.push(document.createTextNode("\n"));       // (a last empty line keeps its height)
       shown.replaceChildren(...parts);
       area.setAttribute("aria-invalid", mark ? "true" : "false");
       syncScroll();
     }
-    function syncScroll() { shown.scrollTop = area.scrollTop; shown.scrollLeft = area.scrollLeft; }
+    function syncScroll() { shown.scrollTop = area.scrollTop; shown.scrollLeft = area.scrollLeft; lines.draw(); }
 
     function close() { list.hidden = true; picks = []; area.setAttribute("aria-expanded", "false"); }
     function show(items) {
@@ -154,7 +160,7 @@
       const at = area.selectionStart, rest = area.value.slice(at);
       let put = x.name;
       if (x.kind === "function") put += rest.startsWith("(") ? "" : "(";
-      if (x.kind === "value") put = JSON.stringify(put).slice(1, -1) + (rest.startsWith(ctx.quote) ? "" : ctx.quote);
+      if (x.kind === "value") put = (ctx.bare ? ctx.quote : "") + JSON.stringify(put).slice(1, -1) + (!ctx.bare && rest.startsWith(ctx.quote) ? "" : ctx.quote);
       area.setRangeText(put, ctx.from, at, "end");
       close();
       typed();
@@ -170,7 +176,8 @@
 
     area.addEventListener("input", typed);
     area.addEventListener("scroll", syncScroll);
-    area.addEventListener("blur", () => setTimeout(close, 0));
+    area.addEventListener("blur", () => setTimeout(() => { close(); render(); }, 0));
+    for (const on of ["keyup", "mouseup", "focus"]) area.addEventListener(on, render);   // (the caret moved: its brackets)
     area.addEventListener("keydown", ev => {
       const own = () => { ev.preventDefault(); ev.stopPropagation(); };
       if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { own(); close(); onRun(); return; }
