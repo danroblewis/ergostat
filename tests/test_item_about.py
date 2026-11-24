@@ -304,7 +304,7 @@ def test_status_off_loop_points_at_knowledge(home, capsys):
 
 
 def test_status_names_the_items_on_the_loops_attention_line_not_its_suggestion(home, capsys, monkeypatch):
-    """A loop's suggestion is headed ``loop NAME`` like its attention line; the items go on that line only (§5a)."""
+    """A goal's suggestion is headed ``goal NAME`` like its attention line; the items go on that line only (§5a)."""
     from ergostat import state as st
     from ergostat.cli import main
     p = project(home)
@@ -312,9 +312,10 @@ def test_status_names_the_items_on_the_loops_attention_line_not_its_suggestion(h
     _off(p, "a", 50)
     real = st.attention
     monkeypatch.setattr(st, "attention", lambda *a, **k: real(*a, **k) + [
-        {"level": "hint", "what": "loop a", "says": "was off 92% of the time: falling behind the load"}])
+        {"level": "hint", "what": "goal a", "goal": "a", "says": "was off 92% of the time: falling behind the load"}])
     main(["-C", str(home), "status", "--json"])
-    att = [a for a in json.loads(capsys.readouterr().out)["attention"] if a["what"] == "loop a"]
+    att = [a for a in json.loads(capsys.readouterr().out)["attention"] if a.get("goal") == "a"]
+    assert all(a["what"] == "goal a" for a in att), att
     hint = [a for a in att if a["level"] == "hint"]
     line = [a for a in att if a["level"] != "hint"]
     assert hint and line, att

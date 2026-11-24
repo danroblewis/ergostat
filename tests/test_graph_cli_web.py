@@ -866,11 +866,12 @@ def test_the_projects_summary_counts_goals(monkeypatch, capsys):
 
     from ergostat import projects
     from ergostat.cli import running
-    row = {"name": "p", "running": False, "web": None, "repo": "/r", "loops": 3, "off": ["x"], "unknown": []}
-    monkeypatch.setattr(projects, "known", lambda: [row, {**row, "name": "q", "loops": 0, "off": []}])
+    g = {"system": 1, "open": 0, "unknown": 0, "own": {}}
+    row = {"name": "p", "running": False, "web": None, "repo": "/r", "loops": 3, "goals": g, "goals_off": ["x"]}
+    monkeypatch.setattr(projects, "known", lambda: [row, {**row, "name": "q", "loops": 0, "goals_off": []}])
     running.cmd_projects(types.SimpleNamespace(json=False))
     out = capsys.readouterr().out
-    assert "GOALS" in out and "3 goals: 2 holding, 1 off: x" in out and "no goals" in out, out
+    assert "GOALS" in out and "1 goal off: x" in out and "no goals" in out and "loop" not in out, out
 
 
 def test_an_attention_entry_about_a_goal_names_it_as_a_field(project):
@@ -885,8 +886,8 @@ def test_an_attention_entry_about_a_goal_names_it_as_a_field(project):
     snap = {**server.st.snapshot(project), "hints": [{"controller": "disk-under-80", "goal": "disk-under-80",
                                                        "says": "goal disk-under-80 was off 60% of the time"}]}
     hint = [a for a in server.st.attention(snap) if a["level"] == "hint"]
-    assert hint == [{"level": "hint", "what": "goal disk-under-80", "goal": "disk-under-80",
-                     "says": "goal disk-under-80 was off 60% of the time"}], hint
+    assert hint == [{"level": "hint", "what": "goal disk-under-80", "goal": "disk-under-80",   # (named once: its heading)
+                     "says": "was off 60% of the time"}], hint
 
 
 def test_agent_now_runs_it_once_and_says_what_it_said(repo, project, capsys):

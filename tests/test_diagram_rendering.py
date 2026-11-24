@@ -6634,7 +6634,7 @@ def test_a_suggestion_about_a_goal_has_an_evidence_link_to_its_panel(browser, tm
             rows.first.locator("a", has_text="Evidence").click()
             pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g)", arg=goal,
                                  timeout=30000)
-            assert pg.locator("#detail .kind").first.inner_text() in ("Loop", "Open loop"), view
+            assert pg.locator("#detail .kind").first.inner_text() in ("Goal", "Loop", "Open loop"), view   # its panel
         # the Model page's tool link to a goal's controller: its panel scrolled to the goal's section, found by data-goal
         pg.evaluate("""(g) => { window.scrolled = []; const f = Element.prototype.scrollIntoView;
           Element.prototype.scrollIntoView = function (o) { window.scrolled.push(this.dataset?.goal || ""); return f.call(this, o); };
