@@ -3,7 +3,8 @@ with a frame instead of a list of series:
 
 - ``{"shape": "series", "time": [...], "series": [{"key", "unit"?, "role"?, "values": [...]}]}``: values at those times,
   placed on the panel's grid as a list of series is. Roles ``input`` and ``output`` make two signals, drawn one against
-  the other; ``open``, ``high``, ``low`` and ``close`` make one series of candles.
+  the other; ``open``, ``high``, ``low`` and ``close`` make one series of candles. Any other role (a loop's ``sp``,
+  ``pv``, ``op``, ``mv``, limits, ``mode``) stays on its series, and ``roles`` lists them; one role is one series'.
 - ``{"shape": "table", "dims": [{"name", "type"}], "measures": [{"name", "unit"?}], "rows": [[...], ...]}``: a dim is
   a ``string``, ``number`` or ``time``; a row holds its dims' values, then its measures' numbers.
 - ``{"shape": "points", "x": {"name", "unit"?, "values"}, "y": {...}, "t"?: [...], "order"?: "time", "group"?: [...]}``.
@@ -85,6 +86,9 @@ def _series(f: dict, g, most_series: int) -> dict:
             raise Bad(f"series {s.get('key')!r} has the role {s['role']!r}; a role is one of {', '.join(ROLES)}")
         placed.append((str(s.get("key", "")), s.get("role"), str(s.get("unit") or ""), _on_grid(time, values, g)))
     roles = {r: (k, u, v) for k, r, u, v in placed if r}
+    if len(roles) < sum(1 for _, r, _, _ in placed if r):
+        twice = next(r for r in roles if sum(1 for _, x, _, _ in placed if x == r) > 1)
+        raise Bad(f"two series have the role {twice!r}; a role is one series' (give each loop its own query)")
     base = {"times": g.times, "step": g.step, "capped": 0, "read_log": False, "shape": "series"}
     if set(roles) >= {"input", "output"}:
         (xk, xu, xv), (yk, yu, yv) = roles["input"], roles["output"]
@@ -94,7 +98,8 @@ def _series(f: dict, g, most_series: int) -> dict:
         return {**base, "roles": list(CANDLE), "unit": roles["close"][1], "series": [
             {"name": roles["close"][0], **{r: roles[r][2] for r in CANDLE}, "count": [None] * g.n}]}
     return {**base, "unit": placed[0][2] if placed and len({u for _, _, u, _ in placed}) == 1 else "",
-            "series": [{"name": k, "values": v} for k, _, _, v in placed]}
+            **({"roles": [r for _, r, _, _ in placed if r]} if roles else {}),
+            "series": [{"name": k, "values": v, **({"role": r} if r else {})} for k, r, _, v in placed]}
 
 
 def _maps(v, what: str, most: int) -> list[dict]:

@@ -1645,14 +1645,16 @@ reads the event log.
   `wait_for`, `impact`, `service`, `sequence` or `lineage`). Each answer also carries `meta`: its `source`, its `query`
   (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the record, `declared` for a
   model's), `verdict`, `n` (the values it holds: a table's are its measure cells, a missing one not counted),
-  `n_effective` and `sampling` (`step_s`; `scrape_s`, `range_windows_s` and `observable_period_s`). `n_effective` and those three of `sampling` are `null`, as not known yet,
-  never guessed. A data source's type may answer with a typed frame instead of a list of series: `series` (with roles),
+  `n_effective` and `sampling` (`step_s`; `scrape_s`, `range_windows_s` and `observable_period_s`). `n_effective` and
+  those three of `sampling` are `null`, as not known yet, never guessed. A data source's type may answer with a typed frame instead of a list of series: `series` (with roles),
   a `table`, `points`, a `response` (`frequency`, and `system` with its poles and zeros as `[re, im]`; one refused,
   `supported: false`, carries no curve), a histogram's cumulative buckets, or a `graph`. Each is checked and bounded
   (5,000 rows, points, nodes or edges, 50 buckets), and refused with `error` when it is not what it says. A role on a
   series (`sp`, `pv`, `op`, `mv`, `limit_hi`, `limit_lo`, `mode`, `input`, `output` and the four of candles) or on a
   graph's field (`rate`, `errors`, `latency`, `utilisation`, `wait`, `count`, `age`, `slack`, `exposure`) is one of a
-  closed list. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
+  closed list. A series' role is kept on it in the answer (`role`), and the frame's `roles` lists them in order; two
+  series of one answer with the same role are refused. `input` with `output`, or the four of candles, make two signals
+  or candles; any other roles are values over time, drawn by the families that draw those. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
 - **Histograms.** A PromQL answer whose every series has a numeric `le` label, over two bounds or more with a finite
   one, is one histogram's buckets (chart 16, the latency heatmap); an answer at one bound (`x_bucket{le="0.3"}` by
   instance, an SLO's numerator) stays plain series. The buckets are a `distribution` of `bins` from 0 to the highest

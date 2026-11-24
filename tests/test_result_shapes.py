@@ -84,6 +84,9 @@ def samples(tmp_path) -> dict[str, dict]:
         "survival": {"id": "a", "shape": "distribution", "form": "survival", "unit": "s", "series": []},
         "over-time": from_source(verdicts_test.buckets(times=[T + 120 * i for i in range(4)])),   # Prometheus's _bucket by le
         "graph": from_source(verdicts_test.graph()),
+        "loop": from_source({"shape": "series", "time": [T + 120 * i for i in range(1, 5)], "series": [  # a loop's roles
+            {"key": "target", "role": "sp", "unit": "items", "values": [5, 5, 5, 5]},
+            {"key": "backlog", "role": "pv", "unit": "items", "values": [7, 6, 5, 4]}]}),
     }
     span = _wave(p)
     out["frequency"] = one({"source": "frequency", "input": {"source": "series", "series": "in"},
@@ -103,6 +106,7 @@ FRAMES = {
     "model": {"shape": "response", "has": ["frequency", "system"]},
     "over-time": {"shape": "distribution", "form": "bins"},
     "graph": {"shape": "graph", "kind": "dependency"},
+    "loop": {"shape": "series", "roles": ["sp", "pv"]},
 }
 
 

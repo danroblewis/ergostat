@@ -121,6 +121,19 @@ def test_a_role_on_a_series_or_a_graphs_field_is_from_a_closed_list():
         _frames.answer({"shape": "series", "time": [T], "series": [{"key": "a", "role": "setpoint", "values": [1]}]}, G, 50)
     for role in ("sp", "pv", "op", "mv", "limit_hi", "mode"):
         _frames.answer({"shape": "series", "time": [T], "series": [{"key": "a", "role": role, "values": [1]}]}, G, 50)
+    loop = {"shape": "series", "time": [T], "series": [
+        {"key": k, "role": r, "values": [v]} for k, r, v in (("target", "sp", 5), ("level", "pv", 4), ("noise", None, 1),
+                                                               ("valve", "op", 0.5), ("hi", "limit_hi", 9))]}
+    got = _frames.answer(loop, G, 50)
+    assert [s.get("role") for s in got["series"]] == ["sp", "pv", None, "op", "limit_hi"]
+    assert [s["name"] for s in got["series"]] == ["target", "level", "noise", "valve", "hi"]
+    assert got["roles"] == ["sp", "pv", "op", "limit_hi"]
+    assert frames.describe(got)["roles"] == ["sp", "pv", "op", "limit_hi"]
+    twice = {**loop, "series": [*loop["series"], {"key": "target2", "role": "sp", "values": [6]}]}
+    with pytest.raises(_frames.Bad, match="two series have the role 'sp'"):
+        _frames.answer(twice, G, 50)
+    plain = _frames.answer({**loop, "series": [{"key": "a", "values": [1]}]}, G, 50)
+    assert "roles" not in plain and "role" not in plain["series"][0]
     bad = graph()
     bad["nodes"]["fields"] = [{"name": "load", "role": "centrality", "values": [1, 2, 3]}]
     with pytest.raises(_frames.Bad, match="role 'centrality'"):

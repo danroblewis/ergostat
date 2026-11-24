@@ -408,6 +408,46 @@ Run here, none skipped:
 
 Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
 
+### Round 14
+
+The one finding, blocking, is answered: *a series role other than input/output or candles was checked, then thrown
+away* (`datasources/_frames.py`, `_series`). Now:
+- each placed series keeps its `role` in the answer;
+- the frame's `roles` lists the roles in series order, so `describe` and `meta` carry them;
+- two series of one answer with the same role are refused ("two series have the role 'sp'"), so neither is silently
+  dropped. This also covers two `input`s or two `close`s, which used to keep only the last.
+
+One choice taken without asking, the most reversible: a frame's `roles` once meant two signals or candles, and the
+families that take plain series (`roles: "none"`: stat, table, histogram) refused any answer with `roles`. In
+`frames.js` that check now reads "neither two signals nor candles". A loop's `sp`/`pv` answer is drawn as values over
+time, as before this round, by line, bar, stat, table and histogram. Loop panels are B7 (`loop-roles-and-loop-panels`).
+
+Tests:
+- `tests/test_result_frames_and_verdicts.py::test_a_role_on_a_series_or_a_graphs_field_is_from_a_closed_list` now
+  frames a loop (`sp`, `pv`, an unroled series, `op`, `limit_hi`). It asserts each series' `role`, the frame's
+  `roles` and `describe`'s, that a second `sp` is refused, and that a series with no role gets no `role` key.
+- `tests/test_result_shapes.py` has a `loop` sample (frame `{"shape": "series", "roles": ["sp", "pv"]}`), and
+  `tests/test_result_shapes_page.py`'s family-by-shape table has its row: the five families of plain series.
+
+Seen to fail when the code they guard was broken, then restored:
+- With `role` dropped from the placed series, the unit test failed (`[None, None, ...] != ['sp', 'pv', ...]`).
+- With the duplicate check off, it failed (`DID NOT RAISE`).
+- With `frames.js`'s old `roles: "none"` check put back, the page table failed: `loop` was refused by stat, table and
+  histogram.
+
+SPEC §4e *Result shapes* says how roles are carried, and the `_frames.py` docstring does too. I also rewrapped a line
+of that paragraph that was over the file's width, with no words changed. Outside tests, docs and dev the branch is 400
+lines added and 62 removed (budget 600 net). `git merge main` says "Already up to date".
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_result_shapes and test_data_sources (68);
+  test_result_frames_and_verdicts, test_sql_source and test_query_engine (97).
+- Browser, rc 0: test_result_shapes_page, test_result_frames_page and test_data_source_panels (16);
+  test_result_shapes_page, test_result_frames_page and test_panels (38).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently
