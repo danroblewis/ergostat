@@ -1,5 +1,5 @@
 # How often each gate catches something (dev/records/regression-gate-catches.md): one auxiliary per gate in times.py's
-# CATCHING, its catches in the last 14 days by each catch's own time (`gap.sent-back` by sent_back_by, the plan review's
+# CATCHING, its catches in the last 14 days by each catch's own time (`gap.sent-back` by sent_back_by, the plan lint's
 # `gap.plan-sent-back` by plan_sent_back_by, the implementor's stray refusals), counted by the timer on each gap
 # (gap.timed: catches, catch_times). Plain measures, with no goal: a gate that never catches is not a regression, it
 # is evidence for keeping or changing it (the simplifier's brief names each one quiet for 30 days, to question, never

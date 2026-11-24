@@ -97,7 +97,7 @@ or, for a split, one per sub-gap (lowercase words and dashes, new names, never `
 and, with a split, exactly one coverage block: what `{branch}` must do, restated one point per `- ` line, each point
 ending with `(by: name, name)`, the sub-gaps that build it (their exact names). Every sub-gap is named by some point.
 A split with no block, two blocks, a point naming no sub-gap or a name that is not one of the split's, or a sub-gap
-no point names, is sent back. The block is kept as the parent's plan, and each sub-gap's plan review reads it.
+no point names, is sent back. The block is kept as the parent's plan, and the join judge reads it.
 
 <coverage>
 - what the parent must do, one point (by: NAME)

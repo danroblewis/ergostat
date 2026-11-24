@@ -25,9 +25,9 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
-# Waiting on someone else (the cheapest to remove): open and replan for the planner, planned for the plan review, split
+# Waiting on someone else (the cheapest to remove): open and replan for the planner, planned for the plan lint's sweep, split
 # for its sub-gaps, ready and fix for the implementor, built for the reviewer, approved for the queue, queue-failed for
-# triage, dead for a park. Working, a run holds it: leased (the planner's, plan review's and triage's whole run, the
+# triage, dead for a park. Working, a run holds it: leased (the planner's and triage's whole run, the
 # others' start and the queue's wait for its lock), building, in-review, queued (the queue's run, from its gap.queued:
 # the merge, its suites).
 WAITING = ("open", "replan", "planned", "split", "ready", "fix", "built", "approved", "queue-failed", "dead")
@@ -105,7 +105,7 @@ def gates(events: list[dict], base: dict | None = None, merged: float | None = N
 
 
 def catches(events: list[dict], base: dict | None, gid: str) -> dict:
-    """{gate: [time, ...]}: each time a gate sent the gap back (`gap.sent-back` by its sent_back_by, the plan review's
+    """{gate: [time, ...]}: each time a gate sent the gap back (`gap.sent-back` by its sent_back_by, the plan lint's
     `gap.plan-sent-back` by its plan_sent_back_by) or the implementor refused its strays (a `gap.measured` naming
     them), added to ``base``. A sender not in CATCHING is counted under `unlisted` and named on stderr."""
     out: dict = {g: list(v) for g, v in (base or {}).items()}

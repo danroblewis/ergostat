@@ -61,7 +61,7 @@ begun at most listing.SHARE (120) seconds before (listing.py): readings due toge
   main-still-minutes, main-stalled-minutes, batch-runs, batch-first-green, crash-lost-minutes, gaps-landed-per-hour
                       the merge pipeline's, from its batch items (landing.py says each); main-stalled-why prints
                       the goal main-moving's reason: the current batch, its run and the cause
-  planning-cost-share planning dollars (planning_cost_usd: the planner's and the plan review's sessions, the whole
+  planning-cost-share planning dollars (planning_cost_usd: the planner's sessions, and the removed plan review's, the whole
                       reservation of one that failed; 0 for an S gap and a sub-gap) over all AI dollars (ai_cost_usd),
                       summed over the gaps merged in the window that carry planning_cost_usd. A gap without it is left
                       out, never counted as 0; one whose planning cost is negative, not a number or above its total is
