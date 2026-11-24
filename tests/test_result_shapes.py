@@ -51,7 +51,11 @@ def from_source(frame: dict) -> dict:
     """A typed frame as a data source's answer comes to the page: read, checked and given its envelope."""
     g = grid(T, T + 480, 4)
     asked = types.SimpleNamespace(source="sql", text="SELECT")
-    return {"id": "a", **frames.framed(_frames.answer(frame, g, datasources.MOST_SERIES), asked)}
+    got = _frames.answer(frame, g, datasources.MOST_SERIES)
+    if got["shape"] == "graph":                           # (fitted to a panel, with its matrix, as datasources.query does)
+        from ergostat.query.graphs import panel
+        got = panel(got, {})
+    return {"id": "a", **frames.framed(got, asked)}
 
 
 def samples(tmp_path) -> dict[str, dict]:
