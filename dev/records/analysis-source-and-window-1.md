@@ -156,7 +156,25 @@ Round 3, the merge of main (72ae37ea), conflicted in SPEC, `datasources/__init__
   took 109 ms for `counts` in a run with two other files. Run alone it passed. A `counts` answer reads no scrape; it
   only gets the ledger, which is a few dict operations. The whole unit suite was not run here.
 
-Overrun reason: 360 lines added and 38 removed outside tests, docs and dev against main, 322 net against 240. The call language with columns for its refusals, the reference checks (self, missing, analysis, failed), the per-request bound held at parse and again at run time, the readings bound, the four verdict codes and (round 2) the scrape on every answer built from series readings are each asked for, and each costs a few lines. Round 3 adds the merge with main's reader rule and its model source. The rest is docstrings.
+Round 4, answering the one finding of the review (the gap mask and the fill used different tests):
+- `raw` used to list a hole when the two readings were more than `GAP_SAMPLES` spacings apart in seconds, but it
+  filled by bucket distance (`frequency._filled`, reach `GAP_SAMPLES * each / step`). A 31 s hole whose readings sat
+  1 s into their 10 s buckets was listed and also drawn over. Now there is one rule. `analysis._lines` draws straight
+  lines between the readings' buckets except from the bucket where a hole of the mask starts, so a listed hole is never
+  filled. Every hole over the threshold is cut, not only the first 200 listed: they are read in full (at most one per
+  reading, under `READINGS_MOST`), and the `partial` warning still says that only the first 200 are listed. A shorter
+  hole is still a straight line, whatever its width in buckets. One edge stays: when the grid is coarsened past a
+  hole's length, the hole's two readings can share a bucket. Nothing is then empty, so nothing is cut.
+- New test `test_raw_never_draws_over_a_listed_gap` puts every reading 1 s into its bucket. A 31 s hole is listed and
+  its two buckets stay empty. A hole of exactly 30 s is not listed and is a line, also three buckets wide. With the old
+  `_filled` call put back, the test fails (`v[101]` was 3.0, not None). It passes once the fix is restored.
+- SPEC §4e says the threshold is seconds between the two readings, that holes past the first 200 also stay empty, and
+  that the mask and the fill are one rule. The module docstring already said "stays empty".
+- Tests run in round 4: `test_analysis_source.py` (11 passed), `test_query_frequency.py` and `test_result_shapes.py`,
+  all passing. ruff is clean. No page changed, so no browser file was run. Main is already an ancestor of the branch,
+  so there was nothing to merge. The whole unit suite and the four browser files were not run here.
+
+Overrun reason: 373 lines added and 38 removed outside tests, docs and dev against main, 335 net against 240 (round 4 adds 13 net for one rule for the gap mask and its fill). The call language with columns for its refusals, the reference checks (self, missing, analysis, failed), the per-request bound held at parse and again at run time, the readings bound, the four verdict codes and (round 2) the scrape on every answer built from series readings are each asked for, and each costs a few lines. Round 3 adds the merge with main's reader rule and its model source. The rest is docstrings.
 
 ## Entry
 

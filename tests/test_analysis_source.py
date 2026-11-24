@@ -73,6 +73,19 @@ def test_raw_masks_a_gap(tmp_path):
     assert v[250] == (v[249] + v[251]) / 2                                          # a short hole is a straight line
 
 
+def test_raw_never_draws_over_a_listed_gap(tmp_path):
+    """Readings 1 s into their 10 s buckets: a hole just over GAP_SAMPLES spacings (31 s) is three buckets wide, as a
+    hole of exactly 30 s is. The first is listed and stays empty; the second is not listed and is a straight line."""
+    near = {i: T + 1 + 10 * i for i in range(720) if i not in (101, 102, 201, 202)}
+    near[103], near[203] = T + 1001 + 31, T + 2001 + 30
+    p = record(tmp_path, [(t, float(i % 7)) for i, t in sorted(near.items())])
+    [r] = ask(p, A, ("R", {"source": "analysis", "text": "raw(A)"}))[1:]
+    assert r["step"] == 10 and r["gaps"] == [[T + 1001, T + 1032]], r["gaps"]
+    v = r["series"][0]["values"]
+    assert v[101] is None and v[102] is None and v[100] is not None and v[103] is not None   # listed: never filled
+    assert v[201] is not None and v[202] is not None                                      # not listed: a line
+
+
 def test_raw_refuses_when_only_rollups_remain(tmp_path):
     p = record(tmp_path, SAW, raw=60.0)
     assert p.measurements.count("s", T, T + 2 * HOUR) == len(SAW)                   # (in the roll-ups, n of each)

@@ -1538,8 +1538,10 @@ reads the event log.
   `raw(A)`, A an ergostat `series` query with no transform, reads A's readings, never its roll-ups, and answers a
   `series` on one uniform grid whose step is the readings' median spacing (`scrape_s`), coarsened only to stay within
   `points` (each value then the mean of its step's readings, and a `partial` warning says so). A hole longer than
-  `GAP_SAMPLES` (3) spacings stays empty and is listed in `gaps` as `[from, to]` (at most 200); a shorter one is a
-  straight line. Where only roll-ups cover the window it is refused (`only-rollups`); where they cover part of it, that
+  `GAP_SAMPLES` (3) spacings, in seconds between the two readings, stays empty and is listed in `gaps` as
+  `[from, to]` (the first 200; any further holes stay empty too, and a `partial` warning says they are not listed); a
+  shorter one is a straight line. The mask and the fill are one rule, so a listed hole is never drawn over, wherever
+  in their buckets its readings fall. Where only roll-ups cover the window it is refused (`only-rollups`); where they cover part of it, that
   part is left empty and warned. More than 500,000 readings in the window is a `limit`. A metrics store whose raw
   readings cannot be told from its roll-ups (VictoriaMetrics) is refused. A a data source's query is asked again at the
   finest step 1,000 points allow; the answer warns `not-raw`, naming its range windows, which still smooth it.

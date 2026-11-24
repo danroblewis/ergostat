@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from .. import datasources
 from ..datasources import SourceError
 from .buckets import Grid
-from .frequency import GAP_SAMPLES, _filled
+from .frequency import GAP_SAMPLES
 from .parse import ANALYSIS, Query, SourceQuery
 
 CALLS = {"raw": ("points",)}            # a call: its options (each reads one query)
@@ -132,6 +132,17 @@ def scrapes(m, qs, since: float, until: float) -> dict:
     return {"scrape_s": None if None in got else max(got)} if got else {}
 
 
+def _lines(values: list, cut: set) -> list:
+    """Straight lines between the readings' buckets, except from a bucket in ``cut``, where a hole of the gap mask
+    starts: the mask and the fill are one rule, so a listed hole is never drawn over."""
+    out = list(values)
+    at = [i for i, v in enumerate(values) if v is not None]
+    for a, b in zip(at, at[1:], strict=False):
+        for i in range(a + 1, b) if a not in cut else ():
+            out[i] = values[a] + (values[b] - values[a]) * (i - a) / (b - a)
+    return out
+
+
 def raw(m, q: Query, since: float, until: float, c: Call) -> dict:
     if q.source != "series":
         raise _bad(f"raw reads a series query or a data source's query; query {q.id!r} reads {q.source}")
@@ -160,14 +171,16 @@ def raw(m, q: Query, since: float, until: float, c: Call) -> dict:
                                (start, step, g.n - 1, *span)):
             values[b] = v
         gaps = db.execute(f"select a, t from (select lag(time) over (order by time) a, time t {_IN}) where t - a > ? "
-                          f"order by t limit ?", (*span, GAP_SAMPLES * each, MOST_GAPS + 1)).fetchall()
+                          f"order by t", (*span, GAP_SAMPLES * each)).fetchall()
         parts = m._sources(db, q.series, since, until)
     said = [("partial", f"from {lo:.0f} to {hi:.0f} only roll-ups are kept: left empty, never read as raw")
             for e, lo, hi in parts if e > 0]
     said += [("partial", f"more than {MOST_GAPS} gaps: the first {MOST_GAPS} are listed")] if len(gaps) > MOST_GAPS else []
     said += [("partial", f"{n} readings {each:g} s apart are averaged into steps of {step:g} s, "
                          f"to stay within {most} points")] if step > each else []
-    return {"times": g.times, "step": step, "series": [{"name": q.series, "values": _filled(values, GAP_SAMPLES * each / step)}],
+    at = lambda t: min(max(int((t - start) / step), 0), g.n - 1)  # noqa: E731 - the bucket of a time, as the SQL above
+    cut = {at(a) for a, t in gaps if at(t) > at(a)}               # the bucket each hole of the mask starts in
+    return {"times": g.times, "step": step, "series": [{"name": q.series, "values": _lines(values, cut)}],
             "unit": "", "capped": 0, "read_log": False, "gaps": [list(x) for x in gaps[:MOST_GAPS]], "scrape_s": each,
             "warnings": said}
 
