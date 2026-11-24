@@ -280,6 +280,26 @@ Run here, none skipped:
 
 Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
 
+### Round 8
+
+The finding was the same again: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. This
+clone has none to resolve:
+- local `main` is still b9341591, the merge-base;
+- `git merge main` says "Already up to date";
+- neither file has a conflict marker.
+
+The branch's change to `__init__.py` against main is still 4 hunks: the `_lint` import, `SourceError.code`, and the
+`warnings` on the two returns of `query`. If the queue's main has moved past b9341591, that commit can't be seen here,
+and this branch waits for a merge of it. Whoever merges should keep both sides, as round 3 did. Nothing changed in
+this round apart from this note: no code, and no SPEC rewrap.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62).
+- Browser, rc 0: test_result_frames_page with test_result_shapes_page (13).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently
