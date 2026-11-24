@@ -8,3 +8,7 @@ Definition of done.
 1. The test passes alone and in its whole file.
 2. Removing the fixture's registration makes it fail, proving it uses the fake source.
 3. Do not measure or change the live instance in the session.
+
+## Where it stopped
+
+Built. The fixture registers its fake as type `fake-sql` (`FAKE_SQL`), and the model uses that type. The fixture first calls `datasources.types()` so the package types are already found and the lazy discovery cannot replace the fake later. Its `unregister` now removes only the fake: before, `unregister("sql")` also removed the real SQL type for every later test in the process. Test-only. `ergostat/datasources/` is unchanged. Done 2 was checked by hand: with the registration disabled, the test fails with `source warehouse.type: one of command, ergostat, prometheus, sql`.
