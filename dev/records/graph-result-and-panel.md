@@ -315,3 +315,51 @@ Run here:
 
 Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
 walk.
+
+## Where it stopped (round 8)
+
+Built, round 8: the one finding (parts a and b; there were no others). In each case an unknown value was treated as
+known (lesson 3).
+- (a) `graphfit.matrix` weighs each edge with `_eweight`, the weight the fit uses. A cell is null if any of its edges
+  has an unknown weight. It was 1 before. `_eweight` without an `n` now reads only the first summed field, as its
+  docstring says, and does not fall through to a later field. The heatmap draws a null cell grey, off the colour ramp.
+  Its hover says "an edge of unknown weight", and the legend says "a grey cell is an edge whose weight is not known".
+- (b) `graphfit._merged`: if any member's value is null, a merged field is null. That covers summed fields (count,
+  rate, errors) and worst-member fields (latency, wait, slack...). No member is named in `worst` for that field. A
+  merged edge's `n` and `confidence` are null in the same way. `first_seen` and `last_seen` still come from the
+  members that were seen, because a null there means "not seen", not "unknown". A group's `health` is `ok` only if
+  every member is ok. One unhealthy member still marks the group. Before, one ok member was enough.
+- One consequence was chosen without asking, as the most reversible option. In a dependency graph, a group that
+  mixes finished items (whose slack is null) with open items now gets a null slack. Before, it got the open items'
+  least slack. The review's fix asked for null, and null claims less.
+- Tests:
+  - `test_a_matrix_cell_of_unknown_weight_is_null_never_one` checks `n` null, and also no `n` with a null count.
+  - `test_a_merged_field_with_an_unknown_member_is_unknown_not_a_partial_total` takes three edges with n 5, null and 7.
+    It asserts that n, confidence, count and latency are null, not 12, 12 and 0.2. It also covers a node group with
+    one null count or one unknown health.
+  - Page: `test_a_matrix_cell_of_unknown_weight_is_drawn_as_unknown` checks the null count and the legend's words.
+- Seen to fail when broken, each fix restored afterwards (`git status` clean):
+  - The old matrix weight drew `[1, 2, 1.0]`.
+  - The old `_merged` gave `[[12.0], [0.2]]`.
+  - The old `n` merge gave `[12.0]`.
+  - With the legend note removed, the page test failed.
+  - The health change was not broken separately; the merged-field test asserts it.
+- SPEC §4e (*A graph on a panel*) and the graphfit docstring say this.
+
+Sizes, outside tests, docs and dev: this gap's own change is 610 added and 21 removed (589 net,
+`git diff --shortstat 197d03ee -- ergostat`).
+Overrun reason: measured against main, the diff includes the merged base gap result-frames-and-verdicts (338 net lines, not yet on main); this gap's own change is 589 net lines, under the 600.
+
+Run here:
+- Unit, all passed: test_graph_result_and_panel, test_result_shapes and test_data_sources (60).
+- Browser, under the watchdog, all passed with rc 0: test_graph_result_page, test_result_shapes_page and
+  test_plot_forms (138).
+- ruff is clean. `git merge main` said "Already up to date."
+
+Refused in this session:
+- `git checkout HEAD~1 -- ergostat/query/graphfit.py ergostat/web/static/plots-heat.js`. The fixes were undone and
+  restored by hand instead.
+- Writing a scratch file under `/tmp` (the file tools are confined to /work). It was not needed.
+
+Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
+walk.
