@@ -52,7 +52,8 @@ LAYERS = (piece("alpha-spec-api", "", "test_an_ai_blocks_page_shows_its_prompt")
 
 def slicing(tmp_path, on: str) -> tuple[Instance, str]:
     f = Instance(tmp_path)
-    f.config.write_text(f.config.read_text().replace('[plan]\n', f'[plan]\nown_tests = {on}\n'))
+    assert "[plan]" not in f.config.read_text()                 # (declared here, once)
+    f.config.write_text(f.config.read_text() + f"[plan]\nown_tests = {on}\n")
     return f, f.opened()
 
 
