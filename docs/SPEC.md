@@ -148,6 +148,27 @@ the instance's name (to give it `show:` or `within:`) is the model's, in place o
 place or drawn alone, in both views, like any system. Templates may use templates; an inner instance is named
 `INSTANCE-INNER` and is within the outer one.
 
+**Exports.** A template may say which of its parts are its public interface, `exports:`, a list of refs to parts
+written in its own sections (`stock.waiting`, `flow.x`, `auxiliary.y`, `goal.on-time`, `block.z`; an entry made by
+`each:` or named wholly by a parameter cannot be listed). A part named wholly by a parameter (`${kind}`) is the
+owner's name and is never internal; it is still inside the instance, so it reads the instance's internal parts
+freely. An entry naming no part it defines, or not a ref of those five kinds, makes the
+template unreadable (a `template-library` note, as any bad template; for an untrusted template each name must also be
+lowercase letters, digits and -, at most 64). An entry naming an inner use's part (`stock.INNER-x`) is checked once the
+use is expanded: if no inner use made that part, the use is an error, **bad-template**, at its `use:` line, naming the
+entry. Without `exports:` every part is exported, as before; `exports: []`
+exports none. A reference from outside an instance to one of its parts it does not export is a finding,
+**template-internal-reference**, at the referring line: `goal.mine: stock.q-spare is internal to instance q
+(template tank exports: stock.level)`. Outside means the owner's own parts and every other instance's; a part the
+instance made, or an instance within it made, refers to any of its parts freely (an inner use is within the
+instance whose template uses it, even when its `within:` places its system elsewhere). The references checked are a flow's
+`from:` and `to:`, a flow's or auxiliary's `driven-by:` and equation, a goal's measure, and a block's `in:`, `out:`
+and `goal:` (an implied `keep-GOAL` block is its block's); a system's `show:` and a loop's `through:` are not. An
+inner instance's part is exported from the outer one only when the outer lists it by its local name
+(`stock.INNER-x`) and the inner template exports it too: a reference from outside the outer instance is checked
+against both. The `templates` tool shows a template's `exports` (marked as the library's text when it is untrusted);
+`respond-to` exports its stock, its age, its two flows and `on-time`, and keeps its fast loop internal.
+
 **Where it points.** Every part a use makes is written at its `use:` line: an error in one, and every finding
 about one, points there (`job/pings.yaml:3 (use review-reminders: re-ping)`). It is changed only through its
 `with:` (or the template): a proposal that would edit such a part in place (an estimate written, an equation
@@ -203,12 +224,21 @@ for an untrusted template only; a trusted template's output is unchanged:
   answer that carries a mark, a refusal's or a bad-param's included, ends with what the markers mean once (`check`'s
   last line; `"untrusted"` in a JSON answer). The owner's parts and those of trusted and built-in templates are not
   marked, even where their text is the same as a library's, and an answer with no
-  untrusted part or mark in it is unchanged.
+  untrusted part or mark in it is unchanged;
+- the diagrams (Dynamics and Blocks), from the same `Shown`. The graph answer (`/api/graph`, and so a snapshot
+  page) gives each node that is such a part, or a closed system box of such an instance, `untrusted`: its template's
+  name, escaped (`""` when its instance is gone from `uses`). A node stands for the part it is first (`corr`), never
+  for a region it only holds, so the owner's parts and a multi-input process box are not marked. The page says it in
+  words, never by colour alone: the box's title and its accessible name end `untrusted library, template NAME`, set
+  only as text. In the Blocks view's own text (each block's `says` and `rows`, which its panel and the loops' export
+  write), such a part's description is marked whole, its name marked wherever it stands as a word, and a first row
+  `untrusted library` holds its name, marked; a system's description, closed or open, is marked as well.
 
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
 known types); a finding's `about` and `id` in JSON, and the keys of the MCP `status` answer (a goal by its name):
 references, kept as they are so the thing can be named back; a library's description or command quoted in a finding
-about an owner's part (only the untrusted names in it are marked); the diagrams; and the MCP `spec` answer, which is
+about an owner's part (only the untrusted names in it are marked); a diagram box's drawn label, and the Dynamics
+view's own text (its boxes say they are untrusted instead); and the MCP `spec` answer, which is
 the format's document and holds none of the model's text; and an untrusted instance's own name, which the owner
 wrote under `uses:` (its system's description is marked). A held chain's `ask`, `prompt`, `query` and `sources` are gated by
 who wrote them instead (R3, below).
@@ -243,7 +273,7 @@ control theory and in system dynamics), `params:` (each with `type`, `descriptio
 `required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; `min:` and `max:` on a
 `number` or `integer`, a value outside them an error naming the bound; type `any` takes a value as given, checked
 where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
-(above), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
+(above), `exports:` (above), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
 `goals`, `blocks`, `agents`, `uses`). In them:
 
 - `${param}` is a parameter's value; a whole value that is one `${param}` takes it as it is (a number, a list).
@@ -802,7 +832,11 @@ and panel do not.
 (inputs left, outputs right, each named for the part inside it reaches, with that part's
 reading), how the loops inside it are doing, and its measures: each one's value, setpoint, health
 and trend (`show:`, or by default what its goals hold). With every system closed, the diagram is
-the model's control panel. In the Dynamics view a closed system is a module: its name, what it is, its
+the model's control panel. In the Blocks view, where a closed C system's u enters a closed P system, the two are
+drawn as the textbook loop (docs/proposals/blocks-levels.md §2): r, the goals of P that C serves (a vector, with its
+count, when several), into a summing junction ahead of C; e into C; u from C to P; y out of P and back through H (the
+sensors that read it) to the junction's minus input; d, what enters P that no valve sets, into P. Where C serves no
+goal of P the two keep their labelled wires alone. Every wire between systems is labelled. In the Dynamics view a closed system is a module: its name, what it is, its
 ports, and the first three of those measures (not a remote's, nor ergostat's own upkeep) each as its name, its value
 now and a sparkline of its behaviour over the page's window, on its own scale (its low–high written after it, so two
 never seem to share an axis). They sit in the free middle of the box's existing rows (its description's second line,
@@ -1509,6 +1543,13 @@ declared under `dashboards:`, compiled and checked as a system's `show:` is (sec
 error at its line instead of a blank panel. The design is `docs/proposals/dashboard.md`. People do not write it by
 hand: the Supervisor, or an agent on the owner's behalf, adds it (`docs/AGENT-GUIDE.md`).
 
+A reader's panel may be a diagram, `{form: diagram, display: {address}}`, where the address is a Diagram address
+(`/diagram?view=...&system=...&open=...`) or an Items Graph address (`/items?kinds=...`, `system=`, or `/items/KIND`).
+It is drawn read-only, at its own size or larger, so no text is under 11 px. When it does not fit, its systems are
+closed, and if it still does not fit the panel says to open it on the Diagram. Nothing is asked until the panel is on
+screen. Only one model diagram on a page is drawn; any other is drawn when clicked. Its values come with each refresh
+of the dashboard, with no new layout while the structure stays the same. A click opens the address.
+
 ```yaml
 dashboards:
   week:
@@ -1534,6 +1575,7 @@ Each panel is its kind (`panel:`), its words (`title`, `note`), its `size` (`s`,
 | `states`, `cycle-time` | `GET /api/items-flow` | `kind` (needed), `points` |
 | `scope` | `GET /api/loop-scope` | `goal` (needed), `points` |
 | `items-graph`, `timeline` | `GET /api/items-graph` (with its estimates) | `kinds`, `system` |
+| `query` | `GET /api/query`: the Dashboard page's own panel, as a kept draft holds it | `queries` (needed: 1 to 64, checked by the query engine's parser in the shape the page's `send` gives them: their own `id`, `label` and `hidden` left out, an `input` or `output` naming another query by id replaced by that query as written (one level), an `x.query` by id sent as a query of its own, a reference that leads nowhere or back along its path refused, queries asked alike sent once; every query is checked, a hidden one too, and no form's own adjustment is applied; a query's `kind` must be the model's), `form`, `display`, `layout` |
 
 A list may be written as one string, as the address writes it (`refs: stock.a,stock.b`). `check` refuses an unknown
 kind of panel, size or a value of the wrong type (**bad-dashboard**), an unknown key (**unknown-key**), and a
@@ -1545,12 +1587,22 @@ than `keep:`, is **bad-dashboard**. The name `default` is the model's own (below
 (`delivery.review` in `factory/delivery.yaml`), so two systems' files may each have an `overview`.
 
 **Display only.** `dashboards:` is in no version hash (section 12e: the structure, the numbers, the control, the
-sensors): declaring, changing or removing one changes neither the model's version nor any replay. **A
-dashboards-only change does not yet skip the judge's replay.** Filed as an `ergostat.model-change`, it falls
-through `kind_of` to *parameter* (nothing else differs) and is replayed like one, a replay that by construction
-equals the one before. A `display` kind that is checked but never replayed is the held follow-on gap
-dashboard-keep-display-proposal (`docs/proposals/dashboard.md`, section 5); until it lands, the Supervisor adds a
-dashboard as an edit to the model and `ergostat check`, never through the judge.
+sensors): declaring, changing or removing one changes neither the model's version nor any replay. A change of
+`dashboards:` alone is an `ergostat.model-change` of kind **`display`** (section 12e, the table of `propose`'s keys):
+checked like any change, judged as a change of words (passed when `check` finds nothing new of it), never replayed,
+and written only by the owner's Accept unless the judge's policy names `display: auto`.
+
+**Keep.** On the Dashboard page, a reader's draft has **Keep**. It sends the draft to the server
+(`POST /api/propose?keep=dashboard`, the draft as the JSON body), which works out the `dashboards:` entry from it
+(`numbers/display.py`): named from its title (lowercase, `-` between words), its window when `keep:` holds it, each
+panel a `query` panel written as one JSON line. A dashboard of that name already declared is replaced in place. The
+change is made by the owner, waits under *Changes to review* with its diff (shown, never offered as text to edit),
+and Accept writes it as it writes a what-if; Dismiss lets it go. Nothing is written before Accept. It is refused
+when the model it leaves does not pass `check`, when it would change anything but `dashboards:`, and for a draft
+with rows, variables or repeated panels (they stay in the draft: `dashboards:` holds panels alone so far).
+`/dashboard?name=NAME` draws a declared dashboard's `query` panels on the page (its other kinds are answered by
+`GET /api/dashboard/NAME` and not drawn there yet); changing it there makes it the reader's own draft. An agent or
+the Supervisor proposes the same kind of change through `propose` with `kind: display`.
 
 **Served in one request.** `GET /api/dashboards` lists each dashboard: `name`, `title`, `description`, `panels` (how
 many), `window` and `declared`, the model's own `default` first. `GET /api/dashboard/NAME` (`since`, `at` as every
@@ -1924,6 +1976,16 @@ while the item is unfinished. The answer:
   has none, a field that cannot be read, a lease whose taking recorded no pid, as with no `budget:` declared, so that
   whether its process runs is not known, or nothing found holding it). Each root says who or what must act (`owner`),
   the action and the command. Up to 200 items are looked at and 8 roots kept; the first is the answer's.
+- **place** (`ergostat/why/within.py`): where it is held as one of many, when a relation of the model may name its
+  kind (one that declares an `inverse`, and is neither precedence, a group nor a remote's): `in`, the unfinished items
+  naming it (at most 5), each with its state and the first 3 of its kind's `show:` fields that hold a value (a batch
+  naming the gaps it tests: "It is in batch/x (isolating; size 3; run 6; outcome crashed)"); else `ahead`, per kind,
+  how many unfinished items of it name an item of its kind in its state (a leased one in the state it was taken from)
+  or one whose last take (its last move into `leased`) was from its state and that has not come back to it since (the
+  gap a batch tests, taken from approved and then queued, is ahead of an approved gap; a gap in an earlier state,
+  which no take of the batch's gaps was from, has none ahead), and the latest of them ("ahead of it: 1
+  unfinished batch item, the latest …"). Null when no relation may name its kind; a holder that cannot be read is
+  said under **missing**, never raised. The summary carries it.
 - **evidence**: each claim's event or reading, with a link (the item's page, `/api/events/ID`, the block in the
   Blocks view); **missing**: what the record cannot tell, never guessed.
 - **summary**: one paragraph to paste to someone else.
@@ -2134,7 +2196,15 @@ stand now):
   item across every state until it finishes, so a pool of three keeps at most three items between that take and their
   finish; an item that would need one while all are held waits in the queue, holding nothing (the record's runs given
   back for want of one, "put off ten seconds, not counted", are that wait, never runs; who holds which workspace now is
-  read from the workspaces' own events). A run's length is drawn from the block's run-time curve (Kaplan–Meier, the leases still held censored, so the
+  read from the workspaces' own events). A block's capacity is also never above its **measured concurrency**, when
+  that is lower: the 90th percentile, over the time items waited in its states in the two weeks before, of its runs
+  going at once (from the leases' taken and ended), so a control loop that admits fewer than the pool (an
+  implement-when gate) binds, in the estimates and the Timeline's levelled pass alike (both take it from
+  `etamodel.capacities`); its reason says so ("4 at once while items waited (the record, p90), under its pool of 20").
+  A block with no run on record, or whose items never waited, has none measured. A **refusal** (a run given back not
+  counted within 30 seconds: the run refusing on drain or a full machine) is the block's gate closed, not a run: left
+  out of its attempts and its run-time curve, its put-off still delaying the item, and said in the item's reason (the
+  share of takes refused and their put-off). A run's length is drawn from the block's run-time curve (Kaplan–Meier, the leases still held censored, so the
   long runs are not lost to those not yet ended), and how it ended from the recorded attempt nearest that long
   (bootstrapped per Monte Carlo run): moved on (to where), given back (its `after` kept: put off) or expired; a run
   past its lease's TTL expires at it. The last two return the item to the queue, its attempts counted, a dead letter
@@ -5782,7 +5852,7 @@ Any block may print:
 
 | Key | Meaning |
 |---|---|
-| `kind` | `parameter` (values only), `equation`, `structure`, `measurement` (a sensor of a part already there), `control` (a goal, a block, an agent, the judge's policy), or a change of words: `description` (descriptions alone, a sensor's too), `unit` (units alone) and `rename` (the same model under new names: each renamed part says `formerly:` its old name, every reference follows, and its structure, its control and every sensor are as they were; a change never edits a file that is not the model's). What the edit does decides, whatever it is called (`improve.kind_of`). Parameter, equation and structure are judged by the replay; a change of words by `check` alone (passed when it makes no new finding or note); control and measurement wait for the owner |
+| `kind` | `parameter` (values only), `equation`, `structure`, `measurement` (a sensor of a part already there), `control` (a goal, a block, an agent, the judge's policy), or a change of words: `description` (descriptions alone, a sensor's too), `unit` (units alone) and `rename` (the same model under new names: each renamed part says `formerly:` its old name, every reference follows, and its structure, its control and every sensor are as they were; a change never edits a file that is not the model's). What the edit does decides, whatever it is called (`improve.kind_of`). Parameter, equation and structure are judged by the replay; a change of words by `check` alone (passed when it makes no new finding or note); control and measurement wait for the owner. `display` is `dashboards:` alone (section 4f): every file the edit touches must read, `dashboards:` left out, as the same data as before, else it is refused (*not a display change*), and a change of `dashboards:` alone said to be another kind is refused too; it is judged as a change of words, never replayed, and its reasons need evidence ergostat can check but need not be supported by a fit or a finding |
 | `parts` | The parts it touches, as references (`stock.x`, `flow.y`, `parameter.z`) |
 | `edit` | In the review queue's form, `{"files": [{"file", "hunks": [{"line", "old", "new"}]}]}`, or `{"file", "replace", "with"}` (the lines as written now, found once, and what they become), or a list of either. Files are named from the model's folder, and only the model's own files may be edited |
 | `reasons` | Each `{"says", "evidence"}` (`evidence` one, or a list). Evidence is what ergostat can check: a finding `check` reports now, by its id (`finding:CODE@PART`, the `id` in `check --json` and the MCP `check`); a statistic of the fit (`fit:total.nmse`, `fit:stock.NAME.r2`, `.mape`, `.um`, `.us`, `.uc`, and an equation's `fit:flow.NAME.r2`); a residual (`residual:stock.NAME`); a line of a document or of the code, in the project or in ergostat (`docs/MODELLING.md:120`, `bin/lab.py:40-52`), or a URL; or a modelling rule (`rule:NAME`: the guidelines of `docs/MODELLING.md` and Sterman's tests, listed in `numbers/improve.py`) |
@@ -5900,7 +5970,7 @@ blocks:
 | `windows` | list of whole numbers | `[1, 2, 4]` | How the verdict shows its evidence: the record held out whole, in halves, in quarters (each at least a minute), sliced from the one replay the verdict pools |
 | `warm-up` | duration | `6h` | The longest before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f): three time constants of what the change touches, and never more than the record held before the window |
 | `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better (its estimate; the bound must also exclude no change), and the most rise that counts as no worse |
-| `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`, `description`, `unit`, `rename`, `redesign`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged. `accept: auto` promotes `parameter`, `equation`, `structure`, `description` and `unit`; a rename and a redesign are written only when named (`rename: auto`, `redesign: auto`), never by `accept: auto`. Whatever the policy, the judge never writes a change that removes structure or rewires a kind's chain, a redesign that changes control, or any change to who decides (the judge's policy, a block's `accept`, a template instance's `with:`: refused when proposed); those are the owner's. How each is judged differs (the exemptions from the replay): parameter, equation and structure by the replay on the record after the change; description, unit and rename by `check` alone (they change no replay); a redesign by its scorecard on the record it has when the judge takes it up, its fit allowed 10% worse; control and measurement not at all (the owner's). Changes of words are written as many a pass as have passed; the rest one a pass. A change written moves the lines of the others waiting (their hunks shifted, `proposals.rebase`), and a change waiting is carried to the new version rather than superseded when its edit still applies (`proposals.supersede`: ergostat's own when their subject is unchanged; a description, a unit or a redesign whoever made it) |
+| `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`, `description`, `unit`, `rename`, `redesign`, `display`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged. `accept: auto` promotes `parameter`, `equation`, `structure`, `description` and `unit`; a rename, a redesign and a display change are written only when named (`rename: auto`, `redesign: auto`, `display: auto`), never by `accept: auto`. Whatever the policy, the judge never writes a change that removes structure or rewires a kind's chain, a redesign that changes control, or any change to who decides (the judge's policy, a block's `accept`, a template instance's `with:`: refused when proposed); those are the owner's. How each is judged differs (the exemptions from the replay): parameter, equation and structure by the replay on the record after the change; description, unit and rename by `check` alone (they change no replay); a redesign by its scorecard on the record it has when the judge takes it up, its fit allowed 10% worse; control and measurement not at all (the owner's). Changes of words are written as many a pass as have passed; the rest one a pass. A change written moves the lines of the others waiting (their hunks shifted, `proposals.rebase`), and a change waiting is carried to the new version rather than superseded when its edit still applies (`proposals.supersede`: ergostat's own when their subject is unchanged; a description, a unit or a redesign whoever made it) |
 | `reviewed` | a list of kinds (`structure`, `redesign`, ...) | none | The kinds written only after the reviewer's pass (*The reviewer*, below): the judge's policy writes none of them before it, and the inbox offers none to the owner before it (the review queue still shows each, and the owner may accept one there). The modelling template sets it with `ai: true` |
 | `out` | map of `testing`, `passed`, `failed`, `accepted`, `inconclusive` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
 | `in`, `every` | | | What it reads (signed, as a machine block's), for the diagram; how often it passes |

@@ -189,7 +189,8 @@ def settled(landed: list[str], sha: str, back: list[tuple[str, str]]) -> None:
     if landed:
         NOW["outcome"] = "landed" if len(landed) == len(NOW["gaps"]) else "partial"
         _mark(outcome=NOW["outcome"], back=NOW["back"], failed=NOW["failed"], sha=sha)   # (for left())
-        _say("batch.landed", NOW["id"], landed=list(landed), main_sha=sha, runs_n=NOW["runs"], minutes=_minutes())
+        _say("batch.landed", NOW["id"], landed=list(landed), main_sha=sha, runs_n=NOW["runs"], minutes=_minutes(),
+             landed_at=time.time())                     # (when main moved: landing.py's measures)
     else:
         end("failed" if NOW["failed"] else "given-back", "nothing landed")
 

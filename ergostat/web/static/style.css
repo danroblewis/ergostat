@@ -927,6 +927,17 @@ body.pane .toolbar, body.pane .zoom { position: absolute; margin: 0; }
 body.pane .toolbar { width: max-content; max-width: calc(100% - var(--sp-5)); order: 0; }
 body.pane .zoom { order: 0; align-self: auto; }
 body.pane svg.canvas { height: 100%; }
+/* a Dashboard's diagram panel (?pane=embed, split.js): the drawing alone, read-only; a click on it opens it whole */
+body.embed .toolbar, body.embed .zoom, body.embed .diagram > .side, body.embed .split-grip, body.embed .open-level,
+body.embed .legend-box { display: none; }
+body.embed svg.canvas { pointer-events: none; }
+.panel-diagram { padding: 0; }
+.panel-diagram-link, .panel-diagram .rg-graph { display: flex; flex-direction: column; flex: 1; min-height: 0; margin: 0; }
+.panel-diagram-link > * { flex: 1; min-height: 0; width: 100%; border: 0; }
+.panel-diagram-link > iframe { pointer-events: none; }
+.panel-diagram .rg-tools { display: none; }
+.panel-diagram .rg-stage { flex: 1; min-height: 0; border: 0; pointer-events: none; }
+.panel-diagram-wake { margin: auto; }
 @media (max-width: 699px) { .split-grip { display: none; } }
 
 /* the model's numbers: an equation in MathML, its parameters, a proposal (equations.js); the Model page */
