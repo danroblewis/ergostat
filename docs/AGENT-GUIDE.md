@@ -806,6 +806,13 @@ takes each give-back as rework, so the estimates come out late), and a step noth
 left yet (its items are assumed to go to the next state in order). Under twenty runs no p90 is said. A block with
 fewer than five runs on record is said as assumed on the item's page.
 
+The same answer, the **forecast** (`forecast/v1`, SPEC §5a *The forecast*), can be read outside the Timeline: per
+item, per kind, per group (a `group: true` relation's parent) and per stage (a kind's state), each with its basis,
+its runs, when it was computed, and `none` when it has no estimate. A dashboard panel reads it through the `sql`
+source's `forecast_items`, `forecast_kinds`, `forecast_stages` and `forecast_groups` views (`select state,
+max(p90) from forecast_items group by state`); `GET /api/forecast` gives it as JSON; and a model reading this one as a
+remote gets it from `/remote/v1/forecast` (`/api/forecast?remote=NAME` there). Nothing has to be declared for it.
+
 ## 3i. Programs fail hard, and are repaired
 
 The scripts the model's blocks run (collectors, steps, actuators) will fail: an API changes shape, a field goes
