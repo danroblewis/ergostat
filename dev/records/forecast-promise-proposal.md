@@ -26,3 +26,22 @@ Boundary (the owner, 2026-11-23). ergostat serves job shops with rework, batch a
 Build on what exists: the Monte Carlo over every open item (`ergostat/numbers/eta.py`, `etamodel.py`), its what-if overrides, its backtest (`tests/eta_backtest.py`), and the Timeline's calibration line. Do not start a second estimator.
 
 Do not measure or change the live instance in the session.
+
+## Where it stopped
+
+Round 1: written. docs/proposals/forecasts-and-promises.md settles the eight (§1–§8), with a job shop with rework
+(§9.1) and a batch process with yield loss (§9.2). No code changed (0 net lines).
+
+- Done 1: the eight are settled. Both worked examples are illustrative, worked by hand and not run on a record, and
+  the file says so. The one exact figure, the binomial table of §9.2 (12 lots for 10 good at level 0.9, scrap 8%), is
+  named as the check `test_extra_matches_binomial` that the quote gap must pass. It was worked by hand, because the
+  inline check `uv run python -c "from math import comb; ..."` was refused in this session.
+- Done 2: the opening table names what exists (file by file) and what is new.
+- Done 3: two owner's questions, each one sentence, with the default until answered.
+- §8 is proposed whole. The milestone's later gaps are not in this clone (no record names them), so the six gaps,
+  their files, order, budgets (about 920 net lines) and acceptance tests are given for the coordinator to map onto
+  what is filed. control-aware-completion-estimates is confirmed as control-aware-estimates.md §9 amends it.
+- Decisions taken alone (each the reversible one, listed in the proposal): an hourly frozen list recorded as an
+  event; an unreadable freeze takes the plain order; the conformal correction and remote quotes off unless declared;
+  per-item random streams only if the backtest is unchanged.
+- Not measured, and the live instance not touched. No test, page or example changed, so only ruff was run.
