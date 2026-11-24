@@ -26,12 +26,14 @@ import re
 import sqlite3
 import time
 
+from .. import stages
 from ..spec import codec
 
 STABLE = {
     "transitions": ("id", "kind", "at", "from_state", "to_state", "event", "type"),
     "item_fields": ("id", "kind", "field", "value"),
     "item_spans": ("id", "kind", "state", "entered", "left", "entry", "reason"),
+    **stages.COLUMNS,                                   # (made from the items' stages, here: _stage_tables)
 }
 KIND_COLUMNS = ("id", "state", "first", "last", "entered", "events")
 FUNCTIONS = frozenset((
@@ -147,6 +149,46 @@ def _finished(c, spec) -> dict[str, list[str]]:
     return {k: finish_of(spec, k, left.get(k, set()))["finished"] for k in spec.items}
 
 
+def stage_rows(c, spec, finished: dict[str, list[str]], now: float) -> list[dict]:
+    """The stages of the items of each kind that declares ``pipeline:`` (stages.rows), as ``c`` reads the index."""
+    kinds = [k for k, x in spec.items.items() if x.pipeline is not None]
+    if not kinds:
+        return []
+    got = c.execute("select i.id, k.name, n.name, i.body from main.items i join main.names k on k.id = i.kind "
+                    f"left join main.names n on n.id = i.state where k.name in ({', '.join('?' * len(kinds))})", kinds)
+    return stages.rows(((i, k, s not in finished.get(k, []), codec.unpack(b)["f"] if b is not None else {})
+                        for i, k, s, b in got), now)
+
+
+def stage_metrics(p) -> str:
+    """``GET /api/stages/metrics``: the finished stages of each kind declaring ``pipeline:``, as Prometheus histograms
+    (stages.exposition), read in one snapshot of the item index; a record kept nowhere on disk raises, never empty."""
+    from ..spec.itemindex import index_for
+    spec = getattr(p.model, "spec", None)
+    declared = {n: k.pipeline["stages"] for n, k in (getattr(spec, "items", None) or {}).items() if k.pipeline}
+    if not declared:
+        return stages.exposition([], {})
+    if (ix := index_for(p.events, spec, False)) is None:
+        raise RuntimeError("this project's record is kept nowhere on disk, so its stages cannot be read")
+    with ix.reading() as c:
+        c.execute("begin")
+        rs = stage_rows(c, spec, _finished(c, spec), time.time())
+        c.execute("commit")
+    return stages.exposition(rs, declared)
+
+
+def _stage_tables(c, spec, finished: dict[str, list[str]], now: float) -> None:
+    rs = stage_rows(c, spec, finished, now)
+    est = stages.estimates(rs)
+    made = {"item_stages": rs, "item_progress": stages.progress(rs, est, now),
+            "stage_estimates": [{"kind": k, "run_kind": rk, "stage": s, "expected": e, "samples": n}
+                                for (k, rk, s), (e, n) in sorted(est.items())]}
+    for view, cols in stages.COLUMNS.items():
+        c.execute(f'create temp table "{view}" ({", ".join(chr(34) + x + chr(34) for x in cols)})')
+        c.executemany(f'insert into temp."{view}" values ({", ".join("?" * len(cols))})',
+                      [tuple(r[x] for x in cols) for r in made[view]])
+
+
 @contextlib.contextmanager
 def opened(ix, spec, deadline: float, text: str | None = None, why: list | None = None):
     """``(connection, why)``: the index's file opened read only, each view ``text`` names (every one, for None) copied
@@ -180,6 +222,9 @@ def opened(ix, spec, deadline: float, text: str | None = None, why: list | None 
             if words is None or view.lower() in words:
                 c.execute(f'create temp table "{view}" as {select}')
                 names.add(view.lower())
+        if words is None or words & set(stages.COLUMNS):
+            _stage_tables(c, spec, finished, time.time())
+            names |= set(stages.COLUMNS)
         c.execute("commit")
         c.execute("pragma query_only = 1")
 

@@ -1385,8 +1385,9 @@ web:
 `open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
 login: anyone who reaches the name reads everything the page shows, and nothing is changed there. Such a reader may
 not ask a data source (section 4e, *Data sources*): each of their `{source, text}` queries is refused with
-`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists no `datasources` to them; the
-owner, and a login under a name with `access:`, may ask. The tunnel must
+`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists to them only the `model` source,
+which reads nothing outside the project and which they may ask; the owner, and a login under a name with `access:`,
+may ask any. The tunnel must
 keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
 
 The token is verified with the standard library: RS256 only, against the team's keys
@@ -1409,7 +1410,11 @@ machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**
 ## 4e. Asking for numbers: the query API
 
 Every chart reads through one read-only endpoint, `GET /api/query?q=<base64url of JSON>` (a GET, so a read-only public
-name can use it). `GET /api/query/fields` lists what can be charted. Nothing here writes, and only the `events` source
+name can use it). `GET /api/query/fields` lists what can be charted (each kind under `moves` with its states, its
+finished states and its `queue`, the states its work waits in to be taken, as the Graph gives them: the default
+Dashboard reads them there, and asks `GET /api/items` with `eta=0`, which leaves out the completion estimates and so
+never starts their simulation, so neither holds back its panels on a cold server; it asks first for the panels whose
+cell begins above the fold, then the rest at the same `until`). Nothing here writes, and only the `events` source
 reads the event log.
 
 ```json
@@ -1436,8 +1441,9 @@ reads the event log.
   item, or `state_group` (§5a, *Progress per group*), at most 12 groups, the rest added up as `other` (`capped` says
   how many).
 - **Frequency responses.** `frequency` with an `input` and an `output` estimates the response from the record (Welch's
-  method, `segments` averages, 4 by default). With `model: {goal}` it gives the goal's declared process instead. A
-  response from the record is drawn only where the record supports one. The coherence floor (`coherence_floor`) is
+  method, `segments` averages, 4 by default); it takes the input and the output explicitly, never a guess at them. With
+  `model: {goal}` it gives the goal's declared process instead, answered as the `model` data source answers
+  `goal NAME declared` (below). A response from the record is drawn only where the record supports one. The coherence floor (`coherence_floor`) is
   corrected for the number of frequencies looked at (Bonferroni over the per-frequency floor, `coherence_floor_each`).
   When no frequency reaches the corrected floor, the answer is `supported: false` with `refused` saying why, and it
   carries no curve. Unrelated signals are refused this way in at least 95% of records. The page marks the points under
@@ -1476,7 +1482,29 @@ reads the event log.
   nothing sent.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
-  is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
+  is never sent, and `datasources` lists to them only the `model` source below; their other queries are answered as
+  before.
+- **The model as a data source.** A source of type `model` is the project's own model and record, so one named `model`
+  is there without declaring it (a source declared under that name takes the name; another may be declared
+  `{type: model}`, with no connection keys). It reads nothing outside the project, so a reader under `open: read` may ask
+  it, except that identifying a process from the record is not done for such a reader (it reads the whole fine record;
+  they are refused, and may ask the declared or a written process). Identifications are done one at a time, waited for
+  no longer than the query's bound, and kept by project, model, goal, time and the record's version. Its language is one
+  line: `goal NAME` (the goal's declared `process:`, or, when it declares none, the process its
+  record identifies, section 12c), `goal NAME declared`, `goal NAME identified`, `fopdt gain=K tau=DURATION
+  delay=DURATION` (K e^(−θs)/(τs + 1)) or `ipdt gain=K delay=DURATION` (K e^(−θs)/s, K per second), each optionally ending
+  `dt=DURATION`; a written `tau`, `delay` or `dt` past a year is refused at its word, and the phase is worked out in
+  closed form (the rational part's less θω), so an answer costs the same for any delay. It answers a `response` with `system` (`form`, `gain`, `tau`, `delay`, `poles`, `zeros`) and the exact
+  frequency response, which Bode, Nyquist and pole-zero draw. A process with dead time has its poles and zeros from its
+  model sampled through a zero-order hold every `dt` (on the z-plane; a continuous delay has no finite set of poles), at
+  the goal's controller period or a quarter of the dead time when no `dt` is given, lengthened when needed to keep the
+  delay within 64 periods, and the answer and the map state that `dt`; a `dt` written so short that the delay is past 64
+  periods is refused, asking for a longer `dt`. An identified process is answered only when the
+  record tells it apart (section 12c), with `fit`: the share of the record held out it follows, the standard errors of its
+  numbers, whether it came from step tests, and why it is not yet proposable if it is not; otherwise the query is refused
+  with the record's reasons and draws no curve. Its `provenance` is `declared` for a declared or written process and
+  `derived` for an identified one. A malformed query is refused with `error_at` at the word that is wrong. The default
+  dashboard's Bode, Nyquist and pole-zero examples ask it for the first goal that declares a process.
 - **The SQL source.** A `sql` source answers what PromQL cannot: which items, one item against another, exact medians,
   cohorts. A query is one SQLite SELECT over these documented, stable views of the project's items, and nothing else
   (`ergostat/datasources/_itemviews.py`). Times are Unix seconds, and `:since`, `:until` and `:step` are the panel's window.
@@ -1492,6 +1520,8 @@ reads the event log.
   - One view per item kind, named for the kind with `-` read as `_`: `(id, state, first, last, entered, events, ...)`,
     then the kind's `show:` fields that are plain words. A kind whose name is not then a plain word, or that is named
     like a view above, has none.
+  - `item_stages`, `stage_estimates` and `item_progress`: the stages of the items of each kind declaring `pipeline:`,
+    their expected times and each open item's time left (section 5a, *Stages*).
 
   The aggregates `median(x)`, `percentile(x, p)` (p from 0 to 100) and `percentile_cont(x, p)` (p from 0 to 1) are exact.
   They interpolate linearly between the two nearest values, as PostgreSQL's `percentile_cont` does, and ignore nulls.
@@ -1539,8 +1569,9 @@ reads the event log.
   `source`, its `query` (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the
   record, `declared` for a model's) and `verdict` (`ok`, `warn` with what the answer says of itself, or `refuse` with the
   error). A data source's type may answer with a typed frame instead of a list of series: `series` (with roles), a
-  `table` or `points`, each checked and bounded (5,000 rows or points), and refused with `error` when it is not what it
-  says. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
+  `table`, `points` or a `response` (`frequency`, and `system` with its poles and zeros as `[re, im]`; one refused,
+  `supported: false`, carries no curve), each checked and bounded (5,000 rows or points), and refused with `error` when
+  it is not what it says. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
 - **Which charts apply.** Each chart family declares the shapes it takes (`shapes` in its registration): line takes
   series, a table over one numeric dimension, and points; bar series, a one-dimension table and bins; stat plain series and a
   one-row table; table plain series and a one-dimension table; scatter two signals, a table of two measures, and points;
@@ -1728,7 +1759,41 @@ items:
 | `finished` | list of its states, not its first | none | The states it counts as finished, when `messages: done:` does not name the kind (a template's kind says its own: a template writes no `messages:`); `bad-finished` for a state it does not have, or its first |
 | `moves-from` | map of one of its `on:` events → a list of its states | none | The only states that event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for an event not in `on:` or a state it does not have) |
 | `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
+| `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{kind, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge`; any other rule for it is refused (`bad-pipeline`), as is a library's |
 | `system`, `description` | | | |
+
+**Stages** (`ergostat/stages.py`). A kind with `pipeline:` is a pipeline: each of its items records the named stages it
+goes through as ordinary events, any type (the merge queue's are `batch.stage-started` and `batch.stage-finished`),
+whose data folds into the item's `stages` field by merge, keyed by a span id the recorder makes:
+
+- started: `{"stages": {SPAN: {"stage": "unit", "run": "2", "run_kind": "full", "started": T, "until": T}}}`;
+- finished: `{"stages": {SPAN: {"finished": T, "outcome": "passed"}}}` (`passed` is the one normal outcome;
+  `failed`, `stopped` for one cut short, `error`).
+
+A span per stage run, so a stage may repeat (in one run or in another) and stages may run at once. A stage with no
+finish is `running` while its item is open and before its `until` (by when its recorder said it ends or is stopped);
+past either it is `unfinished`, so a recorder that died never reads as running. The SQL source (section 4e) answers
+three views of them, read in the same snapshot as the others:
+
+- `item_stages(id, kind, span, stage, run, run_kind, state, outcome, started, finished, seconds)`: each stage, in the
+  order the record began them. `state` is `done`, `running` or `unfinished`; `seconds` is the duration when done, the
+  time so far when running, and null when unfinished.
+- `stage_estimates(kind, run_kind, stage, expected, samples)`: the median of the stage's latest 20 `passed` runs on the
+  same kind of item and of run, with how many there were. Under 3, `expected` is null: no estimate.
+- `item_progress(id, kind, run, run_kind, stage, note, elapsed, expected, samples, left)`: each open item's running
+  stages (one row a stage; none running, one row with a null stage). `left` is the time left: each running stage's
+  expected less its elapsed (at least 0), the longest of those that run at once, plus the later steps of the latest
+  run of its kind whose stages all passed (a step: the stages that ran at once; its longest expected). It is null,
+  with `note` saying why, when that run or an estimate is missing, when a stage of the item did not pass ("the
+  remaining path depends on what fails"), or when one is unfinished.
+
+`GET /api/stages/metrics` gives the finished stages of every pipeline as one Prometheus histogram,
+`ergostat_stage_seconds` (`_bucket`, `_sum`, `_count`; buckets of 10 s to 4 h), labelled only by `kind`, `stage` (a
+declared name, else `other`) and `outcome` (one of the four, else `other`): a Prometheus that scrapes it answers PromQL
+over them. The default Dashboard gives each pipeline (two at most, with a `sql` source declared) a row of its own,
+named for its `title`: its running item and the line waiting, in the order `waiting` takes them; its stages now with
+elapsed, expected and time left; each stage of its running item; its recent items; and each stage's median over time,
+each an ordinary SQL panel over these views.
 
 **Which states are finished.** One rule (`spec/finished.py`) decides it for the Items listing, the relations' status
 and critical path, and the completion estimates: the states `messages: {done:}` declares for the kind, else those
@@ -4700,7 +4765,9 @@ sources:
 
 A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
 (`GET /api/v1/query_range`) through the server (section 4e, *Data sources*); its editor's names come from GETs of its
-metadata API (section 4e, *The query editor*). It makes no other request.
+metadata API (section 4e, *The query editor*). It makes no other request. A `model` source (no fields) is a dashboard
+data source only: the project's own model and record as transfer functions (section 4e, *The model as a data
+source*); one named `model` is there undeclared.
 
 A `sql` source (no keys: `record: {type: sql}`) is a dashboard data source only. Its connection is the asking project's
 own record: a panel's query is a SQLite SELECT over the item views (section 4e, *The SQL source*).
@@ -5041,6 +5108,16 @@ other loop with that head is the head "via" the fewest of its members no sibling
 first, then stocks, auxiliaries, goals and blocks (`backlog-clear via rejected`). Never numbered,
 never a list of everything in it.
 
+**A goal, its feedback loops and its control loop** are three things, cross-referenced from the spec
+alone. A loop that runs through a goal's gap **closes** it, and the graph API gives it `goal` (the
+first by name when it runs through several); a loop through no gap has none. A goal's answer
+(`loops/NAME`) gives `feedback_loops` (those that close it, each with its label) and `control_loop`
+(its sensors, controllers and actuators). The dynamics view's list (folded, "Feedback loops") states
+the reconciliation in its summary ("Feedback loops 34, 28 close a goal"). A loop's panel says "Serves goal X", a link to
+the goal's panel. The goal's panel, in either view, has one line, "Feedback loops: B1 backlog-clear …
+(Dynamics) · Control loop: … (Blocks)". Each name there is a link that switches to that view with
+the loop chosen.
+
 **Drawn** (the dynamics view, `ergostat/dynamics.py`): each loop is labelled as Sterman numbers them,
 R1, B1 (the shortest first, the ones the model names before others of their length), with its name
 beneath. Only loops of known polarity are marked on the diagram, each inside the loop as drawn; the
@@ -5070,7 +5147,8 @@ open system comes from a shadow variable `<x>` inside the receiving system, and 
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a
 pipe out ends in a cloud with the part beyond named under it. An
 open system is a sector, a light tint with its name at the top left; a closed one is a module, its
-connection points named on its edge. The view's panels use system dynamics' words only. The side
+connection points named on its edge. The view's panels use system dynamics' words only, but for
+the goal a loop closes (above). The side
 list's cards are said in those words too, but only a sentence's own words: a code, an id or a part
 name (`queue-goal-tolerance`, `goal.ci-upgrade-planned`) and the tier a request names are kept as
 they are, the same as in Blocks. A flow's
@@ -7329,8 +7407,8 @@ remote), and the same push through `git-push` after the owner's approval.
 ### The operating state and the owner's presence
 
 The model is in one **operating state** at a time: `normal`, `maintenance`, `freeze` or `incident`. The owner is
-**present** or **away**. Both are read from the record, never kept anywhere else. Nothing is gated on them yet: what
-each state lets through comes with thresholds scheduled by regime.
+**present** or **away**. Both are read from the record, never kept anywhere else. Together they choose each action's
+gate and act-risk threshold (*Gates and thresholds by operating state*, below).
 
 ```
 ergostat operating                                   # the state now, the owner's presence, and why
@@ -7362,6 +7440,42 @@ what that act said (`note`; for maintenance `until`, its end, and `actions`, eac
   showing the state included.
 - **Not covered.** The events are kept as the record's other loose events are. A state entered longer ago than the
   model's `keep:` (30 days by default) is forgotten when its event is pruned, and then reads as `normal`.
+
+### Gates and thresholds by operating state
+
+An action's `gate:` and its `risk.threshold` may each be one value, as before (the `normal` column), or a map by
+**column**: `normal`, `away`, `maintenance`, `freeze`, `incident`.
+
+```yaml
+actions:
+  deploy:
+    run: ./deploy.sh {branch}
+    gate: {normal: auto, away: approve, maintenance: auto, freeze: deny}
+    risk: {severity: 3, threshold: {normal: 8, away: 4}}
+```
+
+- **Each cell** is `auto`, `approve` or `deny`, and each threshold 1 < T ≤ 50. Any other column or value is
+  `bad-value` at its line, and that cell is read as unwritten.
+- **Unwritten cells never loosen.** `away` and `maintenance` take `normal`'s gate, `freeze` takes `normal`'s one step
+  stricter (`auto` → `approve` → `deny`), `incident` is `deny`. Every unwritten threshold takes `normal`'s. A written
+  cell is used as written: it is the owner's file, so a written cell may be looser than `normal`.
+- **The column in force.** Under `incident` or `freeze`: that column. Under `maintenance`: the `maintenance` column for
+  the actions the lease names (`--actions`), and for every other action what it would take under `normal`. Under
+  `normal`: `normal` while the owner is present, `away` while they are away.
+- **Unsure is `deny`.** A state that cannot be read, or that the record holds as no known state, reads as incident
+  (above) but no written cell applies to it: the gate is `deny`, whatever `incident:` says. Only an incident the
+  owner entered uses the `incident` column.
+- **At the request** the column's gate and threshold are taken, then act-risk steps that gate as before. The request
+  records the column's gate as its `gate`, and `operating: {state, presence, seq, why, column}`.
+- **At the act**, inside the run lock, the state is read again and the action's column taken again. The gate in effect
+  is the stricter of the request's and the act's, so a freeze entered after the owner's approval denies the act
+  (an `approve` action's `freeze` column is `deny` by default), and an `auto` action approved by the gate is held again for the owner.
+  `risk_at_act` records the state read (`operating`) and the column's gate (`cell`).
+- **Only `actions:` are scheduled.** A notify channel's `notify.CHANNEL` (section 12o) keeps its one `gate:` whatever
+  the state, and even when the state cannot be read (column `unscheduled`), so what waits during an incident is
+  still sent, and an unreadable record never turns a channel's messages into denials counted as told.
+- `gate.in_force` (`ergostat/actions/gate.py`) reads the state; `risk.cell` and `risk.schedule`
+  (`ergostat/actions/risk.py`) pick the column and fill the defaults.
 
 ### Compute pools
 
