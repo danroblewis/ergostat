@@ -55,6 +55,18 @@ line was restored by hand); the entry is below. tests/test_items_page.py: 90 of 
 `test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel` (the diagram's side panel) failed in the file's run and
 passed alone; none was run on main here.
 
+Round 4: the queue's finding fixed. `tests/test_queue_batch_item.py::test_the_timeline_draws_one_bar_per_run_and_the_gaps_link_to_their_batch`
+(main's, from queue-batch-item) looked up the snapshot key `items-graph?kinds=batch`; since this branch the snapshot asks
+by system, as the page does, so it failed with KeyError. It now finds the one `items-graph?kinds=batch&system=...` key
+and checks the batch is in it (as tests/test_graph_cli_web.py did in round 3). Without `system=` in snapshot.py it fails
+again (no key found), and it failed on the old key before the change. The file's page test,
+`test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run`, fails under Playwright at its first step, the kind's
+list: the batch is finished (partial) and the list hides the finished by default (`fin()` is "hide" outside the
+Timeline, pages.js:681; "1 finished (partial) not shown"). The branch touches neither the list nor its `items` answer,
+so it is left alone (lesson 13). In queue runs it is skipped (no Playwright in that unit file). Run here with the list
+step taken out, its Timeline part (which reads this branch's `system=` answer) passed; the step was then put back as
+main has it. Not run on main here.
+
 ## Entry
 
 section: Interface

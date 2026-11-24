@@ -273,7 +273,9 @@ def test_the_timeline_draws_one_bar_per_run_and_the_gaps_link_to_their_batch(tmp
     import re
     data = json.loads(re.search(r"window\.SNAPSHOT = (.*?);</script>", html, re.S).group(1))["data"]
     assert "batch" in {k["name"] for k in data["items"]["kinds"]}
-    assert "batch/a-20261123T100000Z" in {i["id"] for i in data["items-graph?kinds=batch"]["items"]}
+    asked = [k for k in data if k.startswith("items-graph?kinds=batch&system=")]   # (by its system, as the page asks)
+    assert len(asked) == 1, sorted(k for k in data if k.startswith("items-graph"))
+    assert "batch/a-20261123T100000Z" in {i["id"] for i in data[asked[0]]["items"]}
 
 
 @pytest.fixture(scope="module")
