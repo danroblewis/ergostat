@@ -159,6 +159,16 @@ def test_a_failed_base_discards_its_speculative_lane(tmp_path, monkeypatch):
     assert killed == ["batch/b", "batch/g"] and state(p, "f").fields["lease"]["attempts"] == 1
 
 
+def test_an_expired_base_discards_its_lane_on_top(tmp_path, monkeypatch):
+    p = project(tmp_path, ahead=1)
+    d, killed = dispatcher(p, monkeypatch)
+    ready(p, {"a": ["x.py"], "b": ["x.py"]})
+    tick(d, p)
+    a = state(p, "a")
+    d.expire(a, a.fields["lease"], time.time() + 10_000, 60.0)
+    assert state(p, "a").state == "ready" and killed == ["batch/b"]
+
+
 def test_red_on_top_of_a_base_under_way_is_not_counted(tmp_path, monkeypatch):
     """A lane on top that goes red while its base still runs is not proven red on its own: given back uncounted (it
     waits behind the base, then runs again); once its base has passed, its red counts."""

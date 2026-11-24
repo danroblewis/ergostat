@@ -4332,7 +4332,27 @@ that cannot be read takes the plain order, said (a lost preference, never a stop
 (section 5a) take items at the block by the same rule (`leases/frozen.py`'s `arrange`), from the list in force at
 their moment, and an item's why says its place in the window or that it is urgent. A remote reader sees both events
 through `/remote/v1/events`. A window by horizon (the items to start within a time) is not built: it needs a pass
-that runs whether or not a page asks (docs/proposals/forecasts-and-promises.md, section 5). ergostat looks whenever the record has something new,
+that runs whether or not a page asks (docs/proposals/forecasts-and-promises.md, section 5). **Lanes**, off unless
+declared: `lanes: {apart: FIELD, most: N, within: {cpu: C, memory: SIZE}, each: {cpu: C, memory: SIZE}, ahead: K,
+passed: [STATE]}` in `takes:` (N from 1 to 16, K from 0 to 4, cores above 0 and at most 1024, a size above 0 and at
+most 1p, `each` within `within`, `passed` states of the kind; refused otherwise: `bad-lanes`). FIELD is the list of
+what an item touches (words; one word is a list of one; missing, empty or not words: it touches everything, so it
+runs alone). At each look the block's lanes are its leased items; of the items it may take, in its order, one that
+shares no entry with any lane starts apart; one that shares entries only with lanes on one lane's chain starts on top
+of that lane when the chain is less than K deep (its lease's `on` is the chain, and its run gets it in its lease);
+any other waits, and so does every later item that shares an entry with a waiting one, so overlapping items keep
+their order. The lanes held at once are at most N, at most the pool, and at most as many as `within` holds at the
+larger of `each` (1 core and 1 byte unset) and the cost measured on the block's 20 newest ended runs (CPU seconds over
+wall seconds, peak memory; read at most once a minute); counted with the runs still draining, so a lowered bound
+starts nothing new until enough end. One lane always runs, even when a measured lane alone costs more than `within`;
+a cost that cannot be read allows one lane, said. A lane passed when its run moved its item on (into a `passed`
+state, when declared). One that did not (its run gave it back, its lease expired, or it left the item elsewhere)
+stops every lane on top of it (`ergostat.run.killed`), and each ends given back uncounted; a lane on top that ends red
+while a lane it is on has not passed is given back uncounted too, its red not proven its own. A run on top should
+move its item on only after those it is on have passed (a run that did so first stands). `ergostat block NAME --now`
+takes no notice of lanes. The same rule (`leases/lanes.py`'s `plan`) replays a fixture of items with arrival and run
+minutes, giving merges per hour against one lane (`lanes.replay`); the completion estimates do not model lanes yet.
+ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. Nor has it `mode: advise` (`check`:
 `advise-with-takes`), which asks before a command or an event, never before each item. To have a person

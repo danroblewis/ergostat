@@ -94,7 +94,12 @@ Work through these steps in order. Ask the person only what you cannot infer.
    notes an order field no item holds yet (`takes-order-unset`). **To keep the next few in their order** (work about
    to start not reshuffled by later arrivals or re-ranks), add `frozen: {first: 3, urgent: rush}` to `takes:`; an
    item goes ahead of the window only when its `rush` says `{"by": WHO, "why": WHY}`, and that is recorded
-   (`block.frozen.broken`). Leave it out unless the person asks for it: it is off by default.
+   (`block.frozen.broken`). Leave it out unless the person asks for it: it is off by default. **To run several items
+   at once only when they touch different things** (changes to different files, say), add `lanes: {apart: paths, most:
+   3, within: {cpu: 12, memory: 12g}, each: {cpu: 4, memory: 4g}}` to `takes:` (each item lists what it touches in
+   `paths`; `pool:` must be at least `most`). With `ahead: 1` an overlapping item runs on top of the lane it overlaps
+   (its run's lease says `on`) and is stopped and given back uncounted when that lane does not pass (`passed: [STATE]`:
+   where a passing run leaves its item). Off by default too.
    **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare
    `attention: FIELD` on its kind: the words of that field on the kind's latest item that has them are a warning on
    the page's attention list (SPEC §5a), so the finding is said where it is seen, not only stored.
