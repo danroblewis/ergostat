@@ -1,6 +1,7 @@
 """``ergostat library fetch [NAME...] [--update]`` (SPEC §2a): the main file's ``libraries:`` read live with the
 loader's own YAML reader, checked, and each library fetched and locked (``library/fetch.py``). It never opens the
-project and never runs on the last good model: a main file that does not read stops it before any git process."""
+project and never runs on the last good model: a main file that does not read stops it before any git process.
+``ergostat library`` alone lists them (``listing``), offline, on the last good model when the main file is broken."""
 
 from __future__ import annotations
 
@@ -10,10 +11,11 @@ from .spec_cmds import here
 
 
 def register(sub, common) -> None:
-    lp = sub.add_parser("library", parents=[common], help="Libraries fetched by git URL: fetch [NAME...] [--update]",
-                        description="ergostat library fetch [NAME...] [--update]: clone each library in libraries: "
+    lp = sub.add_parser("library", parents=[common], help="Libraries fetched by git URL: list them, or fetch [NAME...]",
+                        description="ergostat library: each library in libraries:, where from, its pin and trust, "
+                                    "offline. ergostat library fetch [NAME...] [--update]: clone each library "
                                     "into .libraries/NAME and pin it in libraries.lock (SPEC §2a)")
-    lp.add_argument("what", choices=["fetch"])
+    lp.add_argument("what", nargs="?", choices=["fetch"])
     lp.add_argument("names", nargs="*", metavar="NAME", help="only these libraries (leave out: all)")
     lp.add_argument("--update", action="store_true", help="resolve each version again, even an unchanged one")
     lp.set_defaults(fn=cmd_library)
@@ -30,6 +32,8 @@ def cmd_library(args) -> int:
     problems: list = []
     data = read_file(main, problems)
     bad = [p for p in problems if p.level == "error"]
+    if args.what is None:
+        return listing(main, data if not bad and isinstance(data, dict) else None, bad)
     if bad or not isinstance(data, dict):
         print(f"{main.name}: {bad[0] if bad else 'not a map of sections'}: fix it first (nothing fetched)",
               file=sys.stderr)
@@ -63,3 +67,25 @@ def cmd_library(args) -> int:
             print(f"library {name}: not fetched: {x}", file=sys.stderr)
             rc = 1
     return rc
+
+
+def listing(main, data, bad) -> int:
+    """``ergostat library``: each library as load reads it (fetched.described): no git process, nothing written. A
+    main file that does not read is listed from the last good model (goodmodel.fallback), said on standard error."""
+    from .. import goodmodel
+    from ..library.fetched import line
+    from ..library.untrusted import OPEN, SAYS
+    from ..spec.load import load
+    if data is not None:
+        libs = load(main).libraries
+    else:
+        p = goodmodel.fallback(main.parent, ValueError(f"{main.name}\n{bad[0] if bad else 'not a map of sections'}"))
+        if p is None:
+            print(f"{main.name}: {bad[0] if bad else 'not a map of sections'} (and no last good model is kept)",
+                  file=sys.stderr)
+            return 2
+        libs = p.model.spec.libraries
+    lines = [line(d) for d in libs.values()]
+    print("\n".join(lines) if lines else f"{main.name} has no libraries:")
+    print(f"\n{SAYS}" if any(OPEN in x for x in lines) else "", end="")
+    return 0

@@ -42,13 +42,17 @@ def library(root: Path | None, name: str | None = None) -> dict:
     doc = _doc(root) if root is not None and (root / FILE).is_file() else None
     extra = doc.library if doc else []
     got, notes = tp.find_all(extra, doc.untrusted if doc else (), doc.fetched if doc else ())
+
+    def pin(t) -> dict:                  # a fetched one's library, as the owner's libraries: and its lock name it
+        d = doc.libraries.get(t.library) if doc and t.library else None
+        return {"library": {k: d[k] for k in ("name", "version", "commit")}} if d else {}
     if name:
         t = got.get(name)
         if t is None:
             raise AuthorError(f"no template {name!r} (there are: {', '.join(sorted(got))})")
-        return marked(t, {**t.summary(), "reading": t.reading, "example": t.example})
+        return marked(t, {**t.summary(), "reading": t.reading, "example": t.example, **pin(t)})
     out = {"templates": [marked(t, {"template": t.name, "description": t.description, "from": t.summary()["from"],
-                                    "trust": t.trust, "params": list(t.params)}) for t in got.values()],
+                                    "trust": t.trust, "params": list(t.params), **pin(t)}) for t in got.values()],
            "folders": [str(f) for f in tp.folders(extra)], **({"notes": notes} if notes else {}),
            "next": "templates with name: NAME for its parameters and its reading; add_use to try one"}
     shown = any(t.untrusted for t in got.values()) or any(n.startswith("untrusted library folder") for n in notes)

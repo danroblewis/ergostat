@@ -21,7 +21,7 @@ import yaml
 from ergostat import goodmodel
 from ergostat import model as mdl
 from ergostat.cli import build, main
-from ergostat.library import author, fetch, sources, tree
+from ergostat.library import author, fetch, sources, tree, untrusted
 from ergostat.spec import files, read
 from ergostat.spec.load import load
 from ergostat.store import Project
@@ -569,6 +569,89 @@ def test_interrupted_git_is_killed(tmp_path, capsys, calls, monkeypatch):
         run_fetch(d, capsys)
     _gone([c for c in calls if c[0][0] == "clone"])
     _clean(d)
+
+
+def two(tmp_path, capsys) -> tuple[Path, dict]:
+    """Libraries a (greet, trust: owner) and b (other, untrusted), fetched; their lock entries."""
+    up, up2 = upstream(tmp_path), upstream(tmp_path, {"other.yaml": OTHER}, "up2")
+    d = model(tmp_path, {"a": lib(up, trust="owner"), "b": lib(up2)})
+    rc, _, err = run_fetch(d, capsys)
+    assert rc == 0, err
+    return d, entries(d)
+
+
+def said(d: Path, capsys, *a) -> tuple[int, str, str]:
+    capsys.readouterr()
+    rc = main(["-C", str(d), *a])
+    got = capsys.readouterr()
+    return rc, got.out, got.err
+
+
+def test_check_lists_each_library(tmp_path, capsys):
+    d, e = two(tmp_path, capsys)
+    rc, out, _ = said(d, capsys, "check")
+    assert rc == 0, out
+    got = [x for x in out.splitlines() if x.startswith("library ")]
+    assert got == [f"library a: {tmp_path.joinpath('up').as_uri()} @ v1 (commit {e['a']['commit'][:12]}), trust owner, "
+                   f"1 template; programs: greet owner's shell",
+                   f"library b: {tmp_path.joinpath('up2').as_uri()} @ v1 (commit {e['b']['commit'][:12]}), trust "
+                   f"untrusted, 1 template; programs: other sandbox or refused"], out
+    rc, out, _ = said(d, capsys, "check", "--json")
+    notes = [f for f in json.loads(out)["found"] if f["code"] == "library"]
+    assert [(f["level"], f["about"]) for f in notes] == [("note", "library.a"), ("note", "library.b")]
+    assert rc == 0 and json.loads(out)["ok"] is True
+    (d / "ergostat.yaml").write_text(yaml.safe_dump({"name": "lf"}))      # no libraries: no line
+    rc, out, _ = said(d, capsys, "check")
+    assert rc == 0 and "library " not in out, out
+
+
+def test_listing_says_refused_library(tmp_path, capsys):
+    d, e = two(tmp_path, capsys)
+    (d / ".libraries" / "a" / "greet.yaml").write_text(GREET.replace("things", "thing5"))
+    (d / ".libraries" / "b" / "other.yaml").write_text(OTHER.replace("things", "thing5"))
+    rc, out, _ = said(d, capsys, "check")
+    assert rc == 1                                        # the refusals are errors; the listing lines are notes
+    a = next(x for x in out.splitlines() if x.startswith("library a:"))
+    assert a.endswith("0 templates; programs: none offered; refused, library-altered: .libraries/a is not what "
+                      "libraries.lock pinned (its tree hash differs)") and e["a"]["commit"][:12] in a, a
+    b = next(x for x in out.splitlines() if x.startswith("library b:"))
+    assert "refused, library-altered: ⟦untrusted: library file⟧.libraries/b is not" in b, b
+    assert untrusted.SAYS in out
+    rc, out, _ = said(d, capsys, "library")
+    assert rc == 0 and a in out.splitlines() and b in out.splitlines(), out
+
+
+def test_templates_tool_carries_library_pin(tmp_path, capsys):
+    d, e = two(tmp_path, capsys)
+    got = {t["template"]: t for t in author.library(d)["templates"]}
+    assert got["greet"]["library"] == {"name": "a", "version": "v1", "commit": e["a"]["commit"][:12]}
+    assert got["other"]["library"] == {"name": "b", "version": "v1", "commit": e["b"]["commit"][:12]}
+    assert got["greet"]["description"] == "Greetings waiting." and "untrusted" not in got["greet"]
+    assert got["other"]["untrusted"] is True and got["other"]["description"].startswith("⟦untrusted: template other⟧")
+    assert all("library" not in t for n, t in got.items() if n not in ("greet", "other"))   # ergostat's own: none
+    one = author.library(d, "other")
+    assert one["library"] == got["other"]["library"] and one["untrusted"] is True
+
+
+def test_library_listing_offline(tmp_path, capsys, monkeypatch):
+    d = _kept(tmp_path, capsys)                           # library a fetched, its model kept, then the YAML broken
+    commit_a = entries(d)["a"]["commit"][:12]
+
+    def no(*a, **k):
+        raise AssertionError("a process was started")
+    monkeypatch.setattr(fetch, "_start", no)
+    monkeypatch.setattr(subprocess, "Popen", no)
+    before = {p: p.read_bytes() for p in d.rglob("*") if p.is_file()}
+    rc, out, err = said(d, capsys, "library")
+    assert rc == 0 and "using the last good model" in err, err
+    assert out.splitlines() == [f"library a: {tmp_path.joinpath('up').as_uri()} @ v1 (commit {commit_a}), trust owner, "
+                                f"1 template; programs: greet owner's shell"]
+    (d / "ergostat.yaml").write_text(yaml.safe_dump({"name": "lf", "libraries": {"a": lib(tmp_path / "up", trust="owner")},
+                                                     "uses": USES}))
+    before[d / "ergostat.yaml"] = (d / "ergostat.yaml").read_bytes()
+    rc, out2, err = said(d, capsys, "library")
+    assert rc == 0 and out2 == out and "last good" not in err, err
+    assert {p: p.read_bytes() for p in d.rglob("*") if p.is_file()} == before
 
 
 def test_path_fetches_its_folder_and_a_missing_one_is_reported(tmp_path, capsys):

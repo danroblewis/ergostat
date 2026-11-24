@@ -554,6 +554,20 @@ there names every refused library, its code and why. The listing is kept in the 
 from a library. The copy is checked when the model loads; a script a template runs from `${here}` is read again when it
 runs, and nothing here says that what runs is what was locked.
 
+**The listing.** Load describes each library from what it read (no network, no git): name, `git`, `version`, `path`,
+the lock's commit (12 hex; `not pinned` when the lock has none of 40 or 64 hex), `ok` or the refusal's code and reason,
+its trust (`owner` or `untrusted`), the templates it offers, and per template where its programs would run:
+`owner's shell` only when the template is the owner's by the trust gate's own test, else `sandbox or refused` (which,
+the gate decides per use, as above; a template with no program says it too). `check` prints one note per library, code
+`library` (in `--json` too, `about: library.NAME`), even beside errors, never one itself; nothing without
+`libraries:`:
+`library NAME: URL [(path P)] @ VERSION (commit C), trust T, N templates; programs: TEMPLATE WHERE, ...` and, when it
+is refused, `; refused, CODE: REASON` (an untrusted library's reason marked, since it may name its files). `ergostat
+library` with no subcommand prints the same lines, starts no git (or any other) process and writes nothing of its own
+(its load, as every load, may still refresh a remote system's cached model, section 4c); a main file that does not
+read is listed from the last good model, said on standard error. The `templates` tool gives each fetched template
+`library: {name, version, commit}`; an untrusted one's text stays marked.
+
 ### Upkeep
 
 `use: upkeep` (once a model, its parts in a system named for the use, `upkeep` by convention) draws ergostat's own

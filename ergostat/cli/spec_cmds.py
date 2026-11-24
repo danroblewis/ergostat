@@ -81,20 +81,23 @@ def check_yaml(args, path: Path) -> int:
         problems += calibration(path) + order_unset(path, spec) + late(spec, wait=CHECK_WAIT)
         about(spec, problems)                     # last: every finding above carries the items about its part
     findings = [p for p in problems if p.level != "error"]
+    from ..library.fetched import line
     from ..library.untrusted import SAYS, Shown
+    from ..spec.load import Problem
     sh = Shown(spec)                              # the model's text an untrusted library made, marked (SPEC §2a)
+    libs = [Problem("note", line(d), None, "library", f"library.{n}") for n, d in spec.libraries.items()]
 
     def said(p) -> str:
         return f"{p.where}: {sh.problem(p)}" if p.where else sh.problem(p)
     if args.json:
         coh = sh.values(coherence_of(args, spec, findings) if not errors else None)
         return out_json({"ok": not errors, "errors": len(errors), "findings": sum(1 for p in findings if p.level != "note"),
-                         "notes": sum(1 for p in findings if p.level == "note"),
+                         "notes": sum(1 for p in findings if p.level == "note") + len(libs),
                          "found": [{"level": p.level, "code": p.code, "message": sh.problem(p), "about": p.about,
                                     **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                     **({"items": p.items} if p.items else {}),
                                     "file": str(p.where.file) if p.where else None,
-                                    "line": p.where.line if p.where else None} for p in problems],
+                                    "line": p.where.line if p.where else None} for p in problems + libs],
                          "local": {k: str(w) for k, w in (getattr(spec, "local", None) or {}).items()},
                          **({"coherence": coh} if coh is not None else {}),
                          **({"untrusted": SAYS} if sh.marked else {})}) or (1 if errors else 0)   # after what marks
@@ -112,6 +115,8 @@ def check_yaml(args, path: Path) -> int:
     for name, r in (getattr(spec, "remotes", None) or {}).items():     # each remote system (SPEC §4c)
         print(c(f"remote {name}: {r['url']}, " + (f"model version {r['version']}, {len(r['parts'])} parts read in"
                                                   if r.get("version") else "its model not read"), "dim"))
+    for p in libs:                                                    # each library: a note, never an error (SPEC §2a)
+        print(c(sh.problem(p), "dim"))
     for inst, u in (getattr(spec, "uses", None) or {}).items():       # each use of a fetched library's template (§2a)
         if u.get("library"):                  # an untrusted library chose the file's name: marked, nothing a terminal acts on
             from ..library import untrusted as ut

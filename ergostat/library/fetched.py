@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import posixpath
+import re
 
 from ..spec import files
 from ..spec.load import Problem
@@ -84,10 +85,43 @@ def take(doc, data) -> None:
     except ValueError as x:
         entries, broken = None, Refusal("library-lock-unreadable", f"{LOCK} cannot be read: {x}")
     for name, e in cfg.items():
+        got, refusal = [], None
         try:
             if broken:
                 raise broken
-            doc.fetched += _one(doc, name, e, entries)
+            got = _one(doc, name, e, entries)
+            doc.fetched += got
         except Refusal as r:
+            refusal = r
             doc.refused[name] = (r.code, r.reason)
             doc.problems.append(Problem("error", f"library {name} refused: {r.reason}", libs.at(name), r.code))
+        doc.libraries[name] = described(name, e, (entries or {}).get(name), got, refusal)
+
+
+HEX = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+SHELL, HELD = "owner's shell", "sandbox or refused"
+
+
+def described(name: str, e: dict, lk, templates: list, refusal: Refusal | None) -> dict:
+    """One library as load read it (no network, no git): where from, its pin, whether its copy is the pinned one,
+    its trust, and per template where its programs would run: the owner's shell only when the trust gate's own test
+    (``templates.trusted``) proves it the owner's, else ``sandbox or refused`` (the gate decides per use which)."""
+    commit = lk.get("commit") if isinstance(lk, dict) else None
+    return {"name": name, "git": e["git"], "version": e["version"], "path": e.get("path"),
+            "commit": commit[:12] if isinstance(commit, str) and HEX.fullmatch(commit) else None,
+            "tree": refusal.code if refusal else "ok", "reason": refusal.reason if refusal else None,
+            "trust": "owner" if e.get("trust") == "owner" else "untrusted",
+            "templates": {t.name: SHELL if tp.trusted(t) else HELD for t in templates}}
+
+
+def line(d: dict) -> str:
+    """``library NAME: URL @ VERSION (commit C), trust T, N templates; programs: ...``, as check and ``ergostat
+    library`` say it. A refused untrusted library's reason (which may name its files) is marked."""
+    where = d["git"] + (f" (path {d['path']})" if d.get("path") else "")
+    progs = ", ".join(f"{n} {v}" for n, v in d["templates"].items()) or "none offered"
+    out = (f"library {d['name']}: {where} @ {d['version']} (commit {d['commit'] or 'not pinned'}), trust {d['trust']}, "
+           f"{len(d['templates'])} template{'' if len(d['templates']) == 1 else 's'}; programs: {progs}")
+    if d["tree"] != "ok":
+        why = ut.printable(d["reason"])
+        out += f"; refused, {d['tree']}: " + (why if d["trust"] == "owner" else ut.mark(why, ut.FILE))
+    return out
