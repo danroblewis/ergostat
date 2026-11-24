@@ -811,7 +811,11 @@ and panel do not.
 (inputs left, outputs right, each named for the part inside it reaches, with that part's
 reading), how the loops inside it are doing, and its measures: each one's value, setpoint, health
 and trend (`show:`, or by default what its goals hold). With every system closed, the diagram is
-the model's control panel. In the Dynamics view a closed system is a module: its name, what it is, its
+the model's control panel. In the Blocks view, where a closed C system's u enters a closed P system, the two are
+drawn as the textbook loop (docs/proposals/blocks-levels.md §2): r, the goals of P that C serves (a vector, with its
+count, when several), into a summing junction ahead of C; e into C; u from C to P; y out of P and back through H (the
+sensors that read it) to the junction's minus input; d, what enters P that no valve sets, into P. Where C serves no
+goal of P the two keep their labelled wires alone. Every wire between systems is labelled. In the Dynamics view a closed system is a module: its name, what it is, its
 ports, and the first three of those measures (not a remote's, nor ergostat's own upkeep) each as its name, its value
 now and a sparkline of its behaviour over the page's window, on its own scale (its low–high written after it, so two
 never seem to share an axis). They sit in the free middle of the box's existing rows (its description's second line,
