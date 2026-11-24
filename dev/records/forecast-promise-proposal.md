@@ -73,3 +73,11 @@ diagram panels, the `display` change kind) do not affect this design. No change 
 - The binomial table was worked by hand a third time and agrees (0.4344, 0.7819, 0.9348, 0.9838). The scratch
   script `/tmp/binom.py` (Write tool) was refused again: `/tmp` is outside /work for the file tools.
 - Still 0 net lines of code. Only ruff was run.
+
+Round 4 (no review findings to answer): main (b9341591) was already merged into the branch, so nothing new to check
+against. The proposal was read through again for the review lessons and needed no change of design. One line in §9.2
+that ran past the file's width was rewrapped.
+- The inline check `uv run python -c "from math import comb; ..."` was refused again. The M = 12 row was worked by
+  hand a fourth time (0.3677 + 0.3837 + 0.1835 = 0.9349) and agrees. `test_extra_matches_binomial` in the quote gap
+  remains the check.
+- Still 0 net lines of code. Only ruff was run.
