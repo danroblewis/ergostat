@@ -46,7 +46,8 @@ function bdSize(n) {
     return [Math.round(w), Math.max(28 + lines.length * 13, (Math.max(n.ins.length, n.outs.length) + 1) * BD.PORT)];
   }
   if (n.kind === "mux" || n.kind === "demux") return [7, Math.max(34, (n.n || 2) * 18)];
-  if (n.kind === "input" || n.kind === "output") return [Math.max(26, bdSymW(n.fn) + 10), 22];
+  if (n.kind === "input" || n.kind === "output")       // (a vector's value, its goals, beneath it: room for it)
+    return [Math.max(26, bdSymW(n.fn) + 10, n.fn?.bold && n.fn.value ? bdTextW(n.fn.value, true) + 8 : 0), 22];
   if (n.kind === "port") return [Math.max(40, bdSymW(n.fn) + 22), 22];
   if (n.kind === "sampler") return [36, 24];
   const fn = n.fn || {};
@@ -798,7 +799,7 @@ function bdLabelSpot(pts, taken, w, hgt, boxes, lines = [], near = []) {     // 
 /* what a comparator's error signal says after e: " = −36 off", " = 2" holding, " open" on an open loop (no e): the
    value /api/loops gives and the server's word (goalWord), never a status mapped here */
 function bdErrState(n) {
-  const lp = n?.role === "comparator" ? S.status?.loops?.[(n.loops || [])[0]] : null;
+  const lp = n?.role === "comparator" && (n.loops || []).length === 1 ? S.status?.loops?.[n.loops[0]] : null;   // (a vector's: its r says each)
   if (!lp) return null;
   const word = goalWord(lp), text = `${lp.error == null ? "" : ` = ${fmt(lp.error)}`}${exceptional(word) ? ` ${word}` : ""}`;
   return text ? { word, text } : null;
@@ -964,7 +965,7 @@ function bdDraw(svg, g, lay) {
   for (const n of g.nodes) {
     const c = box[n.id];
     if (!c) continue;
-    const el = bdNode(n, c);
+    const el = untrustedBox(bdNode(n, c), n);
     el.addEventListener("mouseenter", () => { if (!S.nodeDrag?.moved && !S.hullDrag?.moved) bdTrace(svg, { node: n.id }); });
     el.addEventListener("mouseleave", () => bdTrace(svg, S.bdSel || null));
     el.addEventListener("pointerdown", (ev) => {        // a drag (moved, and pinned), or a click (interact.js)

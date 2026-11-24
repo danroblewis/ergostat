@@ -56,6 +56,28 @@ WEB = "ergostat/web/"                         # an implementor whose brief names
 LOOK = ("\n\n# Seeing a page\n\nStart a demo with `uv run python scripts/demo_up.py start DEMO` (and stop it after), "
         "walk it with `uv run --with playwright==1.63.0 python scripts/walk.py STEPS --shots /shots`: always pass "
         "`--shots /shots`, the folder that leaves this container (the owner reads it in run/shots/).\n")
+REFUSED = ("&&", ";", "|", "cd", "cat", "head", "timeout", "python3", "git -C")   # forms the allowlist refuses
+
+
+def shell_rule(role: str) -> str:
+    """A brief's `# How the shell works here`, made from the role's own allowlist (TOOLS): each Bash call one allowed
+    command, what to use instead, and that a refusal is no reason to stop. "" for a role with no Bash."""
+    tools = TOOLS[role]
+    cmds = [t.removeprefix("Bash(").removesuffix(":*)") for t in tools if t.startswith("Bash(")]
+    if not cmds:
+        return ""
+    files = "Read files with Read, search with Grep and Glob" + (", change them with Edit and Write" if "Edit" in tools
+                                                                  else "")
+    return ("\n# How the shell works here\n\nEach Bash call must be one allowed command by itself, run from the working "
+            "directory: it begins with one of " + ", ".join(f"`{c}`" for c in cmds) + ", then its own arguments. "
+            + ", ".join(f"`{r}`" for r in REFUSED[:-1]) + f" and `{REFUSED[-1]}` are refused, even when each part is "
+            "allowed, and so is a command over more than one line or any other program. " + files + "; run each command "
+            "you need as a separate call. Commands the rules and guides above give for the owner's own runs are not "
+            "yours unless they begin as one of these. A refusal means the form of the command was wrong, not that the "
+            "shell is unavailable: use the allowed form and carry on. Never stop, park or report the environment as "
+            "broken because of one.\n")
+
+
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
             "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "designer": 3600, "librarian": 600, "groomer": 3000,

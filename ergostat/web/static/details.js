@@ -28,6 +28,10 @@ function showDetail(...kids) {
   const hd = (S.keyHead || inside) &&d.querySelector("h2, h3");    // opened by keyboard: the focus to its heading (keys.js)
   if (hd) { S.keyHead = null; hd.tabIndex = -1; hd.focus(); }
 }
+/* a box an untrusted library's template made (n.untrusted, its name): said in words, in its title and its accessible
+   name (keys.js), never by colour alone; the name only ever text (SPEC §2a) */
+const untrustedSays = (n) => n?.untrusted == null ? "" : `untrusted library${n.untrusted ? `, template ${n.untrusted}` : ""}`;
+function untrustedBox(el, n) { if (untrustedSays(n)) el.append(s("title", {}, untrustedSays(n))); return el; }
 /* a panel being opened: its kind and title, and "Loading…", at once, until what it says has been read */
 function panelLoading(kind, title) {
   const note = h("p", { class: "muted panel-loading" }, "Loading…");
