@@ -195,6 +195,19 @@ sides:
   which passes). So it is main's test against main's page, and it is left alone (lesson 13).
   The whole unit suite and the four browser files were not run here.
 
+Round 6, the merge of main (d0f95413, dashboard variables), conflicted in `engine.py` only: main passes a source
+query's variables (`q.given`) to `datasources.query`, and the branch had named `spec` and `store` there. Both kept.
+- Since a PromQL range window may now be a variable (`rate(x[$w])`), the ledger reads `range_windows_s` from the text
+  as sent (`_interpolate.interpolate`), not as written; read as written, a variable's window was silently missed
+  (lesson 3). It is in the merge commit with the resolution. `test_ledger_records_promql_range_windows` now asks
+  `rate(x[$w])` with `w = 10m` and expects [600]; with the text read as written it fails (`[] == [600]`), seen, then
+  restored. Main's `[$__interval]`-style built-ins, if any, are read the same way, as their value once written in.
+  This adds 2 net lines (the import and the line split) to the overrun stated above.
+- Tests run in round 6: `test_analysis_source.py`, `test_dashboard_variables.py`, `test_data_sources.py`,
+  `test_result_frames_and_verdicts.py`, `test_result_shapes.py`, `test_query_engine.py`, `test_model_data_source.py`
+  and `test_sql_source.py` all pass; `test_dashboard_variables_page.py` passes with Playwright under the watchdog (9,
+  none skipped). ruff is clean. The whole unit suite and the four browser files were not run here.
+
 ## Entry
 
 section: Done recently

@@ -11,6 +11,7 @@ from collections import OrderedDict
 from dataclasses import replace
 
 from .. import datasources
+from ..datasources._interpolate import interpolate
 from . import analysis, frames, graphs, sampling, shaped, sources
 from . import parse as parsing
 from . import transforms as tf
@@ -301,7 +302,7 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
     spec, store = getattr(p.model, "spec", None), getattr(p, "measurements", None)
     try:
         got = datasources.query(spec, q.source, q.text, grid(since, until, points), work.deadline - time.monotonic(),
-                                store=store, project=p, public=public)
+                                q.given, store=store, project=p, public=public)
     except datasources.SourceError as e:
         return _refused(q, e)
     except Exception as e:                            # (its type only: the words may hold the source's address)
@@ -310,7 +311,8 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
     promql = datasources.language(spec, q.source, store) == "PromQL"
     unsampled = datasources.own(spec, q.source)       # the model's own: worked out, never read from readings
     return {"id": q.id, **got, **({} if unsampled else {"scrape_s": None}),
-            "range_windows_s": sampling.windows(q.text) if promql else [] if unsampled else None}
+            "range_windows_s": sampling.windows(interpolate("PromQL", q.text, q.given)) if promql else
+            [] if unsampled else None}                # (read from the text as sent: a window may be a variable)
 
 
 def _refused(q, e: datasources.SourceError) -> dict:

@@ -118,6 +118,8 @@ def test_ledger_records_promql_range_windows(tmp_path, prom):
     assert r["step"] == 8 and "not-raw" in codes(r) and "not its raw readings" in str(r["meta"]["verdict"])
     assert r["meta"]["sampling"]["range_windows_s"] == [300, HOUR]
     assert sampling.windows('x{a="[9m]"}[2h] # [7d]\n + y[90s:] + z[1h30m:5m]') == [90, 5400, 7200]
+    v, = ask(p, ("V", {"source": "prom", "text": "rate(x[$w])", "vars": {"w": ["10m"]}}))
+    assert v["meta"]["sampling"]["range_windows_s"] == [600]                       # a window given by a variable
 
 
 def test_observable_band_and_nulls():
