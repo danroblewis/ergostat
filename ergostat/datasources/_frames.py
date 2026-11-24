@@ -7,6 +7,9 @@ with a frame instead of a list of series:
 - ``{"shape": "table", "dims": [{"name", "type"}], "measures": [{"name", "unit"?}], "rows": [[...], ...]}``: a dim is
   a ``string``, ``number`` or ``time``; a row holds its dims' values, then its measures' numbers.
 - ``{"shape": "points", "x": {"name", "unit"?, "values"}, "y": {...}, "t"?: [...], "order"?: "time", "group"?: [...]}``.
+- ``{"shape": "response", "frequency": {"hz", "re", "im", "magnitude_db", "phase_deg", "coherence"?}, "system"?: {"form",
+  "gain", "tau", "delay", "poles": [[re, im]], "zeros": [...], "dt"?}, "path"?, "fit"?, "provenance"?}``: how a system
+  responds; a model's carries ``system``, and its poles are the sampled model's at ``dt`` when it has one.
 
 Whatever the type, a frame is checked and bounded here; one that is not one of these is refused, never drawn half."""
 
@@ -124,13 +127,67 @@ def _points(f: dict) -> dict:
     return out
 
 
+def _pairs(v, what: str) -> list[dict]:
+    out = []
+    for z in _list(v, what, 200):
+        if not isinstance(z, list) or len(z) != 2 or None in (got := [_number(x) for x in z]):
+            raise Bad(f"each of {what} is [re, im], two finite numbers")
+        out.append({"re": got[0], "im": got[1]})
+    return out
+
+
+def _response(f: dict) -> dict:
+    """How a system responds: ``frequency`` and, from a model, ``system`` (its form, numbers, poles and zeros, and the
+    ``dt`` of the sampled model they belong to, if they do). ``supported: false`` with ``refused`` carries no curve."""
+    fr, sy = f.get("frequency"), f.get("system")
+    if not isinstance(fr, dict) or (sy is not None and not isinstance(sy, dict)):
+        raise Bad("a response holds frequency: {hz, re, im, magnitude_db, phase_deg} and, from a model, system:")
+    cols = ("hz", "re", "im", "magnitude_db", "phase_deg")
+    freq = {k: [_number(v) for v in _list(fr.get(k), f"frequency.{k}")] for k in cols}
+    if len({len(v) for v in freq.values()}) != 1:
+        raise Bad(f"frequency's {', '.join(cols)} must be of one length")
+    co = fr.get("coherence")
+    freq["coherence"] = None if co is None else [_number(v) for v in _list(co, "frequency.coherence")]
+    if f.get("supported") is False and freq["hz"]:
+        raise Bad("a response refused carries no curve")
+    out = {"shape": "response", "has": ["frequency", "system"] if sy is not None else ["frequency"], "frequency": freq,
+           "unit": str(f.get("unit") or ""), "capped": 0, "read_log": False, "method": "model" if sy else "empirical",
+           "samples": 0}
+    if sy is not None:
+        dt = _number(sy.get("dt"))
+        out.update(system={k: (_number(sy[k]) if k != "form" else str(sy[k])) for k in ("form", "gain", "tau", "delay", "dt")
+                           if sy.get(k) is not None},
+                   poles=_pairs(sy.get("poles"), "system.poles"), zeros=_pairs(sy.get("zeros") or [], "system.zeros"),
+                   domain="z" if dt else "s", delay_seconds=_number(sy.get("delay")) or 0.0, **({"dt": dt} if dt else {}))
+    for k in ("path", "fit", "provenance", "process_from", "refused", "supported"):
+        if f.get(k) is not None:
+            out[k] = _plain(f[k], k)
+    return out
+
+
+def _plain(v, what: str, depth: int = 0):
+    """What a response says of itself, as JSON can hold it: words, flags, finite numbers (any other number is None),
+    and lists and maps of them two deep at most."""
+    if v is None or isinstance(v, str | bool):
+        return v
+    if isinstance(v, int | float):
+        return _number(v)
+    if depth < 2 and isinstance(v, list):
+        return [_plain(x, what, depth + 1) for x in _list(v, what, 200)]
+    if depth < 2 and isinstance(v, dict) and len(v) <= 50:
+        return {str(k): _plain(x, what, depth + 1) for k, x in v.items()}
+    raise Bad(f"{what} holds {type(v).__name__}, or is nested too deep")
+
+
 def answer(f: dict, g, most_series: int) -> dict:
     """The frame ``f`` drawn on the grid ``g``; ``Bad`` when it is not one of the frames above."""
     shape = f.get("shape")
+    if shape == "response":
+        return _response(f)
     if shape == "series":
         return _series(f, g, most_series)
     if shape == "table":
         return _table(f)
     if shape == "points":
         return _points(f)
-    raise Bad(f"a data source answers a series, a table or points, not {shape!r}")
+    raise Bad(f"a data source answers a series, a table, points or a response, not {shape!r}")

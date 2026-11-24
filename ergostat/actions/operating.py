@@ -1,6 +1,6 @@
 """The model's operating state (normal, maintenance, freeze, incident) and the owner's presence (present, away), folded
 from the record (SPEC §12k, *The operating state*). Each change is the owner's typed act: an
-``ergostat.operating.STATE`` event, source ``owner``. Nothing is gated on it yet."""
+``ergostat.operating.STATE`` event, source ``owner``. It picks each action's gate column (``risk.cell``)."""
 
 from __future__ import annotations
 
@@ -26,6 +26,10 @@ class Operating(NamedTuple):
     note: str | None = None
     until: float | None = None                          # a maintenance lease's end
     actions: tuple = ()                                 # what a maintenance lease names
+    unsure: bool = False                                # read as incident, not entered: no written cell applies
+
+
+UNSURE: dict = {}                                       # fold's data when it reads as incident (by identity, never data)
 
 
 class OperatingError(Exception):
@@ -58,7 +62,7 @@ def fold(events: list[dict], now: float) -> tuple[str, int | None, str, dict]:
     for e in sorted(events, key=lambda e: e["seq"]):
         st = e["type"][len(KIND) + 1:]
         if st not in STATES:
-            return "incident", e["seq"], f"event {e['seq']} names no operating state ({e['type']}): read as incident", {}
+            return "incident", e["seq"], f"event {e['seq']} names no operating state ({e['type']}): read as incident", UNSURE
         last = e
         if st == "normal":
             top = next((x for x in LAYERS if x in layers), None)
@@ -74,7 +78,7 @@ def fold(events: list[dict], now: float) -> tuple[str, int | None, str, dict]:
         if st == "maintenance":
             u = d.get("until")
             if isinstance(u, bool) or not isinstance(u, int | float) or not math.isfinite(u):
-                return "incident", e["seq"], f"maintenance of event {e['seq']}: its end is not a number, read as incident", {}
+                return "incident", e["seq"], f"maintenance of event {e['seq']}: its end is not a number, read as incident", UNSURE
             if now >= u:
                 lapsed = e
                 continue
@@ -106,10 +110,10 @@ def read(p, now: float | None = None) -> Operating:
         pr, pwhy = presence(p, away_after(p), now)
     except Exception as e:                              # (unreadable: the strictest case, never normal)
         return Operating("incident", "away", None, f"the record cannot be read ({type(e).__name__}: {e}): read as "
-                         f"incident, the owner as away")
+                         f"incident, the owner as away", unsure=True)
     acts = d.get("actions")
     return Operating(st, pr, seq, f"{why}; {pr}: {pwhy}", d.get("note") and str(d["note"]), d.get("until"),
-                     tuple(str(a) for a in acts) if isinstance(acts, list) else ())
+                     tuple(str(a) for a in acts) if isinstance(acts, list) else (), d is UNSURE)
 
 
 def away_after(p) -> float:

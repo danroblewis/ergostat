@@ -911,6 +911,13 @@ and `batch-run-failures` read its progress from its own pytest logs (the least a
 from the record. Saying any of this never fails or delays a merge: a failure to write is dropped. A batch whose queue
 run was killed ends when the next run takes over: `given-back` when recovery puts main back, and, killed after its
 merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
+The batch kind is a pipeline (SPEC §5a, *Stages*): each stage of each run is said as it starts and ends
+(`batch.stage-started`, `-finished`, through `batches.stage()`): ruff, unit, browser, host and demo in `suites()`
+(`passed`, `failed`, `stopped` when the failure of the suite beside it stopped it, `error`), `named` in `named()`
+(the failing tests alone, on main, and on each prefix), and `push-wait` from `pending()` until `pushed()` settles it.
+The Dashboard's Merge queue row (the root model's `record` sql source) reads them: the running batch and the gaps
+waiting in rank order, its stage now with elapsed, expected and time left, each of its stages, recent batches and the
+median of each stage over time; a Prometheus scraping `/api/stages/metrics` has them as histograms.
 
 The merge pipeline's health is read from the batch items (`dev/bin/landing.py`, through `measure.py`):
 `main-still-minutes` (since the latest batch whose landing stood, ended `landed` or `partial`, at its `landed_at`;
@@ -1085,8 +1092,9 @@ none said), unless another gap carries its branch on or the park is `deferred` o
 coordinator's `deferred: true` or `cancelled: true`), or an old park classified `unknown` whatever its age; a `waits_on`
 or `needs` park not cleared in `park_wait_hours` (24, at least 1); a continuing gap whose branch intake could not fetch
 (`unfetched`); a `split` park never (each stopped sub-gap raises its own
-trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
-else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
+trigger); a gap past `[manager.stuck_hours]` in its state (`building` by its current visit alone, from its moves, a
+lease taken and given back counting as the same visit, since rounds of rebuilding are bounded by the kill rule; every
+other state by the sum, state-times' closed visits in `time_in` plus the current one when it has it, else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
 queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.
