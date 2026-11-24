@@ -805,6 +805,8 @@ def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_pat
         refs = re.findall(rb'(?:src|href)="(/static/[^"]+)"', page)
         assert refs and all(b"?v=" in r for r in refs), refs                          # every script and stylesheet
         assert re.search(rb'name="ergostat-assets" content="[^"]*libavoid/libavoid\.wasm', page)   # the worker's files
+        assert re.search(rb'name="ergostat-assets" content="[^"]*elk\.bundled\.js', page)   # ELK, loaded late
+        assert not any(r.startswith(b"/static/elk.bundled.js") for r in refs), refs     # (not by the page itself)
         util = next(r.decode() for r in refs if r.startswith(b"/static/util.js"))
         code, headers, _ = get(util)
         assert code == 200 and "immutable" in headers["Cache-Control"] and "max-age=31536000" in headers["Cache-Control"]
@@ -1052,7 +1054,10 @@ def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
     project.events.add("note.made", item="note/fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
     html = build(project)
     assert "<!--<script" not in html and "alert(1)</script>" not in html
-    assert '"items/note%2Ffix(1)"' in html                     # the key the page's encodeURIComponent asks for
+    from ergostat.web.snapshot import STATIC
+    lib = html.find((STATIC / "elk.bundled.js").read_text()[:300])                  # ELK inlined (a file cannot fetch it),
+    assert -1 < html.find("window.SNAPSHOT") < lib < html.find("const elk = {")      # before util.js asks for it
+    assert '"items/note%2Ffix(1)"' in html                    # the key the page's encodeURIComponent asks for
     assert html.count("</script>") == html.lower().count("<script")
 
 

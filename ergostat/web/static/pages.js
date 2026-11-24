@@ -1142,6 +1142,44 @@ function whereView(d, fp, links) {
     h("div", { class: "wv-path" }, steps.map((s, i) => [i ? move(steps[i - 1], s) : s.flow ? move(null, s) : null, box(s, i)])), links);
 }
 
+/* its path drawn on its page, on demand (SPEC §5a, *Drawn alone*): a closed section; opened, the Dynamics or the Blocks
+   diagram of what it passed through (item=ID), fitted in its box by the renderers' own drawStatic, nothing to drag or
+   pin. A click on a part opens the diagram with that part chosen. Laid out again only when its path or the view
+   changed, and nothing (no ELK, no libavoid) is loaded while it has never been opened */
+function pathDrawing(id) {
+  let view = "dynamics", path = "", drawn = "";
+  const stage = h("div", { class: "path-stage" }), seg = h("span", { class: "seg", role: "group", "aria-label": "View" });
+  const el = h("details", { class: "draw-path", ontoggle: () => draw() }, h("summary", {}, "Draw its path"), seg, stage);
+  const pick = (to) => {                                 // the switch, drawn again only when the view changes
+    view = to;
+    seg.replaceChildren(...[["dynamics", "Dynamics"], ["blocks", "Blocks"]].map(([v, w]) => h("button", { class: v === view ? "on" : "",
+      "aria-pressed": String(v === view), onclick: () => { pick(v); draw(); } }, w)));
+  };
+  pick(view);
+  async function draw() {
+    const want = JSON.stringify([view, path]);
+    if (!el.open || want === drawn) return;
+    drawn = want;
+    const g = await api("graph", { view, item: id }).catch(() => null);
+    if (drawn !== want || !el.isConnected) return;
+    if (!g) drawn = "";                                  // (asked again on the next refresh)
+    if (!g?.nodes?.length) return stage.replaceChildren(h("p", { class: "muted" }, !g ? "The server is not answering." : `${g.subset?.says || "Nothing to draw"}.`));
+    const svg = s("svg", { class: "g-canvas path-canvas", role: "img", "aria-label": `What ${id} passed through (${view})` });
+    svg.addEventListener("pointerdown", (ev) => ev.stopPropagation(), true);    // no drags, no pins, no panel
+    svg.addEventListener("dblclick", (ev) => ev.stopPropagation(), true);
+    svg.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const shape = ev.target.closest?.(".node[data-id]")?.dataset.id;
+      if (!shape) return;
+      const parts = g.corr?.shapes?.[shape]?.is || [];
+      navigate(`/diagram?view=${view}&item=${encodeURIComponent(id)}` + (parts.length ? `&select=${encodeURIComponent(parts.join(","))}` : ""));
+    }, true);
+    stage.replaceChildren(svg);
+    if (await drawStatic(svg, g, view, { aspect: Math.max(1, (stage.clientWidth || 900) / 420) })) svg.dataset.drawn = view;
+  }
+  return { el, update(d) { path = JSON.stringify((d.path || []).map((x) => [x.state, x.stock, x.flow, x.block, x.attempts])); draw(); } };
+}
+
 /* an item's changes, in one section at its page's end (SPEC §5a, History), asked for only while it is open: each
    field's, the latest first, or one field's ('N changes' beside its name), each with the event that made it */
 const when = (t) => stamp(t);
@@ -1233,6 +1271,7 @@ async function pageItem(main, id, q) {
   const body = h("div");
   p.append(body);
   const note = messageBox({ about: id, title: "Send a note about this", done: () => tick() });   // lives across refreshes: what is typed stays
+  const drawing = pathDrawing(id);                   // its path drawn, on demand: kept across refreshes
   let full = null;                                   // its full history, once asked for: kept across refreshes
   let changesOpen = false, changesOf = "";           // the Changes section open, and the field it is narrowed to
   OPENED.clear();
@@ -1295,14 +1334,15 @@ async function pageItem(main, id, q) {
       rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
     // its path drawn alone in Dynamics and Blocks, when anything there counted it; else it says nothing counts it
     const toDiagram = (view, by, v) => `/diagram?view=${view}&${by}=${encodeURIComponent(v)}`;
-    const links = !d.path ? null : d.path.some((st) => st.stock || st.flow || st.block)
+    const counted = !!d.path?.some((st) => st.stock || st.flow || st.block), draw = counted ? live(drawing.el) : null;
+    const links = !d.path ? null : counted
       ? h("p", { class: "went" }, h("a", { href: toDiagram("dynamics", "item", id) }, "Draw its path in Dynamics"), ", ",
         h("a", { href: toDiagram("blocks", "item", id) }, "in Blocks"), k ? ["; ",
         h("a", { href: toDiagram("dynamics", "kind", k.name) }, `what every ${k.name} touches`)] : null, ".")
       : h("p", { class: "went muted uncounted" }, "Its moves are not counted anywhere in the model.");
     // a path through the model; else the strip, and a kind nothing counts says so
-    const where = fp && !fp.why ? whereView(d, fp, links) : null;
-    const went = where ? [where] : [links ? h("h2", {}, "Where it went") : null, strip, links];
+    const where = fp && !fp.why ? whereView(d, fp, [links, draw]) : null;
+    const went = where ? [where] : [links ? h("h2", {}, "Where it went") : null, strip, links, draw];
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, when(m.time)), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
@@ -1355,6 +1395,7 @@ async function pageItem(main, id, q) {
     patch(body, whyBox(w), head, ...went, ...lease, why, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true), changes);
+    if (counted) drawing.update(d);
   }
   await tick();
   // not while the owner is answering (a reason being typed in a decision's or an action's row)

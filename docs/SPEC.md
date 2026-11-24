@@ -2754,6 +2754,15 @@ the kind (an item's by its kind's), so a subset's pins never move the whole diag
 went* links to both views and to the kind's (`Draw its path in Dynamics`, `in Blocks`), or says its moves are not
 counted anywhere in the model, with no link.
 
+**Drawn on the item's page.** Under those links a counted item has a closed *Draw its path*, with a Dynamics /
+Blocks switch. Opened, it asks `GET /api/graph?view=V&item=ID` and draws the answer in a box 420 px high and as
+wide as the page, fitted to what is drawn, by the views' own renderers (`drawStatic`, shared with the Guide: one
+drawing at a time, the renderers' state set for it and put back after). It has no toolbar, side panel, pins, drags
+or pan, and never changes the address; a click on a part opens `/diagram?view=V&item=ID&select=PART` (that part
+chosen). The page's refresh lays it out again only when the path's steps (state, stock, flow, block, attempts) or
+the view changed. ELK is loaded by the page only when a layout is first asked for (and libavoid, as before, when
+a line is first routed), so an item page whose drawing is never opened fetches neither.
+
 ## 5b. The Process view: how the items really moved
 
 The Diagram page's third view, beside Dynamics and Blocks, draws the work as the record says it went:
