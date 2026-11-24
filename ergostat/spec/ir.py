@@ -899,14 +899,15 @@ class Takes:
 class Lanes:
     """A block's lanes (SPEC §9.5): items whose ``apart`` lists share no entry run at once, one sharing an entry on top
     of a lane ``ahead`` deep at most; ``most`` lanes, each costed ``cpu`` cores and ``memory`` bytes (or more, as
-    measured), within ``within_cpu`` and ``within_memory``; a lane passed when left in ``passed`` (any move, empty)."""
+    measured; 0: not declared, so one lane until runs measure it), within ``within_cpu`` and ``within_memory``; a lane
+    passed when left in ``passed`` (any move, empty)."""
 
     apart: str
     most: int
     within_cpu: float
     within_memory: int
-    cpu: float = 1.0
-    memory: int = 1
+    cpu: float = 0.0
+    memory: int = 0
     ahead: int = 0
     passed: tuple = ()
 

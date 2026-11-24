@@ -40,9 +40,9 @@ blocks:
 LANES = ", lanes: {apart: paths, most: 4, ahead: AHEAD, within: {cpu: 8, memory: 8g}, each: {cpu: 2, memory: 2g}, passed: landed}"
 
 
-def project(tmp_path, ahead: int = 0, plain: bool = False) -> Project:
-    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL.replace("LANES", "" if plain else LANES.replace(
-        "AHEAD", str(ahead)))))
+def project(tmp_path, ahead: int = 0, plain: bool = False, each: bool = True) -> Project:
+    ln = LANES.replace("AHEAD", str(ahead)).replace("" if each else ", each: {cpu: 2, memory: 2g}", "")
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL.replace("LANES", "" if plain else ln)))
     m = mdl.load(tmp_path)
     assert m.spec is not None, [str(x) for x in getattr(m, "problems", [])]
     return Project(m)
@@ -199,6 +199,45 @@ def test_a_look_after_the_base_failed_puts_nothing_on_it(tmp_path, monkeypatch):
     assert lanes.choose(d, b, [base, new], [new], 8, time.time()) == ([], {})
     later = SimpleNamespace(id="batch/a", fields={"paths": ["x.py"], "lease": {"holder": "r2", "block": "lane"}})
     assert lanes.choose(d, b, [later, new], [new], 8, time.time())[1] == {"batch/b": ("batch/a",)}   # a new lease
+
+
+def test_a_base_whose_take_fails_takes_nothing_on_top(tmp_path, monkeypatch):
+    """lesson-1, lesson-3: a look plans b on top of a, then a's take fails (the budget, bounds.room, ergostat stopping):
+    b is not taken with ``on`` naming a lane that does not run, nor is d on top of b; c, apart, is. The next look,
+    the take working, a runs apart and b on top of it."""
+    p = project(tmp_path, ahead=2)
+    d, _ = dispatcher(p, monkeypatch)
+    take, refuse = d.take, {"batch/a"}
+    monkeypatch.setattr(d, "take", lambda b, it, **k: None if it.id in refuse else take(b, it, **k))
+    ready(p, {"a": ["x.py"], "b": ["x.py"], "c": ["z.py"], "d": ["x.py"]})
+    tick(d, p)
+    assert held(d) == {"batch/c": ()}
+    assert all(state(p, i).state == "ready" for i in "abd")
+    refuse.clear()
+    tick(d, p)
+    assert held(d) == {"batch/c": (), "batch/a": (), "batch/b": ("batch/a",), "batch/d": ("batch/a", "batch/b")}
+
+
+def test_an_unknown_cost_is_the_worst_case(tmp_path, monkeypatch):
+    """lesson-3: no ``each:`` and no run measured yet: one lane, whatever ``most`` and ``within``. Runs measured at 2
+    cores and 2g: four within 8 and 8g. Runs measuring cores only: memory unknown, one lane again."""
+    p = project(tmp_path, each=False)
+    ln = p.model.spec.blocks["lane"].takes.lanes
+    assert (ln.cpu, ln.memory) == (0.0, 0)
+    d, _ = dispatcher(p, monkeypatch)
+    ready(p, {str(n): [f"f{n}.py"] for n in range(6)})
+    tick(d, p)
+    assert len(held(d)) == 1
+    ran(p, cpu=20.0, seconds=10.0, memory=2 * G)
+    d.lanes_cost.clear()
+    tick(d, p)
+    assert len(held(d)) == 4
+    assert lanes.room(ln, (None, None)) == 1 and lanes.room(ln, (2.0, None)) == 1 and lanes.room(ln, (None, 2 * G)) == 1
+    assert lanes.room(ln, (0.0, 0.0)) == 4                                # measured near nothing: most, never more
+    (tmp_path / "x").mkdir()
+    p2 = project(tmp_path / "x", each=False)
+    p2.events.add("agent.ran", item="lane", source="ergostat", data={"exit": 0, "seconds": 10.0, "resources": {"cpu": 5.0}})
+    assert lanes.cost(SimpleNamespace(p=p2, e=None), p2.model.spec.blocks["lane"], time.time()) == (0.5, None)
 
 
 def ran(p, cpu: float, seconds: float, memory: int) -> None:

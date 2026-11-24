@@ -97,7 +97,7 @@ Work through these steps in order. Ask the person only what you cannot infer.
    (`block.frozen.broken`). Leave it out unless the person asks for it: it is off by default. **To run several items
    at once only when they touch different things** (changes to different files, say), add `lanes: {apart: paths, most:
    3, within: {cpu: 12, memory: 12g}, each: {cpu: 4, memory: 4g}}` to `takes:` (each item lists what it touches in
-   `paths`; `pool:` must be at least `most`). With `ahead: 1` an overlapping item runs on top of the lane it overlaps
+   `paths`; `pool:` must be at least `most`; without `each` it runs one lane until its runs are measured). With `ahead: 1` an overlapping item runs on top of the lane it overlaps
    (its run's lease says `on`) and is stopped and given back uncounted when that lane does not pass (`passed: [STATE]`:
    where a passing run leaves its item). Off by default too.
    **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare

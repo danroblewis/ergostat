@@ -37,13 +37,19 @@ def overlap(a: frozenset | None, b: frozenset | None) -> bool:
     return a is None or b is None or bool(a & b)
 
 
-def room(ln, cost: tuple[float, float] | None) -> int:
+def room(ln, cost: tuple[float | None, float | None] | None) -> int:
     """The lanes that may be held at once: at most ``most`` (and MOST), and as many as ``within`` holds at the larger
-    of the declared and the measured cost a lane; a cost that could not be read (None): 1. At least 1."""
+    of the declared and the measured cost a lane. A cost unknown is the worst case (lesson-3): one lane when it could
+    not be read (None), or when one of cores and memory is neither declared (``each``) nor measured by a run (None in
+    it). At least 1."""
     if cost is None:
         return 1
-    cpu, mem = max(ln.cpu, cost[0]), max(ln.memory, cost[1])
-    return max(1, min(ln.most, MOST, int(ln.within_cpu // cpu), int(ln.within_memory // mem)))
+    got = []
+    for declared, measured in ((ln.cpu, cost[0]), (ln.memory, cost[1])):
+        if not declared and measured is None:
+            return 1
+        got.append(max(declared, measured or 0, 1e-3))
+    return max(1, min(ln.most, MOST, int(ln.within_cpu // got[0]), int(ln.within_memory // got[1])))
 
 
 def plan(waiting: list, running: list, free: int, ahead: int) -> list[tuple[str, tuple]]:
@@ -88,25 +94,25 @@ def above(running: list, base: str) -> list[str]:
 
 # ---- the dispatcher's
 
-def cost(d, b, now: float) -> tuple[float, float] | None:
-    """A lane's measured cost (cores, bytes): the most any of the block's LAST newest ended runs used, (0, 0) with none
-    measured; read at most every EVERY seconds. Unreadable: None (one lane), said once."""
+def cost(d, b, now: float) -> tuple[float | None, float | None] | None:
+    """A lane's measured cost (cores, bytes): the most any of the block's LAST newest ended runs used, each None when no
+    run measured it; read at most every EVERY seconds. Unreadable: None (one lane), said once."""
     kept = d.__dict__.setdefault("lanes_cost", {})
     if b.name in kept and now - kept[b.name][0] < EVERY:
         return kept[b.name][1]
     from ..costs.record import ENDS
     try:
         rows = d.p.events.query(n=LAST, type=ENDS, item=b.name, source="ergostat")
-        got = [0.0, 0.0]
+        got: list = [None, None]
         for e in rows:
             r, secs = (e.get("data") or {}).get("resources"), (e.get("data") or {}).get("seconds")
             if not isinstance(r, dict):
                 continue
             c, m = r.get("cpu"), r.get("memory_peak")
             if _num(c) and _num(secs) and secs > 0:
-                got[0] = max(got[0], c / secs)
+                got[0] = max(got[0] or 0.0, c / secs)
             if _num(m):
-                got[1] = max(got[1], float(m))
+                got[1] = max(got[1] or 0.0, float(m))
         out = (got[0], got[1])
     except Exception as e:  # noqa: BLE001 - said; the block runs one lane until it is read
         if kept.get(b.name, (0, ()))[1] is not None:
@@ -188,7 +194,7 @@ def out(d, run: str) -> str | None:
 
 # ---- the replay
 
-def replay(items: list[dict], ln, cost: tuple[float, float] = (0.0, 0.0)) -> dict:
+def replay(items: list[dict], ln, cost: tuple = (None, None)) -> dict:
     """A fixture of items ({id, at, touches, minutes, passes}: arrival and run time in minutes) through ``plan``, as
     the dispatcher takes them: a lane is held until it ends, and one on top of others until they pass; a lane that
     fails discards those on top of it, which wait again and are run again. Returns merges (items passed), failed,

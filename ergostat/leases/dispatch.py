@@ -295,14 +295,19 @@ class Dispatcher:
             got, on = self.groups.only(b, got, every, now), {}
             if b.takes.lanes:                        # (apart by a field, on top, within its resources: SPEC §9.5)
                 got, on = lanes.choose(self, b, every, got, room, now)
-            taken = []
+            taken, missed = [], set()
             try:
                 for it in got[:room]:
+                    if missed.intersection(on.get(it.id, ())):   # (on a lane planned this look and not taken: no lane)
+                        missed.add(it.id)
+                        continue
                     self.stale = True
                     if self.take(b, self.whole(ix, it), **({"on": on[it.id]} if on.get(it.id) else {})):
                         taken.append(it.id)
                         if it.id in hurry:
                             frozen.broken(self, b, it.id, hurry[it.id], SOURCE)
+                    else:
+                        missed.add(it.id)
             finally:
                 if b.takes.frozen:                       # (the window less what was taken, even past an error)
                     frozen.settle(self, b, taken, SOURCE)

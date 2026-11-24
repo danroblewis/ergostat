@@ -4342,10 +4342,13 @@ shares no entry with any lane starts apart; one that shares entries only with la
 of that lane when the chain is less than K deep (its lease's `on` is the chain, and its run gets it in its lease);
 any other waits, and so does every later item that shares an entry with a waiting one, so overlapping items keep
 their order. The lanes held at once are at most N, at most the pool, and at most as many as `within` holds at the
-larger of `each` (1 core and 1 byte unset) and the cost measured on the block's 20 newest ended runs (CPU seconds over
-wall seconds, peak memory; read at most once a minute); counted with the runs still draining, so a lowered bound
-starts nothing new until enough end. One lane always runs, even when a measured lane alone costs more than `within`;
-a cost that cannot be read allows one lane, said. A lane passed when its run moved its item on (into a `passed`
+larger of `each` and the cost measured on the block's 20 newest ended runs (CPU seconds over wall seconds, peak
+memory; read at most once a minute); counted with the runs still draining, so a lowered bound starts nothing new
+until enough end. One lane always runs, even when a measured lane alone costs more than `within`; a cost that cannot
+be read allows one lane, said, and so does one whose cores or memory are neither in `each` nor measured by any of
+those runs (an unknown cost is the worst case: a block with no `each` runs one lane until its runs are measured). A
+look that plans a lane on top of another it then fails to take (the budget refuses it, the bounds are full, ergostat
+is stopping) takes nothing on top of it. A lane passed when its run moved its item on (into a `passed`
 state, when declared). One that did not (its run gave it back, its lease expired, or it left the item elsewhere)
 stops every lane on top of it (`ergostat.run.killed`), and each ends given back uncounted; a lane on top that ends red
 while a lane it is on has not passed is given back uncounted too, its red not proven its own. A run on top should

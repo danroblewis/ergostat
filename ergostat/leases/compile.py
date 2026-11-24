@@ -126,8 +126,10 @@ def lanes(c, raw, what: str) -> Lanes | None:
         if not isinstance(m, dict) or (need and not {"cpu", "memory"} <= set(m)):
             return bad(f".{key}: a map: cpu: (cores, above 0) and memory: (a size, 4g)", f.at(key))
         c.keys(m, {"cpu", "memory"}, f"{w}.{key}")
-        cpu, mem = m.get("cpu", 1), size(m.get("memory", 1))
-        if isinstance(cpu, bool) or not isinstance(cpu, (int, float)) or not 0 < cpu <= CPU_MOST:
+        cpu, mem = m.get("cpu"), size(m["memory"]) if "memory" in m else 0       # (each unset: 0, measured only)
+        if "cpu" not in m:
+            cpu = 0.0
+        elif isinstance(cpu, bool) or not isinstance(cpu, (int, float)) or not 0 < cpu <= CPU_MOST:
             return bad(f".{key}.cpu: cores, above 0 and at most {CPU_MOST}", m.at("cpu"))
         if mem is None or mem > MEMORY_MOST:
             return bad(f".{key}.memory: a size above 0 and at most 1p (4g, 512m, or bytes)", m.at("memory"))

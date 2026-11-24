@@ -77,6 +77,28 @@ Left:
   run (browserday.py) and the escapes record (escapes.py) find some, but nothing here reverts. The factory's switch to
   apart lanes needs that first. A lane on top tests its whole chain, so it checks no less.
 
+Round 2: both blocking findings of review 1 are fixed. Review 1 listed no other findings.
+- **A take that fails under a lane on top** (dispatch.py `tick_block`, lesson-1 and lesson-3). A look plans first and
+  takes after, so a base's take can fail: the budget refuses it, `bounds.room` is full, or ergostat is stopping. Then
+  any start whose `on` names a lane planned in that look and not taken is now dropped, at any depth. It is not taken
+  and waits for a later look. Test: `test_a_base_whose_take_fails_takes_nothing_on_top` (a refused; b on a and d on
+  a and b are not taken, c apart is; the next look takes a, b on a, and d on a and b). With the check removed, b and
+  d were taken on a, which never ran, and the test failed.
+- **An unknown cost is the worst case** (compile.py, ir.py, lanes.py `room` and `cost`, lesson-3 and lesson-8). If
+  `each` is not declared, its cores and memory are now 0, which means not declared. `cost` returns None for cores or
+  memory when none of the 20 newest runs measured it. `room` allows one lane when either is unknown: neither declared
+  nor measured. So a new block with no `each` runs one lane until its runs are measured. The replay's default cost is
+  unknown too. Test: `test_an_unknown_cost_is_the_worst_case` (no `each`: 1 lane before any run, 4 after runs measured
+  at 2 cores and 2g; cores measured without memory gives 1). With the check removed, 4 lanes were held from the
+  start, and the test failed. SPEC §9.5 and the agent guide say so.
+- **A slip found and fixed in this round.** The first version of the take-loop edit nested the frozen-window record
+  (`frozen.broken`) under the failed take. tests/test_frozen_window.py caught it, and that test passes now.
+- **Run here:** tests/test_merge_lanes.py (16), test_leases, test_lease_end_turns, test_spec_schema, test_take_order,
+  test_frozen_window, test_lease_kill, test_spec_structure, test_faults_hold_by, test_lease_watch_slices,
+  test_daemons, test_gaps_doc, test_gapsdoc. All pass, and ruff is clean. Not run here: the whole unit suite and the
+  four browser files (no page changed). No example touched. main merged: already up to date.
+- **Size:** about 25 more net lines outside tests, docs and dev, about 375 in all (budget 600). Left is as in round 1.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)
