@@ -129,6 +129,20 @@ def unlisted(repo: Path, base: str, head: str, definition: str) -> list[str]:
     return [p for p in changed if p not in on_main and not any(p == n or p.startswith(n + "/") for n in named)]
 
 
+PATHS_MOST = 200        # paths a gap's record keeps (the risk score reads them: ergostat.yaml, gap's risk-score)
+
+
+def touched(repo: Path, base: str, head: str) -> list[str] | None:
+    """The paths a branch changes against its base, the gaps' records left out (each gap's own, telling nothing of
+    another), for the gap's risk score; None when git cannot say (the score learns a missing value as its own, never
+    as safe)."""
+    try:
+        out = fac.git(repo, "diff", "-z", "--name-only", f"{base}...{head}", "--", ".", f":(exclude){fac.DEFS}")
+    except Exception:
+        return None
+    return sorted(p for p in out.split("\0") if p)[:PATHS_MOST]
+
+
 def strays(cfg: dict, repo: Path, base: str, head: str, definition: str) -> list[str]:
     """The `unlisted` files that look like a session's scratch: one with a path part matching a [gates]
     scratch_patterns glob, or under a new top-level file or folder the definition's "Files to touch" does not name
@@ -322,6 +336,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
             break
     net = fac.net_lines(agents.drop(cfg), against if bases else cfg["git"]["base"], head)
     record = dict(**on, rounds=1, ai_cost_usd=round(cost, 4), sessions=sessions, contexts=[context], head=head,
+                  paths=touched(agents.drop(cfg), against if bases else cfg["git"]["base"], head),
+                  built_by=os.environ.get("ERGOSTAT_AGENT"),
                   stack_base=against if bases else "",
                   net_lines=net, budget=fac.budget_of(definition), built_main=base_sha, suites_fast=suites, session_dir=str(home),
                   fast_seconds=round(fast_seconds, 1),

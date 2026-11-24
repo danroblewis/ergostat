@@ -2155,6 +2155,27 @@
           },
           "description": "Its items record named stages, folded into stages by merge (SPEC section 5a, Stages)"
         },
+        "risk-score": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["at", "failed", "passed", "from"],
+          "properties": {
+            "at": {"type": "string", "description": "The state an attempt is scored on entering"},
+            "failed": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                       "description": "The event types that fail an attempt (one after it passed fails it after all)"},
+            "passed": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                       "description": "The states, not at, that pass an attempt"},
+            "undone": {"type": "array", "items": {"type": "string"},
+                       "description": "The event types, not failed, that say a failure was not the item's (a flake retried): a failure of an open attempt is held until the item's next change of state by its own events (never a lease's), and one of these first withdraws it unjudged (one the fold refused, such as a fenced retry, never does)"},
+            "from": {"type": "object", "minProperties": 1, "maxProperties": 16,
+                     "additionalProperties": {"enum": ["value", "each", "size"]},
+                     "description": "The fields it learns from: value (as text), each (a list's elements, the riskiest counting), size (a number in bands of powers of two)"},
+            "least": {"type": "integer", "minimum": 1, "maximum": 10000,
+                      "description": "Judged attempts before any score (default 10)"},
+            "description": {"type": "string"}
+          },
+          "description": "Each item's risk score, learned from the attempts judged before it (SPEC section 5a, Risk score); off unless declared"
+        },
         "final": {
           "type": "array",
           "items": {

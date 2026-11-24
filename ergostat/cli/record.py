@@ -108,6 +108,8 @@ def cmd_item(args) -> int:
         return _item_graph(args)
     if getattr(args, "groups", None) is not None:
         return _item_groups(args)
+    if getattr(args, "risk_score", False) or getattr(args, "backtest", False):
+        return _item_risk(args)
     if args.name and args.json and not getattr(args, "at", None) and getattr(args, "history", None) is None:
         from ..calls.client import Refused
         from . import fast
@@ -202,6 +204,40 @@ def _item_graph(args) -> int:
         print("  " + "  ".join(" ".join(map(str, v.values())) if isinstance(v, dict) else str(v) for v in x.values()))
     print(c(got.get("says") or f"{len(got['items'])} items" + (f", capped at {got['cap']}" if got["capped"] else ""),
             "warn" if got["capped"] else "dim"))
+    return 0
+
+
+def _item_risk(args) -> int:
+    """``item --kind K --risk-score [--backtest]`` (``numbers/itemrisk.py``): each item's score now, or the backtest."""
+    from ..numbers import itemrisk
+    p = open_project(args)
+    spec = getattr(p.model, "spec", None)
+    k = (getattr(spec, "items", None) or {}).get(args.kind or "")
+    if args.name or not args.risk_score or getattr(args, "at", None) or k is None or k.risk is None:
+        print("--risk-score: with --kind K, a kind that declares risk-score:, as the record is now (--backtest: with "
+              "it; never with an item or --at)", file=sys.stderr)
+        return 2
+    if args.backtest:
+        got = itemrisk.backtest(p.events, spec, k.name)
+        if args.json:
+            return out_json(got)
+        print(table(["SCORE", "ATTEMPTS", "FAILED", "RATE", "MEAN SCORE"],
+                    [[b["band"], str(b["attempts"]), str(b["failed"]), f"{b['rate']:.3f}", f"{b['mean_score']:.3f}"]
+                     for b in got["bands"]], "no attempt judged with a score yet"))
+        print(c(f"{got['scored']} scored of {got['judged']} judged ({got['failed']} failed), {got['unscored']} before "
+                f"a score, {got['open']} open ({got['held']} failed, held), {got['withdrawn']} withdrawn, "
+                f"{got['rolled_up']} items rolled up (their earlier attempts unseen); Brier {got['brier']} "
+                f"(base rate alone {got['brier_base_rate']}), AUC {got['auc']}", "dim"))
+        return 0
+    got = itemrisk.scores(p.events, spec, k.name)
+    if args.json:
+        return out_json(got)
+    rows = [[r["id"], r["state"] or "-", "-" if r["score"] is None else f"{r['score']:.3f}",
+             "; ".join(f"{w['field']} {w['value']} ({w['failed']}/{w['judged']})" for w in r["why"])[:90]]
+            for r in got["items"][:args.n]]
+    print(table(["ITEM", "STATE", "RISK", "WHY (FAILED/JUDGED)"], rows, f"no {k.name} yet"))
+    print(c(f"learned from {got['judged']} judged attempts, {got['failed']} failed"
+            + (f"; no score before {got['least']}" if got["judged"] < got["least"] else ""), "dim"))
     return 0
 
 

@@ -757,6 +757,12 @@ def detail(events, spec, id: str, until: float | None = None, history: int | Non
     d["system"] = kind_systems(spec)[k.name]["system"] if k else OTHER
     own = [e for e in evs if not e["type"].startswith("claude.")]
     snap = next((e for e in evs if e["type"] == SNAPSHOT), None)
+    if k is not None and k.risk is not None:                 # its risk score now (numbers/itemrisk.py); none as of then
+        from ..numbers.itemrisk import item as risk_of
+        try:                                                  # (a score that fails is said, never the item's whole page)
+            d["risk_score"] = risk_of(events, spec, k.name, id) if until is None else None
+        except Exception as e:
+            d["risk_score"] = {"score": None, "why": [], "said": f"failed: {type(e).__name__}: {e}"[:300]}
     return {**d,
             "rollup": {k_: v for k_, v in (snap["data"].get("rollup") or {}).items() if k_ not in ("moves", "refused")}
             if snap else None,

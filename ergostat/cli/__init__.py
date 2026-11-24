@@ -220,6 +220,10 @@ def build() -> argparse.ArgumentParser:
                                                      "characters of each item's text)")
     i.add_argument("--groups", metavar="RELATION", help="with --kind: how far along each group its group relation names "
                                                        "is (done, in progress, waiting, stopped, of its total)")
+    i.add_argument("--risk-score", dest="risk_score", action="store_true",
+                   help="with --kind: each item's risk score, learned from what failed before (the kind's risk-score:)")
+    i.add_argument("--backtest", action="store_true", help="with --risk-score: each attempt's score as it was given, "
+                                                           "against what became of it: the failure rate per score band")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
                    help="with an item: each field's changes (or one field's), with the events that made them")
     i.add_argument("--near", nargs="?", const="1", metavar="N", help="with an item: the items within N hops (1-4, default 1)")
