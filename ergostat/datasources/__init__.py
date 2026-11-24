@@ -170,13 +170,17 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
         raise SourceError("limit", f"the window has {g.n} points, more than the {MOST_POINTS} allowed")
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
+    turned: list = []
+    if name == OWN and src.options.get("extra_label"):   # the built-in source: a saved query's old names, as the new
+        from ..promnames import convert, names_for
+        text, turned = convert(text, names_for(spec))
     w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS), project, public)
     token = ASKING.set(project)
     try:
         got = mod.query(src, text, w)
     finally:
         ASKING.reset(token)
-    warned = _lint.warnings(mod.LANGUAGE, text)
+    warned = _lint.warnings(mod.LANGUAGE, text) + [("old-name", f"read under the model's own name: {x}") for x in turned]
     if isinstance(got, dict):                       # a typed frame (_frames.py)
         try:
             out = _frames.answer(got, g, MOST_SERIES)

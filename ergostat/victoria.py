@@ -1,9 +1,10 @@
 """The measurements in VictoriaMetrics (SPEC §4b, ``storage: measurements: {backend: victoriametrics,
 url: ...}``): the same interface as ``store.Measurements``, over its HTTP API (standard library only).
 
-Every reading is a sample named for its series, with the series' bounded labels (``promql_name``): a sensor's
-``ergostat_sensor{part, sensor}``, a run's ``ergostat_run_<measure>{block}``, a valve's ``ergostat_valve_position{valve}``,
-..., each with ``project="<state key>"`` and ``series="<series>"`` too, so ergostat's own series are queried by PromQL
+Every reading is a sample named for its series, with the series' bounded labels (``promql_name``, from the model:
+promnames.py): a part's sensor under the part's own name (``gaps_approved``), a run's ``ergostat_run_<measure>{block}``,
+a valve's ``ergostat_valve_position{valve}``, ..., each with ``project="<state key>"`` and ``series="<series>"`` too,
+so ergostat's own series are queried by PromQL
 like any other source's (the built-in ``ergostat`` data source, ergostat/datasources). Writes: ``/api/v1/import``
 (JSON lines, millisecond timestamps, out of order allowed), then ``/internal/force_flush`` so what
 was written is read at once. Raw reads: ``/api/v1/export``. Buckets: MetricsQL over
@@ -17,7 +18,6 @@ backfilled readings (``backfill``) in ``measurements.backfilled.db`` beside it."
 from __future__ import annotations
 
 import json
-import re
 import threading
 import time
 import urllib.error
@@ -25,12 +25,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from .promnames import Names, item_labels, names_for
+
 OLD_METRIC = "ergostat_reading"   # every series' one name before its labels (ergostat migrate renames it)
 FOREVER = "3650d"
 EPS = 0.001                       # a bucket is (start, end]: queried a millisecond early, so it is [start, end)
-_WORD = re.compile(r"[^a-z0-9_]+")
-_KINDS = {"valve": ("ergostat_valve_position", "valve"), "block": ("ergostat_block_output", "block")}
-_MEASURES = {"run": "block", "observer": "observer"}       # kind/NAME/MEASURE: ergostat_<kind>_<measure>{<label>=NAME}
 
 
 class VictoriaError(RuntimeError):
@@ -41,26 +40,11 @@ def _q(s: str) -> str:
     return json.dumps(s)
 
 
-def _word(s: str) -> str:
-    return _WORD.sub("_", s.lower()).strip("_") or "x"
-
-
-def promql_name(series: str) -> dict[str, str]:
-    """A series' metric name and labels (without ``project`` and ``series``). Each label's value is a part, block or
-    measure the model declares, so the labels are bounded by the model: nothing generated (an item's id, a run's)
-    is ever a label, which is the event log's."""
-    kind, _, rest = series.partition("/")
-    if kind == "sensor" and rest:
-        part, dot, s = rest.rpartition(".")
-        return {"__name__": "ergostat_sensor", **({"part": part, "sensor": s} if dot and part else {"part": rest})}
-    if kind in _MEASURES and rest.count("/") == 1:
-        name, measure = rest.split("/")
-        return {"__name__": f"ergostat_{kind}_{_word(measure)}", _MEASURES[kind]: name}
-    if kind in _KINDS and rest:
-        return {"__name__": _KINDS[kind][0], _KINDS[kind][1]: rest}
-    if rest:
-        return {"__name__": f"ergostat_{_word(kind)}", "name": rest}
-    return {"__name__": "ergostat_series", "name": series}
+def promql_name(series: str, names: Names | None = None) -> dict[str, str]:
+    """A series' metric name and labels (without ``project`` and ``series``), as the model ``names`` them
+    (promnames.py). Each label's value is a part, sensor, block or measure the model declares, so the labels are
+    bounded by the model: nothing generated (an item's id, a run's) is ever a label, which is the event log's."""
+    return (names or Names()).labels(series)
 
 
 class Victoria:
@@ -76,6 +60,7 @@ class Victoria:
         self._pending: list[tuple[str, float, float]] = []    # written here, not yet sent: sent within FLUSH
         self._lock = threading.Lock()
         self._flusher: threading.Thread | None = None
+        self.spec_of = lambda: None   # the model whose names a reading is written under (Project sets it)
         from .store import LEDGER, _Conns
         self._ledger = _Conns(directory / "measurements.backfilled.db", LEDGER)   # beside measurements.forgotten.json
 
@@ -114,9 +99,13 @@ class Victoria:
         except OSError as e:
             raise VictoriaError(f"VictoriaMetrics at {self.base}: {e}") from e
 
-    def _sel(self, series: str | None = None, name: str = "ergostat_.+") -> str:
-        """Every name of this project's (or one series'): a record written before its labels, under OLD_METRIC, is
-        read too until ``ergostat migrate`` renames it."""
+    def labels(self, series: str) -> dict[str, str]:
+        """The name and labels ``series`` is written under now, by the model as it is (``promql_name``)."""
+        return names_for(self.spec_of()).labels(series)
+
+    def _sel(self, series: str | None = None, name: str = ".+") -> str:
+        """Every name of this project's (or one series'): a record written under an earlier name (OLD_METRIC, the old
+        generic ``ergostat_sensor``, a part renamed in the model) is read too until ``ergostat migrate`` moves it."""
         return "{" + f'__name__=~"{name}",project={_q(self.project)}' + (f",series={_q(series)}" if series else "") + "}"
 
     def _own(self) -> str:
@@ -124,10 +113,11 @@ class Victoria:
         return self._sel()[:-1] + ',series!=""}'
 
     def put(self, rows: list[tuple[dict, float, float]]) -> None:
-        """Samples under labels of their own (``itemmetrics.py``: a name and its labels, no ``series``), with this
-        project's ``project``, imported at once; a server away raises ``VictoriaError``."""
+        """Samples under labels of their own (``itemmetrics.py``: a name and its labels, no ``series``; an item kind's
+        under its own name, ``promnames.item_labels``), with this project's ``project``, imported at once; a server
+        away raises ``VictoriaError``."""
         groups: dict[tuple, dict] = {}
-        for labels, t, v in rows:
+        for labels, t, v in ((item_labels(lb), t, v) for lb, t, v in rows):
             g = groups.setdefault(tuple(sorted(labels.items())), {"metric": {**labels, "project": self.project},
                                                                     "values": [], "timestamps": []})
             g["values"].append(float(v))
@@ -140,26 +130,29 @@ class Victoria:
     def _import(self, rows: list[tuple[str, float, float]]) -> None:
         groups: dict[str, dict] = {}
         for s, t, v in rows:
-            g = groups.setdefault(s, {"metric": {**promql_name(s), "project": self.project, "series": s},
+            g = groups.setdefault(s, {"metric": {**self.labels(s), "project": self.project, "series": s},
                                       "values": [], "timestamps": []})
             g["values"].append(float(v))
             g["timestamps"].append(round(float(t) * 1000))
         self._req("/api/v1/import", body="".join(json.dumps(g) + "\n" for g in groups.values()).encode())
         self._req("/internal/force_flush")
 
-    def _export(self, series: str | None, start: float | None = None, end: float | None = None,
-                sel: str | None = None) -> dict[str, list]:
-        params: dict = {"match[]": sel or self._sel(series)}
+    def _rows(self, sel: str, start: float | None = None, end: float | None = None) -> list[tuple[dict, list]]:
+        """Each series the selector matches, as exported: its labels and its readings ``(time, value)``."""
+        params: dict = {"match[]": sel}
         if start is not None:
             params["start"] = f"{start:.3f}"
         if end is not None:
             params["end"] = f"{end:.3f}"
+        return [(r["metric"], [(t / 1000, float(v)) for t, v in zip(r["timestamps"], r["values"], strict=True)])
+                for line in self._req("/api/v1/export", params).decode().splitlines() if line.strip()
+                for r in [json.loads(line)]]
+
+    def _export(self, series: str | None, start: float | None = None, end: float | None = None,
+                sel: str | None = None) -> dict[str, list]:
         out: dict[str, list] = {}
-        for line in self._req("/api/v1/export", params).decode().splitlines():
-            if line.strip():
-                r = json.loads(line)
-                pts = out.setdefault(r["metric"].get("series", ""), [])
-                pts += [(t / 1000, float(v)) for t, v in zip(r["timestamps"], r["values"], strict=True)]
+        for metric, pts in self._rows(sel or self._sel(series), start, end):
+            out.setdefault(metric.get("series", ""), []).extend(pts)
         for pts in out.values():
             pts.sort()
         return out

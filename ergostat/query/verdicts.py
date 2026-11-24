@@ -28,6 +28,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "graph-over-budget": ("warn", "draw it as a matrix (the Heatmap chart), or ask for one kind or a shorter window"),
     "graph-truncated": ("warn", "ask for one kind or a shorter window, so the whole graph is read"),
     "graph-cycle": ("warn", "change one of the relations that go round, so the cycle is broken"),
+    "old-name": ("warn", "write the model's own name in the query, as it is read now"),
 }
 
 
