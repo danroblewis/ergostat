@@ -280,6 +280,17 @@ def test_whatif_changes_declared_target(tmp_path):
     assert cl.parse_whatif(spec, {"block.hpa.stabilize-down": "1m"})[1].laws == {"hpa.stabilize-down": 60.0}
 
 
+def test_whatif_values_tried_together_are_checked_as_one_law(tmp_path):
+    from ergostat.numbers import closedloop as cl
+    p, _ = kube(tmp_path, DECLARED, [2.0] * 3, [2.0] * 3)   # declared min 2, max 10
+    spec = p.model.spec
+    for one in ({"block.hpa.min": "8"}, {"block.hpa.max": "5"}):                  # each alone is a valid law
+        cl.parse_whatif(spec, one)
+    with pytest.raises(cl.WhatIfError, match="block.hpa: the values tried together: max: at least min"):
+        cl.parse_whatif(spec, {"block.hpa.min": "8", "block.hpa.max": "5"})
+    assert cl.parse_whatif(spec, {"block.hpa.min": "4", "block.hpa.max": "5"})[1].laws == {"hpa.min": 4, "hpa.max": 5}
+
+
 def test_no_law_unchanged(tmp_path):
     from ergostat.numbers import external as ex
     from ergostat.numbers import extlaw as el

@@ -5436,8 +5436,8 @@ typed in the panel of a flow from outside), a goal's setpoint (`goal.NAME:5`, in
 (`block.NAME.pool:4`) and a block's share of failed runs (`block.NAME.failure:20%`, its success the rest), both
 beside its identified model in the causes strip; the last two change the items' completion estimates too (§5a). A
 rate tried on a flow a block moves replaces its identified model. A parameter of an external block's declared law
-(§12d, *Known laws*) is a fifth (`block.NAME.target:0.5`, `block.NAME.stabilize-down:1m`): checked as `law:` is, an
-unknown one refused naming the law's parameters, and the projection runs the law with it, started from the record again
+(§12d, *Known laws*) is a fifth (`block.NAME.target:0.5`, `block.NAME.stabilize-down:1m`): checked as `law:` is, each alone and a block's
+values together (a `min` tried above a `max` tried is refused), an unknown one refused naming the law's parameters, and the projection runs the law with it, started from the record again
 (a block whose law is not run ahead says the value changes nothing). With the projection held they are refused and the strip says why.
 
 **Sensitivity** (`ergostat/numbers/sensitivity.py`; the causes strip with the projection held; with the loops running

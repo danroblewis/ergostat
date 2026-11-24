@@ -243,7 +243,7 @@ def parse_whatif(spec: Spec, raw: dict[str, str]) -> tuple[dict[str, str], WhatI
     """The parameters (as they came, for ``proposals.what_if``) apart from ``flow.NAME`` (a rate an hour, or ``x2``),
     ``goal.NAME`` (a setpoint), ``block.NAME.pool`` and ``block.NAME.failure`` (a share of its runs, 0.2 or 20%), and
     ``block.NAME.PARAMETER`` of a block's declared law (checked as ``law:`` is)."""
-    params, w = {}, WhatIf()
+    params, w, tried = {}, WhatIf(), {}
     for k, v in raw.items():
         v = str(v).strip()
         if k.startswith("flow."):
@@ -286,8 +286,15 @@ def parse_whatif(spec: Spec, raw: dict[str, str]) -> tuple[dict[str, str], WhatI
             if got is None:
                 raise WhatIfError(f"{k}: " + "; ".join(why for _, why in bad))
             w.laws[f"{b.name}.{key}"] = got.params[key]
+            tried.setdefault(b.name, {})[key] = raw
         else:
             params[k] = v
+    for name, keys in tried.items():                         # the values tried together, as one law: is (min ≤ max)
+        from ..control import laws
+        law = spec.blocks[name].law
+        got, bad = laws.check({"kind": law.kind, **law.params, **keys})
+        if got is None:
+            raise WhatIfError(f"block.{name}: the values tried together: " + "; ".join(why for _, why in bad))
     return params, w
 
 

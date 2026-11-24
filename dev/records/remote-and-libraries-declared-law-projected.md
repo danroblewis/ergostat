@@ -34,3 +34,10 @@ Choices made without anyone to ask, each the most reversible:
   the only thing said about it, since the projection runs the declared law.
 - What-if values are flattened to `"BLOCK.PARAMETER" → value` in `WhatIf.laws` so `WhatIf.key()` stays hashable. A
   value tried on a block whose law is not run ahead adds a note saying it changes nothing, so it is not silently dropped.
+
+Round 2 (the one finding, blocking): parse_whatif checked each declared-law parameter alone, so `block.hpa.min=8` with
+`block.hpa.max=5` (each valid alone) built a law with min above max. Now, after the loop, each block's tried values are
+checked together with its declared parameters by laws.check, once, and refused with its reasons (`block.hpa: the
+values tried together: max: at least min`). Test: test_whatif_values_tried_together_are_checked_as_one_law, seen to
+fail (DID NOT RAISE) with the check disabled. SPEC §12c says values are checked alone and together. 72 net lines of
+code (budget 90). main had not moved: nothing to merge.
