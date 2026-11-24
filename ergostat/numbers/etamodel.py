@@ -174,6 +174,7 @@ class Inputs:
     items: dict[str, ItemAt]
     finished_at: dict[str, float] = field(default_factory=dict)   # (the backtest's truth, when read past ``at``)
     workspaces: dict[str, int] = field(default_factory=dict)      # each workspace pool a block uses → its size
+    groups: dict[str, list[str]] = field(default_factory=dict)    # a group's parent → its open members (``_groups``)
 
 
 def _orders(spec, kind: str) -> set[str]:
@@ -302,8 +303,23 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
                 kin.km[s], kin.said[s] = (km_kind, "kind") if km_kind else (km_all, "all")
     _leases(p, spec, out, since, ix)
     _relations(spec, ix, out)
+    _groups(spec, ix, out)
     _unscheduled(out)
     return out
+
+
+def _groups(spec, ix, out: Inputs) -> None:
+    """Each group (a parent named by an open item through a ``group: true`` relation of its kind, SPEC §5a): its open
+    members, and the parent itself when it is open."""
+    rels = {n: {r for r, x in k.relations.items() if x.group and not x.remote}
+            for n, k in (getattr(spec, "items", None) or {}).items() if k.relations}
+    if not any(rels.values()) or not out.items:
+        return
+    with ix.lock:
+        links = ix.links_from(list(out.items))
+    for a, r, d in sorted(links):
+        if r in rels.get(out.items[a].kind, ()) and d != a:
+            out.groups.setdefault(d, [d] if d in out.items else []).append(a)
 
 
 def _unscheduled(out: Inputs) -> None:

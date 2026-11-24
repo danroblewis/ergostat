@@ -324,13 +324,19 @@ class _Run:
 
 
 def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 1, budget: float = BUDGET,
-             horizon: float = HORIZON, pools: dict | None = None, failures: dict | None = None) -> dict:
+             horizon: float = HORIZON, pools: dict | None = None, failures: dict | None = None,
+             sets: dict[str, list[str]] | None = None) -> dict:
     """Each open item's p50 and p90 finish and its expected start, per kind when its last open item finishes, and a
-    levelled schedule (the run whose last finish is the median's) for the Timeline."""
+    levelled schedule (the run whose last finish is the median's) for the Timeline. ``sets``: named sets of items
+    (a group, a stage), each said as a kind is: when its last item that can move finishes (``sets`` in the answer)."""
     t_end = time.monotonic() + budget                   # (the runs within ``budget``, the levelled one within as much again)
     live = {i: x for i, x in inp.items.items() if not x.unscheduled}   # (the rest: not scheduled, said why)
     fins, starts, deads, lasts = {i: [] for i in live}, {i: [] for i in live}, {i: 0 for i in live}, []
-    outs, n = {i: 0 for i in live}, 0
+    outs, n, in_sets, set_lasts = {i: 0 for i in live}, 0, {}, []
+    for name, ids in (sets or {}).items():
+        for i in ids:
+            if i in live:
+                in_sets.setdefault(i, []).append(name)
     for r in range(runs):
         if n and time.monotonic() > t_end:
             break
@@ -338,7 +344,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         if not run.go(horizon, t_end):
             break
         n += 1
-        last = {}
+        last, set_last = {}, {}
         for i, x in live.items():
             if i in run.gone:                         # counted out: no finish, and not in its kind's last
                 outs[i] += 1
@@ -348,7 +354,10 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
             starts[i].append(run.start.get(i, f))
             deads[i] += i in run.dead
             last[x.kind] = max(last.get(x.kind, 0.0), f)
+            for s in in_sets.get(i, ()):
+                set_last[s] = max(set_last.get(s, 0.0), f)
         lasts.append(last)
+        set_lasts.append(set_last)
     few = n < FEW                                       # (too few runs for a p90: none said)
     mean = lambda xs: sum(xs) / len(xs) if xs and max(xs) < float("inf") else None   # noqa: E731
     items = {i: {"p50": _q(fins[i], 0.5), "p90": None if few else _q(fins[i], 0.9), "mean": mean(fins[i]),
@@ -368,6 +377,11 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         kinds[k] = {"p50": _q(xs, 0.5), "p90": None if few else _q(xs, 0.9), "visits": inp.kinds[k].visits,
                     "open": sum(1 for x in live.values() if x.kind == k),
                     "unscheduled": sum(1 for x in inp.items.values() if x.kind == k and x.unscheduled)}
+    said_sets = {}
+    for s, ids in (sets or {}).items() if n else ():
+        xs = [la[s] for la in set_lasts if s in la]
+        said_sets[s] = {"p50": _q(xs, 0.5), "p90": None if few else _q(xs, 0.9), "open": sum(i in live for i in ids),
+                        "unscheduled": sum(1 for i in ids if i in inp.items and i not in live), "runs": len(xs)}
     # the levelled schedule: the run whose last finish is nearest the median's, drawn again with its segments kept
     rep = None
     if n and time.monotonic() < t_end + budget:
@@ -381,7 +395,8 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     for x in inp.items.values():
         if x.lease and x.lease[0]:
             held[x.lease[0]] = held.get(x.lease[0], 0) + 1
-    return {"at": inp.at, "runs": n, "flags": flags.__dict__, "items": items, "kinds": kinds, "schedule": rep or {},
+    return {"at": inp.at, "runs": n, "flags": flags.__dict__, "items": items, "kinds": kinds, "sets": said_sets,
+            "schedule": rep or {},
             "capacity": {b.name: max(1, b.capacity(pools), held.get(b.name, 0)) for b in inp.blocks},
             "limit": {b.name: max(1, b.capacity(pools)) for b in inp.blocks}}
 
