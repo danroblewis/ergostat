@@ -1,7 +1,7 @@
 """``python -m ergostat.repair fix`` (SPEC §12r), ``repair-fix``'s run on one leased failure: a clone of the project's
 repository (its own ``.git``), the AI's fix (no tools: it is given what ergostat read), the test in ``ergostat.sandbox``,
 the impact report, and ``apply-fix`` asked for, held for the person (the ladder's first rung) or, with ``--approver
-ai``, reviewed by ``approve.py`` behind the guard of ``allow.py`` (the second). What to run
+ai``, ``program`` (``--approve-with``) or ``rule``, reviewed by ``approve.py`` behind the guard of ``allow.py``. What to run
 comes from the compiled model and the state directory; a failure's fields are ergostat's alone (a sealed kind)."""
 
 from __future__ import annotations
@@ -234,7 +234,7 @@ def run(a) -> int:
                                                          "item": fid}, asker="program", key=f"{name}-{fix}")
     if action["state"] == "denied":
         record(p, "dismissed", fid, {"why": "apply-fix is denied by its gate"})
-    elif a.approver == "ai" and action["state"] == "requested":
+    elif a.approver in approve.RUNGS and action["state"] == "requested":
         beside = sorted(x.name for x in (Path(c.work) / path).parent.iterdir())
         approve.review(p, a, fid, name, path, files[path], got["program"], beside, passed, action)
     return 0
@@ -242,9 +242,10 @@ def run(a) -> int:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="ergostat.repair fix")
-    for k, v in (("model", "haiku"), ("budget", 0.25), ("daily", 2.0), ("timeout", 300.0), ("test", None)):
+    for k, v in (("model", "haiku"), ("budget", 0.25), ("daily", 2.0), ("timeout", 300.0), ("test", None),
+                 ("approve-with", None)):
         ap.add_argument(f"--{k}", default=v, type=type(v) if v is not None else str)
-    ap.add_argument("--approver", choices=["person", "ai"], default="person")      # (ai: approve.py, SPEC §12r)
+    ap.add_argument("--approver", choices=["person", "ai", "program", "rule"], default="person")   # (approve.py, §12r)
     a = ap.parse_args(argv)
     try:
         return run(a)
