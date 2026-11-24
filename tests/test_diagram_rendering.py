@@ -3351,6 +3351,7 @@ BD_LEGEND_DRAWN = {
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
     "a system as one block": ".bd-subsystem, .bd-frame-system",
+    "a lighter line": "g.bd-edge.bd-record, g.bd-edge.bd-aside, .bd-bus .bd-bar",
 }
 
 
@@ -5032,7 +5033,7 @@ LEGEND = """() => {
 LEGEND_SHOWS = {"stock": "g.node.k-stock", "flow": ".edge.pipe .pipe-out", "biflow": ".edge.pipe .pipe-tail",
                 "source / sink": "g.node.k-cloud", "auxiliary": "g.node.k-auxiliary", "exogenous": "g.node.k-auxiliary",
                 "connector +": ".edge .polarity", "connector −": ".edge .polarity", "reinforcing": ".loop-markers",
-                "balancing": ".loop-markers"}
+                "balancing": ".loop-markers", "a lighter line: information, not material": ".edge .sd-connector"}
 
 
 def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
@@ -5056,6 +5057,103 @@ def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
                 assert row[-1] in signs, (row, signs)
         assert not {"auxiliary", "exogenous", "reinforcing", "balancing"} & set(on), on
         pg.close()
+
+
+TOKEN = """(v) => { const el = document.createElement('span'); el.style.color = `var(${v})`; document.body.append(el);
+  const c = getComputedStyle(el).color; el.remove(); return c; }"""
+SD_TONES = """(tok) => {
+  const ink = tok['--sd-ink'], ink2 = tok['--sd-ink-2'], svg = document.querySelector('svg.canvas'), bad = [];
+  const by = Object.fromEntries(S.graph.nodes.map((n) => [n.id, n]));
+  const drives = new Set(S.graph.edges.filter((e) => e.kind === 'connector' && by[e.source]?.role === 'gap' &&
+                                                     ['valve', 'disturbance'].includes(by[e.target]?.kind)).map((e) => e.id));
+  const want = (el, prop, v, what) => { const got = getComputedStyle(el)[prop];
+    if (got !== v) bad.push(`${what}: ${prop} ${got}, not ${v}`); };
+  let lines = 0, driving = 0;
+  for (const eg of svg.querySelectorAll('g.edge')) {
+    const con = eg.querySelector('.sd-connector');
+    if (!con) continue;
+    lines++; const d = drives.has(eg.dataset.id); driving += d;
+    want(con, 'stroke', d ? ink : ink2, eg.dataset.id);
+    want(eg.querySelector('.sd-head'), 'fill', d ? ink : ink2, eg.dataset.id + ' head');
+  }
+  const full = { stroke: '.pipe-out, .sd-stock, .sd-valve, .sd-cloud, .loop-marker:not(.pol-unknown) .marker-arc',
+                 fill: '.polarity, .node .sd-name, .loop-marker:not(.pol-unknown) .marker-letter' };
+  const counts = {};
+  for (const [prop, sel] of Object.entries(full))
+    for (const el of svg.querySelectorAll(sel)) { counts[sel] = (counts[sel] || 0) + 1; want(el, prop, ink, el.getAttribute('class')); }
+  for (const el of svg.querySelectorAll('.loop-marker:not(.pol-unknown) .marker-name, .k-terminal .sd-shadow'))
+    want(el, 'fill', ink2, el.textContent);
+  const file = standaloneSvg(svg, exportTitle()).text;           // the saved SVG (and the PNG drawn from it) keeps both
+  const html = document.documentElement, tone = (v) => { const el = document.createElement('span'); el.style.color = `var(${v})`;
+    document.body.append(el); const c = getComputedStyle(el).color; el.remove(); return c; };
+  html.classList.add('export-light');                            // (a saved picture is drawn light whatever the theme)
+  const [lk, lk2] = [tone('--sd-ink'), tone('--sd-ink-2')];
+  html.classList.remove('export-light');
+  return { lines, driving, drives: drives.size, counts, bad,
+           saved: [lk !== lk2 && file.includes(`stroke:${lk2}`), file.includes(`stroke:${lk}`)] };
+}"""
+BD_TONES = """(tok) => {
+  const svg = document.querySelector('svg.canvas'), of = (sel, p) => [...svg.querySelectorAll(sel)].map((el) => getComputedStyle(el)[p]);
+  const file = standaloneSvg(svg, exportTitle()).text, html = document.documentElement;   // the saved file, legend and all
+  html.classList.add('export-light');
+  const light = getComputedStyle(document.body).getPropertyValue('--ink-2-line').trim();
+  html.classList.remove('export-light');
+  return { saved: { vars: file.split('var(').length - 1, tone2: file.includes(`stroke="${light}"`) },
+           ink: tok['--ink'], ink2: tok['--ink-2-line'], record: of('g.bd-edge.bd-record .bd-wire', 'stroke'),
+           aside: of('g.bd-edge.bd-aside .bd-wire', 'stroke'), bus: of('.bd-bus .bd-bar', 'fill'),
+           main: of('g.bd-edge:is(.bd-reference, .bd-error, .bd-control, .bd-output, .bd-measured):not(.bd-aside) .bd-wire', 'stroke'),
+           refErr: of('g.bd-edge:is(.bd-reference, .bd-error):not(.bd-aside) .bd-wire', 'stroke') };
+}"""
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_line_tones_information_lighter_than_the_material_path(browser, tmp_path, scheme):
+    """line-tones (docs/DESIGN.md, Colour iii): in Dynamics each connector and its head in the ink's second tone, but a
+    goal's gap into the flow it drives; pipes, stocks, valves, clouds, signs, names and loop markers in full ink; in
+    Blocks a record wire lighter than a reference or an error wire; the saved picture keeps both; the Guide draws."""
+    def page(url):
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        return pg
+
+    def dynamics(pg, tok, lines):
+        got = pg.evaluate(SD_TONES, tok)
+        assert not got["bad"], got["bad"][:12]
+        assert got["lines"] >= lines and got["driving"] == got["drives"], got
+        assert len(got["counts"]) == 2, got["counts"]
+        assert got["saved"] == [True, True], got["saved"]
+        return got
+
+    errors: list[str] = []
+    names = ("--sd-ink", "--sd-ink-2", "--ink", "--ink-2-line")
+    with served("first-loop", tmp_path / "a") as url:                  # goals acting: each gap's link to its flow full ink
+        pg = page(url)
+        drawn(pg, url, "", 0)
+        tok = {n: pg.evaluate(TOKEN, n) for n in names}
+        assert tok["--sd-ink"] != tok["--sd-ink-2"] and tok["--ink"] != tok["--ink-2-line"], tok
+        assert dynamics(pg, tok, 3)["driving"] >= 2
+        pg.close()
+    with served("software-factory", tmp_path / "b") as url:
+        pg = page(url)
+        drawn(pg, url, "system=product", 0)
+        dynamics(pg, tok, 10)
+        drawn(pg, url, "view=blocks&open=product,factory", 1)
+        bd = pg.evaluate(BD_TONES, tok)
+        assert set(bd["main"]) == {bd["ink"]}, bd                       # (no reference here: no loop closes inside)
+        assert bd["aside"] and set(bd["record"] + bd["aside"] + bd["bus"]) == {bd["ink2"]}, bd
+        assert bd["saved"] == {"vars": 0, "tone2": True}, bd["saved"]   # the legend's light line, resolved in the file
+        guide(pg, url, tok)
+        pg.close()
+    with served("the-job", tmp_path / "c") as url:                    # a collector: what it records, lighter than r and e
+        pg = page(url)
+        drawn(pg, url, "view=blocks&system=incidents", 0)
+        bd = pg.evaluate(BD_TONES, tok)
+        assert bd["refErr"] and set(bd["main"]) == {bd["ink"]}, bd
+        assert bd["record"] and set(bd["record"] + bd["aside"] + bd["bus"]) == {bd["ink2"]}, bd
+        assert bd["record"][0] not in bd["refErr"], bd                  # definition of done 3
+        pg.close()
+    assert not errors, errors
 
 
 PRODUCT_GOALS = {"no-live-bugs": "filed-bugs", "few-missing": "filed-features", "users-growing": "filed-features"}
@@ -5113,6 +5211,18 @@ def test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_sa
     assert not errors, errors
 
 
+def guide(pg, url: str, tok: dict) -> None:
+    """The Guide's frames 2 and 12 draw, and the one that shows a link (4) draws it lighter than the pipe."""
+    for frame in (2, 4, 12):
+        pg.goto(f"{url}/guide?frame={frame}")
+        pg.wait_for_function(GUIDE_FRAME, arg=frame, timeout=60000)
+        seen = pg.evaluate(GUIDE_SEEN)
+        assert seen["svgs"] and all(v and n for v, n in seen["svgs"]), (frame, seen)
+        if frame == 4:
+            cons = pg.evaluate("() => [...document.querySelectorAll('svg.g-canvas .sd-connector')].map((c) => getComputedStyle(c).stroke)")
+            assert cons and set(cons) == {tok["--sd-ink-2"]}, cons
+
+
 # Export PNG's picture: the standalone SVG rasterised as exportPng does (at 1x), and for each of its texts, how many
 # dark pixels the image has where the text is (found by laying the same SVG in the page) that the same picture with no
 # text at all lacks (the text's own ink: not a line under it, and nothing over it); and the image's corner colour
@@ -5129,7 +5239,7 @@ EXPORTED_PNG = """async () => {
   const bare = new DOMParser().parseFromString(out.text, 'image/svg+xml');
   bare.querySelectorAll('text').forEach((t) => t.remove());
   const ctx = await raster(out.text), ctx0 = await raster(new XMLSerializer().serializeToString(bare));
-  const dark = (d, i) => d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] < 420;
+  const dark = (d, i) => d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] < 500;   // (the ink or its second tone: loop names)
   const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;z-index:99';
   host.innerHTML = out.text; document.body.append(host);
   const at = host.firstElementChild.getBoundingClientRect();
