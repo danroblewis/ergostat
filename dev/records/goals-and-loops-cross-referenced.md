@@ -98,3 +98,17 @@ Round 4 (finishing the factory's merge of main 059ff718):
   should fail on main too. Running it on main was not possible: `git worktree add --detach /tmp/main-check 059ff718`
   was refused in this session. Left alone (lesson 13): the SD_WORDS check and Q-goal-called-goal's wording disagree,
   and squaring them is its own gap.
+
+Round 5 (finishing the factory's merge of main fa51005d):
+- The one conflict, tests/test_diagram_rendering.py, resolved keeping both sides: the branch's round trip test stays
+  whole, followed by main's keyboard tests (`ON`, `VIEWS`, the tab-stop, arrows, Enter/Escape, I/Escape and
+  focus-ring tests). ergostat/ needed no change.
+- Tests run after the merge: ruff clean; tests/test_dynamics_view.py (25 passed); tests/test_graph_cli_web.py
+  (59 passed). Under suite_watch (rc 0): the round trip `test_a_goal_and_its_feedback_loops_link_each_other_across_the_views`,
+  main's `test_in_dynamics_a_goal_is_called_a_goal_and_loop_means_an_r_or_b_loop` and
+  `test_the_diagram_is_one_tab_stop_that_remembers_the_part_last_on` passed.
+- Still failing, the same way as round 4, and not from this branch:
+  `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`. The banned word is the
+  "goal" in the side list's check-finding card ("open · goal developer-honest cannot close: …"), which none of this
+  branch's files make. Left alone (lesson 13).
+- Not run here: the whole unit suite and the four browser files. Still not checked on :8791 (not in this container).
