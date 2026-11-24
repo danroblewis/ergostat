@@ -5,6 +5,7 @@ and the Items page's graph of the gaps' dependencies."""
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import time
@@ -191,30 +192,158 @@ def test_the_done_rule_on_a_fixture():
     assert [e["line"] for e in entries][:2] == [5, 6]
     assert {e["section"] for e in entries} == {"Things", "Other things"}
     assert all(not e["head"].startswith("done") for e in entries if e["gaps_says"] != "done")
-    assert intake().twice(GAPS) == {}
 
 
-def test_a_duplicated_gaps_entry_is_reported(tmp_path):
-    """A union merge (.gitattributes) can leave an entry twice, or in two sections: the intake neither finds nor
-    closes it (it never picks one), and says it as a dependency problem on its gap (lesson-3)."""
-    twice = intake().twice(GAPS + "- **Spans lines** (done, `churn`): moved here too.\n- **Plain done**: again.\n"
-                           + "- **Plain done**: and again.\n")
-    assert sorted(twice) == ["gap/plain-done", "gap/spans-lines"]
-    assert "2 times, lines 24 (Other things), 45 (Done recently)" in twice["gap/spans-lines"]
-    assert "3 times" in twice["gap/plain-done"]
+def on_records(f: Instance, records: dict[str, str]) -> None:
+    """Main's dev/records made ``records`` ({name: text}, GAPS-head.md among them) and docs/GAPS.md removed, so what
+    the intake reads can only be the records."""
+    from tests.test_factory import NEW, commit_files, git
+    git(f.checkout, "rm", "-q", "docs/GAPS.md")
+    commit_files(f, {f"{NEW}/{name}.md": text for name, text in records.items()})
+
+
+RECORDS = {"GAPS-head": "# Known gaps\n\n## Modelling\n\n@entry alpha-thing\n@entry beta\n@entry delta\n\n"
+           "## Done recently\n\n@entry gamma\n",
+           "alpha-thing": "## Entry\n\nsection: Modelling\n\n- **Alpha thing** (open; the first gap): what it lacks.\n"
+           "  More of it.\n",
+           "beta": "## Entry\n\nsection: Modelling\n\n- **Beta** (done, abc1234): landed.\n",
+           "delta": "## Entry\n\nsection: Modelling\n\n- **Delta** (parked on `delta`, *Where it stopped*): stopped.\n",
+           "gamma": "## Entry\n\nsection: Done recently\n\n- **Gamma**: done.\n"}
+
+
+def test_two_records_of_one_title_are_reported_never_one_picked(tmp_path):
+    """Two records whose entries' titles give one gap id (carry() makes `<branch>-2` for another of a title): the
+    intake neither finds nor closes that gap (it never picks one), and says it as a dependency problem on its gap, or on
+    stderr when no gap has it (lesson-3). Before the split the same holds for a GAPS.md a union merge left an entry
+    twice in."""
     f = Instance(tmp_path)
     f.opened()
-    from tests.test_factory import git
-    md = f.checkout / "docs" / "GAPS.md"
-    md.write_text(md.read_text().replace("- **Delta**", "- **Alpha thing** (done, abc1234): a merge kept both.\n"
-                                         "- **Epsilon**: new.\n- **Epsilon**: new, from the other side.\n- **Delta**"))
-    git(f.checkout, "commit", "-qam", "a union merge left two entries twice")
+    two = {**RECORDS, "GAPS-head": RECORDS["GAPS-head"].replace("@entry delta", "@entry delta\n@entry epsilon"),
+           "alpha-thing-2": "## Entry\n\nsection: Modelling\n\n- **Alpha thing** (done, abc1234): a second record.\n",
+           "epsilon": "## Entry\n\nsection: Modelling\n\n- **Epsilon**: new.\n",
+           "epsilon-2": "## Entry\n\nsection: Modelling\n\n- **Epsilon**: new, from the other side.\n"}
+    on_records(f, two)
     said, lines = f.run("intake.py")
     assert "gap.closed" not in said and "gap/epsilon" not in {x["item"] for x in lines}   # neither closed nor found
     assert "intake: gap/epsilon: GAPS.md lists it 2 times" in f.stderr                    # no gap to say it on
-    a =f.item("gap/alpha-thing")
+    a = f.item("gap/alpha-thing")
     assert a["state"] == "open" and a["fields"]["dependency_problem"] is True
-    assert "GAPS.md lists it 2 times" in a["fields"]["dependency_problems"][0]
+    assert "GAPS.md lists it 2 times, lines 5 (Modelling), 10 (Modelling)" in a["fields"]["dependency_problems"][0]
+    g = Instance(tmp_path / "pre-split")                                    # (a GAPS.md with no records: the same)
+    g.opened()
+    from tests.test_factory import git
+    md = g.checkout / "docs" / "GAPS.md"
+    md.write_text(md.read_text().replace("- **Delta**", "- **Epsilon**: new.\n- **Epsilon**: again.\n- **Delta**"))
+    git(g.checkout, "commit", "-qam", "a union merge left an entry twice")
+    said, lines = g.run("intake.py")
+    assert "gap/epsilon" not in {x["item"] for x in lines} and "gap/epsilon: GAPS.md lists it 2 times" in g.stderr
+
+
+def test_one_copy_in_done_recently_is_counted_never_the_open_one_picked(tmp_path):
+    """An entry listed in an open section and again in *Done recently* (two records of one title, one sectioned Done
+    recently; before the split, a union merge's GAPS.md) is two entries of one gap: the open copy is neither found
+    nor, when it says done, closes its gap; it is said, with each copy's line and section."""
+    f = Instance(tmp_path)
+    f.opened()
+    again = {**RECORDS, "GAPS-head": RECORDS["GAPS-head"].replace("@entry delta", "@entry delta\n@entry gamma-2"),
+             "gamma-2": "## Entry\n\nsection: Modelling\n\n- **Gamma** (open): listed again, open.\n"}
+    on_records(f, again)
+    said, lines = f.run("intake.py")
+    assert "gap/gamma" not in {x["item"] for x in lines}                              # never found from the open copy
+    said_gamma = [ln for ln in f.stderr.splitlines() if ln.startswith("intake: gap/gamma: GAPS.md lists it 2 times")]
+    assert len(said_gamma) == 1 and re.search(r"lines \d+ \(Modelling\), \d+ \(Done recently\)", said_gamma[0])
+    g = Instance(tmp_path / "pre-split")
+    g.fold([{"event": "gap.requested", "item": "gap/zeta", "data": {"title": "Zeta", "source": "request",
+                                                                     "branch": "zeta"}}], None)
+    from tests.test_factory import git
+    md = g.checkout / "docs" / "GAPS.md"
+    md.write_text(md.read_text().replace("- **Delta**", "- **Zeta** (done, 5555555): the open copy.\n- **Delta**")
+                  .replace("- **Gamma**: done.", "- **Gamma**: done.\n- **Zeta** (open): the done copy."))
+    git(g.checkout, "commit", "-qam", "a union merge left an entry in a section and in Done recently")
+    said, lines = g.run("intake.py")
+    assert "gap.closed" not in said and g.item("gap/zeta")["state"] == "open"              # not closed by one copy
+    problems = g.item("gap/zeta")["fields"]["dependency_problems"]
+    assert any("GAPS.md lists it 2 times" in p and "(Done recently)" in p for p in problems), problems
+
+
+def said_by_intake(f: Instance) -> list[dict]:
+    """Every line the intake printed, its timestamps left out (each run has its own)."""
+    _, lines = f.run("intake.py")
+    return [{**x, "data": {k: v for k, v in x["data"].items() if not k.endswith("_at")}} for x in lines]
+
+
+def test_intake_says_the_same_from_the_records_as_from_the_gaps_md_they_render(tmp_path):
+    """On the pinned GAPS.md (tests/fixtures/gaps_md_pinned.md) split into records: the intake on main's records (no
+    docs/GAPS.md there) says every gap found, closed and linked, with its sources, as it says on the GAPS.md the
+    records render with no records beside it."""
+    intake()
+    gapsdoc, fac = module("gapsdoc"), module("fac")
+    pinned = (Path(__file__).parent / "fixtures" / "gaps_md_pinned.md").read_text()
+    s = gapsdoc.split(pinned)
+    text, _ = gapsdoc.render(s["records"], s["head"])
+    assert text == pinned                                           # (tests/test_gapsdoc.py: line for line)
+    done = [e for e in intake().gaps_md(text) if e["gaps_says"] in ("done", "superseded")]
+    assert done                                                     # (the pinned copy has entries to close)
+    seeds = [{"event": "gap.requested", "item": e["id"], "data": {"title": e["title"], "source": "request",
+                                                                  "branch": fac.slug(e["id"][4:], 32)}} for e in done]
+    from tests.test_factory import commit_files
+    said, stderr = [], []
+    for where in ("rendered", "records"):
+        f = Instance(tmp_path / where)
+        f.fold(seeds, None)
+        if where == "rendered":
+            commit_files(f, {"docs/GAPS.md": text})
+        else:
+            on_records(f, {**s["records"], "GAPS-head": s["head"]})
+        said.append(said_by_intake(f))
+        stderr.append([ln for ln in f.stderr.splitlines() if "external-event-logs" in ln])
+    assert said[0] == said[1]
+    assert stderr[0] and stderr[0] == stderr[1]               # its two External event logs: said, never one picked
+    events = {x["event"] for x in said[1]}
+    assert {"gap.found", "gap.closed", "gap.dependencies"} <= events, events
+    deps = [x["data"] for x in said[1] if x["event"] == "gap.dependencies"]
+    assert any("GAPS.md:" in str(d["depends_on_sources"]) + str(d["dependency_problems"]) for d in deps)
+    assert any(x["data"].get("source") == "gaps" for x in said[1] if x["event"] == "gap.found")
+
+
+def test_an_entry_only_record_makes_no_gap_ready(tmp_path):
+    """A record (dev/records/<branch>.md) is a definition only with a `## Definition of done` section: one holding
+    its GAPS.md Entry alone, or with only a Where it stopped beside it, makes nothing ready; the section does."""
+    from tests.test_factory import NEW, commit_files
+    f = Instance(tmp_path)
+    gid = f.opened()
+    entry = RECORDS["alpha-thing"]
+    for text in (entry, entry + "\n## Where it stopped\n\nNothing yet.\n"):
+        commit_files(f, {f"{NEW}/alpha-thing.md": text})
+        said, _ = f.run("intake.py")
+        assert "gap.defined" not in said and f.item(gid)["state"] == "open"
+    commit_files(f, {f"{NEW}/alpha-thing.md": "# alpha-thing\n\n## Definition of done\n\nIt works.\n\n" + entry})
+    said, _ = f.run("intake.py")
+    assert "gap.defined" in said and f.item(gid)["fields"]["definition"] == f"main:{NEW}/alpha-thing.md"
+
+
+def test_an_unreadable_record_is_said_by_name_and_the_pass_goes_on(tmp_path):
+    """A record whose Entry is malformed, or that is no text (not UTF-8), is drawn nowhere and said by name: on its
+    gap as a dependency problem (the gap held), else on stderr. Never read as having no entry, and every other record
+    still read."""
+    f = Instance(tmp_path)
+    f.opened()
+    bad = {**RECORDS, "GAPS-head": RECORDS["GAPS-head"].replace("@entry delta", "@entry delta\n@entry epsilon"),
+           "delta": "## Entry\n\nsection: Modelling\n\n- **Delta** (parked): stopped.\n\n  a blank line above.\n",
+           "epsilon": "## Entry\n\nsection: Modelling\n\n- **Epsilon** (open): new.\n"}
+    on_records(f, bad)
+    from tests.test_factory import NEW, git
+    (f.checkout / NEW / "zeta.md").write_bytes(b"## Entry\n\nsection: Modelling\n\n- **Zeta** \xff\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-qm", "a record that is no text")
+    said, lines = f.run("intake.py")
+    assert [x["item"] for x in lines if x["event"] == "gap.found"] == ["gap/epsilon"]   # the pass went on
+    d = f.item("gap/delta")
+    assert d["fields"]["dependency_problem"] is True
+    assert "delta.md cannot be read (bullet line 2 is blank" in d["fields"]["dependency_problems"][0]
+    assert d["fields"]["waits_on_parked"] is True                            # held: its dependencies are unknown
+    assert "dev/records/zeta.md cannot be read (unreadable at main" in f.stderr   # no gap has it: said on stderr
+    assert f.item("gap/alpha-thing")["fields"].get("dependency_problem") is not True
 
 
 def test_intake_closes_gaps_marked_done(tmp_path):

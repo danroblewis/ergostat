@@ -188,8 +188,12 @@ def test_a_cold_servers_first_dashboard_answer_is_within_budget(factory_state, c
     assert day_took <= DAY_BUDGET and day.get("loops"), (day_took, page.rows)
     answered = first["results"] + rest["results"]
     assert len(answered) == len(FIRST) + len(REST) and not [r for r in answered if r.get("error")], answered
-    # the same answers as one request of them all at that moment (the page asked them in one before)
-    plain = lambda r: {k: v for k, v in r.items() if k != "id"}      # noqa: E731
+    # the same answers as one request of them all at that moment (the page asked them in one before), but for the
+    # warning that a request's answers differ in step (G4, query/sampling.py), which compares one request's answers
+    def plain(r):
+        v = r["meta"]["verdict"]
+        kept = [x for x in v["reasons"] if x["code"] != "mixed-windows"]
+        return {**{k: x for k, x in r.items() if k != "id"}, "meta": {**r["meta"], "verdict": kept}}
     assert [plain(r) for r in answered] == [plain(r) for r in whole["results"]]
 
 

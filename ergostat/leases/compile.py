@@ -6,14 +6,19 @@ from __future__ import annotations
 
 import re
 
-from ..spec.ir import DEAD, LEASED, TIERS, Frozen, LeaseTerms, Ref, Spec, Takes, own_kind
+from ..compute.compile import size
+from ..spec.ir import DEAD, LEASED, TIERS, Frozen, Lanes, LeaseTerms, Ref, Spec, Takes, own_kind
 from . import faults
 from .frozen import MOST
+from .lanes import AHEAD_MOST
+from .lanes import MOST as LANES_MOST
 
 TERMS_KEYS = {"ttl", "attempts"}
 POOL_KEYS = {"now", "most"}
-TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order", "faults", "frozen"}
+TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order", "faults", "frozen", "lanes"}
 FROZEN_KEYS = {"first", "urgent"}
+LANES_KEYS = {"apart", "most", "within", "each", "ahead", "passed"}
+CPU_MOST, MEMORY_MOST = 1024, 1 << 50
 
 
 def terms(c, m, key: str, what: str) -> LeaseTerms:
@@ -92,7 +97,50 @@ def takes(c, m, what: str) -> Takes | None:
     if where:
         c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
     return Takes(kind, list(states), list(to), where, unblocked, order, *faults.compile_faults(c, raw, what),
-                 frozen=frozen(c, raw, what))
+                 frozen=frozen(c, raw, what), lanes=lanes(c, raw, what))
+
+
+def lanes(c, raw, what: str) -> Lanes | None:
+    """``lanes: {apart: FIELD, most: N, within: {cpu, memory}, each: {cpu, memory}, ahead: K, passed: [S]}`` (SPEC
+    §9.5): N from 1 to ``lanes.MOST``, K from 0 to ``lanes.AHEAD_MOST``, a lane's cost within the bound."""
+    f, w = raw.get("lanes"), f"{what}.takes.lanes"
+    if f is None:
+        return None
+    bad = lambda say, at=None: c.err(f"{w}{say}", at or raw.at("lanes"), "bad-lanes")    # noqa: E731
+    if not isinstance(f, dict):
+        return bad(": a map: apart: (a field), most: (lanes at once) and within: {cpu: N, memory: SIZE}")
+    c.keys(f, LANES_KEYS, w)
+    ap, n, k, ps = f.get("apart"), f.get("most"), f.get("ahead", 0), f.get("passed")
+    ps = [] if ps is None else [ps] if isinstance(ps, str) else ps         # (checked for None, never falsiness)
+    if not isinstance(ap, str) or not re.fullmatch(r"[^\s-]\S*", ap):
+        return bad(".apart: a field's name (the list of what an item touches: items sharing an entry never run apart)")
+    if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= LANES_MOST:
+        return bad(f".most: a whole number from 1 to {LANES_MOST} (the lanes at once)", f.at("most"))
+    if isinstance(k, bool) or not isinstance(k, int) or not 0 <= k <= AHEAD_MOST:
+        return bad(f".ahead: a whole number from 0 to {AHEAD_MOST} (how deep a lane may run on top of others)", f.at("ahead"))
+    if not isinstance(ps, list) or not all(isinstance(x, str) and x for x in ps) or (
+            "passed" in f and not ps):
+        return bad(".passed: a state, or a list of them (where a lane that passed is left)", f.at("passed"))
+    if k and not ps:
+        return bad(".passed: needed with ahead: above 0 (the states where a lane that passed is left; without them no "
+                   "base could be told failed)", f.at("ahead"))
+    got = {}
+    for key, need in (("within", True), ("each", False)):
+        m = f.get(key, {} if not need else None)
+        if not isinstance(m, dict) or (need and not {"cpu", "memory"} <= set(m)):
+            return bad(f".{key}: a map: cpu: (cores, above 0) and memory: (a size, 4g)", f.at(key))
+        c.keys(m, {"cpu", "memory"}, f"{w}.{key}")
+        cpu, mem = m.get("cpu"), size(m["memory"]) if "memory" in m else 0       # (each unset: 0, measured only)
+        if "cpu" not in m:
+            cpu = 0.0
+        elif isinstance(cpu, bool) or not isinstance(cpu, (int, float)) or not 0 < cpu <= CPU_MOST:
+            return bad(f".{key}.cpu: cores, above 0 and at most {CPU_MOST}", m.at("cpu"))
+        if mem is None or mem > MEMORY_MOST:
+            return bad(f".{key}.memory: a size above 0 and at most 1p (4g, 512m, or bytes)", m.at("memory"))
+        got[key] = (float(cpu), mem)
+    if got["each"][0] > got["within"][0] or got["each"][1] > got["within"][1]:
+        return bad(".each: a lane's cost is more than within: holds", f.at("each"))
+    return Lanes(ap, n, *got["within"], *got["each"], k, tuple(ps))
 
 
 def frozen(c, raw, what: str) -> Frozen | None:
@@ -201,6 +249,9 @@ def check(c, spec: Spec) -> None:
                   + c.suggest(b.takes.kind, spec.items), b.where, "unknown-ref")
             b.takes = None
             continue
+        if b.takes.lanes and (no := [s for s in b.takes.lanes.passed if s not in k.states]):
+            c.err(f"{what}.takes.lanes.passed: {', '.join(map(repr, no))}: not states of {k.name}", b.where, "bad-lanes")
+            b.takes.lanes = None
         bad = [s for s in [*b.takes.at, *b.takes.to] if s not in k.states and s not in (LEASED, DEAD)]
         if bad:
             c.err(f"{what}.takes: {', '.join(map(repr, bad))} {'is not a state' if len(bad) == 1 else 'are not states'} of "
