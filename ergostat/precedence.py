@@ -32,7 +32,8 @@ index (its links, both ways, and its moves); nothing is declared for it but the 
 
 Bounded: the unfinished items of the kinds asked (``MOST_OPEN``), the finished in the window (``MOST_DONE``), and
 the items their relations reach, of any kind (``MOST_PULLED``, ``HOPS`` links away; a system's, only along precedence
-and parent relations, of its own kinds, another system's a stub); what was cut is said."""
+and parent relations, of its own kinds, another system's a stub, what that waits on read for the schedule but not
+drawn); what was cut is said."""
 
 from __future__ import annotations
 
@@ -383,6 +384,25 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
                 got[i.id] = i
             pulled += len(fetched)
             frontier = {i.id for i in fetched}
+        # a system's: what its items wait on in another system (and what that waits on), read for the projection
+        # only, so the schedule and the critical path are those of the whole network; never a card
+        shadow: set[str] = set()
+        dep = lambda kind, r: bool(getattr((rels.get(kind or "") or {}).get(r), "precedence", False)   # noqa: E731
+                                   or getattr((rels.get(kind or "") or {}).get(r), "group", False))
+        frontier = set(got) if mine is not None else set()
+        for _ in range(HOPS):
+            new = sorted({d for a, r, d in ix.links_from(frontier) if dep(got[a].kind, r)} - set(got)) if frontier else []
+            if not new:
+                break
+            if MOST_PULLED - pulled <= 0:
+                out["capped"]["pulled"] = True
+                break
+            fetched = ix.items(None, ids=new[:MOST_PULLED - pulled])
+            got.update((i.id, i) for i in fetched)
+            shadow.update(i.id for i in fetched)
+            pulled += len(fetched)
+            frontier = {i.id for i in fetched if status(i, info[i.kind], []) != "done"}   # (a finished one: its past)
+        drawn = set(got) - shadow
         links = ix.links_from(list(got))
         # a precedence target the cap cut is read by id (one call, at most one per link held): the cap limits what is
         # drawn, never what is eligible. One not found at all stays unfinished (below)
@@ -391,7 +411,8 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
                       and (getattr((rels.get(got[a].kind or "") or {}).get(r), "precedence", False)
                            or mine is not None and walk(got[a].kind, r))})
         beyond = {i.id: i for i in ix.items(None, ids=cut, moves=False)} if cut else {}     # (status reads no moves)
-    outside = {d: i for d, i in beyond.items() if mine is not None and i.kind not in mine}
+    outside = {d: got.get(d) or beyond[d] for a, r, d in links if mine is not None and a in drawn and d not in drawn
+               and (d in got or d in beyond) and walk(got[a].kind, r) and (got.get(d) or beyond[d]).kind not in mine}
     if mine is not None:
         from .spec.item_systems import kind_systems
         where = kind_systems(spec)
@@ -416,7 +437,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             continue
         out_of.setdefault(a, {}).setdefault(r, []).append(d)
         into.setdefault(d, {}).setdefault(rel.inverse, []).append(a)
-        if d in outside and (rel.precedence or rel.group):
+        if d in outside and a in drawn and (rel.precedence or rel.group):
             out["edges"].append({"from": d, "to": a, "rel": r, "kind": "outside"})
         if d not in got:
             continue
@@ -503,7 +524,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             else:
                 steps[a].append((b, [(s_, secs)]))
     lev = level(steps, pairs, going, plan, {b: c["lanes"] for b, c in (lanes or {}).items()})
-    crit = sorted((a for a, p in plan.items() if p["critical"] and d[a] > 0), key=lambda a: (plan[a]["es"], a))
+    crit = sorted((a for a, p in plan.items() if p["critical"] and d[a] > 0 and a not in shadow), key=lambda a: (plan[a]["es"], a))
     out["critical"] = crit                     # the unlevelled chain: the longest chain of waits, ignoring capacity
     tol = EPS * max(1.0, end)
     for e in out["edges"]:
@@ -517,7 +538,10 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
         plan[p_] = {**plan[p_], "ef": plan[p_ + END]["ef"], "lf": plan[p_ + END]["lf"], "slack": plan[p_ + END]["slack"],
                     "critical": plan[p_ + END]["critical"], "summary": True}
         d[p_] = plan[p_]["ef"] - plan[p_]["es"]
+    out["edges"] = [e for e in out["edges"] if e["kind"] == "outside" or e["from"] in drawn and e["to"] in drawn]
     for a, it in got.items():
+        if a in shadow:                        # (read for the projection only)
+            continue
         k = spec.items.get(it.kind or "")
         lease = held(it.fields)
         x = {"id": a, "kind": it.kind, "state": it.state, "status": st[a], "title": title_of(it, k.show if k else []),
@@ -538,7 +562,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
                 [[s_, now + t0, now + t1, *([b, k] if b else [])] for s_, t0, t1, b, k in lev[a]["segs"] if t1 > t0]
         out["items"].append(x)
     out["items"].sort(key=lambda x: (x.get("es", x["first"]), x["first"], x["id"]))
-    seen_kinds = list(dict.fromkeys([*kinds, *(i.kind for i in got.values() if i.kind)]))
+    seen_kinds = list(dict.fromkeys([*kinds, *(i.kind for a, i in got.items() if i.kind and a in drawn)]))
     for kk in seen_kinds:
         i = info[kk]
         k = spec.items.get(kk)

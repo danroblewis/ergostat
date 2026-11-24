@@ -2725,7 +2725,9 @@ and its system's own dependency network (`GET /api/items-graph?kinds=K&system=NA
 changes). With `system=` the Graph follows only precedence and parent relations, and only to items of the system's
 own kinds; a precedence target or parent of another system's kind is not a card but a small stub at the edge
 ("waits on gap/x", its state and its system), a click opening it, its status still counted (what waits on it stays
-waiting while it is unfinished). Any other relation (one an item is *about*, a duplicate) is not drawn: it is listed
+waiting while it is unfinished), and so is its schedule: what it waits on in turn, and a parent's own waits, are
+read for the projection though never drawn, so what waits on it is projected after its expected end and the critical
+path, slack and end are those the network has without `system=`. Any other relation (one an item is *about*, a duplicate) is not drawn: it is listed
 in the card's hover text, and under Relations on the item's page. A kind whose items wait on none of its system's
 (no precedence or parent relation followed) draws no Graph and says once "These items do not wait on one another,
 so there is no dependency graph", and where the items they name are ("reviews are about gaps: see building", a link

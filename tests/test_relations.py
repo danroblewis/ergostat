@@ -446,6 +446,52 @@ def test_an_item_blocked_by_another_systems_item_is_waiting_with_one_stub(tmp_pa
     assert g["items"][0]["status"] == "unblocked" and g["outside"][0]["status"] == "done"
 
 
+def test_an_item_waiting_on_another_systems_item_is_projected_after_it(tmp_path):
+    p = factory(tmp_path)
+    spec = p.model.spec
+    plain = pr.build(p.events, spec, ["ticket"], T0 + 10, T0 - 10)            # gap/c pulled as a card
+    mine = pr.build(p.events, spec, ["ticket"], T0 + 10, T0 - 10, own=["ticket"])
+    by = lambda g: {x["id"]: x for x in g["items"]}                         # noqa: E731
+    gap_c, t, t0 = by(plain)["gap/c"], by(mine)["ticket/1"], by(plain)["ticket/1"]
+    assert gap_c["ef"] > T0 + 10 and t["es"] >= gap_c["ef"]                # not started now: after gap/c's end
+    assert {k: t[k] for k in ("es", "ef", "slack", "critical")} == {k: t0[k] for k in ("es", "ef", "slack", "critical")}
+    assert mine["end"] == plain["end"] and mine["critical"] == [x for x in plain["critical"] if x.startswith("ticket/")]
+    assert "ticket/1" in mine["critical"] and [x["id"] for x in mine["items"]] == ["ticket/1"]
+
+
+RELATED = """
+systems: {planning: {description: planned}, delivery: {description: built}}
+items:
+  epic: {id: epic/*, system: planning, states: [planned, shipped], relations: {after: epic}}
+  ticket:
+    id: ticket/*
+    system: delivery
+    states: [todo, doing, done]
+    on: {ticket.started: doing}
+    relations: {parent: epic}
+messages:
+  done: {ticket: [done], epic: [shipped]}
+"""
+
+
+def test_a_child_of_another_systems_parent_still_waits_for_what_that_parent_waits_on(tmp_path):
+    p = project(tmp_path, RELATED)
+    ev = p.events
+    ev.add("epic.planned", item="epic/e1", at=T0)
+    ev.add("epic.planned", item="epic/e2", data={"after": "epic/e1"}, at=T0 + 1)
+    ev.add("ticket.planned", item="ticket/a", data={"parent": "epic/e1"}, at=T0 + 2)
+    ev.add("ticket.started", item="ticket/a", at=T0 + 3)
+    ev.add("ticket.planned", item="ticket/c", data={"parent": "epic/e2"}, at=T0 + 4)
+    spec = p.model.spec
+    plain = pr.build(ev, spec, ["ticket"], T0 + 10, T0 - 10)
+    mine = pr.build(ev, spec, ["ticket"], T0 + 10, T0 - 10, own=["ticket"])
+    by = lambda g: {x["id"]: x for x in g["items"]}                         # noqa: E731
+    assert sorted(by(mine)) == ["ticket/a", "ticket/c"] and sorted(x["id"] for x in mine["outside"]) == ["epic/e1", "epic/e2"]
+    a, c = by(mine)["ticket/a"], by(mine)["ticket/c"]
+    assert c["es"] >= a["ef"] > T0 + 10                                    # e2 after e1: its child after e1's
+    assert {k: c[k] for k in ("es", "ef", "critical")} == {k: by(plain)["ticket/c"][k] for k in ("es", "ef", "critical")}
+
+
 def test_the_gaps_own_system_keeps_its_chain_and_critical_path(tmp_path):
     p = factory(tmp_path, ticket=False)          # (another system's ticket waiting on a gap: no longer on its path)
     spec = p.model.spec

@@ -84,6 +84,25 @@ test_relations, test_precedence_cap, test_item_graph_queries, test_graph_cli_web
 clean. A walk of the roadmap's ticket Graph loaded with no console error, but no screenshot was kept: `--shots /shots`
 gave "Permission denied", and `mkdir -p /tmp/shots` was refused.
 
+Round 6: the review's blocking finding fixed. With `own=`, build() now also reads, for the projection only, what the
+system's items wait on in another system and what that waits on in turn (precedence and parent links out, the
+unfinished followed on, up to HOPS and within MOST_PULLED: `shadow`). Those items are in the statuses, cycles, cpm and
+the levelling as on main, but never in `items` or `edges`, nor in `critical` or the answer's kinds; the stubs are the
+drawn items' direct targets among them (or past the cap, in `beyond`, as before). So a ticket blocked by an active
+gap/c is projected after gap/c's expected end, and a child of epic e2 (after e1, both in another system) after e1's
+children. `test_an_item_waiting_on_another_systems_item_is_projected_after_it` (es >= gap/c's ef; es, ef, slack,
+critical, `end` and the critical path equal to the build without `system=`, restricted to tickets) and
+`test_a_child_of_another_systems_parent_still_waits_for_what_that_parent_waits_on` both fail with the read turned off
+and pass with it. SPEC §5a says the stub's schedule counts. The snapshot test's "3 segments" stays true: it counts the
+Timeline's rows' segments, and epic/e1 is still a stub, not a row. Ran: tests/test_relations.py,
+test_precedence_cap.py, test_item_graph_queries.py, test_graph_cli_web.py, test_queue_batch_item.py (its page test
+skipped there, no Playwright in a unit run, as round 4 says), and under Playwright test_items_page.py's
+`test_a_systems_graph_draws_its_own_network_and_says_when_there_is_none`,
+`test_the_roadmaps_delivery_graph_is_asked_by_its_system_and_draws_every_card`,
+`test_a_capped_graph_with_stubs_counts_only_its_items_as_drawn`, `test_a_snapshot_draws_the_graph_and_timeline` and
+`test_the_timeline_draws_what_happened_and_what_is_projected`: all pass; ruff clean. 112 net lines of code against
+main (budget 160). No screenshot (as in round 5).
+
 ## Entry
 
 section: Interface
