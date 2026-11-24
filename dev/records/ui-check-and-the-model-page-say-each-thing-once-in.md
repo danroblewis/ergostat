@@ -72,3 +72,33 @@ Its runs failed past their attempts (a dead letter):
 - attempt 14: nack queue: the push of f2f65f066ded (gap/milestone-every-gap-has-one) is requested
 - attempt 15: nack queue: the push of 58471dafb951 (gap/compute-runs-on-config-continued-continued) is requested
 - attempt 16: nack its process has been gone since the engine stalled at 12:28: released so the pool can take work
+
+## Where it stopped
+
+Resumed, round 1, after the factory's merge of main (59600738). 48 net lines outside tests and docs (adds
+web/control_api.py).
+
+- **Merge.** review.js conflicted: main gave each Model-page link an aria-label (`<goal> process` and so on). The
+  merge keeps that label and keeps the branch's real hrefs, grouped rows and loop systems.
+- **Two fixes the merge needed.** (1) Main now sends `loops?perf=1` through `control_api.summary`, which keeps only
+  the keys the page reads. It left out `systems`, so the links fell back to `open=*` and the acceptance test failed
+  (seen). `systems` is now one of those keys. (2) Because of main's aria-label, the acceptance test finds the link
+  by the name "located-worked process".
+- **Runs.** The acceptance test and `test_the_model_page_says_what_is_available...` pass. tests/test_goal_work.py
+  passes (8). Ruff is clean. The full tests/test_diagram_rendering.py, serially: 312 passed, 37 failed. None of the
+  37 checks the Check findings or the Model loop rows and links. (The equation test opens /model, but it fails on
+  the review queue box.)
+  - 21 × `test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip[*]`: the `<title>` "Drawn alike here
+    with …" from main's dynamics.js:584. Other branches' records name this as a known failure on main.
+  - `test_every_view_draws_cleanly_and_in_time[autoscaler, coordinator, the-job, ticket-factory]` and
+    `test_the_control_view_draws_every_example_cleanly...[autoscaler]`: layout ceilings, routing time and the same
+    tooltip.
+  - Diagram interaction and export tests: keyboard Shift+Right never reaching 'Open intake'; the outline drag; hop
+    dots; the dynamics side's words; the off hatch; the exported PNG's Blocks legend (6 rows); the panel across a
+    switch of view.
+  - `test_an_equation_..._accepted_from_the_page`: "Nothing waiting." after an accept. It failed in the first
+    round too.
+  - Three were rerun alone. `test_pages_are_ordinary_links...` and `test_every_part_opens_its_panel...` passed.
+    `test_a_suggestion_appears_when_it_has_a_verdict` (the diagram's Needs-attention entry) failed again, and it
+    still failed with this session's `systems` change taken out.
+  - Not compared with clean main here. The factory's rerun on main must settle them (lesson 13).

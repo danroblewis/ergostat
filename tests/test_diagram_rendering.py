@@ -5875,7 +5875,7 @@ def test_check_and_the_model_page_say_each_thing_once_in_a_table(browser, tmp_pa
         said = pg.locator(".available table.avail").first.locator("tr:not(.group) td:nth-child(3)").all_inner_texts()
         long = [x for x in said if len(x) > 80]
         assert len(long) == len(set(long)), long
-        link = pg.locator(".available tr", has_text="located-worked").first.get_by_role("link", name="process", exact=True)
+        link = pg.locator(".available tr", has_text="located-worked").first.get_by_role("link", name="located-worked process", exact=True)
         assert link.get_attribute("href") != "#"
         link.click()
         pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden && S.bdSel?.node",
