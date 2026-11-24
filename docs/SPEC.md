@@ -3431,7 +3431,8 @@ was stopped: what it recorded stays recorded, what it moved counts. Equally for 
 with `run:` (an `ai` block's own `claude -p`, and the session helper, `ergostat session`, print their result lines when the session ends; the session helper copies the transcript as it grows).
 
 **Runs kept going without the engine** (`runs: outlive_engine: true`, in the main file or `ergostat.local.yaml`;
-default false, which is everything above, unchanged). Each program or `ai` run (not one a daemon holds) starts under a
+default false, which is everything above, unchanged). Each program or `ai` run (not one a daemon holds: a daemon is
+kept by a keeper of its own instead, section 9.7, *A daemon that outlives its engine*) starts under a
 **keeper** of its own, the compute worker's (`ergostat/compute/worker/keeper.py`, standard library only, section
 12s.3): a detached process in its own session that forks the run into its own process group, waits for it and writes
 its exit (`runs/RUN/exit`, `{"code": ..., "how": "exit" | "TERM" | "KILL" | "timeout" | a signal}`) whether or not any engine is
@@ -3592,8 +3593,9 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
 - A change of the model's name, of its format (TOML to YAML) or of its storage is a new state directory or store:
   that one restarts in place, and stops the runs; a restarted runner whose files were edited again meanwhile waits,
   holding its lock, for a model that runs. `ergostat run --stop` (and any explicit restart) stops everything, as
-  always, but the runs `runs: outlive_engine` leaves going (`run --stop --runs` stops those too: *Runs kept going
-  without the engine*, above).
+  always, but the runs `runs: outlive_engine` leaves going and the daemons kept by a keeper (`run --stop --runs`
+  stops those too: *Runs kept going without the engine*, above, and section 9.7, *A daemon that outlives its
+  engine*).
 
 **The watchdog** (`ergostat/spec/watchdog.py`). Inside the engine, once a second: when the sensor pool has given
 nothing back for 30 s while readings are out (`ERGOSTAT_STALL`; or the longest timeout of the readings it has begun,
@@ -4304,6 +4306,7 @@ daemons:
     heartbeat: 30s                     # restarted when it prints no line of any kind for this long (default: never)
     restart: {max: 5, within: 10m, backoff: [1s, 2m]}   # given up after more than 5 restarts within 10 minutes
     stdin-timeout: 10s                 # restarted (an alarm) when a write to its standard input waits this long
+    outlive-engine: true               # kept by a keeper: goes on through an engine restart (default: runs: outlive_engine)
 stocks:
   queue-depth:
     unit: jobs
@@ -4397,9 +4400,11 @@ are taken at most one a second; more are dropped.
 - **A model swap** (section 9.1): a daemon whose definition changed, or that nothing uses now, is sent `stop` and
   drained: its runs finish under the old model, and once it holds none it is killed if it has not ended within the
   grace. A new one, started at once, takes the new work. One whose definition is the same carries on.
-- **ergostat stopping**: each is sent `stop`, and killed if it has not ended within the grace.
+- **ergostat stopping**: each is sent `stop`, and killed if it has not ended within the grace; one kept by a
+  keeper is left going (*A daemon that outlives its engine*, below).
 - **ergostat restarting itself** (its process started again in place: a new model's name, format or store, or the
-  watchdog's last resort): just before, every daemon process group it started and has not seen end is sent SIGTERM,
+  watchdog's last resort): just before, every daemon process group it started and has not seen end (not one kept by
+  a keeper, which is never in that set and is left going, as a stop leaves it; no test covers that path yet) is sent SIGTERM,
   and SIGKILL goes to what is left after one wait shared by all of them, the grace but at most 3 s, however many there
   are. Nothing it waits on takes the supervisor's lock, and a daemon spawned meanwhile kills its own group at once.
   On a restart for a new model the daemons were first sent `stop` as when ergostat stops; this catches what that
@@ -4411,7 +4416,44 @@ are taken at most one a second; more are dropped.
 Its state is written to `<state>/daemons.json` (a shard engine's to `daemons.SHARD.json`, §9.8) every 2 s
 (running, backoff, failed or stopped; its pid, restarts,
 last line, runs in flight, what it serves, CPU and memory): the Agents page lists the daemons, and an agent's panel
-names its daemon.
+names its daemon. A kept daemon left going as ergostat stops is written `outliving`, with its pid.
+
+**A daemon that outlives its engine** (`outlive-engine: true`; by default what `runs: outlive_engine` says, section
+9.1; never a warm daemon, for which saying `true` is an error; `false` keeps everything above). It runs under a
+keeper of its own (`ergostat/compute/worker/keeper.py`, as a kept run does), through a relay
+(`ergostat/daemons/relay.py`, standard library only) that starts its command in the same process group, its standard
+error its log as above. What the engine sends it is appended to its **inbox**, a file, and the relay writes it to the
+daemon's standard input from where it last delivered (saved after each line); what it prints goes to its **journal**,
+which the engine follows from a saved offset. Both are in `<state>/daemons/KEY/` (KEY: a hash of its name), with a
+state file per process: its keeper's run id, its pid and start time, its command, where its journal was read to, and
+each run it holds with the line that handed it over, written before that line is sent and kept until the run's
+`agent.ran` or `agent.failed` is recorded (a daemon's run's end has an id made from the run's, so it is written once
+whichever engine writes it).
+- **The engine stops or is killed** (`run --stop`, SIGKILL to its group, a crash): the daemon goes on. It is sent
+  nothing meanwhile and never the end of its input, so it keeps doing what it holds; what it prints is in its journal.
+  It is not sent `stop` and not killed; the runs it holds record no end and keep their leases, with their fences, for
+  the next engine (as a kept run's, section 9.1). `run --stop --runs` stops it through its keeper, engine or none.
+- **The next engine** takes up each process it finds, on its first start of the daemon: each run its state holds (one
+  with an `agent.started` and no end in the record, of a block that still uses this daemon) is held again, its lease
+  renewed as it is taken up and by the watchdog while it waits (`seen: keeper`); its timeout counts again from the
+  take-up. Its journal is read from the saved offset to its end; each event a journal line makes has an id of the
+  process and the line's place, so a line read again (an engine killed between a line's events and its saved
+  offset) adds none. Then each run still not answered is sent again, its line the same, `run` the same id: delivery
+  is **at least once**, and a daemon drops a repeat by its run id (it may also be sent a run it answered just after
+  the journal was read: a `done` it gives for a run no longer held is dropped, as above). Its end is recorded as the
+  run's (`taken_up: true`), then its lease's ack or nack.
+- **A process found ended** (its keeper's exit written, or its pid gone or another process's): its journal is read to
+  its end, it is restarted (`ergostat.daemon.restarted`, `why`: `ended while no engine was up (exit N)`, not counted
+  toward giving up), and the runs it had not answered are handed to the new process with their lines. A process
+  whose command is not the model's now (the model changed meanwhile), or an older one beside it, is taken up only to
+  finish what it holds: sent `stop` and drained, as on a model swap, while a new process takes the new work. A
+  keeper under the folder no state names (one whose state could not be read) is stopped, so none goes on unknown
+  beside the one the engine holds.
+- **Not reading its input**: its relay behind its inbox for `stdin-timeout` counts as a write waiting that long
+  (restarted, an alarm). The inbox and journal of a process grow for its life and are removed when it ends.
+  A reading asked of it and not answered before the engine stopped is not sent again (the next engine asks its own);
+  a push reading or observation printed while no engine was up is taken when it is read, at that time. A daemon
+  draining after a model change when its engine stops is taken up as above, by its state.
 
 **Warm** (`warm: true`; `recycle: M`, default 1,000, only with it). The owner's declared promise that the program
 keeps no state between runs: a process per item without its start-up, for a program that holds one item at a time.

@@ -19,7 +19,7 @@ from ergostat import model as mdl
 from ergostat import runner
 from ergostat.compute.worker import keeper
 from ergostat.daemons import kept
-from ergostat.leases import ENDED
+from ergostat.leases import ENDED, EXPIRED, RENEWED
 from ergostat.spec import adopt, read
 from ergostat.spec import items as its
 from ergostat.spec.engine import Engine
@@ -203,6 +203,11 @@ def test_a_message_not_answered_is_sent_again_with_its_id_and_none_is_lost(tmp_p
         assert wait_for(lambda: len(items()) == 2), f"not sent again: {items()}"
         assert {x["run"] for x in items()} == {run}, "sent again under another id"
         assert len({x["pid"] for x in items()}) == 1 and state(p)["pid"] == pid, "not the same daemon taken up"
+        lease = its.one(p.events, p.model.spec, "ticket/1").fields["lease"]
+        assert lease["holder"] == run and p.events.query(n=1, type=RENEWED)[-1]["data"]["seen"] == "taken up"
+        e.dispatch.watch(now=lease["expires"] + 3600)    # (past its expiry: its daemon still holds it)
+        assert not p.events.query(n=None, type=EXPIRED), "the watchdog expired a lease its daemon holds"
+        assert p.events.query(n=1, type=RENEWED)[-1]["data"]["seen"] == "keeper"
         (tmp_path / "go").write_text("")
         assert wait_for(lambda: ends(p)), "its answer after the restart was never recorded"
         ended_once(p, run)

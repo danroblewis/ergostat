@@ -679,6 +679,9 @@ The rules in brief:
   `warm: true` to its daemon (SPEC §9.7, *Warm*) and its runs are charged their CPU again; reap what you start
   before `done`, never write `os.environ`, and run `ergostat block NAME --check-warm input.json` on a typical input
   (it runs the program four times, for real: use a scratch copy when it acts) before you call it done;
+- a daemon whose items take long, so an engine restart should not cut them off: `outlive-engine: true` (or `runs:
+  outlive_engine`; SPEC §9.7, *A daemon that outlives its engine*). Its items may then be sent again, with the same
+  `run` id, after a restart: keep the run ids you took and drop a repeat;
 - done means: `check` passes, a pipe test by hand passes, a short run on a scratch copy records readings and
   moves items with no restarts, and replaced `run:` sensors read the same.
 
