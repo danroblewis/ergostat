@@ -5,7 +5,7 @@
    goal as a desired level and a gap, a decision where a rule reads several things and moves several,
    and connectors with their polarity. This file draws its parts, its connectors (thin curved arrows,
    + or − beside the head, ? where not known; dashed where declared with driven-by), its loop markers (R, B or ? in a circular arrow, inside each loop), its legend
-   and its panels. Black on white (or its dark equivalent); colour only for what is pointed at. */
+   and its panels. Black on white (or its dark equivalent); colour only for what is pointed at, and red for a goal off. */
 "use strict";
 
 const SD_SIZE = { valve: [40, 40], disturbance: [40, 40], cloud: [46, 30] };
@@ -26,7 +26,7 @@ function sdSize(n) {
   if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n) + (sdNoUnit(n) ? " unit ?" : "")) + 28), SD_STOCK_H];
   if (n.kind === "auxiliary") {                         // its name is the part: as wide as that, with its value under it
     const lines = sdAuxLines(n);
-    return [Math.max(...lines.map((t) => textWidth(t) * (t === lines[0] ? 1.02 : 0.92))) + 10, 6 + lines.length * 14];
+    return [Math.max(...lines.map((t) => textWidth(t) * (t === lines[0] ? 1.02 : 0.92))) + (sdGapWord(n)?.word === "off" ? 20 : 10), 6 + lines.length * 14];   // (off: its word bold)
   }
   return SD_SIZE[n.kind] || [40, 40];
 }
@@ -48,8 +48,20 @@ function sdLabelLines(n) {
 }
 function sdAuxLines(n) {
   if (n.role === "decision") return [n.label];
-  return [n.label, sdValue(n), n.exogenous ? "(exogenous)" : null].filter(Boolean);
+  const w = sdGapWord(n)?.text;                         // (on the value's own line: a word coming or going lays nothing out again)
+  return [n.label, sdValue(n) + (w ? ` · ${w}` : ""), n.exogenous ? "(exogenous)" : null, n.noFeedback ? SD_NO_FEEDBACK : null].filter(Boolean);
 }
+const SD_NO_FEEDBACK = "→ no feedback";                // a gap nothing in the model acts on (dynamics.py: noFeedback)
+/* a goal's state on its gap: the server's word (goalWord, over the status poll's loops: /api/loops') and, off, how far
+   (the one phrase); none while it holds or before the status has come. Never a status mapped here */
+function sdGapWord(n) {
+  if (n.role !== "gap" || n.bare || !S.status) return null;
+  const lp = S.status.loops?.[n.goal], word = goalWord(lp), far = lp?.off_by_words;
+  if (!exceptional(word)) return null;
+  return { word, text: word === "off" ? (far?.startsWith("off") ? far : far ? `off, ${far}` : "off")
+    : word === "open" ? (n.noFeedback ? "" : "no feedback") : word };      // (open: its → no feedback line says it)
+}
+const sdGoalOff = (c) => sdPol(c) === "B" && c.nodes.some((id) => id.startsWith("gap:") && sdGapWord({ role: "gap", goal: id.slice(4) })?.word === "off");
 function sdLabel(ng, n, t, i, cx, y) {
   if (n.kind === "cloud") return ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-sub sd-shadow" }, t));
   if (i === 0) return ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-label sd-name" }, t));
@@ -71,10 +83,12 @@ function sdStock(n, w, hgt) {
 }
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
 function sdAux(n, w, hgt) {
-  const g = s("g");
-  g.append(s("rect", { class: "hit sd-aux", width: w, height: hgt, rx: 3 }));
+  const gw = sdGapWord(n), g = s("g", gw ? { class: `gap-word${gw.word === "off" ? " gap-off" : ""}`, "data-word": gw.word } : {});
+  const fw = Math.max(w, sdSize(n)[0]);                 // a word come since the layout: the box widened round its centre, not laid out again
+  g.append(s("rect", { class: "hit sd-aux", x: (w - fw) / 2, width: fw, height: hgt, rx: 3 }));
   sdAuxLines(n).forEach((t, i) => g.append(s("text", { x: w / 2, y: 14 + i * 14, "text-anchor": "middle",
-    class: i === 0 ? "t-label sd-name" : t === "(exogenous)" ? "t-sub sd-exo" : "t-sub sd-value" + (n.role === "desired" ? "" : " live") }, t)));
+    class: i === 0 ? "t-label sd-name" : t === "(exogenous)" ? "t-sub sd-exo" : t === SD_NO_FEEDBACK ? "t-sub sd-exo sd-nofeedback" : "t-sub sd-value" + (n.role === "desired" ? "" : " live") },
+    ...(i === 1 && gw?.text ? [sdValue(n), s("tspan", { class: "sd-word" }, ` · ${gw.text}`)] : [t]))));   // the word printed, never colour alone
   return g;
 }
 function sdValve(n, w, hgt, ln) {
@@ -571,7 +585,7 @@ function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
   const [x0, y0] = P(start), [x1, y1] = P(end), rad = (end * Math.PI) / 180;
   const dx = clockwise ? -Math.sin(rad) : Math.sin(rad), dy = clockwise ? Math.cos(rad) : -Math.cos(rad);   // the way it turns, at the end
   const tip = [x1 + dx * 6, y1 + dy * 6], base = [x1 - dx * 2, y1 - dy * 2], px = -dy * 5, py = dx * 5;   // a clear arrowhead
-  const g = s("g", { class: `loop-marker pol-${sdPol(c) || "unknown"}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
+  const g = s("g", { class: `loop-marker pol-${sdPol(c) || "unknown"}${loops.some(sdGoalOff) ? " goal-off" : ""}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
                      "data-act": "loop", "data-x": x, "data-y": y, transform: `translate(${x},${y})`,
                      onclick: (ev) => { ev.stopPropagation(); sdToggle(c.name, loops); },
                      onpointerenter: () => { if (!S.dragging) sdHover(c.name); }, onpointerleave: () => sdHover(null) },
@@ -669,6 +683,8 @@ const SD_LEGEND = {
   stub: '<path d="M1 9 H17" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink)"/><text x="21" y="12" font-size="8" fill="var(--sd-muted)">x</text>',
   shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-muted)">&lt;x&gt;</text>',
   nounit: '<text x="13" y="13" font-size="8" text-anchor="middle" fill="var(--sd-muted)">unit ?</text>',
+  off: '<rect x="1" y="1" width="24" height="16" rx="2" fill="none" stroke="var(--bad)"/><text x="13" y="8" font-size="6.5" text-anchor="middle" fill="var(--sd-ink)">gap</text><text x="13" y="15" font-size="5.5" font-weight="600" text-anchor="middle" fill="var(--bad)">off by 3</text>',
+  nofeedback: '<text x="13" y="9" font-size="9" text-anchor="middle" fill="var(--sd-ink)">gap</text><text x="13" y="17" font-size="6" font-style="italic" text-anchor="middle" fill="var(--sd-muted)">→ no fb</text>',
 };
 function sdLegend() {
   const g = S.graph || { nodes: [], edges: [] };
@@ -686,6 +702,8 @@ function sdLegend() {
     has((n) => n.role === "desired") && row("aux", "desired level: the level wanted (desired backlog = 0)"),
     has((n) => n.role === "gap" && n.excess) && row("aux", "excess: actual − desired, for a level kept down; it drives the flow that brings it down (+)"),
     has((n) => n.role === "gap" && !n.excess) && row("aux", "gap: desired − actual, for a level kept up or held; it drives the flow that closes it"),
+    has((n) => n.role === "gap") && row("off", "a goal not holding: its word under its gap. off, with how far, in red, its balancing loop's marker red too; any other (open, stale, unknown) muted; a goal holding has none"),
+    has((n) => n.noFeedback) && row("nofeedback", "no feedback: nothing in the model acts on this gap (no block serves its goal, or it acts by the clock), so no balancing loop closes it: an open loop"),
     has((n) => n.role === "decision") && row("aux", "decision: what it reads, joined to the flows it sets"),
     row("plus", "connector, +: the cause rises, the effect rises above what it would have been"),
     row("minus", "connector, −: the cause rises, the effect falls below what it would have been"),
@@ -808,8 +826,10 @@ async function openNodeSD(n) {
   showDetail(h("div", { class: "kind" }, n.kind === "valve" || n.kind === "disturbance" ? "Valve" : (SD_WHAT[kind] || [kind])[0]),
     h("h2", {}, n.flow || n.label), wait);
   if (n.role === "desired" || n.role === "gap" || n.role === "decision") {
-    rows.push(["desired level", n.goal ? `desired ${n.of} = ${n.desired ?? n.valueText}` : null],
+    // the bound as the goal writes it (desired users ≥ 180), the same on the stock's panel
+    rows.push(["desired level", n.goal ? `desired ${n.of} ${n.setpoint || `= ${n.desired ?? n.valueText}`} (${n.goal})` : null],
               [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.offBy || "not known yet"}` : null],
+              ["feedback", n.noFeedback ? "none: nothing in the model acts on this gap, so no loop closes it (an open loop)" : null],
               ["switching", n.switching || null],
               ["description", n.description]);
   } else if (n.kind === "valve" || n.kind === "disturbance") {        // the valve: the rate, its inputs and its equation
@@ -842,7 +862,7 @@ async function openNodeSD(n) {
                                       ["outflow", now.outflow != null ? rateText(now.outflow, "", sdStockFlow(n.label, "out")) : null]);
     for (const gl of n.goals || []) {                     // the goal, and what serves it wherever it is in the model
       const by = (gl.by || []).map((b) => b.system ? `${b.block} in ${b.system}` : b.block).join(", ");
-      rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint} (${gl.name})` +
+      rows.push(["desired level", `desired ${n.label} ${gl.setpoint || `= ${gl.desired}`} (${gl.name})` +
         (by ? `, served by ${by}` : gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)")]);
     }
     if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers, { exogenous: n.exogenous });

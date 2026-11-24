@@ -147,12 +147,13 @@ function avoidCore(A) {
     return out;
   };
   return {
-    route(spec) {
+    // (again: the careful pass after a fast one, on the spec that one slid and turned: no first pass, nothing slid twice)
+    route(spec, again) {
       for (const r of routers) { try { r.router.delete(); } catch (e) { /* gone */ } }
       routers = []; conns = {}; pos = {}; dirty.clear();
       const P = A.RoutingParameter, O = A.RoutingOption;
       const tf = performance.now();
-      const turns = (spec.flows || []).length ? firstPass(spec) : {};
+      const turns = !again && (spec.flows || []).length ? firstPass(spec) : {};
       const prof = { first: performance.now() - tf };      // (where the time goes: the tests and AV.prof read it)
       const tb = performance.now();
       const slides = turns.__slides || {};
@@ -175,7 +176,7 @@ function avoidCore(A) {
       prof.shared = groups[""]?.length || 0; prof.free = 0;
       for (const [name, list] of Object.entries(groups)) {
         const router = new A.Router(A.RouterFlag.OrthogonalRouting);
-        const penalty = spec.penalties?.[name] ?? spec.crossingPenalty;
+        const penalty = spec.fast ? 0 : spec.penalties?.[name] ?? spec.crossingPenalty;   // (the fast pass: no crossing weighed)
         if (spec.penalties?.[name] === 0) prof.free += list.length;
         router.setRoutingParameter(P.shapeBufferDistance, 5);
         router.setRoutingParameter(P.idealNudgingDistance, 7);
@@ -328,18 +329,30 @@ function drain() {
   let last = -1;
   queue.forEach((m, i) => { if (m.type === "route") last = i; });
   const msgs = queue.splice(0);
-  for (const m of msgs.slice(0, Math.max(0, last))) if (m.type === "route") postMessage({ type: "routed", seq: m.seq, skipped: true });
-  const todo = msgs.slice(Math.max(0, last));
+  // (a careful pass, the second answer to a route asked with refine, runs only when nothing else was asked since)
+  const refined = (m, a) => postMessage({ type: "refined", seq: m.seq, ...a });
+  const asked = msgs.some((m) => m.type !== "careful");
+  for (const m of msgs) if (m.type === "careful") refined(m, asked ? { skipped: true } : core.route(m.spec, true));
+  for (const m of msgs.slice(0, Math.max(0, last))) if (m.type === "route") {
+    postMessage({ type: "routed", seq: m.seq, skipped: true });
+    if (m.refine) refined(m, { skipped: true });
+  }
+  const todo = msgs.slice(Math.max(0, last)).filter((m) => m.type !== "careful");
   const moves = {};
+  let careful = null;
   for (const m of todo) {
-    if (m.type === "route") postMessage({ type: "routed", seq: m.seq, ...core.route(m.spec) });
-    else if (m.type === "moveMany") postMessage({ type: "moved", seq: m.seq, n: m.n, routes: core.moveMany(m.list) });
+    if (m.type === "route") {                          // (refine: first a fast pass, no crossing weighed; the careful one after)
+      postMessage({ type: "routed", seq: m.seq, ...core.route({ ...m.spec, fast: !!m.refine }) });
+      if (m.refine) careful = { type: "careful", seq: m.seq, spec: m.spec };
+    } else if (m.type === "moveMany") postMessage({ type: "moved", seq: m.seq, n: m.n, routes: core.moveMany(m.list) });
     else {                                             // a part moved again before the last was routed: only where it is now
       if (moves[m.id]) postMessage({ type: "moved", seq: moves[m.id].seq, n: moves[m.id].n, routes: {} });
       moves[m.id] = m;
     }
   }
   for (const m of Object.values(moves)) postMessage({ type: "moved", seq: m.seq, n: m.n, routes: core.move(m.id, m.x, m.y) });
+  if (careful && todo.length > 1) refined(careful, { skipped: true });     // (a part moved after its route was asked)
+  else if (careful) { queue.push(careful); setTimeout(drain, 0); }         // (after what came meanwhile: it may skip it)
 }
 onmessage = (ev) => { queue.push(ev.data); setTimeout(drain, 0); };
 AvoidLib.load(${JSON.stringify(u.wasm)}).then(() => { core = avoidCore(AvoidLib.getInstance()); postMessage({ type: "ready" }); drain(); },
@@ -620,22 +633,23 @@ function avoidSpec(lay, g) {
   return { shapes, conns, flows, groups: parted && parted.groups, ...(parted?.free ? { penalties: { "": 0 } } : {}), bent: BENT, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
 }
 
-/* the lines routed: in the worker (the page keeps ELK's lines meanwhile and redraws when they come), or on
-   the page. lay.routing is true until then; lay.whenRouted resolves when it is done (or given up) */
+/* the lines routed: in the worker (the page keeps ELK's lines meanwhile and redraws when they come: a fast pass's,
+   then the careful pass's), or on the page. lay.routing is true until the careful lines are drawn or dropped;
+   lay.whenRouted resolves then (or when given up) */
 function avoidStart(lay, g) {
   if (!AV.mode) return;
   const ts = performance.now();
   const spec = avoidSpec(lay, g), seq = ++AV.seq;
   const specMs = performance.now() - ts;
   const byKind = Object.fromEntries(g.nodes.map((n) => [n.id, n.kind]));
-  const done = (m) => {
+  const done = (m, careful) => {                        // (careful: the second answer; the valves slid and turned by the first)
     if (m && !m.skipped) {
       const byLe = Object.fromEntries(lay.edges.map((le) => [le.id, le]));
-      for (const [id, [dx, dy]] of Object.entries(m.slides || {})) {   // (the router slid it along its pipe)
+      for (const [id, [dx, dy]] of Object.entries((!careful && m.slides) || {})) {   // (the router slid it along its pipe)
         const c = lay.children.find((k) => k.id === id);
         if (c) { c.x += dx; c.y += dy; c.slid = true; }
       }
-      if (m.turns) turnValves(lay, g, m.turns);           // each valve facing the way its flow runs through it (valves.js)
+      if (m.turns && !careful) turnValves(lay, g, m.turns);   // each valve facing the way its flow runs through it (valves.js)
       for (const [id, pts] of Object.entries(m.routes)) setRoute(byLe[id], pts.map(([x, y]) => ({ x, y })));
       const tp = performance.now();
       straightenPipes(lay, g);
@@ -652,18 +666,23 @@ function avoidStart(lay, g) {
       AV.raw = m.routes; AV.ms = m.ms; AV.invalid = m.invalid;               // (how long it took, and lines it found no way for: the tests read them)
       AV.routed = { lay, seq };
     }
-    lay.routing = false;
   };
-  lay.routing = true;
-  if (AV.mode === "page") { done(AV.core.route(spec)); lay.whenRouted = Promise.resolve(); return; }
+  const end = () => { if (lay.routeSeq === seq) lay.routing = false; };   // (a newer route of this layout still routes it)
+  lay.routing = true; lay.routeSeq = seq;
+  if (AV.mode === "page") { done(AV.core.route(spec)); end(); lay.whenRouted = Promise.resolve(); return; }
+  const moves = lay.moves || 0;                          // (its parts dragged since: avoidMove, avoidMoveMany)
   lay.whenRouted = new Promise((resolve) => {
-    AV.waiting[`routed:${seq}:`] = (m) => {
-      done(m);
+    AV.waiting[`routed:${seq}:`] = (m) => {             // the fast pass, drawn at once; then the careful one, in its place
+      done(m);                                           // only while these lines are still what is drawn, else dropped
       if (!m.skipped && lay === S.layout) S.redraw?.();
-      resolve();
+      if (m.skipped) { end(); resolve(); return; }
+      AV.waiting[`refined:${seq}:`] = (c) => {
+        if (!c.skipped && lay === S.layout && lay.routeSeq === seq && (lay.moves || 0) === moves) { done(c, true); S.redraw?.(); }
+        end(); resolve();
+      };
     };
   });
-  AV.worker.postMessage({ type: "route", seq, spec });
+  AV.worker.postMessage({ type: "route", seq, spec, refine: true });
 }
 
 /* a pipe with a small jog where its stock (or cloud) could take it straight: its end slides along that side */
@@ -755,6 +774,7 @@ function avoidMoveMany(list) {
   const r = AV.routed;
   if (!r || r.lay !== S.layout) return null;
   const byId = Object.fromEntries(r.lay.children.map((k) => [k.id, k]));
+  r.lay.moves = (r.lay.moves || 0) + 1;                // (a careful routing asked before this is dropped: avoidStart)
   for (const [id, x, y] of list) if (byId[id]) { byId[id].x = x; byId[id].y = y; }
   const moving = new Set(list.map(([id]) => id));
   const apply = (routes) => {
@@ -782,7 +802,7 @@ function avoidMove(id, x, y) {
   if (!r || r.lay !== S.layout) return null;
   const c = r.lay.children.find((k) => k.id === id);
   if (!c) return null;
-  c.x = x; c.y = y;
+  c.x = x; c.y = y; r.lay.moves = (r.lay.moves || 0) + 1;
   const apply = (routes) => {
     if (r.lay !== S.layout) return [];
     const byLe = Object.fromEntries(r.lay.edges.map((le) => [le.id, le]));
