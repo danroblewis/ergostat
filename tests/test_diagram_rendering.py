@@ -2768,7 +2768,7 @@ def test_blocks_crossings_hop_dots_only_at_takeoffs_slashes_clear_and_a_drag_and
         assert bad == [], "\n".join([str(bad)] + [f"{e['id']} {e['pts']}" for e in geo["edges"] if any(e["id"] in x["parts"] for x in bad)]
                                     + [str(h) for h in geo["hops"] if any(h["edge"] in x["parts"] for x in bad)])
         nid = "blk:product-manager"
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()     # (not a part whose name has 'fit' in it: model-fits)
         bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 40, 160)
         pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
         pg.wait_for_timeout(300)
@@ -5010,8 +5010,8 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
         pg.goto(url + "/goals")
         pg.locator("td.spark-cell").first.click()
         pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=20000)
-        # the Items page: the kind's flow, and under its table its cycle times
-        pg.goto(url + "/items/ticket")
+        # the Items page: the kind's flow, and under its table its cycle times (every state: by default its state groups)
+        pg.goto(url + "/items/ticket?states=all")
         pg.wait_for_function(f"() => ({CHARTS.format('.cfd')})() >= 1 && ({CHARTS.format('.chart.cycle')})() >= 1", timeout=20000)
         states = pg.evaluate("() => [...document.querySelectorAll('.cfd-states .stbox')].map((x) => x.textContent)")
         assert states == ["3open", "3doing", "6done"], states
