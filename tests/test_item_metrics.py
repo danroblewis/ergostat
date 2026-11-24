@@ -221,6 +221,7 @@ def test_an_item_the_index_forgets_moves_to_gone_and_the_counters_never_fall(tmp
     p.events.add("gap.started", item="gap/kept", at=T0 + 250)
     keep(p, T0 + 300)
     s, a, b = p.measurements, T0 + 240, T0 + 300
+    _every_minute_once(s)                                 # (a gauge's series its items left stays, at none)
     for name in (im.TRANS, im.EVENTS, im.STAY + "_count"):
         for k, pts in s.s.items():
             if dict(k)["__name__"] == name and a in pts:
@@ -237,6 +238,74 @@ def test_an_item_the_index_forgets_moves_to_gone_and_the_counters_never_fall(tmp
     fresh.dir.mkdir()
     st = keep(fresh, T0 + 300)                            # a backfill now: the record was pruned before it
     assert "pruned" in st["backfill"]["not recovered"]
+
+
+@pytest.mark.parametrize("cause", ["a kind edited", "a new layout", "a damaged file"])
+def test_an_index_made_again_after_a_prune_holds_every_counter(tmp_path, monkeypatch, cause):
+    """Round 2: what the index carried for items it forgot is in no index made again, so each counter is held at what
+    was written and goes on from there: none falls, and the next move counts once."""
+    p = project(tmp_path)
+    for i in range(4):
+        p.events.add("gap.found", item=f"gap/old{i}", source="intake", data={"cost_usd": 1.0}, at=T0 + 1 + i)
+    p.events.add("gap.started", item="gap/old0", source="builder", at=T0 + 30)
+    p.events.add("gap.found", item="gap/kept", source="intake", at=T0 + 200)
+    keep(p, T0 + 240)
+    assert p.events.prune(T0 + 100) == 5
+    keep(p, T0 + 300)                                     # the four old gaps carried: (gone)
+    before = index_for(p.events, p.spec, False).db.execute("select value from meta where key = 'epoch'").fetchone()
+    if cause == "a kind edited":
+        (tmp_path / "m" / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace("[open, building, merged]",
+                                                                                     "[open, building, merged, parked]"))
+        p = SimpleNamespace(**{**vars(p), "spec": mdl.load(tmp_path / "m").spec})
+    elif cause == "a new layout":
+        from ergostat.spec import itemindex
+        monkeypatch.setattr(itemindex, "VERSION", itemindex.VERSION + 1)
+    else:
+        index_for(p.events, p.spec, False)._heal(RuntimeError("a damaged file"))
+    ix = index_for(p.events, p.spec, False)
+    assert ix.db.execute("select value from meta where key = 'epoch'").fetchone() != before      # made again
+    assert ix.db.execute("select count(*) from carried").fetchone()[0] == 0                    # without the carry
+    p.events.add("gap.started", item="gap/kept", source="builder", at=T0 + 310)
+    keep(p, T0 + 360)
+    s, a, b = p.measurements, T0 + 300, T0 + 360
+    _every_minute_once(s)
+    for k, pts in s.s.items():
+        if dict(k)["__name__"] != im.ITEMS:
+            assert pts[b] >= pts[a], k                     # no counter falls, no last-move time goes back
+    assert s.val(a, im.TRANS, kind="gap", frm=im.NEW, to="open") == s.val(b, im.TRANS, kind="gap", frm=im.NEW, to="open") == 5
+    assert [s.val(m, im.TRANS, kind="gap", frm="open", to="building") for m in (a, b)] == [1, 2]   # the next move: once
+    assert [s.val(m, im.EVENTS, type="gap.started", source="builder") for m in (a, b)] == [1, 2]
+    assert s.val(b, im.TRANS, kind="gap", to=im.GONE) == 4 and s.val(b, im.FIELD, kind="gap", field="cost_usd") == 4
+    assert s.val(b, im.STAY + "_count", kind="gap", state="open") == 2 == s.val(a, im.STAY + "_count", kind="gap", state="open") + 1
+    assert s.val(b, im.ITEMS, kind="gap", state="building") == 1 and s.val(b, im.ITEMS, kind="gap", state="open") == 0
+    keep(p, T0 + 420)                                     # and on from there, the hold kept
+    assert s.val(T0 + 420, im.TRANS, kind="gap", frm="open", to="building") == 2
+
+
+def test_a_refused_write_is_not_tried_again_until_its_wait_is_over(rec):
+    """Round 2 (lesson 4): the lead calls it each sweep (5 s); after a fault the next pass waits a minute, then two,
+    doubling to an hour; after a pass, the next minute."""
+    calls = []
+    put = rec.measurements.put
+    rec.measurements.put = lambda rows: calls.append(1) or put(rows)
+    rec.measurements.fail = True
+    said = []
+    for dt in range(0, 60, 5):                            # a minute of sweeps: one try, one word
+        im.kept(rec, rec.spec, said.append, now=T0 + 250 + dt)
+    assert len(calls) == 1 and len(said) == 1 and "tried again in 60 s" in said[0]
+    for dt in range(60, 180, 5):                          # the next two minutes: one more try, then a wait of two
+        im.kept(rec, rec.spec, said.append, now=T0 + 250 + dt)
+    assert len(calls) == 2 and "tried again in 120 s" in said[-1]
+    rec.measurements.fail = False
+    im.kept(rec, rec.spec, said.append, now=T0 + 250 + 180)
+    assert len(calls) == 3 and json.loads((rec.dir / im.STATE).read_text())["minute"] == T0 + 420
+    im.kept(rec, rec.spec, said.append, now=T0 + 250 + 185)   # written: not again within the minute
+    assert len(calls) == 3 and len(said) == 2
+    faults = 40
+    im._due[rec.dir] = (faults, 0.0)
+    rec.measurements.fail = True
+    im.kept(rec, rec.spec, said.append, now=T0 + 600)
+    assert f"tried again in {im.MOST_WAIT:.0f} s" in said[-1]   # (a ceiling)
 
 
 def test_a_field_with_unbounded_values_is_refused_as_a_label(tmp_path):

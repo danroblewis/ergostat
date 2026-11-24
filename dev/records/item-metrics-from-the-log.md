@@ -107,6 +107,47 @@ Run here, one file at a time (three at most per call):
 `demo_check` (no example touched). Left: the real-server test should be run with `ERGOSTAT_TEST_VM_BIN` set before
 landing. No lock test puts a competing writer between the read and the write; only the lead runs the job.
 
+Round 2, 2026-11-24. The merge of main conflicted on the index's `VERSION`: both main and this branch had taken 8, so
+the merged layout is 9. About 371 net lines of code outside tests, docs and dev now (budget 600). Both review findings
+are answered:
+- **An index made again no longer makes the counters fall** (finding 1, lesson 8 and done 3). The checkpoint now keeps
+  the index's `epoch` (from its `meta`, new whenever `_reset` makes the index again) and every series as last written
+  (`written`). A pass over another epoch first sweeps the minute last written. It raises each counter to what was
+  written there, keeps each last-move time no earlier, and keeps each gauge series at nothing added (`itemmetrics.hold`).
+  The rise is kept in the checkpoint's `held`, and every later pass adds it from the start. This covers a kind edited, a
+  new layout, a damaged file healed, and `compact --reindex`, which all start a new epoch. SPEC §4b no longer says that a
+  reindex resets the counters, and it names every cause. A smaller point: a prune now keeps each gauge series its
+  forgotten items were in, at nothing added (`carry` writes a zero row), so a gauge series has no gap either.
+  - Test: `test_an_index_made_again_after_a_prune_holds_every_counter`, run for each of the three causes. No series
+    falls and none has a gap. The next move after the rebuild counts once (open to building goes from 1 to 2, and
+    `gap.started` from 1 to 2), and the hold lasts into the next pass.
+  - What it cannot do: a late event (stamped before the last minute written) that arrives between the last pass and the
+    rebuild may be absorbed into a held counter. SPEC says so.
+- **Backoff** (finding 2, lesson 4). `itemmetrics.kept` keeps, per project folder, when the next pass may run.
+  - After a pass, the next one is not before the next minute, so "at most once a minute" now holds. A backfill goes on
+    at one day of minutes per minute.
+  - After a fault, the wait is a minute, then doubles with each fault in a row, up to `MOST_WAIT` (an hour). The fault
+    is said once per try, with the wait.
+  - Test: `test_a_refused_write_is_not_tried_again_until_its_wait_is_over`. A minute of 5-second sweeps against a
+    refusing store tries once and says it once. The second try comes a minute later and waits two. After the store
+    comes back, nothing runs again within the minute. Faults in a row stop at the ceiling.
+
+Seen to fail when broken, each put back after:
+- the re-base switched off: all three rebuild cases failed (a counter's series missing, then falling);
+- the wait ignored in `kept`: the backoff test failed (12 tries in a minute).
+
+Run here:
+- test_item_metrics, test_item_index and test_metrics_store_labels: 86 passed, 6 skipped (real-server tests, no
+  binary).
+- test_item_search, test_sql_source and test_counts: 69 passed.
+- test_rollup, test_index_projections and test_item_about: 83 passed.
+- test_spec_structure, test_dashboards_doc and test_daemon_docs: 74 passed.
+- ruff is clean.
+
+Not run: the whole unit suite and the four browser files (no page changed), and `demo_check` (no example touched).
+Left, as in round 1: the real-server test has still never run here, and a pass's cost on a factory-sized index is not
+measured. The backoff is kept in memory, so a restarted lead tries at once; it runs in one process, so nothing races on it.
+
 ## Entry
 
 section: Runtime, scale and latency
@@ -116,6 +157,8 @@ section: Runtime, scale and latency
   `ergostat_items{kind,state,milestone}`; `ergostat_item_transitions_total{kind,from,to}`, with `(new)` and `(gone)`
   as the edges; `ergostat_item_last_transition_timestamp_seconds`; the histogram `ergostat_item_time_in_state_seconds`,
   observed at exit; `ergostat_item_field_total{kind,field}`; and `ergostat_events_total{type,source}`. A first run
-  backfills them and says what pruning lost. A checkpoint means a restart neither loses nor double counts. Labels come
+  backfills them and says what pruning lost. A checkpoint means a restart neither loses nor double counts, and an
+  index made again (a kind edited, a new layout, a healed file, a reindex) holds each counter at what was written.
+  After a fault the next pass waits, doubling up to an hour. Labels come
   from an allowlist, and a label past 100 values is refused. Left: the real-server test has not been seen to pass (no
   binary where it was built), and a pass's cost on a large index is not measured.

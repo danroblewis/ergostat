@@ -1074,11 +1074,18 @@ in its `carried` table, with a move of each to `(gone)`, so no counter falls. Th
 source and minute (`event_counts`), and these stay when events are taken out. The checkpoint
 `itemmetrics.json` holds the last minute written. It is read and written under a lock, so a restart writes on from it,
 and a write the server refuses leaves it, so the same minutes are sent next time. A checkpoint that cannot be read
-stops the job rather than backfill again. A first run backfills from the index's first minute, at most a day or 500,000
-samples a pass (the rest at the next pass, seconds later), and says what it cannot recover. If events were taken out
-before the index was built, the items pruned then are in no metric, and the items pruned since count only from when
-they were forgotten. Rebuilding the index (`ergostat compact --reindex`) loses what it carried, so its counters reset.
-`ergostat reset` forgets the checkpoint.
+stops the job rather than backfill again. A pass runs at most once a minute. After a fault (the server refusing or
+away), the next waits a minute, then twice as long after each fault in a row, up to an hour, and the fault is said once
+a try. A first run backfills from the index's first minute, at most a day or 500,000 samples a pass (the rest a minute
+later), and says what it cannot recover. If events were taken out before the index was built, the items pruned then
+are in no metric, and the items pruned since count only from when they were forgotten.
+
+An index made again has lost what it carried. That happens when an item kind is edited, when the index's layout
+changes, when a damaged file is built again, and on `ergostat compact --reindex`. So the checkpoint also keeps the
+index's epoch and every series as last written. On a pass over another epoch, each counter is held at no less than
+what was written, each last-move time at no earlier, and each gauge series is kept (at nothing added). The rise is kept
+in the checkpoint's `held`, and the counters go on from there, so none falls. An event stamped before the last minute
+written that arrives between the last pass and the index being made again may go uncounted in a held counter. `ergostat reset` forgets the checkpoint.
 
 Labels are bounded. Only `kind`, `state`, `from`, `to`, `le`, `field`, `type`, `source` and `milestone` can be labels
 (`Refused` for any other, so an item's id, a branch, a session or a commit never is one). A label with more than 100

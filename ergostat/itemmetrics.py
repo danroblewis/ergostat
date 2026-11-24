@@ -16,9 +16,11 @@ minute to a store that keeps labels (VictoriaMetrics: ``Victoria.put``), so a pa
 Each is a function of the index as of the minute: the moves, numeric changes and event counts at or before it, and
 what the index carried for items it forgot (``carry``: from when they were forgotten). A minute is written once: the
 checkpoint (``itemmetrics.json``) says the last, so a restart writes on from it, and a first run backfills from the
-index's first minute, saying what pruned history it cannot recover. Labels are bounded: only those in ``LABELS``
-(an item's id, a branch, a session or a commit never is one), and a label with more than ``MOST_VALUES`` values in
-a kind's metric (``refused``) is left out of it, its series added together."""
+index's first minute, saying what pruned history it cannot recover. The checkpoint also keeps the index's epoch and
+the counters as last written: an index made again (a kind edited, a new layout, a damaged file built again) has lost
+what it carried, so each counter is held at least at what was written (``hold``) and goes on from there. Labels
+are bounded: only those in ``LABELS`` (an item's id, a branch, a session or a commit never is one), and a label with
+more than ``MOST_VALUES`` values in a kind's metric (``refused``) is left out of it, its series added together."""
 
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ MOST_VALUES = 100            # values of one label in one kind's metric: past it
 MOST_MINUTES = 1440          # minutes written by one pass (a backfill goes on at the next)
 MOST_SAMPLES = 500_000       # samples written by one pass, at most (one minute at the least)
 MINUTE = 60.0
+MOST_WAIT = 3600.0           # the longest wait after faults in a row before the next pass (``kept``)
 STATE = "itemmetrics.json"
 
 HELP = {
@@ -61,9 +64,9 @@ class Refused(ValueError):
 class Tally:
     """Every metric's value as the rows are fed in time order: ``v[(name, labels)]``."""
 
-    def __init__(self, refused: frozenset = frozenset()):
+    def __init__(self, refused: frozenset = frozenset(), held: dict | None = None):
         self.refused = refused                       # (kind or None, label): left out
-        self.v: dict[tuple, float] = {}
+        self.v: dict[tuple, float] = dict(held or {})   # (what an index made again no longer counts: ``hold``)
         self.entered: dict[int, float] = {}          # item (rid) -> when its last move was
 
     def key(self, name: str, labels: dict) -> tuple:
@@ -120,7 +123,7 @@ def _in(c, sql: str, ids: list) -> list:
 def carry(db, rids: list[int], name, now: float) -> int:
     """What the items ``rids``, about to be forgotten by the index (``Index._reconcile``), counted, kept in its
     ``carried`` table: their moves, stays and fields, and a move of each to ``(gone)`` now. Not the gauge: they leave
-    it. Returns the rows kept."""
+    it, though each of its series they were in is kept, at nothing added. Returns the rows kept."""
     t = Tally()
     for rid, k, at, f, d in _in(db, "select rid, kind, t, frm, dst from moves where rid in (?) order by rid, rowid", rids):
         t.move(rid, name(k), at, name(f), name(d))
@@ -129,7 +132,8 @@ def carry(db, rids: list[int], name, now: float) -> int:
     for k, s in _in(db, "select kind, state from items where rid in (?)", rids):
         if k is not None and s is not None:
             t.gone(name(k), name(s), now)
-    rows = [(now, n, json.dumps(dict(lb)), v) for (n, lb), v in t.v.items() if n != ITEMS]
+    rows = [(now, n, json.dumps(dict(lb)), 0.0 if n == ITEMS else v) for (n, lb), v in t.v.items()]   # (a gauge's
+    #                                                                                     series stays, at no items)
     db.executemany("insert into carried(t, name, labels, value) values (?,?,?,?)", rows)
     return len(rows)
 
@@ -162,14 +166,21 @@ def milestoned(spec) -> set[str]:
             if (r := (getattr(k, "relations", None) or {}).get("milestone")) is not None and offered(k, r)}
 
 
-def sweep(c, minutes: list[float], spec, most: int = MOST_SAMPLES) -> tuple[list[tuple[dict, float, float]], frozenset]:
+def sweep(c, minutes: list[float], spec, most: int = MOST_SAMPLES, held: dict | None = None,
+          base: tuple[float, dict] | None = None) -> tuple[list[tuple[dict, float, float]], frozenset, dict, dict]:
     """Every metric at each of ``minutes`` (ascending), read from the index's connection ``c`` (one moment of it):
     ``(labels with __name__, minute, value)``, stopping past ``most`` samples (after one minute at the least). What the
-    index carried counts from the first of ``minutes`` or when it was carried, whichever is earlier."""
+    index carried counts from the first of ``minutes`` or when it was carried, whichever is earlier. ``held`` is added
+    to the counters (and is a floor under the last-move times) from the start; ``base``, ``(minute, values written
+    then)`` before ``minutes``, raises each to what was written at that minute and holds the rise (an index made again
+    without what it carried: ``hold``). Also returns the values at the last minute and what is held after."""
     names = dict(c.execute("select id, name from names"))
     ms_kinds = milestoned(spec)
     out_refused = refused(c, names, ms_kinds)
-    t = Tally(out_refused)
+    held = dict(held or {})
+    t = Tally(out_refused, held)
+    if base is not None:
+        minutes = [base[0], *minutes]
     rel = next((i for i, n in names.items() if n == "milestone"), None)
     ms = {rid: dst for rid, dst, k in c.execute("select l.rid, l.dst, i.kind from links l join items i on i.rid = l.rid "
                                                  "where l.rel = ?", (rel,)) if names.get(k) in ms_kinds}
@@ -181,6 +192,7 @@ def sweep(c, minutes: list[float], spec, most: int = MOST_SAMPLES) -> tuple[list
         c.execute("select min(t, ?) a, 3, name, labels, value, 0 from carried order by a", (first,)),
         key=lambda r: (r[0], r[1]))
     out: list[tuple[dict, float, float]] = []
+    final: dict = {}
     row = next(rows, None)
     for m in minutes:
         while row is not None and row[0] <= m:
@@ -194,10 +206,41 @@ def sweep(c, minutes: list[float], spec, most: int = MOST_SAMPLES) -> tuple[list
             else:
                 t.carried(a, json.loads(b), x)
             row = next(rows, None)
+        if base is not None and m == base[0]:
+            held = hold(t.v, held, base[1])
+            continue
         if out and len(out) + len(t.v) > most:
             break
         out += [({"__name__": n, **dict(lb)}, m, v) for (n, lb), v in t.v.items()]
-    return out, out_refused
+        final = dict(t.v)
+    return out, out_refused, final, held
+
+
+def hold(v: dict, held: dict, written: dict) -> dict:
+    """Each counter in ``v`` raised to what was written (``written``) where it counts less, a last-move time to the
+    latest written, in place: ``held`` and the rises, so the counters never fall when the index is made again (a kind
+    edited, a new layout, a damaged file built again) without what it carried for items it forgot. A gauge's series
+    is kept, at nothing added."""
+    held = dict(held)
+    for k, x in written.items():
+        now = v.get(k, 0.0)
+        if k[0] == ITEMS:
+            v.setdefault(k, 0.0)
+            held.setdefault(k, 0.0)
+        elif k[0] == LAST:
+            v[k] = held[k] = max(x, v.get(k, x))
+        elif x > now:
+            v[k] = x
+            held[k] = held.get(k, 0.0) + x - now
+    return held
+
+
+def _keys(rows) -> dict:
+    return {(n, tuple(tuple(p) for p in lb)): x for n, lb, x in rows or []}
+
+
+def _rows(d: dict) -> list:
+    return [[n, [list(p) for p in lb], x] for (n, lb), x in d.items()]
 
 
 def keep(p, spec, now: float | None = None, say=None) -> dict | None:
@@ -230,13 +273,18 @@ def keep(p, spec, now: float | None = None, say=None) -> dict | None:
                 if start is None or start > top:
                     return st or None
                 n = int(min(MOST_MINUTES, (top - start) / MINUTE + 1))
-                rows, out = sweep(c, [start + MINUTE * i for i in range(n)], spec)
+                epoch = (c.execute("select value from meta where key = 'epoch'").fetchone() or [None])[0]
+                again = last is not None and st.get("epoch") != epoch     # the index made again since: re-based
+                rows, out, final, held = sweep(c, [start + MINUTE * i for i in range(n)], spec,
+                                               held=_keys(st.get("held")),
+                                               base=(last, _keys(st.get("written"))) if again else None)
             finally:
                 c.execute("commit")
         if rows:
             store.put(rows)
         new = {**st, "minute": max(r[1] for r in rows) if rows else start + MINUTE * (n - 1),
-               "refused": sorted(f"{k or 'every kind'}: {a}" for k, a in out)}
+               "refused": sorted(f"{k or 'every kind'}: {a}" for k, a in out),
+               "epoch": epoch, "written": _rows(final) if rows else st.get("written", []), "held": _rows(held)}
         if last is None:
             new["backfill"] = {"from": start, "not recovered": _lost(p.events)}
             if say and new["backfill"]["not recovered"]:
@@ -263,9 +311,22 @@ def _lost(events) -> str:
             "as carried, only from when they were forgotten")
 
 
-def kept(p, spec, say) -> None:
-    """``keep``, as the engine's lead calls it every few seconds: a fault said, never raised."""
+_due: dict = {}                  # a project's folder -> (faults in a row, the time before which no pass runs)
+
+
+def kept(p, spec, say, now: float | None = None) -> None:
+    """``keep``, as the engine's lead calls it every few seconds, but at most once a minute (a backfill goes on a day
+    of minutes a minute): a fault said, never raised, and the next pass not before a wait that doubles with each fault
+    in a row, from a minute to ``MOST_WAIT``."""
+    now = time.time() if now is None else now
+    faults, due = _due.get(p.dir, (0, 0.0))
+    if now < due:
+        return
     try:
-        keep(p, spec, say=say)
-    except Exception as e:                            # (the server away, a checkpoint that cannot be read: next time)
-        say(f"item metrics: {type(e).__name__}: {e}")
+        keep(p, spec, now=now, say=say)
+    except Exception as e:                            # (the server away, a checkpoint that cannot be read: later)
+        wait = min(MOST_WAIT, MINUTE * 2 ** min(faults, 16))
+        _due[p.dir] = (faults + 1, now + wait)
+        say(f"item metrics: {type(e).__name__}: {e} (tried again in {wait:.0f} s)")
+        return
+    _due[p.dir] = (0, (math.floor(now / MINUTE) + 1) * MINUTE)
