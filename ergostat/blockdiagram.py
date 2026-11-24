@@ -1109,7 +1109,8 @@ class _Diagram:
             words = f"{b.law.kind}: {law_words(b)}"
             rows = rows + [["declared", f"{words} (an assumption until tested against the record)"]]
         if law:                                            # an existing controller, its law identified from the record (§12d)
-            sk = {"onoff": "relay", "stepper": "zoh", "proportional": "saturation" if law["params"].get("hi") is not None
+            sk = {"onoff": "relay", "stepper": "zoh", "ratio": "saturation",       # ratio: as a declared HPA is drawn
+                  "proportional": "saturation" if law["params"].get("hi") is not None
                   or law["params"].get("lo") is not None else None}.get(law["family"])
             return {"role": role, "identified": True, "says": f"an external controller, its law identified from the record: "
                     f"{law['said']}.", "fn": {"name": n, "sketch": sk, "kind": f"identified {law['family']}", "law": law["short"],

@@ -5864,6 +5864,7 @@ them). Each candidate law is fitted on the first three quarters, each with a pur
 | **proportional** with saturation | u = c + k x, within [lo, hi] | least squares off the bounds |
 | **PI**, velocity form, with a deadband | u += kp Δx + ki T (x − r) while \|x − r\| > db | least squares on Δu (r from the constant); the band from the errors where u held exactly, and its centre, each from the other |
 | **three-position step (floating) control**, a stepper (the HPA's shape) | up `step_up` once above `up` for `for_up`, `cool_up` after its last move; down `step_down` once below `down`, likewise; within [lo, hi] | as on-off, each direction on its own; up below down is refused; a bound only where its rule held three times and it did not move |
+| **ratio**, the HPA's multiplicative rule (below, *Known laws*) | u ← ⌈u x / `target`⌉ when x / `target` is outside 1 ± `tolerance`; down only after `stabilize-down`; within [min, max] | on a record of whole numbers from 1 with at least three moves up: `target` by least squares on the moves up, log((u′ − ½)/u) = log x − log target (½ for the ceiling), then moved to the nearest value the most moves up agree with (⌈u x / target⌉ = u′); `tolerance` the largest x / target − 1 that moved nothing, below the least that moved it (the side up, which a scale-down's window does not hide); `stabilize-down` the median run of a lower desired that ended in a move down; a bound where the record sat on its extreme while the rule wanted past it three times; `stabilize-up` 0s. Its ± are the target's (least squares') and the tolerance's (the gap to the least move over √12) |
 
 Each is judged on the last quarter: its **skill** one step ahead (1 − its squared errors over those of holding the last
 value) and its **R²** run free from that quarter's start on the input as measured (inside the loop it controls, the
@@ -5911,7 +5912,7 @@ with a default may be left out:
 | | `side` | `above` or `below` | required |
 | | `for` | a duration from 0s to 7d | required |
 
-The **ratio** family (`numbers/extlaw.py`, stepped, never fitted) is the HPA's rule: each period, desired =
+The **ratio** family (`numbers/extlaw.py`, stepped, and fitted as the identification's table above says) is the HPA's rule: each period, desired =
 ⌈u x / target⌉ when x / target is outside 1 ± tolerance (else u); the desired of each period within a window (now's
 included) is kept, a scale-up goes to the least of them over `stabilize-up` and a scale-down to the largest over
 `stabilize-down` (so up at once and down only once a whole window has wanted fewer, by default); within [min, max]. An
