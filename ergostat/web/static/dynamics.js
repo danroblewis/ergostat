@@ -479,7 +479,8 @@ function sdPipeHead(pts, cls) {                         // a flow's head: hollow
    turning the way the loop runs, its name under it, placed inside the loop as drawn: as near the
    centroid of the polygon its lines make as is inside that polygon and clear of every part, label, pipe
    and other marker. Only loops whose polarity is known are marked: the others are listed beside the
-   diagram (one entry, "+N of unknown polarity"), never drawn */
+   diagram (one entry, "N of unknown polarity"), never drawn. A minor loop (neither named in the model nor a
+   goal's: SPEC §12a) has its marker drawn only while it is chosen or pointed at (CSS .minor) */
 function sdLoopMarkers(g, lay) {
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
   const taken = [];
@@ -509,9 +510,8 @@ function sdLoopMarkers(g, lay) {
     let area = 0;                                        // which way it runs, on the screen (y down: > 0 is clockwise)
     for (let i = 0; i < poly.length; i++) { const p = poly[i], q2 = poly[(i + 1) % poly.length]; area += p.x * q2.y - q2.x * p.y; }
     const label = rep.label || rep.polarity;
-    const r = sdMarkerRadius(label), lines = sdNameLines(rep.name);
-    const more = loops.length > 1 ? 22 : 0;
-    const w = Math.max(2 * r + 8 + more, ...lines.map((t) => textWidth(t) * 0.92 + 6)), hgt = 2 * r + 6 + lines.length * 13;
+    const r = sdMarkerRadius(label), lines = rep.minor ? [] : sdNameLines(rep.shown || rep.name);   // (a minor loop: no name on the canvas)
+    const w = Math.max(2 * r + 8, ...lines.map((t) => textWidth(t) * 0.92 + 6)), hgt = 2 * r + 6 + lines.length * 13;
     const rect = (x, y) => ({ x: x - w / 2, y: y - r - 3, x1: x + w / 2, y1: y - r - 3 + hgt });
     const inside = poly.length >= 3 && Math.abs(area) > 400 ? (x, y) => sdInPolygon(x, y, poly) : () => true;
     const reach = Math.max(80, ...poly.map((p) => Math.hypot(p.x - cx, p.y - cy)));
@@ -532,7 +532,7 @@ function sdLoopMarkers(g, lay) {
     }
     spot ||= { x: cx, y: cy };
     memo.spots[mk] = spot;
-    taken.push(rect(spot.x, spot.y));
+    if (!rep.minor) taken.push(rect(spot.x, spot.y));       // a minor loop's, drawn only while chosen: it crowds nothing
     for (const c of loops) placed[c.name] = spot;
     const m = sdMarker(rep, spot.x, spot.y, area >= 0, lines, loops);
     m.dataset.members = JSON.stringify(members);
@@ -600,16 +600,16 @@ function sdVisible(c, g, box) {
 function sdInside(g, id) {
   return (g?.causalLoops || []).filter((c) => c.nodes.includes(id) && sdVisible(c, g).length < 2);
 }
-/* the loops that show here (two of their parts drawn as themselves), one marker for those drawn alike
-   (the same parts here: they differ only where they run inside a closed system or outside this one),
-   the shortest first; of known polarity only, unless `all` */
+/* the loops that show here (two of their parts drawn as themselves), one marker for the drawn ones alike
+   (the same parts here: they differ only where they run inside a closed system or outside this one), each
+   minor loop its own; the drawn first, the shortest first; of known polarity only, unless `all` */
 function sdLoopGroups(g, box = null, all = false) {
   const groups = new Map();
-  for (const c of g.causalLoops || []) {
+  for (const c of [...(g.causalLoops || [])].sort((a, b) => !!a.minor - !!b.minor)) {
     if (!c.polarity && !all) continue;
     const v = sdVisible(c, g, box);
     if (v.length < 2) continue;
-    const key = (c.polarity || "?") + v.slice().sort().join("|");
+    const key = (c.minor ? `${c.name}#` : "") + (c.polarity || "?") + v.slice().sort().join("|");
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(c);
   }
@@ -630,7 +630,7 @@ function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
   const [x0, y0] = P(start), [x1, y1] = P(end), rad = (end * Math.PI) / 180;
   const dx = clockwise ? -Math.sin(rad) : Math.sin(rad), dy = clockwise ? Math.cos(rad) : -Math.cos(rad);   // the way it turns, at the end
   const tip = [x1 + dx * 6, y1 + dy * 6], base = [x1 - dx * 2, y1 - dy * 2], px = -dy * 5, py = dx * 5;   // a clear arrowhead
-  const g = s("g", { class: `loop-marker pol-${sdPol(c) || "unknown"}${loops.some(sdGoalOff) ? " goal-off" : ""}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
+  const g = s("g", { class: `loop-marker pol-${sdPol(c) || "unknown"}${loops.some(sdGoalOff) ? " goal-off" : ""}${c.minor ? " minor" : ""}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
                      "data-act": "loop", "data-x": x, "data-y": y, transform: `translate(${x},${y})`,
                      onclick: (ev) => { ev.stopPropagation(); sdToggle(c.name, loops); },
                      onpointerenter: () => { if (!S.dragging) sdHover(c.name); }, onpointerleave: () => sdHover(null) },
@@ -638,8 +638,6 @@ function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
     s("path", { class: "marker-arc", d: `M${x0},${y0} A${r},${r} 0 1 ${clockwise ? 1 : 0} ${x1},${y1}` }),
     s("path", { class: "marker-head", d: `M${tip[0]},${tip[1]} L${base[0] + px},${base[1] + py} L${base[0] - px},${base[1] - py} Z` }),
     s("text", { class: "marker-letter", y: 4, "text-anchor": "middle" }, label),
-    loops.length > 1 ? s("text", { class: "marker-more", x: r + 4, y: 4, "text-anchor": "start" }, `${loops.length} alike`,
-      s("title", {}, `Drawn alike here with ${loops.slice(1).map((x2) => `${x2.label} ${x2.name}`).join(", ")}`)) : null,
     ...lines.map((t, i) => s("text", { class: "marker-name", y: r + 14 + i * 13, "text-anchor": "middle" }, t)));
   return g;
 }
@@ -678,27 +676,40 @@ function sdLoopList(panel, g) {
   const order = { R: 0, B: 1 };
   const num = (c) => parseInt(c.label.slice(1)) || 0;
   const sort = (xs) => xs.sort((a, b) => (order[a.polarity] ?? 2) - (order[b.polarity] ?? 2) || num(a) - num(b));
-  const known = sort(sdLoopGroups(g).flatMap((x) => x.loops));
-  const unknown = sort(sdLoopGroups(g, null, true).flatMap((x) => x.loops).filter((c) => !c.polarity));
+  // the loops with a part in the system drawn alone (every loop, drawn from the top): the count its box gives (Q22)
+  const mine = (g.causalLoops || []).filter((c) => !g.focus || (c.systems || []).includes(g.focus));
+  // a row for each loop drawable here (as its marker: sdLoopGroups); the rest are counted, not listed (a closed
+  // system's line below gives those inside it)
+  const here = new Set(sdLoopGroups(g, null, true).flatMap((x) => x.loops)), rows = mine.filter((c) => here.has(c));
+  const known = sort(rows.filter((c) => c.polarity && !c.minor)), minor = sort(rows.filter((c) => c.polarity && c.minor));
+  const unknown = sort(rows.filter((c) => !c.polarity));
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
-  const every = new Map([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => [c.name, c]));   // (one loop may run through two modules)
-  const closing = [...every.values()].filter((c) => c.goal).length;      // the reconciliation with the goals: those it closes
+  const closing = mine.filter((c) => c.goal).length;      // the reconciliation with the goals: those it closes
   // folded, its count in the summary (the legend comes first)
-  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Feedback loops", h("span", { class: "muted sd-loops-head" },
-    ` ${every.size}, ${closing} close${closing === 1 ? "s" : ""} a goal`)));
+  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Feedback loops", h("span", { class: "muted sd-count" }, ` ${sdCount(g.loopCount)}`),
+    h("span", { class: "muted sd-loops-head" }, `, ${closing} close${closing === 1 ? "s" : ""} a goal`)));
   panel.append(side);
   const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
-    h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.name)),
+    h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.minor ? c.name : c.shown || c.name)),
     h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`,
       ((gs) => gs.length ? `, serves goal${gs.length > 1 ? "s" : ""} ${gs.join(", ")}` : "")(      // (the goals it closes)
         [...new Set(c.nodes.filter((x) => x.startsWith("gap:")).map((x) => x.slice(4)))])));
-  if (!known.length && !unknown.length && !modules.length) side.append(h("div", { class: "muted" }, "No feedback loops drawn here."));
-  const counts = ["R", "B"].map((p) => [p, known.filter((c) => sdPol(c) === p).length]).filter(([, n]) => n);
+  if (!mine.length && !modules.length) side.append(h("div", { class: "muted" }, "No feedback loops drawn here."));
+  side.append(sdDominant(rows));
+  if (mine.length > rows.length) side.append(h("div", { class: "note sd-elsewhere" },
+    `${mine.length - rows.length} of those counted are not drawn here (they run inside a closed system, or outside this one), so not listed.`));
+  const counts = ["R", "B"].map((p) => [p, [...known, ...minor].filter((c) => sdPol(c) === p).length]).filter(([, n]) => n);
   if (counts.length) side.append(h("div", { class: "note" }, counts.map(([p, n], i) => `${n} ${{ R: i ? "reinforcing" : "Reinforcing", B: i ? "balancing" : "Balancing" }[p]}`).join(", ")));
   for (const c of known) side.append(row(c));
+  if (minor.length) {                                   // marked on the canvas only while chosen or pointed at
+    const d = h("details", { class: "sd-minor" }, h("summary", {}, `minor loops (${minor.length})`),
+      h("div", { class: "note" }, "Neither named in the model nor the loop seeking a desired level: point at one or choose it to draw it."));
+    for (const c of minor) d.append(row(c));
+    side.append(d);
+  }
   if (unknown.length) {                                 // not on the canvas: a sign along each is not known
-    const d = h("details", { class: "sd-unknown" }, h("summary", {}, `+${unknown.length} of unknown polarity`),
+    const d = h("details", { class: "sd-unknown" }, h("summary", {}, `${unknown.length} of unknown polarity`),
       h("div", { class: "note" }, "A link along each has no sign, so they are not marked on the diagram. ergostat check names them."));
     for (const c of unknown) d.append(row(c));
     side.append(d);
@@ -707,6 +718,31 @@ function sdLoopList(panel, g) {
     side.append(h("button", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
       h("div", {}, h("b", {}, n.label), `: ${xs.length} feedback loop${xs.length > 1 ? "s" : ""} inside`),
       h("div", { class: "sub" }, "Open it to see them")));
+}
+/* a loop count as a system's box and the side list give it (dynamics.py counted) */
+const sdCount = (n) => `${n?.named ?? "?"} named, ${n?.minor ?? "?"} minor`;
+/* the loop that dominates now (Loops That Matter, /api/dominance), of the list's: at each stock, the one dominant in
+   the last bucket; of those, the one scoring most. Nothing while not worked out, or when none of the list's does.
+   Asked once a view and window (the address), never on a poll; the answer is kept and the line built from it on
+   every redraw, the list redrawn once when it first arrives (a line filled late would be patched away) */
+function sdDominant(mine) {
+  const el = h("div", { class: "note sd-dominant", key: "dominant" }), by = new Map(mine.map((c) => [c.name, c]));
+  if (S.sdDom?.at !== location.search) {
+    const dom = S.sdDom = { at: location.search, value: null };
+    api("dominance", { points: CHART_POINTS }).then((d) => {
+      if (S.sdDom !== dom) return;                       // the address changed while it was asked
+      dom.value = d || {};
+      if (S.graph?.kind === "dynamics") S.redrawSide?.();
+    }).catch(() => {});
+  }
+  let best = null;
+  for (const x of S.sdDom.value?.stocks || []) {
+    const k = (x.dominant || []).at(-1), v = Math.abs((x.relative?.[k] || []).at(-1) ?? 0);
+    if (k && by.has(k) && (!best || v > best.v)) best = { c: by.get(k), v, at: x.stock.split(".").slice(1).join(".") };
+  }
+  if (best) el.append("Dominant now: ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); sdToggle(best.c.name); } },
+    `${best.c.label} ${best.c.minor ? best.c.name : best.c.shown || best.c.name}`), ` (at ${best.at})`);
+  return el;
 }
 
 /* an open system's frame, as the views draw it (frameMarks: diagram.js): a hairline, its corners L marks */
@@ -960,7 +996,8 @@ function sdOpenSystem(n) {
     remoteNote(n.remote), remoteMeasures(n), n.size ? dl([["size", n.size]]) : null, sdAggregate(n.label),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
     h("h3", {}, "Out, to outside"), list(side("out"), "Nothing outside depends on it here."),
-    inside.length ? h("p", {}, `${inside.length} feedback loop${inside.length > 1 ? "s" : ""} inside it or through it, not drawn here: open it to see them`) : null,
+    h("p", { class: "sd-count" }, `Feedback loops with a part in it: ${sdCount(n.loopCount)}`,   // (as the list drawing it alone says)
+      inside.length ? `; ${inside.length} of them not drawn here: open it to see them` : ""),
     loopsPara(loopsOf((c) => c.nodes.includes(n.id) && !inside.includes(c))),
     h("div", { class: "actions" }, h("button", { onclick: () => S.toggleSystem?.(n.label) }, "Open it here"),
                h("button", { onclick: () => S.drill?.(n.label) }, "Draw it alone")),
@@ -1015,6 +1052,9 @@ function openCausal(name) {
   const rows = c.around || [], minus = rows.filter((r) => r.sign === "-").length, unsigned = sdUnsigned(c);
   showDetail(h("div", { class: "kind" }, `Feedback loop, ${word}`),
     h("h2", {}, h("span", { class: `loop-tag pol-${pol || "unknown"}` }, pol ? c.label : "?")), h("div", { class: "subtitle" }, c.name),
+    rows.length ? h("p", { class: "loop-path" }, [...rows.map((r) => r.fromName), rows[0].fromName].join(" → ")) : null,   // its path; the diagram, its name
+    ((t) => t ? h("p", { class: "muted" }, `${t[0].toUpperCase()}${t.slice(1)}.`) : null)([c.named && "Named in the model (loops:)",
+      c.seeks && `the loop seeking the desired level of ${c.seeks}`, c.minor && "a minor loop: marked on the diagram only while chosen"].filter(Boolean).join("; ")),
     c.goal ? h("p", { class: "serves" }, "Serves goal ", h("a", { href: "#", class: "goal-link", onclick: (ev) => { ev.preventDefault(); openLoop(c.goal); } }, c.goal)) : null,
     h("p", {}, pol ? `${minus} negative link${minus === 1 ? "" : "s"} around it: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
       : unsigned.length ? `No sign on ${unsigned.map((r) => `${r.fromName} → ${r.toName}`).join(", ")}, so whether it reinforces or balances is not known.`
