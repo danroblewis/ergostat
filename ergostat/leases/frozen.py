@@ -4,7 +4,8 @@ urgent and why (``{by: ..., why: ...}``) goes ahead of them, and the dispatcher 
 
 One rule, ``arrange``, for the dispatcher (``order``) and the completion estimates (``eta._Run.pick``), so the forecast
 takes items in the order the block will. The list in force is the record's: the newest ``block.frozen`` event about
-``ergostat.frozen/BLOCK`` by ``seq``, written by the dispatcher only when the window changes. Off unless declared."""
+``ergostat.frozen/BLOCK`` by ``seq``, written by the dispatcher only when the window changes (``settle``, after a
+look's takes: a taken item leaves it). Off unless declared."""
 
 from __future__ import annotations
 
@@ -59,11 +60,13 @@ def in_force(events, block: str, until: float | None = None) -> list[str]:
 
 def order(d, b, got: list, source: str) -> tuple[list, dict]:
     """The dispatcher's: ``got`` (the items it may take, in its plain order) in the frozen window's order, the window
-    written to the record when it changed (under the dispatcher's lock, its only writer); and each urgent item →
-    the record of its override ({by, why, ahead}), when frozen items wait. A list that cannot be read: the plain
-    order, said (a lost preference, never a stopped block)."""
+    kept for ``settle`` to write once the look's takes are known; and each urgent item → the record of its override
+    ({by, why, ahead}), when frozen items wait. A list that cannot be read: the plain order, said (a lost preference,
+    never a stopped block)."""
     fz = b.takes.frozen
     said = d.__dict__.setdefault("frozen_said", set())
+    pending = d.__dict__.setdefault("frozen_pending", {})
+    pending.pop(b.name, None)
     try:
         held = in_force(d.p.events, b.name)
     except Exception as e:  # noqa: BLE001 - said, and the block takes by its plain order
@@ -81,10 +84,23 @@ def order(d, b, got: list, source: str) -> tuple[list, dict]:
             said.add((b.name, i.id))
             d.e.say(f"{b.name}: {i.id}'s {fz.urgent} does not say by: and why:, so it waits its turn")
     ids, window = arrange([i.id for i in got], held, fz.first, hurry)
-    if window != held:
-        d.p.events.add(LIST, item=about(b.name), source=source, data={"block": b.name, "items": window})
+    pending[b.name] = (held, window)
     by = {i.id: i for i in got}
     return [by[i] for i in ids], {i: {**u, "ahead": window} for i, u in hurry.items() if window}
+
+
+def settle(d, b, taken, source: str) -> None:
+    """After a look's takes (under the dispatcher's lock, the list's only writer): the window ``order`` made, less the
+    items taken (an item leaves the window when it is taken, SPEC §9.5: one back in its state later waits as any
+    other), written when it differs from the list in force. Nothing kept (an unread list): nothing written."""
+    got = d.__dict__.get("frozen_pending", {}).pop(b.name, None)
+    if got is None:
+        return
+    held, window = got
+    gone = set(taken)
+    window = [i for i in window if i not in gone]
+    if window != held:
+        d.p.events.add(LIST, item=about(b.name), source=source, data={"block": b.name, "items": window})
 
 
 def broken(d, b, item: str, rec: dict, source: str) -> None:

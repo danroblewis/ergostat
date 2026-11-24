@@ -57,6 +57,25 @@ Decisions taken alone (each the more reversible):
   override is recorded only for a take that happened.
 - Quotes (forecast-quotes) are not on main; when they land they run through `eta._Run`, so the same rule applies.
 
+Round 2 (the one finding, blocking: the taken item stayed in the window).
+- Fixed. `frozen.order` no longer writes; it keeps the window it made, and `frozen.settle` writes it after the
+  look's takes, less the items taken (in a `finally`, so a take that raises still writes what was taken before it),
+  under the same dispatcher lock, for each look (`tick_block`) and `block --now` (`once`). The simulation drops the
+  id from `held` when it actually starts it (`_Run.wake`, after the workspace check, so an item put back for want of
+  a workspace keeps its place, as a dispatcher take that did not happen does). An item back in its state after a
+  failed run or an expired lease now waits like any other item: it can come back into the window only through a
+  free place, in the plain order.
+- Test: `test_a_taken_item_back_before_a_look_waits_behind_the_window` (pool 1: `a` taken from [a, b], a later
+  item `e` ranked higher, `a` back in `todo` before a look with room: the dispatcher takes b, e, a, c with no
+  urgent record; the simulation, its run failing the same way, starts in the same order). Seen to fail: `settle`
+  not removing the taken item fails it at the record; the simulation keeping it in `held` fails it at the
+  simulation's window (each mutation reverted). The test helper `look` now calls `settle` with nothing taken, as a
+  look with room that takes nothing does.
+- SPEC §9.5's sentence says when the list is written and what a returning item does.
+- Run here: tests/test_frozen_window.py, test_take_order, test_eta, test_lease_watch_slices, test_faults_hold_by,
+  test_lease_end_turns, test_daemons, test_run_budget, test_spec_schema: all pass; ruff clean. Not run here: the
+  whole unit suite and the four browser files (no page changed). Size: about 225 net lines (budget 600).
+
 ## Entry
 
 **Frozen window (built).** `takes: {frozen: {first: N, urgent: FIELD}}` keeps a block's next N items in their order

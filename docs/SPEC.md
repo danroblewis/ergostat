@@ -4059,8 +4059,9 @@ notes an order field no item in the record holds yet (`takes-order-unset`). **A 
 items the block would take in their order when new work arrives or the queue is re-ranked. At each look with room, the
 window is the items of the list in force that still wait, in its order, filled to N from the plain order; the rest
 follow in the plain order, so a re-rank outside the window takes effect behind it and one inside it does not. An item
-leaves the window when it is taken, or no longer waits (moved on, put off, waiting on another). The list is recorded
-only when it changes, as `block.frozen` {block, items} about `ergostat.frozen/BLOCK`; the newest by `seq` is in force.
+leaves the window when it is taken (the list written after the look's takes holds none of them, so one whose run fails
+or whose lease expires back to its state waits as any other item), or no longer waits (moved on, put off, waiting on
+another). The list is recorded only when it changes, as `block.frozen` {block, items} about `ergostat.frozen/BLOCK`; the newest by `seq` is in force.
 An item whose FIELD says who made it urgent and why (`{"by": "...", "why": "..."}`, both words) goes ahead of the
 window and keeps it behind; when the dispatcher takes one while frozen items wait, it records `block.frozen.broken`
 {block, urgent, by, why, ahead}. A bare flag, or one without `by` or `why`, overrides nothing and is said. A list

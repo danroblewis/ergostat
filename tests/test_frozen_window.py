@@ -5,8 +5,10 @@ completion estimates take items in the order the dispatcher does."""
 
 from __future__ import annotations
 
+import random
 import textwrap
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -62,7 +64,9 @@ def look(d, p) -> list[str]:
     b = p.model.spec.blocks["dev"]
     d.stale = True                                    # (as each look does: the record read again)
     every, _ = d.items_of("ticket")
-    return [i.id for i in d.in_order(b, d.ready(b, every, time.time()))[0]]
+    got = [i.id for i in d.in_order(b, d.ready(b, every, time.time()))[0]]
+    frozen.settle(d, b, [], "test")                   # (a look with room that took nothing: the window written)
+    return got
 
 
 def tick(d, p) -> None:
@@ -138,6 +142,45 @@ def test_rerank_inside_the_window_holds_outside_takes_effect(tmp_path, monkeypat
         tick(d, p)
     assert taken == ["ticket/a", "ticket/b", "ticket/d", "ticket/e", "ticket/c"]
     assert not p.events.query(n=None, type=frozen.BROKEN)
+
+
+def test_a_taken_item_back_before_a_look_waits_behind_the_window(tmp_path, monkeypatch):
+    """Pool 1: ``a`` is taken from the window [a, b] and its run fails (back to ``todo``) before any look with room.
+    It left the window when taken, so it waits as any other item: behind ``b`` and a later, higher-ranked arrival,
+    with no urgent record. The simulation, its run failing the same way, takes in the same order."""
+    p = project(tmp_path, FROZEN)
+    d, taken, _ = dispatcher(p, monkeypatch)
+    opened(p, {"a": 4, "b": 3, "c": 2}, time.time() - 100)
+    inp = etamodel.read(p, p.model.spec, ["ticket"], time.time())      # (the simulation's moment: nothing in force)
+    tick(d, p)
+    assert taken == ["ticket/a"] and lists(p)[-1] == ["ticket/b"]     # taken: it left the window in the record
+    p.events.add("ticket.opened", item="ticket/e", data={"priority": 9})
+    p.events.add("ticket.opened", item="ticket/a")                   # its run failed: back where it was taken from
+    assert look(d, p) == ["ticket/b", "ticket/e", "ticket/a", "ticket/c"]
+    for _ in range(4):
+        tick(d, p)
+    assert taken == ["ticket/a", "ticket/b", "ticket/e", "ticket/a", "ticket/c"]
+    assert not p.events.query(n=None, type=frozen.BROKEN)
+
+    run = eta._Run(inp, eta.Flags(arrivals=False), random.Random(1), {}, {}, False)
+    started: list[str] = []
+
+    def hold(b, i, t, a):                               # (a start: its end is the test's to say)
+        started.append(i)
+        run.busy[b] += 1
+    monkeypatch.setattr(run, "hold", hold)
+    run.go(0.0)
+    t = inp.at + 1
+    assert started == ["ticket/a"] and run.held[0] == ["ticket/b"]
+    run.busy[0] -= 1                                    # its run failed: back in todo, with e arriving as it did
+    run.items["ticket/e"] = ["ticket", "todo", t, 0, 0]
+    run.inp.items["ticket/e"] = replace(inp.items["ticket/b"], id="ticket/e", fields={"priority": 9})
+    run.enter("ticket/e", "todo", t)
+    run.enter("ticket/a", "todo", t)
+    while len(started) < 5:
+        run.busy[0] -= 1
+        run.wake(t)
+    assert started == taken
 
 
 def test_urgent_goes_ahead_and_is_recorded_with_who_and_why(tmp_path, monkeypatch):

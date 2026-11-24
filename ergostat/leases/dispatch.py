@@ -242,10 +242,17 @@ class Dispatcher:
             if room <= 0:
                 return
             got, hurry = self.in_order(b, self.ready(b, every, now))
-            for it in self.groups.only(b, got, every, now)[:room]:
-                self.stale = True
-                if self.take(b, self.whole(ix, it)) and it.id in hurry:
-                    frozen.broken(self, b, it.id, hurry[it.id], SOURCE)
+            taken = []
+            try:
+                for it in self.groups.only(b, got, every, now)[:room]:
+                    self.stale = True
+                    if self.take(b, self.whole(ix, it)):
+                        taken.append(it.id)
+                        if it.id in hurry:
+                            frozen.broken(self, b, it.id, hurry[it.id], SOURCE)
+            finally:
+                if b.takes.frozen:                       # (the window less what was taken, even past an error)
+                    frozen.settle(self, b, taken, SOURCE)
 
     def in_order(self, b, got: list) -> tuple[list, dict]:
         """The items a block may take, in the order it takes them (``ready.ordered``, then its frozen window: SPEC §9.5),
@@ -290,9 +297,14 @@ class Dispatcher:
         with self.lock:
             got, hurry = self.in_order(b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
                                                      time.time()))
-            started = self.take(b, got[0], inline=True, out=out) if got else None
-            if started and got[0].id in hurry:
-                frozen.broken(self, b, got[0].id, hurry[got[0].id], SOURCE)
+            started = None
+            try:
+                started = self.take(b, got[0], inline=True, out=out) if got else None
+                if started and got[0].id in hurry:
+                    frozen.broken(self, b, got[0].id, hurry[got[0].id], SOURCE)
+            finally:
+                if b.takes.frozen:
+                    frozen.settle(self, b, [got[0].id] if got and started else [], SOURCE)
         if out.get("refused"):
             if outcome is not None:
                 outcome["refused"] = out["refused"]

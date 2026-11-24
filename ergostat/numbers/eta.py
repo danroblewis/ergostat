@@ -250,6 +250,8 @@ class _Run:
                     continue
                 if self.record and t > max(it[2], self.inp.at):
                     self.segs.setdefault(i, []).append([it[1], max(it[2], self.inp.at), t, None, "wait"])
+                if self.blocks[b].frozen:                  # taken: it leaves the window (``leases.frozen.settle``)
+                    self.held[b] = [x for x in self.held[b] if x != i]
                 self.hold(b, i, t, self.attempt(b))
 
     def pick(self, b: int):
