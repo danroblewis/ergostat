@@ -550,11 +550,11 @@ container cannot do. A backticked span that reads as a command (it starts with a
 allowlist once `uv run`, `python -m` and `scripts/suite_watch.py ... --` are taken off: `git`, `ruff`, `pytest`,
 `scripts/named_tests.py`, `scripts/demo_check.py`. Any other command is a **measure** need. So are a server on a port
 (`port 8765`, `localhost:8000`, "on a port") and an environment variable on a command (`CORR_SHOTS=1 ...`). Screenshots
-looked at by a person, the sandbox (`--sandbox`, "docker sandbox", seatbelt, `sandbox-exec`) or the platform ("runs
-on macOS", "checked on a Mac"), and input files read from outside the repository (an input file, or a read, load or
+looked at by a person, the sandbox (`--sandbox`, "docker sandbox", or an item that runs or loads under seatbelt or
+`sandbox-exec`) or the platform ("runs on macOS", "checked on a Mac"), and input files read from outside the repository (an input file, or a read, load or
 import, followed by `~/`, `/Users/`, `/home/`, `$HOME` or "outside/not in the repo", in an item that does not say
 the path is refused, rejected or denied) are **owner** needs. A bare mention is not: `docker run --init` in a test,
-"macOS's five-entry limit", "a path outside the repository is refused" are pytest's to check (a command off the
+"macOS's five-entry limit", "its seatbelt filter lists to 5 entries", "a path outside the repository is refused" are pytest's to check (a command off the
 allowlist, like `docker run`, is still a measure need). A measure need of a definition that names no acceptance test
 is the owner's too. The definition is given a `## Needs before building` section, a line per such item ("done item N:
 `needs: measure`, a server on a port"), and the gap records them as `env_needs`. A definition with only measure needs is

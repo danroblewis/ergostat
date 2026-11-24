@@ -66,3 +66,17 @@ removed, and `coordinated` readying without classifying.
 
 Size: about 134 net lines in dev/bin against main (154 added, 20 removed), within the 180. docs/SPEC.md is still
 left to the owner, as above.
+
+### Round 3
+
+The one finding of the round-2 review is answered. The bare `\bseatbelt\b` and `\bsandbox-exec\b` are gone from the
+owner pattern. Seatbelt and sandbox-exec now count only as what the item runs or loads under, the same form as
+macOS: "runs/loads/checked ... on/under/in (the) macOS|a Mac|seatbelt|sandbox-exec". tests/test_plan.py adds the
+owner cases "The profile runs under sandbox-exec." and "The daemon is loaded in the seatbelt.". It also adds
+negative cases that name both words in passing: "The profile keeps its seatbelt filter lists to 5 entries." and "A
+profile handed to sandbox-exec has no syscall-unix rules (checked by pytest).". dev/README's list says the same.
+Each negative case was seen to fail under its own break: `\bseatbelt\b` put back alone, then `\bsandbox-exec\b`
+put back alone. A backticked `sandbox-exec ...` span is still a measure need, as a command off the allowlist.
+
+Size: unchanged, about 134 net lines in dev/bin (the pattern was rewritten in place). docs/SPEC.md is still left
+to the owner, as above.

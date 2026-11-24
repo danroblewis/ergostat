@@ -258,8 +258,8 @@ NEEDS = (    # what a done item names that an implementor's container cannot do:
     ("owner", "screenshots looked at by a person", re.compile(
         r"\bscreenshots?\b.*\b(?:look|looked|seen|judged|by eye|a person|the owner)\b|\bby eye\b", re.I)),
     ("owner", "Docker --sandbox or macOS", re.compile(   # the sandbox or the platform itself, never a mention of docker
-        r"--sandbox\b|\bdocker sandbox\b|\bseatbelt\b|\bsandbox-exec\b|"
-        r"\b(?:runs?|running|tested|checked|seen|measured|loads?) (?:on|under) (?:macOS|a Mac)\b", re.I)),
+        r"--sandbox\b|\bdocker sandbox\b|\b(?:runs?|running|tested|checked|seen|measured|loads?|loaded) "
+        r"(?:on|under|in) (?:the )?(?:macOS|a Mac|seatbelt|sandbox-exec)\b", re.I)),
     ("owner", "input files not in the repository", re.compile(   # read from there; a path refused is pytest's
         r"^(?!.*\b(?:refus|reject|denie|denied)).*(?:\binput (?:files?|data|models?)\b|\b(?:reads?|reading|loads?|"
         r"loading|imports?|importing)\b)[^.;]{0,80}(?:(?:^|[\s`(\"'])(?:~/|/Users/|/home/|\$HOME\b)|"

@@ -74,11 +74,14 @@ def test_a_done_item_needing_files_outside_the_repo_is_a_needs_park_before_build
     assert f.drain() == []
     for owner in ("Screenshots of the Blocks page are looked at by a person.", "It runs under Docker --sandbox.",
                   "The seatbelt profile loads on macOS.", "The import reads input files outside the repository.",
-                  "It is checked on macOS by hand."):
+                  "It is checked on macOS by hand.", "The profile runs under sandbox-exec.",
+                  "The daemon is loaded in the seatbelt."):
         assert classify(f, with_items("x", owner))[0]["needs"] == "owner", owner
     # a mention is not a need: docker or macOS named in passing, a path outside the repository that is refused
     for plain in ("The suite container (`docker run --init`) is killed by name; tests/test_x.py starts a fake.",
                   "The sandbox profile keeps macOS's five-entry limit (house rules).",
+                  "The profile keeps its seatbelt filter lists to 5 entries.",
+                  "A profile handed to sandbox-exec has no syscall-unix rules (checked by pytest).",
                   "A path outside the repository is refused, and so is ~/x or /home/y.",
                   "A read of a file not in the repo is rejected with bad-path."):
         assert [x["needs"] for x in classify(f, with_items("x", plain))] in ([], ["measure"]), plain
