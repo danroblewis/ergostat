@@ -52,7 +52,7 @@ answer questions: take the most reversible option and say so in the definition f
    the four browser files, demo) run in the merge queue. A failure on main is reported, not fixed (lesson 13): a test that
    fails on main too, or on something your change did not touch, is named in your report with why it is unrelated,
    and left alone; the factory runs failing tests again on clean main and holds the gap until main is fixed.
-4. Lint and style are not checked: a pre-commit hook formats and fixes the Python files you commit (lint it cannot
+4. Lint and style are not checked: a pre-commit hook formats and fixes the Python files you commit, merge commits aside (lint it cannot
    fix never stops a commit, a round or a merge). Spend nothing on lint.
 5. Commit your work with `git add` and `git commit` as you go, each message ending with the line
    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.

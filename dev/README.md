@@ -206,7 +206,8 @@ after: `[suites] build` (and ruff only when `[suites] ruff` is set; it is not), 
 container of the agent image and the suite slot. Lint is no gate (owner, 2026-11-23): with `[suites] precommit` set,
 the clone gets a pre-commit hook (`agents.precommit`, written after this program's own commits) that runs it on the
 staged Python files (`ruff format`, `ruff check --fix --exit-zero`) and stages them again, whole; it never refuses a
-commit. What the session leaves uncommitted is committed by `finish` with hooks off, so that commit is not formatted.
+commit. A merge commit (a conflicted merge of main the session finishes) is skipped: its staged files are main's,
+not the session's. What the session leaves uncommitted is committed by `finish` with hooks off, so that commit is not formatted.
 The four browser files run there too only with `[suites] build_browser = true` (default false: minutes of 4 CPUs a
 round, plus a Chromium launch); then a browser test skipped fails them, as in the queue. `build` is the small set
 (`scripts/affected_tests.py`: the test files the branch changed since main and `tests/test_<module>.py` of each

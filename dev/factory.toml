@@ -178,7 +178,8 @@ ruff = ""                            # the lint step of the queue and the implem
                                      # scripts"; set it again to bring the gate back)
 precommit = 'uv run ruff format -q "$@"; uv run ruff check -q --fix --exit-zero "$@"'
                                      # the build sessions' pre-commit hook (agents.precommit): run on the staged
-                                     # Python files ("$@"), which are then staged again; it never refuses a commit.
+                                     # Python files ("$@"), which are then staged again; it never refuses a commit
+                                     # and skips merge commits.
                                      # "" or absent: no hook
 unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -rpfEs -n 8 --dist worksteal"
                                      # (-rpfEs: each skip named, for the host step's check; f and E keep the FAILED

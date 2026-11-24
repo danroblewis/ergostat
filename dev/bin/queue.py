@@ -19,8 +19,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
 4. merge each onto main as a commit of its own (`git merge-tree`, the checkout untouched), the tree the one
    dry-merged; one that conflicts on a new base goes back to `approved` uncounted;
 5. ruff (only when `[suites] ruff` is set: lint_on()), then the unit suite (-n 8) and the four browser files (-n 4)
-   at once under scripts/suite_watch.py (the first to fail stops the other), then demo_check, once for the batch; a browser test skipped counts as a failure. The
-   browser files run only when the batch (`git diff --name-only pre HEAD`) touches a `[suites] browser_paths` glob
+   at once under scripts/suite_watch.py (the first to fail stops the other), then demo_check, once for the batch; a
+   browser test skipped counts as a failure. The browser files run only when the batch (`git diff --name-only pre
+   HEAD`) touches a `[suites] browser_paths` glob
    (an empty list, or one unreadable: always); else `browser: {not_run: ...}`, finished, never stopped (rest()), and
    the batch's halves keep its decision. The daily browser run on main (browserday.py) is the net for the rest. The
    tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results

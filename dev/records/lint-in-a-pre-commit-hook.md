@@ -52,3 +52,22 @@ Not run here: the whole unit suite and the four browser files (the factory's). R
 tests/test_agents.py, tests/test_plan.py, tests/test_factory_knowledge.py, tests/test_queue.py,
 tests/test_shell_rule.py, tests/test_knowledge.py, all passing (test_shell_rule.py after its expected implementor
 commands dropped the ruff line, which this gap removes from the brief).
+
+Round 2. The one finding (blocking): a conflicted merge of main that the session finishes with `git commit --no-edit`
+ran the hook on every Python file main changed since the fork. Fixed: the hook does nothing on a merge commit (`git
+rev-parse -q --verify MERGE_HEAD` succeeds, so it exits 0 before listing anything). This was taken over limiting the list
+to files that also differ from MERGE_HEAD because skipping is narrower and simpler: even in a conflicted file, the hook
+would otherwise reformat main's lines as well as the session's. The cost is that a session's conflict resolutions go in
+unformatted, which is acceptable because lint is no gate. The docstring, the hook's comment, dev/README.md,
+dev/factory.toml and the implementor prompt now say merge commits are skipped. New test:
+`test_a_conflicted_merge_the_session_commits_leaves_mains_files_as_main_had_them`. In it, main changes a badly
+formatted .py file and both sides change one other file. After the session resolves the conflict and commits, the .py
+file is byte-for-byte main's and does not differ from main. The session's next commit is formatted again. With the
+MERGE_HEAD line removed, the test was seen to fail: the file came back reformatted. The doc comment in
+dev/bin/queue.py that round 1 made too long is rewrapped. Other commits that are not the session's own, such as a
+cherry-pick or a revert, still run the hook; neither the brief nor the factory makes a session do them.
+
+Run in round 2: tests/test_lint_hook.py (8 passed), tests/test_agents.py, tests/test_shell_rule.py, tests/test_queue.py
+(53 passed), tests/test_factory_knowledge.py, tests/test_plan.py, tests/test_knowledge.py (120 passed). Also run:
+`uv run ruff check ergostat tests scripts`, which was clean. main is already merged in (no change since the clone). The
+unit suite and the browser files were not run here; they are the factory's.

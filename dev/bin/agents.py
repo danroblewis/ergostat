@@ -394,7 +394,9 @@ def clone(cfg: dict, branch: str, role: str, at: str | None = None) -> tuple[Pat
 HOOK = """#!/bin/sh
 # Written by the factory (agents.precommit, from [suites] precommit): the staged Python files formatted and their
 # fixable lint fixed, then staged again (each whole file). It never refuses a commit: lint is no gate
-# (dev/records/lint-in-a-pre-commit-hook.md).
+# (dev/records/lint-in-a-pre-commit-hook.md). A merge commit is skipped whole: its staged list is every file main
+# changed since the branch forked, not the session's, so formatting it would put main's files in the gap's diff.
+git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && exit 0
 list=$(mktemp) || exit 0
 git diff --cached --name-only --diff-filter=ACMR -z -- '*.py' > "$list" 2>/dev/null
 if [ -s "$list" ]; then
@@ -409,7 +411,8 @@ exit 0
 def precommit(cfg: dict, work: Path) -> Path | None:
     """A build session's pre-commit hook in its clone, when [suites] precommit is set: a shell command given the staged
     Python files as "$@" (formats and fixes them). Unset or empty: none written (None). Written by this program after
-    its own commits (the definition, main merged in), so it runs only on the session's, in its container."""
+    its own commits (the definition, main merged in), so it runs only on the session's commits, in its container, and
+    never on a merge commit (MERGE_HEAD set: a conflicted merge of main the session finishes is committed as is)."""
     cmd = str((cfg.get("suites") or {}).get("precommit") or "").strip()
     if not cmd:
         return None

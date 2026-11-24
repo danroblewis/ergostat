@@ -67,6 +67,37 @@ def test_a_commit_with_fixable_lint_lands_formatted(tmp_path):
     assert git(work, "show", "HEAD:worse.py").stdout == "print(undefined_name)\n"
 
 
+def test_a_conflicted_merge_the_session_commits_leaves_mains_files_as_main_had_them(tmp_path):
+    """The factory's merge of main conflicts and the session finishes it with `git commit --no-edit`: the hook skips that
+    commit, so a Python file only main changed (badly formatted there) lands as main had it, not reformatted into the
+    gap's diff; the session's next commit is formatted again."""
+    work, env = repo_with_hook(tmp_path, FACTORY)
+    off = ("-c", "core.hooksPath=/dev/null")                            # (main's own commits, made without the hook)
+    (work / "both.txt").write_text("base\n")
+    (work / "mains.py").write_text("x=1\n")
+    assert git(work, "add", "both.txt", "mains.py").returncode == 0
+    assert git(work, *off, "commit", "-q", "-m", "base", env=env).returncode == 0
+    assert git(work, "checkout", "-q", "-b", "gap").returncode == 0
+    (work / "both.txt").write_text("gap\n")
+    assert git(work, *off, "commit", "-q", "-am", "gap", env=env).returncode == 0
+    assert git(work, "checkout", "-q", "main").returncode == 0
+    (work / "both.txt").write_text("main\n")
+    (work / "mains.py").write_text(BAD)
+    assert git(work, *off, "commit", "-q", "-am", "main", env=env).returncode == 0
+    assert git(work, "checkout", "-q", "gap").returncode == 0
+    assert git(work, "merge", "-q", "--no-edit", "main", env=env).returncode != 0      # (the conflict, left in progress)
+    (work / "both.txt").write_text("resolved\n")
+    assert git(work, "add", "both.txt").returncode == 0
+    r = git(work, "commit", "--no-edit", env=env)
+    assert r.returncode == 0, r.stderr
+    assert git(work, "show", "HEAD:mains.py").stdout == BAD
+    assert not git(work, "diff", "--name-only", "main", "HEAD", "--", "mains.py").stdout
+    (work / "own.py").write_text(BAD)
+    assert git(work, "add", "own.py").returncode == 0
+    assert git(work, "commit", "-q", "-m", "own", env=env).returncode == 0
+    assert git(work, "show", "HEAD:own.py").stdout == GOOD
+
+
 def test_no_precommit_setting_writes_no_hook(tmp_path):
     for i, cfg in enumerate(({"suites": {}}, {"suites": {"precommit": "  "}}, {})):
         work = tmp_path / str(i)
