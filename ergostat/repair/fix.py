@@ -1,8 +1,9 @@
 """``python -m ergostat.repair fix`` (SPEC §12r), ``repair-fix``'s run on one leased failure: a clone of the project's
 repository (its own ``.git``), the AI's fix (no tools: it is given what ergostat read), the test in ``ergostat.sandbox``,
 the impact report, and ``apply-fix`` asked for, held for the person (the ladder's first rung) or, with ``--approver
-ai``, ``program`` (``--approve-with``) or ``rule``, reviewed by ``approve.py`` behind the guard of ``allow.py``. What to run
-comes from the compiled model and the state directory; a failure's fields are ergostat's alone (a sealed kind)."""
+ai``, ``program`` (``--approve-with``) or ``rule``, reviewed by ``approve.py`` behind the guard of ``allow.py``
+(with ``--promote``, at the rung ``promote.py`` works out from the record). What to run comes from the compiled model
+and the state directory; a failure's fields are ergostat's alone (a sealed kind)."""
 
 from __future__ import annotations
 
@@ -226,7 +227,7 @@ def run(a) -> int:
         return 0
     rep = impact(p, fid, name, tests, fix)
     risk = str(((rep.get("fields") or {}).get("risk") or {}).get("level") or "high")
-    from . import approve
+    from . import approve, promote
     with approve.held(p, name):                              # (the approver re-reads both under the same lock)
         passed = record(p, "passed", fid, {**data, "impact": {"said": rep.get("said")}, "risk": risk, "approval": None,
                                            "report": f"file:repair/{name}.impact.json"})
@@ -234,9 +235,13 @@ def run(a) -> int:
                                                          "item": fid}, asker="program", key=f"{name}-{fix}")
     if action["state"] == "denied":
         record(p, "dismissed", fid, {"why": "apply-fix is denied by its gate"})
-    elif a.approver in approve.RUNGS and action["state"] == "requested":
+        return 0
+    was = promote.read(p, a, b.name) if a.promote else None      # (worked out from the record, never stored)
+    use = argparse.Namespace(**{**vars(a), "approver": was["rung"]}) if was else a
+    if use.approver in approve.RUNGS and action["state"] == "requested":
         beside = sorted(x.name for x in (Path(c.work) / path).parent.iterdir())
-        approve.review(p, a, fid, name, path, files[path], got["program"], beside, passed, action)
+        approve.review(p, use, fid, name, path, files[path], got["program"], beside, passed, action,
+                       promoted=(a, was) if was else None)
     return 0
 
 
@@ -246,6 +251,7 @@ def main(argv: list[str]) -> int:
                  ("approve-with", None)):
         ap.add_argument(f"--{k}", default=v, type=type(v) if v is not None else str)
     ap.add_argument("--approver", choices=["person", "ai", "program", "rule"], default="person")   # (approve.py, §12r)
+    ap.add_argument("--promote", action="store_true")                # (promote.py: down the ladder as it is earned)
     a = ap.parse_args(argv)
     try:
         return run(a)

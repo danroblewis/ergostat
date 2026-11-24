@@ -22,7 +22,7 @@ from pathlib import Path
 from ..actions import record as rec
 from ..sandbox import KEEP
 from ..spec.ir import ACTION
-from . import FAILURE, allow
+from . import FAILURE, allow, promote
 from . import fix as fx
 
 PROMPT = Path(__file__).with_name("approver.md")
@@ -187,8 +187,9 @@ def still(p, fid: str, read: dict | None) -> bool:
 
 
 def review(p, a, fid: str, name: str, path: str, old: str, new: str, beside: list[str], passed: dict,
-           action: dict) -> dict:
-    """The approver's answer to the ``apply-fix`` just requested, recorded as ``reviewed``. Returns its ``approval``."""
+           action: dict, promoted: tuple | None = None) -> dict:
+    """The approver's answer to the ``apply-fix`` just requested, recorded as ``reviewed``. Returns its ``approval``.
+    ``promoted``: the owner's arguments and ``promote.read``'s answer, read again under the lock before approving."""
     d = passed.get("data") or {}
     rung, by = getattr(a, "approver", "ai"), named(a)
     stamp = {"action": action["id"], "requested_seq": requested_seq(p, action["id"]), "fix": d.get("fix"),
@@ -198,14 +199,16 @@ def review(p, a, fid: str, name: str, path: str, old: str, new: str, beside: lis
     if not guard:
         asked = {"program": path, "diff": shown(path, old, new), "test": "passed"}   # what the guard read, no other
         verdict, reasons, more = RUNGS[rung](p, a, fid, asked)
-    read = more.pop("read", None)
+    read, was = more.pop("read", None), promoted[1] if promoted else None
     with held(p, name):
-        if not current(p, fid, name, stamp) or (rung == "rule" and verdict == "approve" and not still(p, fid, read)):
+        if not current(p, fid, name, stamp) or (rung == "rule" and verdict == "approve" and not still(p, fid, read)) \
+                or (was and verdict == "approve" and not promote.still(p, promoted[0], fx.ID.match(fid)[1], was)):
             verdict = "stale"                                # remade, answered or gone since: nothing approved
         elif verdict == "approve":
             rec.step(p, action["id"], "approved", {"approved_by": by}, by=by)
         approval = {"by": by, **({"model": a.model} if rung == "ai" else {}), "verdict": verdict, "reasons": reasons,
                     "guard": guard, "action": action["id"], "stamp": stamp, **more,
-                    **({"earned": read["earned"]} if read and verdict == "approve" else {})}
+                    **({"earned": read["earned"]} if read and verdict == "approve" else {}),
+                    **({"rung": rung, "rung_earned": was["earned"]} if was else {})}
         fx.record(p, "reviewed", fid, {"approval": approval})
     return approval
