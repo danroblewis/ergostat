@@ -87,3 +87,15 @@ The queue's one finding, a conflict with main in dev/bin/measure.py, is resolved
 branch's `env-parks` and main's `refused-commands-per-session` now sit one after the other in `reading`. Nothing
 else changed. tests/test_measure.py and tests/test_plan.py pass after the merge, and ruff is clean on ergostat,
 tests and scripts. Size: unchanged, 134 net lines in dev/bin against main (154 added, 20 removed).
+
+### Round 5
+
+The one finding (done item 4 half done, on a false reason) is answered. The round-1 reason, that SPEC never
+describes the factory, was wrong: docs/SPEC.md already has "A kept slot: the factory's merge queue is never starved
+by its builders", which names the implementors and the merge queue and points to dev/README.md. Beside it, SPEC now
+has "Done items the implementor cannot do: found at plan time, routed before building": done items are classified
+at plan time against the allowlist, a measure need leaves the gap ready with `measure_runs_wanted`, an owner need
+(or a measure need of a definition naming no acceptance test) parks the gap in the event that records its
+definition until `gap.need-met`, and `env-parks` is counted beside `first-pass-yield`, which leaves those reviews
+out. It says the classifier is a pattern list that both misses and over-matches, and points to dev/README.md for the
+patterns. Item 4 is now done on both sides. No code changed; size unchanged, 134 net lines in dev/bin against main.
