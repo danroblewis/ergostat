@@ -212,7 +212,8 @@ def test_a_graph_over_its_bound_is_a_limit(monkeypatch):
 def test_the_envelope_says_n_and_step_and_leaves_what_it_does_not_know_unknown():
     got = frames.framed({"times": TIMES, "step": 120.0, "series": [{"name": "a", "values": [1, None, 3, 4]}]}, None)
     assert got["meta"]["n"] == 3 and got["meta"]["n_effective"] is None
-    assert got["meta"]["sampling"] == {"step_s": 120.0, "scrape_s": None, "range_windows_s": None, "observable_period_s": None}
+    assert got["meta"]["sampling"] == {"step_s": 120.0, "scrape_s": None, "range_windows_s": [],
+                                       "observable_period_s": [240.0, None], "nulls_s": []}     # (no window: no high end)
 
 
 def test_a_typed_tables_n_counts_its_measure_cells_and_not_its_dims_or_missing_ones():
@@ -266,7 +267,7 @@ def test_a_latency_heatmaps_query_through_prometheus_is_the_hand_worked_distribu
     assert (got["shape"], got["form"]) == ("distribution", "bins") and got["x"]["label"] == "wait_seconds"
     assert got["over_time"]["counts"] == [[2, 3, 1], [0, 4, 5], None, [1, 0, 0]] and got["series"][0]["values"] == [3, 7, 6]
     assert got["meta"]["verdict"]["level"] == "warn" and got["meta"]["source"] == "prom"
-    assert [r["code"] for r in got["meta"]["verdict"]["reasons"]] == ["open-top-bucket"]
+    assert [r["code"] for r in got["meta"]["verdict"]["reasons"]] == ["open-top-bucket", "scrape-unknown"]
 
 
 def test_through_prometheus_a_misused_histogram_is_refused_with_its_fix_and_nothing_to_draw(tmp_path, histogram):
@@ -277,7 +278,8 @@ def test_through_prometheus_a_misused_histogram_is_refused_with_its_fix_and_noth
         assert got["meta"]["verdict"]["level"] == "refuse" and r["code"] == code and r["fix"] == verdicts.REASONS[code][1]
         assert r["says"] == got["error"] and "answered badly" not in got["error"]
     [q] = asked(tmp_path, histogram, "avg(histogram_quantile(0.9, sum by (le) (rate(wait_seconds_bucket[5m]))))")
-    assert [r["code"] for r in q["meta"]["verdict"]["reasons"]] == ["open-top-bucket", "averaged-percentiles", "quantile-in-bucket"]
+    assert [r["code"] for r in q["meta"]["verdict"]["reasons"]] == ["open-top-bucket", "averaged-percentiles", "quantile-in-bucket",
+                                                                    "scrape-unknown"]
 
 
 def test_a_bucket_query_at_one_bound_stays_plain_series_and_two_bounds_are_buckets(tmp_path, histogram):
@@ -286,7 +288,7 @@ def test_a_bucket_query_at_one_bound_stays_plain_series_and_two_bounds_are_bucke
     slo, top = asked(tmp_path, histogram, 'slo:rate(wait_seconds_bucket{le="0.5"}[2m])', "top")
     assert slo.get("shape") == "series" and "error" not in slo, slo
     assert len(slo["series"]) == 2 and slo["series"][0]["values"] == [5, 4, None, 1]
-    assert slo["meta"]["verdict"]["level"] == "ok"
+    assert [r["code"] for r in slo["meta"]["verdict"]["reasons"]] == ["scrape-unknown", "mixed-windows"]   # no misuse
     assert (top["shape"], top["form"]) == ("distribution", "bins") and top["x"]["edges"] == [0.0, 0.5]
     assert top["over_time"]["counts"] == [[5], [4], None, [1]]
 

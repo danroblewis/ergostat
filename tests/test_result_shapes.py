@@ -131,7 +131,8 @@ def test_every_answer_carries_its_envelope(tmp_path):
     got = samples(tmp_path)
     assert got["series"]["meta"] == {"source": "items", "query": None, "provenance": "observed", "verdict": {"level": "ok", "reasons": []},
                                      "n": 4, "n_effective": None, "sampling": {"step_s": 120.0, "scrape_s": None,
-                                                                               "range_windows_s": None, "observable_period_s": None}}
+                                                                               "range_windows_s": [], "nulls_s": [],
+                                                                               "observable_period_s": [240.0, 240.0]}}
     assert got["model"]["meta"]["provenance"] == "declared" and got["frequency"]["meta"]["provenance"] == "derived"
     assert got["table-one-row"]["meta"]["query"] == "SELECT"
     p = _p(tmp_path / "e")

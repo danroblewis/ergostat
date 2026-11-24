@@ -38,6 +38,7 @@ _LABEL_VALUES = re.compile(r"\s*label_values\(\s*(?:(.+)\s*,\s*)?([A-Za-z_][A-Za
 MOST_SUGGESTIONS = 100      # names one suggestion answers with
 SUGGEST_SECONDS = 3.0
 SUGGESTED = ("metrics", "labels", "values")
+ANALYSIS = {"name": "analysis", "type": "analysis", "language": "ergostat analysis"}   # query/analysis.py: reserved
 OWN_NAME = OWN_TYPE = "model"   # the source that is the project's own model (datasources/model.py)
 _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a label's name, as a suggestion takes it
 
@@ -108,7 +109,7 @@ def types() -> dict[str, ModuleType]:
         return dict(_TYPES)
 
 
-OWN = "ergostat"           # the built-in source: ergostat's own readings, as PromQL (a model's source of this name wins)
+OWN = "ergostat"          # the built-in source: ergostat's own readings, as PromQL (a model's source of this name wins)
 NEEDS = ("ergostat's own series answer PromQL only from VictoriaMetrics, and this project keeps its readings in SQLite: "
          "run VictoriaMetrics, set storage: measurements: victoriametrics, and copy the readings over with "
          "ergostat migrate (docs/DASHBOARDS.md, Turning on VictoriaMetrics)")
@@ -137,13 +138,22 @@ def _needs(src) -> None:
 
 
 def listed(spec, store=None, own_only: bool = False) -> list[dict]:
-    """The sources a panel can query (the built-in ``ergostat`` when it answers: on VictoriaMetrics): name, type and
-    language, and never their connection. A panel naming it over SQLite is answered with what it needs. ``own_only``:
-    only those that read nothing outside the project (what anyone under a public name may ask)."""
+    """The sources a panel can query: ergostat's own ``analysis`` first (reserved, never declared, and a declared source
+    of that name is never listed), then the rest (the built-in ``ergostat`` when it answers: on VictoriaMetrics): name,
+    type and language, and never their connection. A panel naming it over SQLite is answered with what it needs.
+    ``own_only``: only those that read nothing outside the project (what anyone under a public name may ask; an
+    analysis re-asks only a source its reader may ask)."""
     every = types()
-    return [{"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
-            for s in sources(spec, store).values() if s.type in every and not s.options.get("needs")
-            and (not own_only or s.type == OWN_TYPE)]
+    return [dict(ANALYSIS), *({"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
+                              for s in sources(spec, store).values() if s.type in every and not s.options.get("needs")
+                              and s.name != ANALYSIS["name"] and (not own_only or s.type == OWN_TYPE))]
+
+
+def language(spec, name: str, store=None) -> str | None:
+    """The language a source is asked in, or None for none of that name."""
+    src = sources(spec, store).get(name)
+    mod = types().get(src.type) if src is not None else None
+    return mod.LANGUAGE if mod is not None else None
 
 
 def own(spec, name: str) -> bool:
