@@ -202,7 +202,7 @@ Tests:
 
 Round 2 of the continued gap (gap/status-is-a-maintained-projection-2-continued-2), on main as of 59600738 (merged;
 its one conflict, `_Head.__init__` in `ergostat/segments.py`, keeps both main's `by_key` and the branch's `t_min`).
-All three done items stay built and their tests pass. Net code outside tests, docs and dev: +327 lines (532 added, 205
+All three done items stay built and their tests pass. Net code outside tests, docs and dev: +330 lines (527 added, 197
 deleted) of the 600, for the whole branch.
 
 The review's one finding, and what changed:
