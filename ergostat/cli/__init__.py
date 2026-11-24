@@ -353,7 +353,8 @@ def build() -> argparse.ArgumentParser:
                                        "once all are held, run again, it sends nothing", named=False)
     mg.add_argument("--url", help="the VictoriaMetrics (default: storage: measurements: url:, else http://127.0.0.1:8428)")
     mg.add_argument("--dry-run", action="store_true", help="say what would be sent, and send nothing")
-    rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs) and start from nothing",
+    rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs; on VictoriaMetrics, its series "
+                                           "in the server) and start from nothing",
                named=False)
     rs.add_argument("--yes", action="store_true", help="do it (without it, says what it would forget)")
     mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",

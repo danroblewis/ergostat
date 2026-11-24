@@ -313,3 +313,58 @@ Run here, one file at a time:
 
 `main` (b9341591) is already merged and has not moved. Not run: the whole unit suite, the four browser files (no page
 changed) and `demo_check` (no example touched).
+
+## Where it stopped
+
+Round 8, a merge of main and a fix round: built, 2026-11-24. About 20 net lines of code this round, inside the budget.
+
+**The merge of main (e8669794).** Three files conflicted. In each one, main had added the built-in `model` source
+(`_sources`, `own`, `listed(own_only=)`) and `public=` for public readers, while the branch had added `store=` and the
+built-in `ergostat`. I kept both:
+- `datasources.sources(spec, store)` now gives the declared sources, plus `model` (main's rule: when there is a spec
+  and no declared source is named `model`), plus `ergostat` (when a store is given).
+- `listed(spec, store=None, own_only=False)` and `query(..., store=None, project=None, public=False)` take both
+  sets of arguments.
+- `own()` stays as it is on main: only the `model` type counts as the project's own. So the built-in `ergostat`, which
+  reads a server, is never answered for a public reader. That is the fail-closed choice.
+- `engine._from_source` passes `store`, `project` and `public`, and `fields._read` keeps main's `pipelines`.
+- Two branch tests had expected the listing to be exactly `[]` or exactly `[ergostat]`. Since main, that listing also
+  holds `model`, so the tests now check membership. One of them also asserts that `own(spec, "ergostat")` is false.
+
+**The finding (blocking): `ergostat reset` on a VictoriaMetrics record.** I took the finding's first option.
+- With `--yes`, `cmd_reset` calls `measurements.drop()` before deleting anything local. `drop()` sends
+  `delete_series` for `{__name__=~"ergostat_.+",project=...}`. That covers every name, including the old
+  `ergostat_reading`, and it also covers the readings that `forget` set aside, which are in the server.
+- If the server is away, the reset is refused (exit 1). Its stderr names VictoriaMetrics, and nothing local is deleted
+  (lesson 3).
+- `RECORD` now includes `measurements.backfilled.db` and its `-shm` and `-wal` files, so a later `--backfill` of the
+  same file is sent again.
+- Without `--yes`, the command also says that it would delete every reading of the project in VictoriaMetrics at the
+  server's address.
+- The `measurements.backend` mark stays `victoriametrics`, which is now consistent because the server holds nothing
+  for the project.
+- The help text, the docstring, SPEC §4b (*The default*) and docs/DASHBOARDS.md §6a now say all of this.
+
+The new test, `test_reset_of_a_victoriametrics_record_deletes_its_series_in_the_server`, runs against the stub server,
+which now records POSTs. It checks four things:
+- plain `reset` sends nothing and names the server;
+- `reset --yes` sends exactly one `delete_series` with the project's selector;
+- the backfill ledger and `forgotten.json` are gone;
+- a server that is away gives exit 1 and leaves the local files.
+
+I broke the code to check the test can fail: with the `drop()` call skipped, the test failed (the stub received
+nothing). The call is back in place.
+
+Still not proven: no VictoriaMetrics binary is in this container, so the five real-server tests were skipped again.
+Done items 1 and 2 still have no passing run behind them. The coordinator should run
+`tests/test_metrics_store_labels.py` with `ERGOSTAT_TEST_VM_BIN` set before landing.
+
+Run here, one file at a time (three at most per call):
+- test_metrics_store_labels, test_data_sources and test_model_data_source: 69 passed, 5 skipped (the real-server
+  tests).
+- test_sql_source, test_query_engine and test_graph_cli_web: 120 passed.
+- test_dashboards_doc, test_cli_fallback and test_storage: 59 passed.
+- test_data_source_panels (browser) and test_spec_structure, under the watchdog: 14 passed, rc 0, none skipped.
+- ruff is clean.
+
+Not run: the whole unit suite, the other browser files and `demo_check` (no example touched).

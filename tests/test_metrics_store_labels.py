@@ -102,6 +102,13 @@ class Stub(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_POST(self):                                  # (what is deleted or imported: recorded, and answered empty)
+        u = urlparse(self.path)
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        type(self).seen.append((u.path, parse_qs(u.query)))
+        self.send_response(204)
+        self.end_headers()
+
 
 @pytest.fixture(scope="module")
 def stub():
@@ -218,6 +225,33 @@ def test_reset_keeps_a_sqlite_record_on_sqlite(tmp_path, monkeypatch, stub):
     fresh = p.dir.parent / "fresh-0"                                         # (whereas a new record here is asked)
     fresh.mkdir()
     assert storage.measurements_backend(storage.Storage(), fresh) == "victoriametrics"
+
+
+def test_reset_of_a_victoriametrics_record_deletes_its_series_in_the_server(tmp_path, stub, capsys):
+    """On VictoriaMetrics, ``ergostat reset --yes`` deletes this project's series in the server (every name, the old
+    single one too) and the backfill ledger, so the record that starts from nothing reads nothing old back; a server
+    that is away refuses the reset, and nothing local is deleted."""
+    from ergostat.cli import main
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    p = project(repo, f"storage:\n  measurements: {{backend: victoriametrics, url: '{stub}'}}\n")
+    assert isinstance(p.measurements, Victoria)
+    for n in ("measurements.backfilled.db", "measurements.forgotten.json"):
+        (p.dir / n).write_bytes(b"")
+    Stub.seen.clear()
+    assert main(["-C", str(repo), "reset"]) == 0                               # (says so, deletes nothing)
+    assert f"every reading of project {p.dir.name} in VictoriaMetrics" in capsys.readouterr().out and Stub.seen == []
+    assert main(["-C", str(repo), "reset", "--yes"]) == 0
+    assert Stub.seen == [("/api/v1/admin/tsdb/delete_series", {"match[]": [p.measurements._sel()]})]
+    assert '__name__=~"ergostat_.+"' in p.measurements._sel()                  # (OLD_METRIC included)
+    assert not (p.dir / "measurements.backfilled.db").exists() and not (p.dir / "measurements.forgotten.json").exists()
+    away = tmp_path / "away"
+    away.mkdir()
+    q = project(away, f"storage:\n  measurements: {{backend: victoriametrics, url: 'http://127.0.0.1:{free_port()}'}}\n")
+    (q.dir / "measurements.forgotten.json").write_bytes(b"")
+    capsys.readouterr()
+    assert main(["-C", str(away), "reset", "--yes"]) == 1
+    assert "VictoriaMetrics" in capsys.readouterr().err and (q.dir / "measurements.forgotten.json").exists()
 
 
 def _spec(tmp_path, text: str):

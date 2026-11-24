@@ -154,7 +154,8 @@ is only read, so going back is removing those lines: the project reads SQLite ag
 **A new install** (a project whose record has no readings yet, and whose YAML names no backend) uses VictoriaMetrics by
 itself when one answers at `http://127.0.0.1:8428`, so its dashboard has data from the first reading; with none there
 it uses SQLite, as before. An existing SQLite install stays on SQLite until it migrates, and so does one that is
-`ergostat reset`. This default is taken only for a project under the default home, `~/.ergostat`: with
+`ergostat reset`. On VictoriaMetrics, `ergostat reset --yes` deletes the project's series in the server too, so the
+record starts from nothing; with the server away it refuses, and deletes nothing. This default is taken only for a project under the default home, `~/.ergostat`: with
 `ERGOSTAT_HOME` set elsewhere (as scripts, demos and benchmarks do), a new project uses SQLite unless its YAML names
 `victoriametrics` or `ERGOSTAT_DEFAULT_MEASUREMENTS=victoriametrics` is set.
 

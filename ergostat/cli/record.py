@@ -345,27 +345,40 @@ def cmd_residual(args) -> int:
 
 RECORD = ("events.db", "events.db-shm", "events.db-wal", "measurements.db", "measurements.db-shm", "measurements.db-wal",
           "events", "archive", "measurements.forgotten.json", "run.log", "transcripts.json",   # events/: segments.py
-          "items")                                                                        # items/: the item index
+          "items",                                                                        # items/: the item index
+          "measurements.backfilled.db", "measurements.backfilled.db-shm", "measurements.backfilled.db-wal")
 
 
 def cmd_reset(args) -> int:
     """``ergostat reset``: forget this project's record (every event, item and measurement, and the
     agents' logs) and start from nothing. Only what ergostat wrote there is deleted, by name; the
-    project's own files (and anything its programs keep, like an example's run/) are not touched."""
+    project's own files (and anything its programs keep, like an example's run/) are not touched.
+    On VictoriaMetrics, this project's series in the server are deleted first; a server that is away
+    refuses the reset, and nothing is deleted."""
     import shutil
 
     from ..runner import running_pid
+    from ..victoria import VictoriaError
     p = open_project(args)
     if running_pid(p):
         print("it is running: stop it first (ergostat run --stop, or Ctrl-C), then reset", file=sys.stderr)
         return 2
     gone = [p.dir / n for n in RECORD if (p.dir / n).exists()]
     logs = p.dir / "logs"
+    vm = p.measurements if getattr(p.measurements, "name", "") == "victoriametrics" else None
     if not args.yes:
         what = ", ".join(x.name for x in gone) + (", logs/" if logs.is_dir() else "")
-        print(f"this forgets {p.model.name}'s record in {p.dir}: {what or 'nothing is there'}.\n"
-              f"ergostat reset --yes to do it")
+        print(f"this forgets {p.model.name}'s record in {p.dir}: {what or 'nothing is there'}"
+              + (f"; and every reading of project {vm.project} in VictoriaMetrics at {vm.base}" if vm else "")
+              + ".\nergostat reset --yes to do it")
         return 0
+    if vm is not None:
+        try:
+            vm.drop()
+        except VictoriaError as e:
+            print(f"ergostat reset: this record's readings are in VictoriaMetrics, which did not delete them ({e}); "
+                  "nothing was reset: start the server and reset again", file=sys.stderr)
+            return 1
     for f in gone:
         shutil.rmtree(f) if f.is_dir() else f.unlink()
     if p.dir / "measurements.db" in gone:          # a SQLite record stays SQLite: the mark storage reads (never re-asked)
