@@ -362,27 +362,27 @@ function bdWrapRows(g, lay, W, H) {
 /* the systems no signal joins (blockdiagram.py _top_row): parallel rows below what is coupled, in the model's order,
    left edges aligned, each in its own outline, one caption under them. A line within a row moves with it. */
 const BD_ROW_PAD = 10;
+const bdExt = (cs) => ({ x0: Math.min(...cs.map((c) => c.x)), y0: Math.min(...cs.map((c) => c.y)),
+                         x1: Math.max(...cs.map((c) => c.x + c.width)), y1: Math.max(...cs.map((c) => c.y + c.height)) });
 function bdStackRows(g, lay, size) {
   if (!(g.rows || []).length) return {};
-  const fr = Object.fromEntries((g.frames || []).map((f) => [f.id, f])), rowOf = {};
+  const fr = Object.fromEntries((g.frames || []).map((f) => [f.id, f])), rowOf = {}, ext = bdExt;
   const top = (id) => { while (fr[id]?.parent) id = fr[id].parent; return id; };
   g.rows.forEach((r, i) => { for (const id of [...r.nodes, r.frame]) if (id) rowOf[id] = i; });
   const items = [...lay.children.map((c) => [c, rowOf[c.id] ?? rowOf[c.within?.[0]]]), ...lay.containers.map((c) => [c, rowOf[top(c.id)]])];
-  const ext = (cs) => ({ x0: Math.min(...cs.map((c) => c.x)), y0: Math.min(...cs.map((c) => c.y)),
-                         x1: Math.max(...cs.map((c) => c.x + c.width)), y1: Math.max(...cs.map((c) => c.y + c.height)) });
   const rest = items.filter(([, i]) => i == null).map(([c]) => c), x = 20 + BD_ROW_PAD;
   let y = (rest.length ? ext(rest).y1 + BD_ROW_GAP : 20) + BD_ROW_PAD;
-  const shift = {}, rects = [];
+  const shift = {}, members = [];
+  let wide = 0;
   g.rows.forEach((r, i) => {
     const cs = items.filter(([, j]) => j === i).map(([c]) => c);
     if (!cs.length) return;
     const b = ext(cs);
     shift[i] = { dx: x - b.x0, dy: y - b.y0 };
-    rects.push({ system: r.system, x: x - BD_ROW_PAD, y: y - BD_ROW_PAD, width: b.x1 - b.x0 + 2 * BD_ROW_PAD, height: b.y1 - b.y0 + 2 * BD_ROW_PAD });
+    members.push({ system: r.system, ids: cs.map((c) => c.id) });
+    wide = Math.max(wide, b.x1 - b.x0 + 2 * BD_ROW_PAD);
     y += b.y1 - b.y0 + 2 * BD_ROW_PAD + 14;
   });
-  const wide = Math.max(...rects.map((r) => r.width));
-  for (const r of rects) r.width = wide;                // (parallel: as wide as the widest)
   const mv = (o, d) => { if (d) { o.x += d.dx; o.y += d.dy; } };
   for (const [c, i] of items) mv(c, shift[i]);
   const at = Object.fromEntries(items.filter(([c]) => !fr[c.id]).map(([c, i]) => [c.id, i])), ge = Object.fromEntries(g.edges.map((e) => [e.id, e]));
@@ -394,7 +394,17 @@ function bdStackRows(g, lay, size) {
   }
   size[0] = Math.max(size[0], x + wide + 20);
   size[1] = Math.max(size[1], y + 24);
-  return { rows: rects, caption: g.caption && { x: x - BD_ROW_PAD, y: y + 6, text: g.caption } };
+  return { rowMembers: members, caption: g.caption || null };
+}
+/* each row's outline and the caption, from where its parts are when drawn: after a system opened or closed was
+   kept in place (anchorLayout), a pin or a drag, they still frame their rows */
+function bdRowOutlines(lay) {
+  const at = Object.fromEntries([...lay.children, ...(lay.containers || [])].map((c) => [c.id, c]));
+  const rows = (lay.rowMembers || []).map((r) => [r.system, r.ids.map((id) => at[id]).filter(Boolean)]).filter(([, cs]) => cs.length)
+    .map(([system, cs]) => { const b = bdExt(cs), p = BD_ROW_PAD; return { system, x: b.x0 - p, y: b.y0 - p, width: b.x1 - b.x0 + 2 * p, height: b.y1 - b.y0 + 2 * p }; });
+  const wide = Math.max(0, ...rows.map((r) => r.width)), low = Math.max(...rows.map((r) => r.y + r.height));
+  for (const r of rows) r.width = wide;                 // (parallel: as wide as the widest)
+  return { rows, caption: lay.caption && rows.length ? { x: rows[0].x, y: low + 20, text: lay.caption } : null };
 }
 
 /* ---- the lines, routed by libavoid around every part (avoid.js's router, in its worker) */
@@ -888,8 +898,9 @@ function bdDraw(svg, g, lay) {
     });
     vp.append(fg);
   }
-  for (const r of lay.rows || []) vp.append(s("rect", { class: "bd-row", "data-system": r.system, x: r.x, y: r.y, width: r.width, height: r.height, rx: 6 }));
-  if (lay.caption) vp.append(s("text", { class: "bd-row-caption", x: lay.caption.x, y: lay.caption.y }, lay.caption.text));
+  const rowsAt = bdRowOutlines(lay);
+  for (const r of rowsAt.rows) vp.append(s("rect", { class: "bd-row", "data-system": r.system, x: r.x, y: r.y, width: r.width, height: r.height, rx: 6 }));
+  if (rowsAt.caption) vp.append(s("text", { class: "bd-row-caption", x: rowsAt.caption.x, y: rowsAt.caption.y }, rowsAt.caption.text));
   if (lay.rule) vp.append(s("path", { class: "bd-upkeep-rule", d: `M${lay.rule.x0},${lay.rule.y} H${lay.rule.x1}` }));
   // the lines: each signal from its port, an arrowhead where it arrives, a dot where it is taken off
   const edgesG = s("g", { class: "bd-edges" }), labelsG = s("g", { class: "bd-labels" });

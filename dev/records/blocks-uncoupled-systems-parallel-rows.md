@@ -83,6 +83,25 @@ there. `test_every_view_draws_cleanly_and_in_time` passed on big and image-squee
 same record names that failure on the-job. Neither was rerun on clean main here. Not run: the whole unit suite and
 the four browser files. Main was merged in (already up to date).
 
+Round 2. The one finding (blocking): the row outlines and the caption were worked out in `bdStackRows`, before
+`anchorLayout` (a system just opened or closed is kept where it was) and `applyPins` moved the parts, so they were
+drawn away from their rows. Fixed: `bdStackRows` now only stacks the rows and keeps which parts are in each
+(`lay.rowMembers`) and the caption's text. The new `bdRowOutlines(lay)` works out the outlines and the caption when
+they are drawn, from where the rows' parts are then. So they follow the anchor shift, a pin, and a drag that settles
+without a new layout. The widths are still equal (the widest), and the caption sits under the lowest outline. The
+outlines still share one left edge after an anchor shift, which moves everything by the same amount. A pin that moves
+one part moves its row's outline with it. SPEC (Drawn as parts) says so.
+- New browser test `test_rows_keep_their_outlines_when_a_coupled_system_opens_or_closes_in_place`, on image-squeeze.
+  It opens service, closes it, then opens it again with `modelling`'s block pinned at (1500, 40). Each time it checks
+  that an anchor was set, each row's parts are inside its outline, and the caption is below every outline. It also
+  checks that the pin took. I broke the fix on purpose (outlines copied before `anchorLayout` and drawn from that
+  copy) and the test failed on the first opening: regressions' parts at x 959-1603 against an outline at x 20-690.
+- Run here: ruff clean. The new test and the three `test_uncoupled_systems_are_parallel_rows_…` cases passed.
+  `test_the_control_view_draws_every_example_cleanly_as_a_block_diagram` passed on 22 of 23 examples. It failed on
+  autoscaler, the same READY timeout as round 1, in an example with no systems and so no rows. It was not rerun on
+  clean main. The Python is unchanged this round. Not run: the whole unit suite and the four browser files.
+Overrun reason: 110 net lines against the 100 budget; the 10 over are bdRowOutlines, the review's fix (outlines worked out at draw time, after the anchor shift and the pins), which the round-1 design had no room for.
+
 ## Entry
 
 **Blocks: uncoupled systems are parallel rows.** Two or more top-level systems that no signal joins are drawn as

@@ -845,7 +845,8 @@ goal of P the two keep their labelled wires alone. Every wire between systems is
 systems that no wire joins to anything outside them (§3 there) are drawn as parallel rows below the coupled ones, in
 the model's order with its upkeep last, left edges aligned, each in a dashed outline: a closed one as r (its goals'
 references, a vector with its count) into its box and y (what those goals hold) out of it, an open one as its frame;
-one caption under them, "no signals between these systems". A single such system is drawn as before. In the Dynamics view a closed system is a module: its name, what it is, its
+one caption under them, "no signals between these systems". The outlines and the caption are drawn round where the
+rows' parts are when drawn, so they follow a system kept in place as it opens or closes, and a pin. A single such system is drawn as before. In the Dynamics view a closed system is a module: its name, what it is, its
 ports, and the first three of those measures (not a remote's, nor ergostat's own upkeep) each as its name, its value
 now and a sparkline of its behaviour over the page's window, on its own scale (its low–high written after it, so two
 never seem to share an axis). They sit in the free middle of the box's existing rows (its description's second line,
