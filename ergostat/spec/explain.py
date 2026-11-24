@@ -298,7 +298,8 @@ class Explainer:
         if b.type == "program":
             lines.append(f"  Runs: `{b.params.get('run')}`")
         elif b.type == "ai":
-            lines.append(f"  Prompt: {str(b.params.get('prompt'))[:120]}")
+            from ..library.untrusted import close
+            lines.append(f"  Prompt: {close(str(b.params.get('prompt'))[:120])}")   # a marked prompt cut stays marked
         elif b.type == "person":
             lines.append(f"  Asks: {b.params.get('ask')}")
         elif b.type == "external":

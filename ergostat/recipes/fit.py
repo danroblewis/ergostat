@@ -117,7 +117,9 @@ def cut(text: str, budget: int) -> str:
     keep = text[:max(0, budget - len(note))]
     if "\n" in keep[len(keep) // 2:]:
         keep = keep[:keep.rfind("\n")]
-    return keep + note
+    from ..library.untrusted import END, close
+    kept = close(keep)                         # a library's text cut short stays inside its mark (SPEC §2a)
+    return (kept if len(kept) <= len(keep) else close(keep[:len(keep) - len(END)])) + note
 
 
 def demote(md: str) -> str:

@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 import tomllib
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent          # dev/
@@ -45,6 +45,7 @@ def config() -> dict:
     if local.is_file():
         cfg = _merge(cfg, tomllib.loads(local.read_text()))
     limits(cfg)                                         # (a limit past its ceiling refused here, and again at run time)
+    slot_count(cfg)
     return cfg
 
 
@@ -92,24 +93,17 @@ def _outage():
     return outage
 
 
-def draining(cfg: dict) -> bool:
-    """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
-    review) waits for its next turn instead of starting; so it does while the AI is held (aihold.py)."""
-    aihold = _aihold()
-    return (run_dir(cfg) / "drain.json").exists() or aihold.held(cfg) is not None
+def ai_held(cfg: dict) -> bool:
+    """While the AI is held for the provider's usage limit (aihold.py), a session that holds no lease (the groomer,
+    the plan review) waits for its next turn instead of starting. (A version switch holds nothing: its runs under way
+    carry on, dev/bin/drain.py.)"""
+    return _aihold().held(cfg) is not None
 
 
-def drain_holds(cfg: dict) -> bool:
-    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), or the AI is held for the
-    provider's usage limit (aihold.py), an AI run takes no new item: it gives it back uncounted, to be taken again
-    after the switch, or at the reset."""
-    aihold = _aihold()
-    if aihold.holds(cfg):
-        return True
-    if not (run_dir(cfg) / "drain.json").exists():
-        return False
-    nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
-    return True
+def ai_holds(cfg: dict) -> bool:
+    """While the AI is held for the provider's usage limit (aihold.py), an AI run takes no new item: it gives it back
+    uncounted, to be taken again at the reset."""
+    return bool(_aihold().holds(cfg))
 
 
 def ergostat(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -283,14 +277,24 @@ def branch_of(gap: dict) -> str:
 
 def definition_file(gap: dict, work: Path | None = None) -> str:
     """The definition's path in the repository: `dev/records/<branch>.md`, or the old
-    `docs/roadmap/overnight/<branch>.md` when the clone ``work`` has only that (a branch begun before the move); or,
-    for a gap that `continues` a branch and names its `definition` as `REF:dev/records/X.md` (or the old folder), that
-    file (the continued branch's own, so no copy is made under the new gap's name)."""
+    `docs/roadmap/overnight/<branch>.md` when the clone ``work`` has that and the new one is not a definition (missing,
+    or only the `## Entry` gapsdoc split appended: defines()), a branch begun before the move; or, for a gap that
+    `continues` a branch and names its `definition` as `REF:dev/records/X.md` (or the old folder), that file by the
+    same rule (the continued branch's own, so no copy is made under the new gap's name)."""
     m = REF.fullmatch(str(gap["fields"].get("definition") or ""))
-    if m and gap["fields"].get("continues"):
-        return m.group(2)
-    new, old = (f"{d}/{branch_of(gap)}.md" for d in (DEFS, OLD_DEFS))
-    return old if work and not (work / new).is_file() and (work / old).is_file() else new
+    new = m.group(2) if m and gap["fields"].get("continues") else f"{DEFS}/{branch_of(gap)}.md"
+    old = f"{OLD_DEFS}/{new.rsplit('/', 1)[1]}"
+    return old if work and (work / old).is_file() and not defines(work / new) else new
+
+
+def defines(p: Path) -> bool:
+    """Whether a record holds a definition (a `## Definition of done` section), not only its GAPS.md `## Entry`."""
+    return p.is_file() and any(ln.rstrip() == "## Definition of done" for ln in p.read_text().split("\n"))
+
+
+def entry_only(text: str) -> bool:
+    """A record that is only its GAPS.md `## Entry` (as gapsdoc split writes one): no definition of done."""
+    return text.lstrip().startswith("## Entry") and not any(ln.startswith("## ") for ln in text.lstrip().split("\n")[1:])
 
 
 def git_branch(branch: str) -> str:
@@ -475,14 +479,26 @@ def suites_running() -> int:
         agents.suite_containers()
 
 
-def wait_quiet(cfg: dict, why: str = "") -> float:
-    """Wait until fewer than [load] most_suites suites run on this machine (anyone's), renewing the lease; the
-    seconds waited."""
-    began, poll, most = time.time(), float(cfg["load"]["wait_poll"]), int(cfg["load"].get("most_suites", 1))
+def wait_quiet(cfg: dict, why: str = "", most: int | None = None) -> float:
+    """Wait until fewer than ``most`` (default [load] most_suites) suites run on this machine (anyone's), renewing the
+    lease; the seconds waited. The queue's ``most`` is [suites] slots: the kept slot free is free for it (slots.py)."""
+    began, poll = time.time(), float(cfg["load"]["wait_poll"])
+    most = int(cfg["load"].get("most_suites", 1) if most is None else most)
     while cfg["load"].get("wait", True) and suites_running() >= most:
         renew()
         time.sleep(poll)
     return time.time() - began
+
+
+SLOTS, SLOTS_MOST = 6, 32               # [suites] slots: its default (the machine-quiet goal's hold) and its ceiling
+
+
+def slot_count(cfg: dict) -> int:
+    """[suites] slots (1 to 32; at config and run time): one not a count or past its ceiling refused, never clamped."""
+    n = cfg.get("suites", {}).get("slots", SLOTS)
+    if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= SLOTS_MOST:
+        raise ValueError(f"[suites] slots = {n!r}: a count from 1 to {SLOTS_MOST}")
+    return n
 
 
 @contextmanager
@@ -556,6 +572,11 @@ def agents_module():
     return agents
 
 
+def slots_module():
+    import slots
+    return slots
+
+
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
           quarantined: list[str] = (), box: str = "", group: set | None = None, **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
@@ -578,15 +599,15 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         BOXES.add(boxed)
         if group is not None:
             group.add(boxed)
-    held = None
-    if slot and cfg["suites"].get("slot") and name != "ruff":
+    held, slotted = None, bool(slot and cfg["suites"].get("slot") and name != "ruff")
+    if slotted:                                         # (and the last free slot kept for the queue: slots.gate)
         if box:                                         # the limits' clocks start once the slot is held (marked inside)
             held = log.with_name(log.name + ".held")
             held.unlink(missing_ok=True)
             cmd = "sh -c " + shlex.quote(f": > {shlex.quote(str(held))}; {cmd}")
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began, stopped = time.time(), None
-    with log.open("w") as out:
+    with log.open("w") as out, slots_module().gate(cfg) if slotted else nullcontext():
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
         SUITES.add(p.pid)

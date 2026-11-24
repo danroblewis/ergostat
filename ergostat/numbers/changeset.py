@@ -327,7 +327,8 @@ def _signature(x) -> str | None:
     for sn in sorted(getattr(x, "sensors", {}) or {}):
         d = ver._plain(x.sensors[sn])
         if isinstance(d, dict):
-            d = {k: v for k, v in d.items() if k in ("items", "run", "query", "builtin", "changes", "parse", "averages")}
+            d = {k: v for k, v in d.items() if k in ("items", "run", "query", "builtin", "changes", "parse", "averages",
+                                                     "journal")}
         got.append(d)
     return json.dumps(got, sort_keys=True, default=str) if got else None
 
