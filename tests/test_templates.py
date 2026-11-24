@@ -3,6 +3,7 @@ pointing at the use: line; parameters are checked; the owner's own templates are
 built-in template checks and runs on its stand-ins; the authoring tools write, try and show an instance."""
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -313,6 +314,97 @@ def test_with_every_default_each_runs_on_stand_ins(tmp_path):
     assert not [p for p in ps if p.code == "missing-feedback"], "every goal a template holds is served"
 
 
+def test_observed_autoscaler_on_stand_ins(tmp_path):
+    spec, ps = read(project(tmp_path, "name: t\nuses:\n  web: {use: observed-autoscaler, with: {target: 0.6, max: 8}}\n"))
+    assert not [p for p in ps if p.level == "error"], [str(p) for p in ps if p.level == "error"]
+    ext = [b for b in spec.blocks.values() if b.type == "external"]
+    assert [b.name for b in ext] == ["web-hpa"] and ext[0].law.kind == "kubernetes-hpa"
+    assert ext[0].law.params["target"] == 0.6 and (ext[0].law.params["min"], ext[0].law.params["max"]) == (1, 8)
+    assert ext[0].law.params["every"] == 15.0 and ext[0].law.params["stabilize-down"] == 300.0   # the HPA's own, left out
+    g = spec.goals["web-at-target"]
+    assert str(g.of) == "auxiliary.web-utilisation" and str(g.hold) == "<= 0.6"
+    assert "standin replicas" in spec.stocks["web-replicas"].sensors["main"].run
+    assert not spec.auxiliaries["web-utilisation"].sensors, "left out: load / replicas, not measured"
+    finds = [p.message for p in ps if p.code == "template-stand-in"]
+    assert finds and "replicas or replicas-query" in finds[0] and "load or load-query" in finds[0], finds
+    q = {"source": "prom", "promql": "sum(x)"}
+    spec, ps = read(project(tmp_path, "name: t\nuses:\n  web:\n    use: observed-autoscaler\n    with:\n"
+                            f"      utilisation-query: {json.dumps(q)}\n      replicas: echo 3\n"))
+    assert spec.auxiliaries["web-utilisation"].sensors["main"].query == q
+    assert spec.stocks["web-replicas"].sensors["main"].run == "echo 3"
+
+
+def test_observed_autoscaler_stand_ins_follow_a_made_up_load(tmp_path, monkeypatch):
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    project(tmp_path, "name: s\n")
+    args = ["--name", "w", "--target", "0.5", "--min", "2", "--max", "10"]
+    load = float(run_lib(tmp_path, "standin", "load", *args).stdout)
+    assert 0.5 * 6 * 0.5 <= load <= 0.5 * 6 * 1.5
+    first = int(run_lib(tmp_path, "standin", "replicas", *args).stdout)
+    assert 2 <= first <= 10 and abs(first - math.ceil(load / 0.5)) <= 1
+    assert abs(int(run_lib(tmp_path, "standin", "replicas", *args).stdout) - first) <= 1, "one replica a reading"
+    sig = float(run_lib(tmp_path, "standin", "signal", "--threshold", "100").stdout)
+    assert run_lib(tmp_path, "standin", "firing", "--threshold", "100").stdout.strip() in ("0", "1") and 50 <= sig <= 150
+
+
+def test_observed_autoscaler_blocks_loop(tmp_path):
+    from types import SimpleNamespace
+
+    from ergostat import blockdiagram as bd
+    for given, y, key in (("{}", "proc", "auxiliary.web-utilisation"),     # load / replicas: y straight from its process
+                          ("{utilisation: echo 0.5}", "sen", "meas.auxiliary.web-utilisation.main")):   # measured: its sensor
+        spec, _ = read(project(tmp_path, f"name: t\nuses:\n  web: {{use: observed-autoscaler, with: {given}}}\n"))
+        g = bd.diagram(SimpleNamespace(spec=spec), {})
+        into = {e["signal"]["sym"]: e for e in g["edges"] if e["target"] == "blk:web-hpa"}
+        out = [e for e in g["edges"] if e["source"] == "blk:web-hpa"]
+        assert set(into) == {"r", "y"}, into
+        assert into["r"]["source"] == "ref:web-at-target" and into["r"]["signal"]["sub"] == "web-at-target", into
+        assert into["y"]["source"] == f"{y}:auxiliary.web-utilisation" and into["y"]["key"] == key, into
+        assert [(e["signal"]["sym"], e["key"]) for e in out] == [("u", "stock.web-replicas")], out
+        n = next(x for x in g["nodes"] if x["id"] == "blk:web-hpa")
+        assert n["role"] == "controller" and n["declared"] == "declared kubernetes-hpa", n
+
+
+@pytest.mark.slow
+def test_observed_autoscaler_and_alert_rule_run_offline_and_draw_in_both_views(tmp_path, monkeypatch):
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.server import Live, api
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    for inst, tpl, part in (("web", "observed-autoscaler", "web-replicas"), ("slow", "alert-rule", "slow-firing")):
+        root = tmp_path / inst
+        root.mkdir()
+        (root / "ergostat.yaml").write_text("name: p\n")
+        got = author.trial(root, None, 12, {"instance": inst, "template": tpl, "given": {"every": "2s"}})
+        assert got["check"]["ok"], got
+        assert got["ran"]["stocks"][part]["sensors"], got["ran"]["stocks"]       # its stand-ins read, offline
+        monkeypatch.setenv("ERGOSTAT_HOME", str(Path(got["scratch"]).parent / "home"))
+        live = Live(Project(mdl.load(Path(got["scratch"]))))
+        for view, node in (("dynamics", f"stock:{part}"), ("blocks", f"blk:{inst}-{'hpa' if inst == 'web' else 'rule'}")):
+            ids = {n["id"] for n in api(live, "graph", {"view": [view]})["nodes"]}
+            assert node in ids, (view, sorted(ids))
+        monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+
+
+def test_alert_rule_template_compiles(tmp_path):
+    spec, ps = read(project(tmp_path, "name: t\nuses:\n  slow:\n    use: alert-rule\n"
+                            "    with: {threshold: 300, for: 2m, pages: slow-page}\n"))
+    assert not [p for p in ps if p.level == "error"], [str(p) for p in ps if p.level == "error"]
+    b = spec.blocks["slow-rule"]
+    assert b.type == "external" and b.law.kind == "alert-rule"
+    assert b.law.params == {"threshold": 300.0, "side": "above", "for": 120.0}
+    idf = b.params["identify"]
+    assert (str(idf["input"]), str(idf["output"])) == ("auxiliary.slow-signal", "stock.slow-firing")
+    assert "standin signal" in spec.auxiliaries["slow-signal"].sensors["main"].run
+    assert spec.stocks["slow-firing"].sensors["main"].items == {"kind": "slow-page", "state": ["firing"], "measure": "count",
+                                                                "where": {}}
+    assert spec.items["slow-page"].states == ["firing", "resolved"]
+    assert [p for p in ps if p.code == "template-stand-in"]
+    spec, ps = read(project(tmp_path, "name: t\nuses:\n  slow: {use: alert-rule, with: {threshold: 5, side: below}}\n"))
+    assert not [p for p in ps if p.level == "error"] and not [k for k in spec.items if not k.startswith("ergostat.")]
+    assert "standin firing" in spec.stocks["slow-firing"].sensors["main"].run and spec.blocks["slow-rule"].law.params["side"] == "below"
+
+
 def run_lib(cwd: Path, *args, stdin: str = "", env: dict | None = None) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-m", "ergostat.library.run", *args], cwd=cwd, input=stdin, capture_output=True,
                           text=True, env={**os.environ, **(env or {})})
@@ -497,7 +589,10 @@ def test_the_mcp_server_lists_and_adds(tmp_path):
     s = Server(tmp_path)
     listed = json.loads(s.call("templates", {})["content"][0]["text"])
     assert {t["template"] for t in listed["templates"]} >= {"respond-to", "re-ping", "daily-report", "keep-under", "steps",
-                                                             "collect"}
+                                                             "collect", "observed-autoscaler", "alert-rule"}
+    from ergostat import helpdocs
+    adding = helpdocs.read("adding")                      # what `ergostat help adding` prints
+    assert all(f"| `{n}` |" in adding and f"### {n}\n" in adding for n in ("observed-autoscaler", "alert-rule"))
     one = json.loads(s.call("templates", {"name": "keep-under"})["content"][0]["text"])
     assert one["params"]["limit"]["required"] and "Control" in one["reading"]
     got = json.loads(s.call("add_use", {"instance": "disk", "template": "keep-under", "with": {"limit": 80},

@@ -3,6 +3,8 @@
     standin act [--fail SHARE]                  the item's work, pretended: prints a made-up result; fails at SHARE
     standin level --name INST --limit L         a level that creeps up: from 90% of the limit, 1% of it a second
     standin lower --name INST --limit L         the corrective action on it: takes a tenth of the limit off
+    standin load|replicas --name INST --target T --min A --max B   a swelling load; replicas following it
+    standin signal|firing --threshold X [--side S]                a signal swelling past X; 1 while it is past
     standin improver                            the model's improver, free: ergostat's own finders look again
 
 Each says it is a stand-in in what it prints."""
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import shlex
@@ -66,6 +69,42 @@ def level(argv: list[str]) -> int:
 
 def lower(argv: list[str]) -> int:
     return _level(argv, True)
+
+
+def _swell(level: float, t: float) -> float:
+    """A made-up load: ``level``, swelling by half of it and back over half an hour."""
+    return level * (1 + 0.5 * math.sin(2 * math.pi * t / 1800))
+
+
+def scaled(argv: list[str]) -> int:
+    """``load``: the made-up load, about what the middle of min..max replicas carry at the target; ``replicas``: an
+    autoscaler's replicas following it, one replica a reading toward ⌈load / target⌉ within min..max."""
+    ap = argparse.ArgumentParser(prog=f"standin {argv[0]}")
+    ap.add_argument("--name", required=True)
+    for k in ("--target", "--min", "--max"):
+        ap.add_argument(k, type=float, required=True)
+    a = ap.parse_args(argv[1:])
+    load = _swell(a.target * (a.min + a.max) / 2, now())
+    if argv[0] == "load":
+        print(round(load, 6))
+        return 0
+    want = min(a.max, max(a.min, math.ceil(load / a.target)))
+    with kept(a.name, "replicas") as s:
+        r = float(s.get("value", want))
+        s["value"] = r = r + (want > r) - (want < r)
+    print(int(r))
+    return 0
+
+
+def alert(argv: list[str]) -> int:
+    """``signal``: a made-up signal swelling past ``threshold`` and back; ``firing``: 1 while it is past (on ``side``)."""
+    ap = argparse.ArgumentParser(prog=f"standin {argv[0]}")
+    ap.add_argument("--threshold", type=float, required=True)
+    ap.add_argument("--side", choices=["above", "below"], default="above")
+    a = ap.parse_args(argv[1:])
+    x = _swell(a.threshold, now())
+    print(round(x, 6) if argv[0] == "signal" else int(x > a.threshold if a.side == "above" else x < a.threshold))
+    return 0
 
 
 def improver(argv: list[str]) -> int:
