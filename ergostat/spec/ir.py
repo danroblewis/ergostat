@@ -353,6 +353,12 @@ def upkeep_of(spec, x) -> str | None:
     return t if t in OWN_TEMPLATES else None
 
 
+def modelling_systems(spec) -> set[str]:
+    """The systems ``use: modelling`` made, by their instance's name (as state.attention groups their goals): drawn
+    with a dashed frame."""
+    return {i for i, u in (getattr(spec, "uses", None) or {}).items() if isinstance(u, dict) and u.get("template") == "modelling"}
+
+
 def modelling_request_kind() -> ItemKind:
     on = {f"{MODELLING_REQUEST}.raised": "open", f"{MODELLING_REQUEST}.reopened": "open", f"{MODELLING_REQUEST}.proposed": "proposed",
           f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered",
@@ -897,6 +903,16 @@ class Takes:
                                                      # without one after those with it; the order above among equals
     healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
     hold_by: list[str] = field(default_factory=list)   # ``faults: {hold-by: [F]}``: a value failing together is held
+    frozen: Frozen | None = None    # ``frozen: {first: N, urgent: F}``: its next N keep their order (leases/frozen.py)
+
+
+@dataclass(frozen=True)
+class Frozen:
+    """A block's frozen window (SPEC §9.5): the first ``first`` items it would take keep their order; an item whose
+    ``urgent`` field says ``{by, why}`` goes ahead of them, recorded."""
+
+    first: int
+    urgent: str = ""
 
 
 @dataclass
@@ -952,6 +968,7 @@ class ItemKind:
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
     finished: list[str] = field(default_factory=list)   # its finished states, when messages: done: does not name it
+    lost: list[str] = field(default_factory=list)       # its finished states that are a loss (scrapped), for yields
     about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
     moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
     if_unchanged: tuple = ()   # event types applied only to the item as read: their data's `read` is its event count then

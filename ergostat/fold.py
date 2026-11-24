@@ -14,6 +14,7 @@ from __future__ import annotations
 from .remote import box as remote_box
 from .remote import measures as remote_measures
 from .spec.architecture import size, size_said
+from .spec.ir import modelling_systems
 
 WORST = ("off", "stale", "open", "unknown", "holding")
 
@@ -188,5 +189,6 @@ def fold(g: dict, model, open_: set[str] | None, focus: str | None = None, reads
         e["loops"] = [k for k, lp in (g.get("loops") or {}).items() if e["source"] in lp["nodes"] and e["target"] in lp["nodes"]]
     return {**g, "nodes": [*out_nodes.values(), *boxes.values(), *(terms[t] for t in sorted(used_terms))], "edges": edges,
             "open": sorted(open_), "focus": focus, "tree": {s: {"within": spec.within.get(s), "description": d,
-                                                               **({"remote": True} if s in getattr(spec, "remotes", {}) else {})}
+                                                               **({"remote": True} if s in getattr(spec, "remotes", {}) else {}),
+                                                               **({"modelling": True} if s in modelling_systems(spec) else {})}
                                                            for s, d in spec.systems.items()}}

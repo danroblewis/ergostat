@@ -165,6 +165,22 @@ record starts from nothing; with the server away it refuses, and deletes nothing
 - `sum by (block) (increase(ergostat_run_cost_usd[1d]))`: each block's runs' dollars in a day.
 - `ergostat_valve_position{valve="intake"}`, `ergostat_block_output{block="hold"}`.
 
+- `sum by (state) (ergostat_items{kind="gap"})`: how many gaps in each state; `sum(increase(
+  ergostat_item_transitions_total{kind="gap",to="merged"}[1d]))`: gaps merged in a day.
+- `time() - max(ergostat_item_last_transition_timestamp_seconds{kind="gap",to="merged"})`: seconds since the last
+  merge.
+- `histogram_quantile(0.85, sum by (le) (rate(ergostat_item_time_in_state_seconds_bucket{kind="gap",state="building"}[7d])))`:
+  how long the 85th percentile of gaps stayed building. This counts only the gaps that have left `building`, so it
+  cannot see one that is stuck there.
+
+The item metrics (SPEC §4b, *Item metrics*) are written once a minute from the item index, backfilled from it when
+first turned on; an arrival is `from="(new)"` and an item forgotten after a prune `to="(gone)"`. So the items in a
+state change by what moved in less what moved out, and a kind's items by its arrivals less its forgotten items.
+ergostat checks this on each pass, and says on its output where it does not hold. The exception is a window in which
+`increase(ergostat_item_index_rebuilds_total[1h]) > 0`: there the index was made again (a kind edited, say), the
+counts were taken afresh, and the two need not agree, so read no leak into it. Add a gauge over `milestone` before
+comparing it, as a move between milestones is not a transition.
+
 `count by(__name__)({__name__=~"ergostat_.+"})` lists them all. VictoriaMetrics computes `rate()` and `increase()`
 without Prometheus's extrapolation, so an integer counter's increase is a whole number (SPEC §4e, *The built-in source
 `ergostat`*).

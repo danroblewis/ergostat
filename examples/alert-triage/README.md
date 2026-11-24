@@ -1,6 +1,6 @@
 # Alert triage: a workflow with a fan-out and a join, modelled well
 
-Each alert from the pager is triaged by an AI agent (noise is dismissed), its three lines of inquiry (logs, deploys,
+Each alert from the pager is triaged by a narrow AI (noise is dismissed), its three lines of inquiry (logs, deploys,
 metrics) are opened as facet items and investigated at once, the last facet to finish moves the alert on (the
 join), an AI agent summarises it, and it is closed or escalated to the on-call engineer, who handles it or sends it
 back for more investigation (the rework loop).

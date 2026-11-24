@@ -6,9 +6,10 @@ A type is one module in this package, found by its name: ``TYPE`` (the word in `
 keys besides ``type``), ``LANGUAGE`` (what its text is written in) and ``query(source, text, window)``, which returns
 ``[(name, [(time, value), ...]), ...]``, or a typed frame (series with roles, a table or points: _frames.py). It may
 also offer ``suggest(source, what, prefix, metric, label, seconds, most)``, the names an editor completes (``what``:
-``metrics``, ``labels`` or ``values``), read from the source's own metadata. It offers nothing else: a module with any
-other public function or class is refused, so ``query`` and ``suggest`` are the only operations anything can call on a
-source (and each must itself only read).
+``metrics``, ``labels`` or ``values``), read from the source's own metadata, and ``values(source, selector, label,
+window)``, the values a label takes, which a dashboard variable written ``label_values(selector, label)`` lists
+(``values`` here). It offers nothing else: a module with any other public function or class is refused, so ``query``,
+``suggest`` and ``values`` are the only operations anything can call on a source (and each must itself only read).
 Every query is bounded here, whatever its type: its text, its window, its points and its series, and it is refused
 with words naming the bound it is over."""
 
@@ -23,14 +24,17 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import FunctionType, ModuleType
 
-from . import _frames
+from . import _frames, _lint
 
 MOST_TEXT = 4000            # characters of a query's text
 MOST_SERIES = 50            # series one query may answer with
 MOST_POINTS = 1000          # buckets in a window
 MOST_WINDOW = 400 * 86400.0
 MOST_SECONDS = 10.0         # the longest one query may take to answer
-OFFERED = {"TYPE", "KEYS", "LANGUAGE", "query", "suggest"}
+MOST_VALUES = 200           # values a variable's query may list
+MOST_VALUE = 200            # characters of one value
+OFFERED = {"TYPE", "KEYS", "LANGUAGE", "query", "suggest", "values"}
+_LABEL_VALUES = re.compile(r"\s*label_values\(\s*(?:(.+)\s*,\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\Z", re.S)
 MOST_SUGGESTIONS = 100      # names one suggestion answers with
 SUGGEST_SECONDS = 3.0
 SUGGESTED = ("metrics", "labels", "values")
@@ -41,10 +45,11 @@ _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a labe
 class SourceError(Exception):
     """A query that is not answered, and why: ``kind`` is ``limit``, ``unreachable``, ``refused`` or ``unknown``."""
 
-    def __init__(self, kind: str, words: str, at: tuple[int, int] | None = None):
+    def __init__(self, kind: str, words: str, at: tuple[int, int] | None = None, code: str | None = None):
         super().__init__(words)
         self.kind = kind
         self.at = at            # (line, column), each from 1: where in the text the source said it is wrong
+        self.code = code        # the verdict's reason (query/verdicts.py), when it is not the kind's own
 
 
 @dataclass(frozen=True)
@@ -80,7 +85,8 @@ def register(mod) -> None:
         not isinstance(mod, ModuleType) or getattr(v, "__module__", None) == mod.__name__)
     extra = sorted(n for n in names - OFFERED if own(getattr(mod, n)))
     if extra:
-        raise TypeError(f"data source type {mod.TYPE}: offers {extra[0]}; a type offers only query and suggest (read-only)")
+        raise TypeError(f"data source type {mod.TYPE}: offers {extra[0]}; "
+                        "a type offers only query, suggest and values (read-only)")
     with _LOCK:
         _TYPES[mod.TYPE] = mod
 
@@ -147,11 +153,7 @@ def own(spec, name: str) -> bool:
     return src is not None and src.type == OWN_TYPE
 
 
-def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=None, project=None,
-          public: bool = False) -> dict:
-    """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError.
-    ``store``: the project's measurements (for the built-in ``ergostat``); ``project``: the project asked of, given to
-    the type in its window; ``public``: asked for a public reader."""
+def _source(spec, name: str, store=None):
     src = sources(spec, store).get(name)
     if src is None:
         raise SourceError("unknown", f"no source named {name!r} under sources:")
@@ -159,10 +161,55 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
     if mod is None:
         raise SourceError("unknown", f"source {name!r} is of type {src.type}, which panels cannot query")
     _needs(src)
+    return src, mod
+
+
+def _text(mod, text, given) -> str:
+    """The text as it is sent: not empty, the variables ``given`` written in by its language's rules, and bounded."""
+    from ._interpolate import interpolate
     if not isinstance(text, str) or not text.strip():
         raise SourceError("refused", f"the query text is empty; write it in {mod.LANGUAGE}")
-    if len(text) > MOST_TEXT:
-        raise SourceError("limit", f"the query is {len(text)} characters, more than the {MOST_TEXT} allowed")
+    for t in (text, sent := interpolate(mod.LANGUAGE, text, given or {})):
+        if len(t) > MOST_TEXT:
+            raise SourceError("limit", f"the query is {len(t)} characters, more than the {MOST_TEXT} allowed")
+    return sent
+
+
+def values(spec, name: str, text: str, since: float, until: float, seconds: float = MOST_SECONDS,
+           given: dict | None = None, store=None) -> list[str]:
+    """A variable's values: ``label_values(label)`` or ``label_values(selector, label)`` asked of source ``name`` over
+    [since, until], at most MOST_VALUES of them, each at most MOST_VALUE characters; SourceError otherwise. ``store``:
+    the project's measurements (for the built-in ``ergostat``)."""
+    src, mod = _source(spec, name, store)
+    m = _LABEL_VALUES.match(_text(mod, text, given))
+    if not m:
+        raise SourceError("refused", "a variable's query is label_values(label) or label_values(selector, label)")
+    if not callable(getattr(mod, "values", None)):
+        raise SourceError("refused", f"source {name!r} ({src.type}) cannot list a label's values")
+    if not 0 < until - since <= MOST_WINDOW:
+        raise SourceError("limit", f"the window is more than the {int(MOST_WINDOW // 86400)} days allowed")
+    if seconds <= 0:
+        raise SourceError("limit", "busy: this request has no time left to ask; try again")
+    w = Window(since, until, since, until - since, 1, min(seconds, MOST_SECONDS))
+    got = mod.values(src, (m.group(1) or "").strip() or None, m.group(2), w)
+    if not isinstance(got, list) or not all(isinstance(v, str) for v in got):
+        raise SourceError("refused", f"source {name!r} answered with no list of values")
+    if len(got) > MOST_VALUES:
+        raise SourceError("limit", f"the label has {len(got)} values, more than the {MOST_VALUES} a variable may list; "
+                                   "narrow the selector")
+    if any(len(v) > MOST_VALUE for v in got):
+        raise SourceError("limit", f"a value is longer than the {MOST_VALUE} characters a variable may hold")
+    return sorted(set(got))
+
+
+def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, given: dict | None = None,
+          store=None, project=None, public: bool = False) -> dict:
+    """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError.
+    ``given``: the dashboard's variables it may use, name to the values selected (``_interpolate``); ``store``: the
+    project's measurements (for the built-in ``ergostat``); ``project``: the project asked of, given to the type in its
+    window and while it answers (``ASKING``); ``public``: asked for a public reader."""
+    src, mod = _source(spec, name, store)
+    text = _text(mod, text, given)
     if g.until - g.since > MOST_WINDOW:
         raise SourceError("limit", f"the window is more than the {int(MOST_WINDOW // 86400)} days allowed")
     if g.n > MOST_POINTS + 1:                       # (aligned to its step, a window can touch one bucket more)
@@ -175,11 +222,18 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
         got = mod.query(src, text, w)
     finally:
         ASKING.reset(token)
+    warned = _lint.warnings(mod.LANGUAGE, text)
     if isinstance(got, dict):                       # a typed frame (_frames.py)
         try:
-            return _frames.answer(got, g, MOST_SERIES)
+            out = _frames.answer(got, g, MOST_SERIES)
+            if out["shape"] == "graph":                 # fitted to a panel, with its matrix, as ergostat's own are
+                from ..query.graphs import panel
+                out = panel(out, {})
         except _frames.Bad as e:
-            raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused", f"source {name!r} answered badly: {e}") from e
+            raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused",
+                              f"source {name!r} answered badly: {e}" if e.code is None else f"source {name!r}: {e}",
+                              code=e.code) from e
+        return {**out, "warnings": [*out.get("warnings", ()), *warned]}
     if not isinstance(got, list):
         raise SourceError("refused", f"source {name!r} answered with no series")
     if len(got) > MOST_SERIES:
@@ -192,7 +246,8 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
             if g.since - g.step < t <= g.until and isinstance(v, int | float) and math.isfinite(v):
                 values[g.at(t + 1e-6 * g.step)] = float(v)    # (a time on a bucket's start, never just before it)
         series.append({"name": str(label), "values": values})
-    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False, "shape": "series"}
+    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False, "shape": "series",
+            "warnings": warned}
 
 
 def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", label: str = "",

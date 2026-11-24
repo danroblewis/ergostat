@@ -76,7 +76,7 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
         if to:                                           # held, whatever the cell compiled says (lesson-8)
             g0 = rk.stricter(g0, "approve")
         tid = rec.new_id(to) if to in spec.actions and not of else None
-        risk = rk.assess(p, a, ctx.get("block"), aid, g0, t)
+        risk = rk.assess(p, a, ctx.get("block"), aid, g0, t, ctx.get("run"), ctx.get("item"))
         g = risk["gate"] if risk else g0
         data = {"action": name, "class": a.cls or name, "gate": g0, "operating": opr, "args": args,
                 "command": render(a, args, ctx),
@@ -236,7 +236,7 @@ def at_act(p, spec, a: dict) -> tuple[Action | None, dict]:
     if act is None:
         return None, {"effective": "deny", "note": f"{a.get('action')} is no longer in the model: not run"}
     g0, t, opr = in_force(p, act)                     # the operating state read again, inside the run lock
-    risk = rk.assess(p, act, a.get("block"), a["id"], g0, t)
+    risk = rk.assess(p, act, a.get("block"), a["id"], g0, t, a.get("run"), a.get("item"))   # s worked out again
     mine = risk["gate"] if risk else g0
     asked = (a.get("risk") or {}).get("gate") or a.get("gate")
     by = sch.reading(p, spec, act) if act.states else None   # the declared state and the bypasses, read again
