@@ -161,3 +161,39 @@ Run: `tests/test_act_reshape.py` (13 passed), `tests/test_program_actions.py`, `
 `tests/test_regime_gates.py`, `tests/test_act_risk.py`, `tests/test_operating_state.py`, `tests/test_spec_schema.py`,
 `tests/test_spec_structure.py`: all passed. ruff is clean. The unit suite and the four browser files were not run here
 (the factory runs them). No page changed.
+
+## Where it stopped (round 3)
+
+Built, round 3. The one finding (blocking) is fixed in `ergostat/actions/program.py`. The finding: a full act whose
+act-risk steps it to `deny` at the request, while its target ran, was dropped by `stands()` on a second ask, so a new
+full act was made and the target ran again (lesson-5).
+- `program.stands`: a full act denied by the gate at its request (`denied_by: gate`, never approved, so not a denial at
+  the act after the owner's approval) that has a `reshaped_to` stands while that target stands, by the same rule
+  (`stands` on the target; the target has no `reshaped_to`, so this is followed once). `ask` already follows
+  `reshaped_to` for such an act (`answered` is false: the gate, not the owner, denied it), so the target is the answer
+  and is delivered to the asking run. The target is never run twice. Once the target no longer stands (failed, fenced,
+  denied by a gate since changed), the full act no longer stands either, and both are asked for anew. This is the
+  finding's second option. The full act is denied, not held, so there is nothing of the owner's to keep.
+- `program.start`: the target is taken over (`program.target`: lease `reask`, the fenced check, asked anew when it no
+  longer stands) for every full act that is not yet answered, held or denied by the gate at its request. Before, this
+  was done for a held one only. So a held target under a gate-denied full act is taken over by a later lease, as it is
+  under a held one.
+- Tests: `test_program_full_denied_by_risk_target_runs_once` uses `risk: {severity: 3, threshold: 2}`, which steps
+  approve to deny on every ask. The full act is denied by the gate, the target ran, and two more asks with the same key
+  get the same target back: no new record, the target ran once, and it was delivered to r1, r2 and r3. A second key
+  whose target failed is asked for anew (a new full act and a new target), and that target runs once.
+  `test_program_full_denied_by_risk_held_target_leased`: the target is held, and a later lease takes it over (fence 2);
+  approved, it runs and is not fenced.
+- Each fix was broken by hand and its test failed. With the `stands` branch off, the first test failed at r2 with a new
+  target id (the finding reproduced). With the takeover limited to a held full act again, the second test failed (the
+  target had no `fence`).
+- SPEC §12k (*A program asking again*) and the module docstring (program.py:12-19) now say this.
+
+Main has nothing new (`HEAD..main` is empty).
+
+Overrun reason: measured against the base gap's merge (f3425a8f), the gap is 115 net lines outside tests and docs (compile 37, gate 15, program 49, server 3, ir 2, schema 9). That is 5 over the 110 budget. The three review rounds asked for program-ask behaviour (lease takeover, asking anew, the owner's answer, and this round's gate-denied full act) that the plan did not foresee, and most of program.py's lines are those rules and the docstring that states them. Round 2's figure of 103 left out the schema's lines.
+
+Run: `tests/test_act_reshape.py` (15 passed), `tests/test_program_actions.py`, `tests/test_gated_actions.py`,
+`tests/test_regime_gates.py`, `tests/test_act_risk.py`, `tests/test_operating_state.py`, `tests/test_spec_schema.py`,
+`tests/test_spec_structure.py`: all passed (136 tests). ruff is clean. The unit suite and the four browser files were
+not run here (the factory runs them). No page changed.

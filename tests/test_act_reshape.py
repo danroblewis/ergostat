@@ -228,6 +228,43 @@ def test_program_answered_by_full_once_owner_answers(tmp_path, monkeypatch):
     assert ran(tmp_path) == ["push t1", "pr t1", "push t1"]
 
 
+def test_program_full_denied_by_risk_target_runs_once(tmp_path):
+    """Act-risk steps the full act's approve to deny at its request; its target ran. Asked again (same key), the
+    denied full act stands, answered by that target: no new full act, the target never run again (lesson-5)."""
+    p = project(tmp_path, pr_risk="risk: {severity: 3, threshold: 2}",
+                push_run="test -f ok || exit 3; echo push {title} >> ran.txt")
+    (tmp_path / "ok").write_text("")
+    cfg = {"block": "dev", "run": "r1", "item": None, "workdir": str(tmp_path), "actions": ["pr"]}
+    a = program.ask(p, p.model.spec, cfg, "pr", ARGS, key="k1")
+    full = record.get(p, a["reshaped_from"])
+    assert full["state"] == "denied" and full["denied_by"] == "gate" and full["gate"] == "approve"
+    assert a["action"] == "push" and a["state"] == "ran" and ran(tmp_path) == ["push t1"]
+    for run in ("r2", "r3"):
+        b = program.ask(p, p.model.spec, {**cfg, "run": run}, "pr", ARGS, key="k1")
+        assert b["id"] == a["id"] and len(record.stored(p)) == 2 and ran(tmp_path) == ["push t1"], run
+    assert [d["run"] for d in record.get(p, a["id"])["deliveries"]] == ["r1", "r2", "r3"]
+    # a target that no longer stands: both asked for anew, the new target run once
+    (tmp_path / "ok").unlink()
+    c = program.ask(p, p.model.spec, {**cfg, "key": "k2"}, "pr", ARGS, key="k2")
+    assert c["state"] == "failed"
+    (tmp_path / "ok").write_text("")
+    d = program.ask(p, p.model.spec, {**cfg, "run": "r4"}, "pr", ARGS, key="k2")
+    assert d["id"] != c["id"] and d["state"] == "ran" and d["reshaped_from"] != c["reshaped_from"]
+    assert ran(tmp_path) == ["push t1", "push t1"] and len(record.stored(p)) == 6
+
+
+def test_program_full_denied_by_risk_held_target_leased(tmp_path):
+    """The full act denied by its act-risk, its target held: asked again under a later lease, the target is taken over
+    by that lease (as under a held full act), and runs once approved."""
+    p = project(tmp_path, push_gate="approve", pr_risk="risk: {severity: 3, threshold: 2}")
+    a = program.ask(p, p.model.spec, leased(p, tmp_path, 1, "r1"), "pr", ARGS)
+    assert a["action"] == "push" and a["state"] == "requested" and record.get(p, a["reshaped_from"])["state"] == "denied"
+    b = program.ask(p, p.model.spec, leased(p, tmp_path, 2, "r2"), "pr", ARGS)
+    assert b["id"] == a["id"] and b["fence"] == 2 and len(record.stored(p)) == 2
+    t = gate.approve(p, p.model.spec, a["id"])
+    assert t["state"] == "ran" and not t.get("fenced") and ran(tmp_path) == ["push t1"]
+
+
 def test_reshape_refused_at_compile(tmp_path):
     lines = ["name: t", "actions:",
              "  unknown:", "    run: x", "    gate:", "      normal: auto", "      away: {reshape: nope}",

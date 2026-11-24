@@ -7411,7 +7411,9 @@ actions:
   the answer is the target: a held target is taken over by the asking run's lease along with the full act (so the
   owner's approval of it is not fenced out), and a target that no longer stands (failed, fenced, or denied by a gate
   since changed) is asked anew, once, the full act's new `reshaped_to` written first. Once the owner has answered
-  the full act (approved, ran, failed, or denied it), the answer is the full act's own.
+  the full act (approved, ran, failed, or denied it), the answer is the full act's own. A full act the gate denied
+  at its request (its own act-risk stepping `approve` to `deny`) stands while its target stands, and the target is
+  the answer, so the target is never run twice. Once the target no longer stands, both are asked for anew.
 - **At the act** a reshape cell reads as `approve` for the full act. An owner-approved full act runs through the
   act check as any held act does, and one approved by the gate is held again. The two are answered apart: denying one,
   or the other's failing, never answers the other.
