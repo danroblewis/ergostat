@@ -96,3 +96,61 @@ Tests run, each through `scripts/named_tests.py`, all passing:
 - `ruff check ergostat tests scripts`: clean.
 
 Not run here, as the rules say: the whole unit suite, the four browser files and `demo_check`. No page and no example changed.
+
+### Round 2: the merge of main (59600738), and docs/GAPS.md
+
+**The merge.** Main had landed `library-fetch`: its own `fetched.py` (an eager `take` at load, `Document.fetched` and
+`Document.refused`), `cli/library.py`, `files.tree` noting `trees` with each file in `Reads.files`, `tree.hashed`,
+the `libraries` schema entry, and SPEC §2a and SECURITY text for fetch, the lock and the four error codes. That covers
+most of this definition, so I resolved every conflicted file (`cli/library.py`, `goodmodel.py`, `fetched.py`,
+`templates.py`, `tree.py`, `uses.py`, `spec/files.py`, `spec/load.py`, the schema) to main's text. On top of main,
+the branch keeps only what this definition asks and main lacks:
+- `uses.py`: main's outright refusal (`library-untrusted`, "listed, never expanded") is removed, so an untrusted
+  fetched template reaches `under = under or (...)` and is held, allowlisted and bounded as an untrusted folder's is
+  (plan-review note 1). The refusal text's `trust: owner` branch for a fetched library stays (note 3).
+- `fetched.py`: a template of an untrusted fetched library that does not parse is noted through `ut.note(copy, ...)`,
+  as `find_all` does for an untrusted folder (note 2). `_lock` also takes `RecursionError` (deeply nested JSON) as
+  `library-lock-unreadable`; before, it escaped load as a crash (lesson 3). The test has a case for it.
+- Taken from main where the branches differed, each reversible: `trust:` is only `owner` (round 1 also allowed
+  `untrusted`, which is the same as leaving it out); fetched libraries are checked at load, not lazily with the
+  templates; and the `unknown-template` text is main's `library NAME refused: CODE, why`.
+- `cli/__init__.py`: the merge had registered the `library` topic twice (argparse refused it); main's file is kept.
+- Docs: the branch's own SPEC §2a, SECURITY and agent-guide paragraphs duplicated main's, so they are dropped. Main's
+  "listed, never expanded" sentences (SPEC §2a, the §error-code list, SECURITY) now say the library is untrusted
+  exactly as a folder is, and SPEC says `trees` keeps the listing for the fallback.
+- `tests/test_library_fetch.py::test_untrusted_use_refused` (main's) pinned the refusal this definition forbids. It is
+  now `test_untrusted_use_through_the_gate`: the structure-only use expands, marked `untrusted`, and is still listed.
+  `tests/test_library_fetch_load.py` changes only the expected `unknown-template` text, `sources.check` for the old
+  `fetched.split`, and the new lock case.
+
+**docs/GAPS.md** is main's again (`git restore --source=MERGE_HEAD`, the same commit as 59600738). The entry is the
+`## Entry` below, a sub-gap of `shared-libraries`. In `dev/records/shared-libraries.md`, the umbrella's "listed, its
+templates never expanded" and its *Still needed* "the provenance gate and the sandbox for fetched libraries" are
+replaced: fetched untrusted libraries now go through the gate, and what is left is a test that a fetched copy's
+sensor run goes through the sandbox.
+
+**Seen to fail with the guard removed (lesson 9)**, each applied, run and reverted:
+- the untrusted parse note unmarked: `test_untrusted_fetched_goes_through_gate` fails;
+- `RecursionError` not caught: `test_unlocked_treeless_missing_refused` fails with the `RecursionError`;
+- main's outright refusal put back: `test_untrusted_fetched_goes_through_gate` and
+  `test_library_fetch.py::test_untrusted_use_through_the_gate` fail;
+- `"trees"` dropped from `goodmodel.keep`: `test_fetch_off_fallback_and_replay` fails (`NotKept`).
+
+**Tests run after the merge**, each through `scripts/named_tests.py`, all passing:
+- `test_library_fetch_load`, `test_library_fetch`, `test_cli_fallback`: 47;
+- `test_library_untrusted`, `test_library_trust`, `test_library_provenance`: 125;
+- `test_templates`, `test_spec_schema`, `test_spec_structure`: 88;
+- `test_library_fetch_git`, `test_library_tree`, `test_modelling_template`: 25.
+- `ruff check ergostat tests scripts`: clean.
+
+Not run here: the whole unit suite, the four browser files (no page changed) and `demo_check` (no example touched).
+One command form was refused: `git checkout --theirs -- FILES`; `git restore --source=MERGE_HEAD --worktree -- FILES`
+did the same.
+
+Size: `git diff --numstat main -- ergostat schema` gives 12 added and 10 removed, 2 net against main, within 240.
+The rest of what round 1 built is now on main through `library-fetch`.
+
+## Entry
+
+entry-of: shared-libraries
+done: 2026-11-23 A fetched library without `trust: owner` goes through the same trust and provenance gate as an untrusted folder (held, allowlisted, bounded, its notes marked), instead of being refused outright; a refused library is named with its code in `unknown-template` (`library-fetch-load`).
