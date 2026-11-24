@@ -42,4 +42,6 @@ systems:
   modelling:
     description: the model of all this, improved as a loop of its own (model.yaml)
     show: [stock.model-error, stock.pending-changes, stock.changes-testing, stock.accepted-changes]
+  regressions:
+    description: the guarantees that squeeze's tests pass and the model's changes hold (lab.yaml, use regressions)
 
