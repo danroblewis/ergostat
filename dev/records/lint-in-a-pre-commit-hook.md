@@ -71,3 +71,12 @@ Run in round 2: tests/test_lint_hook.py (8 passed), tests/test_agents.py, tests/
 (53 passed), tests/test_factory_knowledge.py, tests/test_plan.py, tests/test_knowledge.py (120 passed). Also run:
 `uv run ruff check ergostat tests scripts`, which was clean. main is already merged in (no change since the clone). The
 unit suite and the browser files were not run here; they are the factory's.
+
+Round 3. The one finding (blocking): main (49a47c01) conflicted with the branch in dev/bin/plan.py, in the S-gap
+definition text. Resolved by keeping both changes: main's (it dropped ", no review" when plan review was removed) and
+the branch's (it dropped "ruff is clean"). Merge committed; nothing else changed. After the merge no prompt, house rule
+or factory setting main brought asks for ruff again (searched dev/ for "ruff"). Run after the merge:
+tests/test_lint_hook.py, tests/test_plan.py and tests/test_agents.py (43 passed), tests/test_queue.py,
+tests/test_factory_knowledge.py and tests/test_shell_rule.py (126 passed), tests/test_knowledge.py and
+tests/test_cleanup_finished.py (12 passed); `uv run ruff check ergostat tests scripts` clean. The unit suite and the
+browser files were not run here; they are the factory's.
