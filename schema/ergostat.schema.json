@@ -2165,6 +2165,8 @@
                        "description": "The event types that fail an attempt (one after it passed fails it after all)"},
             "passed": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                        "description": "The states, not at, that pass an attempt"},
+            "undone": {"type": "array", "items": {"type": "string"},
+                       "description": "The event types, not failed, that say a failure was not the item's (a flake retried): a failure of an open attempt is held until the item's next change of state, and one of these first withdraws it unjudged"},
             "from": {"type": "object", "minProperties": 1, "maxProperties": 16,
                      "additionalProperties": {"enum": ["value", "each", "size"]},
                      "description": "The fields it learns from: value (as text), each (a list's elements, the riskiest counting), size (a number in bands of powers of two)"},

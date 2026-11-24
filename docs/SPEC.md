@@ -2680,10 +2680,14 @@ out when one fails.
 
 **Risk score** (`numbers/itemrisk.py`; off unless the kind declares it). Each item's chance of failing, learned from
 what failed before, so that a model can route checks by it. A kind declares `risk-score: {at: STATE, failed: [TYPES],
-passed: [STATES], from: {FIELD: value | each | size}, least: N}`. An **attempt** opens each time an item enters `at`,
-with the `from` fields' values as they stand then. It is judged **failed** at the first event of a `failed` type about
-the item, and **passed** when the item enters a `passed` state. A failed event after it passed fails it after all (a
-change reverted). An item that enters `at` again while an attempt is open **withdraws** that attempt unjudged. The
+passed: [STATES], undone: [TYPES], from: {FIELD: value | each | size}, least: N}`. An **attempt** opens each time an
+item enters `at`, with the `from` fields' values as they stand then. It is judged **failed** at the first event of a
+`failed` type about the item, and **passed** when the item enters a `passed` state. A failed event after it passed
+fails it after all (a change reverted). An item that enters `at` again while an attempt is open **withdraws** that
+attempt unjudged. `undone` (optional, none of them `failed` types) names the events that say a failure was not the
+item's, such as a flake retried after the failure was said: a kind that declares it has a failure of an open attempt
+**held** until the item's next change of state. An `undone` event first withdraws the attempt unjudged; any other
+change of state judges it failed; while held it is judged neither way (the backtest counts it as open and held). The
 kind's events are replayed in the record's order, by `seq` and never by time, so each attempt is scored only from the
 attempts judged before it.
 

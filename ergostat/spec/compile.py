@@ -647,9 +647,12 @@ class Compiler:
         r = m.get("risk-score")
         fails, passed, by = (r.get(x) if isinstance(r, dict) else None for x in ("failed", "passed", "from"))
         least = r.get("least", LEAST) if isinstance(r, dict) else None
-        ok = (isinstance(r, dict) and set(r) <= {"at", "failed", "passed", "from", "least", "description"}
+        undone = r.get("undone", []) if isinstance(r, dict) else None
+        ok = (isinstance(r, dict) and set(r) <= {"at", "failed", "passed", "undone", "from", "least", "description"}
               and r.get("at") in states
               and isinstance(fails, list) and fails and all(isinstance(t, str) and TYPE_NAME.match(t) for t in fails)
+              and isinstance(undone, list) and all(isinstance(t, str) and TYPE_NAME.match(t) for t in undone)
+              and not set(undone) & set(fails)
               and isinstance(passed, list) and passed and all(isinstance(s, str) and s in states for s in passed)
               and r.get("at") not in passed
               and isinstance(by, dict) and 0 < len(by) <= FIELDS_MOST
@@ -657,11 +660,13 @@ class Compiler:
               and type(least) is int and 1 <= least <= LEAST_MOST)
         if not ok:
             self.err(f"{what}.risk-score: {{at: the state an attempt is scored on entering, failed: [the event types "
-                     f"that fail it], passed: [the states, not at, that pass it], from: {{FIELD: {' | '.join(HOWS)}}} "
+                     f"that fail it], passed: [the states, not at, that pass it], undone: [the event types, not failed, "
+                     f"that say a failure was not the item's], from: {{FIELD: {' | '.join(HOWS)}}} "
                      f"(1 to {FIELDS_MOST} fields), least: judged attempts before a score (1 to {LEAST_MOST}, default "
                      f"{LEAST})}}", m.at("risk-score") or m.where, "bad-risk-score")
             return None
-        return {"at": r["at"], "failed": tuple(fails), "passed": tuple(passed), "from": dict(by), "least": least}
+        return {"at": r["at"], "failed": tuple(fails), "passed": tuple(passed), "undone": tuple(undone),
+                "from": dict(by), "least": least}
 
     def pipeline(self, m: Map, what: str, rules: dict) -> dict | None:
         """``pipeline:`` (SPEC §5a, *Stages*): its items record stages, folded into ``stages`` by merge; ``title``,

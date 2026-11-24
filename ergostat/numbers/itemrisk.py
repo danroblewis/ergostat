@@ -4,8 +4,11 @@
 An **attempt** opens each time an item enters the declared ``at`` state, with the declared fields' values as they
 stand then. It is **judged** failed at the first event of a ``failed`` type about the item (one after it passed turns
 it failed: a change reverted), and passed when the item enters a ``passed`` state. An item that enters ``at`` again
-while an attempt is open withdraws that attempt, so it is never judged. The record is replayed in its own order (each
-event's ``seq``, never its time), so an attempt is scored only from the attempts judged before it.
+while an attempt is open withdraws that attempt, so it is never judged. A kind that declares ``undone`` (the event
+types that say a failure was not the item's: a flake retried) has a failure of an open attempt **held** until the
+item's next change of state: an ``undone`` event first withdraws the attempt unjudged, any other change judges it
+failed. The record is replayed in its own order (each event's ``seq``, never its time), so an attempt is scored only
+from the attempts judged before it.
 
 The score is a naive Bayes estimate. It starts from the base rate of failure, and then, for each declared field, adds
 the log odds by which that field's value has failed more or less often. Each value's rate is shrunk toward the base
@@ -142,7 +145,12 @@ class Learner:
             self.count(a, 1, int(failed))
         elif failed:                                     # passed before: failed after all
             self.count(a, 0, 1)
-        a["failed"], a["judged_seq"] = failed, self.seq
+        a["failed"], a["judged_seq"], a["held"] = failed, self.seq, False
+
+    def withdraw(self, a: dict) -> None:
+        self.withdrawn += 1
+        self.open.pop(a["item"], None)
+        a["failed"], a["held"] = "withdrawn", False
 
     def feed(self, events: list[dict]) -> None:
         d = self.decl
@@ -155,14 +163,20 @@ class Learner:
             was = it.state if it else None
             it = self.items[id] = fold(id, [e], self.kind, it=it)
             a = self.last.get(id)
-            if e["type"] in d["failed"] and a is not None and a["failed"] in (None, False):
+            if a is not None and a.get("held") and e["type"] in d["undone"]:
+                self.withdraw(a)                         # the failure was not the item's: never judged
+            elif e["type"] in d["failed"] and a is not None and a["failed"] in (None, False):
+                if a["failed"] is None and d["undone"]:
+                    a["held"] = True                     # judged at the next change of state, unless undone first
+                else:
+                    self.judge(a, True)
+            elif a is not None and a.get("held") and it.state != was:
                 self.judge(a, True)
             if it.state == was:
                 continue
             if it.state == d["at"]:
                 if id in self.open:
-                    self.withdrawn += 1
-                    self.open.pop(id)["failed"] = "withdrawn"
+                    self.withdraw(self.open[id])
                 feats = self.features(it.fields)
                 score, _ = self.score(feats)
                 a = {"item": id, "seq": self.seq, "feats": feats, "score": score, "z": self.raw(feats)[0],
@@ -249,6 +263,7 @@ def _backtest(lr: Learner, kind: str) -> dict:
     base = round(sum((a["base"] - v) ** 2 for a, v in zip(scored, y, strict=True)) / len(y), 4) if y else None
     return {"kind": kind, "attempts": len(lr.attempts), "judged": len(done), "scored": len(scored),
             "failed": sum(a["failed"] is True for a in done), "open": len(lr.open), "withdrawn": lr.withdrawn,
+            "held": sum(bool(a.get("held")) for a in lr.open.values()),
             "unscored": len(done) - len(scored), "rolled_up": len(lr.rolled), "bands": bands,
             "brier": brier, "brier_base_rate": base, "auc": auc(scored)}
 

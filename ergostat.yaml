@@ -171,6 +171,7 @@ items:
     risk-score:                      # each change's chance of failing once approved, learned from the gaps judged
       at: approved                   # before it (SPEC §5a, Risk score; ergostat item --kind gap --risk-score [--backtest])
       failed: [gap.queue-failed, gap.reverted]
+      undone: [gap.retried]          # triage: a flake, only quarantined tests, or a stall: not the branch's failure
       passed: [merged]
       from: {paths: each, net_lines: size, source: value, built_by: value, conflicts: size, failed_gates: size}
     join:

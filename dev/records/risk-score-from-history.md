@@ -112,17 +112,64 @@ Not done, or not known:
 - **Nothing routes checks by the score yet.** That is error-budget-sets-check-level's and merge-lanes-in-parallel's
   work.
 
+Round 2, 2026-11-24. The review's one finding was blocking. It is fixed, and there were no others to answer
+(lesson 12).
+
+- **The finding.** A flake was learned as the change's failure. The queue says `gap.queue-failed` before triage
+  knows it was a flake, so the attempt was already judged failed when `gap.retried` brought the gap back to
+  `approved`. Round 1's claim that a flake retry withdraws the attempt unjudged was wider than the code.
+- **The fix, in the core option, naming no gaps.** A kind may declare `undone: [TYPES]`: the event types that say a
+  failure was not the item's. Of the reviewer's three ways, I took the declared undo events. It is the most
+  reversible, and a kind that declares none behaves exactly as in round 1. With `undone` declared, a `failed` event
+  on an open attempt is **held** until the item's next change of state:
+  - an `undone` event first withdraws the attempt unjudged;
+  - any other change of state judges it failed (sent back or parked by triage);
+  - a `failed` event after the attempt passed (a revert) is judged at once, as before;
+  - while held, the attempt is judged neither way, and the backtest counts it as `held` (within `open`).
+  Compile refuses an `undone` that is not a list of event type names, or that shares a type with `failed`. The schema,
+  SPEC §5a and the agent guide say it.
+- **The factory's declaration.** `undone: [gap.retried]`. Triage says it for a flake, for a failure of quarantined
+  tests only, and for a stall under `STALLS_MOST`. Each of these is now withdrawn, never learned.
+- **Tests.** The synthetic factory record now has triage's two routes. 196 of the 800 gaps have a flake first
+  (queue-failed, `gap.measured`, retried, queued), and hot-file gaps twice as often, so a flake counted as a failure
+  skews the hot path. A real queue failure is now followed by triage's `gap.sent-back`. The calibration test asserts
+  that all 196 attempts were withdrawn, that 800 were judged, and that none were held.
+- **New tests.**
+  - `test_a_flake_retried_is_never_the_changes_failure`: on the factory's own kind, queue-failed, retried, merged
+    counts one pass and one withdrawal, with the path's counts `[1, 0]`. Queue-failed then sent-back, and queue-failed
+    then parked, are failures. Queue-failed alone is held. A fresh replay agrees with the kept one.
+  - `test_without_undone_a_failure_is_judged_at_once`.
+  - Three more refused declarations: `undone` overlapping `failed`, `undone: null`, and a bad type name.
+- **Seen to fail with the code broken, each put back after.** Each of the three breaks below failed the calibration
+  test, the queryable test and the flake test:
+  - never holding (round 1's behaviour): 0 withdrawn of 196;
+  - a held failure never judged: 632 judged of 800;
+  - the `undone` event ignored: 0 withdrawn, and the flake's attempt judged failed.
+- **Run here, one file at a time.**
+  - tests/test_item_risk.py: 21 passed.
+  - tests/test_spec_schema.py, tests/test_library_trust.py and tests/test_cli_fallback.py: 106 passed.
+  - tests/test_spec_structure.py, tests/test_queue.py and tests/test_item_search.py: 41 passed.
+  - test_factory_split_systems.py and test_factory_cx_frame.py: passed.
+  - Two `ergostat check` tests from test_factory.py (`test_ergostat_check_on_the_factory_model_reports_no_new_finding`
+    and `test_the_time_goals_have_no_check_findings`): passed.
+  - Ruff: clean.
+- **Not run, and unchanged since round 1.** `main` has not moved past the merge already on this branch. The whole
+  unit suite and the four browser files were not run (no page changed). The live backtest was not run either.
+- **Size.** About 30 more net lines outside tests/, docs/ and dev/, within the budget.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)
 
 - **Each change gets a risk score learned from what failed before** (done, on `risk-score-from-history`; SPEC §5a,
   *Risk score*). A kind may declare `risk-score:` (off unless declared). An attempt opens each time an item enters a
-  state. It fails at the declared events (a revert after passing too) and passes at the declared states. It is scored
+  state. It fails at the declared events (a revert after passing too) and passes at the declared states. With
+  `undone` declared, a failure is held until the item's next change of state, and an `undone` event (a flake retried)
+  first withdraws it unjudged. It is scored
   from the attempts judged before it, in the record's order: naive Bayes over declared fields (a value, a list's
   riskiest element, a size band), calibrated by Platt scaling, a missing value learned as its own, and no score before
   `least`. It is on each item's detail (`risk_score`) and in `ergostat item --kind K --risk-score [--backtest]`. The
   backtest gives the failure rate per score band, the Brier score and the AUC. The factory declares it on `gap`
-  (approved, then failed in the queue or reverted), from its paths, net lines, source, author block, conflicts and
+  (approved, then failed in the queue or reverted, a flake retried undoing it), from its paths, net lines, source, author block, conflicts and
   failed gates, and now records the first three it lacked. Left: the backtest on the live factory record (not run in
   the session; past gaps lack paths, author and conflicts), and routing checks by it.

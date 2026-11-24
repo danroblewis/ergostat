@@ -225,9 +225,9 @@ def _item_risk(args) -> int:
                     [[b["band"], str(b["attempts"]), str(b["failed"]), f"{b['rate']:.3f}", f"{b['mean_score']:.3f}"]
                      for b in got["bands"]], "no attempt judged with a score yet"))
         print(c(f"{got['scored']} scored of {got['judged']} judged ({got['failed']} failed), {got['unscored']} before "
-                f"a score, {got['open']} open, {got['withdrawn']} withdrawn, {got['rolled_up']} items rolled up (their "
-                f"earlier attempts unseen); Brier {got['brier']} (base rate alone {got['brier_base_rate']}), "
-                f"AUC {got['auc']}", "dim"))
+                f"a score, {got['open']} open ({got['held']} failed, held), {got['withdrawn']} withdrawn, "
+                f"{got['rolled_up']} items rolled up (their earlier attempts unseen); Brier {got['brier']} "
+                f"(base rate alone {got['brier_base_rate']}), AUC {got['auc']}", "dim"))
         return 0
     got = itemrisk.scores(p.events, spec, k.name)
     if args.json:
