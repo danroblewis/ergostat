@@ -25,6 +25,7 @@ CALLS = {"raw": ("points",)}            # a call: its options (each reads one qu
 RAW_POINTS = 5000                      # the most points a raw answer holds
 LEAST_POINTS = 16
 READINGS_MOST = 500_000                # readings one raw answer reads
+SCRAPE_READINGS = 2_000                # the newest readings an answer's scrape interval is read from
 MOST_GAPS = 200
 _TOKEN = re.compile(r"\s*(?:([A-Za-z0-9_.\-]+)|(\S))")
 _IN = "from samples where series = ? and time >= ? and time <= ?"
@@ -106,9 +107,9 @@ def _points(c: Call) -> int:
     return int(v)
 
 
-def spacing(c, series: str, since: float, until: float) -> float | None:
-    """The median spacing of a series' raw readings in a window (of its newest ``READINGS_MOST``), or None."""
-    near = f"select time {_IN} order by time desc limit {READINGS_MOST}"
+def spacing(c, series: str, since: float, until: float, most: int) -> float | None:
+    """The median spacing of a series' newest ``most`` raw readings in a window, or None."""
+    near = f"select time {_IN} order by time desc limit {int(most)}"
     lag = f"select time - lag(time) over (order by time) d from ({near})"
     n = c.execute(f"select count(*) from ({lag}) where d > 0", (series, since, until)).fetchone()[0]
     got = c.execute(f"select d from ({lag}) where d > 0 order by d limit 1 offset ?", (series, since, until, (n - 1) // 2))
@@ -116,11 +117,19 @@ def spacing(c, series: str, since: float, until: float) -> float | None:
 
 
 def scrape(m, series: str, since: float, until: float) -> float | None:
-    """A series' scrape interval in a window, where its raw readings are kept there; None where it is not known."""
+    """A series' scrape interval in a window (of its newest ``SCRAPE_READINGS``: every answer of a series pays it),
+    where its raw readings are kept there; None where it is not known."""
     if not hasattr(m, "_sources"):
         return None
     with m._c() as c:
-        return spacing(c, series, since, until)
+        return spacing(c, series, since, until, SCRAPE_READINGS)
+
+
+def scrapes(m, qs, since: float, until: float) -> dict:
+    """``{"scrape_s": ...}`` of an answer built from the readings of the ``series`` queries among ``qs``: the coarsest
+    of their scrapes, None if any is unknown; ``{}`` where none is a series (not sampled)."""
+    got = [scrape(m, q.series, since, until) for q in qs if getattr(q, "source", None) == "series"]
+    return {"scrape_s": None if None in got else max(got)} if got else {}
 
 
 def raw(m, q: Query, since: float, until: float, c: Call) -> dict:
@@ -139,7 +148,7 @@ def raw(m, q: Query, since: float, until: float, c: Call) -> dict:
         if n < 2 and db.execute("select count(*) from tiers where series = ? and t <= ? and t + every > ?",
                                 (q.series, until, since)).fetchone()[0]:
             raise _bad(f"series {q.series!r} has only roll-ups in this window, and roll-ups are not raw", code="only-rollups")
-        each = spacing(db, *span) if n >= 2 else None
+        each = spacing(db, *span, READINGS_MOST) if n >= 2 else None
         if each is None:
             raise _bad(f"series {q.series!r} has {n} readings in this window at distinct times; raw needs two",
                        kind="unknown")

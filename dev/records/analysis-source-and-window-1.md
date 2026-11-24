@@ -53,24 +53,6 @@ depends-on: [result-frames-and-verdicts]
 240 net lines
 size: L (confidence: medium)
 
-## Entry
-
-section: Done recently
-
-- **The analysis source and the window ledger** (analysis-source-and-window-1). A panel query `{"source": "analysis",
-  "text": "raw(A)"}` is answered on the server over query A of the same request. `analysis` is reserved, never declared,
-  and listed first among `datasources` with its language. The call language is closed: a call, the query ids, then
-  `key=value` options. The only call is `raw`, with one option, `points`. A bad call, option or reference, or text that
-  does not parse (with its column), is refused alone. `raw(A)` of an ergostat series reads the readings, never the
-  roll-ups, on one grid at their median spacing, coarsened only to stay within the point bound. A hole longer than
-  `GAP_SAMPLES` spacings stays empty and is listed in `gaps`. With only roll-ups left it is refused (`only-rollups`).
-  `raw` of a data source's query asks it again at the finest step and warns `not-raw`. Every answer carries
-  `meta.sampling`: step, scrape (null and warned `scrape-unknown` where not known), PromQL range windows, the observable
-  band `[2 × max(scrape, step), window / 2]` and the nulls `W/k` inside it (G1, G2). A request whose answers differ in
-  step or range windows warns on each (`mixed-windows`, G4). Left: G3 (windows the controller consumes) waits for
-  `loop-roles-and-loop-panels`; `pair`, `psd`, `spectrogram` and `ccf` are the next sub-gap; the page's batching does
-  not yet rewrite the ids inside an analysis text.
-
 ## Where it stopped
 
 Built: every item of the definition, with the eight named acceptance tests and one more
@@ -81,9 +63,9 @@ Choices made alone (the most reversible, each easy to change):
   `only-rollups` (refuse), `not-raw`, `scrape-unknown` and `mixed-windows` (warn). The verdicts need them.
 - `items`, `moves`, `counts` and `events` record each change at its time and are not sampled. Their `scrape_s` is null
   with no `scrape-unknown` warning: a warning on every item chart would say something false. Sampled answers (an
-  ergostat `series`, `raw`, every data source's) do warn when the scrape is not known. A plain `series` reads its
-  scrape from the raw readings in the window (the newest 500,000).
-- `nulls_s` holds at most 50 periods, the longest first. SPEC says so.
+  ergostat `series`, `raw`, every data source's, and since round 2 every answer built from series readings) do warn
+  when the scrape is not known. A `series` reads its scrape from its newest 2,000 raw readings in the window (round 2).
+- `nulls_s` holds at most 50 periods, the longest of all windows first. SPEC says so.
 - A metrics store with no `_sources` (VictoriaMetrics) refuses `raw`. Its `range` stands roll-ups in for readings, so
   it cannot promise raw.
 - A model that declares a source named `analysis` keeps it in its file, but it is not listed and never asked. Refusing
@@ -115,4 +97,49 @@ Tests run here: `tests/test_analysis_source.py`, `test_result_frames_and_verdict
 `test_dashboard_page.py` and `test_plot_forms.py`. ruff is clean. The whole unit suite and the four browser files were
 not run here (the factory runs them).
 
-Overrun reason: 335 lines added and 32 removed outside tests, docs and dev, about 303 net against 240. The call language with columns for its refusals, the reference checks (self, missing, analysis, failed), the per-request bound held at parse and again at run time, the readings bound and the four verdict codes are each asked for, and each costs a few lines. The rest is docstrings.
+Round 2, answering every finding of the review:
+- gate 1 (the record changed outside "Where it stopped"): round 1 put `## Entry` above this section, inside the text
+  the gate compares. It is moved below, so the definition above this heading is again exactly its first commit.
+- lesson-3, a shaped answer's scrape: `analysis.scrapes` gives `scrape_s` to every answer whose values come from series
+  readings. A plain `series` gets it in `_one`. Candles, an X-paired or binned series, and a frequency response whose
+  input or output is a series get it in `_shaped`, from the query, its input, its output and its X query. The value is
+  the coarsest scrape of those series, and null (warned `scrape-unknown`) if any one is not known. A model's response
+  reads no readings and is left out. `test_shaped_answers_carry_their_scrape` covers candles and a frequency response
+  with the scrape known, and candles with the readings pruned (null, warned). A frequency response over pruned readings
+  is refused for too few samples, so it has no sampling to check there.
+- lesson-4, the scrape's cost: the scrape is now read from a series' newest `SCRAPE_READINGS` (2,000) raw readings in
+  the window, not 500,000. With at most 64 queries, each reading a few series, that is a small fixed cost a request.
+  `raw` still reads its whole window (at most `READINGS_MOST`, under the 8 analysis queries a request) for its grid.
+  The same test pins the bound: with `SCRAPE_READINGS` at 30 and the newest 40 readings 30 s apart after 600 readings
+  10 s apart, the `series` answer says 30 and `raw` says 10.
+- lesson-8/9, nulls with two windows: each window's `W/k` in the band are collected, at most 50 a window, its longest.
+  They are then sorted and cut to 50, so the longest of all windows come first. `test_observable_band_and_nulls` now
+  checks windows [3600, 86400] in a band [20, 43200]: the list is the 50 longest of both, starting 43200, 28800.
+- Checked by breaking the code, each seen to fail, then restored: with the `_shaped` scrape skipped, the
+  shaped-answers test fails. With the old stop-at-50 walk restored, the nulls test fails. With the scrape read from
+  `READINGS_MOST`, the bound check fails.
+- Tests run in round 2: `test_analysis_source.py` (10 passed), `test_query_axes.py`, `test_query_frequency.py`,
+  `test_result_shapes.py`, `test_result_frames_and_verdicts.py`, `test_query_engine.py`, `test_data_sources.py`,
+  `test_query_fixes.py`, `test_query_spread.py` and `test_group_progress.py`, all passing. ruff is clean. No page
+  changed, so no browser file was run in round 2. The whole unit suite and the four browser files were not run here.
+
+Overrun reason: 347 lines added and 32 removed outside tests, docs and dev, 315 net against 240. The call language with columns for its refusals, the reference checks (self, missing, analysis, failed), the per-request bound held at parse and again at run time, the readings bound, the four verdict codes and (round 2) the scrape on every answer built from series readings are each asked for, and each costs a few lines. The rest is docstrings.
+
+## Entry
+
+section: Done recently
+
+- **The analysis source and the window ledger** (analysis-source-and-window-1). A panel query `{"source": "analysis",
+  "text": "raw(A)"}` is answered on the server over query A of the same request. `analysis` is reserved, never declared,
+  and listed first among `datasources` with its language. The call language is closed: a call, the query ids, then
+  `key=value` options. The only call is `raw`, with one option, `points`. A bad call, option or reference, or text that
+  does not parse (with its column), is refused alone. `raw(A)` of an ergostat series reads the readings, never the
+  roll-ups, on one grid at their median spacing, coarsened only to stay within the point bound. A hole longer than
+  `GAP_SAMPLES` spacings stays empty and is listed in `gaps`. With only roll-ups left it is refused (`only-rollups`).
+  `raw` of a data source's query asks it again at the finest step and warns `not-raw`. Every answer carries
+  `meta.sampling`: step, scrape (null and warned `scrape-unknown` where not known, on every answer read from series
+  readings), PromQL range windows, the observable band `[2 × max(scrape, step), window / 2]` and the nulls `W/k` inside
+  it, the longest 50 of all windows (G1, G2). A request whose answers differ in step or range windows warns on each
+  (`mixed-windows`, G4). Left: G3 (windows the controller consumes) waits for `loop-roles-and-loop-panels`; `pair`,
+  `psd`, `spectrogram` and `ccf` are the next sub-gap; the page's batching does not yet rewrite the ids inside an
+  analysis text.

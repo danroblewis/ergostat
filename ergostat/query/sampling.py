@@ -47,10 +47,11 @@ def ledger(got: dict, q, window: float | None) -> tuple[dict, list[tuple[str, st
     lo, hi = (2 * finest if finest else None), (window / 2 if window else None)
     nulls: list[float] = []
     for w in (ws or ()) if lo else ():                 # (None: a language whose windows are not read)
-        k = max(1, math.ceil(w / hi - 1e-9)) if hi else 1
-        while w / k >= lo and len(nulls) < MOST_NULLS:
+        first = max(1, math.ceil(w / hi - 1e-9)) if hi else 1
+        for k in range(first, first + MOST_NULLS):     # each window's longest, then all windows' longest
+            if w / k < lo:
+                break
             nulls.append(w / k)
-            k += 1
     return ({"step_s": step, "scrape_s": scrape, "range_windows_s": ws, "observable_period_s": [lo, hi],
              "nulls_s": sorted(set(nulls), reverse=True)[:MOST_NULLS]}, said)
 

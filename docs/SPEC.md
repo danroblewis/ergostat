@@ -1399,12 +1399,14 @@ reads the event log.
   readings cannot be told from its roll-ups (VictoriaMetrics) is refused. A a data source's query is asked again at the
   finest step 1,000 points allow; the answer warns `not-raw`, naming its range windows, which still smooth it.
 - **Sampling.** Every answer carries `meta.sampling`: `step_s`; `scrape_s`, the readings' median spacing where they are
-  read (an ergostat `series` and `raw`, from the raw readings in the window), null where it is not known (a data
-  source's; a series whose raw readings are gone); `range_windows_s`, every `[d]` and `[d:r]` of a PromQL text (its
+  read (an ergostat `series`, from the newest 2,000 raw readings in the window, and `raw`, from all it reads; an answer
+  built from series readings, such as candles, an X-paired or binned series or a frequency response, carries the
+  coarsest scrape of its series, null if any is not known), null where it is not known (a data source's; a series
+  whose raw readings are gone); `range_windows_s`, every `[d]` and `[d:r]` of a PromQL text (its
   `d`, strings and comments not read), or a moving average's span, `[]` for none and null for a language not read;
   `observable_period_s`, `[lo, hi]` with `lo = 2 × max(scrape, step)` (G2) and `hi` half the window; and `nulls_s`,
   each period `W/k` of a range window inside that band, where an average over `W` shows nothing (G1), at most 50, the
-  longest first. An unknown scrape never counts as fine: `lo` is then from the step alone and the answer warns
+  longest of all the windows' first. An unknown scrape never counts as fine: `lo` is then from the step alone and the answer warns
   `scrape-unknown`. The sources that record each change at its time (`items`, `moves`, `counts`, `events`) are not
   sampled: their `scrape_s` is null with no warning. When a request's answers (refused ones aside) differ in step or in
   range windows, each warns `mixed-windows`, naming every step and window (G4). The page sends every panel's queries in

@@ -208,8 +208,7 @@ def _one(live, p, q: Query, since: float, until: float, points: int, first: floa
     spec = getattr(p.model, "spec", None)
     try:
         got = _result(q, _read(p, spec, q, g, work), g, first)
-        if q.source == "series":                      # readings: sampled, at a scrape interval known or not
-            got["scrape_s"] = analysis.scrape(p.measurements, q.series, g.since, g.until)
+        got.update(analysis.scrapes(p.measurements, (q,), g.since, g.until))   # readings: sampled, known or not
     except Unanswerable as e:
         return {"id": q.id, "error": f"{q.source}: {e}", "read_log": q.source == "events"}
     except Exception as e:                            # one query's failure is its own: the others still answer
@@ -273,6 +272,9 @@ def _shaped(live, p, q: Query, by_id: dict, refused: set, since: float, until: f
         a = shaped.Asking(p, spec, since, until, points, lambda sub, n: _one(live, p, sub, since, until, n, first, work),
                           lambda sub, g: _read(p, spec, sub, g, work))
         got = _build(a, q, first)
+        if not q.model:                               # its values from series readings: sampled, known or not
+            got = {**got, **analysis.scrapes(p.measurements, (q, q.input, q.output, getattr(q.x, "query", None)),
+                                             since, until)}
     except Unanswerable as e:
         return {"id": q.id, "error": f"{q.source}: {e}", "read_log": uses_log}
     except Exception as e:                            # one query's failure is its own: the others still answer

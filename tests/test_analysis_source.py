@@ -118,6 +118,24 @@ def test_observable_band_and_nulls():
     assert got["observable_period_s"] == [120, 43200] and [c for c, _ in said] == ["scrape-unknown"]
     got, said = sampling.ledger({"step": 60}, types.SimpleNamespace(transform="moving_avg", window=5), HOUR)
     assert got["range_windows_s"] == [300] and got["nulls_s"] == [300, 150] and said == []    # an average's span; not sampled
+    got, _ = sampling.ledger({"step": 10, "scrape_s": 10, "range_windows_s": [HOUR, 86400]}, None, 86400)
+    every = {HOUR / k for k in range(1, 181)} | {86400 / k for k in range(2, 4321)}     # both windows' W/k in [20, 43200]
+    assert got["nulls_s"] == sorted(every, reverse=True)[:50] and got["nulls_s"][:2] == [43200, 28800]
+
+
+def test_shaped_answers_carry_their_scrape(tmp_path, monkeypatch):
+    sig = {"source": "series", "series": "s"}
+    shaped = [("O", {**sig, "agg": "ohlc"}), ("F", {"source": "frequency", "input": sig, "output": sig})]
+    for r in ask(record(tmp_path, SAW), *shaped):
+        assert "error" not in r and r["meta"]["sampling"]["scrape_s"] == 10 and "scrape-unknown" not in codes(r), r
+    (tmp_path / "gone").mkdir()                       # readings pruned: unknown, and warned (a frequency is then
+    [r] = ask(record(tmp_path / "gone", SAW, raw=60.0), shaped[0])                # refused: 12 roll-ups are too few)
+    assert "error" not in r and r["meta"]["sampling"]["scrape_s"] is None and "scrape-unknown" in codes(r), r
+    (tmp_path / "late").mkdir()                       # 10 s apart, then the newest 40 readings 30 s apart
+    p = record(tmp_path / "late", [*SAW[:600], *((SAW[599][0] + 30 * i, 1.0) for i in range(1, 41))])
+    monkeypatch.setattr(analysis, "SCRAPE_READINGS", 30)
+    a, r = ask(p, A, ("R", {"source": "analysis", "text": "raw(A)"}))
+    assert a["meta"]["sampling"]["scrape_s"] == 30 and r["meta"]["sampling"]["scrape_s"] == 10   # the newest 30 only
 
 
 def test_mixed_windows_warn(tmp_path, prom):
