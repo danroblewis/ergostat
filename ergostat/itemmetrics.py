@@ -172,15 +172,16 @@ def sweep(c, minutes: list[float], spec, most: int = MOST_SAMPLES, held: dict | 
     ``(labels with __name__, minute, value)``, stopping past ``most`` samples (after one minute at the least). What the
     index carried counts from the first of ``minutes`` or when it was carried, whichever is earlier. ``held`` is added
     to the counters (and is a floor under the last-move times) from the start; ``base``, ``(minute, values written
-    then)`` before ``minutes``, raises each to what was written at that minute and holds the rise (an index made again
-    without what it carried: ``hold``). Also returns the values at the last minute and what is held after."""
+    then)`` before ``minutes``, puts ``held`` aside, raises each counter from what this index alone counts at that
+    minute to what was written then, and holds the rise (another index, made again or kept from before: ``hold``).
+    Also returns the values at the last minute and what is held after."""
     names = dict(c.execute("select id, name from names"))
     ms_kinds = milestoned(spec)
     out_refused = refused(c, names, ms_kinds)
     held = dict(held or {})
+    if base is not None:                  # another index: what it alone counts, and the hold worked out afresh from it
+        minutes, held = [base[0], *minutes], {}
     t = Tally(out_refused, held)
-    if base is not None:
-        minutes = [base[0], *minutes]
     rel = next((i for i, n in names.items() if n == "milestone"), None)
     ms = {rid: dst for rid, dst, k in c.execute("select l.rid, l.dst, i.kind from links l join items i on i.rid = l.rid "
                                                  "where l.rel = ?", (rel,)) if names.get(k) in ms_kinds}
@@ -207,7 +208,7 @@ def sweep(c, minutes: list[float], spec, most: int = MOST_SAMPLES, held: dict | 
                 t.carried(a, json.loads(b), x)
             row = next(rows, None)
         if base is not None and m == base[0]:
-            held = hold(t.v, held, base[1])
+            held = hold(t.v, base[1])
             continue
         if out and len(out) + len(t.v) > most:
             break
@@ -216,12 +217,15 @@ def sweep(c, minutes: list[float], spec, most: int = MOST_SAMPLES, held: dict | 
     return out, out_refused, final, held
 
 
-def hold(v: dict, held: dict, written: dict) -> dict:
-    """Each counter in ``v`` raised to what was written (``written``) where it counts less, a last-move time to the
-    latest written, in place: ``held`` and the rises, so the counters never fall when the index is made again (a kind
-    edited, a new layout, a damaged file built again) without what it carried for items it forgot. A gauge's series
-    is kept, at nothing added."""
-    held = dict(held)
+def hold(v: dict, written: dict) -> dict:
+    """Each counter in ``v`` (what one index alone counts at the minute last written) raised to what was written
+    (``written``) where it counts less, a last-move time to the latest written, in place; returns the rises, the hold,
+    so the counters never fall when the index is made again (a kind edited, a new layout, a damaged file built again)
+    without what it carried for items it forgot. Worked out afresh from ``v``, never added to an earlier hold: an
+    index kept from before (a kind's edit undone reopens its old file, with its old carry) counts what the earlier hold
+    made up for, so the hold falls to nothing there rather than counting it twice. A gauge's series is kept, at
+    nothing added."""
+    held: dict = {}
     for k, x in written.items():
         now = v.get(k, 0.0)
         if k[0] == ITEMS:

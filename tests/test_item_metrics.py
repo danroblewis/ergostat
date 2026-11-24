@@ -282,6 +282,54 @@ def test_an_index_made_again_after_a_prune_holds_every_counter(tmp_path, monkeyp
     assert s.val(T0 + 420, im.TRANS, kind="gap", frm="open", to="building") == 2
 
 
+def test_a_kind_edited_then_undone_reopens_the_old_index_without_counting_twice(tmp_path):
+    """Round 3 (lesson 5): after a prune, a kind edited (index B, held up to what A carried) and then undone reopens
+    A's own file, with its old epoch and its carry: the hold is worked out afresh there (none needed), so what was
+    pruned is counted once, and every counter goes on from what was written."""
+    a = project(tmp_path)
+    for i in range(4):
+        a.events.add("gap.found", item=f"gap/old{i}", source="intake", data={"cost_usd": 1.0}, at=T0 + 1 + i)
+    a.events.add("gap.started", item="gap/old0", source="builder", at=T0 + 30)
+    a.events.add("gap.found", item="gap/kept", source="intake", at=T0 + 200)
+    keep(a, T0 + 240)
+    assert a.events.prune(T0 + 100) == 5
+    keep(a, T0 + 300)                                     # A carries the four old gaps: (gone)
+    epoch = lambda p: index_for(p.events, p.spec, False).db.execute(  # noqa: E731
+        "select value from meta where key = 'epoch'").fetchone()[0]
+    ea = epoch(a)
+    (tmp_path / "m" / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace("[open, building, merged]",
+                                                                                 "[open, building, merged, parked]"))
+    b = SimpleNamespace(**{**vars(a), "spec": mdl.load(tmp_path / "m").spec})
+    assert epoch(b) != ea
+    a.events.add("gap.started", item="gap/kept", source="builder", at=T0 + 310)
+    keep(b, T0 + 360)                                     # B: held at what A had written
+    (tmp_path / "m" / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
+    back = SimpleNamespace(**{**vars(a), "spec": mdl.load(tmp_path / "m").spec})
+    assert epoch(back) == ea                              # A's own file again, its carry in it
+    assert index_for(back.events, back.spec, False).db.execute("select count(*) from carried").fetchone()[0] > 0
+    a.events.add("gap.merged", item="gap/kept", source="queue", at=T0 + 370)
+    keep(back, T0 + 420)
+    keep(back, T0 + 480)                                  # and on from there
+    s = a.measurements
+    _every_minute_once(s)
+    for k, pts in s.s.items():
+        if dict(k)["__name__"] != im.ITEMS:
+            ts = sorted(pts)
+            assert all(pts[x] <= pts[y] for x, y in zip(ts, ts[1:], strict=False)), k     # no counter falls
+    for m in (T0 + 420, T0 + 480):                        # what was pruned counted once, the moves since once each
+        assert s.val(m, im.TRANS, kind="gap", to=im.GONE) == 4, m
+        assert s.val(m, im.EVENTS, type="gap.found", source="intake") == 5, m
+        assert s.val(m, im.FIELD, kind="gap", field="cost_usd") == 4, m
+        assert s.val(m, im.TRANS, kind="gap", frm=im.NEW, to="open") == 5, m
+        assert s.val(m, im.TRANS, kind="gap", frm="open", to="building") == 2, m
+        assert s.val(m, im.TRANS, kind="gap", frm="building", to="merged") == 1, m
+        assert s.val(m, im.EVENTS, type="gap.started", source="builder") == 2, m
+        assert s.val(m, im.STAY + "_count", kind="gap", state="open") == 2, m
+        assert s.val(m, im.ITEMS, kind="gap", state="merged") == 1 and s.val(m, im.ITEMS, kind="gap", state="building") == 0
+    assert json.loads((a.dir / im.STATE).read_text())["held"] == [] or all(
+        x == 0 or n == im.LAST for n, _, x in json.loads((a.dir / im.STATE).read_text())["held"])
+
+
 def test_a_refused_write_is_not_tried_again_until_its_wait_is_over(rec):
     """Round 2 (lesson 4): the lead calls it each sweep (5 s); after a fault the next pass waits a minute, then two,
     doubling to an hour; after a pass, the next minute."""

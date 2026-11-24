@@ -148,6 +148,32 @@ Not run: the whole unit suite and the four browser files (no page changed), and 
 Left, as in round 1: the real-server test has still never run here, and a pass's cost on a factory-sized index is not
 measured. The backoff is kept in memory, so a restarted lead tries at once; it runs in one process, so nothing races on it.
 
+Round 3, 2026-11-24. There was one review finding, and it was blocking. No non-blocking finding was raised.
+- **Undoing a kind edit no longer double counts what was pruned** (lesson 5, lesson 9, done 3).
+  - The bug: the re-base on an epoch change started the tally from the old `held` and only raised it. A prune, then a
+    kind edit (index B, held up to what A carried), then the edit undone reopens A's kept file, which still has its
+    `carried` rows and its `event_counts`, so what was pruned counted twice.
+  - The fix: `sweep` now puts the old `held` aside on an epoch change. `hold(v, written)` works the hold out afresh:
+    max(0, written − what this index alone counts) at the minute last written, and the latest written last-move time.
+    Back on A, that is nothing, and the stale hold is dropped. SPEC §4b says so.
+  - Test: `test_a_kind_edited_then_undone_reopens_the_old_index_without_counting_twice` goes A → B → A after a prune,
+    with a move on B and another back on A. It checks that A's file and epoch are reopened with its carry. Across both
+    passes after the return, it checks that no counter falls and every series is written once at every minute. It also
+    checks the values: 4 gone moves, 5 `gap.found`, a cost total of 4, 5 arrivals, 2 open→building, 1 building→merged,
+    and 2 open stays.
+  - Seen to fail with the old re-base (the tally seeded from the old hold, and the rise added to it): gone moves went
+    from 4 to 8, as the finding said. The fix was put back after.
+- About 375 net lines of code outside tests, docs and dev (budget 600).
+
+Run here:
+- test_item_metrics, test_item_index and test_metrics_store_labels: 87 passed, 6 skipped (real-server tests, no
+  binary).
+- test_spec_structure, test_dashboards_doc and test_daemon_docs: 74 passed.
+- ruff is clean.
+
+Not run: the whole unit suite and the four browser files (no page changed), and `demo_check` (no example touched).
+Left, as before: the real-server test has never run here, and a pass's cost on a factory-sized index is not measured.
+
 ## Entry
 
 section: Runtime, scale and latency
@@ -158,7 +184,8 @@ section: Runtime, scale and latency
   as the edges; `ergostat_item_last_transition_timestamp_seconds`; the histogram `ergostat_item_time_in_state_seconds`,
   observed at exit; `ergostat_item_field_total{kind,field}`; and `ergostat_events_total{type,source}`. A first run
   backfills them and says what pruning lost. A checkpoint means a restart neither loses nor double counts, and an
-  index made again (a kind edited, a new layout, a healed file, a reindex) holds each counter at what was written.
+  index made again (a kind edited, a new layout, a healed file, a reindex) holds each counter at what was written,
+  worked out afresh at each change, so undoing an edit counts nothing twice.
   After a fault the next pass waits, doubling up to an hour. Labels come
   from an allowlist, and a label past 100 values is refused. Left: the real-server test has not been seen to pass (no
   binary where it was built), and a pass's cost on a large index is not measured.

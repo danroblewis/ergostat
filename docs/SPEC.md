@@ -1084,7 +1084,10 @@ An index made again has lost what it carried. That happens when an item kind is 
 changes, when a damaged file is built again, and on `ergostat compact --reindex`. So the checkpoint also keeps the
 index's epoch and every series as last written. On a pass over another epoch, each counter is held at no less than
 what was written, each last-move time at no earlier, and each gauge series is kept (at nothing added). The rise is kept
-in the checkpoint's `held`, and the counters go on from there, so none falls. An event stamped before the last minute
+in the checkpoint's `held`, and the counters go on from there, so none falls. The rise is worked out afresh on each
+change of epoch, from what that index alone counts at the minute last written, never added to the hold before it.
+So undoing a kind's edit, which reopens the kept file with its old carry, holds nothing more and counts nothing
+twice. An event stamped before the last minute
 written that arrives between the last pass and the index being made again may go uncounted in a held counter. `ergostat reset` forgets the checkpoint.
 
 Labels are bounded. Only `kind`, `state`, `from`, `to`, `le`, `field`, `type`, `source` and `milestone` can be labels
