@@ -165,6 +165,11 @@ The control diagram is the product's main view. Conventions:
   caused one on another's. It replaced the wiring view (machines and what passed between them),
   which stays on the command line (`ergostat system --wiring`). Its nodes and its kinds' frames are put by
   hand as the other views' parts are (below).
+- **A goal's state in the dynamics view** is said on its gap: a goal not holding has the server's word after the gap's
+  value (`36 · off by 36`, the one phrase of how far; `no feedback` for an open goal; `stale`, `unknown` muted),
+  and a goal holding has none. Off, the word, the gap's outline and the marker of its balancing loop are red
+  (`--bad`), never the accent, so a traced loop and an off goal never share a colour; a marker chosen still takes the
+  accent. The word comes and goes with the values poll, on the value's own line, so nothing is laid out again.
 - **The block view** draws each loop as a classic negative-feedback block diagram, one row per
   loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
   output u into the actuator (the valve), a second junction where the disturbance d joins, the
