@@ -95,6 +95,25 @@ goals:
     stock: users
     hold: ">= 180"                         # most of the market: only a product that mostly works keeps them
 
+# the product's main feedback loops, by name (SPEC §12a): Dynamics marks these and one loop per goal, and lists the
+# rest as minor loops
+loops:
+  bug-fixing:                              # B: what support files is fixed by a release (goal no-live-bugs)
+    through: [flow.filed-bugs, flow.fixes]
+    description: what support files about broken operations is worked, shipped, and fixes them
+  regressions:                             # R: a release breaks what worked, which files more bugs, which brings more releases
+    through: [flow.filed-bugs, flow.regressions]
+    description: each release breaks some of what worked, which support files as more bugs to release fixes for
+  features-shipped:                        # B: what customers ask for is filed, built and shipped (goal few-missing)
+    through: [flow.filed-features, flow.shipped]
+    description: what is missing is filed as features, built and shipped
+  users-won:                               # B: shipping what was missing brings users in (goal users-growing)
+    through: [flow.shipped, flow.signups]
+    description: too few users, so the product manager files what is missing; shipped, it brings users in
+  long-tail:                               # B: more users ask for more, and what is missing drives them off
+    through: [flow.asks, flow.churn]
+    description: more users ask for more of the long tail, and what is missing drives them off (limits to growth)
+
 blocks:
   customers:                               # the market: not ours to command
     type: program

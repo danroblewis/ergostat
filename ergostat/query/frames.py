@@ -12,12 +12,12 @@ not by where it came from, and a PromQL and a SQL answer of one shape draw the s
 
 Every answer also carries the envelope ``meta``: its source, its query text (a data source's), its provenance, its
 verdict (verdicts.py: ``ok``, ``warn`` or ``refuse``, each reason with its fix), ``n`` (the values it holds) and
-``sampling`` (its step). ``n_effective`` and the sampling's scrape, range windows and observable band are ``None``:
-not known here (analysis-source-and-window-guard measures them), and never a guess. A refused answer holds nothing to
-draw."""
+``sampling`` (sampling.py: its step, scrape, range windows, observable band and nulls). ``n_effective`` is ``None``:
+not known here, and never a guess. A refused answer holds nothing to draw."""
 
 from __future__ import annotations
 
+from . import sampling
 from .verdicts import reason, verdict
 
 SHAPES = ("series", "table", "points", "distribution", "response", "graph")
@@ -56,14 +56,14 @@ def describe(got: dict, agg: str | None = None) -> dict:
             "rows": _rows(series)}
 
 
-def _verdict(got: dict) -> dict:
+def _verdict(got: dict, sampled=()) -> dict:
     if got.get("error"):
         busy = "busy:" in got["error"]                  # (a request out of time, whatever asked: try again)
         return verdict([reason(got.get("error_code") or ("busy" if busy else got.get("error_kind") or "unanswerable"), got["error"])])
     if got.get("supported") is False:                  # (no curve is sent with it: query/frequency.py)
         return verdict([reason("no-coherence", got.get("refused") or "")])
     said = [w for w in (got.get("note"), "only part of the record was read" if got.get("truncated") else None) if w]
-    return verdict([reason("partial", w) for w in said] + [reason(c, w) for c, w in got.get("warnings") or ()])
+    return verdict([reason("partial", w) for w in said] + [reason(c, w) for c, w in [*(got.get("warnings") or ()), *sampled]])
 
 
 def _n(got: dict) -> int:
@@ -79,16 +79,17 @@ def _n(got: dict) -> int:
     return sum(v is not None for s in got.get("series") or [] for v in s.get("close") or s.get("values") or [])
 
 
-def framed(got: dict, q) -> dict:
+def framed(got: dict, q, window: float | None = None) -> dict:
     """The answer to ``q`` with its frame and envelope, as a new dict (a kept answer is shared, and never changed).
-    A refused answer keeps nothing to draw: its id, its error and the envelope."""
+    A refused answer keeps nothing to draw: its id, its error and the envelope. ``window``: the request's, in seconds."""
     method = got.get("method")
     meta = {"source": getattr(q, "source", None), "query": getattr(q, "text", None),
             "provenance": got.get("provenance") or ("declared" if method == "model" else "derived" if method == "empirical"
-                                                    else "observed"),
-            "verdict": _verdict(got)}
+                                                    else "observed")}
     if got.get("error"):
-        return {**{k: got[k] for k in ("id", "error", "error_kind", "error_at", "read_log") if k in got}, "meta": meta}
-    meta.update(n=_n(got), n_effective=None, sampling={"step_s": got.get("step"), "scrape_s": None,
-                                                       "range_windows_s": None, "observable_period_s": None})
-    return {**{k: v for k, v in got.items() if k != "warnings"}, **describe(got, getattr(q, "agg", None)), "meta": meta}
+        return {**{k: got[k] for k in ("id", "error", "error_kind", "error_at", "read_log") if k in got},
+                "meta": {**meta, "verdict": _verdict(got)}}
+    sampled, said = sampling.ledger(got, q, window)
+    meta.update(verdict=_verdict(got, said), n=_n(got), n_effective=None, sampling=sampled)
+    return {**{k: v for k, v in got.items() if k not in ("warnings", "scrape_s", "range_windows_s")},
+            **describe(got, getattr(q, "agg", None)), "meta": meta}

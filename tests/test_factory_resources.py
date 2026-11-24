@@ -316,11 +316,11 @@ def test_cleanup_deletes_only_the_factorys_folders(tmp_path, monkeypatch):
 
 
 def test_cleanup_removes_session_folders_of_every_role(tmp_path, monkeypatch):
-    """Every role in agents.TIMEOUTS (pipeline_manager, plan_reviewer, join_judge have underscores), both shapes, past
-    the keep: removed; a young one of each: kept."""
+    """Every role in agents.TIMEOUTS (pipeline_manager, join_judge have underscores), and the removed plan_reviewer's
+    old folders, both shapes, past the keep: removed; a young one of each: kept."""
     monkeypatch.setitem(sys.modules, "fac", module("fac"))
-    cleanup, roles = module("cleanup"), sorted(module("agents").TIMEOUTS)
-    assert {"pipeline_manager", "plan_reviewer", "join_judge"} <= set(roles)
+    cleanup, roles = module("cleanup"), sorted({*module("agents").TIMEOUTS, "plan_reviewer"})
+    assert {"pipeline_manager", "join_judge"} <= set(roles)
     sessions = tmp_path / "live" / "sessions"
     sessions.mkdir(parents=True)
     old, now = time.time() - 3 * 86400, time.time()

@@ -275,12 +275,12 @@ def causal_loops(model) -> list[dict]:
 def goal_loops(model, goal: str) -> dict:
     """A goal's loops, from the spec only: the feedback loops that close it (each with its Dynamics label, R1, B2),
     and its control loop's parts (sensor, controller, actuator), as Blocks draws them."""
-    from .dynamics import labels
+    from .dynamics import drawn_labels
     spec = getattr(model, "spec", None)
     if spec is None or goal not in spec.goals:
         return {"feedback_loops": [], "control_loop": None}
     every = causal_loops(model)
-    tags = labels(every)
+    tags = drawn_labels(spec, every)
     lp = spec.loop(goal)
     return {"feedback_loops": [{"name": c["name"], "label": tags[c["name"]], "polarity": c["polarity"]}
                                for c in every if goal in c["goals"]],        # each loop through its gap, as SPEC says

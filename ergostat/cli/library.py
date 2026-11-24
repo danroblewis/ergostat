@@ -1,7 +1,8 @@
 """``ergostat library fetch [NAME...] [--update] [--dry-run]`` (SPEC §2a): the main file's ``libraries:`` read live
 with the loader's own YAML reader, checked, and each library fetched and locked (``library/fetch.py``), or with
 ``--dry-run`` one update reviewed without taking it (``library/compare.py``). It never opens the project and never
-runs on the last good model: a main file that does not read stops it before any git process."""
+runs on the last good model: a main file that does not read stops it before any git process.
+``ergostat library`` alone lists them (``listing``), offline, on the last good model when the main file is broken."""
 
 from __future__ import annotations
 
@@ -11,10 +12,11 @@ from .spec_cmds import here
 
 
 def register(sub, common) -> None:
-    lp = sub.add_parser("library", parents=[common], help="Libraries fetched by git URL: fetch [NAME...] [--update]",
-                        description="ergostat library fetch [NAME...] [--update]: clone each library in libraries: "
+    lp = sub.add_parser("library", parents=[common], help="Libraries fetched by git URL: list them, or fetch [NAME...]",
+                        description="ergostat library: each library in libraries:, where from, its pin and trust, "
+                                    "offline. ergostat library fetch [NAME...] [--update]: clone each library "
                                     "into .libraries/NAME and pin it in libraries.lock (SPEC §2a)")
-    lp.add_argument("what", choices=["fetch"])
+    lp.add_argument("what", nargs="?", choices=["fetch"])
     lp.add_argument("names", nargs="*", metavar="NAME", help="only these libraries (leave out: all)")
     lp.add_argument("--update", action="store_true", help="resolve each version again, even an unchanged one")
     lp.add_argument("--dry-run", action="store_true", help="with --update and one NAME: fetch the new version aside, "
@@ -33,6 +35,8 @@ def cmd_library(args) -> int:
     problems: list = []
     data = read_file(main, problems)
     bad = [p for p in problems if p.level == "error"]
+    if args.what is None:
+        return listing(main, data if not bad and isinstance(data, dict) else None, bad)
     if bad or not isinstance(data, dict):
         print(f"{main.name}: {bad[0] if bad else 'not a map of sections'}: fix it first (nothing fetched)",
               file=sys.stderr)
@@ -88,3 +92,31 @@ def _dry_run(args, main, cfg) -> int:
         return 1
     print("\n".join(compare.lines(r)))
     return 0 if r["ok"] else 1
+
+
+def listing(main, data, bad) -> int:
+    """``ergostat library``: each library as load reads it (fetched.described): no git process, nothing written. A
+    main file that does not read is listed from the last good model (goodmodel.fallback), said on standard error."""
+    from .. import goodmodel
+    from ..library.fetched import SECTION, line
+    from ..library.untrusted import OPEN, SAYS, printable
+    from ..spec.load import load
+    refused = []                                  # the libraries: section itself refused (sources.check): rc 1
+    if data is not None:
+        doc = load(main)
+        libs = doc.listed
+        refused = [p for p in doc.problems if p.level == "error" and p.code in SECTION]
+    else:
+        p = goodmodel.fallback(main.parent, ValueError(f"{main.name}\n{bad[0] if bad else 'not a map of sections'}"))
+        if p is None:
+            print(f"{main.name}: {bad[0] if bad else 'not a map of sections'} (and no last good model is kept)",
+                  file=sys.stderr)
+            return 2
+        libs = p.model.spec.libraries
+    lines = [line(d) for d in libs.values()]
+    if lines or not refused:
+        print("\n".join(lines) if lines else f"{main.name} has no libraries:")
+    print(f"\n{SAYS}" if any(OPEN in x for x in lines) else "", end="")
+    for p in refused:
+        print(f"{main.name}: {printable(p)}", file=sys.stderr)
+    return 1 if refused else 0

@@ -18,6 +18,9 @@ def read(path: Path, extremes: bool = True) -> tuple[Spec, list[Problem]]:
     doc = load_doc(path)
     spec, problems = compile_doc(doc)
     if not any(p.level == "error" for p in problems):
+        from ..promnames import names_for
+        problems += names_for(spec).problems()        # two parts' PromQL names that cannot be kept apart: refused
+    if not any(p.level == "error" for p in problems):
         problems += findings(spec, extremes)
     return spec, problems
 

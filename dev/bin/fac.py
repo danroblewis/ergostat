@@ -94,8 +94,8 @@ def _outage():
 
 
 def ai_held(cfg: dict) -> bool:
-    """While the AI is held for the provider's usage limit (aihold.py), a session that holds no lease (the groomer,
-    the plan review) waits for its next turn instead of starting. (A version switch holds nothing: its runs under way
+    """While the AI is held for the provider's usage limit (aihold.py), a session that holds no lease (the groomer)
+    waits for its next turn instead of starting. (A version switch holds nothing: its runs under way
     carry on, dev/bin/drain.py.)"""
     return _aihold().held(cfg) is not None
 
@@ -826,7 +826,7 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
     it was handed (main's side of each conflict; or aborts it, when FACTORY_STANDIN_MERGE=abort) and writes a note
     into the work, and each of FACTORY_STANDIN_WRITES (comma-separated paths; `git rm`ed once its brief says they
     were refused); the planner, researcher and
-    librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
+    librarian say STANDIN's; a reviewer's verdict is FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
     b = re.search(r"Branch: `([a-z0-9-]+)`", brief)
     said = os.environ.get(f"FACTORY_STANDIN_{role.upper()}") or STANDIN.get(role, "").replace("{b}", b[1] if b else "x")
     if said:

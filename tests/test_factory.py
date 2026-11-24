@@ -5407,25 +5407,15 @@ MERGED_GAPS = """\
 """
 
 
-def test_two_gaps_editing_gaps_md_merge_cleanly(tmp_path):
-    """Two gaps that each finish a different entry, moving it to the top of *Done recently*, merge without a conflict
-    (they conflict without the union merge); two that edit entries side by side merge too, and the entries that
-    leaves twice are the intake's to report (tests/test_backlog.py::test_a_duplicated_gaps_entry_is_reported)."""
-    if str(BIN) not in sys.path:
-        sys.path.insert(0, str(BIN))
-    intake = module("intake")
-    one = MERGED_GAPS.replace("- **Alpha** (open): a.\n", "").replace(
-        "## Done recently\n\n", "## Done recently\n\n- **Alpha** (done, 2222222): a.\n")
-    two = MERGED_GAPS.replace("- **Gamma** (open): c.\n", "").replace(
-        "## Done recently\n\n", "## Done recently\n\n- **Gamma** (done, 3333333): c.\n")
-    assert merge_two(tmp_path / "a", "docs/GAPS.md", MERGED_GAPS, one, two, attributes=False)[0] != 0
-    rc, text = merge_two(tmp_path / "b", "docs/GAPS.md", MERGED_GAPS, one, two)
-    assert rc == 0 and "<<<<<<<" not in text
-    assert {e["title"]: e["gaps_says"] for e in intake.gaps_md(text)} == {"Beta": "open"}
-    assert "**Alpha** (done, 2222222)" in text and "**Gamma** (done, 3333333)" in text and intake.twice(text) == {}
-    rc, text = merge_two(tmp_path / "c", "docs/GAPS.md", MERGED_GAPS, MERGED_GAPS.replace("(open): a.", "(open): a!"),
-                         MERGED_GAPS.replace("(open): b.", "(done, 4444444): b."))
-    assert rc == 0 and sorted(intake.twice(text)) == ["gap/alpha", "gap/beta"]
+def test_gaps_md_has_no_union_merge_so_two_edits_side_by_side_conflict(tmp_path):
+    """docs/GAPS.md is merged as any file (no `merge=union`, which could splice an entry): two edits of entries side by
+    side conflict, never both kept (merge-pipeline-gaps-md-edits-retired)."""
+    r = subprocess.run(["git", "-C", str(ROOT), "check-attr", "merge", "--", "docs/GAPS.md"], capture_output=True,
+                       text=True)
+    assert r.returncode == 0 and r.stdout.strip() == "docs/GAPS.md: merge: unspecified"
+    rc, text = merge_two(tmp_path, "docs/GAPS.md", MERGED_GAPS, MERGED_GAPS.replace("(open): a.", "(open): a!"),
+                         MERGED_GAPS.replace("(open): b.", "(done, 4444444): b."), attributes=False)
+    assert rc != 0 and "<<<<<<<" in text
 
 
 def test_two_lessons_editing_review_lessons_merge_cleanly(tmp_path):
@@ -6446,8 +6436,7 @@ GAPS_RECORDS = {                                                   # GAPS as gap
     f"{NEW}/delta.md": "## Entry\n\nsection: Modelling\n\n- **Delta** (parked on `delta`, *Where it stopped*): stopped.\n",
     f"{NEW}/gamma.md": "## Entry\n\nsection: Done recently\n\n- **Gamma**: done.\n",
 }
-EPSILON = "- **Epsilon** (open): no record has it."
-CARRIED = GAPS.replace("stopped.\n", f"stopped.\n  *Left*: the carried line.\n{EPSILON}\n")
+EDITED = GAPS.replace("stopped.\n", "stopped.\n  *Left*: a line written in GAPS.md itself.\n")
 
 
 def test_a_definition_in_the_old_folder_resolves_past_a_record_that_is_only_its_entry(tmp_path):
@@ -6542,33 +6531,44 @@ def landed_head(f: Factory, name: str) -> tuple[str, dict]:
     return head, it["queue_runs"][0]
 
 
-def test_an_approved_branch_that_edited_gaps_md_lands_with_its_text_in_a_record(tmp_path):
-    f = Factory(tmp_path)
-    commit_files(f, GAPS_RECORDS)
-    approved_editing(f, "carried", {"docs/GAPS.md": CARRIED, "carried.txt": "x\n"})
-    head, run = landed_head(f, "carried")
-    assert git(f.checkout, "log", "-2", "--format=%s", "main").splitlines() == [
-        "docs/GAPS.md from the records", "Merge branch 'factory/carried'"]
-    assert "  *Left*: the carried line." in git(f.checkout, "show", f"{head}:{NEW}/delta.md")
-    assert git(f.checkout, "show", f"{head}:{NEW}/epsilon.md") == f"## Entry\n\nsection: Modelling\n\n{EPSILON}"
-    assert git(f.checkout, "show", f"{head}:docs/GAPS.md") == CARRIED.strip()   # the records' render, pushed
-    assert "@entry delta\n@entry epsilon\n" in git(f.checkout, "show", f"{head}:{NEW}/GAPS-head.md")
-    assert "gaps_md_unplaced" not in run and [c.split(":")[0] for c in run["gaps_md_carried"]] == [
-        "delta", "epsilon", "GAPS-head.md"]
+ZETA = "# zeta: its definition\n\nDone means.\n\n## Entry\n\nsection: Modelling\n\n- **Zeta** (open): only its record.\n"
 
 
-def test_an_approved_branch_that_deleted_a_gaps_md_entry_lands_with_it_gone_from_the_records(tmp_path):
+def test_a_batch_mate_editing_gaps_md_goes_back_uncounted_and_the_batch_lands_without_it(tmp_path):
+    # (merge-pipeline-gaps-md-edits-retired: no carry step; the regeneration commit as before)
     f = Factory(tmp_path)
     commit_files(f, GAPS_RECORDS)
-    gone = GAPS.replace("- **Delta** (parked on `delta`, *Where it stopped*): stopped.\n", "")
-    assert gone != GAPS
-    approved_editing(f, "deleted", {"docs/GAPS.md": gone})
-    head, run = landed_head(f, "deleted")
-    assert git(f.checkout, "log", "-1", "--format=%s", "main") == "docs/GAPS.md from the records"
-    assert git(f.checkout, "show", f"{head}:docs/GAPS.md") == gone.strip()        # never drawn again on the push
-    assert f"{NEW}/delta.md" not in git(f.checkout, "ls-tree", "-r", "--name-only", head, f"{NEW}/").splitlines()
-    assert "@entry delta" not in git(f.checkout, "show", f"{head}:{NEW}/GAPS-head.md")
-    assert run["gaps_md_carried"][0] == "delta: its Entry removed, as the batch removed it from GAPS.md"
+    approved_editing(f, "edits", {"docs/GAPS.md": EDITED, "edits.txt": "x\n"})    # ranked first (approved first)
+    approved_editing(f, "zeta", {f"{NEW}/zeta.md": ZETA})
+    approved_editing(f, "plain", {"plain.txt": "x\n"})
+    (f.model / "run").mkdir(exist_ok=True)
+    (f.model / "run" / "pools.json").write_text(json.dumps({"batch": 2}))
+    said, lines = f.run("queue.py", "gap/zeta")
+    assert said == ["gap.queued", "gap.sent-back"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2
+    assert git(f.checkout, "log", "-3", "--format=%s", "main").splitlines() == [
+        "docs/GAPS.md from the records", "Merge branch 'factory/plain'", "Merge branch 'factory/zeta'"]
+    head = git(f.checkout, "rev-parse", "main")
+    assert git(f.checkout, "show", f"{head}:docs/GAPS.md") == GAPS.replace(
+        "stopped.\n", "stopped.\n- **Zeta** (open): only its record.\n").strip()     # the records' render, pushed
+    assert "a line written in GAPS.md itself" not in git(f.checkout, "show", f"{head}:{NEW}/delta.md")  # never carried
+    e = f.item("gap/edits")
+    assert e["state"] == "fix" and e["fields"]["sent_back_by"] == "queue" and not [x for x in lines if "nack" in x]
+    assert "failed_gates" not in e["fields"] and "fix_rounds" not in e["fields"]      # uncounted
+    assert "docs/GAPS.md" in e["fields"]["findings"][0] and "## Entry" in e["fields"]["findings"][0]
+    run = f.item("gap/zeta")["fields"]["queue_runs"][0]
+    assert not [k for k in run if k.startswith("gaps_md")] and not (f.checkout / NEW / "GAPS-unplaced.md").exists()
+
+
+def test_the_run_s_own_gap_editing_gaps_md_goes_back_uncounted_and_main_stays(tmp_path):
+    f = Factory(tmp_path)
+    commit_files(f, GAPS_RECORDS)
+    start = git(f.checkout, "rev-parse", "main")
+    approved_editing(f, "edits", {"docs/GAPS.md": EDITED})
+    said, lines = f.run("queue.py", "gap/edits")
+    assert "gap.sent-back" in said and "gap.merged" not in said and not [x for x in lines if "nack" in x]
+    assert git(f.checkout, "rev-parse", "main") == start and suite_runs(f) == 0
+    e = f.item("gap/edits")
+    assert e["state"] == "fix" and "failed_gates" not in e["fields"] and "docs/GAPS.md" in e["fields"]["findings"][0]
 
 
 def test_an_approved_branch_that_adds_an_entry_only_in_its_record_lands_with_it_drawn(tmp_path):
@@ -6607,7 +6607,7 @@ def test_a_record_only_entry_whose_render_failed_is_drawn_by_the_next_landing(tm
 
 def test_no_record_change_makes_no_commit_and_a_malformed_record_lands_without_one(tmp_path):
     for name, files in (("plain", {"plain.txt": "x\n"}),
-                        ("bad", {"docs/GAPS.md": CARRIED, f"{NEW}/bad.md": "## Entry\n\nsection: Modelling\n"})):
+                        ("bad", {f"{NEW}/bad.md": "## Entry\n\nsection: Modelling\n"})):
         f = Factory(tmp_path / name)
         commit_files(f, GAPS_RECORDS)
         approved_editing(f, name, files)

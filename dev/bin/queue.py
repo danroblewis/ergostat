@@ -7,7 +7,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
 3. take the batch: the run's gap and up to `batch` - 1 more approved gaps no run holds (the pool `batch` in
    run/pools.json, 1 to start, which is one gap a run; dev/bin/pools.py), walked in rank order and each dry-merged
    onto the batch so far (`git merge-tree`, picks()): one that conflicts with main is sent back and takes no slot, one
-   that conflicts only with a batch-mate stays `approved`; a batch that comes back empty says why (emptied()). A
+   that conflicts only with a batch-mate stays `approved`, one whose own commits touch docs/GAPS.md is sent back to
+   `fix` uncounted (gaps_md_edited(); the landing writes that file from the records); a batch that comes back empty
+   says why (emptied()). A
    stacked gap (`stacked_on: [{gap, sha}]`, written by its implementor) whose base is not merged on main (that sha
    not an ancestor of main) brings the base in below it, bottom-up, at any depth: approved and held by no run, the
    whole stack in or none of it (stack()). The run's own gap whose base cannot come, or whose stack does not fit the
@@ -146,9 +148,16 @@ def crashed(rc: int, text: str) -> str:
 
 def browser_wanted(cfg: dict, repo, pre: str) -> bool:
     """Whether `git diff --name-only pre HEAD` (renames as both paths) names a path a `[suites] browser_paths` glob
-    matches. Absent, empty, not a list of globs, or a diff that cannot be read: True, the browser step runs."""
+    matches. Absent, empty, not a list of globs, or a diff that cannot be read: True, the browser step runs. So does a
+    batch that turns a feature flag on (ergostat/flags.py turned_on(); unreadable counts): the full checks."""
     globs = cfg["suites"].get("browser_paths")
     if not globs or not isinstance(globs, list) or not all(isinstance(g, str) and g for g in globs):
+        return True
+    try:
+        from ergostat import flags  # (here: the queue starts whether or not ergostat imports)
+    except ImportError:
+        return True
+    if flags.turned_on_between(repo, pre, "HEAD"):
         return True
     r = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", "--no-renames", "-z", pre, "HEAD"],
                        capture_output=True, text=True)
@@ -612,6 +621,15 @@ def message(g: dict) -> str:
 
 
 SENT = "it was sent back"   # (the start of an empty batch's why when the run's own gap's outcome is said already)
+GAPS_MD = ("uncounted: its branch edits docs/GAPS.md, which the queue writes from the records as it lands; the "
+           "entry goes in its record's ## Entry")
+
+
+def gaps_md_edited(repo, onto: str, sha: str) -> bool:
+    """Whether ``sha``'s own commits (since it left ``onto``: main, or the batch so far with its stack's bases in)
+    change docs/GAPS.md: sent back to `fix`, uncounted, where the implementor's brief says why (implement.py
+    gaps_md_brief). A diff git cannot make raises (the run fails), never read as no edit."""
+    return bool(fac.git(repo, "diff", "--name-only", f"{onto}...{sha}", "--", "docs/GAPS.md"))
 
 
 def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict, str]], str, str]:
@@ -620,7 +638,8 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
     a walk that never reached it. The run's own gap and the approved gaps no run holds (only its own when n is
     1), walked in rank order (the groomer's rank, then when approved), each dry-merged onto the batch so far, until n
     merge. A gap that conflicts with main (`pre`) is sent back at once, a failed gate, and takes no slot; one that
-    conflicts only with a batch-mate stays `approved`, no gate failed. The run's own gap is in its batch unless it is
+    conflicts only with a batch-mate stays `approved`, no gate failed; one whose own commits touch docs/GAPS.md
+    (against the batch so far) is sent back uncounted and takes no slot. The run's own gap is in its batch unless it is
     sent back: the last slot is kept for it, and if it conflicts only with batch-mates the walk is made again with it
     first, so its lease, which the batch's push is asked under, is never given back while others land; if it is sent
     back, the walk is made again in rank order, so the gaps passed over for its slot can fill the batch. The others
@@ -658,6 +677,8 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
             for x in unit:                                # a stack all in, or none of it
                 if x["id"] not in shas:
                     shas[x["id"]], no = reviewed(cfg, repo, x)
+                    if shas[x["id"]] and gaps_md_edited(repo, top, shas[x["id"]]):   # (top: its bases in, if any)
+                        shas[x["id"]], no = None, GAPS_MD
                     if not shas[x["id"]]:
                         tell("gap.sent-back", x["id"], sent_back_by="queue", findings=[f"not merged: {no}"])
                         why[0] = f"{SENT}: not merged: {no}" if x is gap else why[0]
@@ -1270,7 +1291,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
                 batches.end("given-back", f"outage: {why}")
                 fac.nack(f"queue: outage: {why}", after=fac._outage().AFTER, count=False)
                 return 0
-            merged, notes = gaps_md(repo, pre, merged) if landed else (merged, {})   # (part of the landing)
+            merged, notes = gaps_md(repo, merged) if landed else (merged, {})   # (part of the landing)
             batches.settled([g["id"] for g, _ in landed], merged, [(g["id"], why) for g, why in back])
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
@@ -1312,21 +1333,18 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
     return 0
 
 
-def gaps_md(repo, pre: str, merged: str) -> tuple[str, dict]:
+def gaps_md(repo, merged: str) -> tuple[str, dict]:
     """Inside the landing, before its point of no return (so a stop undoes it with the merges, and recover() puts main
-    back past it): the batch's own GAPS.md edits carried into the records and docs/GAPS.md written from them
-    (gapsdoc.regenerate()), committed on main as `docs/GAPS.md from the records` when anything differs. (main's head:
-    every landed gap's main_sha and the push; what the run says: gaps_md_carried, gaps_md_unplaced.) Any failure
-    commits nothing, leaves main at ``merged`` and says `gaps_md: why`; the batch lands all the same."""
+    back past it): docs/GAPS.md written from the batch's records (gapsdoc.regenerate()), committed on main as
+    `docs/GAPS.md from the records` when it differs (main's head: every landed gap's main_sha and the push). Any
+    failure commits nothing, leaves main at ``merged`` and says `gaps_md: why`; the batch lands all the same."""
     wrote: list[str] = []
     try:
-        before = fac.git(repo, "show", f"{pre}:docs/GAPS.md", check=False) + "\n"   # (unread: "", so none removed)
-        got = gapsdoc.regenerate(repo, gapsdoc.rendered_at(repo, pre), before)
-        wrote = got["files"]
+        wrote = gapsdoc.regenerate(repo)["files"]
         fac.git(repo, "add", "--", *wrote)
         if not fac.git_ok(repo, "diff", "--cached", "--quiet"):
             fac.git(repo, "commit", "-q", "-m", f"docs/GAPS.md from the records\n\n{fac.TRAILER}")
-        return fac.git(repo, "rev-parse", "HEAD"), {f"gaps_md_{k}": got[k] for k in ("carried", "unplaced") if got[k]}
+        return fac.git(repo, "rev-parse", "HEAD"), {}
     except Exception as e:  # noqa: BLE001 - a render that fails never blocks a merge
         fac.git(repo, "reset", "-q", "--hard", merged, check=False)        # (the queue's own checkout, at its merge)
         for p in wrote:                                                     # (only files it wrote that main lacks)

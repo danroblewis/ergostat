@@ -1256,6 +1256,8 @@ class Project:
         self.storage = getattr(model, "storage", None) or Storage()
         self.events = open_events(self.storage, self.dir)
         self.measurements = open_measurements(self.storage, self.dir)
+        if hasattr(self.measurements, "spec_of"):         # (its readings named for the model as it is: promnames.py)
+            self.measurements.spec_of = lambda: getattr(self.model, "spec", None)
 
     @property
     def repo(self) -> Path:

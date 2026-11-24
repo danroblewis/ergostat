@@ -154,8 +154,9 @@ def stray_brief(text: str, stray: list[str]) -> str:
 
 def gaps_md_edited(repo: Path, base: str, head: str) -> bool:
     """Whether the branch's own commits change docs/GAPS.md (since it left ``base``: main, or the stack of main and
-    its approved bases, whose GAPS.md edits the queue carries): the queue writes GAPS.md from the records as it lands
-    (queue.gaps_md()), so a gap's entry is written as its record's `## Entry`."""
+    its approved bases, whose own edits are judged on them): the queue writes GAPS.md from the records as it lands
+    (queue.gaps_md()) and gives back an approved gap that edits it (queue.gaps_md_edited()), so a gap's entry is
+    written as its record's `## Entry`."""
     return bool(fac.git(repo, "diff", "--name-only", f"{base}...{head}", "--", "docs/GAPS.md"))
 
 

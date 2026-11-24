@@ -45,9 +45,10 @@ SKIP = "set ERGOSTAT_TEST_VM_URL to run VictoriaMetrics"
 
 
 def test_each_series_has_a_name_and_bounded_labels_a_person_can_query():
-    assert promql_name("sensor/queue.depth") == {"__name__": "ergostat_sensor", "part": "queue", "sensor": "depth"}
-    assert promql_name("sensor/disk") == {"__name__": "ergostat_sensor", "part": "disk"}
-    assert promql_name("sensor/fill.set") == {"__name__": "ergostat_sensor", "part": "fill", "sensor": "set"}
+    # (with no model: a part's sensor under the part's own name, its sensor's as a label; promnames.py names by the model)
+    assert promql_name("sensor/queue.depth") == {"__name__": "queue", "sensor": "depth"}
+    assert promql_name("sensor/disk") == {"__name__": "disk"}
+    assert promql_name("sensor/fill.set") == {"__name__": "fill", "sensor": "set"}
     assert promql_name("run/builder/cost_usd") == {"__name__": "ergostat_run_cost_usd", "block": "builder"}
     assert promql_name("observer/q/innovation") == {"__name__": "ergostat_observer_innovation", "observer": "q"}
     assert promql_name("valve/inflow") == {"__name__": "ergostat_valve_position", "valve": "inflow"}
@@ -64,8 +65,8 @@ def test_a_reading_is_written_under_its_name_labels_project_and_series(tmp_path,
     lines = [json.loads(x) for x in sent[0][1].decode().splitlines()]
     assert sent[0][0] == "/api/v1/import" and [x["metric"] for x in lines] == [
         {"__name__": "ergostat_run_seconds", "block": "builder", "project": "p1", "series": "run/builder/seconds"},
-        {"__name__": "ergostat_sensor", "part": "queue", "sensor": "depth", "project": "p1", "series": "sensor/queue.depth"}]
-    assert v._sel("sensor/queue.depth") == '{__name__=~"ergostat_.+",project="p1",series="sensor/queue.depth"}'
+        {"__name__": "queue", "sensor": "depth", "project": "p1", "series": "sensor/queue.depth"}]
+    assert v._sel("sensor/queue.depth") == '{__name__=~".+",project="p1",series="sensor/queue.depth"}'
 
 
 def test_a_series_under_both_names_is_bucketed_whole_before_it_migrates(tmp_path, monkeypatch):
@@ -243,7 +244,7 @@ def test_reset_of_a_victoriametrics_record_deletes_its_series_in_the_server(tmp_
     assert f"every reading of project {p.dir.name} in VictoriaMetrics" in capsys.readouterr().out and Stub.seen == []
     assert main(["-C", str(repo), "reset", "--yes"]) == 0
     assert Stub.seen == [("/api/v1/admin/tsdb/delete_series", {"match[]": [p.measurements._sel()]})]
-    assert '__name__=~"ergostat_.+"' in p.measurements._sel()                  # (OLD_METRIC included)
+    assert '__name__=~".+"' in p.measurements._sel()                           # (OLD_METRIC and the old names included)
     assert not (p.dir / "measurements.backfilled.db").exists() and not (p.dir / "measurements.forgotten.json").exists()
     away = tmp_path / "away"
     away.mkdir()
@@ -310,13 +311,19 @@ class Mem(Victoria):
         self.old: dict[str, list] = {}
         self.keep: float | None = None
 
+    def _rows(self, sel, start=None, end=None):
+        if 'kind!=""' in sel:                                    # (the old item metrics: none here)
+            return []
+        assert 'series!=""' in sel, sel                          # (every series, under each name it is held)
+        return ([({"__name__": OLD_METRIC, "series": s}, list(p)) for s, p in self.old.items()]
+                + [({**self.labels(s), "series": s}, sorted(p)) for s, p in self.new.items()])
+
     def _export(self, series, start=None, end=None, sel=None):
-        if sel and f'__name__="{OLD_METRIC}"' in sel:
-            return {s: list(p) for s, p in self.old.items()}
-        if sel and "series=" in sel:
-            s = json.loads(sel.split("series=", 1)[1].rstrip("}"))
-            return {s: sorted(self.new[s])} if s in self.new else {}
-        return {s: sorted(p) for s, p in self.new.items()}
+        if sel is None:                                          # (every series this project holds)
+            return {s: sorted(p) for s, p in self.new.items()}
+        s = json.loads(sel.split("series=", 1)[1].rstrip("}"))    # (_held: one series under its current name)
+        assert f'__name__="{self.labels(s)["__name__"]}"' in sel, sel
+        return {s: sorted(self.new[s])} if s in self.new else {}
 
     def add_many(self, rows):
         for s, t, v in rows:
@@ -325,7 +332,7 @@ class Mem(Victoria):
 
     def _req(self, path, params=None, body=None):
         assert path == "/api/v1/admin/tsdb/delete_series" and OLD_METRIC in params["match[]"]
-        self.old.clear()
+        del self.old[json.loads(params["match[]"].split("series=", 1)[1].rstrip("}"))]
         return b""
 
 
@@ -482,8 +489,8 @@ def test_a_record_is_migrated_with_every_reading_and_answers_promql(tmp_path, vm
         _same(_held(dst), want)                                                   # every reading, its time and value
         g = grid(now - 3 * 86400, now, 3)
         ask = lambda text: datasources.query(None, "ergostat", text, g, store=dst)["series"]   # noqa: E731
-        [s] = ask('count_over_time(ergostat_sensor{part="queue",sensor="depth"}[10d])')
-        assert s["name"].startswith("{") and 'part="queue"' in s["name"] and s["values"][-1] == 300.0
+        [s] = ask('count_over_time(queue{sensor="depth"}[10d])')
+        assert s["name"].startswith("{") and 'sensor="depth"' in s["name"] and s["values"][-1] == 300.0
         [s] = ask("sum by (block) (count_over_time(ergostat_run_cost_usd[10d]))")
         assert s["name"] == '{block="builder"}' and s["values"][-1] == 40.0
         [s] = ask('max_over_time(ergostat_valve_position{valve="inflow"}[10d])')
@@ -491,7 +498,7 @@ def test_a_record_is_migrated_with_every_reading_and_answers_promql(tmp_path, vm
         other = Victoria(vm, tmp_path, project=f"test-{uuid.uuid4().hex[:10]}")
         other.add_many([("sensor/queue.depth", now - 86400, 9.0)])
         try:                                                                     # (another project's series is not seen)
-            [s] = ask('count_over_time(ergostat_sensor{part="queue",sensor="depth"}[10d])')
+            [s] = ask('count_over_time(queue{sensor="depth"}[10d])')
             assert s["values"][-1] == 300.0
         finally:
             other.drop()
@@ -574,7 +581,7 @@ def test_rate_and_increase_differ_from_prometheus_as_recorded(tmp_path, vm):
     at = pts[20][0] + 30
     try:
         dst.add_many([("sensor/c.total", t, v) for t, v in pts])
-        sel = f'ergostat_sensor{{project="{dst.project}",part="c"}}'
+        sel = f'c{{project="{dst.project}"}}'
         [(_, inc)] = dst._query(f"increase({sel}[300s])", at)
         [(_, rate)] = dst._query(f"rate({sel}[300s])", at)
         prom = _prometheus_increase(pts, at - 300, at)

@@ -148,6 +148,23 @@ the instance's name (to give it `show:` or `within:`) is the model's, in place o
 place or drawn alone, in both views, like any system. Templates may use templates; an inner instance is named
 `INSTANCE-INNER` and is within the outer one.
 
+**A part's system.** A part a use names `INSTANCE-NAME` belongs to the system `INSTANCE`, and `NAME` is its
+**short name** there; so does a part a remote serves (§4c): `incidents-open` is remote `incidents`'s `open`. The
+compiled model records both for each such part when it is made (`spec.belongs`, keyed `stock.incidents-open`). It
+never reads them back out of the full name: a hand-written `incidents-extra` beside remote `incidents` records
+none (nor does a hand-written `incidents-open` that takes the name of remote `incidents`'s `open`: it stands, and
+the remote's is not composed, `remote-name-taken`), and neither does a name a parameter gives whole, a part a
+`once: true` template keeps unprefixed, the instance's own system, or a remote's stand-in for a part it does not
+serve. An inner instance's system belongs to the outer one (`INSTANCE-INNER` is `INSTANCE`'s `INNER`, a `once`
+template's inner use too, since its name is prefixed), and the inner instance's parts to it. Full names do not
+change: every reference, event and record keeps them. Only the drawing uses the short name: in the Dynamics view
+(once called Control), a part drawn inside its own system (the system drilled into, an open system's outline, or
+the closed box whose port or headline-measure sparkline it is) reads by its short name; pointed at, it reads by its full name (in
+its own text, since a part has no tooltip), and its panel and every link use the full name. Anywhere else (a
+terminal at the edge, a view of what is around a part, the Blocks and Process views) it reads by its full name, as
+does a part whose system is not recorded. A short name that would read the same as another part drawn in the same
+view, or as the title of an open system's outline, is not used, and that part reads by its full name.
+
 **Exports.** A template may say which of its parts are its public interface, `exports:`, a list of refs to parts
 written in its own sections (`stock.waiting`, `flow.x`, `auxiliary.y`, `goal.on-time`, `block.z`; an entry made by
 `each:` or named wholly by a parameter cannot be listed). A part named wholly by a parameter (`${kind}`) is the
@@ -584,6 +601,23 @@ there names every refused library, its code and why. The listing is kept in the 
 (`trees`), so the fallback reads the library back without the copy or the lock. `check` says which uses come
 from a library. The copy is checked when the model loads; a script a template runs from `${here}` is read again when it
 runs, and nothing here says that what runs is what was locked.
+
+**The listing.** Load describes each library from what it read (no network, no git): name, `git`, `version`, `path`,
+the lock's commit (12 hex; `not pinned` when the lock has none of 40 or 64 hex), `ok` or the refusal's code and reason,
+its trust (`owner` or `untrusted`), the templates it offers, and per template where its programs would run:
+`owner's shell` only when the template is the owner's by the trust gate's own test, else `sandbox or refused` (which,
+the gate decides per use, as above; a template with no program says it too). `check` prints one note per library, code
+`library` (in `--json` too, `about: library.NAME`), even beside errors, never one itself; nothing without
+`libraries:`:
+`library NAME: URL [(path P)] @ VERSION (commit C), trust T, N templates; programs: TEMPLATE WHERE, ...` and, when it
+is refused, `; refused, CODE: REASON` (an untrusted library's reason marked, since it may name its files). When the
+`libraries:` map itself is refused (one bad entry, name or key, or more than 16), every entry in it is listed as refused
+with that code and the field (`no git URL` or `no version` where it has no such string), and `ergostat library` says the
+section's error on standard error and exits 1 (a map that is not a map lists nothing). `ergostat
+library` with no subcommand prints the same lines, starts no git (or any other) process and writes nothing of its own
+(its load, as every load, may still refresh a remote system's cached model, section 4c); a main file that does not
+read is listed from the last good model, said on standard error. The `templates` tool gives each fetched template
+`library: {name, version, commit}`; an untrusted one's text stays marked.
 
 `use: LIB/TEMPLATE` names a fetched library's template: it is looked up only in library LIB (a key of `libraries:`),
 whatever else offers the name, so two libraries may each offer one name and both be used. LIB not a library, or
@@ -1072,14 +1106,15 @@ and old spans bucketed otherwise; a reading set aside (`forget`) is kept in
 `measurements.forgotten.json`, and the ledger of backfilled readings (section 6) in
 `measurements.backfilled.db` beside it (with `sqlite`, it is in `measurements.db`).
 
-**Names and labels in PromQL** (`victoria.promql_name`). Each label's value is a part, block or measure the model
-declares, so the labels are bounded by the model; nothing with a generated id (an item, a run) is ever a label, which
-stays in the event log.
+**Names and labels in PromQL** (`ergostat/promnames.py`). What the model declares is a metric named for itself, and
+only the engine's own internals keep the `ergostat_` prefix. A name is the model's with dashes as underscores. Each
+label's value is a part, sensor, block or measure the model declares, so the labels are bounded by the model; nothing
+with a generated id (an item, a run) is ever a label, which stays in the event log.
 
 | Series | Metric and labels |
 |---|---|
-| `sensor/STOCK.SENSOR` (a sensor; `sensor/PART.set`, a setting) | `ergostat_sensor{part="STOCK", sensor="SENSOR"}` |
-| `sensor/NAME` | `ergostat_sensor{part="NAME"}` |
+| `sensor/PART.SENSOR` (a stock's, flow's or auxiliary's sensor; `sensor/PART.set`, a setting) | `PART`, with `sensor="SENSOR"` only when the part has several (its setting counted when a block sets it) |
+| `sensor/NAME` | `NAME` |
 | `run/BLOCK/MEASURE` (`cost_usd`, `tokens`, `cpu`, `memory`, `seconds`) | `ergostat_run_MEASURE{block="BLOCK"}` |
 | `observer/NAME/MEASURE` | `ergostat_observer_MEASURE{observer="NAME"}` |
 | `valve/NAME` | `ergostat_valve_position{valve="NAME"}` |
@@ -1087,20 +1122,31 @@ stays in the event log.
 | `KIND/REST`, any other | `ergostat_KIND{name="REST"}` |
 | `NAME` (no `/`) | `ergostat_series{name="NAME"}` |
 
-A record written before these names holds every series as `ergostat_reading{project, series}`; it is still read
-(every selector takes `ergostat_.+`) until `ergostat migrate` renames it.
+A stock and a flow of one name write one series (`sensor/NAME.SENSOR`), so they share one metric. A part whose name
+an item kind's metric takes (below), or that would start `ergostat_`, has its system prepended (`desk_ticket_items`);
+one that still collides is refused by `ergostat check` (`metric-clash`), which says to rename it or put it in a system.
+A part the model no longer declares keeps its own name, with its sensor's as a label. A record written under an earlier
+name (the one old `ergostat_reading{project, series}`, the old generic `ergostat_sensor{part, sensor}`, or a part's
+name before the model changed) is still read, as every selector takes any name with the series' `series` label, until
+`ergostat migrate` moves it. A query to the built-in source naming the old generic metrics with an exact `part=` or
+`kind=` (`ergostat_items{kind="gap"}`) asks the new name and the old together
+(`{__name__=~"gap_items|ergostat_items",kind=~"gap|"}`), so it answers alike before and after `ergostat migrate`, with
+an `old-name` warning naming the new (`gap_items`). Before the move, a series held under two names shows the value of
+its latest reading, whichever name holds it.
 
 **Item metrics** (`ergostat/itemmetrics.py`). On VictoriaMetrics, the engine's lead keeps these from the item index
 (§5a), never by replaying the log for a request and never one sample per event. Each is written once a minute, with
-`project`:
+`project`, under its item kind's own name (`KIND`, dashes as underscores: `gap_items`). Below, and in the index's own
+tally and checkpoint, they are named generically with a `kind` label (`ergostat_items{kind="gap"}`), which the store
+turns into the kind's name as it writes (`promnames.item_labels`):
 
 | Metric | Labels | What |
 |---|---|---|
-| `ergostat_items` (gauge) | `kind`, `state`, `milestone` | items in each state (a stock) |
-| `ergostat_item_transitions_total` (counter) | `kind`, `from`, `to` | moves (a flow); an arrival is `from="(new)"`, an item the index forgets (its events pruned) `to="(gone)"` |
-| `ergostat_item_last_transition_timestamp_seconds` (gauge) | `kind`, `from`, `to` | when the latest such move was |
-| `ergostat_item_time_in_state_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `kind`, `state` | how long items stayed in a state, **observed when they leave it**: an item still in it is not counted, so it cannot see stuck work (for that, SQL over the item views with open items) |
-| `ergostat_item_field_total` (counter) | `kind`, `field` | what items' numeric fields (§5a, *numbers*) went up by, added; a fall is not counted |
+| `KIND_items` (gauge) | `state`, `milestone` | items in each state (a stock) |
+| `KIND_transitions_total` (counter) | `from`, `to` | moves (a flow); an arrival is `from="(new)"`, an item the index forgets (its events pruned) `to="(gone)"` |
+| `KIND_last_transition_timestamp_seconds` (gauge) | `from`, `to` | when the latest such move was |
+| `KIND_time_in_state_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `state` | how long items stayed in a state, **observed when they leave it**: an item still in it is not counted, so it cannot see stuck work (for that, SQL over the item views with open items) |
+| `KIND_field_total` (counter) | `field` | what items' numeric fields (§5a, *numbers*) went up by, added; a fall is not counted |
 | `ergostat_events_total` (counter) | `type`, `source` | the events about items that the index folded (no transcript lines, no roll-up snapshots) |
 | `ergostat_item_index_rebuilds_total` (counter) | none | times the index was made again (below); written from the first minute, at 0 |
 
@@ -1111,7 +1157,7 @@ increase(...{to="(gone)"})`. A kind whose `state` label is refused (below) keeps
 last minute (`itemmetrics.balance`, a pure function of the two minutes' values). The verdict goes in the checkpoint's
 `balance`. It is `balanced`; or `unbalanced`, with each kind and state whose change is not its net transitions, said
 on the engine's output (nothing is ever added to make it balance); or `unsure`, where no balance is owed: nothing
-written before, or the index made again between, when `ergostat_item_index_rebuilds_total` goes up. `time() - max(ergostat_item_last_transition_timestamp_seconds{kind="gap",to="merged"})` is
+written before, or the index made again between, when `ergostat_item_index_rebuilds_total` goes up. `time() - max(gap_last_transition_timestamp_seconds{to="merged"})` is
 how long since the last merge. The buckets are 1, 5 and 15 minutes, 1 and 4 hours, 1, 3, 7 and 30 days. An item's
 state comes from its moves (a kind without states is in no gauge). `milestone` is the field of the kind's group
 relation named `milestone`, as it is held now, and only on the gauge: on a counter, an item moved to another milestone
@@ -1152,8 +1198,11 @@ no labels.
 
 **Moving the readings to VictoriaMetrics** (`ergostat migrate [--url URL] [--dry-run]`, `ergostat/migrate.py`). Every
 reading the SQLite store answers (raw, and each old bucket's last reading) is copied to the server under its name and
-labels. A series under the old single name is renamed: written under its labels, then the old name deleted, but only
-once every one of its readings is held under the new one. For each series, only the readings the server does not
+labels. A series held under a name it is no longer written under (the old single name, the old generic
+`ergostat_sensor`, a part's name before the model changed) is moved: written under its current name, then the old
+deleted, but only once every one of its readings is held under the new one. The item metrics written under the old
+generic names (`ergostat_items{kind="gap"}`) are moved the same way to their kind's own (`gap_items`), the old deleted
+only once every sample is read back under the new. For each series, only the readings the server does not
 already hold under the new name are sent: the same millisecond, and the same value to a relative 1e-9, since the
 server keeps a value's leading decimal digits, not its binary float. Each series is then read back. A reading sent
 that the server did not keep (older than its `-retentionPeriod`, one month by default, or too far ahead) is counted
@@ -1251,7 +1300,8 @@ remotes:
 
 **What it becomes here.** Each part it serves is put in under the remote's name (`stock.incidents-open`),
 as a template's instance names its parts (§2a), in the system `incidents` (its own systems inside it,
-`incidents-triage`), and points at the `remotes:` line (`ergostat.yaml:3 (remote incidents)`):
+`incidents-triage`), and points at the `remotes:` line (`ergostat.yaml:3 (remote incidents)`); each records its
+system and its short name, the name the remote serves it by (§2a, *A part's system*):
 
 - its **blocks** are `type: external` whatever they are there (never started, leased or evaluated here),
   keeping their inputs and outputs, and a block that named a goal reads that goal's error;
@@ -1630,11 +1680,47 @@ reads the event log.
   sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
   A refusal the source places in the text (Prometheus's `2:3: parse error: ...`, or `at char 5`) also has `error_at`,
   `[line, column]` from 1, the column in UTF-8 bytes as Prometheus counts it (the page turns it into a place in the text).
+- **Analysis.** `analysis` is a reserved source, never declared under `sources:` (a source declared by that name is not
+  listed, and is never asked). `/api/query/fields` lists it first among `datasources`, its language `ergostat analysis`.
+  A query `{"id": "r", "source": "analysis", "text": "raw(A)"}` is answered on the server over another query of the same
+  request, named by its id. The language is small and closed: a call's name, the ids of the queries it reads, then
+  `key=value` options. The one call is `raw` (`pair`, `psd`, `spectrogram` and `ccf` are to come), reading one query,
+  with one option, `points` (16 to 5,000; 5,000 by default). Refused, each in its own result while the others answer:
+  an unknown call or option, an id after an option, text that does not parse (with `error_at`, `[1, column]`), and a
+  reference to an id not in the request, to itself, to another analysis query, or to a query whose answer failed (a
+  failed answer is never read as an empty one). At most 8 analysis queries a request, refused past that at parse and
+  again as they run.
+  `raw(A)`, A an ergostat `series` query with no transform, reads A's readings, never its roll-ups, and answers a
+  `series` on one uniform grid whose step is the readings' median spacing (`scrape_s`), coarsened only to stay within
+  `points` (each value then the mean of its step's readings, and a `partial` warning says so). A hole longer than
+  `GAP_SAMPLES` (3) spacings, in seconds between the two readings, stays empty and is listed in `gaps` as
+  `[from, to]` (the first 200; any further holes stay empty too, and a `partial` warning says they are not listed); a
+  shorter one is a straight line. The mask and the fill are one rule, so a listed hole is never drawn over, wherever
+  in their buckets its readings fall. Where only roll-ups cover the window it is refused (`only-rollups`); where they cover part of it, that
+  part is left empty and warned. More than 500,000 readings in the window is a `limit`. A metrics store whose raw
+  readings cannot be told from its roll-ups (VictoriaMetrics) is refused. A a data source's query is asked again at the
+  finest step 1,000 points allow; the answer warns `not-raw`, naming its range windows, which still smooth it.
+- **Sampling.** Every answer carries `meta.sampling`: `step_s`; `scrape_s`, the readings' median spacing where they are
+  read (an ergostat `series`, from the newest 2,000 raw readings in the window, and `raw`, from all it reads; an answer
+  built from series readings, such as candles, an X-paired or binned series or a frequency response, carries the
+  coarsest scrape of its series, null if any is not known), null where it is not known (a data source's; a series
+  whose raw readings are gone); `range_windows_s`, every `[d]` and `[d:r]` of a PromQL text (its
+  `d`, strings and comments not read), or a moving average's span, `[]` for none and null for a language not read;
+  `observable_period_s`, `[lo, hi]` with `lo = 2 × max(scrape, step)` (G2) and `hi` half the window; and `nulls_s`,
+  each period `W/k` of a range window inside that band, where an average over `W` shows nothing (G1), at most 50, the
+  longest of all the windows' first. An unknown scrape never counts as fine: `lo` is then from the step alone and the answer warns
+  `scrape-unknown`. The sources that record each change at its time (`items`, `moves`, `counts`, `events`) are not
+  sampled: their `scrape_s` is null with no warning. Nor is a `model` source's answer, worked out from the model and
+  never read from readings (`scrape_s` null, `range_windows_s` `[]`, no warning). When a request's answers (refused ones aside) differ in step or in
+  range windows, each warns `mixed-windows`, naming every step and window (G4). It compares one request's answers: the
+  page asks the panels above the fold in one request and the rest in another, so it compares across the panels of
+  each, and a panel's warning can depend on which request it was in. Windows the controller consumes (G3) need loop roles, and are not
+  checked yet.
 - **The built-in source `ergostat`.** ergostat's own readings, as a `prometheus` source no model declares (one the model
   declares under that name is its own instead). Over `victoriametrics` (section 4b) it asks the server that holds them,
   with `extra_label=project=<state key>` on each query and suggestion, so the server answers only this project's series
-  whatever the text says; the names and labels are section 4b's (*Names and labels in PromQL*), e.g.
-  `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It is listed in `datasources` and offered by the editor. Over
+  whatever the text says; the names and labels are section 4b's (*Names and labels in PromQL*), e.g. `gap_items`,
+  `gaps_approved`, and the engine's own `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It is listed in `datasources` and offered by the editor. Over
   `sqlite` it is not listed, and a panel naming it is refused in its own result (`error_kind: refused`) with what it
   needs: VictoriaMetrics, `storage: measurements: victoriametrics` and `ergostat migrate`; the page's other panels are
   answered as before. **`rate()` and `increase()` differ from Prometheus's.** Prometheus takes the samples inside the
@@ -1662,7 +1748,8 @@ reads the event log.
   nothing sent.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
-  is never sent, and `datasources` lists to them only the `model` source below; their other queries are answered as
+  is never sent, and `datasources` lists to them only `analysis` and the `model` source below (an analysis of a
+  data source's query they may not ask is refused, as that query is); their other queries are answered as
   before.
 - **Variables.** A Dashboard draft's `vars` names at most 8 variables (`$kind`, `${kind}`): a custom list
   (`{"type": "custom", "values": [...], "multi": true}`, or a bare list, which takes several), a constant
@@ -1757,17 +1844,36 @@ reads the event log.
   They interpolate linearly between the two nearest values, as PostgreSQL's `percentile_cont` does, and ignore nulls.
   Text is refused.
 
-  How a query is kept read only:
-  - Each query gets a connection of its own to the item index's file, opened read only, under the file's shared lock.
-  - The views the text names are copied into the connection's own temporary tables.
-    - The copies, and the finished states that make `reason`, are read in one read transaction. So they all show one
-      state of the index: a query that joins two views sees each item the same in both, even if a catch-up is committed
-      while they are copied.
-  - Then SQLite's authorizer allows only SELECT, reading those copies and the query's own `WITH` names, and an
-    allowlist of functions (no `load_extension`, no internal helper).
-  - So a write, `ATTACH`, `PRAGMA`, a transaction or a read of any of the index's own tables (`items`, `moves`, `names`,
-    `sqlite_master`, a `pragma_` table) is refused with `error_kind: refused`, naming what it tried.
-  - A copy and not a SQLite view: SQLite does not say which view a read is for once a view is flattened into a query.
+  How a query is kept read only: it is checked first on a stand-in of the index, then run on the index's real views.
+  - SQLite does not say which view a read is for once a view is flattened into a query, so on the index a query's own
+    read of `items` would look like a view's. The text is therefore first prepared (not run) on a stand-in, all of it:
+    its `explain` is prepared under the time bound, since SQLite authorizes part by part as it plans. The stand-in is an
+    in-memory database holding the index's own tables, empty, in its `main`, and one empty temporary table per view,
+    with the view's name and columns. It has the same limits, aggregates and time bound as a query.
+    - There SQLite's authorizer allows only SELECT, reads of `temp.<view>` and of the query's own `WITH` names, and an
+      allowlist of functions (no `load_extension`, no internal helper such as `_fields`).
+    - A name read for no column (`count(*) from items`) reaches the authorizer with no database, as a `WITH` name may.
+      It passes only if it is a view, or one of the text's own `WITH` names that names nothing else on the stand-in (no
+      table, schema table or table-valued function). A name that does, read for no column, is refused even where a
+      `WITH` declares it. So `(select count(*) from items)` beside a `with items as (...)` elsewhere in the text is
+      refused. Any other read of a `WITH` name outside the `WITH`'s reach is no such table on the stand-in.
+    - So a write, `ATTACH`, `PRAGMA`, a transaction or a read of any of the index's own tables (`items`, `moves`,
+      `names`, `left`, `sqlite_master`, a `pragma_` table, `json_each`) is refused with `error_kind: refused`, naming
+      what it tried. `main.transitions` is no such table on either connection, and is refused.
+    - Any other end of the check (stopped at the time bound, an unexpected error) is the answer too, `limit` or
+      `refused`. The index is not asked.
+  - Only a text that passed is run on the index. It runs on a connection of its own to the index's file, opened read only,
+    under the file's shared lock. There each view is a temporary SQLite view over the index's tables, so a query reads
+    only the rows it needs. The stages' and the forecast's views, made in Python, are copied into temporary tables when
+    the text names one. On the stand-in they are empty tables too, and the forecast's group functions are there as well.
+    - The finished states that make `reason` and the query are read in one read transaction. So a query that joins two
+      views sees each item the same in both, even if a catch-up is committed meanwhile.
+    - The authorizer there allows only SELECT, the functions above plus `_fields` and `json_each`, and reads of what the
+      views use: `main.items`, `main.moves`, `main.names`, `json_each` and the temporary views. A name read for no
+      column passes only if it is a view or a `WITH` name the check passed (one that is read only as a `WITH`, wherever
+      it is in the text). So a text that resolves differently on the
+      index than on the stand-in still cannot read `sqlite_master`, `meta` or another table. It could read `items`
+      itself, which is why the check comes first.
 
   Bounds:
   - Time: the data source's time bound (a progress handler stops it).
@@ -1800,8 +1906,7 @@ reads the event log.
   `wait_for`, `impact`, `service`, `sequence` or `lineage`). Each answer also carries `meta`: its `source`, its `query`
   (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the record, `declared` for a
   model's), `verdict`, `n` (the values it holds: a table's are its measure cells, a missing one not counted),
-  `n_effective` and `sampling` (`step_s`; `scrape_s`, `range_windows_s` and `observable_period_s`). `n_effective` and
-  those three of `sampling` are `null`, as not known yet, never guessed. A data source's type may answer with a typed frame instead of a list of series: `series` (with roles),
+  `n_effective` and `sampling` (*Sampling* above). `n_effective` is `null`, as not known yet, never guessed. A data source's type may answer with a typed frame instead of a list of series: `series` (with roles),
   a `table`, `points`, a `response` (`frequency`, and `system` with its poles and zeros as `[re, im]`; one refused,
   `supported: false`, carries no curve), a histogram's cumulative buckets, or a `graph`. Each is checked and bounded
   (5,000 rows, points, nodes or edges, 50 buckets), and refused with `error` when it is not what it says. A role on a
@@ -1866,7 +1971,7 @@ reads the event log.
   `unreachable`, `refused`, `unknown`, `unanswerable`, `busy`, `reader`), `no-coherence`, `partial`, and the misuses
   `not-cumulative`, `many-histograms`, `open-top-bucket`, `averaged-percentiles` (an `avg` or `avg_over_time` of a
   `histogram_quantile`) and `quantile-in-bucket` (any `histogram_quantile`, whose value is interpolated inside its
-  bucket). A refused answer holds nothing to draw (its `id`, `error` and `meta` only), except a frequency response
+  bucket), and those of *Analysis* and *Sampling*: `only-rollups`, `not-raw`, `scrape-unknown` and `mixed-windows`. A refused answer holds nothing to draw (its `id`, `error` and `meta` only), except a frequency response
   without coherence, which is sent with no curve. In the panel, a refused answer is drawn by no family: it says
   "Refused" when the source refused it ("Could not load" otherwise), the reason, and "Fix:". A warned one is drawn, with
   each reason and its fix under the plot. An answer from a model, a fit, a simulation or a hypothesis says so there
@@ -4393,7 +4498,33 @@ that cannot be read takes the plain order, said (a lost preference, never a stop
 (section 5a) take items at the block by the same rule (`leases/frozen.py`'s `arrange`), from the list in force at
 their moment, and an item's why says its place in the window or that it is urgent. A remote reader sees both events
 through `/remote/v1/events`. A window by horizon (the items to start within a time) is not built: it needs a pass
-that runs whether or not a page asks (docs/proposals/forecasts-and-promises.md, section 5). ergostat looks whenever the record has something new,
+that runs whether or not a page asks (docs/proposals/forecasts-and-promises.md, section 5). **Lanes**, off unless
+declared: `lanes: {apart: FIELD, most: N, within: {cpu: C, memory: SIZE}, each: {cpu: C, memory: SIZE}, ahead: K,
+passed: [STATE]}` in `takes:` (N from 1 to 16, K from 0 to 4, cores above 0 and at most 1024, a size above 0 and at
+most 1p, `each` within `within`, `passed` one or more states of the kind and needed when K is above 0; refused
+otherwise, a falsy or empty `passed` too: `bad-lanes`). FIELD is the list of
+what an item touches (words; one word is a list of one; missing, empty or not words: it touches everything, so it
+runs alone). At each look the block's lanes are its leased items; of the items it may take, in its order, one that
+shares no entry with any lane starts apart; one that shares entries only with lanes on one lane's chain starts on top
+of that lane when the chain is less than K deep (its lease's `on` is the chain, and its run gets it in its lease);
+any other waits, and so does every later item that shares an entry with a waiting one, so overlapping items keep
+their order. The lanes held at once are at most N, at most the pool, and at most as many as `within` holds at the
+larger of `each` and the cost measured on the block's 20 newest ended runs (CPU seconds over wall seconds, peak
+memory; read at most once a minute); counted with the runs still draining, so a lowered bound starts nothing new
+until enough end. One lane always runs, even when a measured lane alone costs more than `within`; a cost that cannot
+be read allows one lane, said, and so does one whose cores or memory are neither in `each` nor measured by any of
+those runs (an unknown cost is the worst case: a block with no `each` runs one lane until its runs are measured). A
+look that plans a lane on top of another it then fails to take (the budget refuses it, the bounds are full, ergostat
+is stopping) takes nothing on top of it. A lane passed when its run moved its item on into a `passed`
+state (none declared: none passes). One that did not (its run gave it back, its lease expired, or it left the item elsewhere)
+stops every lane on top of it (`ergostat.run.killed`), and each ends given back uncounted; a lane on top that ends red
+while a lane it is on has not passed is given back uncounted too, its red not proven its own. A kept run on top
+taken up after a restart keeps its lease's `on`: a lane it is on that does not pass from then stops it, and so does
+taking it up when one ended without passing before (or cannot be read). A run on top should
+move its item on only after those it is on have passed (a run that did so first stands). `ergostat block NAME --now`
+takes no notice of lanes. The same rule (`leases/lanes.py`'s `plan`) replays a fixture of items with arrival and run
+minutes, giving merges per hour against one lane (`lanes.replay`); the completion estimates do not model lanes yet.
+ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. Nor has it `mode: advise` (`check`:
 `advise-with-takes`), which asks before a command or an event, never before each item. To have a person
@@ -5644,19 +5775,35 @@ alone. A loop that runs through a goal's gap **closes** it, and the graph API gi
 first by name when it runs through several); a loop through no gap has none. A goal's answer
 (`loops/NAME`) gives `feedback_loops` (those that close it, each with its label) and `control_loop`
 (its sensors, controllers and actuators). The dynamics view's list (folded, "Feedback loops") states
-the reconciliation in its summary ("Feedback loops 34, 28 close a goal"). A loop's panel says "Serves goal X", a link to
+the reconciliation in its summary ("Feedback loops 11 named, 23 minor, 28 close a goal"). A loop's panel says "Serves goal X", a link to
 the goal's panel. The goal's panel, in either view, has one line, "Feedback loops: B1 backlog-clear …
 (Dynamics) · Control loop: … (Blocks)". Each name there is a link that switches to that view with
 the loop chosen.
 
-**Drawn** (the dynamics view, `ergostat/dynamics.py`): each loop is labelled as Sterman numbers them,
-R1, B1 (the shortest first, the ones the model names before others of their length), with its name
-beneath. Only loops of known polarity are marked on the diagram, each inside the loop as drawn; the
-others are one entry beside it, "+N of unknown polarity", that opens to list them. A loop's panel lists
+**Drawn** (the dynamics view, `ergostat/dynamics.py`): a marker is drawn for each loop the model names
+and for one loop per goal, its **goal-seeking loop** (`seeks` in the graph API; a loop may close a goal
+without being its goal-seeking loop): the shortest balancing loop through the goal's gap
+as drawn (of those alike in length, one the model names, then the first by its first flow's name); a
+loop two goals would take is the first goal's. Every other loop is **minor**: listed in the side list's
+folded *minor loops (N)*, and its marker and its lines drawn, in the accent, only while it is chosen or
+pointed at there. Each loop is labelled as Sterman numbers them, R1, B1 (the drawn before the minor,
+the shortest first, the ones the model names before others of their length); a drawn loop's marker
+prints its name beneath (the model's, else its goal's name), never a path and never a count; a minor
+loop's prints no name. The loop's panel gives its path (its members as drawn, in order, back to the
+first) under its name. Only loops of known polarity are marked on the diagram, each inside the loop as
+drawn; the others are one entry beside it, "N of unknown polarity", that opens to list them. A
+system's loop count is the loops with a part in it, said "N named, M minor" (named: drawn): its panel
+(the box, closed) and the side list of the view drawing that system alone give the same two numbers;
+drawn from the top, the list counts every loop. The list's rows are only the loops drawable in the view
+(two of their parts drawn as themselves); the rest of the count (inside a closed system, or outside the
+one drawn) is said in one note, "K of those counted are not drawn here", and a closed system's own line
+gives the loops inside it. At the head of the list, the loop of the list's that
+dominates now (`/api/dominance`: the one dominant in the last bucket at a stock, scoring most of
+those), when one does. A loop's panel lists
 every link around it (through closed systems too) by plain names, each with the one sign its connector is
 drawn with; a flow's into its stock, and a stock's and a desired level's into its gap, are signed by
 definition. A link still without a sign (or signs that disagree with the model's) makes its marker read `?`
-and the panel name the link; loops drawn alike share one marker, "N alike", its title naming the others. A goal is drawn
+and the panel name the link; drawn loops alike here share one marker, its panel naming the others. A goal is drawn
 as a desired level (a value: `desired backlog = 0`) and the discrepancy that drives the correction +:
 for a ceiling the **excess** (actual − desired), for a floor or a level held the **gap** (desired −
 actual); when the decisions serving it switch (on while backlog > 0, off once it is ≤ 0), the panel

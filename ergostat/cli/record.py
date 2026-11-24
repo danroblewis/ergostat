@@ -399,8 +399,10 @@ def cmd_migrate(args) -> int:
     from ..victoria import Victoria, VictoriaError
     p = open_project(args)
     url = args.url or p.storage.url or VM_URL
+    dst = Victoria(url, p.dir)
+    dst.spec_of = lambda: getattr(p.model, "spec", None)    # (each series moved to the name the model gives it)
     try:
-        got = migrate(p.dir, Victoria(url, p.dir), list(p.storage.tiers), dry=args.dry_run)
+        got = migrate(p.dir, dst, list(p.storage.tiers), dry=args.dry_run)
     except VictoriaError as e:
         print(f"ergostat migrate: {e}", file=sys.stderr)
         return 1
@@ -409,7 +411,7 @@ def cmd_migrate(args) -> int:
         return 1 if got["missing"] else 0
     verb = "would send" if args.dry_run else "sent"
     print(f"{got['series']} series, {got['readings']} readings read from SQLite; {verb} {got['sent']} to {url}"
-          + (f"; {got['renamed']} series renamed from ergostat_reading" if got["renamed"] else ""))
+          + (f"; {got['renamed']} series moved from an old name to the model's" if got["renamed"] else ""))
     if got["missing"]:
         day = lambda t: time.strftime("%Y-%m-%d", time.gmtime(t))   # noqa: E731
         print(f"ergostat migrate: {got['missing']} readings sent were not kept by the server (older than its "

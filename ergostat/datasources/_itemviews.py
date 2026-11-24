@@ -22,10 +22,11 @@ over the item index (spec/itemindex.py), whose own tables are never readable.
 
 Times are Unix seconds. Each view names its columns, so a change of the index's own tables (a column or a table added,
 the columns in another order, the file built again) leaves what a view answers as it was
-(tests/test_sql_source.py). For each query, on a connection of its own opened read only, the views its text names are
-copied into tables of that connection's own; then only SELECT, reading those copies and the functions named in
-FUNCTIONS are allowed (SQLite's authorizer), and the query, copies and all, is bounded in time (a progress handler), in
-each value's size and in memory (``opened``)."""
+(tests/test_sql_source.py). Each query's text is first prepared on an empty stand-in of the index (``check``), where
+only SELECT, reads of the views and the text's own ``WITH`` names, and the functions named in FUNCTIONS are allowed
+(SQLite's authorizer). Only a text that passed is run, on a connection of its own opened read only, where each view is
+a temp view over the index's tables and reads of only those tables are allowed (``opened``). Both are bounded in time
+(a progress handler), in each value's size and in memory (tests/test_sql_views.py)."""
 
 from __future__ import annotations
 
@@ -209,6 +210,95 @@ def _stage_tables(c, spec, finished: dict[str, list[str]], now: float) -> None:
                       [tuple(r[x] for x in cols) for r in made[view]])
 
 
+def _bounded(c, deadline: float, why: list) -> None:
+    """A query's connection's bounds (time, values, memory; no ATTACH) and its aggregates."""
+    c.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+    for k, v in ((sqlite3.SQLITE_LIMIT_LENGTH, MOST_VALUE), (sqlite3.SQLITE_LIMIT_ATTACHED, 0),
+                 (sqlite3.SQLITE_LIMIT_COLUMN, 200), (sqlite3.SQLITE_LIMIT_WORKER_THREADS, 0)):
+        c.setlimit(k, v)
+    for p in (f"cache_size = -{CACHE_KB}", f"temp.cache_size = -{CACHE_KB}", "temp_store = file", "mmap_size = 0"):
+        c.execute(f"pragma {p}")
+    c.create_aggregate("median", 1, _ranked(why, 1.0, 0.0, 1.0))
+    c.create_aggregate("percentile_cont", 2, _ranked(why, 1.0, 0.0, 1.0))
+    c.create_aggregate("percentile", 2, _ranked(why, 0.01, 0.0, 100.0))
+
+
+def _authorizer(why: list, readable, functions=FUNCTIONS, own: set | None = None):
+    """Only SELECT, reads ``readable(db, table)`` allows, and ``functions``; anything else is refused, its words in
+    ``why``. A name read for no column (``count(*)``) comes with no database, whether it is a table or a ``WITH`` name:
+    it is allowed if it is in ``own``; with no ``own``, it is kept in ``.unsure`` and the ``WITH`` names seen (a
+    SELECT inside one) in ``.ctes``, for the caller to judge once the text is prepared."""
+    unsure, ctes = set(), set()
+
+    def denied(what: str) -> int:
+        why.append(("refused", f"only a SELECT of the views is allowed, and this {what}"))
+        return sqlite3.SQLITE_DENY
+
+    def allowed(action, a, b, db, inside):
+        if action in (_SELECT, _RECURSIVE):
+            ctes.add((inside or "").lower())
+            return sqlite3.SQLITE_OK
+        if action == _READ and db is None and own is None:
+            unsure.add((a or "").lower())
+            return sqlite3.SQLITE_OK
+        if action == _READ:
+            ok = (a or "").lower() in own if db is None else readable(db, (a or "").lower())
+            return sqlite3.SQLITE_OK if ok else denied(f"reads {db or 'main'}.{a}")
+        if action == _FUNCTION:
+            return sqlite3.SQLITE_OK if (b or "").lower() in functions else denied(f"calls {b}")
+        return denied(f"is not a SELECT (SQLite's action {action})")
+    allowed.unsure, allowed.ctes = unsure, ctes
+    return allowed
+
+
+def _prepared(c, text: str, params: dict) -> None:
+    """The check's run: ``explain`` of the text, so the whole text is prepared (and authorized) under the deadline, and
+    only its program listed, not run. (SQLite may call the progress handler while it plans, so stopping early would
+    leave the rest of the text unauthorized.)"""
+    c.execute(f"explain {text}", params)
+
+
+def _resolves(c, name: str) -> bool:
+    """Whether ``name`` names a table, a schema table or a table-valued function on the stand-in (any error but no such
+    table: yes)."""
+    try:
+        c.execute(f'select 1 from "{name.replace(chr(34), chr(34) * 2)}" limit 0')
+    except sqlite3.OperationalError as e:
+        return "no such table" not in str(e)
+    return True
+
+
+def check(spec, deadline: float, text: str, params: dict, why: list, forecast: dict | None = None) -> set[str]:
+    """Prepare all of ``text`` (``_prepared``: its ``explain``) on a stand-in of the index: an in-memory database of the
+    index's own tables, empty, in its ``main`` (so a name resolves as on the index, and is refused by the same words)
+    and an empty temp table per view (its name and columns), bounded and authorized as a query is. Returns, only if the
+    text passed, the names it may read with no database: the views, and its ``WITH`` names that name nothing else (so
+    each read of one is a ``WITH``'s, wherever it is); raises otherwise (a refusal's words in ``why``)."""
+    from ..spec import itemindex, projections
+    c = sqlite3.connect(":memory:", isolation_level=None)
+    try:
+        c.executescript(itemindex.SCHEMA + projections.SCHEMA)
+        _bounded(c, deadline, why)
+        if forecast is not None:            # (the group functions, as on the index: only their names are checked)
+            _group_functions(c, forecast, why)
+        every = views(spec)
+        for view, cols in every.items():
+            c.execute(f'create temp table "{view}" ({", ".join(chr(34) + x + chr(34) for x in cols)})')
+        names = {v.lower() for v in every}
+        auth = _authorizer(why, lambda db, a: db == "temp" and a in names)
+        c.set_authorizer(auth)
+        _prepared(c, text, params)          # (any error raises: a refusal, the deadline, anything else)
+        c.set_authorizer(None)
+        own = names | {n for n in auth.unsure & auth.ctes if not _resolves(c, n)}
+        if bad := sorted(auth.unsure - own):
+            why.append(("refused", f"only a SELECT of the views is allowed, and this reads main.{bad[0]}"))
+        if why or time.monotonic() > deadline:
+            raise sqlite3.OperationalError("interrupted")
+        return own
+    finally:
+        c.close()
+
+
 def forecast_rows(fc: dict) -> dict[str, list[tuple]]:
     """Each ``forecast_*`` view's rows, from one forecast (numbers/forecast.py): an item's ``basis`` as words ("block
     dev", "state review") and ``sample`` the record's runs or stays it is drawn from; ``estimate`` 1 or 0, and
@@ -267,59 +357,39 @@ def _group_functions(c, fc: dict, why: list) -> None:
 
 
 @contextlib.contextmanager
-def opened(ix, spec, deadline: float, text: str | None = None, why: list | None = None, forecast: dict | None = None):
-    """``(connection, why)``: the index's file opened read only, each view ``text`` names (every one, for None) copied
-    into a table of the connection's own, and then only SELECT on those allowed, until ``deadline``
-    (``time.monotonic()``). ``why``: the words of a refusal, the authorizer's or an aggregate's.
+def opened(ix, spec, deadline: float, text: str | None = None, why: list | None = None, own: set | None = None,
+           forecast: dict | None = None):
+    """``(connection, why)``: the index's file opened read only, each view a temp view over the index's tables, and then
+    only SELECT allowed, reading those views' own tables, until ``deadline`` (``time.monotonic()``). ``why``: the words
+    of a refusal, the authorizer's or an aggregate's. A text is run here only after it passed ``check``: SQLite does
+    not tell the authorizer which view a read is for, so here a query's own read of ``main.items`` would pass.
 
-    The copies, and the states each kind's items finish in (``reason``), are read in one read transaction, so they are
-    of one state of the index: a catch-up committed meanwhile is seen by none of them, and a query joining two views
-    sees each item the same in both.
-
-    (A copy, not a view over the index: SQLite tells the authorizer which view a read is for only while the view is not
-    flattened into the query, so a view's reads could not be told from a query's own. Once the copies are made nothing
-    of ``main`` may be read at all.)"""
+    The stages' and the forecast's views, made in Python, are copied into temp tables, only when ``text`` (every one,
+    for None) names one.
+    The states each kind's items finish in (``reason``) and the query are read in one read transaction, committed on
+    leaving, so a catch-up committed meanwhile is not seen, and a query joining two views sees each item the same in
+    both."""
     why = [] if why is None else why
-    words ={w.lower() for w in _WORD.findall(text)} if text is not None else None
+    words = {w.lower() for w in _WORD.findall(text)} if text is not None else None
     with ix.reading() as c:
-        c.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
-        for k, v in ((sqlite3.SQLITE_LIMIT_LENGTH, MOST_VALUE), (sqlite3.SQLITE_LIMIT_ATTACHED, 0),
-                     (sqlite3.SQLITE_LIMIT_COLUMN, 200), (sqlite3.SQLITE_LIMIT_WORKER_THREADS, 0)):
-            c.setlimit(k, v)
-        for p in (f"cache_size = -{CACHE_KB}", f"temp.cache_size = -{CACHE_KB}", "temp_store = file", "mmap_size = 0"):
-            c.execute(f"pragma {p}")
+        _bounded(c, deadline, why)
         c.create_function("_fields", 1, _fields, deterministic=True)
-        c.create_aggregate("median", 1, _ranked(why, 1.0, 0.0, 1.0))
-        c.create_aggregate("percentile_cont", 2, _ranked(why, 1.0, 0.0, 1.0))
-        c.create_aggregate("percentile", 2, _ranked(why, 0.01, 0.0, 100.0))
-        names = set()
         c.execute("begin")                   # (one snapshot of the index, from the first read to the commit)
         finished = _finished(c, spec)
+        names = set()
         for view, select in _definitions(spec, finished).items():
-            if words is None or view.lower() in words:
-                c.execute(f'create temp table "{view}" as {select}')
-                names.add(view.lower())
+            c.execute(f'create temp view "{view}" as {select}')
+            names.add(view.lower())
         if words is None or words & set(stages.COLUMNS):
             _stage_tables(c, spec, finished, time.time())
             names |= set(stages.COLUMNS)
         if forecast is not None:
             names |= _forecast_tables(c, forecast, words)
             _group_functions(c, forecast, why)
-        c.execute("commit")
         c.execute("pragma query_only = 1")
-
-        def denied(what: str) -> int:
-            why.append(("refused", f"only a SELECT of the views is allowed, and this {what}"))
-            return sqlite3.SQLITE_DENY
-
-        def allowed(action, a, b, db, _inside):
-            if action in (_SELECT, _RECURSIVE):
-                return sqlite3.SQLITE_OK
-            if action == _READ:              # the copies (temp), or what the query names itself (a WITH: no database)
-                ok = db is None or (db == "temp" and (a or "").lower() in names)
-                return sqlite3.SQLITE_OK if ok else denied(f"reads {db}.{a}")
-            if action == _FUNCTION:
-                return sqlite3.SQLITE_OK if (b or "").lower() in FUNCTIONS else denied(f"calls {b}")
-            return denied(f"is not a SELECT (SQLite's action {action})")
-        c.set_authorizer(allowed)
+        tables = {"items", "moves", "names", "json_each"}   # (what the definitions read; json_each is item_fields')
+        c.set_authorizer(_authorizer(why, lambda db, a: (db == "main" and a in tables) or (db == "temp" and a in names),
+                                     FUNCTIONS | {"_fields", "json_each"}, names | (own or set())))
         yield c, why
+        c.set_authorizer(None)
+        c.execute("commit")
