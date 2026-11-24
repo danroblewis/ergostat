@@ -394,7 +394,8 @@ function bdStackRows(g, lay, size) {
   }
   size[0] = Math.max(size[0], x + wide + 20);
   size[1] = Math.max(size[1], y + 24);
-  return { rowMembers: members, caption: g.caption || null };
+  const last = members[members.length - 1];            // the model's upkeep, the last row: below a thin rule, as alone
+  return { rowMembers: members, caption: g.caption || null, upkeepRow: g.tree?.[last?.system]?.modelling ? last.system : null };
 }
 /* each row's outline and the caption, from where its parts are when drawn: after a system opened or closed was
    kept in place (anchorLayout), a pin or a drag, they still frame their rows */
@@ -404,7 +405,9 @@ function bdRowOutlines(lay) {
     .map(([system, cs]) => { const b = bdExt(cs), p = BD_ROW_PAD; return { system, x: b.x0 - p, y: b.y0 - p, width: b.x1 - b.x0 + 2 * p, height: b.y1 - b.y0 + 2 * p }; });
   const wide = Math.max(0, ...rows.map((r) => r.width)), low = Math.max(...rows.map((r) => r.y + r.height));
   for (const r of rows) r.width = wide;                 // (parallel: as wide as the widest)
-  return { rows, caption: lay.caption && rows.length ? { x: rows[0].x, y: low + 20, text: lay.caption } : null };
+  const up = rows.length > 1 && rows.find((r) => r.system === lay.upkeepRow);
+  return { rows, caption: lay.caption && rows.length ? { x: rows[0].x, y: low + 20, text: lay.caption } : null,
+           rule: up ? { x0: up.x, x1: up.x + wide, y: up.y - 7 } : null };
 }
 
 /* ---- the lines, routed by libavoid around every part (avoid.js's router, in its worker) */
@@ -902,7 +905,8 @@ function bdDraw(svg, g, lay) {
   const rowsAt = bdRowOutlines(lay);
   for (const r of rowsAt.rows) vp.append(s("rect", { class: "bd-row", "data-system": r.system, x: r.x, y: r.y, width: r.width, height: r.height, rx: 6 }));
   if (rowsAt.caption) vp.append(s("text", { class: "bd-row-caption", x: rowsAt.caption.x, y: rowsAt.caption.y }, rowsAt.caption.text));
-  if (lay.rule) vp.append(s("path", { class: "bd-upkeep-rule", d: `M${lay.rule.x0},${lay.rule.y} H${lay.rule.x1}` }));
+  const rule = lay.rule || rowsAt.rule;
+  if (rule) vp.append(s("path", { class: "bd-upkeep-rule", d: `M${rule.x0},${rule.y} H${rule.x1}` }));
   // the lines: each signal from its port, an arrowhead where it arrives, a dot where it is taken off
   const edgesG = s("g", { class: "bd-edges" }), labelsG = s("g", { class: "bd-labels" });
   const byLe = Object.fromEntries(lay.edges.map((le) => [le.id, le]));

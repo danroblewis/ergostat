@@ -127,10 +127,35 @@ size is as in round 2.
   `test_rows_keep_their_outlines_when_a_coupled_system_opens_or_closes_in_place` passed. Main merged: already up to
   date. Not run: the whole unit suite and the four browser files (the merge queue runs them).
 
+Round 5. The one finding (blocking): `test_modelling_is_drawn_last_set_apart_and_labelled[big]` failed. Big's
+`modelling` is one of the rows, with its r and y (done item 1 names all seven systems as rows). So `bdUpkeep`, which
+needs a block with nothing wired to it, returned null and no rule was drawn. Its own `out:top:modelling`, right of
+the block in the same row, also read as a part "ahead" of it. Design settled, the most reversible option: the upkeep
+keeps its row, r and y (done item 1), and it is still set apart. When the last row is the model's upkeep (`tree[S]
+.modelling`) and there is a row above it, `bdRowOutlines` gives a rule, as wide as the outlines, halfway in the gap
+above that row's outline. It is drawn as `path.bd-upkeep-rule`, like the lone upkeep's. The test was changed on
+purpose, and SPEC (Drawn as parts) says so: the parts of the upkeep's own row (its r and y, `S.layout.rowMembers`)
+are part of it, not parts ahead of it or below the rule. Every other part must still be above the rule, and the
+block must still be last. alert-triage (no rows) reads exactly as before.
+- Lesson 9: with the rule drawn only from `lay.rule` (the fix undone), `[big]` failed with "[blocks] no rule above
+  the modelling block". With the fix it passes.
+- Run here: ruff clean. tests/test_blockdiagram.py, tests/test_known_laws.py and tests/test_correspond.py: 156
+  passed. Browser: `test_modelling_is_drawn_last_set_apart_and_labelled` [alert-triage, big], the three
+  `test_uncoupled_systems_are_parallel_rows_…` cases and
+  `test_rows_keep_their_outlines_when_a_coupled_system_opens_or_closes_in_place`: 6 passed.
+  `test_the_control_view_draws_every_example_cleanly_as_a_block_diagram`: 22 passed, autoscaler failed with the
+  same READY timeout (240 s) that round 3 reproduced with main's files, so it is not this branch. Main merged:
+  already up to date.
+- Not run, contrary to the finding's request: the whole unit suite and the four browser files. This session's
+  rules forbid running them here ("never the whole unit suite or the four browser files yourself"; the merge queue
+  runs them). This is the gap that let the finding through, and it is still open until the queue runs them.
+Overrun reason: 114 net lines against the 100 budget; round 2's 10 (bdRowOutlines) and 4 more for the rule above the upkeep's row, the round-5 finding's fix.
+
 ## Entry
 
 **Blocks: uncoupled systems are parallel rows.** Two or more top-level systems that no signal joins are drawn as
 parallel rows below the coupled loop, in the model's order with the upkeep last. Each row is in a dashed outline,
 with the left edges aligned. A closed one has its r (its goals' references, a vector with its count) on the left
 and its y on the right. An open one is its frame. One caption under the rows says "no signals between these
-systems". A single uncoupled system is drawn as before.
+systems". The model's upkeep, the last row, is set apart by the thin rule above its row. A single uncoupled system is
+drawn as before.

@@ -519,7 +519,8 @@ UPKEEP_BOX = """(id) => {
   const me = S.layout.children.find((c) => c.id === id);
   if (!me) return null;
   const el = document.querySelector(`g.node[data-id="${CSS.escape(id)}"]`);
-  const others = S.layout.children.filter((c) => c !== me);
+  const own = (S.layout.rowMembers || []).find((r) => r.ids.includes(id))?.ids || [id];   // its own row's r and y go with it
+  const others = S.layout.children.filter((c) => !own.includes(c.id));
   const ahead = others.filter((c) => !(me.x >= c.x + c.width - 0.5 || me.y >= c.y + c.height - 0.5)).map((c) => c.id);
   const rule = document.querySelector("path.bd-upkeep-rule")?.getBBox();
   const dashed = [...(el?.querySelectorAll("rect") || [])].some((r) => r.getAttribute("stroke-dasharray"));
@@ -534,7 +535,9 @@ UPKEEP_BOX = """(id) => {
 def test_modelling_is_drawn_last_set_apart_and_labelled(browser, tmp_path, example):
     """The design review (Q13): at the top level ergostat's model of its own upkeep was the top-left box, read first,
     unexplained. In both views it comes last: its top-left corner below or right of every other part, its outline
-    dashed, and it says it is 'ergostat's upkeep of this model, not the system'; in Blocks below a thin rule."""
+    dashed, and it says it is 'ergostat's upkeep of this model, not the system'; in Blocks below a thin rule. When it
+    is one of the uncoupled rows (big), its row's own r and y are part of it, not parts ahead of it, and the rule is
+    above its row (blocks-uncoupled-systems-parallel-rows, round 5)."""
     with served(example, tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1440, "height": 900})
         errors: list[str] = []
