@@ -64,3 +64,37 @@ Built, round 1. All five items are in the code; about 65 net lines outside tests
   already draws for a declared HPA. The four browser files are left to the queue.
 - Not done: a test where the record reaches its max bound. On the test HPA's records the load never drives replicas to
   40, so `hi` is None there.
+
+### Round 2
+
+One finding, blocking: no test produced a bound or asserted the fitted tolerance's value. Answered with tests only;
+`ergostat/` is unchanged this round.
+
+- The test HPA (`tests/test_identify_ratio.py::hpa`) takes `scale` and `shift`. Its load is now
+  max(0, scale × swing − shift) + noise. The defaults (1, 0) give the same records as before, since the swing is never
+  below 0.
+- New test `test_ratio_fits_bounds_and_tolerance_on_saturating_record`, with scale 2 and shift 8. On every one of 20
+  seeds, `_fit_ratio` gives:
+  - lo == 3 and hi == 40;
+  - tolerance within 0.01 of 0.1 (seen: 0.092 to 0.102);
+  - target within 1% of 0.6.
+
+  The law's `said` carries "within [3, 40]". On the plain record, which touches 3 but never stays there past the window
+  and never reaches 40, lo and hi are both None and `said` has no "within".
+- Each guarded line was broken and the test was seen to fail, then the line was restored:
+  - `hi` forced to None;
+  - `hi` always the record's max (caught by the plain record);
+  - `lo` forced to None;
+  - `lo` always the record's min (caught by the plain record);
+  - the tolerance forced to 0.
+- Stated, not asserted: the family chosen on these saturating records.
+  - `fit` kept ratio on 18 of 20 seeds. The stepper won seeds 8 and 15, whose held-out ratio skill was 0.56 and 0.49.
+  - Read on seed 8, the misses are ceiling-edge errors at high replica counts. The fitted target is 0.6028 for 0.6,
+    and that 0.5% misjudges ⌈36·x/T⌉ by whole replicas, giving an early scale-down. The bounds are fitted right even
+    there.
+  - Narrowing the target with the samples that did not move is a possible later gap. It is not built here, because the
+    definition's choice claim (item 3) is about the non-saturating record, which still passes.
+- Tests run, one file at a time, all green: test_identify_ratio, test_extlaw and test_known_laws. ruff is clean.
+  `main` merged: already up to date.
+- Browser files: not run this round. No page or ergostat code changed. The round-1 note on test_diagram_rendering still
+  stands.

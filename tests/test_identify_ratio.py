@@ -13,13 +13,14 @@ SEEDS = range(20)
 
 
 def hpa(seed: int, n: int = 1200, target: float = 0.6, tolerance: float = 0.1, window: int = 20, lo: int = 3,
-        hi: int = 40):
+        hi: int = 40, scale: float = 1.0, shift: float = 0.0):
     """Load → utilisation → replicas on 15s samples, through the HPA's documented rule: desired ⌈u x / target⌉ outside
     1 ± tolerance, a scale-down to the largest desired of the last ``window`` samples, within [lo, hi]; the load
-    swinging, with noise on it and on the utilisation read."""
+    swinging (its swing times ``scale``, less ``shift``, not below 0), with noise on it and on the utilisation read."""
     rnd, reps, wants, xs, us = random.Random(seed), 6, [], [], []
     for k in range(n):
-        load = 9 + 7 * math.sin(2 * math.pi * k / 360) + 2 * math.sin(2 * math.pi * k / 83) + rnd.gauss(0, 0.5)
+        swing = 9 + 7 * math.sin(2 * math.pi * k / 360) + 2 * math.sin(2 * math.pi * k / 83)
+        load = max(0.0, scale * swing - shift) + rnd.gauss(0, 0.5)
         util = max(0.01, load / reps + rnd.gauss(0, 0.02))
         r = util / target
         wants = (wants + [math.ceil(reps * r) if abs(r - 1) > tolerance else reps])[-window:]
@@ -62,6 +63,23 @@ def test_stepper_still_wins_on_stepper_record():
     won = [s for s, fam in got if fam == "stepper"]
     print(f"stepper kept on {len(won)} of {len(SEEDS)} seeds", got)
     assert len(won) >= 18, got
+
+
+def test_ratio_fits_bounds_and_tolerance_on_saturating_record():
+    """A load that swings past both of the HPA's bounds, long enough at each to show them: the fitted law has min 3,
+    max 40 and tolerance about 0.1 on every seed, and says them; a record that never reaches 40 has no max, and one that
+    never sits at 3 past the window has no min."""
+    got = []
+    for seed in SEEDS:
+        law = el._fit_ratio(*hpa(seed, scale=2.0, shift=8.0), 15.0)
+        got.append((seed, law.p["lo"], law.p["hi"], round(law.p["tolerance"], 3), round(law.p["target"], 3)))
+    bad = [g for g in got if g[1] != 3 or g[2] != 40 or abs(g[3] - 0.1) > 0.01 or abs(g[4] - 0.6) > 0.006]
+    assert not bad, bad
+    said = el._fit_ratio(*hpa(0, scale=2.0, shift=8.0), 15.0).said()
+    assert "within [3, 40]" in said and "outside 1 ± 0.09" in said, said
+    plain = el._fit_ratio(*hpa(0), 15.0)
+    assert plain.p["hi"] is None and plain.p["lo"] is None and "within" not in plain.said(), plain.p
+    assert 3 < max(hpa(0)[1]) < 40
 
 
 def test_ratio_needs_moves():
