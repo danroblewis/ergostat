@@ -7,6 +7,7 @@ import time
 from .. import datasources
 from ..spec import codec, numberreads
 from ..spec import items as its
+from ..spec.finished import finish_of
 from . import transforms
 from .axes import X_OF, X_TYPES
 from .labels import STATE_GROUP, word
@@ -44,6 +45,12 @@ def _series(p) -> list[dict]:
     return [{"name": n, "unit": _series_unit(p, n)} for n in names]
 
 
+def _pipeline(name: str, k) -> dict:
+    """A kind's ``pipeline:``, and ``holds``: its relation naming the kind it takes from (its default dashboard row)."""
+    w = k.pipeline["waiting"]
+    return {"kind": name, **k.pipeline, "holds": next((r for r, x in k.relations.items() if w and w["kind"] in x.kinds), None)}
+
+
 def _read(p) -> dict:
     spec = getattr(p.model, "spec", None)
     kinds = its.kinds_of(spec)
@@ -51,7 +58,8 @@ def _read(p) -> dict:
     for name, k in kinds.items():
         types |= set(k.on)
         finished = list(its.finishes(p.events, spec, name)["finished"])
-        moves[name] = {"states": list(k.states), "finished": finished}
+        # the states its work waits in to be taken (the default dashboard's "waiting"), as the Graph gives them
+        moves[name] = {"states": list(k.states), "finished": finished, "queue": finish_of(spec, name, set())["queue"]}
         ix = its._index(p.events, spec, its.asks_transcript([k]))
         if ix is None:
             items_[name] = {"fields": [], "states": list(k.states), "finished": finished, "group_by": ["state", "kind"]}
@@ -66,15 +74,17 @@ def _read(p) -> dict:
         got["x"] = list(X_OF[name])
         got["ohlc"] = name in OHLC_SOURCES
     return {"sources": sources, "datasources": datasources.listed(spec), "x_types": list(X_TYPES),
+            "pipelines": [_pipeline(n, k) for n, k in kinds.items() if k.pipeline],     # (SPEC §5a, Stages)
             "aggregations": list(AGGS), "transforms": list(TRANSFORMS), "rate_per": list(RATE_PER),
             "rate_units": dict(transforms.SHORT)}
 
 
 def fields(live, p, reader: bool = False) -> dict:
-    """``reader``: anyone under a public name, who may not ask a data source, so is offered none (SPEC §4e)."""
+    """``reader``: anyone under a public name, who may not ask a data source but the model's own, so is offered only
+    that (SPEC §4e)."""
     key = ("query-fields", int(time.time() // KEEP), getattr(live, "mtime", None))
     got = live.cached(key)
     if got is None:
         got = _read(p)
         live.keep(key, got)
-    return {**got, "datasources": []} if reader else got
+    return {**got, "datasources": datasources.listed(getattr(p.model, "spec", None), own_only=True)} if reader else got

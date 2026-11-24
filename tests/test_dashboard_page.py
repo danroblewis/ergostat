@@ -39,7 +39,9 @@ FIELDS = {
             "part": {"fields": [{"name": "weight", "unit": "g"}], "states": ["queued", "cut", "ground", "done"], "group_by": ["state"]},
             "ergostat.note": {"fields": [], "states": ["open", "doing", "more", "shut"], "group_by": ["state"]},
         }},
-        "moves": {"kinds": {}}, "counts": {"kinds": ["log", "widget", "part"]},
+        # the states work waits in, as /api/items-graph gives them (GRAPH): the default reads them here
+        "moves": {"kinds": {"widget": {"queue": ["new", "ready", "redo", "checked"]}, "part": {"queue": ["queued"]},
+                            "log": {"queue": ["started"]}}}, "counts": {"kinds": ["log", "widget", "part"]},
         "series": {"series": [{"name": "stock.x", "unit": "items"}]}, "events": {"types": []},
     },
     "aggregations": ["count", "sum"], "transforms": ["none", "rate"],
@@ -72,6 +74,7 @@ window.fetch = (url, opts) => {
     window.__queries++;
     window.__since = asked.since;
     window.__asked = asked.queries;
+    window.__every = [...(window.__every || []), ...asked.queries];   // (the panels above the fold are asked first)
   }
   return realFetch(url, opts);
 };
@@ -269,6 +272,7 @@ def test_the_default_has_a_panel_of_every_chart_family(browser, site):
       const rich = JSON.parse(JSON.stringify(f));
       rich.sources.items.kinds.widget.fields = [{ name: "cost_usd", unit: "usd" }, { name: "net_lines", unit: "lines" }];
       rich.sources.frequency = { goals: ["widgets-held"] };
+      rich.datasources = [{ name: "model", type: "model", language: "model" }];
       const made = dashDefault(rich, items.kinds).panels;
       return { made: made.map((p) => normalizeForm(p).form), all: Object.keys(plotForms()), n: made.length, most: DASH_MOST };
     }""", [FIELDS, ITEMS])
@@ -279,7 +283,8 @@ def test_the_default_has_a_panel_of_every_chart_family(browser, site):
 
 def test_the_default_draws_no_response_from_arrivals_against_completions(browser, site):
     """dev/records/frequency-refuses-noise.md: arrivals and completions are not shown as a working Bode or Nyquist
-    example; a goal's declared process is, when there is one."""
+    example; a goal's declared process is, asked of the model data source (dev/records/model-data-source.md), when there
+    is one and a model source to ask."""
     ctx = context(browser)
     pg = opened(ctx, f"{site}/dashboard")
     got = pg.evaluate("""([f, items]) => {
@@ -287,11 +292,38 @@ def test_the_default_draws_no_response_from_arrivals_against_completions(browser
         .map((p) => ({ form: normalizeForm(p).form, q: p.queries[0] }));
       const withGoal = JSON.parse(JSON.stringify(f));
       withGoal.sources.frequency = { goals: ["widgets-held"] };
-      return { bare: freq(dashDefault(f, items.kinds).panels), goal: freq(dashDefault(withGoal, items.kinds).panels) };
+      const noSource = freq(dashDefault(withGoal, items.kinds).panels);
+      withGoal.datasources = [{ name: "prom", type: "prometheus", language: "PromQL" }, { name: "own", type: "model", language: "model" }];
+      return { bare: freq(dashDefault(f, items.kinds).panels), noSource, goal: freq(dashDefault(withGoal, items.kinds).panels) };
     }""", [FIELDS, ITEMS])
-    assert got["bare"] == []
+    assert got["bare"] == [] and got["noSource"] == []
     assert sorted(p["form"] for p in got["goal"]) == ["bode", "nyquist", "pole-zero"]
-    assert all(p["q"] == {"id": "a", "source": "frequency", "model": {"goal": "widgets-held"}} for p in got["goal"])
+    assert all(p["q"] == {"id": "a", "source": "own", "text": "goal widgets-held"} for p in got["goal"])
+    ctx.close()
+
+
+def test_the_model_source_draws_bode_nyquist_and_pole_zero_from_the_live_server(browser, site):
+    """dev/records/model-data-source.md, on the real server: each panel asks the model data source in its own language,
+    the delayed process's pole-zero map states its dt, and a goal not in the model is refused in the panel."""
+    fopdt = {"id": "a", "source": "model", "text": "fopdt gain=2 tau=100s delay=20s"}
+    draft = {"panels": [
+        {"id": "bode", "title": "Bode", "form": "bode", "queries": [fopdt]},
+        {"id": "nyq", "title": "Nyquist", "form": "nyquist", "queries": [fopdt]},
+        {"id": "pz", "title": "Poles", "form": "pole-zero", "queries": [{**fopdt, "text": "fopdt gain=1 tau=10s delay=25s dt=10s"}]},
+        {"id": "nope", "title": "Nope", "form": "bode", "queries": [{**fopdt, "text": "goal nope"}]}]}
+    enc = base64.urlsafe_b64encode(json.dumps(draft).encode()).decode().rstrip("=")
+    ctx = browser.new_context(viewport={"width": 1440, "height": 1000})
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={enc}")
+    for pid in ("bode", "nyq", "pz", "nope"):
+        pg.wait_for_function(ANSWERED, arg=pid)
+    state = lambda pid: pg.locator(f'[data-panel-id="{pid}"]').get_attribute("data-state")   # noqa: E731
+    assert [state(x) for x in ("bode", "nyq", "pz", "nope")] == ["drawn", "drawn", "drawn", "error"]
+    legend = pg.locator('[data-panel-id="pz"] .panel-legend').inner_text()
+    assert "sampled every dt = 10 s" in legend and "from the model the query writes" in legend
+    assert "not in the model" in pg.locator('[data-panel-id="nope"]').inner_text()
+    if SHOTS:
+        pg.screenshot(path=f"{SHOTS}/dashboard-model-source.png", full_page=True)
+    assert pg.errors == []
     ctx.close()
 
 
@@ -588,7 +620,7 @@ def test_a_duration_stat_is_over_the_whole_window_and_says_who_is_still_waiting(
     pg = opened(ctx, f"{site}/dashboard")
     stat = default(pg)["widget: median wait of items that left ready"]
     assert stat["display"]["whole"] is True and stat["display"]["still"] == {"kind": "widget", "state": "ready"}
-    asked = [q for q in pg.evaluate("() => window.__asked") if q.get("measure") == "time_in_state" and "bucket" in q]
+    asked = [q for q in pg.evaluate("() => window.__every") if q.get("measure") == "time_in_state" and "bucket" in q]
     assert asked and all(q["bucket"] >= 86400 for q in asked)
     assert "whole" not in asked[0] and "still" not in asked[0]                    # the server is sent only query keys
     assert pg.evaluate("""() => [[1795390000, 1795400000], [86400 * 20000 - 50, 86400 * 20000 + 50], [1000, 87400]]

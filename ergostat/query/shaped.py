@@ -3,7 +3,6 @@ and a frequency response. Each is built from what ``engine`` reads, and raises `
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
@@ -414,21 +413,15 @@ def response(a: Asking, q: Query) -> dict:
 
 
 def _model(a: Asking, q: Query) -> dict:
-    from ..control import loop, lti
-    goals = getattr(a.spec, "goals", None) or {}
-    if q.model not in goals:
+    """A goal's declared process, as the model data source answers ``goal NAME declared`` (datasources/model.py)."""
+    from .. import datasources
+    from ..datasources import _frames
+    from ..datasources import model as source
+    if not q.model or any(c.isspace() for c in q.model):
         raise Unanswerable(f"goal {q.model!r} is not in the model")
-    proc = loop.model_process(a.spec, q.model)
-    if proc is None:
-        raise Unanswerable(f"goal {q.model!r} declares no process, so there is no model response to draw")
-    b = lti.bode(proc)
-    mags, phases = b["process"]["mag"], b["process"]["phase"]
-    kept = [i for i, m in enumerate(mags) if m > 0]
-    res = [mags[i] * math.cos(math.radians(phases[i])) for i in kept]
-    ims = [mags[i] * math.sin(math.radians(phases[i])) for i in kept]
-    poles = [{"re": 0.0, "im": 0.0}] if proc["form"] == "integrating" else [{"re": -1 / proc["tau"], "im": 0.0}]
-    return {"id": q.id, "frequency": {"hz": [b["w"][i] / (2 * math.pi) for i in kept],
-                                      "magnitude_db": [20 * math.log10(mags[i]) for i in kept],
-                                      "phase_deg": [phases[i] for i in kept], "re": res, "im": ims, "coherence": None},
-            "method": "model", "samples": 0, "unit": "", "read_log": False, "poles": poles, "zeros": [],
-            "delay_seconds": proc.get("theta") or 0.0}
+    w = datasources.Window(a.since, a.until, a.since, a.until - a.since, 1, datasources.MOST_SECONDS, a.p)
+    try:
+        got = _frames.answer(source.query(None, f"goal {q.model} declared", w), None, 1)
+    except datasources.SourceError as e:
+        raise Unanswerable(str(e)) from e
+    return {"id": q.id, **{k: v for k, v in got.items() if k not in ("shape", "has")}}
