@@ -845,6 +845,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],
                 "at": snap["at"], "window": snap["window"], "recorded": snap.get("recorded"),   # the window's span on record
+                "as_of": st.age(snap),                     # the record's seq it read, when it was made, its age
                 "rate_units": rates.overrides(getattr(m, "spec", None)),
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
                             for e in history.changes(p, snap["at"] - snap["window"])][-5:],

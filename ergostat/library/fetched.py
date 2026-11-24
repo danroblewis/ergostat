@@ -11,6 +11,7 @@ from ..spec import files
 from ..spec.load import Problem
 from . import sources, tree
 from . import templates as tp
+from . import untrusted as ut
 
 LOCK, DIR = "libraries.lock", ".libraries"
 
@@ -21,7 +22,7 @@ def _lock(doc):
         got = json.loads(files.read_text(doc.root / LOCK))
     except FileNotFoundError:
         return None
-    except (OSError, UnicodeDecodeError) as e:
+    except (OSError, UnicodeDecodeError, RecursionError) as e:
         raise ValueError(str(e)) from None
     if not isinstance(got, dict) or not all(isinstance(v, dict) for v in got.values()):
         raise ValueError("not a map of name to entry")
@@ -52,11 +53,12 @@ def _one(doc, name: str, e: dict, entries) -> list[tp.Template]:
     for rel, (kind, data) in sorted(listing.items()):
         top = "/" not in rel and rel.endswith((".yaml", ".yml"))
         if kind in ("file", "exec") and (top or rel.count("/") == 1 and posixpath.basename(rel) == "template.yaml"):
+            owner = e.get("trust") == "owner"
             try:
-                t = tp.read(root / rel, False, "owner" if e.get("trust") == "owner" else "untrusted",
-                            text=data.decode("utf-8"))
-            except (tp.TemplateError, UnicodeDecodeError) as x:
-                doc.problems.append(Problem("finding", f"library {name}: {x}", None, "template-library"))
+                t = tp.read(root / rel, False, "owner" if owner else "untrusted", text=data.decode("utf-8"))
+            except (tp.TemplateError, UnicodeDecodeError) as x:      # an untrusted one's text marked, as a folder's
+                said = f"library {name}: {x}"
+                doc.problems.append(Problem("finding", said if owner else ut.note(root, said), None, "template-library"))
                 continue
             t.library = name
             out.append(t)

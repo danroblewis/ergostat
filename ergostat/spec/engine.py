@@ -54,6 +54,8 @@ from .observer import KEEP, PORTS, RUN, Observer, estimated, opted, stale_age
 
 TICK = 1.0
 READERS = 8                 # the fixed pool that runs sensors' commands and queries: no thread per reading (scale.md #1)
+FAST = 60.0                 # a sensor read at least this often, and stopped within it, reads on the fast lane
+LANES = {"": READERS, "alarm_": 2, "fast_": 4}   # each pool's threads (fixed: 14 at most, whatever the model says)
 BATCH = 0.05                # after a pass, what lands within this long (readings, runs ending) waits for one pass together
 MISSING = object()
 SLEPT = 30.0                # the wall clock ran this much further than the monotonic one between passes: it slept
@@ -177,6 +179,9 @@ class Engine:
         self.alarm_pool: ThreadPoolExecutor | None = None   # alarms' sensors: never on the pool an alarm may watch
         self.alarm_pool_out: dict[str, tuple[float, float, float | None]] = {}   # as pool_out, for it
         self.alarm_pool_done_at = time.monotonic()
+        self.fast_pool: ThreadPoolExecutor | None = None    # short-interval sensors: never behind a long reading
+        self.fast_pool_out: dict[str, tuple[float, float, float | None]] = {}
+        self.fast_pool_done_at = time.monotonic()
         self.passing = threading.Lock()                # one pass at a time, whichever thread asks
         self.full = True                               # the next pass works out everything (the first, after a swap)
         self.mark = None                               # the measurements' changes, as of the last pass
@@ -1484,7 +1489,8 @@ class Engine:
         return kept["engine.alarmed"]
 
     def _read_one(self, s: Sensor, which: str = "", handed: float = 0.0) -> None:
-        """One reading of a command or a query, on the pool (``which``: ``alarm_`` for the alarms' own), handed to it at
+        """One reading of a command or a query, on the pool (``which``: ``alarm_`` for the alarms' own, ``fast_`` for the
+        fast lane's: ``lane``), handed to it at
         ``handed``: its result posted to the loop. A late one from a pool since replaced touches nothing of the new."""
         out = getattr(self, f"{which}pool_out")
         with self.pool_lock:                                  # begun: only now may its timeout lengthen the wedge limit
@@ -1584,10 +1590,10 @@ class Engine:
                                                              self.wake.set())):
                     handed.add(s.series)                      # (a daemon given up: not asked, its failure said once)
             elif s.items is None and s.changes is None:
-                which = "alarm_" if s.series in self._alarmed() else ""
+                which = "alarm_" if s.series in self._alarmed() else lane(s)
                 with self.pool_lock:
                     if getattr(self, f"{which}pool") is None:
-                        setattr(self, f"{which}pool", ThreadPoolExecutor(max_workers=2 if which else READERS,
+                        setattr(self, f"{which}pool", ThreadPoolExecutor(max_workers=LANES[which],
                                                                          thread_name_prefix=f"ergostat-{which}read"))
                     pool, at = getattr(self, f"{which}pool"), time.monotonic()
                     getattr(self, f"{which}pool_out")[s.series] = (at, float(s.timeout or 30.0), None)
@@ -2097,7 +2103,7 @@ class Engine:
             self.journals.close()                # its thread ended before the stop is recorded
         if self.calls is not None:
             self.calls.close()
-        for pool in (self.pool, self.alarm_pool):
+        for pool in (self.pool, self.alarm_pool, self.fast_pool):
             if pool is not None:
                 pool.shutdown(wait=False, cancel_futures=True)
         if self.shard is None:
@@ -2498,6 +2504,16 @@ def observations(text: str) -> tuple[list[dict], list[str]]:
                          **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None},
                          **({"id": obj["id"]} if cited else {})})
     return seen, refused
+
+
+def lane(s: Sensor) -> str:
+    """Which pool reads a sensor's command or query: ``fast_`` when it is read every ``FAST`` seconds or more often
+    and its timeout is no longer, so a reading every 15 s never queues behind readings that take minutes; else the
+    sensors' own (``""``). A cron schedule, or an interval or timeout that is not a finite number, is the slow lane."""
+    every, timeout = s.every, s.timeout
+    if s.cron or not isinstance(every, int | float) or not isinstance(timeout, int | float):
+        return ""
+    return "fast_" if 0 < every <= FAST and 0 < timeout <= FAST else ""   # (NaN: both False, the slow lane)
 
 
 def callback_env(spec: Spec, state: os.PathLike | str, socket: str | None = None) -> dict[str, str]:

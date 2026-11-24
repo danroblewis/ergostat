@@ -66,17 +66,11 @@ def get(p, aid: str) -> dict | None:
     return fold(evs[0]["item"], evs)
 
 
-def stored(p, since: float | None = None, until: float | None = None) -> dict[str, dict]:
-    """Every action requested since then, folded, oldest first."""
-    by: dict[str, list[dict]] = {}
-    for e in p.events.query(n=None, type=f"{ACTION}.*", until=until):
-        by.setdefault(e["item"], []).append(e)
-    out = {}
-    for item, es in by.items():
-        if es[0]["type"] != f"{ACTION}.requested" or (since is not None and es[0]["time"] < since):
-            continue
-        out[item] = fold(item, es)
-    return out
+def stored(p, since: float | None = None, until: float | None = None, states=None) -> dict[str, dict]:
+    """Every action requested since then (in ``states``, when given), folded, oldest first (the item index's table:
+    ``projections.stored``)."""
+    from ..spec import projections
+    return projections.stored(p, "action", since, until, states)
 
 
 def about(p, item: str) -> list[dict]:

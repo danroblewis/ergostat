@@ -305,7 +305,8 @@ counts`, which prints the failed and errors of its pytest-style summary as `test
 a run past its time, with no summary, with nothing run, or exiting non-zero with no failure counted gives no value, and
 `tests-green` is `on-stale: off`; `block:` holds `ergostat.trust.contradicted@BLOCK` at `escape-share` (`claims-kept`);
 `changes: true` holds `ergostat.model.regressed` at 0 (`changes-hold`); `repair: NAME` reads repair's `fixes-hold`,
-not made again; each goal served by a person block, `agent:` naming who; flakes and quarantine are not in it), and `todo` (a person's own to-dos, each with its instructions, its requester, its due date and
+not made again; each goal served by a person block, `agent:` naming who; flakes and quarantine are not in it; section
+12r, *Regression guarantees*), and `todo` (a person's own to-dos, each with its instructions, its requester, its due date and
 where it must be done, `where`: a host, a bastion, a VPN or anywhere; states new, ready, in-progress, waiting,
 done and dropped, its own `finished: [done, dropped]`; what one waits on in `waits_on`, a precedence relation to
 another to-do or to a `KIND-wait` item, something someone else does; two person blocks, one asked while new to-dos
@@ -545,8 +546,12 @@ link, a cap passed, more than 64 folders deep, or a tree hash not the lock's). T
 links, its files read under the same caps, and hashed: each entry in byte order of its path, its path, its kind
 (`dir`, `file`, `exec`, `link`) and its bytes or link target, each length-prefixed. Templates (`*.yaml`, `*.yml`, `*/template.yaml`, never a link) are parsed
 from the bytes hashed. They are found after the owner's folders and `$ERGOSTAT_LIBRARY`, before ergostat's own, in
-the order written. A use of one from a library without `trust: owner` is **library-untrusted**: it is listed, never
-expanded. A use naming a template that is not there names every refused library and why. `check` says which uses come
+the order written. A library with `trust: owner` is trusted; any other is untrusted exactly as a `{folder: PATH}` is
+(*Untrusted libraries* above): it never shadows a trusted template, its notes are marked (`untrusted library folder
+.libraries/NAME:`), its uses are held, checked against the same allowlist and bounded, and a use that makes more is
+refused (**library-untrusted**, saying the owner can mark it `trust: owner`). A use naming a template that is not
+there names every refused library, its code and why. The listing is kept in the last good model's snapshot
+(`trees`), so the fallback reads the library back without the copy or the lock. `check` says which uses come
 from a library. The copy is checked when the model loads; a script a template runs from `${here}` is read again when it
 runs, and nothing here says that what runs is what was locked.
 
@@ -955,8 +960,29 @@ to a fresh read of the record (the modules' `stored()`, `events.query`, the inbo
 records on both event stores, followed a chunk at a time, read cold, built again, after a roll-up, a
 prune and a fresh record, after a crash part way (each chunk is one transaction: the next process
 resumes from the last committed), and read by another process while one follows (it reads what was
-committed, unblocked). The answers are as of what the index has folded, not of an earlier `until`:
-the status reads them only when it asks about now.
+committed, unblocked). The status answer and the modules it calls (the inbox and its stats,
+interventions, gated actions, messages, reports, model changes, modelling requests, leases' attention,
+loop crossings) read these tables and no longer fold the record themselves (`projections.stored`,
+`query`, `asks`). `records` is as of what the index has folded: a read as of an earlier `until` is
+answered from it when no item of the family has an event after `until` (its `last` column), and
+otherwise by the same fold over the family's events up to then, in memory, as is a record kept nowhere
+on disk, a record whose index is not made yet (these reads make no index file: the files are a stock the
+upkeep template's tidier holds, §2a), and one whose index cannot be read and could not be built again
+(the record is the truth, so the answer is the same, only slower). The snapshot says how old it is: `as_of` is the record's last seq as it was read and when the
+answer was made, and the status answer adds its `age` in seconds. Two more tables serve the loops and
+agents: `latest`, each item's newest event of the types `LATEST` names (runs, failures, starts,
+decisions, openings, auxiliaries set), by seq (a read as of a moment before it reads the record for that
+item); and `ticks`, what each run and opening adds to the window's tallies (`events.runs`, `opened`),
+its time and, for an opening, its amount as written. Contradicted claims are a mark. An action's work
+item (its why) is read from the item index. A `where:` match as of a moment (`state.counted`) folds an
+item changed since from the record only when an event since may have changed a field it is matched on
+(the index keeps, per item, when each top-level field was last touched: a snapshot or a `set` touches
+all of them) or its events came out of time order around that moment; the rest are the index's as they
+stood then. A status answer catches the index up once (`itemindex.pinned`) and reads no event log once
+it is current; it reads the window's readings of every sensor together where the raw readings answer
+alone (`Measurements.ranges`), the newest readings from the store's `newest()`, and the store's first
+reading by each series' index. On the factory-size fixture it answers in under 100 ms
+(`tests/test_status_reads_projections.py`).
 
 **Items rolled up.** An item's events older than its horizon (`rollup.after`, or its kind's) are
 replaced by one event, `ergostat.item.snapshot`, the item as it stood after them:
@@ -3444,7 +3470,10 @@ after readings land, after a run ends, and every second (the clock's pass):
 - Readings are taken in **batches**: those due together, and those a run asked for when it moved a flow, are begun
   together; counts of items are read from what ergostat keeps as the record folds (an `items` sensor's value is its
   count at the reading's time, kept as events arrive: it costs nothing to read), a flow read from its stock's changes
-  is worked out at once, and commands and queries run on a fixed pool of eight. The batch is recorded together and
+  is worked out at once, and commands and queries run on a fixed pool of eight. A sensor read every 60 s or more
+  often whose timeout is 60 s or less reads on a **fast lane** of its own (four threads, fixed; `engine.lane`), so a
+  reading every 15 s never queues behind readings that take minutes (a cron schedule is the slow lane); an alarm's
+  sensors keep their own pool of two. The batch is recorded together and
   followed by one pass. What lands within 50 ms of a pass (readings, runs ending) waits for the next pass together.
 - When the record is written (by ergostat, a run, a push, or another process: each wakes it), every count of items
   is read at once, and those that changed are recorded and worked out with the batch: a goal on a queue sees its first
@@ -3713,8 +3742,8 @@ the engine recovering meanwhile cancels it. The last restart is kept in `<state>
 outlives the process. **A start that hangs** (a lock held by another process, say) is caught by a startup deadline
 (120 s, `ERGOSTAT_STARTUP`): its stacks dumped (`stalls/*-start.txt`) and the process restarted under the same
 back-off. Every 5 s the watchdog writes `<state>/heartbeat.json` (when the last pass finished, the pid, and under
-`use: upkeep` the `stale` the outer watcher uses), and the run writes it as it starts. The alarms' own sensor pool
-is watched as the sensors' is: replaced when wedged, and a third time in ten minutes restarts the process. `kill -USR1`
+`use: upkeep` the `stale` the outer watcher uses), and the run writes it as it starts. The alarms' own sensor pool,
+and the fast lane's, are watched as the sensors' is: replaced when wedged, and a third time in ten minutes restarts the process. `kill -USR1`
 on the runner writes every thread's stack to `<state>/threads.txt` at any time, and the socket's `ping` says how long
 ago the last pass finished.
 
@@ -4916,8 +4945,8 @@ where the error is 0.
   allowlist (naming the field), more than 16, or `libraries:` outside the main file (section 2a, *Libraries fetched by
   git URL*);
 - **library-unlocked**, **library-lock-unreadable**, **library-missing**, **library-altered**: a fetched library
-  refused at load, its templates not there (section 2a); **library-untrusted** also marks a use of a template from a
-  library without `trust: owner`;
+  refused at load, its templates not there (section 2a); a use of a template from a library without `trust: owner`
+  is held as an untrusted folder's is, so **library-untrusted** also marks one that makes more than structure;
 - **untrusted-limit**: a part an untrusted instance made whose schedule, pool, attempts or runs at once pass the
   limits of section 2a, *Untrusted libraries*, at its `use:` line;
 - **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
@@ -5905,7 +5934,7 @@ gives, in its `controller`, that block's law as identified (`identified`: the la
 record held out) and says it, or says why it has none (its law not asked for, or not identified, and why); no margins
 are worked out from it (they need a law written in the model). `examples/autoscaler` shows it. *Not yet*: whether the law changed (someone retuned the controller:
 two laws against one on held-out error; a first comparison of each half's numbers raised it on unchanged controllers),
-a known law tested against the record, and the law's numbers sampled by the risk.
+and the law's numbers sampled by the risk. (A known law is tested against the record: *Known laws*, below.)
 
 **Known laws** (`control/laws.py`): an external block with `identify:` may declare the law of a controller that ships
 with the system it runs in, `law: {kind: KIND, ...}`, from this catalogue; each parameter is typed and bounded, and one
@@ -5934,7 +5963,25 @@ before). **bad-law**, at the key: an unknown kind or parameter, a value not its 
 declared is drawn as its block's function in Blocks (the law in the block's notation, as an identified law's, marked
 *declared KIND* where an identified law is marked *identified*; a law the record identifies is drawn over it, the
 declared one kept in the block's rows) and said in words with its parameters by `explain` (and its MCP tool); it is not
-yet run in the projection or tested against the record.
+yet run in the projection.
+
+**A declared law tested against the record** (`external.declared`): on the identification's own grid and the same
+split, the declared law is stepped on the input as measured, on the grid's period (an HPA's `every` is replaced by the
+sensors' period, so its windows count whole samples of that period), with a pure delay of 0 to 6 samples searched by
+its one-step error on the first three quarters (the declaration says nothing of the sensors' delay), and judged on the
+last quarter as the identification judges its own laws: skill one step ahead, R² run free, its points, and its score,
+n ln(SSE/n) plus k ln n where k counts only its delay (its declared numbers are given, not fitted). Too little record
+(under 40 points, an output that never moved, no readings) says why, as identify says, and nothing is judged.
+`check` says **external-law-disagrees** when the declared law's held-out skill is below 0 (worse than holding the last
+value) or the law identified from the same record scores lower (the identification's parsimony rule, its own
+parameters counted against it): "block B: declared KIND (its law) fits its record worse than …: it does not behave as
+configured", with its skill, R², the points held out and the record's window. The claim is only that: the law as
+declared, on this record, at this sampling, fits worse; it is not a finding that the controller is misconfigured (a
+metric read differently, a sampling slower than the controller's own, or another controller on the same output may
+each fit worse too). A law that holds is never a finding. `/api/loop-control` gives it in the loop's `controller`, beside
+`identified`, as `declared: {kind, short, skill, r2, points, worse}` (or `{kind, why}`; the loop's own top-level
+`declared` stays the goal's declared process), and the loop's table writes both laws' held-out fit in its *held-out fit*
+row. With no `law:` nothing of this is worked out or said.
 
 ## 12e. Improving the model, as a loop
 
@@ -6837,6 +6884,9 @@ prints one, and `ergostat measure` all of them for every block.
 latest's words and why; `ergostat findings`, the status, the MCP `findings`), and needs attention: the page's and
 `ergostat`'s list says it against the block's agent, as bad.
 
+A block's contradicted claims held as a regression guarantee, beside the model's tests passing: section 12r,
+*Regression guarantees* (`use: regressions`, `block:`).
+
 ## 12h. Messages: absorbing interruptions
 
 A long session folds the owner's mid-work messages into the work: "that review can wait", "check the flag ramp
@@ -7543,7 +7593,7 @@ actions:
     risk: {severity: 3, threshold: {normal: 8, away: 4}}
 ```
 
-- **Each cell** is `auto`, `approve` or `deny`, and each threshold 1 < T ≤ 50. Any other column or value is
+- **Each cell** is `auto`, `approve`, `deny` or a reshape (*Reshaping an act*, below), and each threshold 1 < T ≤ 50. Any other column or value is
   `bad-value` at its line, and that cell is read as unwritten.
 - **Unwritten cells never loosen.** `away` and `maintenance` take `normal`'s gate, `freeze` takes `normal`'s one step
   stricter (`auto` → `approve` → `deny`), `incident` is `deny`. Every unwritten threshold takes `normal`'s. A written
@@ -7565,6 +7615,46 @@ actions:
   still sent, and an unreadable record never turns a channel's messages into denials counted as told.
 - `gate.in_force` (`ergostat/actions/gate.py`) reads the state; `risk.cell` and `risk.schedule`
   (`ergostat/actions/risk.py`) pick the column and fill the defaults.
+
+### Reshaping an act
+
+A cell may instead be **`{reshape: ACTION}`**: under that column the act asked for is held for the owner, and a
+smaller declared action is asked for at once in its place.
+
+```yaml
+actions:
+  push-and-open-pr: {run: ./pr.sh {branch} {title}, args: {title: its title}, gate: {normal: auto, away: {reshape: push-branch}}}
+  push-branch: {run: git push origin {branch}, gate: auto}
+```
+
+- **Compile** refuses, as `bad-reshape` at the cell's line (the cell then reads as plain `approve`): a target that is
+  not one of the `actions:`; a target taking an arg the full act does not; and a chain, a target whose own column
+  is a reshape under some state and presence (and set of named maintenance actions) in which the full act's column is
+  this one. Each action's column is resolved as at a request (`risk.column`). A reshape cell is written only where it
+  is written: an unwritten `away` takes `normal`'s plain gate, never its reshape.
+- **At the request** the full act is recorded with gate `approve` (whatever its own cell compiled to, so `auto` never
+  runs it, and act-risk can only step it to `deny`), and `reshaped_to: ID`, the target's id, taken first. That
+  `requested` event is written first. Then the target is asked for with the args it takes, under its own gate and
+  act-risk, with `reshaped_from: ID` in its first event and no program `key`. A crash between the two leaves the full
+  act held and nothing run. A reshape is followed once: a target whose own column is a reshape anyway is held as
+  `approve`, never reshaped.
+- **The session** (and a program's `ergostat act`) is answered by the target: its state, exit and output, waited for
+  under the target's `wait:`, never the full act's. The answer carries `reshaped_from` and, under `full`, the full
+  act's id and state (the session's answer; a program's carries `reshaped_from`). Every action's result names
+  `reshaped_to` or `reshaped_from` when it has one.
+- **A program asking again** (the same act and key, §12k's program actions) finds the full act. While it is held,
+  the answer is the target: a held target is taken over by the asking run's lease along with the full act (so the
+  owner's approval of it is not fenced out), and a target that no longer stands (failed, fenced, or denied by a gate
+  since changed) is asked anew, once, the full act's new `reshaped_to` written first. Once the owner has answered
+  the full act (approved, ran, failed, or denied it), the answer is the full act's own. A full act the gate denied
+  at its request (its own act-risk stepping `approve` to `deny`) stands while its target stands and its column in
+  force is still a reshape, and the target is the answer, so the target is never run twice. Once the target no
+  longer stands, both are asked for anew. Once its column in force is no reshape (the owner back, say), it no longer
+  stands, as any act denied by act-risk: the full act is asked for anew under that column's gate and act-risk, and
+  the target is not asked again.
+- **At the act** a reshape cell reads as `approve` for the full act. An owner-approved full act runs through the
+  act check as any held act does, and one approved by the gate is held again. The two are answered apart: denying one,
+  or the other's failing, never answers the other.
 
 ### Compute pools
 
@@ -8436,6 +8526,35 @@ and stop saying anything. A regressed fix turns `fixes-hold` off once its sensor
 once 14 days pass with no new regression, its revert denied or still unanswered. A reading that goes stale counts
 as off. To count the window, an `items` sensor on an auxiliary may name `entering:` (or `leaving:`) and `over:`
 (section 6): its reading is how many moved over the window, not a rate.
+
+### Regression guarantees: `use: regressions`
+
+Claims (section 12g) and repair (above) each find a regression; a **regression guarantee** is one held as a goal. It
+has the four parts any goal has: **a measured quantity** (an auxiliary a sensor reads from the record or the world),
+**a setpoint** (a goal holding it, `on-stale: off`), **a loop that acts** when it is off (a block serving the goal:
+without one, `check` says *missing feedback*), and **a way to see it broken** (the goal off on the Dynamics and Blocks
+diagrams and in the status, with no page of its own). Ergostat adds none of its own accord (invariant 12): the
+library template `regressions` (section 2a) is used once a model, and each part is made only when its
+parameter is given:
+
+| `with:` | Measured (auxiliary) | Goal | Served by (person) |
+|---|---|---|---|
+| `every: D` (and `timeout`, 10m) | `tests-failing`: failed and errors of the `claims: tests` command's pytest-style summary, run every D by `python -m ergostat.regressions counts` in its `in:` folder (waited for within `timeout`, when the model's own first run makes it; the folder is run as soon as it is there, so the model makes it whole, as image-squeeze's `lab.py init` fills one and renames it into place) | `tests-green` `<= 0` | `tests-fixer` |
+| `block: NAME` (and `escape-share`, 0.1) | `escapes`: `ergostat.trust.contradicted@NAME` | `claims-kept` `<= escape-share` | `escapes-reviewer` |
+| `changes: true` | `regressed-changes`: `ergostat.model.regressed` | `changes-hold` `<= 0` | `changes-reviewer` |
+| `repair: NAME` | repair's own `fixes-regressed-recent`, not made again | repair's `fixes-hold` | `fixes-reviewer`, beside `repair-settle` |
+
+Each person block (`agent:` names who) moves a flow of fixes into a cumulative stock that the auxiliary is driven down
+by, so each loop closes. A run that cannot be read (past its time, no summary, nothing run, a non-zero exit with no
+failure counted, no folder to run in) gives no value, never 0, and the goal goes stale and off.
+`examples/image-squeeze/lab.yaml` uses `every` and `changes` (its developer's escapes are `developer-honest` already).
+
+**What holding does not promise.** `tests-green` holding means only that the tests that ran passed at the last run,
+not that nothing regressed: a regression no test covers shows later, as an escape, if at all. `claims-kept` counts
+only claims that were made and checked (0 while none is); an unchecked claim is never trusted, and never counted as
+contradicted. `changes-hold` judges only the model changes the prediction check flagged in the last week, and
+`fixes-hold` only failed runs of a repaired block in the last 14 days. Flakes and quarantine are not in the template:
+they need an item kind of the model's own.
 
 ## 12s. Compute systems: machines that run what this engine decides
 

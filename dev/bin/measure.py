@@ -1,6 +1,7 @@
 """The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
 when nothing in the window to measure, but for the twelve named at the end, which have no value then
-(they exit 1, as ergostat's own measures do).
+(they exit 1, as ergostat's own measures do). Run by the engine, the readings of one kind share one listing of it
+begun at most listing.SHARE (120) seconds before (listing.py): readings due together make one listing, not one each.
 
   cycle-hours         median hours from ready to merged, over the gaps merged
   build-hours         median hours the implementor's runs took per merged gap (every round)
@@ -97,6 +98,7 @@ sys.dont_write_bytecode = True
 import brief  # noqa: E402
 import fac  # noqa: E402
 import landing  # noqa: E402
+import listing  # noqa: E402
 import parks  # noqa: E402
 import times  # noqa: E402
 
@@ -115,20 +117,20 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
     now = now or time.time()
     since = now - WINDOW
     if name == "interventions-trend":
-        rows = fac.items("intervention")
+        rows = listing.items("intervention")
         at = [float(r["fields"].get("recorded_at") or r.get("first") or 0) for r in rows]
         return float(sum(t >= now - 7 * 86400 for t in at) - sum(now - 14 * 86400 <= t < now - 7 * 86400 for t in at))
     if name == "first-pass-yield":
-        first = [r for r in recent(fac.items("review"), "written_at", since) if r["fields"].get("round") == 1]
+        first = [r for r in recent(listing.items("review"), "written_at", since) if r["fields"].get("round") == 1]
         if not first:
             raise SystemExit("first-pass-yield: no value yet (no first review in the window)")   # not 0: unknown
         return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
     if name in ("manager-triggers-per-session", "manager-actions-per-session"):   # (allowlist: a typo is refused)
-        done = [r["fields"] for r in recent(fac.items("situation"), "handled_at", since)]
+        done = [r["fields"] for r in recent(listing.items("situation"), "handled_at", since)]
         field = "triggers_n" if name == "manager-triggers-per-session" else "actions_n"
         return round(statistics.mean(float(r.get(field) or 0) for r in done), 2) if done else 0.0
     if name in ("tool-denials", "tool-denials-unknown"):   # unknown: a timeout, a crash, a result silent on them
-        rows = [r["fields"] for r in recent(fac.items("session"), "started", since)]
+        rows = [r["fields"] for r in recent(listing.items("session"), "started", since)]
         unknown = [r for r in rows if "tool_denials" not in r]
         if name == "tool-denials-unknown":
             return float(len(unknown))
@@ -138,7 +140,7 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
                 raise SystemExit("tool-denials: no value (no session in the window said what it was refused)")
         return float(sum(int(r["tool_denials"] or 0) for r in rows if "tool_denials" in r))
     if name == "refused-commands-per-session":
-        return refused_commands([r["fields"] for r in recent(fac.items("session"), "started", since)])
+        return refused_commands([r["fields"] for r in recent(listing.items("session"), "started", since)])
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
     if name in ("size-accuracy", "size-accuracy-high"):
@@ -147,10 +149,10 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         return planning_cost_share(since)
     if name in landing.MEASURES:                        # from the batch items (landing.py)
         try:
-            return landing.reading(name, fac.items("batch"), fac.items("gap"), now, since)
+            return landing.reading(name, listing.items("batch"), listing.items("gap"), now, since)
         except landing.NoValue as e:
             raise SystemExit(str(e)) from None
-    gaps = fac.items("gap")
+    gaps = listing.items("gap")
     if name in SPLITS:
         return split_reading(name, gaps, since)
     if name in ("parks", "resumes", "parked-hours"):                   # by kind (parks.py): its last park, per gap
@@ -225,7 +227,7 @@ def size_class(lines: int) -> str:
 
 def size_accuracy(name: str, since: float) -> float:
     """The planner's planned_size, never `size`: the groomer (gap.groomed) regrades `size` on its own scale."""
-    sized = [g for g in recent(fac.items("gap"), "merged_at", since) if g["state"] == "merged"
+    sized = [g for g in recent(listing.items("gap"), "merged_at", since) if g["state"] == "merged"
              and g["fields"].get("planned_size") and g["fields"].get("size_confidence") in (
                  ("high",) if name == "size-accuracy-high" else ("low", "medium", "high"))]
     counted = lambda f: type(f.get("merged_lines")) is int and not f.get("merged_lines_error")  # noqa: E731
@@ -239,7 +241,7 @@ def planning_cost_share(since: float) -> float:
     """Planning dollars over AI dollars, of merged gaps that carry planning_cost_usd (the field present, a number from 0
     to the gap's ai_cost_usd); no value with none, or with a total of 0."""
     num = lambda v: type(v) in (int, float) and v == v  # noqa: E731
-    carried = [g for g in recent(fac.items("gap"), "merged_at", since) if g["state"] == "merged"
+    carried = [g for g in recent(listing.items("gap"), "merged_at", since) if g["state"] == "merged"
                and "planning_cost_usd" in g["fields"]]
     fit = lambda f: num(p := f["planning_cost_usd"]) and num(t := f.get("ai_cost_usd", 0)) and 0 <= p <= t  # noqa: E731
     ok = [g["fields"] for g in carried if fit(g["fields"])]
@@ -322,7 +324,7 @@ def split_reading(name: str, gaps: list[dict], since: float) -> float:
 
 
 def knowledge_reading(name: str, since: float) -> float:
-    gaps = {g["id"]: g for g in fac.items("gap")}
+    gaps = {g["id"]: g for g in listing.items("gap")}
     carried = {i: next((len([k for k in c.get("knowledge") or [] if k.startswith("lesson-")])
                         for c in g["fields"].get("contexts") or [] if c.get("role") == "implementor"), None)
                for i, g in gaps.items()}
@@ -334,8 +336,8 @@ def knowledge_reading(name: str, since: float) -> float:
         return share([bool(g["fields"].get("first_pass")) for g in recent(list(gaps.values()), "merged_at", since)
                       if g["fields"].get("parent")], name)
     if name == "lessons-recurring":
-        return recurring(gaps, recent(fac.items("review"), "written_at", since))
-    first = [r for r in recent(fac.items("review"), "written_at", since) if r["fields"].get("round") == 1]
+        return recurring(gaps, recent(listing.items("review"), "written_at", since))
+    first = [r for r in recent(listing.items("review"), "written_at", since) if r["fields"].get("round") == 1]
     if name == "first-pass-with-lessons":
         return share([r["fields"].get("verdict") == "merge" for r in first if carried.get(review_gap(r))], name)
     risks = {r["id"]: set(gaps.get(review_gap(r), {}).get("fields", {}).get("risks") or []) for r in first}
@@ -490,7 +492,7 @@ if __name__ == "__main__":
     elif name.removesuffix("-change") in (*CODE, "code-coverage"):
         print(code_change(name))
     elif name == "main-stalled-why":                    # the goal main-moving's reason (landing.py)
-        print(landing.reason(fac.items("batch"), fac.items("gap"), time.time()))
+        print(landing.reason(listing.items("batch"), listing.items("gap"), time.time()))
     elif name in ("coverage", "coverage-below-floor"):
         print(coverage_reading(name, sys.argv[2:]))
     else:
