@@ -19,6 +19,7 @@ import math
 import pkgutil
 import re
 import threading
+from contextvars import ContextVar
 from dataclasses import dataclass
 from types import FunctionType, ModuleType
 
@@ -60,6 +61,8 @@ class Window:
         return self.start + (self.points - 1) * self.step
 
 
+ASKING: ContextVar = ContextVar("asking", default=None)   # the project asking, while a type answers (one reading the
+#                                                          project's own record, sql.py, takes it: ``ASKING.get()``)
 _TYPES: dict[str, ModuleType] = {}
 _LOCK = threading.RLock()
 _FOUND = False
@@ -128,7 +131,7 @@ def listed(spec, store=None) -> list[dict]:
             for s in sources(spec, store).values() if s.type in every and not s.options.get("needs")]
 
 
-def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=None) -> dict:
+def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=None, project=None) -> dict:
     """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError."""
     src = sources(spec, store).get(name)
     if src is None:
@@ -148,7 +151,11 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
     w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS))
-    got = mod.query(src, text, w)
+    token = ASKING.set(project)
+    try:
+        got = mod.query(src, text, w)
+    finally:
+        ASKING.reset(token)
     if isinstance(got, dict):                       # a typed frame (_frames.py)
         try:
             return _frames.answer(got, g, MOST_SERIES)
@@ -170,7 +177,7 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
 
 
 def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", label: str = "",
-            seconds: float = SUGGEST_SECONDS, store=None) -> dict:
+            seconds: float = SUGGEST_SECONDS, store=None, project=None) -> dict:
     """The names an editor may complete: ``{suggestions, more}``, at most MOST_SUGGESTIONS, each starting with ``prefix``
     (``more``: there were others, not sent). ``metric`` narrows labels and values to one metric's; ``label`` is whose
     values. Bounded like a query, whatever the type: in time, in what is asked and in what is answered."""
@@ -189,6 +196,10 @@ def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", labe
         raise SourceError("limit", "what is typed is more than the 200 characters a suggestion takes")
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
-    got, more = mod.suggest(src, what, prefix, metric, label, min(seconds, SUGGEST_SECONDS), MOST_SUGGESTIONS)
+    token = ASKING.set(project)
+    try:
+        got, more = mod.suggest(src, what, prefix, metric, label, min(seconds, SUGGEST_SECONDS), MOST_SUGGESTIONS)
+    finally:
+        ASKING.reset(token)
     names = sorted({n for n in got if isinstance(n, str) and n.startswith(prefix)})
     return {"suggestions": names[:MOST_SUGGESTIONS], "more": bool(more) or len(names) > MOST_SUGGESTIONS}

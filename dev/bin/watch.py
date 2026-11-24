@@ -36,6 +36,7 @@ import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import landing  # noqa: E402
 import live  # noqa: E402
 import load  # noqa: E402
 import measure  # noqa: E402
@@ -273,7 +274,11 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
         starts["push"] = q["pending"].get("at")
     last = max([float(g["fields"].get("merged_at") or 0) for g in gaps.values()] or [0])
     if waited and now - last > s["broken"] * 60:
-        out["no-merge"] = f"no merge for {(now - last) / 60:.0f} minutes while {len(waited)} approved gaps wait"
+        try:                                   # (the goal main-moving's reason: the current batch, its run, the cause)
+            why = landing.reason(fac.items("batch"), list(gaps.values()), now)
+        except Exception as e:  # noqa: BLE001 - said as unreadable, never left out
+            why = f"the batch items cannot be read ({type(e).__name__}: {e})"
+        out["no-merge"] = f"no merge for {(now - last) / 60:.0f} minutes while {len(waited)} approved gaps wait: {why}"
         starts["no-merge"] = max(last, min(float(g["fields"]["approved_at"]) for g in waited))
     seen: dict[str, set] = {}
     for i in fac.items("intervention", "open"):             # (unremedied only: a remedied one clears it)
