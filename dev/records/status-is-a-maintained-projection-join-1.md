@@ -48,6 +48,14 @@ depends-on: [status-reads-the-projections, status-projections-in-the-index]
 0 net lines
 size: S (confidence: high)
 
+## Where it stopped
+
+Round 2: gate 1 found the file changed above its "Where it stopped" section, because round 1 put the `## Entry`
+between the definition's text and that section. The definition's text is now exactly as first committed, and the
+whole of what was added (the `## Entry`, then the points, commits and test results) sits under this one "Where it
+stopped" heading. Decision taken alone (the reversible option): the `## Entry` the definition asks for is kept, with
+that heading, inside this appended section rather than above it, since the file may change only by this section.
+
 ## Entry
 
 Page status is read from projections the item index keeps current, not replayed from the event log per request.
@@ -82,13 +90,10 @@ Page status is read from projections the item index keeps current, not replayed 
     gives None): every read takes the record path, folded the same way. Guarded by
     `tests/test_index_projections.py::test_with_no_index_made_or_one_unreadable_the_reads_make_no_file_and_read_the_record`.
 
-## Where it stopped
+### Done
 
-Done: nothing was built in `ergostat/` (0 net lines); every point of the entry was found on main as of 500c6e75 (the
+Nothing was built in `ergostat/` (0 net lines); every point of the entry was found on main as of 500c6e75 (the
 branch's base, main's 666d65d6 plus this record), and the tests below pass there.
-
-Decision taken alone (the reversible option): the definition says the file changes only by a "Where it stopped"
-section, and also asks for an `## Entry`. Both are appended after the definition's text, which is left as it was.
 
 Each point, its commit and test on main:
 - The tables (`records`, `marks`, `voids`, `asks`): 3a3ad97d (status-projections-in-the-index); `latest`, `ticks`,
@@ -114,6 +119,8 @@ Results on current main (this branch, which changes only this file), each file r
   it is a wall-clock bound marked `serial`, and was not rerun here, so this is one passing run, not a measure of its
   margin under load.
 - `tests/test_index_projections.py`: 14 passed (25.10 s).
+- Round 2, run again on the same main: `tests/test_status_reads_projections.py` 4 passed (31.66 s), so the 100 ms
+  test has now passed on two runs; `tests/test_index_projections.py` 14 passed (23.92 s).
 
 Not run here: the whole unit suite and the four browser files (no code or page changed); the factory runs them.
 `uv run ruff check ergostat tests scripts`: all checks passed.
