@@ -9,7 +9,8 @@ of its flagged path run in its own build while they skip everywhere else.
     uv run python scripts/affected_tests.py [--base main] -- uv run python -m pytest -q -n 8 --dist worksteal
 
 Arguments after the command (the suites' --deselect of quarantined tests) go to pytest as they are. Only files that
-exist are named, so a deleted test file never fails the selection."""
+exist are named, so a deleted test file never fails the selection. A browser file (importorskip of Playwright) is
+left out where Playwright cannot be imported: it would only skip, and the merge queue's browser suite runs it."""
 
 from __future__ import annotations
 
@@ -54,6 +55,15 @@ def selected(paths: list[str]) -> list[str]:
     return sorted(t for t in out if os.path.isfile(t))
 
 
+def browser_only(tests: list[str]) -> list[str]:
+    """Those of ``tests`` that skip whole without Playwright, when it cannot be imported here: run alone they make
+    pytest's rc 5 (nothing ran), and the merge queue's browser suite runs them. With Playwright, none."""
+    import importlib.util
+    if importlib.util.find_spec("playwright") is not None:
+        return []
+    return [t for t in tests if 'importorskip("playwright' in Path(t).read_text(encoding="utf-8", errors="replace")]
+
+
 def main(argv: list[str]) -> int:
     base = "main"
     if argv[:1] == ["--base"]:
@@ -73,6 +83,9 @@ def main(argv: list[str]) -> int:
         print(f"affected_tests: {'; '.join(turned)}: the full suite", flush=True)
     else:
         tests = selected(paths)
+        if skipped := browser_only(tests):
+            print(f"affected_tests: no Playwright here, left to the browser suite: {' '.join(skipped)}", flush=True)
+            tests = [t for t in tests if t not in skipped]
         print(f"affected_tests: {len(paths)} changed, running {' '.join(tests) or 'collection only'}", flush=True)
         cmd += tests or ["--collect-only"]
     os.execvp(cmd[0], cmd)                             # (its own process: a kill of the suite reaches pytest)

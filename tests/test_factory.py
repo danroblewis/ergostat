@@ -5723,6 +5723,22 @@ def test_a_docs_only_branch_runs_collection_only(tmp_path):
     assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t --collect-only"
 
 
+def test_a_browser_only_test_file_is_left_to_the_browser_suite_without_playwright(tmp_path):
+    import importlib.util
+    browser = 'import pytest\nplaywright = pytest.importorskip("playwright.sync_api")\n'
+    r = affected(tmp_path, {"tests/test_bar.py": browser, "tests/test_foo.py": "# more\n"})
+    assert r.returncode == 0, r.stderr
+    if importlib.util.find_spec("playwright") is None:        # (alone it would only skip: pytest's rc 5)
+        assert r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t tests/test_foo.py"
+        assert "left to the browser suite: tests/test_bar.py" in r.stdout
+    else:
+        assert r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t tests/test_bar.py tests/test_foo.py"
+    (tmp_path / "only").mkdir()
+    r = affected(tmp_path / "only", {"tests/test_bar.py": browser})
+    if importlib.util.find_spec("playwright") is None:        # nothing left: collection only, as a docs-only branch
+        assert r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t --collect-only"
+
+
 def test_an_unreadable_diff_runs_the_full_suite(tmp_path):
     r = affected(tmp_path, {"ergostat/foo.py": "x = 2\n"}, base="no-such-ref")
     assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t"   # as given: all

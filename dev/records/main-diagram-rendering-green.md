@@ -72,3 +72,11 @@ trace the merge.
   The guard is now `>= 6`.
 
 Not built: no `## Entry` for this gap. The record had none, and done allows only this section to be added.
+
+The implementor's build step (`[suites] build`, scripts/affected_tests.py) failed with pytest rc 5. The only test
+file this branch changes is tests/test_diagram_rendering.py, and the build runs without Playwright, so the whole file
+skipped and nothing ran. affected_tests.py now leaves out a file that does `importorskip("playwright...")` when
+Playwright cannot be imported, says so, and falls back to collection only when nothing is left, as for a docs-only
+branch. The merge queue's browser suite still runs the file. This change is in factory tooling, outside the 15 tests.
+It is the smallest change that lets this gap's build step pass, and it is easy to undo. The test is
+tests/test_factory.py::test_a_browser_only_test_file_is_left_to_the_browser_suite_without_playwright.
