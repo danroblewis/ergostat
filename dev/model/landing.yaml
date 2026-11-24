@@ -1,7 +1,26 @@
 # Landing: approved gaps merged one at a time behind the four suites, a failure triaged for flakes, the push to origin
 # held for the coordinator, and the instance upgraded to the new main (installed, switched, kept or reverted).
 defaults:
-  system: landing
+  system: landing                   # the batch items and the merge-pipeline dashboard: landing's own; each part says
+                                    # which of landing's three subsystems it is in
+
+systems:
+  merging:
+    within: landing
+    description: approved gaps merged on main behind the suites, the push held for the coordinator, a queue failure triaged for flakes, and main's own broken tests mended
+    show: [stock.gaps-approved, stock.gaps-queued, stock.gaps-queue-failed]
+  upgrading:
+    within: landing
+    description: each new main pushed opens an upgrade, installed into its own folder and checked by the upgrader (or passed over for a newer one)
+    show: [stock.upgrades-available]
+  switching:
+    within: landing
+    description: the instance switched to the newest installed version once the coordinator approves, kept when healthy or reverted
+    show: [stock.upgrades-installed, stock.upgrades-switching]
+  switch-over:                      # the switch's minutes, apart from the approval's hours (time-scales); its blocks
+    within: switching               # stay in switching, beside the goal they act for (purpose)
+    description: an approved switch begun, the new engine started, then kept when healthy or reverted
+    show: [stock.upgrades-switching]
 
 items:
   batch:
@@ -33,70 +52,85 @@ items:
 
 stocks:
   gaps-approved:
+    system: merging
     unit: gaps
     description: gaps the reviewer approved (or triage found flaky), waiting for the merge queue
     sensor: {items: gap, state: approved, every: 1m}
   gaps-queued:
+    system: merging
     unit: gaps
     description: the gap the merge queue is landing - merged into main, its suites running (one at a time)
     sensor: {items: gap, state: queued, every: 1m}
   gaps-queue-failed:
+    system: merging
     unit: gaps
     description: gaps whose queue run failed, the merge undone, waiting for flake triage
     sensor: {items: gap, state: queue-failed, every: 1m}
   gaps-landed:
+    system: merging
     unit: gaps
     description: the gaps merged on main - a running total, never work waiting (the queue's merges and the joins found covered)
     cumulative: true
     sensor: {items: gap, state: merged, every: 1m}
   flakes-main-broken:
+    system: merging
     unit: tests
     description: tests failing on main too (dev/bin/onmain.py), waiting for main-mend to see them pass twice alone
     sensor: {items: flake, state: main-broken, every: 1m}
   upgrades-available:
+    system: upgrading
     unit: upgrades
     description: new commits on origin/main the instance does not run yet
     sensor: {items: upgrade, state: available, every: 1m}
   upgrades-installed:
+    system: switching
     unit: upgrades
     description: versions installed in their own folders and checked, waiting for the coordinator to approve the switch
     sensor: {items: upgrade, state: installed, every: 1m}
   upgrades-approved:
+    system: switch-over
     unit: upgrades
     description: switches approved, begun by the switcher's next minute (the runs under way carry on, taken up by the new engine)
     sensor: {items: upgrade, state: approved, every: 1m}
   upgrades-switching:
+    system: switch-over
     unit: upgrades
     description: versions switched to, their health not yet shown
     sensor: {items: upgrade, state: switched, every: 1m}
 
 auxiliaries:
   batch-run-percent:
+    system: merging
     unit: percent
     description: how far the merge queue's run under way is through its tests - the least advanced of its pytest logs (0 when none runs; run/batch.json)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/batches.py percent, every: 1m, timeout: 1m, description: the run's own logs}
   batch-run-failures:
+    system: merging
     unit: tests
     description: the tests failed so far in the merge queue's run under way, from its pytest logs' progress (0 when none runs)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/batches.py failures, every: 1m, timeout: 1m, description: the run's own logs}
   push-waiting:
+    system: merging
     unit: switch
     description: 1 while the merge queue can take no gap - its last batch's push waits for approval, or the queue is blocked (run/queue.json)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/queue.py waiting, every: 1m, timeout: 1m, description: the merge queue's state}
   push-settleable:
+    system: merging
     unit: switch
     description: 1 while the last batch's push ran, was denied, failed or cannot be read, or a block was remedied, and nothing settled it yet - push-settler's work (run/queue.json)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/queue.py settleable, every: 1m, timeout: 1m, description: the merge queue's state}
   main-stalled-minutes:
+    system: merging
     unit: minutes
     description: minutes main has not moved while gaps wait for the queue (approved, queued, or leased by merge-queue) - from the later of its last move and the oldest waiting gap's approval; 0 while none waits. Its reason, the current batch, its run and the cause, is `measure.py main-stalled-why` (dev/bin/landing.py)
     driven-by: [+stock.gaps-approved, -flow.gaps-merged]
     sensor: {run: python3 dev/bin/measure.py main-stalled-minutes, every: 1m, timeout: 1m, description: the batch items}
   browser-main-green:
+    system: merging
     unit: switch
     description: 1 when the last daily browser run on main passed (or failed only on flakes), 0 when a test failed there or it named none; no reading when run/browser-daily.json cannot be read
     driven-by: [+flow.gaps-merged]
@@ -104,6 +138,7 @@ auxiliaries:
 
 flows:
   gaps-approved:
+    system: merging
     from: gaps-in-review
     to: gaps-approved
     description: a merge verdict with no blocking finding
@@ -111,6 +146,7 @@ flows:
     equation: (1 - fix-share - park-share) * stock.gaps-in-review / review-time
     sensor: {items: gap, entering: approved, where: {approved_by: review}, over: 1d}
   gaps-queued:
+    system: merging
     from: gaps-approved
     to: gaps-queued
     description: the queue takes the next approved gap, once it holds the lock and the machine is quiet
@@ -118,6 +154,7 @@ flows:
     equation: stock.gaps-approved / queue-wait
     sensor: {items: gap, entering: queued, over: 1d}
   gaps-merged:
+    system: merging
     from: gaps-queued
     to: gaps-landed
     description: green - merged on main, the push asked for, an upgrade opened (a joined gap found covered is joins-covered's)
@@ -125,6 +162,7 @@ flows:
     equation: (1 - queue-fail-share - conflict-share) * stock.gaps-queued / queue-time
     sensor: {items: gap, entering: merged, where: {merged_by: null}, over: 1d}
   sent-back-by-queue:
+    system: merging
     from: gaps-queued
     to: gaps-fix
     description: the branch no longer merges cleanly - undone, back to the implementor
@@ -132,6 +170,7 @@ flows:
     equation: conflict-share * stock.gaps-queued / queue-time
     sensor: {items: gap, entering: fix, where: {sent_back_by: queue}, over: 1d}
   queue-failures:
+    system: merging
     from: gaps-queued
     to: gaps-queue-failed
     description: a suite failed - the merge undone with git reset --keep, the failure to triage
@@ -139,6 +178,7 @@ flows:
     equation: queue-fail-share * stock.gaps-queued / queue-time
     sensor: {items: gap, entering: queue-failed, over: 1d}
   flakes-retried:
+    system: merging
     from: gaps-queue-failed
     to: gaps-approved
     description: the failed tests passed alone - flakes, and the gap back to the queue, not blamed
@@ -146,6 +186,7 @@ flows:
     equation: flake-share * stock.gaps-queue-failed / triage-time
     sensor: {items: gap, entering: approved, where: {approved_by: flake-retry}, over: 1d}
   sent-back-by-triage:
+    system: merging
     from: gaps-queue-failed
     to: gaps-fix
     description: the failure is the branch's - back to the implementor with what failed
@@ -153,24 +194,28 @@ flows:
     equation: (1 - flake-share - triage-park-share) * stock.gaps-queue-failed / triage-time
     sensor: {items: gap, entering: fix, where: {sent_back_by: triage}, over: 1d}
   parked-in-triage:
+    system: merging
     from: gaps-queue-failed
     description: the branch's last failed gate ([gates] kill_after, the kill rule) - parked with where it stopped
     driven-by: [+stock.gaps-queue-failed]
     equation: triage-park-share * stock.gaps-queue-failed / triage-time
     sensor: {items: gap, entering: parked, where: {parked_in: triage}, over: 1d}
   flakes-mended:
+    system: merging
     from: flakes-main-broken
     description: a main-broken test passed twice alone on the pushed main (main-mend) - main's break mended
     driven-by: [+stock.flakes-main-broken]
     equation: stock.flakes-main-broken / mend-time
     sensor: {items: flake, entering: fixed, where: {fixed_by: main-mend}, over: 1d}
   upgrades-opened:
+    system: upgrading
     to: upgrades-available
     description: a new commit on the remote's pushed main (the push follows each green merge, once approved)
     driven-by: [{cause: +flow.gaps-merged, instant: true, description: "each green merge, once pushed, is a new main"}]
     equation: upgrades-per-merge * flow.gaps-merged
     sensor: {items: upgrade, entering: available, over: 1d}
   upgrades-installed:
+    system: upgrading
     from: upgrades-available
     to: upgrades-installed
     description: installed into ~/ergostat-live/<sha> with its own environment, and the model checked with its own code
@@ -178,12 +223,14 @@ flows:
     equation: (1 - supersede-share) * stock.upgrades-available / install-time
     sensor: {items: upgrade, entering: installed, over: 1d}
   upgrades-superseded:
+    system: upgrading
     from: upgrades-available
     description: a newer main came first - only the newest is installed (or its check failed)
     driven-by: [+stock.upgrades-available]
     equation: supersede-share * stock.upgrades-available / install-time
     sensor: {items: upgrade, entering: superseded, over: 1d}
   switches-approved:
+    system: switching
     from: upgrades-installed
     to: upgrades-approved
     description: the coordinator approved the switch (or approves them standing) - the switcher begins it within a minute
@@ -191,12 +238,14 @@ flows:
     equation: (1 - withdraw-share) * stock.upgrades-installed / approve-time
     sensor: {items: upgrade, entering: approved, over: 1d}
   switches-withdrawn:
+    system: switching
     from: upgrades-installed
     description: a newer version waits or runs - the older switch request withdrawn from the inbox
     driven-by: [+stock.upgrades-installed]
     equation: withdraw-share * stock.upgrades-installed / approve-time
     sensor: {items: upgrade, entering: withdrawn, over: 1d}
   upgrades-switched:
+    system: switch-over
     from: upgrades-approved
     to: upgrades-switching
     description: the engine stopped, current pointed at it, started - the runs under way left going, taken up by its engine
@@ -204,12 +253,14 @@ flows:
     equation: stock.upgrades-approved / switch-time
     sensor: {items: upgrade, entering: switched, over: 1d}
   upgrades-kept:
+    system: switch-over
     from: upgrades-switching
     description: healthy - a pass, the sensors reading, the record read, the queue there
     driven-by: [+stock.upgrades-switching]
     equation: (1 - revert-share) * stock.upgrades-switching / health-time
     sensor: {items: upgrade, entering: healthy, over: 1d}
   upgrades-reverted:
+    system: switch-over
     from: upgrades-switching
     description: not healthy in time - back to the version before it
     driven-by: [+stock.upgrades-switching]
@@ -218,78 +269,94 @@ flows:
 
 parameters:
   queue-wait:
+    system: merging
     value: 30m
     estimate: true
     description: how long an approved gap waits for the lock and a quiet machine
   queue-time:
+    system: merging
     value: 20m
     estimate: true
     description: a queue run - merge, ruff, unit, browser, demo_check
   queue-fail-share:
+    system: merging
     value: 0.2
     unit: "1"
     range: [0, 1]
     estimate: true
     description: the share of queue runs that fail a suite
   conflict-share:
+    system: merging
     value: 0.05
     unit: "1"
     range: [0, 1]
     estimate: true
     description: the share of queue runs whose merge conflicts
   triage-time:
+    system: merging
     value: 10m
     estimate: true
     description: running the failed tests again alone
   flake-share:
+    system: merging
     value: 0.5
     unit: "1"
     range: [0, 1]
     estimate: true
     description: the share of queue failures that pass alone (flakes)
   triage-park-share:
+    system: merging
     value: 0.1
     unit: "1"
     range: [0, 1]
     estimate: true
     description: the share of queue failures that are a branch's last failed gate ([gates] kill_after)
   mend-time:
+    system: merging
     value: 1h
     estimate: true
     description: how long a main-broken test waits for main-mend's run (every 30m, [gates] mend_most at a time) once main is fixed
   upgrades-per-merge:
+    system: upgrading
     value: 1
     unit: upgrades/gaps
     description: each green merge is one new main to install
   install-time:
+    system: upgrading
     value: 5m
     estimate: true
     description: a worktree, uv sync, and a check
   supersede-share:
+    system: upgrading
     value: 0.3
     unit: "1"
     range: [0, 1]
     estimate: true
     description: the share of new mains passed over for a newer one
   approve-time:
+    system: switching
     value: 2h
     estimate: true
     description: how long the coordinator takes to approve a switch
   withdraw-share:
+    system: switching
     value: 0.5
     unit: "1"
     range: [0, 1]
     estimate: true
     description: the share of switch requests withdrawn for a newer version
   switch-time:
+    system: switch-over
     value: 2m
     estimate: true
     description: from the approval to the new engine started - the switcher's next minute, the stop and the start
   health-time:
+    system: switch-over
     value: 2m
     estimate: true
     description: how long a new version takes to show it is healthy
   revert-share:
+    system: switch-over
     value: 0.05
     unit: "1"
     range: [0, 1]
@@ -298,31 +365,37 @@ parameters:
 
 goals:
   approved-gaps-landed:
+    system: merging
     stock: gaps-approved
     hold: "<= 0"
     tolerance: 0
     description: every approved gap landed (while the machine is quiet)
   queue-failures-triaged:
+    system: merging
     stock: gaps-queue-failed
     hold: "<= 0"
     tolerance: 0
     description: every queue failure triaged
   upgrades-taken-up:
+    system: upgrading
     stock: upgrades-available
     hold: "<= 0"
     tolerance: 0
     description: every new main installed (or passed over for a newer one)
   upgrades-switched-to:
+    system: switching
     stock: upgrades-installed
     hold: "<= 0"
     tolerance: 0
     description: the instance runs the newest installed version
   main-moving:                      # read by merge-queue's in: (landing); the pipeline watch reads its reason in code (watch.py broken), with no edge across managing's boundary
+    system: merging
     auxiliary: main-stalled-minutes
     hold: "<= 120"
     tolerance: 30
     description: main moves within two hours (a batch's suites and its halves) while gaps wait; never off while none waits. Off, its reason names the current batch, its run and the cause (measure.py main-stalled-why), which the pipeline watch puts in its broken no-merge condition
   browser-main-green:
+    system: merging
     auxiliary: browser-main-green
     hold: ">= 1"
     tolerance: 0
@@ -355,6 +428,7 @@ actions:
 
 blocks:
   queue-when:
+    system: merging
     type: expr
     description: land while approved gaps wait, no suite runs on the machine (the load interlock) and no push waits for approval (a run would only give its gap back)
     in:
@@ -366,6 +440,7 @@ blocks:
     expr: waiting * (1 - max(busy, threads, memory, pushing))
     out: block.merge-queue
   merge-queue:
+    system: merging
     type: program
     description: one run at a time, under the coordinator's queue lock - merge a batch (stock.queue-batch) into a clean main, ruff, unit and browser at once, demo_check, once a batch; push if green (gated, one approval a batch), else bisect to the first failing merge, send it to triage and land the rest
     run: python3 dev/bin/queue.py
@@ -379,6 +454,7 @@ blocks:
     in: [block.queue-when, goal.main-moving]
     out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures]
   push-settler:
+    system: merging
     type: program
     description: settles the last batch's push once it ran, failed or was denied, with no gap approved to start a run - under the queue's lock when it is free (a run holding it settles the push itself), its held outcome said at most once; commanded by push-settleable
     run: python3 dev/bin/queue.py settle
@@ -387,6 +463,7 @@ blocks:
     in: auxiliary.push-settleable
 
   triage-when:
+    system: merging
     type: expr
     description: triage while queue failures wait and no suite runs on the machine
     in:
@@ -395,6 +472,7 @@ blocks:
     expr: waiting * (1 - busy)
     out: block.flake-triage
   flake-triage:
+    system: merging
     type: program
     description: the failed tests again, alone, on the same merge - passing, flakes and a retry; failing, the branch's
     run: python3 dev/bin/triage.py
@@ -405,6 +483,7 @@ blocks:
     in: block.triage-when
     out: [flow.flakes-retried, flow.sent-back-by-triage, flow.parked-in-triage]
   browser-daily:
+    system: merging
     type: program
     description: once a day, under the queue's lock once the machine is quiet, the four browser files on origin/main in a worktree of its own - green, its sha recorded; a test failing twice alone, an intervention (class queue) naming it, main and the merges since the last green; passing alone, a flake seen
     run: python3 dev/bin/browserday.py
@@ -415,6 +494,7 @@ blocks:
     in: [goal.browser-main-green]
     out: auxiliary.browser-main-green
   main-mend:
+    system: merging
     type: program
     description: the way out of main-broken - on the pushed main, once the machine is quiet, the oldest main-broken tests ([gates] mend_most, at most 20) run alone twice in a suite container; each passing both is flake.main-fixed, a patch testing the item's main as read (dev/bin/mend.py)
     run: python3 dev/bin/mend.py
@@ -426,6 +506,7 @@ blocks:
     out: flow.flakes-mended
 
   main-watch:
+    system: upgrading
     type: program
     description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one; and of reverts pushed to main, each an escape (dev/bin/escapes.py)
     run: python3 dev/bin/upgrade.py watch
@@ -433,6 +514,7 @@ blocks:
     timeout: 2m
     out: flow.upgrades-opened
   upgrader:
+    system: upgrading
     type: program
     description: installs a new main into its own folder and checks it, then asks for the switch (gated)
     run: python3 dev/bin/upgrade.py
@@ -444,12 +526,14 @@ blocks:
     goal: upgrades-taken-up
     out: [flow.upgrades-installed, flow.upgrades-superseded]
   approve-switch:
+    system: switching
     type: external
     agent: coordinator
     description: the coordinator approves the switch to the newest installed version - the gated action switch-instance, asked in the inbox
     in: goal.upgrades-switched-to
     out: flow.switches-approved
   switcher:
+    system: switching
     type: program
     description: withdraws the older switch requests and starts the newest approved one at once - the runs under way are left going, never waited for or stopped
     run: python3 dev/bin/drain.py
@@ -459,6 +543,7 @@ blocks:
                                      # it off its schedule
     out: [flow.switches-withdrawn, flow.upgrades-switched]
   switch:
+    system: switching
     type: external
     description: the switch's own process (dev/bin/live.py switch) - started by the approved action, it outlives the engine it stops; health-checked, kept or reverted
     out: [flow.upgrades-kept, flow.upgrades-reverted]

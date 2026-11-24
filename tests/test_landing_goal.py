@@ -284,7 +284,8 @@ def test_a_kind_no_relation_names_has_no_place(tmp_path):
 def test_the_goal_is_in_the_factory_model_read_by_the_watch_and_charted():
     spec, g = goal()
     assert g.hold.value == 120 and g.tolerance == 30
-    assert g.system == "landing"                  # beside its measure: no read across managing's boundary
+    assert g.system == spec.auxiliaries["main-stalled-minutes"].system == "merging"   # beside its measure: no read
+    assert "landing" in spec.chain(g.system)                                       # across managing's boundary
     assert "main-moving" not in {r.name for r in spec.blocks["pipeline-watch"].reads() if r.kind == "goal"}
     assert "main-moving" in {r.name for r in spec.blocks["merge-queue"].reads() if r.kind == "goal"}
     assert "merge-queue" in spec.loop("main-moving").controllers                # its loop closes inside landing

@@ -148,7 +148,7 @@ Block summarise: an ai block, actuator, on agent claude.
   Outputs to: flow.alerts-summarised, flow.alerts-escalated.
   Serves: goal.summaries-written.
 
-Block triage: an ai block, actuator, on agent claude.
+Block triage: an ai block, actuator, on agent triager.
   reads the alert and its service's recent history; dismisses noise, passes the rest on
   Prompt: prompts/triage.md
   Runs while goal new-alerts-triaged is off (through keep-new-alerts-triaged).

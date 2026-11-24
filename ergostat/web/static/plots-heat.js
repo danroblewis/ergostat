@@ -1,5 +1,5 @@
-/* a heatmap: X (time or a number) by a binned Y, each cell shaded by how many points fell in it, with its scale labelled
-   in a margin beside the plot */
+/* a heatmap: X (time or a number) by a binned Y, each cell shaded by how many points fell in it, or a histogram's
+   buckets over time (the latency heatmap), with its scale labelled in a margin beside the plot */
 "use strict";
 
 (() => {
@@ -18,6 +18,30 @@
     });
     return { xEdges, yEdges, counts };
   }
+  /* a histogram's buckets over time (Prometheus's _bucket by le): a column a time, a row a bucket. Each row is the same
+     height and labelled by its bounds, so no value is placed inside a bucket as if it were known there (G22); a time
+     with no count is a gap, never a zero */
+  function bucketsOf(result) {
+    const { times, counts } = result.over_time, edges = result.x.edges, step = result.step || 60;
+    const xEdges = [...times, times[times.length - 1] + step], yEdges = edges.map((_, i) => i);
+    const unit = N().parseUnit(result.x.unit || "");
+    return { xEdges, yEdges, counts: counts.map((c) => c || []), xr: { min: xEdges[0], max: xEdges[xEdges.length - 1], log: false },
+             yr: { min: 0, max: edges.length - 1, log: false }, yTicks: { major: yEdges, minor: [], words: edges.map((e) => N().formatValue(e, unit)) },
+             names: { xKind: "time", xUnit: null, xTitle: "Time", yTitle: F.titled(result.x.label, unit) } };
+  }
+  /* a graph as its adjacency matrix (chart 77, graphfit.matrix): a row for what an edge leaves, a column for what it
+     reaches, both in group order, each cell the weight of the edges between them; row 1 at the top */
+  function matrixOf(result) {
+    const m = result.matrix, k = m.ids.length, edges = Array.from({ length: k + 1 }, (_, i) => i);
+    const counts = Array.from({ length: k }, () => new Array(k).fill(0));
+    for (const [r, c, w] of m.cells) counts[c][k - 1 - r] = w;
+    const every = Math.max(1, Math.ceil(k / 30)), shown = m.labels.map((w, i) => [w, i]).filter(([, i]) => i % every === 0);
+    return { xEdges: edges, yEdges: edges, counts, xr: { min: 0, max: k, log: false }, yr: { min: 0, max: k, log: false },
+             yTicks: { major: shown.map(([, i]) => k - 1 - i + 0.5), minor: [], words: shown.map(([w]) => String(w)) },
+             names: { xKind: "number", xUnit: null, xTitle: "To (in the rows' order)", yTitle: "From" },
+             said: (cx, cy) => `${m.labels[k - 1 - cy]} → ${m.labels[cx]}`, fitted: m.fitted };
+  }
+  const seat = (edges, v) => { const i = edges.findIndex((e) => e > v); return Math.max(0, Math.min(edges.length - 2, (i < 0 ? edges.length : i) - 1)); };
   /* where a count sits on the ramp, 0 to 1. A log scale is log(1 + count), so a cell of one is still on it */
   const placer = (top, log) => (log ? (c) => Math.log1p(c) / Math.log1p(top || 1) : (c) => c / (top || 1));
 
@@ -31,28 +55,34 @@
   function drawHeatmap(target, first, config, opts) {
     const o = opts.options, d = config.display || {};
     return F.view(target, first, opts, (result, off) => {
-      const shown = result.series.filter((x) => !off.has(x.key));
-      const xs = shown.flatMap((x) => x.xs), ys = shown.flatMap((x) => x.values);
-      const pairs = shown.flatMap((x) => x.xs.map((v, i) => (v != null && x.values[i] != null ? x.values[i] : null))).filter((v) => v != null);
-      const xr = F.range(xs, { ...d.x, log: false }, { pad: 0 }), yr = F.range(ys, { ...d.y, log: false }, { pad: 0 });
-      const yBins = o.y_bins === "auto" || o.y_bins == null ? Math.max(6, Math.min(24, M.autoBins(pairs))) : Math.max(1, Math.round(+o.y_bins));
-      const xBins = Math.max(1, Math.min(48, new Set(xs.filter((v) => v != null)).size));
-      const { xEdges, yEdges, counts } = cellsOf(shown, xr, yr, xBins, yBins);
+      const buckets = result.over_time ? bucketsOf(result) : result.shape === "graph" ? matrixOf(result) : null;
+      let xr, yr, cells;
+      if (buckets) ({ xr, yr } = cells = buckets);
+      else {
+        const shown = result.series.filter((x) => !off.has(x.key));
+        const xs = shown.flatMap((x) => x.xs), ys = shown.flatMap((x) => x.values);
+        const pairs = shown.flatMap((x) => x.xs.map((v, i) => (v != null && x.values[i] != null ? x.values[i] : null))).filter((v) => v != null);
+        xr = F.range(xs, { ...d.x, log: false }, { pad: 0 }); yr = F.range(ys, { ...d.y, log: false }, { pad: 0 });
+        const yBins = o.y_bins === "auto" || o.y_bins == null ? Math.max(6, Math.min(24, M.autoBins(pairs))) : Math.max(1, Math.round(+o.y_bins));
+        cells = cellsOf(shown, xr, yr, Math.max(1, Math.min(48, new Set(xs.filter((v) => v != null)).size)), yBins);
+      }
+      const { xEdges, yEdges, counts } = cells;
       const flat = counts.flat(), top = Math.max(0, ...flat), log = o.scale === "log";
       const at = placer(top, log);
       const occupied = flat.filter((c) => c > 0);
       const mean = occupied.length ? occupied.reduce((a, b) => a + b, 0) / occupied.length : 0;
       const centre = o.palette === "diverging" ? Math.max(0.05, Math.min(0.95, at(mean))) : 0;
-      const n = F.names(result, config, opts.unit);
+      const n = buckets ? buckets.names : F.names(result, config, opts.unit);
       let plot = null;
       const paint = (ctx, w, ht) => {
         const colour = ramp(o.palette, centre);
-        plot = F.cartesian(ctx, w, ht, { xr, yr, xKind: n.xKind, xUnit: n.xUnit, yUnit: opts.unit, xTitle: n.xTitle, yTitle: n.yTitle, right: SCALE_W });
+        plot = F.cartesian(ctx, w, ht, { xr, yr, xKind: n.xKind, xUnit: n.xUnit, yUnit: opts.unit, xTitle: n.xTitle, yTitle: n.yTitle, right: SCALE_W,
+                                         yTicks: buckets?.yTicks });
         const { box, X, Y } = plot;
         F.clipTo(ctx, box, () => counts.forEach((col, cx) => col.forEach((c, cy) => {
-          if (!c && o.empty !== "zero") return;
+          if (!c && c !== null && o.empty !== "zero") return;
           const x0 = Math.floor(X.at(xEdges[cx])), x1 = Math.ceil(X.at(xEdges[cx + 1])), y0 = Math.ceil(Y.at(yEdges[cy])), y1 = Math.floor(Y.at(yEdges[cy + 1]));
-          ctx.fillStyle = colour(at(c));
+          ctx.fillStyle = c === null ? F.ink("--muted") : colour(at(c));    // (an edge of unknown weight: muted, off the ramp)
           ctx.fillRect(x0, y1, x1 - x0, y0 - y1);
         })));
         plot.finish();
@@ -72,30 +102,33 @@
         ctx.translate(w - 5, (box.top + box.bottom) / 2);
         ctx.rotate(-Math.PI / 2);
         ctx.textAlign = "center";
-        ctx.fillText(log ? "Count (log)" : "Count", 0, 0);
+        ctx.fillText(`${buckets?.said ? "Weight" : buckets ? "In each bucket" : "Count"}${log ? " (log)" : ""}`, 0, 0);
         ctx.restore();
       };
       const pick = (x, y) => {
         if (!plot) return null;
         const { box, X, Y } = plot;
         if (x < box.left || x > box.right || y < box.top || y > box.bottom) return null;
-        const vx = X.inv(x), vy = Y.inv(y);
-        const cx = Math.max(0, Math.min(xBins - 1, Math.floor((vx - xr.min) / (xr.max - xr.min) * xBins)));
-        const cy = Math.max(0, Math.min(yBins - 1, Math.floor((vy - yr.min) / (yr.max - yr.min) * yBins)));
+        const cx = seat(xEdges, X.inv(x)), cy = seat(yEdges, Y.inv(y));
+        if (buckets?.said) return { lines: [], text: `${buckets.said(cx, cy)}: ${counts[cx][cy] === null ? "an edge of unknown weight" : counts[cx][cy] || "no edge"}` };
         const xWord = n.xKind === "time" ? `${F.whenText(xEdges[cx])} to ${F.whenText(xEdges[cx + 1])}`
           : `${N().formatValue(xEdges[cx], n.xUnit)} to ${N().formatValue(xEdges[cx + 1], n.xUnit)}`;
+        const yWord = (i) => (buckets ? buckets.yTicks.words[i] : N().formatValue(yEdges[i], opts.unit));
         return { lines: [[x, box.top, x, box.bottom], [box.left, y, box.right, y]],
-                 text: `${xWord}; ${N().formatValue(yEdges[cy], opts.unit)} to ${N().formatValue(yEdges[cy + 1], opts.unit)}: ${counts[cx][cy]}` };
+                 text: `${xWord}; ${yWord(cy)} to ${yWord(cy + 1)}: ${counts[cx][cy] ?? "no count"}` };
       };
-      const notes = o.palette === "diverging" ? [{ text: `paper is the average occupied cell (${mean.toFixed(1)})` }] : [];
-      return { paint, pick, notes, entries: result.series.length > 1 ? result.series.map((x) => ({ key: x.key, name: x.name, colour: x.colour, off: off.has(x.key) })) : [],
+      const notes = [...(o.palette === "diverging" ? [{ text: `paper is the average occupied cell (${mean.toFixed(1)})` }] : []),
+                     ...(buckets?.fitted?.length ? [{ text: `Fitted to 300 rows: ${buckets.fitted.join("; ")}` }] : []),
+                     ...(buckets?.said && flat.includes(null) ? [{ text: "a grey cell is an edge whose weight is not known" }] : [])];
+      return { paint, pick, notes, entries: (result.series || []).length > 1 ? result.series.map((x) => ({ key: x.key, name: x.name, colour: x.colour, off: off.has(x.key) })) : [],
                model: { counts, xEdges, yEdges, top, total: flat.reduce((a, b) => a + b, 0), centre, at: [0, 1, top].map(at) } };
     });
   }
 
   registerPlotForm("heatmap", { label: "Heatmap", group: "distribution",
     needs: { x: ["time", "query", "field"], text: "points to count across X and Y" }, draw: drawHeatmap,
-    shapes: { points: {} }, reshape: "plot one numeric field of the items against another", options: [
+    shapes: { points: {}, distribution: { form: ["bins"], over_time: true }, graph: {} },
+    reshape: "plot one numeric field of the items against another, ask for a histogram's buckets by le, or for a graph (its matrix)", options: [
       { key: "y_bins", label: "Y bins", type: "number", min: 2, max: 60, step: 1, default: "auto", auto: true },
       { key: "scale", label: "Colour scale", type: "choice", choices: ["linear", "log"], default: "linear" },
       { key: "palette", label: "Palette", type: "choice", choices: ["sequential", "diverging"], default: "sequential" },

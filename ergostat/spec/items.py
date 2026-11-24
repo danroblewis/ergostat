@@ -18,8 +18,10 @@ import json
 import time
 from dataclasses import dataclass, field
 
+from .. import operating
 from ..leases import PREFIX as LEASE_PREFIX
 from ..leases import fold as lease_fold
+from ..operating import KIND as OPERATING
 from .changes import fold_event, form_of
 from .ir import DEAD, ItemKind, Sensor, Spec
 
@@ -152,8 +154,13 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
                 it.moves.append({"time": e["time"], "from": it.state, "to": to, "event": e["id"], "type": e["type"]})
                 it.state, it.entered = to, e["time"]
             continue
+        if kind is not None and kind.name == OPERATING:      # an operating state entered or left (SPEC §9.5): ergostat's own
+            why = operating.apply(it, e)
+            if why is not None:
+                it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "operating", "why": why})
+            continue
         lease = it.fields.get("lease")
-        if not isinstance(lease, dict):                      # only an item's own lease is ergostat's (a workspace's
+        if not isinstance(lease, dict):                     # only an item's own lease is ergostat's (a workspace's
             lease = None                                     # or an action's `lease` is a fencing number: plain data)
         why = lease_fold.fenced(it, e) if lease is not None else None
         if why is not None:                                  # a run whose lease ended: what it says is refused

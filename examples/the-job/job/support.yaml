@@ -57,6 +57,7 @@ flows:
       over: 10m
   tickets-answered:
     from: tickets-explained
+    description: a customer answered, its command run or refused by me (mine)
     sensor:
       items: ticket
       entering: answered

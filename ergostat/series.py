@@ -366,12 +366,11 @@ def scope(p, snap: dict, goal: str, n: int = POINTS) -> dict | None:
                         "last_decision": {"time": last["time"], "decision": last["data"].get("decision")} if last else None}}
 
 
-def finished_states(kind, moved: list) -> list[str]:
-    """The states a kind's items finish in: its ``done`` states when it declares them; else those
-    after the first that no item has left, as the record shows; the last state when every state has
-    been left."""
-    from .spec.itemindex import done_states
-    return done_states(kind, {mv["from"] for it in moved for mv in it.moves if mv["from"]})
+def finished_states(spec, kind, moved: list) -> list[str]:
+    """The states a kind's items finish in (``finished.finish_of``), from the states ``moved``'s items have left: a
+    dead letter is not finished work, so no cycle time ends there."""
+    from .spec.finished import finish_of
+    return finish_of(spec, kind.name, {mv["from"] for it in moved for mv in it.moves if mv["from"]})["finished"]
 
 
 def items_flow(p, snap: dict, kind: str, n: int = POINTS) -> dict | None:
@@ -403,7 +402,7 @@ def items_flow(p, snap: dict, kind: str, n: int = POINTS) -> dict | None:
 def _flow_indexed(p, spec, k, since: float, until: float, ts: list[float]):
     """``items_flow``'s bands, the items in each state now, the finished states and those finished in the
     window, from the item index: None when there is none (or most items changed after ``until``)."""
-    from .spec.itemindex import done_states
+    from .spec.finished import finish_of
     tr = its.asks_transcript([k])
     ix = its._index(p.events, spec, tr)
     if ix is None:
@@ -430,7 +429,7 @@ def _flow_indexed(p, spec, k, since: float, until: float, ts: list[float]):
                 if state in counts:
                     counts[state][i] += 1
         now = {s_: ix.count(k.name, [s_], until) + sum(1 for it in late if it.state == s_) for s_ in k.states}
-        done = done_states(k, ix.left(k.name) | {mv["from"] for it in late for mv in it.moves if mv["from"]})
+        done = finish_of(spec, k.name, ix.left(k.name) | {mv["from"] for it in late for mv in it.moves if mv["from"]})["finished"]
         finished = [{"id": id, "time": round(end, 3), "took": round(end - (arrived if arrived is not None else end), 3)}
                     for id, end, arrived in ix.finished(k.name, done, since, until, until_newest=until)]
     for it in late:
@@ -454,7 +453,7 @@ def _flow_folded(p, spec, k, since: float, until: float, ts: list[float]):
                 j += 1
             if state in counts:
                 counts[state][i] += 1
-    done = finished_states(k, items)
+    done = finished_states(spec, k, items)
     finished = []
     for it in items:
         if not it.moves:

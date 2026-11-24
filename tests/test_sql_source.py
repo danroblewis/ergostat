@@ -169,7 +169,8 @@ def test_a_query_s_connection_holds_its_memory_and_attaches_nothing(p):
 
 def view_answers(p) -> dict:
     return {v: raw(p, f"select * from {v} order by " + ", ".join(f'"{c}"' for c in cols))
-            for v, cols in _itemviews.views(p.model.spec).items()}
+            for v, cols in _itemviews.views(p.model.spec).items()
+            if v not in _itemviews.FORECAST}            # (made from the forecast, not the index: test_forecast_result)
 
 
 def test_the_views_answer_as_the_record_was_worked_by_hand(p):
@@ -270,7 +271,8 @@ def test_an_answer_with_a_time_column_is_series_and_the_editor_is_offered_views_
     r = ask(p, "select id, state from ticket")
     assert r.get("error_kind") == "refused" and "column of numbers" in r["error"], r
     got = datasources.suggest(p.model.spec, "record", "metrics", project=p)
-    assert got == {"suggestions": ["item_fields", "item_progress", "item_spans", "item_stages", "stage_estimates",
+    assert got == {"suggestions": ["forecast_group_by", "forecast_groups", "forecast_items", "forecast_kinds", "forecast_stages",
+                                   "item_fields", "item_progress", "item_spans", "item_stages", "stage_estimates",
                                    "ticket", "transitions"], "more": False}
     got = datasources.suggest(p.model.spec, "record", "labels", "", "item_spans", project=p)
     assert got["suggestions"] == sorted(_itemviews.STABLE["item_spans"])

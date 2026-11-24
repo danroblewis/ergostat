@@ -33,6 +33,8 @@ function dashFlowExamples(k, goals, source) {
   const stay = dashStayStates(k)[0];
   const out = [{ title: `${k.name}: items per state now`, form: "table", note: "Current count of each open state",
                  queries: [{ ...dashCount(k, "a", k.open, "items"), group_by: "state" }], display: { unit: "items", decimals: 0 } },
+               { title: `${k.name}: the process map`, form: "graph", note: "Each step its items took, and the lines between them",
+                 queries: [{ id: "a", source: "graph", diagram: "process", kind: k.name }], display: {} },
                ...(stay ? [{ title: `${k.name}: time in ${stay}, open to close`, form: "candlestick", options: { up_is: "bad" },     // a longer wait is the bad direction
                              note: "Each bar: first, highest, lowest and last wait in that period",
                              queries: [dashStay(k, "a", stay, "ohlc")], display: { unit: "s" } }] : [])];

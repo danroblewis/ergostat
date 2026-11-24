@@ -353,7 +353,8 @@ def test_the_factory_model_loads_with_gaps_landed_and_the_flows_into_it():
     spec, problems = read(ROOT / "ergostat.yaml")
     assert [p for p in problems if p.level == "error"] == []
     st = spec.stocks["gaps-landed"]
-    assert st.unit == "gaps" and st.system == "landing" and "merged on main" in st.description
+    assert st.unit == "gaps" and st.system == "merging" and "landing" in spec.chain(st.system)
+    assert "merged on main" in st.description
     (sensor,) = st.sensors.values()
     assert sensor.items["kind"] == "gap" and sensor.items["state"] == ["merged"] and sensor.every == 60
     into = {f.name for f in spec.flows.values() if f.target == "gaps-landed"}
