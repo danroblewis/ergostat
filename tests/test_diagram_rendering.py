@@ -2656,6 +2656,66 @@ def test_a_system_is_drawn_c_p_or_named_with_the_same_p_by_m_closed_and_open(bro
         pg.close()
 
 
+# dev/records/model-split-oversized-systems.md: the factory's landing, times and intake, each split into subsystems
+FACTORY_SPLIT = {"landing": ["merging", "upgrading", "switching"], "times": ["state-times", "loop-times", "gate-times"],
+                 "intake": ["open-gaps", "split-and-join"]}
+# one of each subsystem's parts, as the Dynamics view names its node (an auxiliary's is named stock: too)
+FACTORY_SPLIT_PART = {"merging": "stock:gaps-queued", "upgrading": "stock:upgrades-available",
+                      "switching": "stock:upgrades-switching", "state-times": "stock:in-ready-hours",
+                      "loop-times": "stock:loop-hours", "gate-times": "stock:gate-unit-minutes",
+                      "open-gaps": "stock:gaps-open", "split-and-join": "stock:gaps-split"}
+# the Blocks view draws nothing of these, before the split as after: gate-times has no block, and split-and-join's
+# split-watch and join-judge (no goal's loop) were not drawn inside intake either
+NO_BLOCKS = {"gate-times", "split-and-join"}
+# the subsystems drawn closed: each one's box, by its name ([name, its node's id, drawn])
+CLOSED_SYSTEMS = """(names) => names.map((x) => { const n = S.graph.nodes.find((n) => n.role === 'subsystem' && n.label === x);
+  return [x, n?.id || null, !!(n && document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`))]; })"""
+# the subsystems drawn open: each one's frame, and the ids of the parts drawn inside it
+OPEN_SYSTEMS = """(names) => Object.fromEntries(names.map((x) => {
+  const hull = document.querySelector(`svg.canvas g.hull[data-hull="${x}"], svg.canvas g.hull[data-hull="frame:${x}"]`);
+  const inside = S.graph.nodes.filter((n) => ((n.systems || []).includes(x) || (n.systems || []).includes('frame:' + x))
+    && document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`)).map((n) => n.id);
+  return [x, [!!hull, inside]]; }))"""
+
+
+@pytest.mark.slow
+def test_the_factorys_split_systems_are_drawn_in_dynamics_and_blocks(browser, tmp_path):
+    """Done 3: the factory's model, served, draws the new subsystems of landing, times and intake, each system's view
+    in turn. Dynamics: opened, each subsystem a frame with its parts in it. Blocks: closed, each a block of its own
+    inside its parent; opened, a frame with its blocks in it (but the two of NO_BLOCKS, drawn as before). No page
+    error."""
+    src = tmp_path / "src" / "factory"
+    (src / "dev").mkdir(parents=True)
+    shutil.copy(ROOT / "ergostat.yaml", src / "ergostat.yaml")
+    for x in ("model", "prompts", "knowledge"):
+        shutil.copytree(ROOT / "dev" / x, src / "dev" / x)
+    with served(src, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        n = 0
+        for parent, subs in FACTORY_SPLIT.items():
+            for view in ("dynamics", "blocks"):
+                drawn(pg, url, f"view={view}&system={parent}", n)
+                tree = pg.evaluate("() => S.graph.tree || {}")
+                assert {s: (tree.get(s) or {}).get("within") for s in subs} == dict.fromkeys(subs, parent), view
+                if view == "blocks":
+                    closed = pg.evaluate(CLOSED_SYSTEMS, subs)
+                    assert [x for x, _, shown in closed if not shown] == [s for s in subs if s in NO_BLOCKS], closed
+                    assert all(i == f"sys:{x}" for x, i, shown in closed if shown), closed
+                drawn(pg, url, f"view={view}&system={parent}&open={','.join(subs)}", n + 1)
+                opened = pg.evaluate(OPEN_SYSTEMS, subs)
+                for s in subs:
+                    hull, inside = opened[s]
+                    if view == "dynamics":
+                        assert hull and FACTORY_SPLIT_PART[s] in inside, (view, s, opened[s])
+                    else:
+                        assert (hull and bool(inside)) == (s not in NO_BLOCKS), (view, s, opened[s])
+                n += 2
+        assert not errors, errors
+        pg.close()
+
+
 SD_CHECK = """() => {
   // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
   // parts drawn as themselves) has its marker; every connector shows its polarity (? where not known) at its head;

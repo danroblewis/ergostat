@@ -17,12 +17,12 @@ stocks:
     description: plans the lint sent back (or the old plan review, whose plans the lint's sweep defines), waiting for the planner again
     sensor: {items: gap, state: replan, every: 1m}
   gaps-split:
-    system: intake
+    system: split-and-join
     unit: gaps
     description: gaps split into sub-gaps, each waiting until every one of its sub-gaps is merged (a join)
     sensor: {items: gap, state: split, every: 1m}
   gaps-joined:
-    system: intake
+    system: split-and-join
     unit: gaps
     description: split gaps whose sub-gaps all merged, waiting for the join judge - covered (merged) or short (split again)
     sensor: {items: gap, state: joined, every: 1m}
@@ -118,31 +118,31 @@ auxiliaries:
     driven-by: [+flow.plans-written, -flow.small-gaps-defined, -flow.plans-unreviewed]
     sensor: {run: python3 dev/bin/measure.py planning-cost-share, every: 10m, timeout: 1m, description: the factory's measures}
   splits-clean:
-    system: intake
+    system: open-gaps
     unit: share
     description: of sub-gaps merged, the share approved on their first review
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py splits-clean, every: 10m, timeout: 1m, description: the factory's measures}
   splits-covered:
-    system: intake
+    system: open-gaps
     unit: share
     description: of split parents whose first join verdict is in 14 days, the share whose first verdict (in record order) was covered; short then covered counts as not covered
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py splits-covered, every: 10m, timeout: 1m, description: the factory's measures}
   split-budgets-held:
-    system: intake
+    system: open-gaps
     unit: share
     description: of sub-gaps merged in 14 days, the share whose net lines are at or under their own definition's size budget; a definition, budget or net lines it cannot read is not held
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py split-budgets-held, every: 10m, timeout: 1m, description: the factory's measures}
   split-joins:
-    system: intake
+    system: open-gaps
     unit: parents
     description: split parents with at least one join verdict, over the whole record
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py split-joins, every: 10m, timeout: 1m, description: the factory's measures}
   split-overhead:
-    system: intake
+    system: open-gaps
     unit: ratio
     description: of split parents judged covered in 14 days (judged_at), the median of the parent's own AI cost plus its children's (join sub-gaps and continuations too, a parked sub-gap's cost but not its lines) over the median cost of merged unsplit gaps of the children's summed size class; a parent that cannot be priced is left out
     driven-by: [+flow.gaps-split-off]
@@ -182,7 +182,7 @@ flows:
     description: sub-gaps of a split, each requested and defined by the planner (lint-clean)
     sensor: {items: gap, entering: ready, where: {defined_by: plan-split}, over: 1d}
   gaps-split-off:
-    system: intake
+    system: open-gaps
     from: gaps-open
     to: gaps-split
     description: a gap too large for one branch, split by the planner into sub-gaps with depends-on among them
@@ -190,7 +190,7 @@ flows:
     equation: split-share * stock.gaps-open / plan-time
     sensor: {items: gap, entering: split, where: {lease.back: open}, over: 1d}
   replans-split-off:
-    system: intake
+    system: split-and-join
     from: gaps-replan
     to: gaps-split
     description: a plan sent back that the planner then split into sub-gaps
@@ -198,7 +198,7 @@ flows:
     equation: split-share * stock.gaps-replan / plan-time
     sensor: {items: gap, entering: split, where: {lease.back: replan}, over: 1d}
   splits-joined:
-    system: intake
+    system: split-and-join
     from: gaps-split
     to: gaps-joined
     description: a split gap moved to joined once every sub-gap was merged (a join), for the join judge
@@ -206,7 +206,7 @@ flows:
     equation: stock.gaps-split / split-time
     sensor: {items: gap, entering: joined, over: 1d}
   joins-covered:
-    system: intake
+    system: split-and-join
     from: gaps-joined
     to: gaps-landed
     description: a joined gap the join judge found covered - merged (merged_by join-judge, so not gaps-merged's), with its verdict
@@ -214,7 +214,7 @@ flows:
     equation: (1 - short-share) * stock.gaps-joined / judge-time
     sensor: {items: gap, entering: merged, where: {join_verdict: covered}, over: 1d}
   joins-short:
-    system: intake
+    system: split-and-join
     from: gaps-joined
     to: gaps-split
     description: a joined gap the join judge found short - a sub-gap requested for what was not built, then split again
@@ -222,12 +222,12 @@ flows:
     equation: short-share * stock.gaps-joined / judge-time
     sensor: {items: gap, entering: split, where: {lease.back: joined}, over: 1d}
   joins-parked:
-    system: intake
+    system: split-and-join
     from: gaps-joined
     description: a joined gap found short past the most short rounds - parked with the points still not built
     sensor: {items: gap, entering: parked, where: {parked_in: joined}, over: 1d}
   splits-parked:
-    system: intake
+    system: split-and-join
     from: gaps-split
     description: a split gap parked because one of its sub-gaps parked (or died) - where it stopped names which
     driven-by: [+stock.gaps-split]
@@ -355,19 +355,19 @@ parameters:
     estimate: true
     description: how long a split gap waits for every one of its sub-gaps to merge
   judge-time:
-    system: intake
+    system: split-and-join
     value: 30m
     estimate: true
     description: how long a joined gap waits for the join judge
   short-share:
-    system: intake
+    system: split-and-join
     value: 0.2
     unit: "1"
     range: [0, 1]
     estimate: true
     description: the share of joined gaps the join judge finds short
   stuck-share:
-    system: intake
+    system: split-and-join
     value: 0.1
     unit: "1"
     range: [0, 1]
@@ -390,7 +390,7 @@ parameters:
 
 goals:
   open-gaps-planned:
-    system: intake
+    system: open-gaps
     stock: gaps-open
     hold: "<= 0"
     tolerance: 0
@@ -518,7 +518,7 @@ blocks:
 
   split-watch:
     type: program
-    system: intake
+    system: split-and-join
     description: parks a split gap one of whose sub-gaps parked or died, naming it (the join only moves it on once all merged)
     run: python3 dev/bin/plan.py splits
     every: 5m
@@ -526,7 +526,7 @@ blocks:
     out: flow.splits-parked
   join-judge:
     type: ai
-    system: intake
+    system: split-and-join
     agent: opus
     description: a session per joined gap in a read-only clone of main - its entry, its coverage, each sub-gap's definition and last review against the code (a sub-gap it cannot read is short, with no session); covered merges it (no merged_at), short requests a sub-gap for what is missing and splits it again (the second short parks it); it waits while the day's money is spent
     run: python3 dev/bin/plan.py join
