@@ -109,3 +109,11 @@ Size: +23 net lines in dev/bin against main (budget 50). Run here, each file alo
 tests/test_backlog.py (33 passed), tests/test_factory.py (243 passed, 2 skipped for Docker), tests/test_gaps_doc.py
 with tests/test_gapsdoc.py (49 passed). `ruff check ergostat tests scripts` and the two changed dev/bin files are
 clean. Not run here: the whole unit suite and the four browser files (no page is changed).
+
+Round 4, the merge of main (b20756c7). Its one finding was the conflict with main in dev/bin/intake.py: main added
+`import onmain` (for `main_moved()`, the release of gaps waiting on main) on the line where the branch added
+`import gapsdoc`. Both imports are kept; main's onmain code and the branch's `read()` merged on their own and are
+unchanged. Size: still +23 net lines in dev/bin against main (budget 50). Run here, after the merge:
+tests/test_backlog.py, tests/test_gaps_doc.py and tests/test_gapsdoc.py together (82 passed), tests/test_factory.py
+(247 passed, 2 skipped for Docker). `ruff check ergostat tests scripts` and the two changed dev/bin files are clean.
+Not run here: the whole unit suite and the four browser files (no page is changed).
