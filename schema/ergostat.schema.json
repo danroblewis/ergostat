@@ -2962,6 +2962,16 @@
           "type": "boolean",
           "description": "Only items whose precedence relations name only finished items, the critical first (SPEC section 5a, Relations)"
         },
+        "frozen": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["first"],
+          "description": "A frozen window (SPEC section 9.5): the next first: items it would take keep their order against a re-rank or new work; an item whose urgent: field says {by, why} goes ahead of them, recorded (block.frozen.broken)",
+          "properties": {
+            "first": {"type": "integer", "minimum": 1, "maximum": 200},
+            "urgent": {"type": "string", "minLength": 1}
+          }
+        },
         "faults": {
           "type": "object",
           "additionalProperties": false,
