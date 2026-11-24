@@ -292,14 +292,16 @@ def test_altered_copy_refused(tmp_path, capsys):
     assert errors(d) == []
 
 
-def test_untrusted_use_refused(tmp_path, capsys):
+def test_untrusted_use_through_the_gate(tmp_path, capsys):
+    """Without trust: owner, a structure-only use expands, marked untrusted, as from an untrusted folder
+    (library-fetch-load; tests/test_library_fetch_load.py has the refused program-block case)."""
     up = upstream(tmp_path)
     d = model(tmp_path, {"a": lib(up)}, USES)
     assert run_fetch(d, capsys)[0] == 0
     spec, ps = read(d / "ergostat.yaml")
-    assert [p.code for p in ps if p.level == "error"] == ["library-untrusted"]
-    assert not [s for s in spec.stocks if s.startswith("hi-")] and "hi" not in spec.uses
-    assert "greet" in json.dumps(author.library(d))       # found and listed, never expanded
+    assert [p.code for p in ps if p.level == "error"] == []
+    assert "hi-waiting" in spec.stocks and spec.uses["hi"]["untrusted"] is True
+    assert "greet" in json.dumps(author.library(d))
 
 
 def test_load_parses_the_bytes_it_hashed(tmp_path, capsys, monkeypatch):

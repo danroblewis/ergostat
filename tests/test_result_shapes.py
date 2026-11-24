@@ -174,16 +174,20 @@ def fake_sql(src, text, w):
             "series": [{"key": k, "values": [v for _, job, v in rows if f'up{{job="{job}"}}' == k]} for k in keys]}
 
 
+FAKE_SQL = "fake-sql"   # a type name of the test's own: the real ergostat/datasources/sql.py is type ``sql``
+
+
 @pytest.fixture
 def sql():
-    datasources.register(types.SimpleNamespace(TYPE="sql", KEYS={"database"}, LANGUAGE="SQL", query=fake_sql))
+    datasources.types()     # the package's own types found first, so none of them is registered over the fake later
+    datasources.register(types.SimpleNamespace(TYPE=FAKE_SQL, KEYS={"database"}, LANGUAGE="SQL", query=fake_sql))
     yield
-    datasources.unregister("sql")
+    datasources.unregister(FAKE_SQL)
 
 
 def same_shape_answers(tmp_path, prom_url: str) -> tuple[dict, dict]:
     """``sum by (job) (up)`` asked of a (stub) Prometheus, and its SQL equal asked of a SQL source, over one window."""
-    p = project(tmp_path, f"prom: {{type: prometheus, url: '{prom_url}'}}\nwarehouse: {{type: sql, database: metrics}}")
+    p = project(tmp_path, f"prom: {{type: prometheus, url: '{prom_url}'}}\nwarehouse: {{type: {FAKE_SQL}, database: metrics}}")
     a = ask_source(p, {"source": "prom", "text": "sum by (job) (up)"}, until=PT + 480)[0]
     b = ask_source(p, {"source": "warehouse", "text": "SELECT t, job, up FROM up_by_job"}, until=PT + 480)[0]
     return a, b
