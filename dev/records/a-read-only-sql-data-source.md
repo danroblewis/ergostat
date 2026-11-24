@@ -47,3 +47,72 @@ size: M (confidence: medium)
 - The raw() helper (tests/test_sql_source.py:150) calls opened(ix, spec, deadline) with no text and runs the text directly; put the check in sql.query, or make opened(text=None) skip it, so these tests pass unchanged.
 - Say whether the stand-in's empty tables live in its main or its temp; main.transitions and temp.transitions may then resolve differently on the two connections (it fails closed, but document it in SPEC §4e).
 - A refusal recorded in `why` during the check must be the answer; a pass must leave `why` empty; and any non-sqlite3.Error exception from the check must also stop the index from being asked (_refusal catches only sqlite3.Error).
+
+## Where it stopped
+
+Built, round 1: every point of the definition. `_itemviews.check` prepares the text on the stand-in. `_itemviews.opened`
+now makes temp views. `sql.query` runs the check, then the query. SPEC §4e (*How a query is kept read only*) and both
+module docstrings describe check-then-run.
+
+Found while building (lesson-8), and closed here: SQLite reports a name read for no column (`select count(*) from
+items`) to the authorizer with **no database**, the same as a `WITH` name. The old rule "no database means a `WITH`
+name" therefore let `select count(*) as n from items` through. That was already so on main, where it answered from the
+index's own `items`. The 36 refusals never tried it, though they did try `count(*) from main.items`. Now, on the stand-in, such
+a name is held back and refused once the text is prepared, unless it is a view or a `WITH` name the text declares (a
+SELECT inside it names it). The check returns those names. On the index, a no-database read is allowed only for the
+views and those names (none, if the check is skipped).
+
+Answers to the plan review:
+- The index allowlist exactly: reads of `main.items`, `main.moves`, `main.names`, `json_each` (as `main.json_each`) and
+  `temp.<view>` (views and, when named, the stages' tables). No-database reads: those view names and the check's `WITH`
+  names. Functions: FUNCTIONS plus `_fields` and `json_each`. The stand-in allows `temp.<view>` reads and FUNCTIONS
+  only, so `_fields`, `json_each` and every `main.*` that the text itself names are refused there (tested).
+- The check only prepares: its progress handler (`_prepared`) stops the first step, since the authorizer has already
+  run. A pass is "interrupted" (or done) with `why` empty and the deadline not passed. Anything else re-raises. For
+  the 1 s case, `test_a_check_that_fails_...` monkeypatches `_prepared` so the check runs the recursive CTE to the
+  deadline. It answers `limit` and the index is never opened.
+- The one-snapshot join: `begin` and `_finished` come before the `_definitions` loop. The query runs inside the same
+  transaction, committed when `opened()` exits (the authorizer is taken off for the commit). `pragma query_only = 1` is
+  set after the views are made. The test passes unchanged, its name too.
+- `raw()`: the check lives in `sql.query`, so `opened()` with no text (the helper's) does no check. The tests pass
+  unchanged.
+- The stand-in's empty view tables are in its **temp**, as the views are on the index, so `temp.transitions` resolves on
+  both and `main.transitions` on neither (refused; said in SPEC §4e). Its **main** holds the index's own tables, empty
+  (`itemindex.SCHEMA` + `projections.SCHEMA`). So `items` or `main.items` resolve there as on the index and are
+  refused with the same words ("reads main.items"), which `tests/test_sql_editor.py` checks. Without them the answer
+  was "no such table", and that test failed.
+- `why`: a refusal recorded in the check is the answer (`_refusal` reads `why[0]` first), and a pass leaves it empty.
+  Any exception from the check that is not a `sqlite3.Error` is answered `refused` ("could not be checked (KeyError)").
+  The index is not opened (tested).
+
+Choices made alone (the most reversible):
+- The stages' views (`item_stages`, `stage_estimates`, `item_progress`) are made in Python (stages.rows), not by SQL
+  over the index, so they cannot be SQLite views. They are still copied into temp tables, as before, and only when the
+  text names one. Done item 1's "the temporary schema holds views and no tables" therefore holds for every query that
+  names no stage view. The acceptance test checks it for an `item_spans` query.
+- The `## Entry` below is a sub-gap's (`entry-of: sql-source-over-item-views`). I removed the "Left" line from the
+  umbrella's bullet in `dev/records/sql-source-over-item-views.md`, the only place the clause lives. That file is not
+  in "Files to touch", but done item 6 cannot be met without that edit.
+
+Lesson-9, each seen to fail with the code broken:
+- With the check call in `sql.query` replaced by `own = None`, `test_a_name_only_the_index_has_...` failed
+  (`select count(*) as n from main.items` answered rows). So did `test_a_check_that_fails_...` (the broken check's
+  query answered).
+- With the stand-in's no-database resolution removed, `test_a_name_only_...` failed: 8 texts, `count(*) from items`
+  among them, reached the index. The index authorizer still refused them.
+- `test_the_index_connection_refuses_...` passes the check by force. It shows that `sqlite_master`, `temp.sqlite_master`,
+  an added table, `meta`, `links`, `numbers`, `left` and `load_extension` are refused on the index. It also shows that
+  `main.items` is then readable there, which is why the check comes first.
+
+Overrun reason: 65 net lines against 60. The 5 over are the no-database read handling (held back on the stand-in, and
+the `own` names passed to the index's authorizer), a read-only hole found while building and not in the plan.
+
+Run here, each passing: `tests/test_sql_views.py` (4), `tests/test_sql_source.py` (9), `tests/test_stages.py`, and
+`tests/test_sql_editor.py` (2, with Playwright under the watchdog, nothing skipped). ruff is clean. Local `main` is
+this branch's base, so there was nothing to merge. Not run: the whole unit suite and the four browser files (the
+factory runs them). No example was touched, so demo_check was not needed.
+
+## Entry
+
+entry-of: sql-source-over-item-views
+done: 2026-11-24 a query's text is checked first on an empty stand-in of the index, then run on real temp views over the index's tables, with no per-query copies; a name read for no column (`count(*) from items`) is refused too.

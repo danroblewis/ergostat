@@ -9,7 +9,8 @@ medians, cohorts. Its connection is the project's record, so it has no keys::
 A query is one SELECT. ``:since``, ``:until`` and ``:step`` are the panel's window (Unix seconds). It may take 10 s or
 less (the request's remaining time), answer 5,000 rows and 8 MB, and make values of 16 MB; past any it is stopped and
 refused with ``limit``. Anything but a SELECT through the views (a write, ATTACH, PRAGMA, the index's own tables) is
-refused with ``refused``.
+refused with ``refused``: by a check of the text on an empty stand-in of the index, before it runs on the index's
+views (_itemviews.check, then _itemviews.opened).
 
 The answer is typed by its columns: a first column named ``time`` makes series, one a column after it; otherwise the
 leading columns that are not all numbers are a table's dims, and the rest its measures, which must be numbers. An answer
@@ -97,9 +98,16 @@ def query(src, text: str, w) -> dict:
     deadline = time.monotonic() + w.seconds
     ix = _index(p, spec)
     why: list = []
+    params = {"since": w.since, "until": w.until, "step": w.step}
+    try:                                        # (on a stand-in first: only a text that passed reaches the index)
+        own = _itemviews.check(spec, deadline, text, params, why)
+    except sqlite3.Error as e:
+        raise _refusal(e, why, w.seconds) from None
+    except Exception as e:                      # (never fails open)
+        raise SourceError("refused", f"the query could not be checked ({type(e).__name__})") from None
     try:
-        with _itemviews.opened(ix, spec, deadline, text, why) as (c, _):
-            cur = c.execute(text, {"since": w.since, "until": w.until, "step": w.step})
+        with _itemviews.opened(ix, spec, deadline, text, why, own) as (c, _):
+            cur = c.execute(text, params)
             if cur.description is None:
                 raise SourceError("refused", "the text holds no SELECT")
             cols, rows = [d[0] for d in cur.description], _fetched(cur)

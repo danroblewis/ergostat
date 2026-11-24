@@ -1514,17 +1514,30 @@ reads the event log.
   They interpolate linearly between the two nearest values, as PostgreSQL's `percentile_cont` does, and ignore nulls.
   Text is refused.
 
-  How a query is kept read only:
-  - Each query gets a connection of its own to the item index's file, opened read only, under the file's shared lock.
-  - The views the text names are copied into the connection's own temporary tables.
-    - The copies, and the finished states that make `reason`, are read in one read transaction. So they all show one
-      state of the index: a query that joins two views sees each item the same in both, even if a catch-up is committed
-      while they are copied.
-  - Then SQLite's authorizer allows only SELECT, reading those copies and the query's own `WITH` names, and an
-    allowlist of functions (no `load_extension`, no internal helper).
-  - So a write, `ATTACH`, `PRAGMA`, a transaction or a read of any of the index's own tables (`items`, `moves`, `names`,
-    `sqlite_master`, a `pragma_` table) is refused with `error_kind: refused`, naming what it tried.
-  - A copy and not a SQLite view: SQLite does not say which view a read is for once a view is flattened into a query.
+  How a query is kept read only: it is checked first on a stand-in of the index, then run on the index's real views.
+  - SQLite does not say which view a read is for once a view is flattened into a query, so on the index a query's own
+    read of `items` would look like a view's. The text is therefore first prepared (not run) on a stand-in: an
+    in-memory database holding the index's own tables, empty, in its `main`, and one empty temporary table per view,
+    with the view's name and columns. It has the same limits, aggregates and time bound as a query.
+    - There SQLite's authorizer allows only SELECT, reads of `temp.<view>` and of the query's own `WITH` names, and an
+      allowlist of functions (no `load_extension`, no internal helper such as `_fields`).
+    - A name read for no column (`count(*) from items`) reaches the authorizer with no database. It passes only if it is
+      a view or one of the text's own `WITH` names.
+    - So a write, `ATTACH`, `PRAGMA`, a transaction or a read of any of the index's own tables (`items`, `moves`,
+      `names`, `left`, `sqlite_master`, a `pragma_` table, `json_each`) is refused with `error_kind: refused`, naming
+      what it tried. `main.transitions` is no such table on either connection, and is refused.
+    - Any other end of the check (stopped at the time bound, an unexpected error) is the answer too, `limit` or
+      `refused`. The index is not asked.
+  - Only a text that passed is run on the index. It runs on a connection of its own to the index's file, opened read only,
+    under the file's shared lock. There each view is a temporary SQLite view over the index's tables, so a query reads
+    only the rows it needs. The stages' views, made in Python, are copied into temporary tables when the text names one.
+    - The finished states that make `reason` and the query are read in one read transaction. So a query that joins two
+      views sees each item the same in both, even if a catch-up is committed meanwhile.
+    - The authorizer there allows only SELECT, the functions above plus `_fields` and `json_each`, and reads of what the
+      views use: `main.items`, `main.moves`, `main.names`, `json_each` and the temporary views. A name read for no
+      column passes only if it is a view or a `WITH` name the check found. So a text that resolves differently on the
+      index than on the stand-in still cannot read `sqlite_master`, `meta` or another table. It could read `items`
+      itself, which is why the check comes first.
 
   Bounds:
   - Time: the data source's time bound (a progress handler stops it).
