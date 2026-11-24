@@ -60,10 +60,12 @@ async function pageKinds(main, q) {
       chart = flowChart({ states, counts: all ? k.counts : k.by_group, now: all ? k.now : k.now_by_group, times: d.times, since: d.since, until: d.until },
         group, { kind: k, height: 64, xAxis: false, onState: (st) => navigate(all ? `${href}?state=${encodeURIComponent(st)}` : href) });
     }
+    const pm = h("a", { class: "pm-link", href: `/diagram?view=process&kind=${encodeURIComponent(k.name)}&mode=states`,   // where its work queues
+                        title: "Its process map: how many are in each state now, and how they moved" }, "process map");
     // its groups' rows (a gap's milestones), a click on one its kind's page under that group's where
     const gp = groupRows(gps[k.name], { more: !!gpMore[k.name], onMore: () => { gpMore[k.name] = !gpMore[k.name]; showStates(); },
                                         onPick: (r) => navigate(itemsHref(r.params)) });
-    return h("div", { class: `kind-flow kind-card${gp ? " kind-card-groups" : ""}`, "data-kind": k.name }, name, said, chart, gp);
+    return h("div", { class: `kind-flow kind-card${gp ? " kind-card-groups" : ""}`, "data-kind": k.name }, name, pm, said, chart, gp);
   };
 
   /* the switch and every card, from the answer held (``d``): never a request */

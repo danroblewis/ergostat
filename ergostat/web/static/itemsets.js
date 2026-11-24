@@ -83,15 +83,54 @@ function partItemsSection(ref) {
 }
 
 /* the first lines of a stock's, flow's or valve's panel: what its sensor counts, its kind named, those very items one
-   link away (``counts``, ``items.set``); and the items leased to the blocks that move it, a live list (``leases``) */
+   link away (``counts``, ``items.set``); and for each block that takes items and moves it, how many it has taken now
+   and how many wait for it (``leases``), then those it has taken, a live list (takenList) */
 function countsLines(d) {
   const c = d?.counts, set = d?.items?.set;
   const named = (s, k) => (k ? s.split(k).flatMap((x, i) => (i ? [h("code", {}, k), x] : [x])) : [s]);
   return [c ? h("p", { class: "counts-line" }, ...named(c.says, c.kind),
                 c.kind && set ? [". ", h("a", { href: itemsHref(set), class: "counts-link" }, "Show them on the Items page")] : null) : null,
-          ...(d?.leases || []).map((l) => h("p", { class: "leases-line" }, `${l.block}${l.agent ? ` (${l.agent})` : ""} works items of kind `,
-            h("code", {}, l.kind), `: ${l.held} leased now. `, h("a", { href: itemsHref(l.set), class: "leased-link" }, "Show the leased items")))]
+          ...(d?.leases || []).flatMap((l) => {
+            const n = h("span", { class: "taken-n" }, String(l.taken));
+            return [h("p", { class: "leases-line" }, `${l.block}${l.agent ? ` (${l.agent})` : ""} works items of kind `, h("code", {}, l.kind), ": ", n,
+              " leased now; ", l.waiting ? `${l.waiting} waiting at ${l.at.join(" or ")}` : "none waiting", ". ",
+              h("a", { href: itemsHref(l.set), class: "leased-link" }, "Show the leased items")), takenList(l, n)];
+          })]
     .filter(Boolean);
+}
+
+/* the items a block has taken now, under its line: up to ten, each with its state, its run and its lease (pages.js
+   leaseTail). Read again every 4 s while the panel shows it (a lease taken or ended comes or goes without a reload);
+   compared by what it would draw, so the clocks (taken for, expires in or overdue) move on each read, and an answer
+   that draws the same as the last leaves the page alone */
+function takenList(l, count) {
+  const box = h("div", { class: "taken-list" });
+  const none = () => h("p", { class: "muted small" }, `${l.block} is working nothing now`);
+  if (!l.taken) box.append(none());
+  let sig = null;
+  const draw = (d) => {
+    const rows = d.items.map((i) => {
+      const x = i.fields?.lease || {};
+      return h("tr", { key: i.id }, h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}` }, i.id)),
+        h("td", { class: "cell" }, itemTitle(i)), h("td", { class: "muted nowrap" }, i.state || ""),
+        h("td", { class: "mono small" }, h("a", { href: `/record?item=${encodeURIComponent(i.id)}`, title: `run ${x.holder}: its item's events in the Record` },
+          String(x.holder || "").slice(0, 8))),
+        h("td", { class: "num nowrap" }, x.taken ? dur(nowS() - x.taken) : ""), ...leaseTail(x, true));
+    });
+    const s = JSON.stringify([d.total, rows.map((r) => r.outerHTML)]);
+    if (s === sig) return;
+    sig = s;
+    count.textContent = String(d.total);
+    if (!d.total) return patch(box, none());
+    patch(box, h("p", { class: "taken-head" }, h("b", {}, `being worked by ${l.block} (${d.total})`)),
+      h("div", { class: "table-wrap" }, h("table", { class: "item-list taken" },
+        h("tr", {}, ["item", "", "state", "run", "taken for", "expires in", ""].map((t) => h("th", {}, t))), rows)),
+      d.total > rows.length ? h("p", { class: "small" }, h("a", { href: itemsHref(l.set), class: "all-taken" }, `all ${d.total} taken`)) : null);
+  };
+  const read = () => api("items", { ...l.set, alone: 1, n: ITEMS_SHOWN, shown: 1 }).then(draw);
+  read().catch(() => {});
+  poll(read, 4000, box);
+  return box;
 }
 
 /* a kind's progress per group (``/api/items-groups``, spec/grouptally.py), on its card: a compact row a group (a

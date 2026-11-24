@@ -283,11 +283,12 @@
 
   const coherence = { key: "coherence", label: "Low coherence", type: "choice", choices: ["shade", "hide-low", "off"], default: "shade" };
   const frequency = (text) => ({ source: "frequency", text });
-  registerPlotForm("bode", { label: "Bode plot", group: "dynamics", needs: frequency("a frequency response query"), draw: drawBode, check: refusal, options: [
+  const responds = { shapes: { response: { has: "frequency" } }, reshape: "add a frequency response query, of an input and an output or of a goal's model" };
+  registerPlotForm("bode", { label: "Bode plot", group: "dynamics", needs: frequency("a frequency response query"), draw: drawBode, check: refusal, ...responds, options: [
     coherence,
     { key: "phase_wrap", label: "Phase", type: "choice", choices: ["unwrapped", "wrapped"], default: "unwrapped" },
   ] });
-  registerPlotForm("nyquist", { label: "Nyquist plot", group: "dynamics", needs: frequency("a frequency response query"), draw: drawNyquist,
+  registerPlotForm("nyquist", { label: "Nyquist plot", group: "dynamics", needs: frequency("a frequency response query"), draw: drawNyquist, ...responds,
     check: (r) => refusal(r) || (r.frequency?.re?.some((v) => v != null) ? "" : "This response has no real and imaginary parts to draw."),
     options: [
       { key: "unit_circle", label: "Unit circle", type: "choice", choices: ["on", "off"], default: "on" },
@@ -295,5 +296,6 @@
       coherence,
     ] });
   registerPlotForm("pole-zero", { label: "Pole-zero map", group: "dynamics", needs: { source: "frequency", data: "poles", text: "poles and zeros, from an identified model" }, draw: drawPoleZero,
+    shapes: { response: { has: "system" } }, reshape: "ask for the response of a goal's model, which has its poles",
     check: (r) => (r.poles?.length || r.zeros?.length ? "" : "Poles and zeros come only from an identified model's response."), options: [] });
 })();
