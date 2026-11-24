@@ -8,14 +8,14 @@ import re
 
 from ..compute.compile import size
 from ..spec.ir import DEAD, LEASED, TIERS, Frozen, Lanes, LeaseTerms, Ref, Spec, Takes, own_kind
-from . import faults
+from . import areas, faults
 from .frozen import MOST
 from .lanes import AHEAD_MOST
 from .lanes import MOST as LANES_MOST
 
 TERMS_KEYS = {"ttl", "attempts"}
 POOL_KEYS = {"now", "most"}
-TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order", "faults", "frozen", "lanes"}
+TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order", "faults", "frozen", "lanes", "areas"}
 FROZEN_KEYS = {"first", "urgent"}
 LANES_KEYS = {"apart", "most", "within", "each", "ahead", "passed"}
 CPU_MOST, MEMORY_MOST = 1024, 1 << 50
@@ -97,7 +97,7 @@ def takes(c, m, what: str) -> Takes | None:
     if where:
         c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
     return Takes(kind, list(states), list(to), where, unblocked, order, *faults.compile_faults(c, raw, what),
-                 frozen=frozen(c, raw, what), lanes=lanes(c, raw, what))
+                 frozen=frozen(c, raw, what), lanes=lanes(c, raw, what), areas=areas.compile_areas(c, raw, what))
 
 
 def lanes(c, raw, what: str) -> Lanes | None:
@@ -267,6 +267,7 @@ def check(c, spec: Spec) -> None:
             c.err(f"{what}.takes.unblocked: {k.name} has no precedence relation to be blocked by (relations: "
                   f"{{blocked_by: {k.name}}})", b.where, "bad-takes")
         faults.check(c, spec, b)
+        areas.check(c, spec, b)
         if LEASED not in k.states:                       # held by a run: after the first state it is taken from
             k.states.insert(k.states.index(b.takes.at[0]) + 1, LEASED)
         if DEAD not in k.states:

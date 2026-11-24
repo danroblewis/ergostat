@@ -913,6 +913,27 @@ class Takes:
     hold_by: list[str] = field(default_factory=list)   # ``faults: {hold-by: [F]}``: a value failing together is held
     frozen: Frozen | None = None    # ``frozen: {first: N, urgent: F}``: its next N keep their order (leases/frozen.py)
     lanes: Lanes | None = None      # ``lanes: {apart: F, ...}``: items apart by F run at once (leases/lanes.py)
+    areas: Areas | None = None      # ``areas: {touches: F, holding: [S], map: {...}}``: one stream an area (leases/areas.py)
+
+
+@dataclass(frozen=True)
+class Area:
+    """One area of a block's ``areas:`` map (SPEC §9.5, *Areas*): the patterns an item's field is matched against, and
+    its owner: ``lane`` (one item at a time), ``field`` (the items sharing ``by``'s value) or ``block`` (block ``by``)."""
+
+    name: str
+    paths: tuple[str, ...]
+    owner: str = "lane"
+    by: str = ""
+
+
+@dataclass(frozen=True)
+class Areas:
+    """A block's areas (SPEC §9.5): its items' ``touches`` field, the states that hold an area, and the map."""
+
+    touches: str
+    holding: tuple[str, ...]
+    map: tuple[Area, ...]
 
 
 @dataclass(frozen=True)

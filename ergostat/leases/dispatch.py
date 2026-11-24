@@ -41,7 +41,7 @@ from ..costs import budget
 from ..library import bounds
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
-from . import ENDED, EXPIRED, RENEWED, TAKEN, faults, frozen, groups, lanes, poolnow
+from . import ENDED, EXPIRED, RENEWED, TAKEN, areas, faults, frozen, groups, lanes, poolnow
 from . import gone as run_gone
 from .fold import held
 from .kill import kill
@@ -292,7 +292,7 @@ class Dispatcher:
             if room <= 0:
                 return
             got, hurry = self.in_order(b, self.ready(b, every, now))
-            got, on = self.groups.only(b, got, every, now), {}
+            got, on = areas.only(self, b, self.groups.only(b, got, every, now), every), {}
             if b.takes.lanes:                        # (apart by a field, on top, within its resources: SPEC §9.5)
                 got, on = lanes.choose(self, b, every, got, room, now)
             taken, missed = [], set()
@@ -357,8 +357,9 @@ class Dispatcher:
             return []
         out: dict = {}
         with self.lock:
-            got, hurry = self.in_order(b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
-                                                     time.time()))
+            every = its.project(self.p.events, self.spec, b.takes.kind, transcript=False)
+            got, hurry = self.in_order(b, self.ready(b, every, time.time()))
+            got = areas.only(self, b, got, every)
             started = None
             try:
                 started = self.take(b, got[0], inline=True, out=out) if got else None

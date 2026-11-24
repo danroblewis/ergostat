@@ -5840,6 +5840,8 @@ class Slots:
         return []
 
     def gap(self, gid: str, event: str, **data) -> None:
+        if event == "gap.defined":                     # (as plan.route says it: touches, [] with [areas] route off)
+            data.setdefault("touches", [])
         self.p.events.add(event, item=gid, source="test", data=data)
 
     def tick(self, at: float) -> None:

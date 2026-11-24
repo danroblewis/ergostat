@@ -69,6 +69,13 @@ enforce = false                      # true: the pass places every unfinished ga
                                      # And the planner and the implementor take only the gaps of active milestones,
                                      # and pulled ones (waits_on_milestone); review and the queue are never held
 
+[areas]                              # code areas the implementor is routed by (dev/bin/areas.py; dev/model/building.yaml)
+route = false                        # true: areas.py writes each gap's touches (its branch's files, the paths its
+                                     # definition names), so the implementor's areas: map keeps a gap out of an area
+                                     # another gap holds from its start to its landing. Off until the owner turns it on:
+                                     # the replay finds fewer conflicted merges only by stretching the work
+                                     # (dev/records/code-area-ownership.md); off, every gap's touches is emptied
+
 [backlog]
 every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before
 
