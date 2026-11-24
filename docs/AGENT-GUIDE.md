@@ -617,6 +617,34 @@ away from what its flows predict: fix the model (a missing flow, a wrong rate) b
 is only as good as the model: a model that is wrong in its structure drives the gain to 1, and the estimate is then the
 readings again.
 
+### Operating states: freeze the dispatch when something is wrong
+
+When the person says work should stop starting while something is wrong (the mainline red, an incident, them working
+on the system), declare it under `operating:` (SPEC §9.5, *Operating states*) rather than as a goal or a block:
+
+```yaml
+operating:
+  freeze:
+    rank: 2
+    pool: 0                               # nothing new starts; running work finishes
+    description: the mainline is red
+    trips:
+      mainline-green: {}                  # the goal going off enters freeze
+      tests-read: {unknown-after: 2h}     # so does any of its part's sensors going unread for 2 h (each its own trip)
+  maintenance: {rank: 1, pool: 1, description: one run at a time while the owner works}
+```
+
+- `pool:` caps each block that takes items, never raises it; leave it out for a state that caps nothing. Give a higher
+  rank a pool no larger than a lower one's (`check` refuses the opposite).
+- A trip names a goal that exists; `unknown-after:` only on a goal whose part has a sensor. Use it where not knowing is
+  itself the danger.
+- The person enters and leaves a state: `ergostat operating enter freeze --why "..."`, `ergostat operating leave
+  freeze --why "..."`; `ergostat operating` lists them. A run may enter one, never leave one. Trips only enter.
+- Removing the whole `operating:` section lifts every state entered; tell the person to leave them first.
+- `away-after:` in the same section is the owner's presence setting (SPEC §12k), not a state. Don't name a state
+  that. `ergostat operating freeze` (no `enter`) is §12k's operating state, which picks gated actions' columns. It
+  caps no pool.
+
 ## 3d. People in the loop: rare, reached, and graduated
 
 Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `person` block, a change waiting for the
