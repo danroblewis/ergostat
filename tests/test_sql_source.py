@@ -190,12 +190,17 @@ def test_the_views_answer_as_the_record_was_worked_by_hand(p):
 
 def test_the_views_survive_an_index_layout_change(p, monkeypatch):
     before = view_answers(p)
-    assert set(before) == {"transitions", "item_fields", "item_spans", "ticket"}
+    assert set(before) == {"transitions", "item_fields", "item_spans", "ticket",
+                           "item_stages", "stage_estimates", "item_progress"}     # (the stages': tests/test_stages.py)
     assert {v: cols for v, (cols, _) in before.items()} == {
         "transitions": ["id", "kind", "at", "from_state", "to_state", "event", "type"],
         "item_fields": ["id", "kind", "field", "value"],
         "item_spans": ["id", "kind", "state", "entered", "left", "entry", "reason"],
-        "ticket": ["id", "state", "first", "last", "entered", "events", "owner", "size"]}
+        "ticket": ["id", "state", "first", "last", "entered", "events", "owner", "size"],
+        "item_stages": ["id", "kind", "span", "stage", "run", "run_kind", "state", "outcome", "started", "finished",
+                        "seconds"],
+        "stage_estimates": ["kind", "run_kind", "stage", "expected", "samples"],
+        "item_progress": ["id", "kind", "run", "run_kind", "stage", "note", "elapsed", "expected", "samples", "left"]}
     assert len(before["item_spans"][1]) == len(SPANS) and len(before["item_fields"][1]) == 10
     path = index_file(p)
     c = sqlite3.connect(path, isolation_level=None)               # another layout: columns reordered and added, a table
@@ -265,7 +270,8 @@ def test_an_answer_with_a_time_column_is_series_and_the_editor_is_offered_views_
     r = ask(p, "select id, state from ticket")
     assert r.get("error_kind") == "refused" and "column of numbers" in r["error"], r
     got = datasources.suggest(p.model.spec, "record", "metrics", project=p)
-    assert got == {"suggestions": ["item_fields", "item_spans", "ticket", "transitions"], "more": False}
+    assert got == {"suggestions": ["item_fields", "item_progress", "item_spans", "item_stages", "stage_estimates",
+                                   "ticket", "transitions"], "more": False}
     got = datasources.suggest(p.model.spec, "record", "labels", "", "item_spans", project=p)
     assert got["suggestions"] == sorted(_itemviews.STABLE["item_spans"])
     assert sql.LANGUAGE == "SQL" and datasources.types()["sql"] is sql
