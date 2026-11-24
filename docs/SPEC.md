@@ -148,6 +148,27 @@ the instance's name (to give it `show:` or `within:`) is the model's, in place o
 place or drawn alone, in both views, like any system. Templates may use templates; an inner instance is named
 `INSTANCE-INNER` and is within the outer one.
 
+**Exports.** A template may say which of its parts are its public interface, `exports:`, a list of refs to parts
+written in its own sections (`stock.waiting`, `flow.x`, `auxiliary.y`, `goal.on-time`, `block.z`; an entry made by
+`each:` or named wholly by a parameter cannot be listed). A part named wholly by a parameter (`${kind}`) is the
+owner's name and is never internal; it is still inside the instance, so it reads the instance's internal parts
+freely. An entry naming no part it defines, or not a ref of those five kinds, makes the
+template unreadable (a `template-library` note, as any bad template; for an untrusted template each name must also be
+lowercase letters, digits and -, at most 64). An entry naming an inner use's part (`stock.INNER-x`) is checked once the
+use is expanded: if no inner use made that part, the use is an error, **bad-template**, at its `use:` line, naming the
+entry. Without `exports:` every part is exported, as before; `exports: []`
+exports none. A reference from outside an instance to one of its parts it does not export is a finding,
+**template-internal-reference**, at the referring line: `goal.mine: stock.q-spare is internal to instance q
+(template tank exports: stock.level)`. Outside means the owner's own parts and every other instance's; a part the
+instance made, or an instance within it made, refers to any of its parts freely (an inner use is within the
+instance whose template uses it, even when its `within:` places its system elsewhere). The references checked are a flow's
+`from:` and `to:`, a flow's or auxiliary's `driven-by:` and equation, a goal's measure, and a block's `in:`, `out:`
+and `goal:` (an implied `keep-GOAL` block is its block's); a system's `show:` and a loop's `through:` are not. An
+inner instance's part is exported from the outer one only when the outer lists it by its local name
+(`stock.INNER-x`) and the inner template exports it too: a reference from outside the outer instance is checked
+against both. The `templates` tool shows a template's `exports` (marked as the library's text when it is untrusted);
+`respond-to` exports its stock, its age, its two flows and `on-time`, and keeps its fast loop internal.
+
 **Where it points.** Every part a use makes is written at its `use:` line: an error in one, and every finding
 about one, points there (`job/pings.yaml:3 (use review-reminders: re-ping)`). It is changed only through its
 `with:` (or the template): a proposal that would edit such a part in place (an estimate written, an equation
@@ -252,7 +273,7 @@ control theory and in system dynamics), `params:` (each with `type`, `descriptio
 `required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; `min:` and `max:` on a
 `number` or `integer`, a value outside them an error naming the bound; type `any` takes a value as given, checked
 where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
-(above), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
+(above), `exports:` (above), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
 `goals`, `blocks`, `agents`, `uses`). In them:
 
 - `${param}` is a parameter's value; a whole value that is one `${param}` takes it as it is (a number, a list).
