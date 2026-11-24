@@ -1523,7 +1523,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
     for n in node_list:
         n.setdefault("loops", [])
     return {"kind": "blocks", "nodes": node_list, "edges": edges, "frames": list(frames.values()),
-            "open": sorted(open_), "focus": focus, "rows": rows, "caption": ROWS_CAPTION if rows else None,
+            "open": sorted(open_), "focus": focus, **({"rows": rows, "caption": ROWS_CAPTION} if rows else {}),
             "tree": {s: {"within": spec.within.get(s), "description": desc, **({"modelling": True} if s in modelling_systems(spec) else {})}
                      for s, desc in spec.systems.items()}}
 

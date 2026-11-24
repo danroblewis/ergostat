@@ -113,6 +113,20 @@ Both are kept in the merge commit. No other change this round; the size is as in
   blockdiagram.py, blocks.js and style.css put in place: autoscaler fails the same way there, so it is not this
   branch. Not run: the whole unit suite and the four browser files.
 
+Round 4. The findings: the merge of a batch of 16 failed, and alone it failed
+`tests/test_known_laws.py::test_a_declared_law_is_drawn_as_its_blocks_function_and_a_block_without_one_as_before`.
+Both are one cause. That test pins a hash of the whole Blocks answer for a model with no systems ("a block without a
+law as before"), and the branch added `rows: []` and `caption: null` to every answer, so the hash changed. Seen
+failing here before the fix. Fixed in the branch, not by changing the golden: the answer gains `rows` and `caption`
+only when there is an uncoupled group, so a model without one answers exactly as on main (blocks.js already read a
+missing `rows` as none). The unit tests that read `g["rows"]` now read it as absent when there is no group, and the
+software-factory case checks that both keys are absent. Two net lines in blockdiagram.py changed in place, so the
+size is as in round 2.
+- Run here: ruff clean. tests/test_blockdiagram.py, tests/test_known_laws.py and tests/test_correspond.py: 156
+  passed. Browser: `test_uncoupled_systems_are_parallel_rows_…[software-factory]` and `[big]`, and
+  `test_rows_keep_their_outlines_when_a_coupled_system_opens_or_closes_in_place` passed. Main merged: already up to
+  date. Not run: the whole unit suite and the four browser files (the merge queue runs them).
+
 ## Entry
 
 **Blocks: uncoupled systems are parallel rows.** Two or more top-level systems that no signal joins are drawn as

@@ -115,7 +115,7 @@ def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     assert {n["id"] for n in boxes} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling",
                                          "sys:regressions"}                 # and an uncoupled row's r and y)
     rest = {n["id"] for n in g["nodes"]} - {n["id"] for n in boxes}
-    rows = {f"{k}:top:{r['system']}" for r in g["rows"] for k in ("ref", "out") if len(r["nodes"]) == 3}
+    rows = {f"{k}:top:{r['system']}" for r in g.get("rows", []) for k in ("ref", "out") if len(r["nodes"]) == 3}
     assert all(re.fullmatch(r"(ref|sum|h|out):top:[a-z-]+>service|dist:top:service", i) for i in rest - rows), rest
     for n in boxes:
         assert n["fn"]["sym"] == (n["fn"]["letter"] or n["label"]) and n["fn"]["expr"] == f"{n['fn']['p']}×{n['fn']['m']}"
@@ -845,7 +845,7 @@ def _rows_of(g: dict, spec) -> list[tuple]:
     as (its frame,), checked that no wire leaves it."""
     n = {x["id"]: x for x in g["nodes"]}
     out = []
-    for row in g["rows"]:
+    for row in g.get("rows", []):                  # (no group: the answer is as before, without rows or caption)
         if not row["nodes"]:
             f = row["frame"]
             assert f == f"frame:{row['system']}" and f in {x["id"] for x in g["frames"]}
@@ -884,9 +884,10 @@ def test_an_uncoupled_spec_yields_parallel_rows_each_with_its_r_in_and_y_out(tmp
 def test_the_examples_uncoupled_top_systems_are_rows_in_model_order(ex, rows):
     spec = load(ROOT / "examples" / ex / "ergostat.yaml")
     g = drawn(spec)
-    assert _rows_of(g, spec) == rows and (g["caption"] is not None) == bool(rows)
+    assert _rows_of(g, spec) == rows and ("caption" in g) == ("rows" in g) == bool(rows)
     model = [s for s in spec.systems if s != "modelling"] + ["modelling"]            # the model's order, its upkeep last
-    assert [r["system"] for r in g["rows"]] == [s for s in model if any(r["system"] == s for r in g["rows"])]
+    got = [r["system"] for r in g.get("rows", [])]
+    assert got == [s for s in model if s in got]
 
 
 @pytest.mark.parametrize("which", ["two", "software-factory"])
