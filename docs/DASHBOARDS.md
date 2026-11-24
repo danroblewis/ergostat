@@ -176,8 +176,8 @@ dashes written as underscores; only ergostat's own internals start `ergostat_`:
 A part whose name an item kind's metric already takes (a stock `gap-items` beside the kind `gap`) is written with its
 system first (`landing_gap_items`); with no system to keep them apart, `ergostat check` refuses the model and says to
 rename it or put it in a system. A record written under the old generic names (`ergostat_sensor{part="backlog"}`,
-`ergostat_items{kind="gap"}`) is moved to the new by `ergostat migrate`, and a saved panel still naming them is read as
-the new names, with a warning to write them.
+`ergostat_items{kind="gap"}`) is moved to the new by `ergostat migrate`, and a saved panel still naming them asks both
+the new name and the old, so it answers as before whether or not the move has run, with a warning to write the new.
 
 The item metrics (SPEC §4b, *Item metrics*) are written once a minute from the item index, backfilled from it when
 first turned on; an arrival is `from="(new)"` and an item forgotten after a prune `to="(gone)"`. So the items in a

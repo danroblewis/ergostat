@@ -1070,7 +1070,10 @@ A part the model no longer declares keeps its own name, with its sensor's as a l
 name (the one old `ergostat_reading{project, series}`, the old generic `ergostat_sensor{part, sensor}`, or a part's
 name before the model changed) is still read, as every selector takes any name with the series' `series` label, until
 `ergostat migrate` moves it. A query to the built-in source naming the old generic metrics with an exact `part=` or
-`kind=` (`ergostat_items{kind="gap"}`) is read as the new (`gap_items`), with an `old-name` warning.
+`kind=` (`ergostat_items{kind="gap"}`) asks the new name and the old together
+(`{__name__=~"gap_items|ergostat_items",kind=~"gap|"}`), so it answers alike before and after `ergostat migrate`, with
+an `old-name` warning naming the new (`gap_items`). Before the move, a series held under two names shows the value of
+its latest reading, whichever name holds it.
 
 **Item metrics** (`ergostat/itemmetrics.py`). On VictoriaMetrics, the engine's lead keeps these from the item index
 (§5a), never by replaying the log for a request and never one sample per event. Each is written once a minute, with

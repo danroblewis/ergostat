@@ -89,6 +89,37 @@ Known limits: when a part's sensor label is added or dropped under the same name
 set; both are read by the `series` label. The conversion turns only exact `part="..."` and `kind="..."` matchers. A
 query like `sum by (kind) (ergostat_items)` stays as written, and reads nothing once the record is moved.
 
+Round 2: both review findings were blocking, and both are answered.
+
+- Finding 1 (a saved old query went blank before `ergostat migrate`, and the old-queries test could not pass on a real
+  server): the built-in source now asks both names. `convert(..., both=True)` turns
+  `ergostat_items{kind="gap",state="ready"}` into `{__name__=~"gap_items|ergostat_items",kind=~"gap|",state="ready"}`.
+  For a single-sensor part, the dropped `sensor="S"` becomes `sensor=~"S|"`. So the record not yet moved answers as
+  before, and after the move the same text reads the new name. The new name alone is still what the `old-name` warning
+  names, and what docs and `convert(...)` without `both` give. Test: `test_a_saved_old_query_asks_the_record_under_either_name`
+  checks the selector against the old and new label sets, against another part's or kind's (not taken), and that the
+  new name alone misses the unmoved record. `test_a_query_saved_under_an_old_name_asks_the_new` now pins the
+  both-names text sent to the server. `test_old_queries_answer_as_before_once_migrated` is unchanged: `before` now
+  reads the old record through the both-names selector.
+- Finding 2 (`Victoria.series()` kept the value of the copy that had extra labels): it now reads `last_over_time` and
+  `tlast_over_time` per label set (`keep_metric_names`, so two names whose other labels match stay apart). It keeps the
+  value of the copy with the latest reading time, and on a tie the copy under the name the series is written under now.
+  Tests: `test_a_series_under_both_names_shows_its_latest_value` (a stand-in: the old copy later or earlier, in either
+  answer order) and `test_a_series_under_both_names_in_a_real_victoriametrics`.
+
+Seen to fail (lesson 9): dropping the old name from the both-names selector failed both conversion tests. Ranking
+`series()` by name alone, ignoring the time, failed the stand-in test (in the case where the old copy is the later).
+Both were restored.
+
+Still not run: no VictoriaMetrics binary is in this container, and `ERGOSTAT_TEST_VM_URL` is not set. So every
+real-server test is skipped again, including `test_old_queries_answer_as_before_once_migrated` and the new
+`test_a_series_under_both_names_in_a_real_victoriametrics`. The review asked to see the first pass on a real server,
+and that has not been done here. Two things rest on VictoriaMetrics' own behaviour, not on a run: that MetricsQL takes
+`keep_metric_names` on `last_over_time`, and that a `kind=~"gap|"` matcher takes a series with no `kind` label (as in
+Prometheus). Run here, each passing: test_metrics_named_for_the_model.py (37 passed, 4 skipped),
+test_metrics_store_labels.py, test_store_conformance.py and test_data_sources.py (79 passed, 17 skipped). ruff is clean.
+Main was merged in (already up to date). Not run: the unit suite and the browser files (no page changed).
+
 ## Entry
 
 section: Runtime, scale and latency
@@ -99,6 +130,7 @@ section: Runtime, scale and latency
   `KIND_field_total` (`gap_items{state="ready"}`). Each part's sensor is a metric named for the part (`gaps_approved`,
   `merges_per_hour`), with the sensor as a label only where a part has several. Only the engine's internals keep
   `ergostat_`. A clash is refused by `ergostat check` (`metric-clash`), with the fix. `ergostat migrate` moves
-  readings held under old names, and a saved query naming the old generic metrics is read as the new. Left: the
+  readings held under old names, and a saved query naming the old generic metrics asks both the new and the old names, so it answers alike before
+  and after the move. Left: the
   real-VictoriaMetrics tests have not run here (no binary), and a stock and a flow of one name still share one sensor
   series (a gap of its own).

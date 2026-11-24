@@ -134,10 +134,17 @@ _OLD = re.compile(r'\b(ergostat_sensor|ergostat_items|ergostat_item_[a-z_]+)\s*\
 _EQ = re.compile(r'\s*([A-Za-z_]\w*)\s*=\s*"((?:[^"\\]|\\.)*)"\s*')
 
 
-def convert(text: str, names: Names) -> tuple[str, list[str]]:
+def _or_none(v: str) -> str:
+    """A matcher value as a regex that takes it or the label's absence (``v|``)."""
+    return re.sub(r"([.^$*+?()\[\]{}|])", r"\\\\\1", v) + "|"
+
+
+def convert(text: str, names: Names, both: bool = False) -> tuple[str, list[str]]:
     """A query written over the old generic names, as the new ones: each ``ergostat_sensor{part="P", ...}`` and
     ``ergostat_item_...{kind="K", ...}`` selector whose part or kind is matched exactly. Returns the text and what was
-    turned (``old -> new``); a selector without one (``sum by (kind) (ergostat_items)``) is left as written."""
+    turned (``old -> new``); a selector without one (``sum by (kind) (ergostat_items)``) is left as written.
+    ``both``: each selector asks the new name and the old (``{__name__=~"gap_items|ergostat_items",kind=~"gap|"}``), so
+    a record not yet moved by ``ergostat migrate`` answers as before, and one moved answers under the new."""
     said: list[str] = []
 
     def one(m):
@@ -149,14 +156,20 @@ def convert(text: str, names: Names) -> tuple[str, list[str]]:
         if got is None or (name != "ergostat_sensor" and name not in ITEM and name + "_bucket" not in ITEM):
             return m[0]
         rest = [x.strip() for x, p in zip(matchers, pairs, strict=True) if p is not got]
+        dropped = None                                      # (a single sensor's label: the new name has none)
         if name == "ergostat_sensor":
             new = names.labels(f"sensor/{got[2]}.x")["__name__"]
             if got[2] in names.metric and got[2] not in names.several:
+                dropped = next((p for p in (_EQ.fullmatch(r) for r in rest) if p and p[1] == "sensor"), None)
                 rest = [x for x, p in zip(rest, [_EQ.fullmatch(r) for r in rest], strict=True) if not (p and p[1] == "sensor")]
         else:
             new = f"{word(got[2])}_{ITEM.get(name) or ITEM[name + '_bucket'].removesuffix('_bucket')}"
         out = new + ("{" + ",".join(rest) + "}" if rest else "")
         said.append(f"{m[0]} -> {out}")
-        return out
+        if not both:
+            return out
+        either = [f'__name__=~"{new}|{name}"', f'{key}=~"{_or_none(got[2])}"',
+                  *([f'sensor=~"{_or_none(dropped[2])}"'] if dropped else []), *rest]
+        return "{" + ",".join(either) + "}"
 
     return _OLD.sub(one, text), said

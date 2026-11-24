@@ -323,10 +323,16 @@ class Victoria:
         sel = self._own()
         n = {m["series"]: v for m, v in self._query(f"sum by (series) (count_over_time({sel}[{FOREVER}]))", time.time() + 86400)}
         last = {m["series"]: v for m, v in self._query(f"max by (series) (tlast_over_time({sel}[{FOREVER}]))", time.time() + 86400)}
-        val = {m["series"]: v for m, v in sorted(self._query(f"last_over_time({sel}[{FOREVER}])", time.time() + 86400),
-                                                 key=lambda x: bool(set(x[0]) - {"__name__", "project", "series"}))}
-        # (sorted so a series under its labels comes last, and its value is kept over the old name's)
-        return [{"series": s, "n": int(n[s]), "last": last.get(s), "value": val.get(s)} for s in sorted(n)]
+        # (one series under two names before ergostat migrate: the value is the one read last, by its time; on a tie,
+        # the one under the name it is written under now)
+        key = lambda m: tuple(sorted(m.items()))   # noqa: E731
+        when = {key(m): t for m, t in self._query(f"tlast_over_time({sel}[{FOREVER}]) keep_metric_names", time.time() + 86400)}
+        val: dict[str, tuple] = {}
+        for m, v in self._query(f"last_over_time({sel}[{FOREVER}]) keep_metric_names", time.time() + 86400):
+            rank = (when.get(key(m), float("-inf")), m.get("__name__") == self.labels(m["series"])["__name__"])
+            if m["series"] not in val or rank > val[m["series"]][0]:
+                val[m["series"]] = (rank, v)
+        return [{"series": s, "n": int(n[s]), "last": last.get(s), "value": val.get(s, (0, None))[1]} for s in sorted(n)]
 
     def first_time(self) -> float | None:
         self._sync_reads()
