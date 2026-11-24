@@ -309,8 +309,9 @@ def is_measure(name: str) -> bool:
             or name in BUDGET_MEASURES)
 
 
-CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign")   # what accept: names (SPEC §12e)
-NAMED_ONLY = ("rename", "redesign")   # promoted only by name (accept: {rename: auto}), never by accept: auto for every kind
+CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign",
+                  "display")   # what accept: names (SPEC §12e)
+NAMED_ONLY = ("rename", "redesign", "display")   # promoted only by name (accept: {rename: auto}), never by accept: auto for every kind
 
 
 @dataclass

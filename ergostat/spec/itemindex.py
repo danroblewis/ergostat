@@ -425,6 +425,23 @@ class Index:
         cannot be read."""
         return _healing(lambda self: fn())(self)
 
+    @contextlib.contextmanager
+    def reading(self):
+        """A connection of its own to the index's file, opened read only (``mode=ro``), under the file's shared lock, so
+        no process deletes the file while it is read; closed after (the SQL data source: datasources/sql.py)."""
+        with self.lock:
+            path = self.path
+        held = _hold(path)
+        try:
+            c = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, check_same_thread=False, timeout=5,
+                                isolation_level=None)
+            try:
+                yield c
+            finally:
+                c.close()
+        finally:
+            os.close(held)
+
     def moved_to(self, path: Path) -> None:
         """Another process retired this file: the next one is opened instead."""
         with self.lock:

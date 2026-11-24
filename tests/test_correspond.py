@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from ergostat import model as mdl
-from ergostat.correspond import _reaches, inside, system_of, universe
+from ergostat.correspond import _key_parts, _reaches, inside, system_of, universe
 from ergostat.store import Project
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -106,6 +106,10 @@ def test_no_shape_is_more_than_its_rule_allows(example):
             for sid, x in g["corr"]["shapes"].items():
                 kind, _, rest = sid.partition(":")
                 where = f"{name} {view} {q} {focus} {sid}: {x['is']}"
+                if rest.startswith("top:"):               # a loop between closed systems: the parts of the vector it is
+                    sg = {p for k in nodes[sid]["signals"] for p in _key_parts(spec, k)}
+                    assert x["region"] and x["is"] and set(x["is"]) == sg and not any("top:" in p for p in sg), where
+                    continue
                 if x.get("region"):                       # only these hold what is in them
                     assert kind in ("system", "hull", "sys", "frame", "proc", "psum", "mux", "demux"), where
                     if kind == "psum":
