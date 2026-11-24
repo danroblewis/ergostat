@@ -18,3 +18,38 @@ Definition of done.
 3. Any question for the owner is one sentence.
 
 Boundary (the owner, 2026-11-23). Anything general goes in ergostat's core as options a model declares, off unless declared, naming no gaps, software or factories. This factory is the first user and its choices live in its own model. Do not measure or change the live instance in the session: the coordinator applies changes.
+
+## Where it stopped
+
+Round 1: written. `docs/proposals/review-as-a-dial.md` settles the six points: what review gives, from the record
+(the 123 curated findings by lesson and by harm class, 115 of them estimated to pass every queue suite, 0 gap merges
+reverted in 454, the cost at the caps: 2.6 reviews and 1.6 fix rounds, $37 and about 90 minutes a gap), and what
+cannot be known yet (1); a randomised trial of review after merge on two low-risk rules, its outcomes, the Gamma
+bound and the decision rule (about 65 treated gaps with no harm escape), its own stopping rules, and no owner hands
+(2); core `levels:` on a kind (placement by rules over fields, strictest by default, a hashed trial, bounded moves)
+and a rule-rung controller that asks to lower and raises at once (3); reverts, flags, staging, tests by path and two
+programs before review (4); one list with review-at-the-feature's light paths, the group as the trial's unit (5);
+seven build steps, measurement first and the levels in shadow before the trial (6). Two owner questions, one sentence
+each.
+
+Decisions taken without the owner, each easy to undo:
+- Numbers are from what this clone holds (git, the records, the lessons in the brief, dev/factory.toml, risk.py and
+  escapes.py), since the boundary forbids measuring the live instance: money is ceilings, rounds are upper bounds
+  from the records' text, the harm classes are my reading of each example, and the eligible share is a sample of the
+  last 40 merges. The proposal names the live reading that replaces each.
+- The open owner choices have the cautious default: an escape is worth $1,000 (keeps review), the push waits for an
+  after-merge finding's fix or revert, and a lowering is asked in the inbox, never made alone.
+- No code: the definition asks for the proposal only. 0 net lines outside tests, docs and dev.
+
+Run here: ruff; tests/test_gaps_doc.py. Not run: the unit suite and the browser files (no code or test changed).
+
+## Entry
+
+section: The factory (ergostat on ergostat)
+done: 2026-11-24 The proposal for review as a setting chosen from its measured value: docs/proposals/review-as-a-dial.md.
+
+- **How much review is a setting chosen from what review is measured to give** (proposal written,
+  `review-as-a-dial-proposal`; `docs/proposals/review-as-a-dial.md`): a kind may declare levels its items are placed
+  on by rules (strictest when none matches), a hashed trial and a controller; the factory's levels are none, after,
+  one and full, and a trial reviews a random share of low-risk gaps after merge to measure the harm review prevents.
+  Left: building it (readings first, then the core levels, then the factory's), after the owner's two questions.
