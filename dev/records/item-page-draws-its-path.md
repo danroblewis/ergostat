@@ -64,3 +64,29 @@ tests/test_items_page.py whole: 88 passed, 4 failed. Of the 4, `test_a_lease_tak
 and `test_the_graph_and_the_timeline_left_open_change_nothing` (both params) passed when run again alone;
 `test_every_surface_prints_the_servers_one_count_of_goals_off` fails alone too, on the /loops page's heading
 ('Goals · …' where the test wants 'Loops · …'), code this branch does not touch: a failure of main, left alone.
+
+tests/test_page_polling.py: 23 passed. tests/test_diagram_rendering.py: 322 passed, 32 failed. Done item 3 is
+therefore not shown green here, and none of the 32 is this branch's, as far as could be checked without running
+main (`git checkout main -- ergostat/web`, to run main's code in this tree, was refused):
+- 22 are `test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip[*]`: each finds the `<title>`
+  "Drawn alike here with …" that dynamics.js:597 puts on a loop marker (main's, from dynamics-every-goal-drawn and
+  dynamics-off-status-on-the-part, 2026-11-23; dynamics.js is not changed here).
+- `test_every_view_draws_cleanly_and_in_time[autoscaler, the-job, ticket-factory]`: layout-rule ceilings
+  (satellite-far, valve-orientation-mismatch) and one 240 s wait in autoscaler's control view.
+- `test_blocks_crossings_hop_dots_…`: `get_by_role("button", name="fit")` now matches main's `model-fits` upkeep
+  goal's blocks besides the Fit button. `test_the_dynamics_view_speaks_system_dynamics_…`: the panel says "goal".
+  `test_an_equation_its_numbers_…`: the Model page's text. `test_a_suggestion_appears_when_it_has_a_verdict`.
+- `test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays`,
+  `test_the_exported_png_shows_every_loop_name_…` and `test_a_panel_open_on_what_is_chosen_stays_open_…` fail run
+  alone too; the first was run again with ELK's script tag put back into index.html (so nothing is lazy) and
+  still failed, so lazy ELK is not its cause; the Diagram page runs none of the other new code.
+The Guide's `test_the_guide_draws_every_frame_live_and_in_a_snapshot` (drawStatic, ELK inlined in a snapshot) and
+`test_a_snapshot_page_still_routes_its_lines` passed. Main is the base as cloned (no newer main to merge).
+
+## Entry
+
+section: Done recently
+
+- **The item page draws its path** (item-page-draws-its-path): under *Where it went*, a closed *Draw its path* with
+  a Dynamics / Blocks switch draws `item=ID` in place (drawStatic, moved out of the Guide); a click on a part opens
+  the diagram with it chosen. ELK is now loaded on the first layout, not by every page.
