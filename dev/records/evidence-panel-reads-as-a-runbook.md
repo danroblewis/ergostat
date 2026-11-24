@@ -117,3 +117,14 @@ Round 4:
   test_each_row_says_how_it_is_engaged_and_which_goal_it_serves fails as in rounds 1-3 (the Agent panel reads
   "Loading…" when read; openAgentNow is not touched by the branch). ruff clean. Not run: the unit suite and the four
   browser files whole.
+
+Round 5:
+
+- The queue's finding (tests/test_graph_cli_web.py::test_no_page_script_words_a_goals_state_but_goalrow failed alone):
+  the runbook's second line in details.js compared the goal's word with the literal "holding" (and "off"), which
+  only goalrow.js may do. Fixed with no change in what it says: it now asks whether it is off through `goalOffFor`
+  (null unless off), and whether the word is worth printing through `exceptional` (goalrow.js). The test failed before
+  this change and passes after it.
+- No other finding was given for this round.
+- Run: tests/test_graph_cli_web.py whole (61 pass), the acceptance test and tests/test_forecast_panel.py (pass),
+  ruff (clean). Not run: the unit suite and the four browser files whole.

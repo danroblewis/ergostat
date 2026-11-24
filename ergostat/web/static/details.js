@@ -179,14 +179,14 @@ const unlisted = (lp, n = lp.openings_total, m = lp.row?.measure ?? lp.stock) =>
    parts and prose last */
 function runbookLines(lp) {
   const line = (...kids) => h("p", { class: "runbook-line" }, ...kids);
-  const word = goalWord(lp), far = lp.off_by_words ? `, ${lp.off_by_words}` : "", off = goalOffFor(lp) || "";
+  const word = goalWord(lp), far = lp.off_by_words ? `, ${lp.off_by_words}` : "", off = goalOffFor(lp);   // null unless off
   const usual = lp.back_in != null ? `it usually holds again ${dur(lp.back_in)} after going off (${lp.times_off} times)`
     : "it has not gone off and come back in this window, so there is no usual time yet";
   // each that acts for it, from the counts Agents and the Record use
   const acts = (lp.actors || []).map((a) => h("span", { class: "actor-line" }, h("b", {}, a.name), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
     + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
   return [line(statusEl(word), `: ${lp.row?.measure ?? lp.stock} should be ${goalBound(lp)}${lp.per ? `, each ${lp.per}` : ""}; it is ${fmt(lp.row ? lp.row.value : lp.value)} now${far}.`),
-    line(word === "off" ? `${off.charAt(0).toUpperCase()}${off.slice(1)}; ${usual}.` : `${word === "holding" ? "Not off now" : `Not known to be off (${word})`}; when off, ${usual}.`),
+    line(off ? `${off.charAt(0).toUpperCase()}${off.slice(1)}; ${usual}.` : `${exceptional(word) ? `Not known to be off (${word})` : "Not off now"}; when off, ${usual}.`),
     line(...(acts.length ? acts.flatMap((a, i) => [i ? "; " : "", a]) : [lp.open_loop ? "It acts on its schedule and reads nothing" : unlisted(lp)]), "."),
     line(SNAP ? "Ahead: a snapshot makes no forecast." : "Ahead: being worked out…")];   // its forecast sentence, when it comes (goalAhead)
 }
