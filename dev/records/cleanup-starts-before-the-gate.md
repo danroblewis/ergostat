@@ -29,3 +29,20 @@ Built, round 1. The live instance was neither measured nor changed.
   `tests/test_cleanup_vanished.py` (both tests). Each was seen to fail with its code broken: the margin input dropped
   from the expr, the FileNotFoundError catch removed, and every FileNotFoundError re-raised in the rmtree handler.
 - Size: about 30 net lines outside tests and docs.
+
+Then, after `ergostat check` sent back `system-splits system.resources` (this replaces the Margin bullet above):
+
+- The goal `disk-free-for-cleanup` is gone. It added a node and two links inside the disk parts of `resources`,
+  which raised the system's modularity to 0.50 (the split line is 0.4), so check read the disk parts as a separate
+  system. `cleanup-when` now reads `auxiliary.disk-free` itself: `max(folders, disk, free < 30)`, the 30 GB margin
+  written in the model's expression, with a comment there. That is the least change that clears the note. Making the
+  disk parts a subsystem was tried and only moved the note onto the CPU and memory cluster, so clearing it that way
+  means restructuring all of `resources`, which is outside this gap. Undo it by putting the goal back.
+  `disk-free-enough` has no `on-stale`, so `disk-free` is not watched for staleness. Its `.off` and a direct read of
+  `disk-free` are both unknown only before the first reading, so this adds no new fail-open. With check's own steps
+  (`read`, `calibration`, `order_unset`, `late`) run on the branch through a scratch test (since removed), its
+  findings and notes are the earlier branch's without `system-splits@system.resources`, and nothing new was added.
+  `system-splits system.guarantees` was there before this gap. Main itself was not run this way.
+- `test_cleanup_fires_at_29_gb_with_the_gate_still_held` now pins the three inputs and the expression: on at 29 GB
+  with the gate held, off at 30 and 31, on with folders over and at 20. It failed with the margin set to 25 and
+  passes at 30.
