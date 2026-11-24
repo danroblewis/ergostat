@@ -22,6 +22,8 @@ folds only what is newer than it.
   item's value now (``itemnumbers.py``), so a chart of a field reads its kind, field and window and decodes no body.
 - ``records``, ``marks``, ``voids``, ``asks``: what the status answer reads from the record (``projections.py``),
   followed in the same transactions.
+- ``event_counts`` and ``carried``, for the item metrics (``itemmetrics.py``): how many events of each type and
+  source were folded in each minute (kept when events are taken out), and what the items a prune forgot had counted.
 
 In memory, only items still open are kept folded (their fold state, a few thousand at most, the
 latest touched): an item in a finished state, or with no event for ``storage: items: idle``, is
@@ -47,6 +49,7 @@ import fcntl
 import functools
 import hashlib
 import logging
+import math
 import os
 import re
 import sqlite3
@@ -64,9 +67,9 @@ from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
-VERSION = 7                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
+VERSION = 8                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
 #                             6: the numbers, or what the status reads, on the two branches that each took 6;
-#                             7: both)
+#                             7: both; 8: event_counts and carried, for the item metrics: itemmetrics.py)
 ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
@@ -105,6 +108,9 @@ create index if not exists number_log_rid on number_log(rid);
 create table if not exists numbers (rid integer, field integer, kind integer, value real, t real,
     primary key (rid, field)) without rowid;
 create index if not exists numbers_kind on numbers(kind, field, value);
+create table if not exists event_counts (type text not null, source text not null, at real not null, n integer,
+    primary key (type, source, at)) without rowid;
+create table if not exists carried (t real, name text, labels text, value real);
 """
 
 COLS = "rid, id, kind, state, first, last, newest, entered, n, latest, arrived, raw, raw_first, body"
@@ -458,7 +464,8 @@ class Index:
         return finished
 
     def _reset(self) -> None:
-        for t in ("items", "moves", "left", "reached", "links", "number_log", "numbers", "names", "meta", *projections.TABLES):
+        for t in ("items", "moves", "left", "reached", "links", "number_log", "numbers", "names", "meta", "event_counts",
+                  "carried", *projections.TABLES):
             self.db.execute(f"delete from {t}")
         self.names, self.rnames = {None: None}, {None: None}
         self.cache.clear()
@@ -470,6 +477,8 @@ class Index:
         live = events.item_ids()
         gone = [(rid,) for rid, id in self.db.execute("select rid, id from items") if id not in live]
         if gone:
+            from ..itemmetrics import carry
+            carry(self.db, [r[0] for r in gone], self.name, time.time())   # what they counted, kept (and their move to (gone))
             self.db.executemany("delete from moves where rid = ?", gone)
             self.db.executemany("delete from links where rid = ?", gone)
             self.db.executemany("delete from number_log where rid = ?", gone)
@@ -485,6 +494,13 @@ class Index:
             by.setdefault(e["item"], []).append(e)
         if not by:
             return
+        per: dict[tuple, int] = {}                           # (type, source, minute): events counted (itemmetrics.py)
+        for e in new:
+            if e["type"] != SNAPSHOT:
+                k = (e["type"], e.get("source") or "", math.ceil(e["time"] / 60) * 60.0)
+                per[k] = per.get(k, 0) + 1
+        self.db.executemany("insert into event_counts(type, source, at, n) values (?,?,?,?) "
+                            "on conflict(type, source, at) do update set n = n + excluded.n", [(*k, n) for k, n in per.items()])
         have = {id: x for id in by if (x := self.cache.pop(id, None)) is not None}
         rows = self._rows_of([id for id in by if id not in have])
         now = time.time()
