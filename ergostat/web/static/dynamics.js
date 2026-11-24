@@ -272,6 +272,41 @@ function sdTerminal(n, w, hgt) {
 }
 const SD_DRAW = { stock: sdStock, auxiliary: sdAux, valve: sdValve, disturbance: sdValve, cloud: sdCloud, system: sdSystem, terminal: sdTerminal };
 function sdKindWord(k) { return { valve: "flow", disturbance: "flow", stock: "stock", auxiliary: "auxiliary", cloud: "cloud" }[k] || k || ""; }
+/* a part's or a line's spoken name (its aria-label), in system dynamics' words only: what it is, its name, what a
+   sighted reader sees on it now (its value, rate, sign or goal's word: the server's, goalWord), the loops it is in */
+const SD_POL = { R: "reinforcing", B: "balancing" };
+function sdSpoken(x, g) {
+  const byId = Object.fromEntries((g?.nodes || []).map((n) => [n.id, n])), pipes = (g?.edges || []).filter((e) => e.kind === "pipe");
+  const end = (id) => (id == null ? "outside the drawing" : byId[id]?.kind === "cloud" ? "cloud" : byId[id]?.label || String(id).split(":").slice(1).join(" "));
+  const word = (goal) => goalWord(S.status?.loops?.[goal]);
+  const line = x.source != null, k = line ? x.kind : sdNodeKind(x);
+  const cs = (g?.causalLoops || []).filter((c) => (line ? (x.causal || []).includes(c.name) : c.nodes.includes(x.id)));
+  const v = line ? "" : sdValue(x).replace(/^–/, "no value");
+  const said = {
+    pipe: () => [`pipe of flow ${x.flow}`, `from ${end(x.source)} to ${end(x.target)}`],
+    connector: () => [`connector from ${end(original(x.source, x.sourcePort))} to ${end(original(x.target, x.targetPort))}`,
+                      { "+": "positive", "-": "negative" }[x.polarity] || "polarity not known"],
+    stock: () => [`stock ${x.label}`, v + (sdNoUnit(x) ? ", unit not known" : "") +
+                  (x.goals || []).map((o) => ` of desired ${o.desired}, ${word(o.name)}`).join("")],
+    flow: () => [`flow ${x.label}`, x.bare ? "" : x.rate == null ? "not measured" : x.rateText,
+                 `from ${end(pipes.find((e) => e.target === x.id)?.source)} to ${end(pipes.find((e) => e.source === x.id)?.target)}`],
+    desired: () => [`desired level ${x.goal}, of ${x.of}`, v],
+    gap: () => [`goal gap ${x.goal}`, word(x.goal), x.offBy],
+    excess: () => [`goal excess ${x.goal}`, word(x.goal), x.offBy],
+    decision: () => [`decision ${x.label}`],
+    auxiliary: () => [`auxiliary ${x.label}`, v],
+    exogenous: () => [`exogenous input ${x.label}`, v],
+    cloud: () => [`cloud, ${x.beyond ? `the flow goes on to ${x.beyond}` : x.from ? `from ${x.from}` : "outside the model's boundary"}`],
+    system: () => [`module ${x.label}`, x.remote?.says || x.description,
+                   ...Object.entries(x.loops || {}).map(([w, c]) => `${c} goal${c > 1 ? "s" : ""} ${w}`)],
+    shadow: () => [`shadow variable ${x.label}`],
+    stub: () => [`connector out to ${x.label}`],
+  }[k]?.() || [`${k} ${x.label || ""}`];
+  if (!line && k !== "system" && x.systems?.length) said.push(`in ${x.systems[x.systems.length - 1]}`);
+  if (cs.length) said.push(`in ${SD_POL[cs[0].polarity] || "unsigned"} loop ${cs[0].name}` +
+                           (cs.length > 1 ? ` and ${cs.length - 1} other${cs.length > 2 ? "s" : ""}` : ""));
+  return said.filter(Boolean).join(", ");
+}
 
 /* ------------------------------------------------------------------ connectors */
 
