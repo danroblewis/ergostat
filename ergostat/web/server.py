@@ -715,6 +715,8 @@ def api(live: Live, path: str, q: dict, reader: bool = False):
         from ..correspond import table
         shown = got.pop("_model", None) or live.get().model       # a proposal drawn: its model's parts
         got["corr"] = table(got, shown)
+        from .snapshot import untrusted
+        untrusted(got, shown)                         # what an untrusted template made, said on its box (SPEC §2a)
         if q.get("have"):                             # a page polling: only the values, when it holds this structure
             from .graph_poll import answer
             return answer(got, q["have"][0])
@@ -1436,6 +1438,9 @@ def handler(project):
                 elif u.path.startswith("/api/intent/"):    # a proposed decision or correction: the owner's answer
                     from .intent_api import post as intent
                     code, data = intent(live, u.path.removeprefix("/api/"), q)
+                elif u.path == "/api/propose" and q.get("keep") == ["dashboard"]:   # the Dashboard's Keep
+                    from .numbers_api import keep
+                    code, data = keep(live, body)
                 else:
                     code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down

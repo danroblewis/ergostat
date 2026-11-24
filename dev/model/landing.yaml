@@ -87,6 +87,11 @@ auxiliaries:
     description: 1 while the last batch's push ran, was denied, failed or cannot be read, or a block was remedied, and nothing settled it yet - push-settler's work (run/queue.json)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/queue.py settleable, every: 1m, timeout: 1m, description: the merge queue's state}
+  main-stalled-minutes:
+    unit: minutes
+    description: minutes main has not moved while gaps wait for the queue (approved, queued, or leased by merge-queue) - from the later of its last move and the oldest waiting gap's approval; 0 while none waits. Its reason, the current batch, its run and the cause, is `measure.py main-stalled-why` (dev/bin/landing.py)
+    driven-by: [+stock.gaps-approved, -flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py main-stalled-minutes, every: 1m, timeout: 1m, description: the batch items}
   browser-main-green:
     unit: switch
     description: 1 when the last daily browser run on main passed (or failed only on flakes), 0 when a test failed there or it named none; no reading when run/browser-daily.json cannot be read
@@ -308,11 +313,22 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: the instance runs the newest installed version
+  main-moving:                      # read by merge-queue's in: (landing); the pipeline watch reads its reason in code (watch.py broken), with no edge across managing's boundary
+    auxiliary: main-stalled-minutes
+    hold: "<= 120"
+    tolerance: 30
+    description: main moves within two hours (a batch's suites and its halves) while gaps wait; never off while none waits. Off, its reason names the current batch, its run and the cause (measure.py main-stalled-why), which the pipeline watch puts in its broken no-merge condition
   browser-main-green:
     auxiliary: browser-main-green
     hold: ">= 1"
     tolerance: 0
     description: the four browser files pass on main, run once a day whatever merged (browser-daily)
+
+dashboards:
+  merge-pipeline:                    # named landing.merge-pipeline (SPEC §4f)
+    description: the merge pipeline's health, from its batch items
+    panels:
+      - {panel: chart, size: full, refs: [auxiliary.main-stalled-minutes, auxiliary.main-still-minutes, auxiliary.batch-runs, auxiliary.batch-first-green, auxiliary.crash-lost-minutes, auxiliary.gaps-landed-per-hour]}
 
 actions:
   push-main:
@@ -354,7 +370,9 @@ blocks:
     lease: {ttl: 30m, attempts: 3}
     timeout: 3h
     actions: [push-main]
-    in: block.queue-when
+    # goal.main-moving: read, not commanded (it takes its items, so nothing commands it); the loop closes in landing
+    # through the merges it lands. Its reason is read in code by the pipeline watch, with no edge across managing
+    in: [block.queue-when, goal.main-moving]
     out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures]
   push-settler:
     type: program

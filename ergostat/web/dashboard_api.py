@@ -11,13 +11,14 @@ promised is that a job waiting unasked for ``DROP`` seconds is dropped before it
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import threading
 import time
 from collections import OrderedDict
 
-from ..spec.dashboards import MOST, names, plain, plain_panel, query
+from ..spec.dashboards import MOST, names, plain, plain_panel, query, sent
 from ..spec.ir import Dashboard, Panel
 
 LIMIT = 0.3           # s: one panel's own running time before it answers pending
@@ -162,7 +163,15 @@ def _run(live, p, panel: Panel, q: dict, snap):
     from .server import _answer
     if panel.panel == "note":
         return {"text": panel.params.get("text", "")}
-    got = _answer(live, PATHS[panel.panel], {**q, **query({k: v for k, v in panel.params.items() if k != "goals"})}, p, snap)
+    if panel.panel == "query":                     # a kept draft's panel: its queries, as the page asks them
+        flat, wanted = sent(panel.params["queries"])
+        asked = {"queries": flat, "since": float((q.get("since") or [86400])[0])}
+        got = _answer(live, "query", {"q": [base64.urlsafe_b64encode(json.dumps(asked).encode()).decode()]}, p, snap)
+        if isinstance(got, dict) and isinstance(got.get("results"), list):   # each written query's answer, by its id
+            by = {r.get("id"): r for r in got["results"] if isinstance(r, dict)}
+            got = {**got, "results": [{**by[went], "id": mine} for mine, went in wanted if went in by]}
+        return got
+    got =_answer(live, PATHS[panel.panel], {**q, **query({k: v for k, v in panel.params.items() if k != "goals"})}, p, snap)
     if panel.panel == "goals" and isinstance(got, dict) and panel.params.get("goals"):
         got = {g: got[g] for g in names(panel.params["goals"]) if g in got}
     return got

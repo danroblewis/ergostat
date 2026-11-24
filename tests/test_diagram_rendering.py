@@ -2096,6 +2096,46 @@ def test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip(browse
     assert not problems, f"{name}: " + "\n".join(problems)
 
 
+TOP_LOOP = """() => {
+  const at = (id) => S.layout.children.find((c) => c.id === id), by = Object.fromEntries(S.graph.nodes.map((n) => [n.id, n]));
+  const said = (e) => by[e.source]?.kind === "input" ||
+    S.graph.edges.some((x) => x.sourcePort === e.sourcePort && by[x.target]?.kind === "output");
+  const net = (e) => [...document.querySelectorAll("svg.canvas text.bd-sig")].some((t) => t.dataset.net === e.sourcePort);
+  const node = (id) => document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(id)}"]`)?.textContent || "";
+  const sid = "sum:top:factory>product";
+  return { sum: at(sid), c: at("sys:factory"), p: at("sys:product"), h: at("h:top:factory>product"),
+           signs: [...document.querySelectorAll(`svg.canvas text.bd-sign[data-sum="${sid}"]`)].map((t) => t.textContent).sort(),
+           unlabelled: S.graph.edges.filter((e) => !(said(e) || net(e))).map((e) => e.id),
+           names: ["ref:top:factory>product", "out:top:factory>product", "h:top:factory>product", "dist:top:product"].map(node) };
+}"""
+
+
+def test_the_top_of_blocks_is_a_loop_with_its_junction_ahead_of_the_controller_and_h_beneath(browser, tmp_path):
+    """Story G6 on software-factory: r into Σ to the left of C_factory, e, u to P_product, y out, and the return through
+    H beneath the forward path into Σ's minus input; every wire's label drawn (on it, or by the input or output it is);
+    opening either system draws its signals at its frame's ports."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks", 0)
+        r = pg.evaluate(TOP_LOOP)
+        assert r["sum"]["x"] + r["sum"]["width"] <= r["c"]["x"], r
+        mid = lambda b: b["y"] + b["height"] / 2                                         # noqa: E731
+        assert mid(r["h"]) > max(mid(r["c"]), mid(r["p"])), r
+        assert r["signs"] == ["+", "−"] and not r["unlabelled"], r
+        assert r["names"][0].startswith("r") and r["names"][1].startswith("y") and "H_product" in r["names"][2], r
+        assert r["names"][3].startswith("d"), r
+        for i, s in enumerate(("factory", "product")):
+            drawn(pg, url, f"view=blocks&open={s}", i + 1)
+            ports = pg.evaluate(f"""() => [...document.querySelectorAll('svg.canvas .bd-portmark-g[data-frame="frame:{s}"]')]
+                                     .map((g) => g.textContent)""")
+            # (the signals themselves are pinned in test_blockdiagram; a mark with no room for its name is unnamed, as before)
+            assert len(ports) >= 2 and all(re.match(r"[uy]", p) for p in ports if p), (s, ports)
+        pg.close()
+        assert not errors, errors
+
+
 def test_sensors_polled_alike_are_drawn_alike_with_a_sampler(browser, tmp_path):
     """image-squeeze's service: any two sensors with the same period have the same main label and both a
     sampler; a sampler whose T is slight against its loop's is drawn in the muted stroke, and its panel gives
