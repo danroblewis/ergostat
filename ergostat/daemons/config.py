@@ -8,7 +8,8 @@ from ..spec.ir import Daemon
 KEYS = {"run", "concurrency", "heartbeat", "restart", "stdin-timeout", "description", "warm", "recycle"}
 RESTART = {"max", "within", "backoff"}
 WARM_MOST = 32                 # a warm daemon's processes, at most (two engine threads each)
-WARM_ALL = 64                  # every warm daemon's processes together, at most (draining ones counted while running)
+STORE = "victoriametrics"      # the daemon of storage: measurements: run: (the metrics store ergostat supervises)
+WARM_ALL = 64                 # every warm daemon's processes together, at most (draining ones counted while running)
 
 
 def whole(c, m, key: str, least: int, default: int, what: str, says: str) -> int:
@@ -62,7 +63,13 @@ def section(c, spec) -> None:
     for name, m, what in c.named("daemons"):
         if (d := one(c, m, name, what)) is not None:
             spec.daemons[name] = d
-    top = ", ".join(sorted(spec.daemons)) or "none"
+    if run := getattr(getattr(spec, "storage", None), "run", None):
+        if STORE in spec.daemons:
+            c.err(f"daemons.{STORE}: the name of the daemon storage: measurements: run: makes; call this one another",
+                  spec.daemons[STORE].where, "bad-daemon")
+        else:              # (it serves no run and no reading: it is started, kept and stopped as every daemon is)
+            spec.daemons[STORE] = Daemon(STORE, run, concurrency=1)
+    top =", ".join(sorted(spec.daemons)) or "none"
     users = [(f"block.{b.name}", b, b.params.get("daemon"), f"block {b.name}") for b in spec.blocks.values()
              if b.params.get("daemon") is not None]
     users += [(f"sensor.{s.of.name}.{s.name}", s, s.daemon, f"{s.of.kind} {s.of.name} sensor {s.name}")

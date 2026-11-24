@@ -149,8 +149,10 @@ outside the entries goes to `dev/records/GAPS-head.md`; one it cannot place, suc
 another title's record, goes to `dev/records/GAPS-unplaced.md` and is said as `gaps_md_unplaced`), then
 writes GAPS.md from the records and commits it as `docs/GAPS.md from the records` (a render that fails says
 `gaps_md: why` on the run and lands the batch without it), and the implementor refuses, uncounted, a branch whose own
-commits change GAPS.md. The dependency reader reads the entries from main's records (`gapsdoc.entries`; GAPS.md
-only before the split); the other readers still read GAPS.md. A gap that is not in GAPS.md is asked for as an
+commits change GAPS.md. The dependency reader, the briefs (an implementor's, a reviewer's, a planner's, the join
+judge's), the S definition and the knowledge block's related gaps read a gap's entry and its section from main's
+records (`gapsdoc.entries`, through `brief.records_at_main`; GAPS.md only before the split); a record that cannot be
+read is said in the brief by name where the entry would be, never as no entry. Intake still reads GAPS.md. A gap that is not in GAPS.md is asked for as an
 event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):
 
 ```sh
@@ -544,8 +546,8 @@ class only when it is exactly S, M, L or XL and its confidence (low 0.25, medium
 `[planning] min_size_confidence`. A class or confidence that is present but not trusted (`"s "`, a missing or unknown
 confidence, one below the bar) takes the full planner and is always marked for review. So is every replan (the gap's
 state `replan`, which the fold sets from the send-back by seq), except an XL one.
-- **S**: no session. The definition is written from the gap's own title and text (its `docs/GAPS.md` entry on main,
-  else a join sub-gap's `entry`; with neither, the gap takes the full path) with the house rules' done
+- **S**: no session. The definition is written from the gap's own title and text (its entry in main's records,
+  else a join sub-gap's `entry`; with neither, or a record that cannot be read, the gap takes the full path) with the house rules' done
   criteria and a 50-line budget, created exclusively in `run/defs/` (one already there, or one that lands first, is
   kept byte for byte and the gap is the coordinator's). `defined_by: size-s`, `planning_cost_usd: 0`. **No AI and no
   reviewer has looked at this definition**; the implementor names the tests.
