@@ -26,10 +26,12 @@ class Ready:
 
     @staticmethod
     def wanted(spec, kinds: list[str], blocks: list) -> dict[str, frozenset[str]]:
-        """Kind → the states some block takes its items from."""
+        """Kind → the states some block takes its items from, or whose items hold an area (``takes: {areas:}``)."""
         out: dict[str, set[str]] = {k: set() for k in kinds}
         for b in blocks:
             out.setdefault(b.takes.kind, set()).update(b.takes.at)
+            if getattr(b.takes, "areas", None):
+                out[b.takes.kind].update(b.takes.areas.holding)
         return {k: frozenset(v) for k, v in out.items()}
 
     def keep(self, it, want: dict) -> bool:

@@ -41,7 +41,7 @@ from ..costs import budget
 from ..library import bounds
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
-from . import ENDED, EXPIRED, RENEWED, TAKEN, faults, frozen, groups, poolnow
+from . import ENDED, EXPIRED, RENEWED, TAKEN, areas, faults, frozen, groups, poolnow
 from . import gone as run_gone
 from .fold import held
 from .kill import kill
@@ -294,7 +294,7 @@ class Dispatcher:
             got, hurry = self.in_order(b, self.ready(b, every, now))
             taken = []
             try:
-                for it in self.groups.only(b, got, every, now)[:room]:
+                for it in areas.only(self, b, self.groups.only(b, got, every, now), every)[:room]:
                     self.stale = True
                     if self.take(b, self.whole(ix, it)):
                         taken.append(it.id)
@@ -349,8 +349,9 @@ class Dispatcher:
             return []
         out: dict = {}
         with self.lock:
-            got, hurry = self.in_order(b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
-                                                     time.time()))
+            every = its.project(self.p.events, self.spec, b.takes.kind, transcript=False)
+            got, hurry = self.in_order(b, self.ready(b, every, time.time()))
+            got = areas.only(self, b, got, every)
             started = None
             try:
                 started = self.take(b, got[0], inline=True, out=out) if got else None

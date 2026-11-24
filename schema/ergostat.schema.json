@@ -2974,6 +2974,46 @@
             "urgent": {"type": "string", "minLength": 1}
           }
         },
+        "areas": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["touches", "map"],
+          "description": "Areas one stream at a time owns (SPEC section 9.5, Areas): an item whose touches: field matches an area's paths: is not taken while another stream holds that area (an item leased, or in a holding: state); owner: lane (one item at a time), {field: F} (the items sharing F's value) or {block: B} (only block B takes them)",
+          "properties": {
+            "touches": {"type": "string", "minLength": 1},
+            "holding": {
+              "oneOf": [
+                {"type": "string", "minLength": 1},
+                {"type": "array", "items": {"type": "string", "minLength": 1}}
+              ]
+            },
+            "map": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 200,
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["paths"],
+                "properties": {
+                  "paths": {
+                    "oneOf": [
+                      {"type": "string", "minLength": 1},
+                      {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "maxItems": 200}
+                    ]
+                  },
+                  "owner": {
+                    "oneOf": [
+                      {"const": "lane"},
+                      {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 1,
+                       "properties": {"field": {"type": "string", "minLength": 1}, "block": {"type": "string", "minLength": 1}}}
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
         "faults": {
           "type": "object",
           "additionalProperties": false,
