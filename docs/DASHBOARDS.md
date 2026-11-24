@@ -174,7 +174,12 @@ record starts from nothing; with the server away it refuses, and deletes nothing
   cannot see one that is stuck there.
 
 The item metrics (SPEC §4b, *Item metrics*) are written once a minute from the item index, backfilled from it when
-first turned on; an arrival is `from="(new)"` and an item forgotten after a prune `to="(gone)"`.
+first turned on; an arrival is `from="(new)"` and an item forgotten after a prune `to="(gone)"`. So the items in a
+state change by what moved in less what moved out, and a kind's items by its arrivals less its forgotten items.
+ergostat checks this on each pass, and says on its output where it does not hold. The exception is a window in which
+`increase(ergostat_item_index_rebuilds_total[1h]) > 0`: there the index was made again (a kind edited, say), the
+counts were taken afresh, and the two need not agree, so read no leak into it. Add a gauge over `milestone` before
+comparing it, as a move between milestones is not a transition.
 
 `count by(__name__)({__name__=~"ergostat_.+"})` lists them all. VictoriaMetrics computes `rate()` and `increase()`
 without Prometheus's extrapolation, so an integer counter's increase is a whole number (SPEC §4e, *The built-in source

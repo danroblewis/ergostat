@@ -326,8 +326,9 @@ def test_a_kind_edited_then_undone_reopens_the_old_index_without_counting_twice(
         assert s.val(m, im.EVENTS, type="gap.started", source="builder") == 2, m
         assert s.val(m, im.STAY + "_count", kind="gap", state="open") == 2, m
         assert s.val(m, im.ITEMS, kind="gap", state="merged") == 1 and s.val(m, im.ITEMS, kind="gap", state="building") == 0
-    assert json.loads((a.dir / im.STATE).read_text())["held"] == [] or all(
-        x == 0 or n == im.LAST for n, _, x in json.loads((a.dir / im.STATE).read_text())["held"])
+    held = json.loads((a.dir / im.STATE).read_text())["held"]
+    assert all(x == 0 or n in (im.LAST, im.REBUILT) for n, _, x in held)     # (B4: the rebuilds are held on purpose)
+    assert [x for n, _, x in held if n == im.REBUILT] == [2] == [s.val(T0 + 480, im.REBUILT)]
 
 
 def test_a_refused_write_is_not_tried_again_until_its_wait_is_over(rec):

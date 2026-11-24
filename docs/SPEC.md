@@ -1071,9 +1071,16 @@ A record written before these names holds every series as `ergostat_reading{proj
 | `ergostat_item_time_in_state_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `kind`, `state` | how long items stayed in a state, **observed when they leave it**: an item still in it is not counted, so it cannot see stuck work (for that, SQL over the item views with open items) |
 | `ergostat_item_field_total` (counter) | `kind`, `field` | what items' numeric fields (§5a, *numbers*) went up by, added; a fall is not counted |
 | `ergostat_events_total` (counter) | `type`, `source` | the events about items that the index folded (no transcript lines, no roll-up snapshots) |
+| `ergostat_item_index_rebuilds_total` (counter) | none | times the index was made again (below); written from the first minute, at 0 |
 
 With the two edges named, a gauge's change over a window is its net transitions: `increase(...{to="S"}) -
-increase(...{from="S"})`. `time() - max(ergostat_item_last_transition_timestamp_seconds{kind="gap",to="merged"})` is
+increase(...{from="S"})`, the gauge added over `milestone`. For a kind as a whole it is `increase(...{from="(new)"}) -
+increase(...{to="(gone)"})`. A kind whose `state` label is refused (below) keeps `(new)` and `(gone)` as values of
+`from` and `to`, so it still balances as a whole. Each pass checks this between the minute written last and its own
+last minute (`itemmetrics.balance`, a pure function of the two minutes' values). The verdict goes in the checkpoint's
+`balance`. It is `balanced`; or `unbalanced`, with each kind and state whose change is not its net transitions, said
+on the engine's output (nothing is ever added to make it balance); or `unsure`, where no balance is owed: nothing
+written before, or the index made again between, when `ergostat_item_index_rebuilds_total` goes up. `time() - max(ergostat_item_last_transition_timestamp_seconds{kind="gap",to="merged"})` is
 how long since the last merge. The buckets are 1, 5 and 15 minutes, 1 and 4 hours, 1, 3, 7 and 30 days. An item's
 state comes from its moves (a kind without states is in no gauge). `milestone` is the field of the kind's group
 relation named `milestone`, as it is held now, and only on the gauge: on a counter, an item moved to another milestone
@@ -1100,7 +1107,10 @@ in the checkpoint's `held`, and the counters go on from there, so none falls. Th
 change of epoch, from what that index alone counts at the minute last written, never added to the hold before it.
 So undoing a kind's edit, which reopens the kept file with its old carry, holds nothing more and counts nothing
 twice. An event stamped before the last minute
-written that arrives between the last pass and the index being made again may go uncounted in a held counter. `ergostat reset` forgets the checkpoint.
+written that arrives between the last pass and the index being made again may go uncounted in a held counter. The
+gauge is counted afresh from the new index: a kind edited so that its states change moves items between gauge series
+with no transition. So each pass over another epoch adds one to `ergostat_item_index_rebuilds_total`, which is held
+like the other counters, and a balance across it is `unsure`. `ergostat reset` forgets the checkpoint.
 
 Labels are bounded. Only `kind`, `state`, `from`, `to`, `le`, `field`, `type`, `source` and `milestone` can be labels
 (`Refused` for any other, so an item's id, a branch, a session or a commit never is one). A label with more than 100
