@@ -545,8 +545,12 @@ link, a cap passed, more than 64 folders deep, or a tree hash not the lock's). T
 links, its files read under the same caps, and hashed: each entry in byte order of its path, its path, its kind
 (`dir`, `file`, `exec`, `link`) and its bytes or link target, each length-prefixed. Templates (`*.yaml`, `*.yml`, `*/template.yaml`, never a link) are parsed
 from the bytes hashed. They are found after the owner's folders and `$ERGOSTAT_LIBRARY`, before ergostat's own, in
-the order written. A use of one from a library without `trust: owner` is **library-untrusted**: it is listed, never
-expanded. A use naming a template that is not there names every refused library and why. `check` says which uses come
+the order written. A library with `trust: owner` is trusted; any other is untrusted exactly as a `{folder: PATH}` is
+(*Untrusted libraries* above): it never shadows a trusted template, its notes are marked (`untrusted library folder
+.libraries/NAME:`), its uses are held, checked against the same allowlist and bounded, and a use that makes more is
+refused (**library-untrusted**, saying the owner can mark it `trust: owner`). A use naming a template that is not
+there names every refused library, its code and why. The listing is kept in the last good model's snapshot
+(`trees`), so the fallback reads the library back without the copy or the lock. `check` says which uses come
 from a library. The copy is checked when the model loads; a script a template runs from `${here}` is read again when it
 runs, and nothing here says that what runs is what was locked.
 
@@ -4742,8 +4746,8 @@ where the error is 0.
   allowlist (naming the field), more than 16, or `libraries:` outside the main file (section 2a, *Libraries fetched by
   git URL*);
 - **library-unlocked**, **library-lock-unreadable**, **library-missing**, **library-altered**: a fetched library
-  refused at load, its templates not there (section 2a); **library-untrusted** also marks a use of a template from a
-  library without `trust: owner`;
+  refused at load, its templates not there (section 2a); a use of a template from a library without `trust: owner`
+  is held as an untrusted folder's is, so **library-untrusted** also marks one that makes more than structure;
 - **untrusted-limit**: a part an untrusted instance made whose schedule, pool, attempts or runs at once pass the
   limits of section 2a, *Untrusted libraries*, at its `use:` line;
 - **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
