@@ -1211,6 +1211,7 @@ class Compiler:
         leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
         from ..operating import compile as operating
         operating.section(self, spec)                        # operating: the states, their pools and trips (SPEC §9.5)
+        gated.state_maps(self, spec)                         # gates by those states, and the bypass kind (SPEC §12k)
         from ..library import bounds
         bounds.check(self, spec)                             # an untrusted library's parts: their limits (SPEC §2a)
         from . import triggers

@@ -401,6 +401,16 @@ def action_kind() -> ItemKind:
                     final={"denied": {"ran": "ran despite denial", "failed": "ran despite denial"}})   # (SPEC §12r)
 
 
+BYPASS = "ergostat.bypass"        # the built-in item kind: the owner's bypass lease on a class (SPEC §12k)
+
+
+def bypass_kind() -> ItemKind:
+    return ItemKind(BYPASS, f"{BYPASS}/*", ["granted", "ended"], {f"{BYPASS}.granted": "granted", f"{BYPASS}.ended": "ended"},
+                    ["until", "by", "note", "ended_by"], {}, None, "the owner's bypass on a class of actions gated by "
+                    "state: its gate no stricter than under the default state until it ends, at most 24 h (built in, "
+                    "SPEC §12k)", sealed=True)
+
+
 MODEL_REQUEST = "ergostat.model-request"   # the built-in item kind: a class of intervention to model away (SPEC §12p)
 MODEL_REQUEST_STATES = ["open", "investing", "verifying", "suppressed", "resolved"]
 
@@ -519,6 +529,8 @@ class Action:
     gates: dict[str, str] = field(default_factory=dict)
     thresholds: dict[str, float] = field(default_factory=dict)
     reshapes: dict[str, str] = field(default_factory=dict)   # column -> the smaller action asked for there (its cell: approve)
+    states: dict[str, str] = field(default_factory=dict)     # a gate by declared state (and else): ``actions/schedule.py``;
+                                                             # then ``gate`` is the default state's cell
 
 
 @dataclass

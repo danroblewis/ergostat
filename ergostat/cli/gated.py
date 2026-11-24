@@ -40,6 +40,15 @@ def register(sub, common) -> None:
     ws.add_argument("name", nargs="?", metavar="POOL", help="one pool")
     ws.add_argument("--free", type=int, metavar="N", help="with POOL: free its quarantined workspace N (its worktree removed)")
     ws.set_defaults(fn=cmd_workspaces)
+    bp = sub.add_parser("bypass", parents=[common], help="The owner's bypass leases: a class's gate by state no stricter "
+                        "than under the default state, at most 24h (CLASS --for DUR, CLASS --end)",
+                        description="Bypass leases (SPEC §12k). ergostat bypass [CLASS --for DUR [--note TEXT] | "
+                        "CLASS --end]; alone: those standing")
+    bp.add_argument("name", nargs="?", metavar="CLASS", help="a class of actions with a gate by operating state")
+    bp.add_argument("--for", dest="lease", metavar="DUR", help="grant it for this long (more than 0, at most 24h)")
+    bp.add_argument("--end", action="store_true", help="end the class's bypass standing")
+    bp.add_argument("--note", help="with --for: why")
+    bp.set_defaults(fn=cmd_bypass)
     from ..actions.operating import STATES
     op = sub.add_parser("operating", parents=[common], help="The operating state (normal, maintenance, freeze, incident) "
                         "and the owner's presence; STATE: the owner enters it (normal ends the one in force)",
@@ -150,10 +159,10 @@ def cmd_actions(args) -> int:
     if classes:
         print()
         print(table(["CLASS", "GATE", "HELD", "APPROVED", "AUTO", "DENIED", "RAN", "FAILED"],
-                    [[k, _gate(spec, k), *(f"{v[x]:g}" for x in ("held", "approved", "auto", "denied", "ran", "failed"))]
+                    [[k, _gate(spec, k, p), *(f"{v[x]:g}" for x in ("held", "approved", "auto", "denied", "ran", "failed"))]
                      for k, v in classes.items()], ""))
         for k, v in classes.items():
-            if _gate(spec, k) == "approve" and v["approved"] >= PROMOTE and not v["denied"]:
+            if _gate(spec, k, p) == "approve" and v["approved"] >= PROMOTE and not v["denied"]:
                 print(c(f"class {k}: approved {v['approved']:g} times this week, none denied: the owner may promote it "
                         f"(gate: auto under actions: in the model)", "dim"))
     held = [a for a in got if a["state"] == "requested"]
@@ -230,9 +239,48 @@ def said(args, a: dict, code: int) -> int:
     return code
 
 
-def _gate(spec, cls: str) -> str:
-    gates = {a.gate for a in spec.actions.values() if (a.cls or a.name) == cls}
-    return ", ".join(sorted(gates)) or "?"
+def _gate(spec, cls: str, p) -> str:
+    """The class's gate in force (``schedule.resolve``); the state and the bypasses are read only for a map gate."""
+    from ..actions import schedule as sch
+    acts = [a for a in spec.actions.values() if (a.cls or a.name) == cls]
+    t, st, held = sch.now(), None, {}
+    if any(a.states for a in acts):
+        st, held = sch.state(p, spec), sch.standing(p, t)
+    gates = {sch.resolve(a, st, held, t)[0] for a in acts}
+    until = f" (bypass until {time.strftime('%H:%M', time.localtime(held[cls]))})" if cls in held else ""
+    return (", ".join(sorted(gates)) or "?") + until
+
+
+def cmd_bypass(args) -> int:
+    """``ergostat bypass [CLASS --for DUR [--note TEXT] | CLASS --end]``: the owner's bypass leases (SPEC §12k)."""
+    import sys
+
+    from ..actions import schedule as sch
+    from ..durations import DurationError, parse_duration
+    p = open_project(args)
+    spec = _spec(p)
+    if spec is None:
+        return 2
+    try:
+        if args.name and args.end and args.lease is None and not args.note:
+            sch.end(p, args.name)
+        elif args.name and args.lease is not None and not args.end:
+            try:
+                secs = parse_duration(args.lease, "--for")
+            except (DurationError, OverflowError) as e:
+                raise sch.BypassError(str(e)) from None
+            sch.grant(p, spec, args.name, secs, args.note)
+        elif args.name or args.end or args.lease is not None or args.note:
+            raise sch.BypassError("ergostat bypass CLASS --for DUR [--note TEXT], or CLASS --end")
+    except sch.BypassError as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return 2
+    held = sch.standing(p, sch.now())
+    if args.json:
+        return out_json({"standing": held})
+    print(table(["CLASS", "UNTIL"], [[k, time.strftime("%Y-%m-%d %H:%M", time.localtime(u))] for k, u in held.items()],
+                "no bypass standing"))
+    return 0
 
 
 def cmd_workspaces(args) -> int:

@@ -12,6 +12,14 @@ def entered(p, spec) -> list:
     return [it for it in its.project(p.events, spec, KIND, transcript=False) if it.state == "entered"]
 
 
+def current(p, spec) -> str:
+    """The name of the state in force, for the gates (SPEC §12k, *Gates by declared state*): the highest-ranked state
+    entered, ``normal`` when none is. A state entered that the model no longer declares ranks above all and is
+    returned as it is (a name the gate does not know: deny). Raises when the record cannot be read."""
+    got = [it.id.split("/", 1)[1] for it in entered(p, spec)]
+    return max(got, key=lambda n: spec.operating[n].rank if n in spec.operating else float("inf")) if got else "normal"
+
+
 def in_force(p, spec) -> tuple[str | None, int | None, str]:
     """``(top, pool, why)``: the highest-ranked state entered, the smallest pool among all the states entered (None:
     none sets one), and why, naming the state that sets it. A state entered that the model no longer declares counts

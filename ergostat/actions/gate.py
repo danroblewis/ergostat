@@ -23,6 +23,7 @@ from pathlib import Path
 from ..spec.ir import Action
 from . import record as rec
 from . import risk as rk
+from . import schedule as sch
 from .record import GATE
 
 OUTPUT_MAX = 4000
@@ -67,31 +68,37 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
     where = str((spec.root / a.in_).resolve()) if a.in_ else str(ctx.get("workdir") or spec.root)
     aid, of = shaped or (rec.new_id(name), None)
     from ..workspaces.leases import fence_of
-    g0, t, opr = in_force(p, a)                          # (read before the writes: the act reads both again, below)
-    to = (a.reshapes or {}).get(opr["column"])
-    if to:                                               # held, whatever the cell compiled says (lesson-8)
-        g0 = rk.stricter(g0, "approve")
-    tid = rec.new_id(to) if to in spec.actions and not of else None
-    risk = rk.assess(p, a, ctx.get("block"), aid, g0, t, ctx.get("run"), ctx.get("item"))
-    g = risk["gate"] if risk else g0
-    data = {"action": name, "class": a.cls or name, "gate": g0, "operating": opr, "args": args,
-            "command": render(a, args, ctx),
-            "in": where, **{k: ctx.get(k) for k in ("block", "run", "session", "item", "workdir", "branch")},
-            **({"lease": fence_of(ctx.get("lease"))} if fence_of(ctx.get("lease")) is not None else {}),
-            "description": a.description, **({"asker": asker} if asker != "session" else {}),
-            **({"key": key} if key else {}), **({"risk": risk} if risk else {}),
-            **({"reshaped_to": tid} if tid else {}), **({"reshaped_from": of} if of else {})}
-    rec.step(p, aid, "requested", data, by=ctx.get("block") or "session", causedby=ctx.get("run"))
-    why = fenced(p, spec, data)
-    if why:
-        rec.step(p, aid, "denied", {"denied_by": GATE, "note": why})
-    elif g == "deny":
-        under = "" if opr["column"] in ("normal", "away", "unscheduled") else f" under {opr['column']} ({opr['why']})"
-        rec.step(p, aid, "denied", {"denied_by": GATE, "note": rk.note(risk, g0) or f"its gate is deny{under}: never run"})
-    elif g == "auto":
-        rec.step(p, aid, "approved", {"approved_by": GATE, "note": "its gate is auto: run at once"})
-        if asker == "session":
-            run_once(p, spec, aid)
+    with sch.lock(p, exclusive=False) if a.states else contextlib.nullcontext():   # read, decide, record: one hold
+        g0, t, opr = in_force(p, a)                      # (read before the writes: the act reads both again, below)
+        by = sch.reading(p, spec, a) if a.states else None
+        g0 = rk.stricter(g0, by["gate"]) if by else g0   # the declared state's gate, under the §12k column's
+        to = (a.reshapes or {}).get(opr["column"])
+        if to:                                           # held, whatever the cell compiled says (lesson-8)
+            g0 = rk.stricter(g0, "approve")
+        tid = rec.new_id(to) if to in spec.actions and not of else None
+        risk = rk.assess(p, a, ctx.get("block"), aid, g0, t, ctx.get("run"), ctx.get("item"))
+        g = risk["gate"] if risk else g0
+        data = {"action": name, "class": a.cls or name, "gate": g0, "operating": opr, "args": args,
+                "command": render(a, args, ctx),
+                "in": where, **{k: ctx.get(k) for k in ("block", "run", "session", "item", "workdir", "branch")},
+                **({"lease": fence_of(ctx.get("lease"))} if fence_of(ctx.get("lease")) is not None else {}),
+                "description": a.description, **({"asker": asker} if asker != "session" else {}),
+                **({"key": key} if key else {}), **({"risk": risk} if risk else {}),
+                **({"state": by["state"], "scheduled": by} if by else {}),
+                **({"reshaped_to": tid} if tid else {}), **({"reshaped_from": of} if of else {})}
+        rec.step(p, aid, "requested", data, by=ctx.get("block") or "session", causedby=ctx.get("run"))
+        why = fenced(p, spec, data)
+        if why:
+            rec.step(p, aid, "denied", {"denied_by": GATE, "note": why})
+        elif g == "deny":
+            under = "" if opr["column"] in ("normal", "away", "unscheduled") else f" under {opr['column']} ({opr['why']})"
+            said = f"its gate is deny ({by['why']}): never run" if by and by["gate"] == "deny" else None
+            rec.step(p, aid, "denied", {"denied_by": GATE, "note": rk.note(risk, g0) or said or
+                                        f"its gate is deny{under}: never run"})
+        elif g == "auto":
+            rec.step(p, aid, "approved", {"approved_by": GATE, "note": "its gate is auto: run at once"})
+    if not why and g == "auto" and asker == "session":   # (outside the hold: run_once takes its own)
+        run_once(p, spec, aid)
     if tid:                                              # (a crash before this leaves the full act held, nothing run)
         request(p, spec, to, {k: v for k, v in args.items() if k in spec.actions[to].args}, ctx, asker,
                 shaped=(tid, aid))
@@ -172,25 +179,32 @@ def run_once(p, spec, aid: str) -> dict | None:
     if why:                                           # its lease is over: the owner's approval came too late for it
         rec.step(p, a["id"], "failed", {"exit": None, "output": why, "seconds": 0, "fenced": True})
         return rec.get(p, a["id"])
-    act, at = at_act(p, spec, a)                      # read again under the lock: what changed since the request
-    if at.get("held_note"):
-        return rehold(p, a["id"], lock, at)
-    if at["effective"] == "deny":                     # (even when the owner approved it)
-        note = at.pop("note", None) or f"its gate at the act is deny ({_why(at, act)}): not run"
-        rec.step(p, a["id"], "denied", {"denied_by": GATE, "note": note, "risk_at_act": at})
-        return rec.get(p, a["id"])
-    if at["effective"] == "approve" and a.get("approved_by") == GATE:
-        return rehold(p, a["id"], lock, {**at, "held_note": f"its gate at the act is approve ({_why(at, act)})"})
-    timeout = act.timeout
-    env = {**os.environ, "ERGOSTAT_ACTION": a["id"], "ERGOSTAT_ITEM": a.get("item") or "",
-           "ERGOSTAT_BRANCH": a.get("branch") or ""}
-    started = time.time()
-    try:
-        r = subprocess.Popen(a["command"], shell=True, cwd=a.get("in") or str(spec.root), stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)
-    except OSError as e:
-        code, out = None, f"could not start: {e}"
-    else:
+    mapped = "scheduled" in a or bool(getattr(spec.actions.get(a.get("action") or ""), "states", None))
+    with sch.lock(p, exclusive=False) if mapped else contextlib.nullcontext():   # held until its command started
+        act, at = at_act(p, spec, a)                  # read again under the lock: what changed since the request
+        if at.get("held_note"):
+            return rehold(p, a["id"], lock, at)
+        by = at.get("scheduled")                      # the gate by declared state, read again: who approved still holds?
+        if by and (by["gate"] == "deny" or (by["gate"] == "approve" and a.get("approved_by") == GATE)):
+            why = f"its gate at the act is {by['gate']} ({by['why']}): not run"
+            rec.step(p, a["id"], "failed", {"exit": None, "output": why, "seconds": 0, "refused": why, "risk_at_act": at})
+            return rec.get(p, a["id"])
+        if at["effective"] == "deny":                 # (even when the owner approved it)
+            note = at.pop("note", None) or f"its gate at the act is deny ({_why(at, act)}): not run"
+            rec.step(p, a["id"], "denied", {"denied_by": GATE, "note": note, "risk_at_act": at})
+            return rec.get(p, a["id"])
+        if at["effective"] == "approve" and a.get("approved_by") == GATE:
+            return rehold(p, a["id"], lock, {**at, "held_note": f"its gate at the act is approve ({_why(at, act)})"})
+        timeout = act.timeout
+        env = {**os.environ, "ERGOSTAT_ACTION": a["id"], "ERGOSTAT_ITEM": a.get("item") or "",
+               "ERGOSTAT_BRANCH": a.get("branch") or ""}
+        started = time.time()
+        try:
+            r = _spawn(a["command"], a.get("in") or str(spec.root), env)
+        except OSError as e:
+            r, code, out = None, None, f"could not start: {e}"
+    if r is not None:                                 # (the run itself outside the hold: a state change waits for
+                                                      # its start only)
         try:
             so, se = r.communicate(timeout=timeout)
             code, out = r.returncode, (so + (("\n" if so and se else "") + se if se else ""))
@@ -225,8 +239,15 @@ def at_act(p, spec, a: dict) -> tuple[Action | None, dict]:
     risk = rk.assess(p, act, a.get("block"), a["id"], g0, t, a.get("run"), a.get("item"))   # s worked out again
     mine = risk["gate"] if risk else g0
     asked = (a.get("risk") or {}).get("gate") or a.get("gate")
+    by = sch.reading(p, spec, act) if act.states else None   # the declared state and the bypasses, read again
     return act, {**(risk or {}), "gate": mine, "cell": g0, "operating": opr, "asked": asked,
-                 "effective": rk.stricter(mine, asked)}
+                 "effective": rk.stricter(mine, asked), **({"scheduled": by, "state": by["state"]} if by else {})}
+
+
+def _spawn(command: str, cwd: str, env: dict) -> subprocess.Popen:
+    """The command started in a session of its own, so a timeout stops its whole process group."""
+    return subprocess.Popen(command, shell=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            env=env, start_new_session=True)
 
 
 def _why(at: dict, act: Action) -> str:

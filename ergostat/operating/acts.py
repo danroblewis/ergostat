@@ -16,25 +16,31 @@ class OperatingError(ValueError):
 
 
 def enter(p, spec, name: str, why: str, env: dict | None = None) -> dict:
+    """Under the operating lock, exclusive (``actions/schedule.py``): no gate decides between this and a command's start."""
+    from ..actions.schedule import lock
     env = os.environ if env is None else env
     if name not in spec.operating:
         raise OperatingError(f"{name}: not an operating state of the model ({', '.join(sorted(spec.operating)) or 'none'})")
     run = env.get("ERGOSTAT_RUN") or None
-    return p.events.add(ENTERED, item=item_of(name), source="run" if run else "owner", causedby=run,
-                        data={"by": "run" if run else "owner", "why": why})
+    with lock(p, exclusive=True):
+        return p.events.add(ENTERED, item=item_of(name), source="run" if run else "owner", causedby=run,
+                            data={"by": "run" if run else "owner", "why": why})
 
 
 def leave(p, spec, name: str, why: str, env: dict | None = None) -> dict:
+    """Read, decided and written under the operating lock, exclusive, as ``enter``."""
+    from ..actions.schedule import lock
     env = os.environ if env is None else env
     if env.get("ERGOSTAT_RUN"):
         raise OperatingError("only the owner leaves an operating state: refused from a run (ERGOSTAT_RUN is set)")
     if KIND not in spec.items:
         raise OperatingError("the model declares no operating states")
     from ..spec import items as its
-    it = its.one(p.events, spec, item_of(name))
-    if it is None or it.state != "entered":
-        raise OperatingError(f"{name}: not entered")
-    return p.events.add(LEFT, item=item_of(name), source="owner", data={"by": "owner", "why": why})
+    with lock(p, exclusive=True):
+        it = its.one(p.events, spec, item_of(name))
+        if it is None or it.state != "entered":
+            raise OperatingError(f"{name}: not entered")
+        return p.events.add(LEFT, item=item_of(name), source="owner", data={"by": "owner", "why": why})
 
 
 def listing(p, spec) -> list[dict]:
