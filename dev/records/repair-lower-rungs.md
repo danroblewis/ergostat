@@ -77,3 +77,14 @@ and passes. No question could be asked, so these choices were made, each the mos
 - Not run here: the sandbox-backed tests (31 in `test_repair2.py`, one end-to-end in `test_repair_approver.py`).
   They skipped because bwrap cannot make namespaces in this container, which is the same on main. The unit suite and
   the four browser files were not run (no page changed), as the factory's instructions say.
+
+Round 2: main (b20756c760e7) merged in; the conflicts in `docs/SPEC.md` (§12r's parts table, now main's with the
+program and the rule named among the approvers) and the repair template's `description` and `reading` (both sides
+kept) were resolved. `docs/GAPS.md` is back as main has it. The gap's line is the `## Entry` below, under the Repair
+umbrella (`dev/records/repair.md`), and the umbrella's *Left* drops "the ladder's lower rungs (program, rule)" in that
+record, the one place the queue writes the Repair entry from.
+
+## Entry
+
+entry-of: repair
+done: 2026-11-24 The ladder's lower rungs for `apply-fix` (`repair-lower-rungs`, SPEC §12r): `approver: program` asks the owner's `approve-with:` command (no secrets, at most 60 s, its process group killed on a timeout; only exit 0 with `{"approve": true}` approves) and `approver: rule` approves once the block's last 10 answered fixes, by seq, were approved, ran and none regressed or was reverted; both only after the guard passes, recorded through the AI approver's path under the failure's lock, and anything else is held for the person.
