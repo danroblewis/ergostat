@@ -21,8 +21,8 @@ kinds (`finding-stale-cache`). Every brief carries the rules and lessons, then, 
 `dev/factory.toml`, for an implementor, a reviewer and a planner first the gap's answered research (below), then the relevant decisions, related gaps, past findings on the files it touches and the module map
 (cached by main's sha in `run/modules/`, safe for sessions starting together: one read, a missing or half-written file
 made again, a whole write renamed into place, and a prune that keeps its own sha's file and skips one already gone; a temp file left by a killed session is removed after ten minutes); its
-recorded context lists the ids it carried and dropped. Entries of the four other kinds are synced as items but not yet
-carried in briefs. Each entry is an item, `knowledge/<id>` (active, or retired once no file holds it), kept by the
+recorded context lists the ids it carried and dropped. Findings are carried by area (below); entries of the three
+other kinds (`component`, `question`, `source`) are synced as items but not yet carried in briefs. Each entry is an item, `knowledge/<id>` (active, or retired once no file holds it), kept by the
 collector `knowledge-sync` (`knowledge.py sync`) from the running version's files, with how many briefs carried it
 (`carried`); the stock `knowledge-entries` counts the active ones, so its panel links to them on /items.
 
@@ -32,6 +32,21 @@ questions), or whose `gap` field names one of them (`dev/bin/ask.py --gap GAP`, 
 not hold): its question, summary and report (from `run/research/`) in `<report>` tags, the report cut at a line to
 `[knowledge] research_chars` (6000). A question still asked or dead, or whose report cannot be read, is not carried.
 Each is whole or not at all: one that does not fit the role's budget is dropped and its id recorded as dropped.
+
+**Findings.** What research learns about the code or the world, kept for the next gap in the same area. When the
+researcher answers with at least one checked source (`research.answered`), it proposes one finding: the lesson item
+`lesson/finding-<slug of the question, at most 40>-<hash6 of the question>`, kind `finding`, its entry the summary,
+`Source: research/<id>` and the checked sources, its areas the `--areas` given to `dev/bin/ask.py` (comma-separated)
+or, for a planner's question, the packages its gap's definition and entry name files in. An unsourced answer proposes
+none. Each finding is approved before it lands: it is asked as the gated action `knowledge-change`, as the librarian
+asks a lesson, at most once per answer and never again for an id in any state, so a denied one (settled by `lesson.py
+settle`) stays denied, even when the same question is asked again. Approved, `lesson-apply` applies it to the record,
+and it is the entry `finding-<slug>` of kind `finding` with its areas (a `knowledge/finding-...` item by the sync; the
+stock `findings-active` counts them). A brief for an implementor, a planner or a researcher carries it under "What the
+factory has found" when the gap's text names one of its areas (each word of the area, or its plural, as the decisions'
+scope is matched), recorded carried or dropped. `lesson.py retire finding-<slug> "WHY"` retires it, and it is no longer
+carried. No step makes a gap. Private or work-specific material never lands as a finding: a finding lands only once
+the coordinator has approved its exact text, and one that holds any is denied.
 
 **Decisions are items.** Each heading of `decisions.md` is a decision, its body the owner's words, its *Areas* the
 scope: `knowledge-sync` proposes it (`ergostat.decision.proposed`) only while its `ergostat.decision/...` id (ergostat's
@@ -55,5 +70,5 @@ pipeline (4, 6, 7, 8, 9, 10, 12, 13) and the Process and Machine rules name the 
 **Kept current by the factory itself.** After each review, the librarian (`dev/bin/librarian.py`) compares the findings
 with `review-lessons.md`: a finding of a class already listed proposes a "seen as" line when it's a new shape; a class
 found in two reviews that isn't listed proposes a new entry. Each proposal waits in the inbox (`knowledge-change`);
-approved, it becomes a gap whose definition is the exact edit, landed like any other. By hand: `dev/bin/lesson.py`. A lesson that briefs carried while first-pass yield did not change is a candidate to rewrite or drop.
+approved, `lesson-apply` applies its exact text to the record the briefs read (never a gap). By hand: `dev/bin/lesson.py`. A lesson that briefs carried while first-pass yield did not change is a candidate to rewrite or drop.
 Private or work-specific material never goes here.

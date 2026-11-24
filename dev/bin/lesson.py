@@ -1,11 +1,12 @@
 """The review lessons' own queue (dev/README.md, *The knowledge queue*): a `lesson` item moves proposed -> approved ->
 applied (or denied, retired), its exact text on the item (`entry`), applied by the program block lesson-apply. No
 session, branch, review or merge, and never a gap. The repository's dev/knowledge/review-lessons.md is the seed; the
-applied items live in the instance's record, so a version switch keeps them, and knowledge.block carries both. Run in
-the instance's folder (apply is the block's run).
+applied items live in the instance's record, so a version switch keeps them, and knowledge.block carries both. A
+`finding` (kind finding: a checked research answer, proposed by research.py) moves the same way and is carried by area.
+Run in the instance's folder (apply is the block's run).
 
     lesson.py add "TITLE" --check "CHECK" [--seen "SHAPE"]   a new lesson, by the coordinator: approved at once
-    lesson.py retire N "WHY"                                  lesson N no longer carried: approved at once
+    lesson.py retire N|finding-SLUG "WHY"                     lesson N (or a finding) no longer carried: approved at once
     lesson.py request lesson/ID                               the action knowledge-change: an approved proposal
     lesson.py apply                                           the block lesson-apply: an approved lesson applied
     lesson.py settle                                          each denied proposal settled; the migration (once)
@@ -61,7 +62,8 @@ def apply(given: dict) -> int:
     f, now, lessons = it["fields"], time.time(), fac.items("lesson")
     if f.get("kind") == "retire":
         for o in lessons:
-            if o["state"] == "applied" and o["fields"].get("kind") == "entry" and o["fields"].get("lesson") == f["lesson"]:
+            if o["state"] == "applied" and ((o["fields"].get("kind") == "entry" and o["fields"].get("lesson") == f[
+                    "lesson"]) or (o["fields"].get("kind") == "finding" and knowledge.found_id(o["id"]) == f["lesson"])):
                 fac.say("lesson.retired", o["id"], retired_at=now, why=f.get("why") or "")
         fac.say("lesson.retired", iid, retired_at=now)
         return 0
@@ -130,7 +132,7 @@ def main(argv: list[str]) -> int:
     a.add_argument("--check", required=True)
     a.add_argument("--seen", default="")
     r = sub.add_parser("retire")
-    r.add_argument("n", type=int)
+    r.add_argument("n", help="a lesson's number, or a finding's id (finding-<slug>)")
     r.add_argument("why")
     sub.add_parser("request").add_argument("item")
     for c in ("apply", "settle", "hours"):
@@ -155,11 +157,13 @@ def main(argv: list[str]) -> int:
         approve(iid, kind="entry", name=args.title, approved_by="the coordinator", entry=f"{args.title}\n" + (
             f"Seen as: {args.seen}.\n" if args.seen else "") + f"**Check:** {args.check}")
     elif args.cmd == "retire":
-        iid, carried = f"lesson/retire-lesson-{args.n}", {e["id"] for e in knowledge.applied(knowledge.entries(),
-                                                                                              list(held.values()))}
-        if f"lesson-{args.n}" not in carried or iid in held:
-            raise SystemExit(f"lesson {args.n} is not carried, or its retirement is asked for already")
-        approve(iid, kind="retire", lesson=f"lesson-{args.n}", why=args.why, approved_by="the coordinator")
+        eid = f"lesson-{args.n}" if args.n.isdigit() else args.n
+        iid, carried = f"lesson/retire-{eid}", {e["id"] for e in knowledge.applied(knowledge.entries(),
+                                                                                  list(held.values()))}
+        if not (eid.startswith("lesson-") or (eid.startswith("finding-") and fac.SAFE.match(eid))) or \
+                eid not in carried or iid in held:
+            raise SystemExit(f"{eid} is not carried, or its retirement is asked for already")
+        approve(iid, kind="retire", lesson=eid, why=args.why, approved_by="the coordinator")
     else:
         it = held.get(args.item) or {}
         if it.get("state") != "proposed":

@@ -190,6 +190,9 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
     if isinstance(got, dict):                       # a typed frame (_frames.py)
         try:
             out = _frames.answer(got, g, MOST_SERIES)
+            if out["shape"] == "graph":                 # fitted to a panel, with its matrix, as ergostat's own are
+                from ..query.graphs import panel
+                out = panel(out, {})
         except _frames.Bad as e:
             raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused",
                               f"source {name!r} answered badly: {e}" if e.code is None else f"source {name!r}: {e}",

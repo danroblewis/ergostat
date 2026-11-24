@@ -50,7 +50,8 @@ LIB_DATA_FLAGS = frozenset({
     "--name", "--kind", "--state", "--done", "--failed", "--stuck", "--flow", "--pinged-flow", "--gave-up-flow",
     "--every", "--limit", "--stand-in", "--answer-after", "--window", "--id-field", "--event", "--event-field",
     "--cursor-field", "--path", "--field", "--changes", "--title", "--cron", "--fail", "--say", "--rise", "--cut",
-    "--no-coherence", "--no-extremes", "--mirror", "--position", "--batch-kind", "--states", "--met"})
+    "--no-coherence", "--no-extremes", "--mirror", "--position", "--batch-kind", "--states", "--met", "--target", "--min",
+    "--threshold", "--side"})
 # Never: what is run (a command, a renderer), read from outside (a URL, headers naming the environment), where files
 # are written or removed, and the limits on processes, calls, money and time.
 LIB_EXEC_FLAGS = frozenset({
@@ -121,6 +122,7 @@ SYSTEM = {"description": (S, "words shown with it"), "within": (S, "the system i
           "show": (L, "parts shown on its box")}
 ITEM = {**COMMON, "id": (S, "which ids are this kind"), "states": (L, "its states"),
         "final": (L, "its states no event moves it out of"), "finished": (L, "its states that count as finished"),
+        "lost": (L, "its finished states that are a loss"),
         "moves-from": (M, "the only states an event moves it out of"),
         "if-unchanged": (L, "events applied only to it as read"),
         "on": (M, "which event moves it to which state"), "show": (L, "fields shown"), "formats": (M, "how fields are shown"),
@@ -201,6 +203,7 @@ REFUSED = {"agents": "who acts, and on which rung", "workspaces": "folders and r
            "actions": "outward acts a session may ask for",
            "claims": "commands that check claims", "contexts": "what an AI session is given to read",
            "leases": "terms of work queues", "daemons": "processes kept running", "loops": "loops declared by hand",
+           "operating": "operating states, which cap or stop every block's pool",
            "variables": "the old name of auxiliaries, kept for the owner's own files"}
 
 

@@ -226,6 +226,7 @@ def spec(project, snap: dict, name: str) -> dict | None:
     b = s.blocks.get(name) if s is not None else None
     if b is None:
         return None
+    from ..agent_means import means
     roots = _roots(project, s)
     source, written = _source(b)
     files, own = _listed(project, s, b)
@@ -238,12 +239,21 @@ def spec(project, snap: dict, name: str) -> dict | None:
            "law": _law(s, snap, name),
            "machine": {**{k: v for k, v in a.__dict__.items() if k != "where"}, "where": _where(a.where, roots)} if a else None,
            "decisions": _decisions(project, m, snap, name), "rung_why": _rung_why(s, b), "own": own,
+           "means": means(project, m, name, snap["at"] - snap["window"], snap["at"]),   # its spec, its rung's spans
            "files": [{k: v for k, v in f.items() if k != "_path"} for f in files]}
+    return plain(project, out)
+
+
+def plain(project, x):
+    """``x`` (its strings, wherever they are) with the interpreter's, ergostat's and the model folder's absolute paths
+    taken out: the interpreter is ``python``, ergostat's package ``ergostat``, the model folder a relative path."""
+    s, m = getattr(project.model, "spec", None), project.model
+    root = s.root if s is not None else Path(m.path).parent if getattr(m, "path", None) else None
     py = shlex.quote(sys.executable)
     subs = [(py, "python"), (sys.executable, "python"), (str(PKG), "ergostat")]
-    for r in dict.fromkeys([str(Path(s.root)), str(Path(s.root).resolve())]):
+    for r in dict.fromkeys([str(Path(root)), str(Path(root).resolve())] if root is not None else []):
         subs += [(r + "/", ""), (r, ".")]
-    return _plain(out, subs)
+    return _plain(x, subs)
 
 
 def files(project, name: str) -> dict | None:

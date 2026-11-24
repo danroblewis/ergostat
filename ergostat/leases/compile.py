@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import re
 
-from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Ref, Spec, Takes, own_kind
+from ..spec.ir import DEAD, LEASED, TIERS, Frozen, LeaseTerms, Ref, Spec, Takes, own_kind
 from . import faults
+from .frozen import MOST
 
 TERMS_KEYS = {"ttl", "attempts"}
 POOL_KEYS = {"now", "most"}
-TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order", "faults"}
+TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order", "faults", "frozen"}
+FROZEN_KEYS = {"first", "urgent"}
 
 
 def terms(c, m, key: str, what: str) -> LeaseTerms:
@@ -89,7 +91,30 @@ def takes(c, m, what: str) -> Takes | None:
     where = dict(where)
     if where:
         c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
-    return Takes(kind, list(states), list(to), where, unblocked, order, *faults.compile_faults(c, raw, what))
+    return Takes(kind, list(states), list(to), where, unblocked, order, *faults.compile_faults(c, raw, what),
+                 frozen=frozen(c, raw, what))
+
+
+def frozen(c, raw, what: str) -> Frozen | None:
+    """``frozen: {first: N, urgent: FIELD}`` (SPEC §9.5): N from 1 to ``frozen.MOST``; FIELD optional."""
+    f = raw.get("frozen")
+    if f is None:
+        return None
+    if not isinstance(f, dict):
+        c.err(f"{what}.takes.frozen: a map: first: (how many of its next items keep their order) and urgent: (a field)",
+              raw.at("frozen"), "bad-frozen")
+        return None
+    c.keys(f, FROZEN_KEYS, f"{what}.takes.frozen")
+    n, u = f.get("first"), f.get("urgent", "")
+    if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= MOST:
+        c.err(f"{what}.takes.frozen.first: a whole number from 1 to {MOST} (the next items that keep their order)",
+              f.at("first") or raw.at("frozen"), "bad-frozen")
+        return None
+    if not isinstance(u, str) or (u and not re.fullmatch(r"[^\s-]\S*", u)):
+        c.err(f"{what}.takes.frozen.urgent: a field's name (an item whose field says {{by: ..., why: ...}} goes ahead)",
+              f.at("urgent") or raw.at("frozen"), "bad-frozen")
+        u = ""
+    return Frozen(n, u)
 
 
 def pool(c, m, what: str) -> tuple[int, Ref | None]:

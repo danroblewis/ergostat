@@ -29,6 +29,9 @@ REASONS: dict[str, tuple[str, str]] = {
     "not-raw": ("warn", "read an ergostat series with raw(A) to see its readings; a source's range windows smooth them"),
     "scrape-unknown": ("warn", "read the readings with raw(A), or treat periods near twice the step as not seen"),
     "mixed-windows": ("warn", "ask the queries compared at one step and one range window"),
+    "graph-over-budget": ("warn", "draw it as a matrix (the Heatmap chart), or ask for one kind or a shorter window"),
+    "graph-truncated": ("warn", "ask for one kind or a shorter window, so the whole graph is read"),
+    "graph-cycle": ("warn", "change one of the relations that go round, so the cycle is broken"),
 }
 
 

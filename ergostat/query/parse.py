@@ -10,7 +10,8 @@ from dataclasses import dataclass, replace
 from ..durations import parse_duration
 from ..spec.item_sets import BadSet
 
-SOURCES = ("items", "moves", "counts", "series", "events", "frequency")
+SOURCES = ("items", "moves", "counts", "series", "events", "frequency", "graph")
+DIAGRAMS = ("dependency", "process", "service")     # the graphs ergostat works out itself (graphs.py), by kind
 AGGS = ("count", "sum", "avg", "min", "max", "last", "p50", "p90", "p95", "p99", "ohlc")
 NO_AGG = "none"            # each item counts by itself (an X of type field, or a category's spread)
 TRANSFORMS = ("none", "rate", "delta", "cumulative", "moving_avg")
@@ -25,8 +26,10 @@ POINTS = 120
 MOST_WINDOW = 400 * 86400.0
 MOST_AVERAGED = 200         # buckets in a moving average
 KEYS = {"id", "source", "kind", "field", "where", "group_by", "agg", "transform", "rate_per", "bucket", "window",
-        "measure", "state", "series", "type", "first_only", "include_open", "x", "input", "output", "segments", "model"}
-DEFAULT_AGG = {"items": "sum", "moves": "count", "counts": "last", "series": "avg", "events": "count", "frequency": "avg"}
+        "measure", "state", "series", "type", "first_only", "include_open", "x", "input", "output", "segments", "model",
+        "diagram"}
+DEFAULT_AGG = {"items": "sum", "moves": "count", "counts": "last", "series": "avg", "events": "count", "frequency": "avg",
+               "graph": "count"}
 X_KEYS = {"type", "query", "field", "by", "bins", "size", "color_by"}
 X_TYPES = ("time", "query", "field", "category", "bins")
 MOST_BINS = 200
@@ -75,6 +78,7 @@ class Query:
     model: str | None = None
     first_only: bool = False        # entries: only each item's first entry to the state, never a return to it
     include_open: bool = False      # time_in_state: also the items in the state now, at their age so far
+    diagram: str | None = None      # graph: which of ergostat's own graphs (DIAGRAMS); ``kind`` narrows it to one kind
 
 
 @dataclass(frozen=True)
@@ -246,6 +250,12 @@ def _query(d, i: int, depth: int = 0) -> Query | SourceQuery:
     source = _word(d, "source", SOURCES, None, who)
     if source is None:
         raise BadQuery(f"{who}: source is missing (one of {', '.join(SOURCES)})")
+    if source == "graph" or "diagram" in d:
+        extra = sorted(set(d) - {"id", "source", "diagram", "kind"})
+        if depth or source != "graph" or extra or d.get("diagram") not in DIAGRAMS:
+            raise BadQuery(f"{who}: a graph is asked as {{source: graph, diagram: {' | '.join(DIAGRAMS)}, kind?}}, "
+                           f"and is never an X, an input or an output" + (f"; {extra[0]!r} is not one of its keys" if extra else ""))
+        return Query(id=str(id_), source=source, agg="count", kind=_text(d, "kind", who), diagram=d["diagram"])
     measure = _word(d, "measure", MEASURES, None, who)
     if source == "moves" and measure is None:
         raise BadQuery(f"{who}: measure is missing (one of {', '.join(MEASURES)})")
