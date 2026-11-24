@@ -560,6 +560,23 @@ there names every refused library, its code and why. The listing is kept in the 
 from a library. The copy is checked when the model loads; a script a template runs from `${here}` is read again when it
 runs, and nothing here says that what runs is what was locked.
 
+**The listing.** Load describes each library from what it read (no network, no git): name, `git`, `version`, `path`,
+the lock's commit (12 hex; `not pinned` when the lock has none of 40 or 64 hex), `ok` or the refusal's code and reason,
+its trust (`owner` or `untrusted`), the templates it offers, and per template where its programs would run:
+`owner's shell` only when the template is the owner's by the trust gate's own test, else `sandbox or refused` (which,
+the gate decides per use, as above; a template with no program says it too). `check` prints one note per library, code
+`library` (in `--json` too, `about: library.NAME`), even beside errors, never one itself; nothing without
+`libraries:`:
+`library NAME: URL [(path P)] @ VERSION (commit C), trust T, N templates; programs: TEMPLATE WHERE, ...` and, when it
+is refused, `; refused, CODE: REASON` (an untrusted library's reason marked, since it may name its files). When the
+`libraries:` map itself is refused (one bad entry, name or key, or more than 16), every entry in it is listed as refused
+with that code and the field (`no git URL` or `no version` where it has no such string), and `ergostat library` says the
+section's error on standard error and exits 1 (a map that is not a map lists nothing). `ergostat
+library` with no subcommand prints the same lines, starts no git (or any other) process and writes nothing of its own
+(its load, as every load, may still refresh a remote system's cached model, section 4c); a main file that does not
+read is listed from the last good model, said on standard error. The `templates` tool gives each fetched template
+`library: {name, version, commit}`; an untrusted one's text stays marked.
+
 `use: LIB/TEMPLATE` names a fetched library's template: it is looked up only in library LIB (a key of `libraries:`),
 whatever else offers the name, so two libraries may each offer one name and both be used. LIB not a library, or
 refused, is **unknown-template** naming the libraries (and, when refused, its code and why); TEMPLATE not in LIB is

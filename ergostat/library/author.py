@@ -44,13 +44,18 @@ def library(root: Path | None, name: str | None = None) -> dict:
     fetched = doc.fetched if doc else []
     got, notes = tp.find_all(extra, doc.untrusted if doc else (), fetched)
     every = [*(t for t in got.values() if not t.library), *fetched]       # each fetched one by LIB/TEMPLATE
+
+    def pin(t) -> dict:                  # a fetched one's library, as the owner's libraries: and its lock name it
+        d = doc.listed.get(t.library) if doc and t.library else None
+        return {"library": {k: d[k] for k in ("name", "version", "commit")}} if d else {}
     if name:
         t = tp.lookup(got, fetched, name)
         if t is None:
             raise AuthorError(f"no template {name!r} (there are: {', '.join(sorted(map(tp.qualified, every)))})")
-        return marked(t, {**t.summary(), "template": tp.qualified(t), "reading": t.reading, "example": t.example})
+        return marked(t, {**t.summary(), "template": tp.qualified(t), "reading": t.reading, "example": t.example,
+                          **pin(t)})
     out = {"templates": [marked(t, {"template": tp.qualified(t), "description": t.description,
-                                    "from": t.summary()["from"], "trust": t.trust, "params": list(t.params)})
+                                    "from": t.summary()["from"], "trust": t.trust, "params": list(t.params), **pin(t)})
                          for t in every],
            "folders": [str(f) for f in tp.folders(extra)], **({"notes": notes} if notes else {}),
            "next": "templates with name: NAME for its parameters and its reading; add_use to try one"}
