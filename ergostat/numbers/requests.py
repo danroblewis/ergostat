@@ -140,32 +140,11 @@ def gather(p, spec: Spec, coherence: bool = True, extremes: bool = True) -> list
 
 def stored(p) -> dict[str, dict]:
     """Every request in the record, folded: ``{id: {state, ...fields, moved}}``; ``moved`` is the seq of its last move
-    (``_moved_at``), which a tier compares under the lock to know nobody moved it since it read it."""
-    from ..spec import items as its
-    from ..spec.ir import modelling_request_kind
-    by: dict[str, list[dict]] = {}
-    for e in p.events.query(n=None, type=f"{MODELLING_REQUEST}.*"):
-        if "/" in str(e.get("item") or ""):
-            by.setdefault(e["item"], []).append(e)
-    kind = modelling_request_kind()
-    out = {}
-    for item, evs in by.items():
-        it = its.fold(item, evs, kind)
-        out[item.split("/", 1)[1]] = {**it.fields, "id": item.split("/", 1)[1], "state": it.state,
-                                      "moved": _moved_at(evs, kind)}
-    return out
-
-
-def _moved_at(evs: list[dict], kind) -> int | None:
-    """The seq of the request's last move: an event that put it in another state, or any reopening (an approval
-    reopens a held request; a tier that read it open before it was held must not write over that)."""
-    at, was = None, None
-    for e in evs:
-        to = kind.on.get(e["type"])
-        if to is not None and (to != was or e["type"].endswith(".reopened")):
-            at = e.get("seq")
-        was = to if to is not None else was
-    return at
+    (an event that put it in another state, or any reopening: an approval reopens a held request, and a tier that read
+    it open before it was held must not write over that), which a tier compares under the lock to know nobody moved it
+    since it read it. Read from the item index's table (``projections.stored``), caught up as it is read."""
+    from ..spec import projections
+    return projections.stored(p, "request")
 
 
 def event(p, x: str, what: str, data: dict | None = None, source: str = "ergostat") -> dict:

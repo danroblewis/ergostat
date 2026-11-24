@@ -17,7 +17,7 @@ from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
-from .record import cmd_compact, cmd_event, cmd_held_up, cmd_item, cmd_reset, cmd_residual, cmd_why
+from .record import cmd_compact, cmd_event, cmd_held_up, cmd_item, cmd_migrate, cmd_reset, cmd_residual, cmd_why
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
 from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
@@ -349,7 +349,13 @@ def build() -> argparse.ArgumentParser:
     cp.add_argument("--yes", action="store_true", help="with --projects: delete them")
     cp.add_argument("--reindex", action="store_true", help="fold the item index again from the record (it is rebuilt "
                                                           "whenever it is missing; the record is the truth)")
-    rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs) and start from nothing",
+    mg = topic("migrate", cmd_migrate, "Copy this project's readings into VictoriaMetrics, under their names and labels "
+                                       "(PromQL reads them there); fails, naming them, on readings the server did not keep; "
+                                       "once all are held, run again, it sends nothing", named=False)
+    mg.add_argument("--url", help="the VictoriaMetrics (default: storage: measurements: url:, else http://127.0.0.1:8428)")
+    mg.add_argument("--dry-run", action="store_true", help="say what would be sent, and send nothing")
+    rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs; on VictoriaMetrics, its series "
+                                           "in the server) and start from nothing",
                named=False)
     rs.add_argument("--yes", action="store_true", help="do it (without it, says what it would forget)")
     mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",

@@ -881,13 +881,14 @@ class Measurements:
         """Readings were deleted in a way that may change what ``latest`` answers: every ``newest`` reads afresh."""
         c.execute("insert into meta(key, value) values ('deleted', 1) on conflict(key) do update set value = value + 1")
 
-    def range(self, series: str, since: float, until: float | None = None, last: int | None = None) -> list[tuple[float, float]]:
+    def range(self, series: str, since: float, until: float | None = None, last: int | None = None,
+              src: list | None = None) -> list[tuple[float, float]]:
         """The readings in a span, oldest first (the newest ``last`` of them when given). Where raw readings
-        are no longer kept, each bucket's last reading stands for it."""
+        are no longer kept, each bucket's last reading stands for it. (``src``: its ``_sources``, when known.)"""
         until = until if until is not None else time.time() + 1
         out: list[tuple[float, float]] = []
         with self._c() as c:
-            for e, lo, hi in reversed(self._sources(c, series, since, until)):
+            for e, lo, hi in reversed(src if src is not None else self._sources(c, series, since, until)):
                 if e == 0:
                     sql = "select time, value from samples where series = ? and time >= ? and time <= ? order by time desc"
                     args: tuple = (series, lo, hi)
@@ -902,14 +903,29 @@ class Measurements:
                     break
         return out[::-1]
 
-    def count(self, series: str | None = None, since: float | None = None, until: float | None = None) -> int:
+    def ranges(self, series: list[str], since: float, until: float) -> dict[str, list[tuple[float, float]]]:
+        """``range(s, since, until)`` of each of ``series`` whose raw readings answer it alone (``_sources``: they are
+        held from ``since`` on), read together; the others left out (each its own ``range``)."""
+        out: dict[str, list] = {}
+        e0 = self.tiers[0][0] if self.tiers else None
+        with self._c() as c:                               # (one connection for them all; each read by its index)
+            for s in series:
+                r = c.execute("select min(time) from samples where series = ?", (s,)).fetchone()[0]
+                if r is not None and (e0 is None or r // e0 * e0 <= since):
+                    out[s] = [(t, v) for t, v in c.execute("select time, value from samples where series = ? and "
+                                                           "time >= ? and time <= ? order by time, rowid", (s, since, until))]
+        return out
+
+    def count(self, series: str | None = None, since: float | None = None, until: float | None = None,
+              src: list | None = None) -> int:
         """How many readings: of one series in a span (raw and those its buckets stand for), or every row kept."""
         with self._c() as c:
             if series is None:
                 n = c.execute("select count(*) from samples").fetchone()[0]
                 return n + (c.execute("select count(*) from tiers").fetchone()[0] if self.tiers else 0)
             total = 0
-            for e, lo, hi in self._sources(c, series, since or 0.0, until if until is not None else 1e18):
+            for e, lo, hi in src if src is not None else self._sources(c, series, since or 0.0,
+                                                                         until if until is not None else 1e18):
                 if e == 0:
                     total += c.execute("select count(*) from samples where series = ? and time >= ? and time <= ?",
                                        (series, lo, hi)).fetchone()[0]
@@ -980,8 +996,10 @@ class Measurements:
         (each at its readings' last time), with the first and last readings kept exact (a week of
         readings every few seconds never reaches Python one by one)."""
         until = until if until is not None else time.time() + 1
-        if self.count(series, since, until) <= points * 2:
-            return self.range(series, since, until)
+        with self._c() as c:
+            src = self._sources(c, series, since, until)       # (worked out once for the count and the read)
+        if self.count(series, since, until, src=src) <= points * 2:
+            return self.range(series, since, until, src=src)
         first, last = self.first(series, since, until), self.latest(series, until)
         mid = [(t, mean) for _, mean, t, _ in self.bucketed(series, since, until, points) if first[0] < t < last[0]]
         return [first, *mid, last]
@@ -1194,8 +1212,12 @@ class Measurements:
         return rows
 
     def first_time(self) -> float | None:
+        """The oldest reading's time: each series' first, by its index (``samples_series``), never every reading."""
         with self._c() as c:
-            got = [c.execute("select min(time) from samples").fetchone()[0]]
+            got = [c.execute("with recursive s(x) as (select min(series) from samples union all select (select "
+                             "min(series) from samples where series > x) from s where x is not null) select "
+                             "min((select min(time) from samples where series = x)) from s where x is not null"
+                             ).fetchone()[0]]
             if self.tiers:
                 got.append(c.execute("select min(first_t) from tiers").fetchone()[0])
         return min((t for t in got if t is not None), default=None)
