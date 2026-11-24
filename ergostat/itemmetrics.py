@@ -2,6 +2,10 @@
 (``spec/itemindex.py``), never by replaying the log for a request and never one sample per event, and written once a
 minute to a store that keeps labels (VictoriaMetrics: ``Victoria.put``), so a panel asks them in PromQL.
 
+Below, each is named as the index tallies it, with a ``kind`` label; the store writes it under the kind's own name
+(``ergostat_items{kind="gap"}`` as ``gap_items``: ``Victoria.put``, promnames.item_labels), and only the index's own
+counters (events, rebuilds) keep ``ergostat_``.
+
 - ``ergostat_items{kind,state[,milestone]}``: a gauge, how many items are in each state (a stock);
 - ``ergostat_item_transitions_total{kind,from,to}``: a counter of moves (a flow). The system's two edges are states
   of their own: an arrival (a move with no ``from``) is ``from="(new)"``, an item the index forgets (its events all
@@ -334,7 +338,7 @@ def keep(p, spec, now: float | None = None, say=None) -> dict | None:
                                                base=(last, _keys(st.get("written"))) if again else None)
             finally:
                 c.execute("commit")
-        if rows:
+        if rows:                                      # (each kind's under its own name: Victoria.put)
             store.put(rows)
         new = {**st, "minute": max(r[1] for r in rows) if rows else start + MINUTE * (n - 1),
                "refused": sorted(f"{k or 'every kind'}: {a}" for k, a in out),
