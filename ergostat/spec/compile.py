@@ -1759,14 +1759,17 @@ class Compiler:
 
     def internal(self, spec: Spec) -> None:
         """A reference from outside an instance to a part its template does not export (SPEC §2a): a finding at the
-        referring part. An instance holds its own parts and every inner instance's; a part it holds refers freely."""
+        referring part. An instance holds its own parts and every inner instance's; a part it holds refers freely.
+        A part named by a parameter (``named``) is held, so it refers freely, but is the owner's, so never internal."""
         uses = spec.uses
         holds = {u: set(r.get("parts") or ()) for u, r in uses.items()}
+        inside = {u: holds[u] | set(r.get("named") or ()) for u, r in uses.items()}
         for u, r in uses.items():
             seen, at = {u}, r
             while at.get("outer") in uses and at["outer"] not in seen:    # the instance it was planned under, not
                 seen.add(at["outer"])                                        # its system placement (within:)
                 holds[at["outer"]] |= set(r.get("parts") or ())
+                inside[at["outer"]] |= set(r.get("parts") or ()) | set(r.get("named") or ())
                 at = uses[at["outer"]]
         closed = [(u, r) for u, r in uses.items() if r.get("exports") is not None]
         if not closed:
@@ -1788,7 +1791,7 @@ class Compiler:
                 for ref in reads(kind, x) if not getattr(x, "implied", False) else ():   # (keep-GOAL: its block's)
                     key = f"{ref.kind}.{ref.name}" if ref else ""
                     for u, r in closed:
-                        if key in holds[u] and me not in holds[u] and key not in r["exported"] and (me, key, u) not in said:
+                        if key in holds[u] and me not in inside[u] and key not in r["exported"] and (me, key, u) not in said:
                             said.add((me, key, u))
                             self.problems.append(Problem(
                                 "finding", f"{me}: {key} is internal to instance {u} (template {r['template']} exports: "

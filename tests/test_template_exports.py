@@ -169,6 +169,22 @@ def test_no_exports_means_all(tmp_path):
     assert len(internal(project(tmp_path, owner_goal("thing").replace("thing", "t-level"), tank="exports: []"))) == 1
 
 
+def test_parameter_named_part_reads_inward_freely(tmp_path):
+    # a template's own flow and goal named by a parameter are inside the instance: reading its internal spare is free
+    named = TANK.format(exports="params:\n  it: {type: name, default: thing}\n  g: {type: name, default: watch}\n"
+                                "exports: [stock.level]")
+    named = named.replace("  out: {from: spare}", "  ${it}: {from: spare}").replace("  low:", "  ${g}:")
+    path = project(tmp_path, "uses:\n  t:\n    use: tank\n")
+    (tmp_path / "lib" / "tank.yaml").write_text(named)
+    spec, _ = read(path)
+    assert "thing" in spec.flows and "watch" in spec.goals
+    assert internal(path) == []
+    # inside an outer instance too: plant's inner tank's parameter-named parts read the tank's spare freely
+    path = project(tmp_path, "uses:\n  p:\n    use: plant\n", plant="exports: [stock.feed]")
+    (tmp_path / "lib" / "tank.yaml").write_text(named)
+    assert [p.message.split(" is internal")[0] for p in internal(path)] == ["goal.p-inner: stock.p-in-spare"]
+
+
 def test_templates_tool_shows_exports(tmp_path):
     from ergostat.mcp import Server
     shown = json.loads(Server(tmp_path).call("templates", {"name": "respond-to"})["content"][0]["text"])

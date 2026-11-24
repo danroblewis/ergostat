@@ -37,11 +37,13 @@ def exports(t: tp.Template, inst: str, made) -> dict:
     given wholly by a parameter is the owner's, never internal), and, when its template declares ``exports:``, the
     refs it exports, as made."""
     full = (lambda n: n) if t.once else (lambda n: f"{inst}-{n}")
-    parts = sorted(f"{k}.{n}" for k, s in tp.EXPORT_SECTIONS.items() for n in made.sections.get(s) or {}
-                   if t.once or n.startswith(inst + "-"))
+    every = {f"{k}.{n}": t.once or n.startswith(inst + "-") for k, s in tp.EXPORT_SECTIONS.items()
+             for n in made.sections.get(s) or {}}
+    parts = sorted(x for x, own in every.items() if own)
+    named = sorted(x for x, own in every.items() if not own)   # inside the instance (refers inward freely), never internal
     if t.exports is None:
-        return {"parts": parts, "exports": None}
-    return {"parts": parts, "exports": list(t.exports),
+        return {"parts": parts, "named": named, "exports": None}
+    return {"parts": parts, "named": named, "exports": list(t.exports),
             "exported": sorted(f"{x.split('.', 1)[0]}.{full(x.split('.', 1)[1])}" for x in t.exports)}
 
 

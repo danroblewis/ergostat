@@ -80,3 +80,23 @@ kept: the record holds `outer`, `above`, `owner_runs` and the exports fields, an
 tests/test_templates.py (37 passed), tests/test_library_sandbox_sensors.py (9 passed, 4 skipped because bwrap cannot
 make namespaces in this container), and ruff (clean). scripts/demo_check.py was not run here. As in rounds 1 and 2 it
 is left to the merge queue.
+
+## Where it stopped
+
+Continued, round 2 (2026-11-24; 108 net lines outside tests and docs). Main (59600738eba5) was merged in first. It
+conflicted in ergostat/library/templates.py (main added `library` to Template beside the branch's `exports`) and
+ergostat/library/uses.py (main added `"library": t.library` to each use record beside the branch's `outer` and exports
+fields). Both sides are kept in each.
+
+The one finding of the earlier review (blocking): a part the instance made whose name is not INST-… (named wholly by a
+parameter, or by an owner-given kind) was left out of what the instance holds, so its own reads of an internal part were
+findings. Now each use record also holds `named`, those parts, and the compiler counts them inside the instance (and
+inside every instance it is planned under) when deciding who refers, while still never counting them internal. Test:
+test_parameter_named_part_reads_inward_freely (a template's own `${it}` flow and `${g}` goal reading its internal
+spare, alone and under plant); seen to fail (two false findings) with the check reading the old set. SPEC §2a says it.
+
+Ran: tests/test_template_exports.py (11 passed), tests/test_templates.py (38 passed),
+tests/test_library_sandbox_sensors.py (with exports: 20 passed, 4 skipped because bwrap cannot make namespaces in this
+container), ruff (clean). Not run: scripts/demo_check.py; the session refused
+`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/demo_check.py small-requests`.
+It is left to the merge queue, with test_no_example_reads_an_internal_part standing in, as before.

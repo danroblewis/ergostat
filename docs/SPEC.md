@@ -151,7 +151,8 @@ place or drawn alone, in both views, like any system. Templates may use template
 **Exports.** A template may say which of its parts are its public interface, `exports:`, a list of refs to parts
 written in its own sections (`stock.waiting`, `flow.x`, `auxiliary.y`, `goal.on-time`, `block.z`; an entry made by
 `each:` or named wholly by a parameter cannot be listed). A part named wholly by a parameter (`${kind}`) is the
-owner's name and is never internal. An entry naming no part it defines, or not a ref of those five kinds, makes the
+owner's name and is never internal; it is still inside the instance, so it reads the instance's internal parts
+freely. An entry naming no part it defines, or not a ref of those five kinds, makes the
 template unreadable (a `template-library` note, as any bad template; for an untrusted template each name must also be
 lowercase letters, digits and -, at most 64). An entry naming an inner use's part (`stock.INNER-x`) is checked once the
 use is expanded: if no inner use made that part, the use is an error, **bad-template**, at its `use:` line, naming the
