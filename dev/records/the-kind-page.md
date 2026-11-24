@@ -279,3 +279,55 @@ failing line), and a `cat >> … <<'EOF'` heredoc append to this file (done with
 Parked by the factory (merge-queue, 2026-11-23 12:03).
 
 Failed its gates 8 times (the kill rule); the last, in the merge queue: conflicts with main: docs/SPEC.md ergostat/web/static/pages.js ergostat/web/static/split.js tests/test_graph_cli_web.py tests/test_items_page.py
+
+Continued as gap/the-kind-page-continued, round 1, 2026-11-24. Main (59600738) merged in (ee5c0897).
+
+**How the conflicts were resolved.**
+- split.js: main's `/goals` and the branch's `/items/` both kept in `OTHER_PAGES`.
+- tests/test_graph_cli_web.py: main's `/goals` and the branch's two kind-page addresses both kept.
+- docs/SPEC.md §5a: the branch's *The kind's page* and main's *Where it went* and *Drawn alone* are separate
+  paragraphs, so all three are kept, in that order.
+- pages.js: main replaced the *Show finished* checkbox with the one *Finished items* choice (`finSeg`, `fin()`,
+  `finChosen`) and dropped Frontier and Collapse done. Main's code is kept, and the branch's `one` and `shut` sit on
+  it. The view switch is still drawn only on a kind's page (`if (one)`), now without main's removed `check` helper.
+  Main had added a *process map* link (`a.pm-link`) to each kind's card. The branch's card (`kindBar` plus its chart)
+  gets the same link (`pmOf`), next to the bar, not inside it, so the two bars still have the same markup. Main's
+  item page now draws `...went` (its path) where the branch had `track`. Main's is kept, with the branch's
+  `kindHref` for the timeline link.
+- tests/test_items_page.py: main's finished-choice tests (`fin_pressed`, `fin_choose`, the renamed
+  test_the_graph_draws_the_unfinished_with_the_finished_collapsed, the timeline's three finished cases, the
+  milestone frames' `finished`) are kept. They now open `/items/ticket?view=…` because the views are a kind's page's,
+  with the reason in each. The same applies to two of main's new tests that opened `/items?view=graph|timeline`
+  (test_rg_model_draws_each_finished_choice_on_a_chain, test_an_old_graph_address_opens_with_shown_and_the_choice_survives_a_view_switch).
+  The named-controls test takes main's `/goals` and keeps the branch's "no view switch on `/items?view=list`".
+
+**Added (the definition's section 3).** main now has diagram-draws-what-an-item-or-kind-touches, so *In the model*
+links "draw what it touches" (`/diagram?view=dynamics&kind=K`). The link is drawn only when something counts or
+takes the kind, because otherwise the diagram would only say it is not counted. SPEC §5a says so. Tested in
+test_a_kinds_page_shows_its_definition_and_model_place (the href) and test_an_uncounted_kind_says_so (no link).
+That is 3 lines of code. Net lines outside tests, docs and dev: 181 (232 added, 51 removed against main).
+
+**Tests run.** ruff is clean. Unit: tests/test_graph_cli_web.py (57), tests/test_items_overview.py,
+tests/test_legend_memory.py and tests/test_footprint.py (18), and tests/test_group_progress.py and
+tests/test_item_search.py (20), all passed. tests/test_diagram_rendering.py::test_items_links_each_kind_to_its_process_map_whose_states_say_how_many_are_there_now
+(main's `pm-link` test) passed. tests/test_items_page.py as a whole, under the watchdog with Playwright, was run
+three times: 96, 96 and 97 passed of 100. Failures:
+- test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart failed 3 of 3. It is the project-switcher
+  timeout (`#project`) reported in every round since round 1, on a path this branch does not touch.
+- test_every_surface_prints_the_servers_one_count_of_goals_off failed 3 of 3, and it fails on main. Main's test
+  asserts the Goals page's heading reads `Loops · goals off …`, but main's own `pageLoops` now titles it `Goals`
+  (`page(main, "Goals")`). This branch changes neither. Unrelated (lesson-13), left alone.
+- test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel failed 3 of 3 in the whole file and passed alone.
+  The cause is order: test_cost_is_stated_or_says_why_it_is_none_with_the_windows_total_and_on_an_item (line 471)
+  records leases on `hypothesis/4` with fences 1 and 2. The lease test then writes a `lease.taken` for
+  `hypothesis/4` with fence 1, which the fold does not take, so the item never appears. The two run together
+  reproduce it (1 failed, 1 passed). Both tests are main's, in main's order, and the branch touches neither, so this
+  fails on main too. Unrelated (lesson-13), left alone.
+- test_the_graph_and_the_timeline_left_open_change_nothing[graph] failed in 2 of the 3 whole-file runs (3 mutations:
+  a SPAN's `title`, a SPAN's and a BUTTON's children). It passed alone, after a 240 s wait, after the old-address
+  test, and after the two Timeline tests before it (5 runs). The mutated nodes match the graph legend's estimate
+  span and status keys, which come from the `items-graph` answer. Main's version of the test drew the same tickets'
+  answer on `/items?view=graph`. Its cause was not found here, so this is a flake not explained (lesson-10). It is
+  not shown to be unrelated.
+Not run: the unit suite, tests/test_diagram_rendering.py as a whole and the other browser files. Commands refused
+in this session: `git grep -n -A3 "def test_the_graph_and_the_timeline_left_open_change_nothing" main -- tests/test_items_page.py`.
