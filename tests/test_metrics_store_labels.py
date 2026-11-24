@@ -156,9 +156,11 @@ def test_a_model_source_named_ergostat_is_its_own(tmp_path, stub):
 def test_a_new_record_takes_victoriametrics_when_one_answers_and_an_old_one_keeps_sqlite(tmp_path, monkeypatch, stub):
     monkeypatch.delenv("ERGOSTAT_DEFAULT_MEASUREMENTS")
     monkeypatch.setattr(storage, "VM_URL", stub)
-    fresh, old, said = tmp_path / "fresh", tmp_path / "old", tmp_path / "said"
+    monkeypatch.setenv("HOME", str(tmp_path))                                 # (records under the default home)
+    own = tmp_path / ".ergostat"
+    fresh, old, said = own / "fresh", own / "old", own / "said"
     for d in (fresh, old, said):
-        d.mkdir()
+        d.mkdir(parents=True)
     (old / "measurements.db").write_bytes(b"")
     cfg = storage.Storage()
     assert storage.measurements_backend(cfg, old) == "sqlite"                 # an existing SQLite install, until it migrates
@@ -172,7 +174,48 @@ def test_a_new_record_takes_victoriametrics_when_one_answers_and_an_old_one_keep
     assert storage.measurements_backend(named, fresh) == "sqlite"             # the YAML decides
     monkeypatch.setenv("ERGOSTAT_DEFAULT_MEASUREMENTS", "sqlite")
     monkeypatch.setattr(storage, "VM_URL", stub)
-    assert storage.measurements_backend(cfg, tmp_path / "said") == "sqlite"
+    assert storage.measurements_backend(cfg, said) == "sqlite"
+
+
+def test_a_fresh_ergostat_home_never_writes_to_a_server_answering_unless_asked(tmp_path, monkeypatch, stub):
+    """A script's, demo's or benchmark's throwaway ERGOSTAT_HOME, with a live VictoriaMetrics answering at the default
+    address and no backend in the YAML: its record is SQLite, the server is not even asked, and nothing reaches it."""
+    monkeypatch.delenv("ERGOSTAT_DEFAULT_MEASUREMENTS")
+    monkeypatch.setattr(storage, "VM_URL", stub)
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "throwaway"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    Stub.seen.clear()
+    p = project(repo)
+    p.measurements.add_many([("sensor/queue.depth", time.time() - 60, 1.0)])
+    assert not storage.in_default_home(p.dir)
+    assert p.measurements.name == "sqlite" and (p.dir / "measurements.db").exists()
+    assert not (p.dir / "measurements.backend").exists() and Stub.seen == []
+    monkeypatch.setenv("ERGOSTAT_DEFAULT_MEASUREMENTS", "victoriametrics")    # asked: then it does
+    assert storage.measurements_backend(storage.Storage(), tmp_path / "throwaway" / "other") == "victoriametrics"
+
+
+def test_reset_keeps_a_sqlite_record_on_sqlite(tmp_path, monkeypatch, stub):
+    """``ergostat reset --yes`` deletes measurements.db; under the default home with a server answering, the record
+    it leaves is still SQLite, never silently VictoriaMetrics-backed."""
+    from ergostat.cli import main
+    monkeypatch.delenv("ERGOSTAT_HOME")
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))                       # the default home
+    monkeypatch.setattr(storage, "VM_URL", stub)                             # a server answering there
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    p = project(repo)                                                        # (made SQLite: the fixture's default)
+    p.measurements.add_many([("sensor/queue.depth", time.time() - 60, 1.0)])
+    assert storage.in_default_home(p.dir) and (p.dir / "measurements.db").exists()
+    monkeypatch.delenv("ERGOSTAT_DEFAULT_MEASUREMENTS")
+    assert main(["-C", str(repo), "reset", "--yes"]) == 0
+    assert not (p.dir / "measurements.db").exists()
+    assert storage.measurements_backend(storage.Storage(), p.dir) == "sqlite"
+    assert project(repo).measurements.name == "sqlite"
+    fresh = p.dir.parent / "fresh-0"                                         # (whereas a new record here is asked)
+    fresh.mkdir()
+    assert storage.measurements_backend(storage.Storage(), fresh) == "victoriametrics"
 
 
 def _spec(tmp_path, text: str):

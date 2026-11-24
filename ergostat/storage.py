@@ -234,11 +234,22 @@ def _answers(url: str) -> bool:
         return False
 
 
+def in_default_home(directory: Path) -> bool:
+    """A record under the default home, ``~/.ergostat``: an install's own. A record under any other home (a script's,
+    a demo's, a benchmark's, a trial's throwaway ``ERGOSTAT_HOME``) is not, whatever answers at VM_URL."""
+    try:
+        return Path(directory).resolve().parent == (Path.home() / ".ergostat").resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
 def measurements_backend(cfg: Storage, directory: Path) -> str:
     """The measurements backend: the one the YAML names; else a record that has one keeps it (``measurements.db``,
-    an existing SQLite install, until it migrates; or the mark a new record's choice left); else, for a new record,
-    VictoriaMetrics when one answers at VM_URL (the default for new installs, so a fresh dashboard's PromQL has data),
-    and SQLite when none does. ``ERGOSTAT_DEFAULT_MEASUREMENTS`` (sqlite or victoriametrics) decides instead of asking."""
+    an existing SQLite install, until it migrates; or the mark a new record's choice left, or ``reset`` kept); else,
+    for a new record under the default home, VictoriaMetrics when one answers at VM_URL (the default for new installs,
+    so a fresh dashboard's PromQL has data), and SQLite when none does or the record is under another home (so a
+    throwaway home never writes into a live server). ``ERGOSTAT_DEFAULT_MEASUREMENTS`` (sqlite or victoriametrics)
+    decides instead, for any home."""
     d = Path(directory)
     if cfg.measurements_set:
         return cfg.measurements
@@ -252,7 +263,8 @@ def measurements_backend(cfg: Storage, directory: Path) -> str:
             got = ""
         return got if got in MEASUREMENT_BACKENDS else "victoriametrics"
     env = os.environ.get("ERGOSTAT_DEFAULT_MEASUREMENTS")
-    got = env if env in MEASUREMENT_BACKENDS else "victoriametrics" if _answers(VM_URL) else "sqlite"
+    got = (env if env in MEASUREMENT_BACKENDS else
+           "victoriametrics" if in_default_home(d) and _answers(VM_URL) else "sqlite")
     if got == "victoriametrics":
         try:
             mark.write_text(got + "\n")

@@ -175,7 +175,8 @@ section: Runtime, scale and latency
   sensor}`, `ergostat_run_cost_usd{block}`, ...). The built-in `ergostat` data source answers PromQL for the project's
   own series; over SQLite, a panel naming it says what it needs. `ergostat migrate` copies the readings idempotently,
   reads each series back, and fails naming any reading the server did not keep (its `-retentionPeriod`).
-  `storage: measurements: run:` supervises the server, and a new record takes VictoriaMetrics when one answers. Left:
+  `storage: measurements: run:` supervises the server, and a new record under the default home (`~/.ergostat`)
+  takes VictoriaMetrics when one answers; any other `ERGOSTAT_HOME` stays on SQLite unless asked. Left:
   the five real-binary tests have not been seen to pass (no binary where it was built); labels declared per sensor;
   the engine's reads through VictoriaMetrics were measured slow before and are not re-measured.
 
@@ -266,3 +267,49 @@ Still not proven: no VictoriaMetrics binary is in this container (`which victori
 vmsingle` finds none), so the five real-server tests skipped again, and done items 1 and 2 have no passing run. The
 coordinator should run `tests/test_metrics_store_labels.py` with `ERGOSTAT_TEST_VM_BIN` set before landing. Not run:
 the whole unit suite, the four browser files and `demo_check` (no example touched).
+
+## Where it stopped
+
+Round 7, the fix round: built, 2026-11-24. About 20 net lines of code changed this round (storage.py and
+cli/record.py), well inside the budget.
+
+The queue's one finding (blocking), answered in each of its parts:
+- **Throwaway homes wrote into a live server.** I took the finding's second option, which is the most reversible: the
+  probe is taken only for the default home. `storage.in_default_home(d)` is true only when the record's directory sits
+  directly under `~/.ergostat`. A new record under any other `ERGOSTAT_HOME` takes SQLite without asking the server,
+  even when one answers at 127.0.0.1:8428. That covers every script the finding names (demo_check, demo_up, loadtest,
+  latency_bench, scale_bench, factory_fixture), and also daemon_bench, gated_check, authoring_bench, layout_survey,
+  modelling_well_shots, dev/conformance, library trial and author, with no edit to each. So their readings never reach
+  the live server, never share its `project` label, and the benchmarks measure the SQLite store they report.
+  `ERGOSTAT_DEFAULT_MEASUREMENTS=victoriametrics`, or the YAML naming the backend, still asks for it under any home.
+  - The cost of this choice: an owner who runs a real install under a non-default `ERGOSTAT_HOME` does not get the
+    automatic default. They name the backend in the YAML or set the variable. The guide (§6a) and SPEC §4b say so.
+    To undo it, drop the `in_default_home(d) and` condition in `storage.measurements_backend`.
+- **`ergostat reset --yes` switched a SQLite install.** When reset deletes a `measurements.db`, it now writes the mark
+  `measurements.backend` = `sqlite`. The mark is not in the reset's delete list, and storage reads it before any probe,
+  so the reset record stays SQLite. A record that was VictoriaMetrics-backed keeps its own mark, as before.
+- **The test the finding asked for.** `test_a_fresh_ergostat_home_never_writes_to_a_server_answering_unless_asked`
+  uses a stub server answering `/health` OK at VM_URL, a fresh `ERGOSTAT_HOME`, and no backend in the YAML. It writes a
+  reading through a real `Project`. The record is SQLite, no mark is left, the stub received no request at all, and the
+  same home with `ERGOSTAT_DEFAULT_MEASUREMENTS=victoriametrics` takes VictoriaMetrics. Also new:
+  `test_reset_keeps_a_sqlite_record_on_sqlite`, which runs under the default home with a server answering. After
+  `reset --yes` the record is still SQLite, while a new record beside it is still asked. The default test from round 3
+  now places its records under a default home (`HOME` set to the test's folder).
+
+Seen to fail when the code they guard was broken, then put back:
+- probing for every home failed the throwaway-home test (the reading went to the stub's `/api/v1/import`);
+- not writing the reset mark failed the reset test (`victoriametrics`, not `sqlite`).
+
+Still not proven: no VictoriaMetrics binary is in this container (`which victoria-metrics victoria-metrics-prod
+vmsingle` finds none), so the five real-server tests skipped again. Done items 1 and 2 still have no passing run behind
+them. The coordinator should run `tests/test_metrics_store_labels.py` with `ERGOSTAT_TEST_VM_BIN` set before landing.
+
+Run here, one file at a time:
+- test_metrics_store_labels: 14 passed, 5 skipped (the real-server tests).
+- test_dashboards_doc, test_storage and test_spec_structure: 52 passed.
+- test_graph_cli_web::test_reset_forgets_the_record_and_nothing_else, test_cli_fallback and test_data_sources: 37
+  passed.
+- ruff is clean.
+
+`main` (b9341591) is already merged and has not moved. Not run: the whole unit suite, the four browser files (no page
+changed) and `demo_check` (no example touched).

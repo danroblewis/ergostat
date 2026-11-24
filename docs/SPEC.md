@@ -1035,9 +1035,14 @@ backfilled before is sent again by a later `--backfill`.
 
 **The default** when the YAML names no backend: a record that has one keeps it (`measurements.db`: an existing SQLite
 install, until it migrates and names `victoriametrics`; or `measurements.backend`, the mark a new record's choice
-leaves, so a server that is away is never read as "use SQLite"). A new record takes `victoriametrics` when one answers
-at `http://127.0.0.1:8428` (`/health`, within half a second) as it is first opened, and `sqlite` when none does.
-`ERGOSTAT_DEFAULT_MEASUREMENTS` (`sqlite` or `victoriametrics`) decides instead of asking (the tests set `sqlite`).
+leaves, so a server that is away is never read as "use SQLite"; `ergostat reset` leaves the mark `sqlite` when it
+deletes a `measurements.db`, so a reset SQLite install stays SQLite). A new record under the default home
+(`~/.ergostat/<key>`) takes `victoriametrics` when one answers at `http://127.0.0.1:8428` (`/health`, within half a
+second) as it is first opened, and `sqlite` when none does. A new record under any other `ERGOSTAT_HOME` (the
+throwaway homes of the demo checks, load tests, benchmarks, the factory fixture and library trials) takes `sqlite`
+without asking, so it never writes into a live server, whose `project` label it could share.
+`ERGOSTAT_DEFAULT_MEASUREMENTS` (`sqlite` or `victoriametrics`) decides instead of asking, under any home (the tests
+set `sqlite`).
 Ergostat starts no server of its own accord: one runs because the owner runs it, or names it in `run:`.
 
 **Supervised** (`run:`, with `backend: victoriametrics`). The command becomes the daemon `victoriametrics` (section

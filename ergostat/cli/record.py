@@ -368,6 +368,8 @@ def cmd_reset(args) -> int:
         return 0
     for f in gone:
         shutil.rmtree(f) if f.is_dir() else f.unlink()
+    if p.dir / "measurements.db" in gone:          # a SQLite record stays SQLite: the mark storage reads (never re-asked)
+        (p.dir / "measurements.backend").write_text("sqlite\n")
     if logs.is_dir():
         shutil.rmtree(logs)
     print(f"forgot {p.model.name}'s record ({p.dir}); the next run starts from nothing")
