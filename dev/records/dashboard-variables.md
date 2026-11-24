@@ -361,3 +361,28 @@ Refused here: nothing.
 Parked by the factory (merge-queue, 2026-11-23 16:12).
 
 Failed its gates 8 times (the kill rule); the last, in the merge queue: conflicts with main: docs/SPEC.md ergostat/datasources/__init__.py ergostat/query/engine.py
+
+### Continued, round 1
+
+The park's only cause was the conflicts with main (b9341591). They are answered by the merge at ba6a1b85. Main had
+added the `sql` source, which reads the project's own items through `ASKING`, so `datasources.query` takes the project
+asking (`project=`). Each conflict keeps both sides:
+- `datasources/__init__.py`: the branch's `_source`, `_text` and `values` are kept. `query` takes both the branch's
+  `given` (the variables) and main's `project`, and sets `ASKING` around the type's call as main does.
+- `query/engine.py`: `_from_source` passes both `q.given` and `project=p`.
+- SPEC §4e: the branch's *Variables* paragraph and main's *The SQL source* paragraph are both kept, in that order.
+- `sql` has no interpolation rules, so a variable used in a SQL query is refused (fail closed), as SPEC already says
+  of a language with no rules. Adding SQL rules is not in this gap's definition.
+
+No code changed beyond the merge. The size is 428 net lines outside tests, docs and dev (503 added, 75 removed in
+`ergostat` and `scripts`, measured against main; budget 600).
+
+Run here, after the merge:
+- ruff is clean.
+- Unit files: test_dashboard_variables, test_data_sources and test_query_engine (89 passed); test_sql_source,
+  test_result_shapes and test_promql_suggest (31 passed).
+- Under the watchdog, all with rc 0 and none skipped: test_dashboard_variables_page and test_sql_editor (11 passed);
+  test_dashboard_page, test_dashboard_layout and test_data_source_panels (78 passed).
+- Not run: the whole unit suite and the four browser files (the factory's job).
+
+Refused here: nothing.
