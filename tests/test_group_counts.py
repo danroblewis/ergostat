@@ -110,6 +110,7 @@ def test_a_known_yield_is_recovered_within_stated_bounds(tmp_path, monkeypatch):
     assert abs(a["lost"]["mean"] - MEMBERS * 0.2 * 101 / 200) <= 1.0, a
     s = forecast.asked(fc, yields.parse({"group": "lot/A", "at_least": "40", "confidence": "0.9"}))
     assert abs(s["start"]["n"] - least_start(40, 0.9, 0.8)) <= 2, s
+    assert s["start"]["n"] == least_start(40, 0.9, s["start"]["yield"]), s   # exact, at the yield it simulated
     assert abs(s["chance"] - binom_tail(MEMBERS, 40, 0.8)) <= 0.1, s
     by = {k: (p50, p90) for k, p50, p90 in c["by"]}                           # the k-th out's date
     assert len(by) == MEMBERS and by[1][0] <= by[20][0] <= by[20][1]
@@ -158,6 +159,7 @@ def test_a_job_shop_with_rework_gets_correct_group_answers():
     assert abs(asked(by=t0 + 3661, at_least=2)["chance"] - 0.49) <= 0.1
     s = asked(at_least=28, confidence=0.9)
     assert abs(s["start"]["n"] - least_start(28, 0.9, y)) <= 1, s       # (28 / y, ignoring the spread: 30)
+    assert s["start"]["n"] == least_start(28, 0.9, s["start"]["yield"]), s   # exact, at the yield it simulated
     assert asked(at_least=30)["chance"] <= binom_tail(30, 30, y) + 0.1     # all 30 out: about one run in eight
     plain = eta.simulate(inp, sets=sets)                  # the counts kept change nothing the forecast said before
     assert plain["items"] == sim["items"] and plain["sets"] == sim["sets"] and plain["counts"] == {}
