@@ -1008,7 +1008,8 @@ the item's page shows "Show the full history", which reads them (`/api/items/ID?
 at a time). A transcript read again from its start records none of its rolled-up lines.
 
 **Keeping.** `keep:` (top level, default 30 days) is how long events are kept: older ones are
-forgotten, except the model's history (`model.changed`) and each loop's last crossing. An item is
+forgotten, except the model's history (`model.changed`), each loop's last crossing and the operating
+states' events (`ergostat.operating.*`, §9.5: an item holding one is never rolled up either). An item is
 forgotten whole, once nothing about it is newer than `keep`; until then its older events are in its
 snapshot (the engine never keeps more than `keep` outside one). Archive months older than `keep`
 are deleted.
@@ -4321,6 +4322,116 @@ the set; none, `BLOCK is working nothing now`. The list is read again every 4 s 
 taken or ended comes or goes without a reload, and its clocks (taken for, expires in, overdue) move on each read; a
 read that draws the same as the last leaves the panel alone. Its words are taken and
 being worked, never held (docs/vocabulary.md).
+
+#### Operating states
+
+An operating state is a situation of the whole model that schedules its limits
+(`docs/proposals/coordinator/08-modes-and-protection.md` §2): entered by the owner's typed act or by a goal's
+trip, left by the owner, and, while it is entered, capping the pool of every block that takes items. Gates and acts
+scheduled by state, bypass leases, act risk, the budget permissive and the owner's presence are not built yet
+(docs/GAPS.md).
+
+**Declared.** A model may have a top-level `operating:` section, each entry a state named like a part
+(`^[a-z0-9][a-z0-9-]{0,63}$`):
+
+```yaml
+operating:
+  incident:
+    rank: 3
+    pool: 0
+    description: harm found; nothing new starts until the owner has looked
+  freeze:
+    rank: 2
+    pool: 0
+    description: the mainline is red; running work finishes, nothing new starts
+    trips:
+      mainline-green: {}                  # its crossing (loop.off) enters freeze
+      tests-read: {unknown-after: 2h}     # and so does its part going unread for 2 h
+  maintenance:
+    rank: 1
+    pool: 1
+    description: one run at a time while the owner works on the system
+```
+
+`rank:` is a whole number, 1 or more, unique among the states; the higher takes precedence. `pool:` (0 or more) is
+the most runs at once of each block that takes items while the state is entered; left out, the state sets no cap.
+`trips:` maps a goal to `{}` (its crossing) or `{unknown-after: DURATION}` (its crossing, and its part unread). The
+compiler refuses each mistake with its own code: `bad-name`, `bad-number` (rank or pool), `rank-taken`, `unknown-ref`
+(a trip on no goal), `bad-duration`, `unknown-after-unmeasured` (unknown-after on a goal whose part has no sensor),
+`unknown-key`, and `pool-rises-with-rank`: going up the ranks a pool stays the same or falls, no cap counting as
+infinite. That last one is for readability only (the higher state reads as the stricter one); what keeps dispatch safe
+is that the pool in force is the least among the states entered, whatever their ranks. A model without `operating:`
+gets nothing: no built-in kind, no read of the record, no trip check.
+
+The section is shared with the operating state of §12k (*The operating state*): its key `away-after:` is the owner's
+presence setting, never a state, and every other key is a declared state. So `operating: {away-after: 2h}` alone
+declares no state. The two are separate layers. The §12k state (normal, maintenance, freeze, incident, entered with
+`ergostat operating freeze`) picks each gated action's column; a declared state (entered with `ergostat operating
+enter freeze`) caps the pools, even when the names match. The §12k fold passes over the declared states' events
+(`ergostat.operating.entered`, `.left`, `.watching`); any other unknown `ergostat.operating.*` still reads there as
+incident.
+
+**Folded from the record.** With `operating:` declared, the built-in kind `ergostat.operating` has one item per
+state, `ergostat.operating/<state>`, `entered` or `left`, moved by `ergostat.operating.entered` and
+`ergostat.operating.left`, with fields `by` (owner, run or trip), `why`, `since` and `trips` (`{goal, spell,
+event}`, each trip that entered it). An `entered` on a state entered keeps it entered and adds its trip; one after a
+`left` starts afresh (the earlier `by`, `why` and `trips` are gone). The fold refuses a `left` recorded during a run
+(its `causedby` set). It shows in the Items tab like any kind. The state in force is the highest-ranked state
+entered, and its pool the **least pool among all the states entered**. A state entered that the model no longer
+declares counts as pool 0 until it is left; a record that cannot be read gives pool 0, whatever the states' pools.
+
+Removing the whole `operating:` section is the one exception: the model then reads nothing about states, so every
+state entered is lifted, with no `left` in the record. Putting the section back holds them again (the record kept
+them). A model change is the owner's to make, or a change the model's own judge accepted under `accept:`; leave the
+states before removing the section.
+
+**Entered and left.** `ergostat operating` lists the states after the §12k state's line (rank, pool, entered or
+left, by, since, the trips that entered it; with `--json`, under `declared`); `ergostat operating enter NAME --why TEXT` and `ergostat operating leave NAME --why TEXT` are the owner's
+acts, and `leave` works for any state entered, declared or not. From a run (`ERGOSTAT_RUN` in its environment) `leave`
+is refused (exit 1) and `enter` is allowed, toward the safe state, recorded as caused by the run with `by: run`. Only
+the owner leaves a state (or removes the section, above: a change the model's judge accepted can do that too), and
+trips never do; that is enforced for a run that carries its environment or records through ergostat (the CLI's
+check, the fold's refusal of a `left` caused by a run). A process that writes the record by other means is not
+stopped by it: that is the sandbox's job.
+
+**Trips.** The dispatcher's thread looks at every trip once a second, holding its lock across the read, the
+decision and the write. Only the lead's dispatcher looks (§9.8: the lead shard's engine, or the one engine of the
+whole model), so engines of several shards never check one trip twice; the others' pool still comes from
+`in_force`. Each trip `(state, goal)` has a current **spell**, read from the record only:
+
+- *crossing*: the goal's newest unvoided `loop.*` event is `loop.off`: the spell `off:<its id>`. The engine restores
+  each goal's status from the record when it starts, so a restart records no new `loop.off` for a goal already off.
+- *unread* (with `unknown-after:`): each sensor of the goal's part has a clock of its own, starting at its newest
+  reading, and a spell of its own: past `unknown-after`, `unread:<sensor>:<its reading's time>`. So one live sensor
+  never hides a dead one, and a sensor whose silence the owner has left never hides another's later silence. When a
+  sensor was never read, its clock starts at the trip's `ergostat.operating.watching` event (about `goal.<name>`,
+  data `{state}`), written once by the first look that finds a sensor never read, and its spell is
+  `unread:<sensor>:never`. The engine's start time is never used, so a restart neither resets nor restarts the
+  clock, and time asleep counts. A sensor added to a part later and never read starts from that trip's watching
+  event if one was written earlier, so it may trip at once; if every sensor had been read until then, the first
+  look that finds it unread writes the watching event, and its clock starts there.
+
+The events of `ergostat.operating.*` (entries, leaves, watching) are never rolled up into a snapshot nor forgotten
+past `keep` (§4b), so a spell the owner left stays answered and a watching clock is never restarted, however old.
+
+A trip fires once per spell: a spell no earlier `entered` of the state names is recorded as `entered` (`by: trip`,
+`goal`, `spell`; caused by the `loop.off` for a crossing), whether the state is entered already or not, so the
+owner's later `leave` covers it. Spells are compared for equality on what was read (event ids, stored reading
+times), never as newer or older: the owner's `leave` is not undone by the same crossing or the same silence, on later
+looks or after a restart; a new crossing, or a new reading and a new silence, is a new spell. When a trip's inputs
+cannot be read, nothing is recorded, the engine says why, and the lead's dispatch uses pool 0 until a look reads
+them cleanly. That hold is the lead's alone: with several shards, the other shards' dispatchers are not held by it
+and cap their blocks by `in_force` only.
+
+**Scheduling the pool.** Each look reads the state in force once; a block's room is `min(pool, the state's pool)`
+less its runs in flight (and its daemon's room, as before), so a state never raises a pool. Under pool 0 nothing new
+is leased; runs already holding leases are not killed and end as usual. `ergostat block NAME --now` still ignores the
+block's pool, but is refused under pool 0, naming the state. Right after a lease is written the state is read again:
+when it now leaves no room for this run, counting the runs in flight (a `--now` run: only under pool 0), the lease
+ends at once (nack, `count: false`, why `operating state X entered`), the item is back where it was taken from with
+its attempts unchanged, and no run starts. An entry recorded before the lease is seen by that read; one after it is
+work that started before the state and finishes under it. Blocks that take no items (`every:`, `cron:`,
+commanded) run as before.
 
 ### 9.6 The observer: stale readings and estimated stocks
 

@@ -155,8 +155,7 @@ def operating(c, spec) -> None:
     if not isinstance(m, dict):
         c.err("operating: a map (away-after: 2h)", w, "not-a-map")
         return
-    c.keys(m, {"away-after"}, "operating")
-    v = m.get("away-after")
+    v = m.get("away-after")                             # (every other key: a declared state, ergostat/operating/compile.py)
     if v is None:
         return
     try:
