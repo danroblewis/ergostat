@@ -63,6 +63,25 @@ All three breaks were reverted.
 
 Left: nothing in the definition.
 
+Round 2: the review's one finding answered (it was the only finding, blocking; no non-blocking ones were raised).
+- Finding: a `libraries:` map refused as a whole by `sources.check` (one bad entry, name or key, or more than 16) left
+  `doc.libraries` empty, so `ergostat library` said `has no libraries:` with rc 0 and check printed no library note.
+  Changed: `fetched.take()` now describes every raw entry of a refused map as refused, with the section's code and a
+  reason naming the field (`the libraries: section is refused at FIELD, so none of its libraries is used`); its values
+  are kept only when they are strings, and `line()` prints name, git, version and path through `printable` (`no git URL`
+  / `no version` when absent). That reason comes from the owner's own file, not a library copy, so it is not marked
+  (`SECTION` codes). check lists them as notes beside the section's error. `ergostat library` prints the same lines,
+  says the section's error on stderr and exits 1; a `libraries:` that is not a map lists nothing, says the error, exits
+  1, never `has no libraries:`. SPEC §2a says so.
+- Test: test_listing_says_refused_section (a good entry beside a malformed one and one with an escape in its URL; then
+  a list in place of the map). Broken on purpose and seen to fail twice: the raw-entry loop emptied (no lines), and the
+  rc held at 0. Both reverted.
+- Size: about 14 net lines more in ergostat/ (`git diff --stat` of this round: fetched.py +12 -4, cli/library.py +11 -5),
+  about 94 in all, within 110.
+- Run: tests/test_library_fetch.py (27), tests/test_library_fetch_load.py (7), tests/test_cli_fallback.py (18),
+  tests/test_templates.py (38), tests/test_library_tree.py (6), one file at a time, all pass; ruff clean. `main` has not
+  moved since the clone (nothing to merge). The unit suite and browser files were not run here; no page changed.
+
 ## Entry
 
 entry-of: shared-libraries

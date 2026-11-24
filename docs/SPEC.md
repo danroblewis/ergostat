@@ -562,7 +562,10 @@ the gate decides per use, as above; a template with no program says it too). `ch
 `library` (in `--json` too, `about: library.NAME`), even beside errors, never one itself; nothing without
 `libraries:`:
 `library NAME: URL [(path P)] @ VERSION (commit C), trust T, N templates; programs: TEMPLATE WHERE, ...` and, when it
-is refused, `; refused, CODE: REASON` (an untrusted library's reason marked, since it may name its files). `ergostat
+is refused, `; refused, CODE: REASON` (an untrusted library's reason marked, since it may name its files). When the
+`libraries:` map itself is refused (one bad entry, name or key, or more than 16), every entry in it is listed as refused
+with that code and the field (`no git URL` or `no version` where it has no such string), and `ergostat library` says the
+section's error on standard error and exits 1 (a map that is not a map lists nothing). `ergostat
 library` with no subcommand prints the same lines, starts no git (or any other) process and writes nothing of its own
 (its load, as every load, may still refresh a remote system's cached model, section 4c); a main file that does not
 read is listed from the last good model, said on standard error. The `templates` tool gives each fetched template

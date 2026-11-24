@@ -73,11 +73,14 @@ def listing(main, data, bad) -> int:
     """``ergostat library``: each library as load reads it (fetched.described): no git process, nothing written. A
     main file that does not read is listed from the last good model (goodmodel.fallback), said on standard error."""
     from .. import goodmodel
-    from ..library.fetched import line
-    from ..library.untrusted import OPEN, SAYS
+    from ..library.fetched import SECTION, line
+    from ..library.untrusted import OPEN, SAYS, printable
     from ..spec.load import load
+    refused = []                                  # the libraries: section itself refused (sources.check): rc 1
     if data is not None:
-        libs = load(main).libraries
+        doc = load(main)
+        libs = doc.libraries
+        refused = [p for p in doc.problems if p.level == "error" and p.code in SECTION]
     else:
         p = goodmodel.fallback(main.parent, ValueError(f"{main.name}\n{bad[0] if bad else 'not a map of sections'}"))
         if p is None:
@@ -86,6 +89,9 @@ def listing(main, data, bad) -> int:
             return 2
         libs = p.model.spec.libraries
     lines = [line(d) for d in libs.values()]
-    print("\n".join(lines) if lines else f"{main.name} has no libraries:")
+    if lines or not refused:
+        print("\n".join(lines) if lines else f"{main.name} has no libraries:")
     print(f"\n{SAYS}" if any(OPEN in x for x in lines) else "", end="")
-    return 0
+    for p in refused:
+        print(f"{main.name}: {printable(p)}", file=sys.stderr)
+    return 1 if refused else 0

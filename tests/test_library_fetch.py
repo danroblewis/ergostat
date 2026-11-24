@@ -621,6 +621,28 @@ def test_listing_says_refused_library(tmp_path, capsys):
     assert rc == 0 and a in out.splitlines() and b in out.splitlines(), out
 
 
+def test_listing_says_refused_section(tmp_path, capsys):
+    """One malformed entry refuses the whole libraries: map (sources.check): each entry, the good one too, is listed
+    as refused with the section's code and field, never as no libraries; ``ergostat library`` exits 1."""
+    d, _ = two(tmp_path, capsys)
+    good = lib(tmp_path / "up", trust="owner")
+    libs = {"a": good, "c": {"git": 5, "x": "y"}, "e": {"git": "\x1b[2J", "version": "v1"}}
+    (d / "ergostat.yaml").write_text(yaml.safe_dump({"name": "lf", "libraries": libs}))
+    why = "refused, bad-library-source: the libraries: section is refused at libraries.c: an entry of git, version, path"
+    rc, out, _ = said(d, capsys, "check")
+    got = [x for x in out.splitlines() if x.startswith("library ")]
+    assert rc == 1 and len(got) == 3 and all(why in x for x in got), out
+    assert got[0].startswith(f"library a: {good['git']} @ v1 (commit not pinned), trust owner, 0 templates"), got
+    assert got[1].startswith("library c: no git URL @ no version (commit not pinned), trust untrusted"), got
+    assert got[2].startswith("library e: \\u001b[2J @ v1") and "\x1b" not in out, got
+    rc, out, err = said(d, capsys, "library")
+    assert rc == 1 and out.splitlines() == got and "has no libraries" not in out, out
+    assert "refused, bad-library-source" in err, err
+    (d / "ergostat.yaml").write_text(yaml.safe_dump({"name": "lf", "libraries": ["a"]}))   # not a map: nothing to list
+    rc, out, err = said(d, capsys, "library")
+    assert rc == 1 and out == "" and "libraries: refused, bad-library-source" in err, (out, err)
+
+
 def test_templates_tool_carries_library_pin(tmp_path, capsys):
     d, e = two(tmp_path, capsys)
     got = {t["template"]: t for t in author.library(d)["templates"]}
