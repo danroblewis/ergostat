@@ -197,3 +197,29 @@ Tests:
   the same three files were run again. It covers `Engine.run_block` and `stream.follow`, which this branch does not
   touch.
 - Not run here: the whole unit suite and the four browser files (no page changed). The factory runs them.
+
+## Where it stopped
+
+Round 2 of the continued gap (gap/status-is-a-maintained-projection-2-continued-2), on main as of 59600738 (merged;
+its one conflict, `_Head.__init__` in `ergostat/segments.py`, keeps both main's `by_key` and the branch's `t_min`).
+All three done items stay built and their tests pass. Net code outside tests, docs and dev: +327 lines (532 added, 205
+deleted) of the 600, for the whole branch.
+
+The review's one finding, and what changed:
+- `state._sensor_for`'s module-level `_BY` cache was checked and then read again with nothing held between, so another
+  thread or model replacing it in that gap could hand a call another model's sensors (lesson-1). The cache is now a
+  tuple read once into a local and replaced whole by assignment; the check and the read use that one tuple, so a
+  swap by another caller changes only what later calls see. Keying it per model (a WeakKeyDictionary) was the other
+  option; the tuple keeps one model's cache as before and needs no hashable or weak-referenceable model.
+- No other module-level mutable state was added by the branch (`_PIN` and `_NEWEST` are thread-local, `TICKS` is a
+  constant).
+
+Tests:
+- `tests/test_state_sensor_cache.py` (new): 2 pass. The first puts the competing write in the gap: a sensors dict
+  whose `len()` makes another model take the cache between the check and the read. Seen to fail with the old read of
+  the shared cache put back (`['theirs'] == ['ours']`).
+- Run again after the merge, passing: test_status_reads_projections (4), test_index_projections (13),
+  test_segments_keyed (7), test_lease_watch_slices (2), test_measurements_read_together (2), test_runner_and_state
+  (47), test_item_index (59), test_store_conformance (46 passed, 12 skipped: VictoriaMetrics with no server, stores
+  with no tiers). Ruff clean.
+- Not run here: the whole unit suite and the four browser files (no page changed). The factory runs them.

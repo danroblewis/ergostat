@@ -45,17 +45,22 @@ def _crossings(project, loops: list[str], since: float, until: float) -> dict[st
     return got
 
 
-_BY: list = [None, 0, {}]      # the model's sensors last asked of, how many, and each part's (what measures it)
+_BY: tuple = (None, 0, {})     # the model's sensors last asked of, how many, and each part's (what measures it)
 _NEWEST = threading.local()    # while a snapshot is made: the store's newest reading of every series (``_latest``)
 
 
 def _sensor_for(m, target: str) -> list:
-    if _BY[0] is not m.sensors or _BY[1] != len(m.sensors):
+    # (the cache is read once into ``got`` and replaced whole: another thread or model swapping it between the
+    # check and the read cannot hand this call another model's sensors)
+    global _BY
+    got, sensors = _BY, m.sensors
+    if got[0] is not sensors or got[1] != len(sensors):
         by: dict[str, list] = {}
-        for s in m.sensors.values():
+        for s in sensors.values():
             by.setdefault(s.measures, []).append(s)
-        _BY[:] = [m.sensors, len(m.sensors), by]
-    return list(_BY[2].get(target, ()))
+        got = (sensors, len(sensors), by)
+        _BY = got
+    return list(got[2].get(target, ()))
 
 
 def _latest(project, series: str, at: float | None):
