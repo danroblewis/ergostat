@@ -154,4 +154,8 @@ third caller outside the Files list, changed as the other two were: it now count
 one. The helper `intake(fn, args)` takes the extra argument. No other `intake.twice` caller is left in tests/, dev/
 or scripts (the mentions left are in other gaps' records, which say what they were). dev/bin is unchanged this round
 (+22 net lines against main, budget 50). Not seen to fail with the code broken: the pinned fixture cannot be edited,
-and the count is the same one the factory and backlog tests (seen to fail in rounds 1 and 2) use.
+and the count is the same one the factory and backlog tests (seen to fail in rounds 1 and 2) use. Run here:
+tests/test_item_search_gaps.py (4 passed), tests/test_backlog.py, tests/test_gaps_doc.py and tests/test_gapsdoc.py
+together (82 passed), tests/test_factory.py (251 passed, 2 skipped for Docker). `ruff check ergostat tests scripts`
+and the two changed dev/bin files are clean. Not run here: the whole unit suite and the four browser files (no page
+is changed).
