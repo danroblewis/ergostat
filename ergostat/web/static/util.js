@@ -462,35 +462,33 @@ async function refreshHeader() {
       sel.addEventListener("focus", fresh);
       refreshProjects(sel);
     }
-    // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
-    // the server's one count (state.goals_off); a status without it (an old snapshot) shows "?", never its own count
+    // at most two short counts, each a link, its full wording its title (the navigation keeps its room): the system's
+    // goals off, red, the server's one count (state.goals_off; an old snapshot without it "?", never counted here), the
+    // model's own upkeep and the goals it counts in its title; and "N for you". What holds the work up (held_up) is
+    // said on the Items page, not here
     const { off, upkeep } = goalsOff(st);
-    setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
     const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
     const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
     if (run.className !== cls) run.className = cls;
-    const open = document.querySelector('meta[name="ergostat-public"]') ? " · public, read only, no login" : "";   // web: open: read
-    const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here"
+    const open = document.querySelector('meta[name="ergostat-public"]') ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here" : "";   // web: open: read
+    const said = SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
+      : edited ? "Model errors" : off || upkeep ? `${off} off` : st.running ? "Running" : "Not running";
+    const names = !off ? ""
       : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
-        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");                                  // (upkeep apart), each by its word
+        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");   // (upkeep apart), each by its word
+    const tip = [edited ? `${st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)}:\n${st.edited.errors.join("\n")}`
+      : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running || SNAP ? "" : ", not running"}` : "",
+      upkeep ? `model upkeep ${upkeep}` : "", names, open].filter(Boolean).join("\n");
     if (run.title !== tip) run.title = tip;
-    setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
-      : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
-      : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
+    const to = appHref(edited ? "/check" : "/goals");
+    if (run.getAttribute("href") !== to) run.setAttribute("href", to);
+    setText(run, said + (open ? " · public" : ""));
     const waits = $("#waits"), n = (st.attention || []).filter(waitsOnYou).length;   // the side list's "Waiting for you"
     if (waits.hidden !== !n) waits.hidden = !n;          // (only when it changed: a refresh with nothing new writes nothing)
-    setText(waits, `${n} wait for you`);                 // the definition's words, whatever N (Q43); written only when N
-                                                         // changes, so its polite live region (index.html) says only that
-    // what holds the work up (SPEC §5a): its first line, red only for a stall; the whole line as its title
-    const held = $("#heldup"), hu = !SNAP && st.held_up;
-    if (held && held.hidden !== !hu) held.hidden = !hu;
-    if (held && hu) {
-      const hcls = "runstate heldup" + (hu.stall ? " bad" : hu.nothing_stuck ? "" : " warn");
-      if (held.className !== hcls) held.className = hcls;
-      if (held.title !== hu.line) held.title = hu.line;
-      setText(held, hu.line);
-    }
+    if (waits.title !== `${n} wait for you`) waits.title = `${n} wait for you`;   // the definition's words (Q43)
+    setText(waits, `${n} for you`);                      // written only when N changes, so its polite live region
+                                                         // (index.html) says only that
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
     if (!SNAP) showAt();                               // the header's window, with how much of it is recorded

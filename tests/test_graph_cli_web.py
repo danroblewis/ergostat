@@ -658,7 +658,7 @@ def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_ove
 
 
 def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
-    """Each page's header carries 'N wait for you' (#waits) before its nav, a link to /diagram#waiting, and the
+    """Each page's header carries 'N for you' (#waits) before its nav, a link to /diagram#waiting, and the
     Diagram's side list gives its 'Waiting for you' heading that id (the browser half: tests/test_diagram_rendering.py)."""
     import re
     from http.server import ThreadingHTTPServer
@@ -696,7 +696,7 @@ def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():
 
 
 def test_the_count_of_what_waits_sits_in_one_polite_live_region():
-    """The header's 'N wait for you' link is inside an always-present aria-live='polite' region (so a count appearing
+    """The header's 'N for you' link is inside an always-present aria-live='polite' region (so a count appearing
     from 0 is announced too), and the script writes its text through setText, which writes only a changed text. The
     browser half (the text written only when N changes) is test_diagram_rendering's
     test_a_changed_count_of_what_waits_is_announced."""
@@ -709,7 +709,7 @@ def test_the_count_of_what_waits_sits_in_one_polite_live_region():
     assert 'aria-live="polite"' in region.group(1) and 'aria-atomic="true"' in region.group(1)
     assert re.search(r'<a id="waits"[^>]*\bhidden\b', region.group(2)), "the link, not the region, is hidden at 0"
     util = (STATIC / "util.js").read_text()
-    assert "setText(waits, `${n} wait for you`)" in util
+    assert "setText(waits, `${n} for you`)" in util
     body = re.search(r"\nfunction setText\((\w+), (\w+)\) \{(.*?)\n\}", util, re.S)
     assert body and re.search(rf"if \({body.group(1)}\.textContent !== {body.group(2)}\)", body.group(3)), \
         "setText must write only a changed text"
