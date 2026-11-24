@@ -39,9 +39,13 @@ items:
     id: answer/*
     states: [asked, answered]
     on: {answer.asked: asked, answer.given: answered}
+  task:
+    id: task/*
+    states: [todo, doing, waiting, done]
+    on: {task.made: todo, task.begun: doing, task.waits: waiting, task.done: done}
 messages:
   done: {gap: [merged, closed]}
-  paused: {gap: [parked]}
+  paused: {gap: [parked], task: [waiting]}
 """
 
 
@@ -156,43 +160,66 @@ def test_message_routing_keeps_its_own_rule_for_where_a_message_goes(tmp_path):
     assert route.route_done_states(spec, rv, left={"requested"}, reached={"briefed", "answered"}) == {"briefed", "answered"}
 
 
-def _seed(p) -> float:
-    """Per kind, one item through every state its events name, one left in its first and one in its second; returns
-    when the last move was."""
-    t = T0
-    for k in p.model.spec.items.values():
+def _seed(p, every_left: bool = False) -> float:
+    """Per kind, one item through every state its events name but the paused, one left in its first and one in its
+    second; a taken kind's one dead-lettered (taken, handed back unfinished: its one attempt) and one leased now; one
+    in each paused state, which no item has left. ``every_left``: instead one item through every state and back to the
+    first, so each state is left, and one through every state, resting in the last. Returns when the last move was."""
+    from ergostat.leases import ENDED, TAKEN
+    from ergostat.spec.ir import DEAD
+    spec, t = p.model.spec, T0
+    for k in spec.items.values():
         if not k.states or "*" not in k.id:
             continue
         on = sorted(((e, s) for e, s in k.on.items() if "*" not in e and s in k.states), key=lambda x: k.states.index(x[1]))
-        for n, steps in (("p1", on), ("p2", on[:1]), ("p3", on[:2])):
-            for i, (e, _) in enumerate(steps):
-                p.events.add(e, item=k.id.replace("*", n, 1).replace("*", "x"), at=t + 10 * i)
+        taken = DEAD in k.states and on
+        lease = {"run": "r", "block": "b", "fence": 1, "ttl": 60, "max": 1}
+        paused = [x for s in (spec.messages.paused or {}).get(k.name) or [] for x in on if x[1] == s]
+        seeds = [("p1", on + on[:1]), ("p2", on)] if every_left else [
+            ("p1", [x for x in on if x not in paused]), ("p2", on[:1]), ("p3", on[:2]),
+            *([("p4", [*on[:1], (TAKEN, lease), (ENDED, {"fence": 1, "run": "r", "how": "nack"})]),
+               ("p5", [*on[:1], (TAKEN, lease)])] if taken else []),
+            *[(f"p6{i}", [*on[:1], x]) for i, x in enumerate(paused)]]
+        for n, steps in seeds:
+            for i, (e, data) in enumerate(steps):
+                p.events.add(e, item=k.id.replace("*", n, 1).replace("*", "x"), at=t + 10 * i,
+                             data=data if isinstance(data, dict) else None)
             t += 100
     return t
 
 
 def parity_outputs(tmp_path) -> dict:
-    """Per demo and kind, on a seeded record: the process map (``process.process``, by states), the state counts over
-    time and their finished items (``series.items_flow``, ``/api/items-flow``), and message routing's targets for a
-    message about each item (``route.targets`` over ``route.work_items``)."""
+    """Per demo (and the factory-shaped fixture) and kind, on each seeded record (``@left``: every state left): the
+    process map (``process.process``, by states) and its end, as the item detail's ``kind_of.final`` gives it
+    (``web/server.py``), the state counts over time and their finished items (``series.items_flow``,
+    ``/api/items-flow``), and message routing's targets for a message about each item (``route.targets`` over
+    ``route.work_items``). Returns their hashes, and what each says is finished (``said``: final and series)."""
     from ergostat import process, series
     from ergostat.messages import route
-    out, said = {}, {}            # said: the finished states items-flow names
-    for demo in DEMOS:
-        d = tmp_path / demo
-        shutil.copytree(ROOT / "examples" / demo, d, ignore=shutil.ignore_patterns("run", "reports", "__pycache__"))
-        p = Project(mdl.load(d))
-        spec = p.model.spec
-        until = _seed(p) + 100
-        snap = {"at": until, "window": until - T0 + 100}
-        for name, k in spec.items.items():
-            ids = sorted({e["item"] for e in p.events.query(n=None, since=T0 - 1) if k.matches(e.get("item") or "")})
-            work = {w["id"]: w for w in route.work_items(p, spec, ids=ids) if w["kind"] == name}
-            out[f"{demo}/{name}/process"] = process.process(p.events, spec, [name], T0 - 100, until, by="states")
-            out[f"{demo}/{name}/series"] = series.items_flow(p, snap, name, 20) if k.states else None
-            out[f"{demo}/{name}/route"] = route.targets(p, spec, ids, [], work, [])
-            if k.states:
-                said[f"{demo}/{name}/series"] = out[f"{demo}/{name}/series"]["finished_states"]
+    out, said = {}, {}
+    for demo in (*DEMOS, "factory"):
+        for every_left, tag in ((False, ""), (True, "@left")):
+            d = tmp_path / f"{demo}{tag}"
+            if demo == "factory":
+                d.mkdir()
+                (d / "ergostat.yaml").write_text(textwrap.dedent(FACTORY))
+            else:
+                shutil.copytree(ROOT / "examples" / demo, d, ignore=shutil.ignore_patterns("run", "reports", "__pycache__"))
+            p = Project(mdl.load(d))
+            spec = p.model.spec
+            until = _seed(p, every_left) + 100
+            snap = {"at": until, "window": until - T0 + 100}
+            for name, k in spec.items.items():
+                key = f"{demo}{tag}/{name}"
+                ids = sorted({e["item"] for e in p.events.query(n=None, since=T0 - 1) if k.matches(e.get("item") or "")})
+                work = {w["id"]: w for w in route.work_items(p, spec, ids=ids) if w["kind"] == name}
+                out[f"{key}/process"] = process.process(p.events, spec, [name], T0 - 100, until, by="states")
+                ends = process._done(spec, p.events, k)                 # as web/server.py's /api/items/<id> reads it
+                out[f"{key}/final"] = said[f"{key}/final"] = [s for s in k.states if s in ends]
+                out[f"{key}/series"] = series.items_flow(p, snap, name, 20) if k.states else None
+                out[f"{key}/route"] = route.targets(p, spec, ids, [], work, [])
+                if k.states:
+                    said[f"{key}/series"] = out[f"{key}/series"]["finished_states"]
     return {k: hashlib.sha256(json.dumps(v, sort_keys=True).encode()).hexdigest() for k, v in out.items()}, said
 
 
@@ -219,11 +246,16 @@ def test_the_process_map_the_state_counts_and_routing_change_only_where_listed(t
     missing, which then fails until it is committed), byte-identical but for ``CHANGED``, each of which did change."""
     got, said = parity_outputs(tmp_path)
     if not PARITY.exists():
-        PARITY.write_text(json.dumps(got, sort_keys=True, indent=1) + "\n")
+        PARITY.write_text(json.dumps({"hashes": got, "said": said}, sort_keys=True, indent=1) + "\n")
         raise AssertionError(f"{PARITY} written: check it and commit it")
-    before = json.loads(PARITY.read_text())
-    assert sorted(got) == sorted(before) and len(got) > 100
+    fixture = json.loads(PARITY.read_text())
+    before, was = fixture["hashes"], fixture["said"]
+    assert sorted(got) == sorted(before) and len(got) > 400
+    show = lambda xs: "[" + ", ".join(xs) + "]"           # noqa: E731
+    at = lambda k: k.rsplit("/", 1)[0] + ("/series" if k.endswith("/series") else "/final")   # noqa: E731
     changed = sorted(k for k in got if got[k] != before[k])
-    assert changed == sorted(CHANGED), "\n".join(changed)
-    for k, why in CHANGED.items():                       # each change is what it says (the states before: git history)
-        assert "[" + ", ".join(said[k]) + "]" == why.split("-> ")[1].split(" (")[0], k
+    (ROOT / "run").mkdir(exist_ok=True)   # TEMP-DEBUG
+    (ROOT / "run" / "changed.txt").write_text("\n".join(f"{k}: {show(was[at(k)])} -> {show(said[at(k)])}" for k in changed))  # TEMP-DEBUG
+    assert changed == sorted(CHANGED), "\n".join(f"{k}: {show(was[at(k)])} -> {show(said[at(k)])}" for k in changed)
+    for k, why in CHANGED.items():                       # each change is what it says, before and after
+        assert f"{show(was[at(k)])} -> {show(said[at(k)])}" == why.split(" (")[0], (k, was[at(k)], said[at(k)])
