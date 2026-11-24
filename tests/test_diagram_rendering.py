@@ -720,6 +720,175 @@ def test_the_background_hides_the_side_panel_and_a_part_dragged_stays_pinned(bro
         pg.close()
 
 
+# two-stage routing (avoid.js avoidStart): the worker's careful answers held back on the page (HELD) until RELEASE(seq);
+# SEEN, every answer the worker sent, as it sent it
+HOLD_CAREFUL = """() => {
+  window.HELD = []; window.SEEN = []; window.HOLD = true;
+  AV.worker.addEventListener('message', (ev) => SEEN.push({ type: ev.data.type, seq: ev.data.seq, skipped: !!ev.data.skipped,
+    slides: Object.keys(ev.data.slides || {}).length, routes: ev.data.type === 'refined' ? ev.data.routes : undefined }));
+  AV.worker.onmessage = (ev) => { if (HOLD && ev.data.type === 'refined') HELD.push(ev); else avoidHeard(ev); };
+  window.RELEASE = (seq) => { const out = HELD.filter((ev) => ev.data.seq === seq);
+    HELD = HELD.filter((ev) => !out.includes(ev)); out.forEach(avoidHeard); return out.length; };
+}"""
+# the line ends (of the parts named, else of all) more than 4px off their part
+ENDS_OFF = """(ids) => {
+  const box = Object.fromEntries(S.layout.children.map((c) => [c.id, c])), bad = [];
+  for (const le of S.layout.edges) {
+    const e = S.graph.edges.find((x) => x.id === le.id), sc = (le.sections || [])[0];
+    if (!e || !sc || le.cut) continue;
+    for (const [id, p] of [[e.source, sc.startPoint], [e.target, sc.endPoint]]) {
+      const c = box[id];
+      if (!c || (ids && !ids.includes(id))) continue;
+      const dx = Math.max(c.x - p.x, 0, p.x - c.x - c.width), dy = Math.max(c.y - p.y, 0, p.y - c.y - c.height);
+      if (Math.hypot(dx, dy) > 4) bad.push([le.id, id, [p.x, p.y], [c.x, c.y, c.width, c.height]]);
+    }
+  }
+  return bad;
+}"""
+# the lines whose drawn path does not begin and end where the layout's line does (within 4px)
+DRAWN_OFF = """() => S.layout.edges.filter((le) => (le.sections || []).length && !le.cut).filter((le) => {
+  const el = document.querySelector(`.edge[data-id="${CSS.escape(le.id)}"] .edge-hit`);
+  if (!el) return false;
+  const a = el.getPointAtLength(0), b = el.getPointAtLength(el.getTotalLength()), s = le.sections[0];
+  const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) <= 4;
+  return !((near(a, s.startPoint) && near(b, s.endPoint)) || (near(a, s.endPoint) && near(b, s.startPoint)));
+}).map((le) => le.id)"""
+LINES = "() => JSON.stringify(S.layout.edges.map((le) => [le.id, le.sections]))"
+
+
+def fast_drawn(pg) -> int:
+    """A new layout made, its fast lines drawn and its careful answer come and held: the route's seq."""
+    seq0 = pg.evaluate("() => AV.seq")
+    pg.evaluate("() => { S.relayout(); }")
+    pg.wait_for_function(f"() => AV.routed && AV.routed.seq > {seq0} && AV.routed.lay === S.layout && "
+                         "HELD.some((ev) => ev.data.seq === AV.routed.seq)", timeout=DRAWN_S * 1000)
+    return pg.evaluate("() => AV.routed.seq")
+
+
+def test_fast_routes_drawn_before_careful(browser, tmp_path):
+    """The fast pass's lines are drawn, ending on their parts, while the careful pass is held (routing still on);
+    released, the careful lines take their place and routing ends."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        pg.evaluate(HOLD_CAREFUL)
+        seq = fast_drawn(pg)
+        assert pg.evaluate("() => S.layout.routing") is True
+        assert pg.evaluate("() => SEEN.some((m) => m.type === 'routed' && m.seq === AV.routed.seq && !m.skipped)")
+        assert pg.evaluate(ENDS_OFF, None) == []
+        assert pg.evaluate(DRAWN_OFF) == []
+        assert pg.evaluate(f"() => RELEASE({seq})") == 1
+        assert pg.evaluate("() => S.layout.routing") is False
+        careful = pg.evaluate(f"() => JSON.stringify(SEEN.find((m) => m.type === 'refined' && m.seq === {seq}).routes)")
+        assert pg.evaluate("() => JSON.stringify(AV.raw)") == careful, "the careful lines are drawn"
+        assert pg.evaluate(ENDS_OFF, None) == []
+        assert pg.evaluate(DRAWN_OFF) == []
+        pg.close()
+
+
+def test_careful_routes_of_replaced_layout_not_drawn(browser, tmp_path):
+    """A careful answer that comes after its layout was replaced (S.relayout: a new layout drawn) is dropped: the
+    drawing's lines, AV.raw and AV.routed stay the new layout's."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        pg.evaluate(HOLD_CAREFUL)
+        old = fast_drawn(pg)
+        new = fast_drawn(pg)
+        before = pg.evaluate(LINES), pg.evaluate("() => JSON.stringify(AV.raw)")
+        assert pg.evaluate(f"() => RELEASE({old})") == 1
+        assert (pg.evaluate(LINES), pg.evaluate("() => JSON.stringify(AV.raw)")) == before
+        assert pg.evaluate(f"() => AV.routed.seq === {new} && AV.routed.lay === S.layout && S.layout.routing")
+        assert pg.evaluate(f"() => RELEASE({new})") == 1
+        assert pg.evaluate("() => S.layout.routing") is False
+        pg.close()
+
+
+def test_careful_routes_dropped_after_a_drag(browser, tmp_path):
+    """A part dragged 150px between the fast and the careful answer: the careful lines (to where it was) are dropped,
+    and every line of the part still ends on it where it is now."""
+    nid = "stock:users"
+    at = f"() => {{ const c = S.layout.children.find((c) => c.id === '{nid}'); return [c.x, c.y]; }}"
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        pg.get_by_role("button", name="Fit", exact=True).click()
+        pg.evaluate(HOLD_CAREFUL)
+        seq = fast_drawn(pg)
+        before = pg.evaluate(at)
+        hit = pg.locator(f'g.node[data-id="{nid}"] .hit').first.bounding_box()
+        k = pg.evaluate("() => S.view.k")
+        x, y = hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2
+        pg.mouse.move(x, y)
+        pg.mouse.down()
+        for step in range(1, 11):
+            pg.mouse.move(x + 15 * step * k, y)
+        pg.wait_for_function(f"([x0, ids]) => ({at})()[0] - x0 > 144 && ({ENDS_OFF})(ids).length === 0",
+                             arg=[before[0], [nid]], timeout=20000)
+        assert pg.evaluate(f"() => RELEASE({seq})") == 1
+        assert pg.evaluate(ENDS_OFF, [nid]) == [], "the careful lines (to where it was) were drawn over the dragged ones"
+        assert pg.evaluate("() => S.layout.routing") is False
+        pg.evaluate("() => { HOLD = false; }")
+        pg.mouse.up()
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        assert pg.evaluate(ENDS_OFF, [nid]) == []
+        pg.close()
+
+
+VALVES_AT = """() => JSON.stringify(S.layout.children
+  .filter((c) => ['valve', 'disturbance'].includes(S.graph.nodes.find((n) => n.id === c.id)?.kind))
+  .map((c) => [c.id, c.x, c.y, c.turn]))"""
+
+
+def test_valve_slides_applied_once_across_stages(browser, tmp_path):
+    """In the dynamics view of deps (one of its valves slid off a corner by the router's first pass), the valves are
+    slid once: where they are after the careful lines come is where the fast pass put them."""
+    with served("deps", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "view=dynamics", 0)
+        pg.evaluate(HOLD_CAREFUL)
+        seq = fast_drawn(pg)
+        assert pg.evaluate(f"() => SEEN.find((m) => m.type === 'routed' && m.seq === {seq}).slides") >= 1, "no valve slid"
+        fast = pg.evaluate(VALVES_AT)
+        assert pg.evaluate(f"() => RELEASE({seq})") == 1
+        assert pg.evaluate("() => S.layout.routing") is False
+        assert pg.evaluate(VALVES_AT) == fast
+        pg.close()
+
+
+def test_queued_careful_pass_skipped_for_newer_route(browser, tmp_path):
+    """Two routes asked back to back (and one more just before, so the worker is busy): the first's careful pass is
+    answered skipped and only the second's careful lines are drawn. And a route with a move queued behind it: its
+    careful pass is skipped too, and its fast lines stay."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        pg.evaluate(HOLD_CAREFUL)
+        pg.evaluate("() => { HOLD = false; }")
+        busy, first, second = pg.evaluate("""async () => {
+          avoidStart(S.layout, S.graph); const z = AV.seq;
+          avoidStart(S.layout, S.graph); const a = AV.seq;
+          avoidStart(S.layout, S.graph); const b = AV.seq;
+          await S.layout.whenRouted;
+          return [z, a, b]; }""")
+        seen = pg.evaluate("() => SEEN.filter((m) => m.type === 'refined').map((m) => [m.seq, m.skipped])")
+        # (the busy one's careful pass too: either drained with the two, or queued behind them; skipped either way)
+        assert [busy, True] in seen and [first, True] in seen and [second, False] in seen, seen
+        careful = pg.evaluate(f"() => JSON.stringify(SEEN.find((m) => m.type === 'refined' && m.seq === {second}).routes)")
+        assert pg.evaluate("() => JSON.stringify(AV.raw)") == careful
+        assert pg.evaluate(f"() => AV.routed.seq === {second} && !S.layout.routing")
+        moved = pg.evaluate("""async () => {
+          const c = S.layout.children.find((c) => c.id === 'stock:users');
+          avoidStart(S.layout, S.graph); const a = AV.seq;
+          AV.worker.postMessage({ type: 'move', seq: a, n: -1, id: c.id, x: c.x, y: c.y });
+          await S.layout.whenRouted;
+          return a; }""")
+        assert pg.evaluate(f"() => SEEN.find((m) => m.type === 'refined' && m.seq === {moved}).skipped") is True
+        assert pg.evaluate(f"() => AV.routed.seq === {moved} && !S.layout.routing")
+        assert pg.evaluate(ENDS_OFF, None) == []
+        pg.close()
+
+
 def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser, tmp_path):
     """An open system's outline, dragged by its top, moves with everything in it by the same amount;
     its lines are routed again, cleanly; nothing lands under it; and it stays there after a new visit."""
@@ -1512,6 +1681,69 @@ def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_o
         pg.get_by_role("button", name="Times", exact=True).click()
         pg.wait_for_function("() => S.pmShow === 'times' && document.querySelector('svg.canvas g.edge .elabel')")
         assert "show=times" in pg.url
+        pg.close()
+    assert not errors, errors
+
+
+# each state's count as the Items page's legend shows it, in one kind's card (a chart's labels or the plain boxes)
+ITEMS_LEGEND = """(kind) => {
+  const card = document.querySelector('a.pm-link[href*="kind=' + kind + '&"]').closest('.kind-flow');
+  return Object.fromEntries([...card.querySelectorAll('a.stbox')].map((a) => {
+    const n = a.querySelector('.n').textContent;
+    return [a.textContent.slice(n.length).trim(), Number(n)]; })); }"""
+# each node's words, and the smallest of its text as drawn on the screen (its font size times the map's scale)
+NODE_TEXT = """() => [...document.querySelectorAll('svg.canvas .pm-node')].map((g) => ({ id: g.dataset.id,
+  sub: g.querySelector('.t-sub')?.textContent,
+  px: Math.min(...[...g.querySelectorAll('text')].map((t) => parseFloat(getComputedStyle(t).fontSize) * t.getScreenCTM().a)) }))"""
+
+
+def test_items_links_each_kind_to_its_process_map_whose_states_say_how_many_are_there_now(browser, tmp_path):
+    """From Items, a kind's 'process map' link opens its map in States; each state's node says 'now N', N the
+    Items legend's count for that state; at Fit no node's text is drawn under 11px, and a map wider than the
+    screen says which way more lies."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served("the-job", tmp_path) as url:
+        p = Project(mdl.load(tmp_path / "the-job"))
+        now = time.time()
+        for i, last in enumerate(["new"] * 3 + ["explained"] * 2 + ["answered"]):   # 3 new, 2 explained, 1 answered
+            it = f"ticket/now{i}"
+            p.events.add("ticket.filed", item=it, at=now - 2000 + i)
+            for j, st in enumerate(["explained", "answered"][:["new", "explained", "answered"].index(last)]):
+                p.events.add(f"ticket.{st}", item=it, at=now - 1500 + i * 10 + j)
+        time.sleep(1.6)
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/items?states=all")              # the overview, its legends by each state (not state groups)
+        pg.wait_for_selector('.kind-card a.pm-link[href*="kind=ticket&"]')
+        pg.wait_for_function("() => document.querySelector('a.pm-link[href*=\"kind=ticket&\"]')"   # its chart's legend
+                             ".closest('.kind-flow').querySelector('.cfd')")
+        legend = pg.evaluate(ITEMS_LEGEND, "ticket")
+        assert {k: v for k, v in legend.items() if v} == {"new": 3, "explained": 2, "answered": 1}, legend
+        link = pg.locator('a.pm-link[href*="kind=ticket&"]')
+        assert "view=process" in link.get_attribute("href") and "mode=states" in link.get_attribute("href")
+        link.click()
+        pg.wait_for_function(READY, timeout=60000)
+        assert pg.evaluate("() => [S.graph.by, S.graph.kinds.map((k) => k.name)]") == ["states", ["ticket"]]   # that kind alone
+        nodes = {n["id"]: n for n in pg.evaluate(NODE_TEXT)}
+        states = pg.evaluate("() => S.graph.nodes.filter((n) => n.kind === 'activity').map((n) => [n.id, n.activity])")
+        assert sorted(a for _, a in states) == ["answered", "explained", "new"], states
+        for nid, st in states:                            # every state's node: how many are there now, as Items counts them
+            assert nodes[nid]["sub"].startswith(f"now {legend[st]} · "), (st, nodes[nid]["sub"], legend)
+        assert all(n["px"] >= 10.99 for n in nodes.values()), nodes
+        pg.set_viewport_size({"width": 760, "height": 700})   # narrow: Fit keeps the text, and says where the rest is
+        pg.get_by_role("button", name="Fit").click()
+        assert all(n["px"] >= 10.99 for n in pg.evaluate(NODE_TEXT)), pg.evaluate(NODE_TEXT)
+        assert pg.evaluate("() => S.layout.width * S.view.k > document.querySelector('svg.canvas').getBoundingClientRect().width")
+        assert pg.is_visible("#panhint") and "→" in pg.inner_text("#panhint"), pg.inner_text("#panhint")
+        pg.set_viewport_size({"width": 390, "height": 800})   # a phone (fitNarrow): first view and Fit keep 11px too
+        pg.reload()
+        pg.wait_for_function(READY, timeout=60000)
+        assert all(n["px"] >= 10.99 for n in pg.evaluate(NODE_TEXT)), pg.evaluate(NODE_TEXT)
+        pg.get_by_role("button", name="Fit").click()
+        assert all(n["px"] >= 10.99 for n in pg.evaluate(NODE_TEXT)), pg.evaluate(NODE_TEXT)
+        assert pg.is_visible("#panhint") and pg.inner_text("#panhint").startswith("More beyond the edge "), pg.inner_text("#panhint")
         pg.close()
     assert not errors, errors
 
@@ -2539,9 +2771,9 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
 
 FOCUSED = ("() => { const a = document.activeElement; "
            "return a && [a.tagName, a.getAttribute('aria-label') || '', a.dataset.key || '', a.getAttribute('role') || '']; }")
-# every element the svg points at as clickable, and whether a keyboard button (tabindex 0) is it or holds it
+# every element the svg points at as clickable, and whether a keyboard button (tabindex 0, or -1 under the roving stop) is it or holds it
 UNREACHED = """() => [...document.querySelectorAll('svg.canvas *')].filter((el) => getComputedStyle(el).cursor === 'pointer'
-  && !el.closest('svg.canvas [tabindex="0"][role="button"][aria-label]')).map((el) => el.getAttribute('class') || el.tagName)"""
+  && !el.closest('svg.canvas [tabindex][role="button"][aria-label]')).map((el) => el.getAttribute('class') || el.tagName)"""
 
 
 def tab_to(pg, want, most=600) -> list:
@@ -2555,24 +2787,44 @@ def tab_to(pg, want, most=600) -> list:
     raise AssertionError(f"Tab never reached {want}; it went {seen[:40]} ... {seen[-10:]}")
 
 
+IN_SVG = "(a) => !!a.closest('svg.canvas')"
+
+
+def step_to(pg, want, most=600) -> list:
+    """Into the diagram by Tab (its one stop), then Shift+Right round its parts in drawing order (keys.js) until the
+    focus is on what ``want`` accepts."""
+    if not pg.evaluate(f"() => ({IN_SVG})(document.activeElement)"):
+        tab_to(pg, IN_SVG)
+    seen = []
+    for _ in range(most):
+        if pg.evaluate(f"() => {{ const a = document.activeElement; return !!a && ({want})(a); }}"):
+            return pg.evaluate(FOCUSED)
+        seen.append(pg.evaluate(FOCUSED))
+        pg.keyboard.press("Shift+ArrowRight")
+        if pg.evaluate(FOCUSED) == seen[0]:
+            break                                        # round every part drawn, and back to the first
+    raise AssertionError(f"Shift+Right never reached {want}; it went {seen[:40]} ... {seen[-10:]}")
+
+
 def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard(browser, tmp_path):
-    """Only Tab, Enter and Escape: Open on factory reached and pressed opens it; a stock reached and pressed opens
-    its panel with the focus on its heading, and Escape gives the focus back to the stock. In every view, everything
-    the svg shows as clickable is a named keyboard button, and the side panel's loop rows are buttons."""
+    """Only the keyboard: Open on factory reached and pressed opens it; a stock reached and pressed opens its panel
+    with the focus on its heading, and Escape gives the focus back to the stock. In every view, everything the svg
+    shows as clickable is a named keyboard button, one of them the diagram's tab stop, and the side panel's loop rows
+    are buttons. (Tab reaches the diagram once; Shift and an arrow step through its parts: keys.js.)"""
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=-", 0)
-        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open factory'")
+        step_to(pg, "(a) => a.getAttribute('aria-label') === 'Open factory'")
         pg.keyboard.press("Enter")
         pg.wait_for_function("() => (S.graph?.open || []).includes('factory') && document.querySelector('svg.canvas g.node')",
                              timeout=30000)
-        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open intake'")   # (factory holds systems; intake, the backlog)
+        step_to(pg, "(a) => a.getAttribute('aria-label') === 'Open intake'")   # (factory holds systems; intake, the backlog)
         pg.keyboard.press("Enter")
         pg.wait_for_function("() => (S.graph?.open || []).includes('intake') && document.querySelector('svg.canvas g.node.k-stock')",
                              timeout=30000)
-        stock = tab_to(pg, "(a) => a.matches('svg.canvas g.node.k-stock')")
+        stock = step_to(pg, "(a) => a.matches('svg.canvas g.node.k-stock')")
         assert stock[3] == "button" and stock[1].startswith("stock "), stock
         pg.keyboard.press("Enter")
         pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail h2')", timeout=10000)
@@ -2589,12 +2841,193 @@ def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard
                 pm_served(pg, url, 9)
             else:
                 drawn(pg, url, view, i + 1)
-            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [tabindex=\"0\"]').length") > 0, view
+            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [tabindex=\"0\"]').length") == 1, view
             assert not pg.evaluate(UNREACHED), (view, pg.evaluate(UNREACHED)[:10])
             rows = pg.evaluate("() => [...document.querySelectorAll('.looprow[data-loop], .looprow.sd-inside')].map((r) => r.tagName)")
             assert (rows or "open=*" not in view) and set(rows) <= {"BUTTON"}, (view, rows)   # the side panel's loop rows
         assert not errors, errors
         pg.close()
+
+
+# the focused part: its key, what it is called, its id, and the graph's kind and role of it
+ON = ("() => { const a = document.activeElement, n = a && S.graph?.nodes.find((x) => x.id === a.dataset?.id); "
+      "return a && { key: a.dataset?.key || '', aria: a.getAttribute('aria-label') || '', id: a.dataset?.id || '', "
+      "edge: a.matches('.edge'), kind: n?.kind || '', role: n?.role || '', label: n?.flow || n?.label || '', "
+      "inSvg: !!a.closest('svg.canvas'), inPanel: !!a.closest('#detail') }; }")
+VIEWS = ("view=dynamics&open=*", "view=blocks&open=*")
+
+
+def test_the_diagram_is_one_tab_stop_that_remembers_the_part_last_on(browser, tmp_path):
+    """Done 1 (software-factory stands in for :8791, as the other page tests serve it), in both views: one part of the
+    svg is its tab stop; Tab reaches the diagram once and the next Tab leaves it, and no Tab after comes back into it;
+    Shift+Tab back in lands on the part the arrows last moved to."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, view in enumerate(VIEWS):
+            drawn(pg, url, view, i)
+            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [data-key][tabindex=\"0\"]').length") == 1, view
+            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [data-key]').length") > 20, view
+            tab_to(pg, IN_SVG, most=200)
+            pg.keyboard.press("Shift+ArrowRight")            # moved on, by the keyboard: this part is remembered
+            moved = pg.evaluate(ON)
+            assert moved["inSvg"], (view, moved)
+            pg.keyboard.press("Tab")
+            after = pg.evaluate(ON)
+            assert after and not after["inSvg"], (view, "the next Tab stayed in the diagram", after)
+            pg.keyboard.press("Shift+Tab")
+            assert pg.evaluate(ON)["key"] == moved["key"], (view, moved, pg.evaluate(ON))
+            pg.keyboard.press("Tab")
+            for _ in range(150):                             # on through the rest of the page: never into the diagram again
+                pg.keyboard.press("Tab")
+                now = pg.evaluate(ON)
+                if not now or now["aria"] == after["aria"] and now["key"] == after["key"]:
+                    break
+                assert not now["inSvg"], (view, "a second tab stop in the diagram", now)
+        assert not errors, errors
+        pg.close()
+
+
+def test_the_arrows_follow_pipes_connectors_and_signals(browser, tmp_path):
+    """Done 2: in Dynamics, from the stock backlog Right goes to its outflow valve (submitted) and on to the next stock
+    (in-review), Left back; Down steps onto a connector into or out of the stock, saying its other end and its sign. In
+    Blocks, from a summing junction Right reaches C, then the actuator, then P, and Down from P takes the return path."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, VIEWS[0], 0)
+        step_to(pg, "(a) => a.dataset.id === 'stock:backlog'")
+        # the server lists pipes first: the walk must not lean on that (the lines turned round, until the next refresh)
+        outs = pg.evaluate("() => S.graph.edges.reverse().filter((e) => e.source === 'stock:backlog').map((e) => e.kind)")
+        assert outs == ["connector", "pipe"], outs
+        pg.keyboard.press("ArrowRight")
+        valve = pg.evaluate(ON)
+        assert valve["kind"] == "valve" and valve["label"] == "submitted", valve
+        pg.keyboard.press("ArrowRight")
+        assert pg.evaluate(ON)["id"] == "stock:in-review", pg.evaluate(ON)
+        pg.keyboard.press("ArrowRight")                      # on: in-review's outflow, and the stock it fills (never a connector's end)
+        on = pg.evaluate(ON)
+        assert on["kind"] == "valve" and on["label"] in ("merged", "rejected"), on
+        pg.keyboard.press("ArrowRight")
+        assert pg.evaluate(ON)["id"] in ("stock:awaiting-deploy", "stock:backlog"), (on, pg.evaluate(ON))
+        pg.keyboard.press("ArrowLeft")
+        pg.keyboard.press("ArrowLeft")
+        assert pg.evaluate(ON)["id"] == "stock:in-review", pg.evaluate(ON)
+        pg.keyboard.press("ArrowLeft")
+        assert pg.evaluate(ON)["id"] == valve["id"], pg.evaluate(ON)
+        pg.keyboard.press("ArrowLeft")
+        assert pg.evaluate(ON)["id"] == "stock:backlog", pg.evaluate(ON)
+        pg.keyboard.press("ArrowDown")
+        line = pg.evaluate(ON)
+        assert line["edge"] and line["aria"].startswith("connector line") and "backlog" in line["aria"] and "sign" in line["aria"], line
+        pg.keyboard.press("ArrowDown")                       # the next connector of the stock (or the same, if it has one)
+        assert pg.evaluate(ON)["edge"] and pg.evaluate(ON)["aria"].startswith("connector line"), pg.evaluate(ON)
+        pg.keyboard.press("Home")
+        assert pg.evaluate(ON)["inSvg"] and not pg.evaluate(ON)["edge"], pg.evaluate(ON)
+
+        drawn(pg, url, VIEWS[1], 1)
+        # backlog-clear's loop: Σ, its rule (C), the developer filling the actuator, the backlog (P, after the summing
+        # point where its flows add; the developer drives in-review's too, a longer way round), its sensor
+        step_to(pg, "(a) => a.dataset.id === 'sum:backlog-clear'")
+        went = []
+        for _ in range(3):
+            pg.keyboard.press("ArrowRight")
+            went.append((pg.evaluate(ON)["role"], pg.evaluate(ON)["id"]))
+        assert went == [("controller", "blk:keep-backlog-clear"), ("actuator", "blk:developer"),
+                        ("process", "proc:stock.backlog")], went
+        pg.keyboard.press("ArrowDown")                       # the return path: the sensor, then round to the junction
+        assert (pg.evaluate(ON)["role"], pg.evaluate(ON)["id"]) == ("sensor", "sen:stock.backlog"), pg.evaluate(ON)
+        pg.keyboard.press("ArrowDown")
+        assert pg.evaluate(ON)["id"] == "sum:backlog-clear", pg.evaluate(ON)
+        for want in ("blk:keep-backlog-clear", "blk:developer", "proc:stock.backlog"):
+            pg.keyboard.press("ArrowRight")
+            assert pg.evaluate(ON)["id"] == want, pg.evaluate(ON)
+        pg.keyboard.press("ArrowLeft")                       # and back along the signal, through the summing point
+        assert pg.evaluate(ON)["id"] == "blk:developer", pg.evaluate(ON)
+        assert not errors, errors
+        pg.close()
+
+
+def test_enter_opens_the_panel_with_the_focus_inside_and_escape_returns_to_the_part(browser, tmp_path):
+    """Done 3, in both views: a part reached by the keyboard, Enter opens its panel with the focus inside it; Escape
+    closes it and gives the focus back to the same part, still the diagram's tab stop."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        for i, (view, want) in enumerate(zip(VIEWS, ("(a) => a.dataset.id === 'stock:backlog'",
+                                                    "(a) => S.graph.nodes.find((x) => x.id === a.dataset.id)?.role === 'controller'"),
+                                             strict=True)):
+            drawn(pg, url, view, i)
+            step_to(pg, want)
+            part = pg.evaluate(ON)
+            pg.keyboard.press("Enter")
+            try:
+                pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.activeElement?.closest('#detail')",
+                                     timeout=10000)
+            except playwright.TimeoutError as e:
+                raise AssertionError((view, part, pg.evaluate(ON), pg.evaluate("() => document.querySelector('#detail').hidden"))) from e
+            pg.keyboard.press("Escape")
+            pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)
+            back = pg.evaluate(ON)
+            assert back["key"] == part["key"], (view, part, back)
+            assert pg.evaluate("() => document.activeElement.getAttribute('tabindex')") == "0", view
+        pg.close()
+
+
+def test_i_goes_into_a_system_and_escape_comes_back_out_onto_it(browser, tmp_path):
+    """Done 4, in both views: on the closed box factory, I goes Into it (the view of factory, the focus on its first
+    part); Escape goes back out, with the focus on factory again. Backspace goes out as Escape does."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, view in enumerate(("view=dynamics&open=-", "view=blocks&open=-")):
+            drawn(pg, url, view, i)
+            step_to(pg, "(a) => a.matches('.node') && systemOf(a) === 'factory'")
+            for out in ("Escape", "Backspace"):
+                pg.keyboard.press("i")
+                pg.wait_for_function(f"() => S.here === 'factory' && ({READY})() && ({IN_SVG})(document.activeElement)",
+                                     timeout=DRAWN_S * 1000)
+                assert pg.evaluate("() => new URLSearchParams(location.search).get('system')") == "factory", view
+                pg.keyboard.press(out)
+                pg.wait_for_function(f"() => S.here === '' && ({READY})() && ({IN_SVG})(document.activeElement)",
+                                     timeout=DRAWN_S * 1000)
+                on = pg.evaluate(ON)
+                assert on["label"] == "factory" or "factory" in on["aria"], (view, out, on)
+        assert not errors, errors
+        pg.close()
+
+
+def _contrast(a: str, b: str) -> float:
+    """WCAG's contrast of two computed colours (rgb() or rgba(), opaque)."""
+    def lum(c: str) -> float:
+        r, g, b = (int(x) / 255 for x in re.findall(r"[\d.]+", c)[:3])
+        f = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in (r, g, b)]
+        return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]
+    la, lb = lum(a), lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def test_the_focus_ring_is_the_accent_and_stands_3_to_1_in_both_themes(browser, tmp_path):
+    """Done 5: the part the keyboard is on has a ring (its outline, and its shape's outline) in the accent token, the
+    selection's colour, at least 3:1 against the canvas, in the light and the dark theme."""
+    ring = ("() => { const a = document.activeElement, st = getComputedStyle(a), hit = a.querySelector('.hit'); "
+            "return { outline: st.outlineStyle + ' ' + st.outlineWidth, color: st.outlineColor, "
+            "hit: hit && getComputedStyle(hit).stroke, accent: (() => { const p = document.createElement('p'); "
+            "p.style.color = 'var(--accent)'; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; })(), "
+            "bg: getComputedStyle(document.querySelector('svg.canvas')).backgroundColor, "
+            "body: getComputedStyle(document.body).backgroundColor }; }")
+    with served("software-factory", tmp_path) as url:
+        for i, scheme in enumerate(("light", "dark")):
+            pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+            drawn(pg, url, VIEWS[0], i)
+            step_to(pg, "(a) => a.dataset.id === 'stock:backlog'")
+            r = pg.evaluate(ring)
+            bg = r["bg"] if not r["bg"].startswith("rgba(0, 0, 0, 0") else r["body"]
+            assert r["outline"].startswith("solid") and r["color"] == r["accent"] and r["hit"] == r["accent"], (scheme, r)
+            assert _contrast(r["color"], bg) >= 3, (scheme, r, _contrast(r["color"], bg))
+            pg.close()
 
 
 SD_WORDS = r"\b(controller|setpoint|rule|goal)s?\b|<=|>="   # (a valve is Sterman's word for where a rate is set)
@@ -3403,6 +3836,135 @@ def test_a_loops_state_is_printed_on_its_error_in_its_word_bold_when_off_and_nev
     off, holding = (next(n for n, lp in loops.items() if lp["word"] == w) for w in ("off", "holding"))
     assert got[off]["text"].endswith(" off") and got[off]["wires"] and got[off]["wires"] == got[holding]["wires"], got   # 2
     assert "a loop's state, on its error" in legend, legend                        # 4
+
+
+SD_GAPS = """() => { const bad = getComputedStyle(document.body).getPropertyValue('--bad').trim(), probe = document.createElement('i');
+  probe.style.color = bad; document.body.append(probe); const badRgb = getComputedStyle(probe).color; probe.remove();
+  const gaps = Object.fromEntries([...document.querySelectorAll('svg.canvas g.node[data-id^="gap:"]')].map((n) => {
+    const g = n.querySelector('.gap-word'), w = n.querySelector('.sd-word'), r = n.querySelector('.hit.sd-aux').getBBox();
+    const spill = Math.max(0, ...[...n.querySelectorAll('text')].map((t) => t.getBBox())
+      .map((b) => Math.max(r.x - b.x, b.x + b.width - r.x - r.width)));
+    return [n.dataset.id.slice(4), { word: g?.dataset.word || 'holding', text: n.textContent, off: !!n.querySelector('.gap-off'), spill,
+      stroke: getComputedStyle(n.querySelector('.hit.sd-aux')).stroke, fill: w ? getComputedStyle(w).fill : null }]; }));
+  const markers = [...document.querySelectorAll('svg.canvas .loop-marker')].map((m) => ({ loops: m.dataset.loops.split('|'),
+    off: m.classList.contains('goal-off'), stroke: getComputedStyle(m.querySelector('.marker-arc')).stroke }));
+  const lit = [...document.querySelectorAll('svg.canvas .edge.in-loop .sd-connector')].map((e) => getComputedStyle(e).stroke);
+  return { badRgb, gaps, markers, lit, layouts: S.layouts }; }"""
+
+
+THREE_GOALS = """
+name: three-goals
+stocks:
+  backlog: {unit: tickets, sensor: {manual: true}}
+  queue: {unit: jobs, sensor: {manual: true}}
+  inbox: {unit: mails, sensor: {manual: true}}
+flows:
+  arriving: {to: backlog}
+  finishing: {from: backlog}
+  queued: {to: queue}
+  served: {from: queue}
+  mailed: {to: inbox}
+  read: {from: inbox}
+goals:
+  short-backlog: {stock: backlog, hold: "<= 5", tolerance: 1}
+  short-queue: {stock: queue, hold: "<= 5", tolerance: 1}
+  short-inbox: {stock: inbox, hold: "<= 5", tolerance: 1}
+blocks:
+  worker: {type: program, run: echo 1, goal: short-backlog, max: 3, out: flow.finishing}
+  server: {type: program, run: echo 1, goal: short-queue, max: 3, out: flow.served}
+  reader: {type: program, run: echo 1, goal: short-inbox, max: 3, out: flow.read}
+"""
+
+
+def test_a_goals_gap_in_dynamics_says_its_word_and_an_off_one_is_red_never_the_accent(browser, tmp_path, monkeypatch):
+    """Acceptance (dynamics-off-status-on-the-part): a goal off, one holding and one never read (unknown), each
+    closing a balancing loop, ?view=dynamics&open=*. 1: the off goal's gap says 'off' and how far, and its outline,
+    its word and its balancing loop's marker compute to --bad; the holding goal's has no word and is not red. 2: the
+    word on each gap is /api/loops' word. 3: a lit loop's lines and an off gap's outline differ in colour, light and
+    dark. 4: a goal going off between polls is marked with no new layout."""
+    from ergostat import model as mdl
+    from ergostat.guide import FRAMES
+    from ergostat.store import Project
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    d = tmp_path / "three"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(THREE_GOALS)
+    p, now = Project(mdl.load(d)), time.time()
+    for i in range(6):
+        p.measurements.add("sensor/backlog.main", 12, at=now - 50 + i * 10)
+        p.measurements.add("sensor/queue.main", 2, at=now - 50 + i * 10)
+    p.events.add("loop.off", item="short-backlog", data={"value": 12}, at=now - 50)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        loops = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        assert {n: lp["word"] for n, lp in loops.items()} == {"short-backlog": "off", "short-queue": "holding",
+                                                              "short-inbox": "unknown"}, loops
+        off, holding = "short-backlog", "short-queue"
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics&open=*", 0)
+        pg.wait_for_function("() => document.querySelector('svg.canvas .gap-off')", timeout=DRAWN_S * 1000)
+        # the drawing's text at the width the sizes assume (CH, 6.7 px a character): this container's fallback font
+        # is narrower than the owner's, and would hide a word overrunning its box
+        pg.evaluate("""() => { const svg = document.querySelector('svg.canvas');
+          const t = s('text', { 'font-family': 'monospace', 'font-size': 10 }, 'x'.repeat(40));
+          svg.append(t); const px = 10 * CH / (t.getBBox().width / 40); t.remove();
+          const st = document.createElement('style'); document.head.append(st);
+          st.textContent = `svg.sd text, svg.sd tspan { font-family: monospace !important; font-size: ${px}px !important; }`; }""")
+        got = pg.evaluate(SD_GAPS)
+        assert set(got["gaps"]) == set(loops), (got["gaps"], loops)
+        for name, lp in loops.items():                                                   # 2: the server's word
+            assert got["gaps"][name]["word"] == lp["word"], (name, got["gaps"][name], lp)
+        g = got["gaps"][off]                                                             # 1: off, and how far, in --bad
+        assert g["off"] and " · off" in g["text"] and g["stroke"] == g["fill"] == got["badRgb"], (g, got["badRgb"])
+        assert g["text"].endswith(" · off by 7 tickets") and loops[off]["off_by_words"] == "off by 7 tickets", (g, loops[off])
+        u = got["gaps"]["short-inbox"]                                                   # a neutral word: printed, muted
+        assert u["text"].endswith(" · unknown") and not u["off"] and u["fill"] not in (None, got["badRgb"]), u
+        h = got["gaps"][holding]
+        assert not h["off"] and h["fill"] is None and h["stroke"] != got["badRgb"] and " · " not in h["text"], h
+        mine = [m for m in got["markers"] if any(f"gap:{off}" in c["nodes"] and c["polarity"] == "B" and c["name"] in m["loops"]
+                                                 for c in pg.evaluate("() => S.graph.causalLoops"))]
+        assert mine and all(m["off"] and m["stroke"] == got["badRgb"] for m in mine), got["markers"]
+        assert not [m for m in got["markers"] if m["off"] and m not in mine], got["markers"]
+        assert "a goal not holding: its word under its gap" in pg.evaluate("() => sdLegend().textContent")
+        assert "'off by 36' in red" in next(f["text"] for f in FRAMES if f["id"] == "between")
+        loop = next(m["loops"][0] for m in mine)                                         # 3: lit, it is the accent
+        pg.evaluate("(n) => sdHighlight(n)", loop)
+        for theme in ("light", "dark"):
+            pg.emulate_media(color_scheme=theme)
+            lit = pg.evaluate(SD_GAPS)
+            assert lit["lit"] and lit["gaps"][off]["stroke"] == lit["badRgb"], (theme, lit)
+            assert lit["gaps"][off]["stroke"] not in lit["lit"], (theme, lit["lit"], lit["gaps"][off])
+        pg.evaluate("() => sdHighlight(null)")
+        pg.emulate_media(color_scheme="light")
+        layouts = got["layouts"]                                                         # 4: off between polls
+        p.measurements.add("sensor/queue.main", 12)
+        p.events.add("loop.off", item=holding, data={"value": 12})
+        pg.wait_for_function(f"() => document.querySelector('svg.canvas g.node[data-id=\"gap:{holding}\"] .gap-off')",
+                             timeout=60000)
+        now = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        after = pg.evaluate(SD_GAPS)
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+    assert not errors, errors
+    assert now[holding]["word"] == "off" and after["gaps"][holding]["word"] == "off", (now[holding], after["gaps"][holding])
+    assert after["layouts"] == layouts, (after["layouts"], layouts)
+    # with no new layout, each gap's box still holds its text: a word come since the layout widens it, never spills out
+    assert all(gp["spill"] <= 0.5 for gp in (*got["gaps"].values(), *after["gaps"].values())), (got["gaps"], after["gaps"])
 
 
 def pg_number(x: float) -> str:
@@ -4276,11 +4838,12 @@ def test_flows_only_is_remembered(browser, tmp_path):
 
 # software-factory with its systems closed (the view the page opens with): six lines cross between factory and product,
 # all drawn as connectors. Three carry a flow (the rate of deployed, driving fixes, regressions and shipped as a release
-# goes live); three carry information only (the stocks bugs-live, missing-ops and users, read by intake's flows)
+# goes live); three carry information only (the gaps of the product's goals on bugs-live, missing-ops and users, read
+# by intake's flows: dynamics.py draws a serving block's read of its goal's stock through the goal's gap)
 CLOSED_FLOW_LINKS = {"connector:flow:deployed->flow:fixes~", "connector:flow:deployed->flow:regressions~",
                      "connector:flow:deployed->flow:shipped~"}
-CLOSED_INFO_LINKS = {"connector:stock:bugs-live->flow:filed-bugs~", "connector:stock:missing-ops->flow:filed-features~",
-                     "connector:stock:users->flow:filed-features~"}
+CLOSED_INFO_LINKS = {"connector:gap:no-live-bugs->flow:filed-bugs~", "connector:gap:few-missing->flow:filed-features~",
+                     "connector:gap:users-growing->flow:filed-features~"}
 SEEN = "const seen = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 || r.height > 0; };"
 LINKS_SEEN = "() => { " + SEEN + """
   return Object.fromEntries([...document.querySelectorAll('svg.canvas g.edge')].map((g) => {
@@ -4385,7 +4948,7 @@ def test_flows_only_hides_ports_with_no_connection(browser, tmp_path):
         pg = browser.new_page(viewport={"width": 1400, "height": 1000})
         drawn(pg, url, "", 0)
         before = pg.evaluate(PORTS_SEEN)
-        assert set(before) >= {"stock:bugs-live", "stock:missing-ops", "stock:users", "flow:filed-bugs",
+        assert set(before) >= {"gap:no-live-bugs", "gap:few-missing", "gap:users-growing", "flow:filed-bugs",
                                "flow:filed-features", "flow:deployed", "flow:fixes", "flow:regressions", "flow:shipped"}, before
         flows_menu(pg)
         assert pg.evaluate(PORTS_SEEN) == ["flow:deployed", "flow:fixes", "flow:regressions", "flow:shipped"]
@@ -4543,6 +5106,61 @@ def test_line_tones_information_lighter_than_the_material_path(browser, tmp_path
         assert bd["refErr"] and set(bd["main"]) == {bd["ink"]}, bd
         assert bd["record"] and set(bd["record"] + bd["aside"] + bd["bus"]) == {bd["ink2"]}, bd
         assert bd["record"][0] not in bd["refErr"], bd                  # definition of done 3
+        pg.close()
+    assert not errors, errors
+
+
+PRODUCT_GOALS = {"no-live-bugs": "filed-bugs", "few-missing": "filed-features", "users-growing": "filed-features"}
+# each goal's desired level and gap as drawn: its canvas texts, and where the gap's drawn lines end
+GOALS_DRAWN = """(goals) => Object.fromEntries(goals.map((k) => {
+  const node = (id) => document.querySelector(`svg.canvas g.node[data-id="${id}"]`);
+  const out = S.graph.edges.filter((e) => e.source === `gap:${k}` && document.querySelector(`svg.canvas g.edge[data-id="${e.id}"]`));
+  return [k, { desired: !!node(`desired:${k}`), gap: node(`gap:${k}`)?.textContent || null,
+               to: out.map((e) => S.graph.nodes.find((n) => n.id === e.target)?.label) }]; }))"""
+PANEL_GOALS = "() => [...document.querySelectorAll('#detail dt')].filter((t) => t.textContent === 'desired level')" \
+              ".map((t) => t.nextElementSibling.textContent)"
+
+
+def test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_same(browser, tmp_path):
+    """software-factory, ?system=product: each of the three goals is drawn as its desired level and its gap, the gap's
+    line ending at the flow intake's block moves (named at product's edge); the users stock's panel names the goals the
+    drawing draws, each bound as the goal writes it. A goal nothing acts on keeps its gap, marked 'no feedback' with no
+    line, and the legend says what the mark means; no new critical layout fault either way."""
+    def unserved(d: Path) -> None:                         # support reads users instead: nothing serves no-live-bugs now
+        p = d / "factory" / "intake.yaml"
+        p.write_text(p.read_text().replace("in: stock.bugs-live", "in: stock.users"))
+    known = json.loads(KNOWN.read_text()).get("software-factory", {}) if KNOWN.exists() else {}
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        got = pg.evaluate(GOALS_DRAWN, list(PRODUCT_GOALS))
+        for k, flow in PRODUCT_GOALS.items():
+            assert got[k]["desired"] and got[k]["gap"] and got[k]["to"] == [flow], (k, got[k])
+            assert "no feedback" not in got[k]["gap"], got[k]
+        assert critical(pg, "system=product", dict(known)) == []
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:users'))")
+        pg.wait_for_function(f"() => ({PANEL_GOALS})().length > 0", timeout=DRAWN_S * 1000)
+        said = pg.evaluate(PANEL_GOALS)
+        named = [x.split("(")[1].split(")")[0] for x in said]
+        drawn_goals = pg.evaluate("() => S.graph.nodes.filter((n) => n.role === 'gap' && n.of === 'users').map((n) => n.goal)")
+        assert named == drawn_goals == ["users-growing"], (said, drawn_goals)
+        assert said[0].startswith("desired users ≥ 180 (users-growing), served by product-manager in factory"), said
+        assert "no feedback" not in pg.evaluate("() => sdLegend().textContent")
+        pg.close()
+    with served("software-factory", tmp_path / "unserved", unserved) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        got = pg.evaluate(GOALS_DRAWN, ["no-live-bugs"])["no-live-bugs"]
+        assert got["desired"] and "→ no feedback" in got["gap"] and got["to"] == [], got
+        assert "no feedback: nothing in the model acts on this gap" in pg.evaluate("() => sdLegend().textContent")
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:bugs-live'))")
+        pg.wait_for_function(f"() => ({PANEL_GOALS})().length > 0", timeout=DRAWN_S * 1000)
+        assert pg.evaluate(PANEL_GOALS) == ["desired bugs-live ≤ 0 (no-live-bugs) (nothing in the model acts on its gap: "
+                                            "no feedback closes it)"]
+        assert critical(pg, "system=product", dict(known)) == []
         pg.close()
     assert not errors, errors
 
@@ -6050,6 +6668,48 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+# each subsystem drawn, closed (a block) or open (a frame): its letter's style, its name, and the text it shows
+SUBSYSTEMS = """() => [...document.querySelectorAll('svg.canvas g.bd-subsystem, svg.canvas g.bd-frame-system')].map((g) => {
+  const n = S.graph.nodes.find((n) => n.id === g.dataset.id) || (S.graph.frames || []).find((f) => f.id === g.dataset.hull);
+  const t = g.classList.contains('bd-frame') ? g.querySelector(':scope > text') : g.querySelector('text.bd-sym');
+  const q = t.querySelector('tspan.bd-mi'), cs = q && getComputedStyle(q);
+  return { name: n.label, frame: g.classList.contains('bd-frame'), letter: q ? q.textContent : null, named: !!n.fn?.named,
+           style: cs ? cs.fontStyle + ' ' + cs.fontWeight : null,
+           text: [...g.querySelectorAll('text')].map((x) => x.textContent).join(' ') }; })"""
+
+
+def test_the_blocks_legend_defines_the_subsystem_letter_and_its_size_and_a_name_is_printed_once(browser, tmp_path):
+    """In the Blocks view the legend defines the subsystem letter drawn and p×m (outputs × inputs); a subsystem's
+    name is printed once in its block or frame; its letter has one style and weight, closed at the top and open."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        seen = []
+        for i, v in enumerate(["view=blocks", "view=blocks&open=factory"]):
+            drawn(pg, url, v, i)
+            got = pg.evaluate(SUBSYSTEMS)
+            assert got, f"[{v}] no subsystem drawn"
+            seen += [(v, x) for x in got]
+            legend = pg.locator(".legend-box .bd-legend").text_content()
+            assert "×" in legend and "outputs" in legend and "inputs" in legend, legend
+            for x in got:                                  # the letter drawn is defined: C_name, P_name, or a name alone
+                said = "its name alone" if x["named"] else f"{x['letter']}_name"
+                assert x["named"] or x["letter"] in ("C", "P"), x
+                assert said in legend, (x, legend)
+        opened = {(x["name"], x["frame"]) for v, x in seen if v.endswith("open=factory")}
+        assert ("factory", True) in opened and ("intake", False) in opened, opened     # the frame, and a block inside it
+        assert ("factory", False) in {(x["name"], x["frame"]) for v, x in seen if v == "view=blocks"}
+        for v, x in seen:
+            assert x["text"].count(x["name"]) == 1, f"[{v}] {x['name']} printed more than once: {x['text']!r}"
+        styles = {x["style"] for _, x in seen if x["letter"]}
+        assert len(styles) == 1, styles                    # C and P alike, closed and open, bold on neither
+        assert {x["letter"] for _, x in seen if x["frame"]} & {x["letter"] for v, x in seen if v == "view=blocks"}, seen
+        pg.close()
+        assert not errors, errors
+
 
 
 MAY_DO ="You can look at everything. Approving or denying these is the only thing that changes the system."

@@ -270,7 +270,8 @@ details.suggest .hint { margin-top: var(--sp-3); }
 table.kind-items th { white-space: normal; }
 table.kind-items td.cell { white-space: normal; overflow: visible; overflow-wrap: anywhere; min-width: 6em; }
 @media (max-width: 700px) { table.kind-items tr > :nth-child(n+3):not(.keep) { display: none; } }
-.item-set table.item-list td.cell { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-set table.item-list td.cell, .taken-list table.item-list td.cell { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taken-list .taken-head { margin-bottom: var(--sp-1); }
 
 /* the diagram: the canvas and its side panel */
 .diagram { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); }
@@ -449,6 +450,8 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
 .kinds-quiet { font-size: var(--text-sm); }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
+.kind-flow .pm-link { font-size: var(--text-sm); margin-left: var(--sp-3); }
+.kind-card .pm-link { margin-left: 0; }
 .kind-flow .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }
 /* a kind's progress per group, on its card (itemsets.js groupRows): a compact row a group, its bar */
 .gp-rows { display: flex; flex-direction: column; gap: var(--sp-0); margin: var(--sp-2) 0 0; font-size: var(--text-sm); }
@@ -664,6 +667,13 @@ svg.sd .edge.lit .pipe-head, svg.sd .edge.in-loop .pipe-head, svg.sd .edge.lit .
 .loop-marker .marker-name { fill: var(--sd-ink-2);font-size: var(--canvas-sm); font-style: italic; paint-order: stroke; stroke: var(--sd-paper); stroke-width: 3px; stroke-linejoin: round; }
 .loop-marker.pol-unknown .marker-arc { stroke: var(--sd-muted); }
 .loop-marker.pol-unknown .marker-head, .loop-marker.pol-unknown .marker-letter, .loop-marker.pol-unknown .marker-name { fill: var(--sd-muted); }
+/* a goal not holding: its word under its gap, muted; off, the word, the gap's outline and its balancing loop's marker in
+   --bad, never the accent (that is what is chosen or traced; a marker chosen still takes it) */
+svg.sd .node .gap-word .sd-word { fill: var(--sd-muted); }
+svg.sd .node .gap-off .sd-word { fill: var(--bad); font-weight: 600; }
+svg.sd .node .gap-off > .hit.sd-aux { stroke: var(--bad); stroke-width: 1.6; }
+.loop-marker.goal-off .marker-arc { stroke: var(--bad); }
+.loop-marker.goal-off .marker-head, .loop-marker.goal-off .marker-letter { fill: var(--bad); }
 .loop-marker:hover .marker-arc, .loop-marker.on .marker-arc { stroke: var(--accent); stroke-width: 2; }
 .loop-marker:hover .marker-head, .loop-marker.on .marker-head, .loop-marker:hover .marker-letter, .loop-marker.on .marker-letter,
 .loop-marker.on .marker-name { fill: var(--accent); }
@@ -709,6 +719,13 @@ a.stbox:hover { text-decoration: none; background: var(--fill); }
 .stbox.on { color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
 .track .stbox.on { color: var(--ink); font-weight: 600; box-shadow: none; }
 .track .stbox.final { border: 3px double currentColor; }
+/* an item's path through the model: stocks boxed, the valves between; it wraps, never scrolls */
+.went .wv-path { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); align-items: baseline; margin: 0 0 var(--sp-3); }
+.wv-step { border: var(--hair) solid var(--line); border-radius: var(--radius); padding: 0 var(--sp-1); overflow-wrap: anywhere; }
+.wv-step.on { border-color: currentColor; }
+.wv-step.final { border: 3px double currentColor; }
+.wv-move { color: var(--muted); overflow-wrap: anywhere; }
+details.lease > summary { cursor: pointer; }
 .track .alt { display: inline-flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); align-items: baseline; margin-left: var(--sp-5); color: var(--muted); }.meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-5); margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); color: var(--ink); }
 .meta span > span:first-child { color: var(--muted); margin-right: var(--sp-1); }
 img.thumb { max-height: 44px; max-width: 72px; border-radius: var(--radius); border: var(--hair) solid var(--line); background: var(--bg); vertical-align: middle; }
@@ -835,6 +852,9 @@ body.file-page main.md { max-width: 46em; margin: 0 auto; padding: var(--sp-6) v
 .bd .node.selected .bd-bar { fill: var(--accent); }
 .node.xhover .hit, svg.sd .node.xhover .hit, .bd .node.xhover .hit { stroke: var(--accent); stroke-width: 2.2; }
 .bd .node.xhover .bd-bar { fill: var(--accent); }
+/* the part the keyboard is on (keys.js): the selection's colour, as a ring round it and on its outline */
+svg.canvas [data-key]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg.canvas .node:focus-visible .hit, svg.canvas .measure-row:focus-visible .measure-bg { stroke: var(--accent); stroke-width: 2.2; }
 svg.canvas rect.hull-mark { fill: none; stroke: var(--accent); stroke-width: 1.8; pointer-events: none; }
 svg.canvas rect.hull-mark.within { stroke-dasharray: 6 4; }
 svg.canvas rect.hull-mark.xhover { stroke-width: 4px; vector-effect: non-scaling-stroke; }
@@ -1014,6 +1034,7 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
 
 /* the Items page's Graph and Timeline (relations.js): plain ink, a card's left bar its state (the chart's shade),
    its border its status; hue only for what needs it: active (the accent), the critical path and a dead letter (bad) */
+.fin-choice { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); }   /* the one finished choice */
 .rg-viewbar { display: inline-flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .rg-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--muted); }
 .rg-graph, .rg-timeline { margin: var(--sp-1) 0 var(--sp-5); }

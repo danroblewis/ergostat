@@ -18,6 +18,7 @@ ergostat -C examples/roadmap run            # then open the Items page: Graph, T
 ```
 
 On the Items page, **Graph** draws the tickets left to right, each after what it waits on, hanging off its epic;
-the critical path is drawn heavier. **Frontier** keeps only the unfinished and what they wait on; **collapse done**
-folds the finished into "via N done". **Timeline** is the Gantt chart: each ticket's states over time, and for the
+the critical path is drawn heavier. The page's one **Finished items** choice: *Hidden* folds the finished into
+"via N finished"; *Those waited on* adds the finished an unfinished ticket waits on directly; *Shown* draws them all.
+**Timeline** is the Gantt chart: each ticket's states over time, and for the
 unfinished, bars projected from the median time per state, each after what it waits on.

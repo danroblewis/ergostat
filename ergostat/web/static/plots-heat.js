@@ -94,7 +94,8 @@
   }
 
   registerPlotForm("heatmap", { label: "Heatmap", group: "distribution",
-    needs: { x: ["time", "query", "field"], text: "points to count across X and Y" }, draw: drawHeatmap, options: [
+    needs: { x: ["time", "query", "field"], text: "points to count across X and Y" }, draw: drawHeatmap,
+    shapes: { points: {} }, reshape: "plot one numeric field of the items against another", options: [
       { key: "y_bins", label: "Y bins", type: "number", min: 2, max: 60, step: 1, default: "auto", auto: true },
       { key: "scale", label: "Colour scale", type: "choice", choices: ["linear", "log"], default: "linear" },
       { key: "palette", label: "Palette", type: "choice", choices: ["sequential", "diverging"], default: "sequential" },

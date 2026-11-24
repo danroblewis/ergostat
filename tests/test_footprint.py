@@ -129,6 +129,24 @@ def test_a_nack_is_a_repeated_step_with_its_attempts(tmp_path):
     assert path[0]["ended"] == "nack" and path[1]["ended"] is None
 
 
+def test_the_item_pages_where_it_went_joins_each_flow_to_the_block_whose_out_names_it(tmp_path):
+    """What pageItem's 'Where it went' reads (pages.js whereView): /api/kinds/K's ``taken_by[].out`` named
+    ``flow.X``, joined to a path step's ``flow``; a taken item's lease (holder, block, taken) for its current step."""
+    p = _project(tmp_path, "roadmap")
+    _done_ticket(p)
+    p.events.add("ticket.planned", item="ticket/2", at=2000.0)
+    p.events.add(TAKEN, item="ticket/2", data={"run": "r3", "block": "developer", "fence": 1, "ttl": 300, "max": 3,
+                                               "back": "todo"}, at=2001.0)
+    live = Live(p)
+    fp = api(live, "kinds/ticket", {})
+    assert "why" not in fp
+    mover = {f.removeprefix("flow."): t["block"] for t in fp["taken_by"] for f in t["out"]}
+    path = api(live, "items/ticket%2F1", {})["path"]
+    assert [mover.get(s["flow"]) for s in path[1:]] == ["developer", "developer", "reviewer"]
+    lease = api(live, "items/ticket%2F2", {})["fields"]["lease"]
+    assert (lease["holder"], lease["block"], lease["taken"]) == ("r3", "developer", 2001.0)
+
+
 UNCOUNTED = """
     name: t
     items:

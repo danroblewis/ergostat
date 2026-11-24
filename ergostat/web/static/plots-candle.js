@@ -111,6 +111,7 @@
 
   registerPlotForm("candlestick", { label: "Candlestick", group: "time",
     needs: { x: ["time"], agg: "ohlc", text: "open, high, low and close (aggregation ohlc)" }, draw: drawCandles,
+    shapes: { series: { roles: ["open", "high", "low", "close"] } }, reshape: "set the query's aggregation to ohlc",
     ask: (q) => ((q.source === "items" || q.source === "series") && (!q.x || q.x.type === "time") ? { ...q, agg: "ohlc", transform: "none" } : q),
     check: (r) => (r.series.some((x) => x.open) ? "" : "A candlestick chart needs open, high, low and close: set the query's aggregation to ohlc."),
     options: [

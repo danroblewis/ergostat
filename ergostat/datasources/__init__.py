@@ -4,10 +4,11 @@ the source's own language; the answer has the shape of every chart's (``times``,
 
 A type is one module in this package, found by its name: ``TYPE`` (the word in ``sources:``), ``KEYS`` (its connection
 keys besides ``type``), ``LANGUAGE`` (what its text is written in) and ``query(source, text, window)``, which returns
-``[(name, [(time, value), ...]), ...]``. It may also offer ``suggest(source, what, prefix, metric, label, seconds,
-most)``, the names an editor completes (``what``: ``metrics``, ``labels`` or ``values``), read from the source's own
-metadata. It offers nothing else: a module with any other public function or class is refused, so ``query`` and
-``suggest`` are the only operations anything can call on a source (and each must itself only read).
+``[(name, [(time, value), ...]), ...]``, or a typed frame (series with roles, a table or points: _frames.py). It may
+also offer ``suggest(source, what, prefix, metric, label, seconds, most)``, the names an editor completes (``what``:
+``metrics``, ``labels`` or ``values``), read from the source's own metadata. It offers nothing else: a module with any
+other public function or class is refused, so ``query`` and ``suggest`` are the only operations anything can call on a
+source (and each must itself only read).
 Every query is bounded here, whatever its type: its text, its window, its points and its series, and it is refused
 with words naming the bound it is over."""
 
@@ -18,8 +19,11 @@ import math
 import pkgutil
 import re
 import threading
+from contextvars import ContextVar
 from dataclasses import dataclass
 from types import FunctionType, ModuleType
+
+from . import _frames
 
 MOST_TEXT = 4000            # characters of a query's text
 MOST_SERIES = 50            # series one query may answer with
@@ -57,6 +61,8 @@ class Window:
         return self.start + (self.points - 1) * self.step
 
 
+ASKING: ContextVar = ContextVar("asking", default=None)   # the project asking, while a type answers (one reading the
+#                                                          project's own record, sql.py, takes it: ``ASKING.get()``)
 _TYPES: dict[str, ModuleType] = {}
 _LOCK = threading.RLock()
 _FOUND = False
@@ -100,7 +106,7 @@ def listed(spec) -> list[dict]:
             for s in (getattr(spec, "sources", None) or {}).values() if s.type in every]
 
 
-def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS) -> dict:
+def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, project=None) -> dict:
     """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError."""
     src = (getattr(spec, "sources", None) or {}).get(name)
     if src is None:
@@ -119,7 +125,16 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS) -> dict:
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
     w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS))
-    got = mod.query(src, text, w)
+    token = ASKING.set(project)
+    try:
+        got = mod.query(src, text, w)
+    finally:
+        ASKING.reset(token)
+    if isinstance(got, dict):                       # a typed frame (_frames.py)
+        try:
+            return _frames.answer(got, g, MOST_SERIES)
+        except _frames.Bad as e:
+            raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused", f"source {name!r} answered badly: {e}") from e
     if not isinstance(got, list):
         raise SourceError("refused", f"source {name!r} answered with no series")
     if len(got) > MOST_SERIES:
@@ -132,11 +147,11 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS) -> dict:
             if g.since - g.step < t <= g.until and isinstance(v, int | float) and math.isfinite(v):
                 values[g.at(t + 1e-6 * g.step)] = float(v)    # (a time on a bucket's start, never just before it)
         series.append({"name": str(label), "values": values})
-    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False}
+    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False, "shape": "series"}
 
 
 def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", label: str = "",
-            seconds: float = SUGGEST_SECONDS) -> dict:
+            seconds: float = SUGGEST_SECONDS, project=None) -> dict:
     """The names an editor may complete: ``{suggestions, more}``, at most MOST_SUGGESTIONS, each starting with ``prefix``
     (``more``: there were others, not sent). ``metric`` narrows labels and values to one metric's; ``label`` is whose
     values. Bounded like a query, whatever the type: in time, in what is asked and in what is answered."""
@@ -154,6 +169,10 @@ def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", labe
         raise SourceError("limit", "what is typed is more than the 200 characters a suggestion takes")
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
-    got, more = mod.suggest(src, what, prefix, metric, label, min(seconds, SUGGEST_SECONDS), MOST_SUGGESTIONS)
+    token = ASKING.set(project)
+    try:
+        got, more = mod.suggest(src, what, prefix, metric, label, min(seconds, SUGGEST_SECONDS), MOST_SUGGESTIONS)
+    finally:
+        ASKING.reset(token)
     names = sorted({n for n in got if isinstance(n, str) and n.startswith(prefix)})
     return {"suggestions": names[:MOST_SUGGESTIONS], "more": bool(more) or len(names) > MOST_SUGGESTIONS}

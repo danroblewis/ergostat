@@ -153,8 +153,10 @@ The control diagram is the product's main view. Conventions:
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
   would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
   all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or
-  more) and says when more lies beyond the edge, and which way (arrows); "Fit" shows everything. At phone
-  width (700px or less) each view opens fitted to the canvas down to 7.7px text, and a drawing still too big
+  more) and says when more lies beyond the edge, and which way (arrows); "Fit" shows everything (the Process
+  view's map at no less than full size: its nodes' text never under 11px). At phone
+  width (700px or less) each view opens fitted to the canvas down to 7.7px text (the Process
+  view's map still at no less than 11px), and a drawing still too big
   is centred on its first part (a system box, else a stock).
 - **The process view** (`process.py`, `process.js`; SPEC §5b) is process mining's process map: a
   directly-follows graph per item kind, from the record in the window (the states items entered, or
@@ -163,6 +165,11 @@ The control diagram is the product's main view. Conventions:
   caused one on another's. It replaced the wiring view (machines and what passed between them),
   which stays on the command line (`ergostat system --wiring`). Its nodes and its kinds' frames are put by
   hand as the other views' parts are (below).
+- **A goal's state in the dynamics view** is said on its gap: a goal not holding has the server's word after the gap's
+  value (`36 · off by 36`, the one phrase of how far; `no feedback` for an open goal; `stale`, `unknown` muted),
+  and a goal holding has none. Off, the word, the gap's outline and the marker of its balancing loop are red
+  (`--bad`), never the accent, so a traced loop and an off goal never share a colour; a marker chosen still takes the
+  accent. The word comes and goes with the values poll, on the value's own line, so nothing is laid out again.
 - **The block view** draws each loop as a classic negative-feedback block diagram, one row per
   loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
   output u into the actuator (the valve), a second junction where the disturbance d joins, the
@@ -188,6 +195,13 @@ The control diagram is the product's main view. Conventions:
   and titled in that discipline's words: a stock as "output y_quality of P_service", a flow a controller
   moves as "actuating signal u_tuner", a reference as "reference r = 0.93 and its summing junction". A
   part's panel opens at the click, its name first, and fills when its numbers come.
+- **By keyboard.** The diagram is one tab stop: the part last on in that view (else the first of the first
+  chain) takes it. The arrows follow the structure: in Dynamics Right and Left along the pipe (stock, valve,
+  stock), Down and Up through the connectors into and out of the part (each named with its other end and its
+  sign); in Blocks Right and Left along the signal (Σ, C, the actuator, P, through P's own summing point),
+  Down along the return path. Down enters a closed box's goal rows; Shift and an arrow steps through every
+  part in drawing order; Home goes to the first part. Enter opens the panel with the focus in it and Escape
+  gives it back; I goes Into a system, Escape or Backspace back out onto it. The ring is the accent.
 - **Parts put by hand.** In the Dynamics and the Blocks view alike, a part dragged (a block, a summing
   junction, a sensor, a stock, anything drawn) moves, with the others chosen if it is one of them; an open
   system dragged by its top (its outline, or its frame in the block diagram) moves with everything in it.
