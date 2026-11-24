@@ -346,7 +346,8 @@ def cmd_residual(args) -> int:
 RECORD = ("events.db", "events.db-shm", "events.db-wal", "measurements.db", "measurements.db-shm", "measurements.db-wal",
           "events", "archive", "measurements.forgotten.json", "run.log", "transcripts.json",   # events/: segments.py
           "items",                                                                        # items/: the item index
-          "measurements.backfilled.db", "measurements.backfilled.db-shm", "measurements.backfilled.db-wal")
+          "measurements.backfilled.db", "measurements.backfilled.db-shm", "measurements.backfilled.db-wal",
+          "itemmetrics.json")                                                             # their checkpoint: itemmetrics.py
 
 
 def cmd_reset(args) -> int:
