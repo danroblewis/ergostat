@@ -124,6 +124,27 @@ in the proposal only:
   description, not tried; `test_frozen_lists_roll_up` is the check.
 - Still 0 net lines of code. Only ruff was run.
 
+Round 8: the one review finding answered (blocking; there were no others). A change of design, made in the
+proposal only:
+- Finding (an unchanged frozen list lapsed at `until` = `at` + `for` while healthy passes kept producing it; lateness
+  read from the list's age, which is the time of its last change; no recorded `at` of a pass without
+  `forecast.record`). Answered in §1 and §5. Every standing pass, failed or not, writes one small event,
+  `standing.pass` {at, version, ok, reason, `lists`: per frozen block the `seq` of the list in force and its renewed
+  `until` = this pass's `at` + `for`}, about `ergostat.standing`, so the roll-up folds it like the frozen lists.
+  A list's `until` in force is the one named by the newest good pass (by `seq`) that names it, else its own. So a
+  steady list never lapses while passes run and lapses `for` after the last good pass. Lateness is measured from the
+  newest good `standing.pass`, never a list's age; an unreadable one is said by health, and the lists are then read
+  without renewals (lapsing sooner, to the plain order, said). A failed pass renews nothing.
+- The finding's suggestion was a renewal event written at most once per `for`. Riding the renewal on one pass event
+  instead was chosen because the pass's `at` had to be recorded anyway; it is listed as a reversible decision. Growth:
+  at most 96 small events a day (a few dozen bytes per frozen block), worked by hand, not measured.
+- §8: forecast-standing-runs gains `standing.pass` and `test_late_measured_from_last_pass` (110 → 120 lines);
+  frozen-windows gains the renewal, `test_unchanged_list_stays_in_force_past_for` and
+  `test_failed_pass_renews_nothing`, and `test_unchanged_list_writes_nothing` becomes
+  `test_unchanged_list_writes_no_new_list` (140 → 150). Seven gaps, about 1,070 net lines. §9.2's oven shows a list
+  renewed over a quiet night. The Entry below was updated to match.
+- Still 0 net lines of code. Only ruff was run.
+
 ## Entry
 
 section: Modelling
@@ -134,8 +155,9 @@ section: Modelling
   and stage, with a quantile ladder, `waits_on`, basis and runs; promises a model may declare (a date, N of M by a
   date, a service level, extra started to cover loss); quotes of hypothetical items through the what-if path,
   writing nothing; standing runs on a bounded schedule, started by the runner and taken before page asks, for what
-  must happen unwatched; frozen windows as a term at the front of `take_key`, broken by urgent work and recorded;
+  must happen unwatched, each pass recorded as `standing.pass`; frozen windows as a term at the front of
+  `take_key`, renewed by each good pass, broken by urgent work and recorded;
   calibration of recorded forecasts and promises beside the backtest; `/remote/v1/forecast` read by `forecast: true`
   relations. Worked for a job shop with rework and a batch process with yield loss. *Left*: the seven build gaps of
-  its §8 (about 1,050 net lines), not yet filed; two owner's questions (whole-lot loss or yield inside a lot; a frozen
+  its §8 (about 1,070 net lines), not yet filed; two owner's questions (whole-lot loss or yield inside a lot; a frozen
   window refreshed hourly or only on request).
