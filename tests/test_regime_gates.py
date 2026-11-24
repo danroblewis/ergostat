@@ -145,6 +145,36 @@ def test_unsure_state_is_deny_whatever_is_written(tmp_path, monkeypatch):
         assert risk.cell(Action("a", "x", gate="auto", gates=written), o)[0] == "deny"
 
 
+BAD_EVENTS = {"a state name not known": ("holiday", {}),
+              "a maintenance end not a number": ("maintenance", {"until": "soon", "actions": ["act"]})}
+
+
+def bad_event(p, how):
+    st, data = BAD_EVENTS[how]
+    p.events.add(f"{operating.KIND}.{st}", item=operating.KIND, source=operating.OWNER, data=data)
+
+
+@pytest.mark.parametrize("how", list(BAD_EVENTS))
+def test_corrupt_operating_event_is_unsure_at_request_and_act(tmp_path, monkeypatch, how):
+    """The fold itself reads the record as no known state (not a raising read): unsure, so ``incident: auto`` as
+    written never applies, at the request and inside the run lock at the act (lesson-3)."""
+    p = project(tmp_path, {"act": ("{normal: auto, incident: auto}", None)})
+    operating.enter(p, "normal")
+    bad_event(p, how)
+    assert operating.read(p).unsure and operating.read(p).state == "incident"
+    a = ask(p, tmp_path)
+    assert a["state"] == "denied" and a["denied_by"] == "gate" and a["operating"]["column"] == "unsure"
+    assert ran(tmp_path) == []
+    q = project(tmp_path / "act", {"act": ("{normal: approve, incident: auto}", None)})
+    operating.enter(q, "normal")
+    between(monkeypatch, lambda q: bad_event(q, how))
+    b = ask(q, tmp_path / "act")
+    assert b["state"] == "requested" and b["operating"]["column"] == "normal"
+    b = gate.approve(q, q.model.spec, b["id"])
+    assert b["state"] == "denied" and b["risk_at_act"]["operating"]["column"] == "unsure"
+    assert ran(tmp_path / "act") == []
+
+
 def test_unreadable_state_at_the_act_denies(tmp_path, monkeypatch):
     p = project(tmp_path, {"act": ("{normal: approve, incident: auto}", None)})
     operating.enter(p, "normal")

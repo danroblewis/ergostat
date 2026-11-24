@@ -150,6 +150,24 @@ Net lines outside tests and docs: 87 (budget 140).
 Run: `tests/test_regime_gates.py` (12 passed), `tests/test_inbox.py` (37 passed), `tests/test_program_actions.py`
 (10 passed), and ruff is clean. Not run here: the unit suite and the four browser files. No page changed.
 
+Round 5. The one finding (lesson-3, lesson-9): no test went through the fold's own unsure path (an event naming no
+known state, or a maintenance end that is not a number). Only a test changed; no code did. New test
+`test_corrupt_operating_event_is_unsure_at_request_and_act` (parametrized). It writes a real
+`ergostat.operating.holiday` event, and separately an `ergostat.operating.maintenance` event with `until: "soon"`.
+- At the request: on `{normal: auto, incident: auto}`, the request is denied by the gate with column `unsure`, and the
+  command never runs.
+- At the act: on `{normal: approve, incident: auto}`, the request is held under `normal`. The bad event is written
+  inside the run lock, between the owner's approval and the act. The act is denied with `risk_at_act` column
+  `unsure`, and the command never runs.
+I broke the identity check by hand (`d is UNSURE` replaced by `False` in `operating.read`, which is what returning
+`{}` instead of `UNSURE` also does). Both cases failed. With the direct `read(p).unsure` assertion removed, they failed
+at the request assertion (`ran` == `denied`). With the request half removed too, they failed at the act assertion
+(`ran` == `denied`). Then I put the code back.
+No other findings were raised in round 5. Main had nothing new to merge (`HEAD..main` is empty).
+Net lines outside tests and docs: 87 (budget 140), unchanged.
+Run: `tests/test_regime_gates.py` (14 passed), and ruff is clean. Not run here: the unit suite and the four browser
+files. No page changed.
+
 ## Entry
 
 entry-of: operating-modes-regime
