@@ -15,3 +15,40 @@ Acceptance tests: test_declared_law_that_matches_holds (a synthetic HPA record m
 Size budget: 150 net lines.
 
 Area: remote-and-libraries. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: every definition-of-done item is in the code, with its acceptance test.
+
+- Item 1: `external.declared(p, spec, name, since, until)` takes identify's own grid and split (it calls `identify`,
+  cached), steps the declared law (`control/laws.law(known, dt)` on the grid's period) with `extlaw.run` and judges it
+  with `extlaw.judge`: `{kind, law (skill, r2, points), why, beaten}`. Too little record: `law` None, `why` identify's
+  own words. The result is kept in the identification's cache entry, keyed by the law as declared (a changed law under
+  the same block is worked out again, lesson 5).
+- Choices made alone (the most reversible, each a line or two):
+  - The declared law's delay is searched, 0 to 6 samples, by its one-step error on the first three quarters only, as
+    identify searches a delay for its laws (a declaration says nothing of the sensors' lag); only that delay counts
+    against it in the score, its declared numbers being given, not fitted. "Lower by the parsimony rule's margin" is
+    read as: the identified law's score (n ln(SSE/n) + k ln n, its own k) is below the declared law's (k = its delay).
+  - An HPA's `every` is replaced by the grid's period, as identify's laws are on that period.
+  - `/api/loop-control`'s top-level `declared` is already the goal's declared process (control/loop.py), so the
+    declared law is given in `controller.declared` beside `controller.identified`, with one more field, `worse`
+    (whether the finding holds), and `{kind, why}` when not judged. The loop-control answer is made in
+    `ergostat/control/loop.py` (`external()`), not in `ergostat/web`, so that is the file changed.
+  - The panel's table keeps its six rows (tests/test_graph_cli_web.py pins them): the *held-out fit* row adds both
+    laws' fit for an external controller.
+- Item 4: with no `law:`, `declared` returns None before anything is worked out; test_extlaw.py, test_demo_check.py
+  and the Blocks golden hash in test_known_laws.py pass unchanged.
+- Tests shown to fail when the code they guard is broken: `beaten` set whatever the score (the matching test fails),
+  `disagrees` never true (the wrong-target test fails), the *fits its record worse* words dropped from the table (the
+  browser test fails).
+- Not run here: the whole unit suite and the four browser files (the factory and merge queue run them); main had
+  nothing past this branch's base to merge.
+
+## Entry
+
+- **A declared law tested against the record** (SPEC §12d, *Known laws*): an external block's `law:` is stepped on the
+  record's measured input on identify's grid and judged on the same held-out quarter (skill, R², points);
+  `external-law-disagrees` when its skill is below 0 or the identified law scores lower, claiming only that it fits its
+  record worse; `/api/loop-control` gives `controller.declared`, and the loop's table writes both laws' held-out fit.
+  *Left*: the declared law run in the projection.

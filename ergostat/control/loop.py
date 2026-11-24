@@ -74,7 +74,12 @@ def external(p, spec: Spec, name: str, at: float | None) -> dict:
     g = ob.reference(p, at)
     got = ex.identify(p, spec, name, g.since, g.until)
     w = got["law"]
-    return {"block": name, "identified": w.as_dict() if w else None,
+    d = ex.declared(p, spec, name, g.since, g.until)
+    dw = (d or {}).get("law")
+    out = {"declared": {"kind": d["kind"], "short": dw.short(), "skill": dw.skill, "r2": dw.r2, "points": dw.points,
+                        "worse": ex.disagrees(d)} if dw else
+           {"kind": d["kind"], "why": d["why"]}} if d else {}
+    return {**out, "block": name, "identified": w.as_dict() if w else None,
             "says": f"{name} is external: its law identified from the record, {w.said()}" if w else
             f"{name} is external: its law is not identified: {got['why']}"}
 
