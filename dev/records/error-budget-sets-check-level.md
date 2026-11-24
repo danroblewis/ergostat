@@ -61,7 +61,7 @@ Tests, `tests/test_error_budget.py`, 24 passing:
 
 Other suites run, all passing: `tests/test_spec_blocks.py`, `tests/test_closedloop.py` and `tests/test_library_trust.py`
 (82, then 50 after the new case); `tests/test_run_costs.py`, `tests/test_verify_after.py` and
-`tests/test_runner_and_state.py` (87). ruff is clean on ergostat, tests, scripts and dev/bin/verify.py. Not run here:
+`tests/test_runner_and_state.py` (87); `tests/test_factory.py` (251 passed, 2 skipped: Docker absent). ruff is clean on ergostat, tests, scripts and dev/bin/verify.py. Not run here:
 the full unit suite and the four browser files (the merge queue runs them). No page changed.
 
 Choices, each the most reversible reading I could find:
