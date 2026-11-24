@@ -25,14 +25,9 @@ scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "
                                      # name: the implementor's program refuses the build before the suites
                                      # (dev/bin/implement.py strays; the last five from 2026-11-21's real strays)
 
-[plan]                               # the advisory plan review (dev/bin/planreview.py): never a gate
-review = "sample"                    # sample (1 in sample_every plans), all, or off
-sample_every = 3
-
 [planning]                           # planning by a gap's size class (dev/bin/plan.py; dev/README.md, Planning by size)
-l_review_share = 0.5                 # the share of L plans marked for the plan review, picked by the gap's id (0-1)
 min_size_confidence = 0.5            # a class is trusted at this confidence or above (low 0.25, medium 0.5, high
-                                     # 0.75; 0-1); unset: none is, and every gap takes the full, reviewed planner
+                                     # 0.75; 0-1); unset: none is, and every gap takes the full planner
 
 [git]
 base = "main"                        # what a gap's branch starts from, and what the queue merges into
@@ -48,9 +43,7 @@ suite_fix_rounds = 2                 # sessions the implementor gets to make its
 planner_model = "opus"               # the planner: a gap's definition of done, or its split (dev/bin/plan.py)
 planner_session_usd = 5.0
 planner_m_session_usd = 2.0          # an M gap's one planner session (above 0, at most planner_session_usd)
-plan_reviewer_model = "opus"         # the plan review: the plan against main's code and the task graph
-plan_reviewer_session_usd = 3.0
-join_judge_model = "opus"            # the join judge (plan.py join): the plan reviewer's model and session cap
+join_judge_model = "opus"            # the join judge (plan.py join): a split's coverage against main's code
 join_judge_session_usd = 3.0
 researcher_model = "opus"            # research questions (dev/bin/research.py)
 researcher_session_usd = 5.0
@@ -78,7 +71,6 @@ every_hours = 12                     # the groomer grooms again this long after 
 
 [knowledge]                          # what a brief may carry beyond the house rules and the review lessons (always)
 chars = 24000                        # the whole knowledge section, in characters, unless the role has its own
-plan_reviewer_chars = 12000          # (the lessons alone)
 pipeline_manager_chars = 12000
 research_chars = 6000                # each answered research report a brief carries, cut at a line (within the above)
 librarian = true                     # true runs the librarian after each review (an AI step on haiku); the owner wants

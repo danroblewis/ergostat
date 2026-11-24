@@ -317,7 +317,7 @@ def block(cfg: dict, role: str, gap: dict, text: str) -> tuple[str, dict]:
                   "carries only the repository's.")
     touched = sorted(set(FILES.findall(text)))
     words = set(re.findall(r"[a-z]+", f"{text} {gap['fields'].get('title', '')}".lower()))
-    rules = [e for e in es if e["kind"] == "rule" and role != "plan_reviewer"]
+    rules = [e for e in es if e["kind"] == "rule"]
     lessons = [e for e in es if e["kind"] == "lesson"]
     parts = ["## The house rules\n\n" + "\n".join(e["text"].replace("## ", "**", 1).replace("\n", "**\n", 1)
                                                   for e in rules)] if rules else []

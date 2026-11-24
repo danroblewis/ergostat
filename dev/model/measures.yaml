@@ -173,10 +173,9 @@ blocks:
       flakes: goal.flakes-rare.off
       cost: goal.merged-gap-cost.off
       deps: goal.dependencies-sound.off
-      plans: goal.plans-agreed.off
       denials: goal.no-tool-denials.off
       code: block.code-health-off
-    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps, plans, denials, code)
+    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps, denials, code)
     out: block.improve-factory
   improve-factory:
     type: person
