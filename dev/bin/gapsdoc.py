@@ -9,7 +9,8 @@ its section's last, by name. render() reports by name every malformed Entry, two
 (gap ids cut to 32, as intake does), a listed entry or an umbrella with none: rendered, never silently dropped.
 split() is the inverse; an exact duplicate entry (a union merge's) is dropped and said by name and line. Each landing
 of the merge queue carries the batch's own GAPS.md edits into the records and GAPS-head.md (carry()) and writes GAPS.md from them
-(regenerate()); deps.py reads the entries from the records (entries()), the other readers still read GAPS.md.
+(regenerate()); deps.py, the briefs, the planner and the knowledge block read the entries from main's records
+(entries(); brief.records_at_main), intake still reads GAPS.md.
 
     gapsdoc.py render [--check]       GAPS.md from dev/records to stdout (--check: only the problems); exits 1 on any
     gapsdoc.py split --dry-run [FILE] what split would make of FILE (docs/GAPS.md): records, duplicates, problems

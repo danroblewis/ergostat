@@ -2388,6 +2388,42 @@ def test_a_loops_table_is_drawn_again_when_a_proposal_below_it_is_accepted(brows
         pg.close()
 
 
+def test_a_loops_table_shows_a_declared_laws_fit_beside_the_identified(browser, tmp_path):
+    """The tuner's loop answer routed to carry an external controller's two laws (SPEC §12d): the table's held-out fit
+    row says the identified law's skill and R² and, beside it, the declared law's, with its points and that it fits its
+    record worse; a declared law too little record judges says why."""
+    import json
+    declared = [{"kind": "kubernetes-hpa", "short": "⌈u x / 0.8⌉", "skill": -37.5, "r2": -4.32, "points": 481, "worse": True},
+                {"kind": "kubernetes-hpa", "why": "21 points of record on a 15s grid (at least 40)"}]
+
+    def answer(route):
+        d = route.fetch().json()
+        if d and not d.get("why"):
+            d["controller"] = {**(d.get("controller") or {}), "block": "tuner", "declared": declared[0],
+                               "identified": {"short": "+1 > 0.55, −1 < 0.186", "skill": 0.5, "r2": -1.26}}
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(d))
+
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/loop-control?*", answer)
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="Fit", exact=True).click()
+        pg.locator('g.node[data-id="blk:tuner"] .hit').first.click()
+        pg.wait_for_function(SETTLED, timeout=60000)
+        fit = dict(pg.evaluate(LOOP_PANEL)["rows"])["held-out fit"]
+        assert "validation" in fit and "; tuner's law identified +1 > 0.55, −1 < 0.186: skill 0.5 one step ahead" in fit, fit
+        assert "declared kubernetes-hpa ⌈u x / 0.8⌉: skill −37.5 one step ahead, R² −4.32 run free of 481 points, fits its " \
+               "record worse" in fit, fit
+        row = pg.evaluate("""(c) => { const t = loopTable({ goal: 'g', controller: c });
+          return [...t.rows].find((r) => r.cells[0].textContent === 'held-out fit').cells[1].textContent; }""",
+                          {"block": "hpa", "declared": declared[1]})
+        assert row.endswith("; hpa's law declared kubernetes-hpa: not judged, 21 points of record on a 15s grid (at least 40)"), row
+        assert not errors, errors
+        pg.close()
+
+
 PROC_ORDER = """() => {
   // the process panel: its identification (the first .control) before the block's words and headings outside it
   const d = document.querySelector('#detail'), c = d.querySelector('.control');
@@ -4651,7 +4687,7 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
             drawn(pg, url, view, 1)
             if boxed:
                 assert not pg.evaluate(f"() => !!document.querySelector('svg.canvas [data-id=\"{ring}\"]')"), "drawn closed first"
-            pg.locator(".side .att button.name", has_text=f"{'loop' if view else 'goal'} short-backlog").click()
+            pg.locator(".side .att button.name", has_text="goal short-backlog").click()
             pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
             # (the closed box holding it is ringed until it is drawn open)
             pg.wait_for_function(f"(r) => JSON.stringify(({RINGED})()) === JSON.stringify([r])", arg=ring, timeout=60000)
@@ -4787,7 +4823,7 @@ def test_on_a_phone_each_goal_is_a_card_its_value_against_its_bound_and_how_long
 HINTS =("() => [...document.querySelectorAll('details.suggest .hint')].map((e) => [...e.childNodes]"   # (less its Evidence link)
          ".filter((n) => n.nodeName !== 'A').map((n) => n.textContent).join('').trim())")
 LOOP_ENTRY = ("() => [...document.querySelectorAll('.att > div')].map((e) => e.textContent)"
-              ".filter((t) => /^[a-z]+ · loop short-backlog/.test(t))")   # (after its state word)
+              ".filter((t) => /^[a-z]+ · goal short-backlog/.test(t))")   # (after its state word)
 CAUSE = re.compile(r"off \d+% of [^:]+: ([^.;]+)")
 
 
@@ -6828,6 +6864,44 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+def test_a_suggestion_about_a_goal_has_an_evidence_link_to_its_panel(browser, tmp_path):
+    """Dynamics and Blocks: a hint about a goal (its name in the ``goal`` field, its text 'goal NAME was off...')
+    has an Evidence link, and the link opens that goal's panel. The hint is put into the page's answers here,
+    as the engine says it after 10 minutes of record off (state.ladder_hints, state.attention)."""
+    goal = "disk-under-80"
+    hint = {"level": "hint", "what": f"goal {goal}", "goal": goal, "says": f"goal {goal} was off 60% of the time"}
+
+    def add_hint(rt):
+        got = rt.fetch()
+        body = got.json()
+        if isinstance(body, dict) and "attention" in body:
+            body["attention"] = [*body["attention"], hint]
+        rt.fulfill(response=got, json=body)
+
+    with served("disk-space", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/graph*", add_hint)
+        for i, view in enumerate(("view=dynamics", "view=blocks")):
+            drawn(pg, url, view, i)
+            pg.wait_for_selector(".suggest .hint", state="attached", timeout=30000)
+            pg.evaluate("() => { document.querySelector('.suggest').open = true; }")
+            rows = pg.locator(".suggest .hint")
+            assert rows.count() == 1 and rows.first.inner_text().startswith(f"goal {goal} goal {goal} was off"), view
+            rows.first.locator("a", has_text="Evidence").click()
+            pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g)", arg=goal,
+                                 timeout=30000)
+            assert pg.locator("#detail .kind").first.inner_text() in ("Goal", "Loop", "Open loop"), view   # its panel
+        # the Model page's tool link to a goal's controller: its panel scrolled to the goal's section, found by data-goal
+        pg.evaluate("""(g) => { window.scrolled = []; const f = Element.prototype.scrollIntoView;
+          Element.prototype.scrollIntoView = function (o) { window.scrolled.push(this.dataset?.goal || ""); return f.call(this, o); };
+          openTool({ view: "blocks", find: isController(g), goal: g }); }""", goal)
+        pg.wait_for_function("(g) => window.scrolled.includes(g)", arg=goal, timeout=60000)
+        pg.close()
+    assert not errors, errors
+
+
 # each subsystem drawn, closed (a block) or open (a frame): its letter's style, its name, and the text it shows
 SUBSYSTEMS = """() => [...document.querySelectorAll('svg.canvas g.bd-subsystem, svg.canvas g.bd-frame-system')].map((g) => {
   const n = S.graph.nodes.find((n) => n.id === g.dataset.id) || (S.graph.frames || []).find((f) => f.id === g.dataset.hull);
@@ -7741,10 +7815,9 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
                 and "request/" not in waiting["rows"][0], waiting                # only the person's ask
             held = [r for r in house["rows"] if r.startswith("request · ")]   # each read as its sentence
             assert len(held) == 2 and all("Modelling cannot decide it" in r for r in held), house
-            word = "loop" if view else "goal"                   # (Dynamics calls a controlled goal a goal)
-            assert off["rows"][0].startswith(f"off · {word} short-backlog"), off       # the system's first,
+            assert off["rows"][0].startswith("off · goal short-backlog"), off          # the system's first,
             assert off["rows"][1] == "---", off                                         # a rule,
-            assert off["rows"][2].startswith(f"off · {word} requests-handled"), off    # then modelling's
+            assert off["rows"][2].startswith("off · goal requests-handled"), off       # then modelling's
             assert not house["open"] or "fault · " in house["words"], house            # folded, unless a fault is in it
             for g in groups:                                    # a state or kind word first, never colour alone
                 assert all(re.fullmatch(r"[a-z]+ · ", w) for w in g["words"]), g

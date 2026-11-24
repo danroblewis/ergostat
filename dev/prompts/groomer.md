@@ -4,12 +4,12 @@ You groom the backlog of ergostat's factory: the gaps not yet started, below. Yo
 checks what you say, runs the solver on it (a topological order by value / size, the gaps that unblock many first) and
 asks the coordinator to approve the whole.
 
-For each gap, read its GAPS.md entry and its definition when it has one, and look in this clone of main (the code,
+For each gap, read its entry (its record's `## Entry`, as main's dev/records/ render it) and its definition when it has one, and look in this clone of main (the code,
 `git log`, `docs/`) for what is true now. Then say:
 
 - **depends_on**: a gap that cannot sensibly be built before another is merged (it changes what the other adds, or
   needs it). Only real precedence, never "related". Never a link that would make a cycle. A new link's why must quote
-  the line of the waiting gap's definition (or GAPS.md entry) that needs the other gap; with no such line, no link. A
+  the line of the waiting gap's definition (or entry) that needs the other gap; with no such line, no link. A
   link the coordinator refused before is dropped by the program, with its reason.
 - **value** (1-5: what it is worth to the owner), **size** (S, M or L: under a day's session, one, several; or the
   hours), **risk** (low, medium or high: how likely it fails review or breaks something), **groomed_why** (one sentence).
