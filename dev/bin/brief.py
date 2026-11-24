@@ -163,7 +163,7 @@ def touches(cfg: dict, g: dict) -> list[str]:
 
 
 def graph(cfg: dict, gap: dict, most: int = 40, days: float = 3) -> str:
-    """The task graph around a gap, for the planner and the plan reviewer: gaps merged in the last ``days`` (the files
+    """The task graph around a gap, for the planner: gaps merged in the last ``days`` (the files
     their merge changed), gaps active (held by a run, or building to queued: the files they touch) and gaps ready or
     planned (the same, and what they depend on). At most ``most`` lines: each section its share, the rest counted."""
     repo, since = fac.path(cfg, "checkout"), time.time() - days * 86400
