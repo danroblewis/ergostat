@@ -59,7 +59,8 @@ the owner to decide. The numbers are below.
   - The replay without its hold fails the replay test.
   - The route switch ignored fails the switch test.
 - **Run here:** tests/test_code_areas.py (8), tests/test_code_areas_factory.py (5), tests/test_factory_split_systems.py
-  (the factory model's `ergostat check`), and tests/test_factory.py (the intake); ruff is clean. **Not run here:**
+  (the factory model's `ergostat check`), and tests/test_factory.py (the intake, and no new finding on the factory
+  model: 251 passed, 2 skipped for want of Docker); ruff is clean; main merged in (already up to date). **Not run here:**
   the whole unit suite and the four browser files (no page changed). No example touched.
 - **Size:** about 232 net lines outside tests, docs and dev (budget 600).
 
