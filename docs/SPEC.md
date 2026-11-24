@@ -1674,7 +1674,9 @@ reads the event log.
   precedence relation an edge, `blocks`, or `met` once what it waits on is finished or in a state the relation's
   `starts_at` names, as the item's own status reads it; routes real; each node's `slack`,
   `duration` and `critical`; and the critical path's end said beside the end levelled by each block's capacity, since
-  the critical path alone is not the finish date: charts 74 and 75); `process`, the process map (routes not real); and
+  the critical path alone is not the finish date: charts 74 and 75; when precedence.py cut its unfinished items or the
+  items their relations reach, none of that schedule is stated: each `slack` and `critical` is null, nothing is drawn
+  heavy, no end is said, and `graph-truncated` says they are not known); `process`, the process map (routes not real); and
   `service`, the wiring the event log proves between machines, each edge `observed`, `declared` (never seen in the
   window, with no time it was seen) or `both` (the map from callers' and callees' labels in metrics is not this). A
   maker's answer is kept 30 s for each graph asked, so the record is read at most that often however many ask. A read

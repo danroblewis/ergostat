@@ -207,3 +207,32 @@ Run here, after the merge:
 
 Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
 walk.
+
+## Where it stopped (round 4)
+
+Built, round 4: the one finding (blocking; there were no others). If `precedence.build` cut its read, the dependency
+graph still stated its schedule as fact.
+- `graphs.dependency`: if precedence.py capped the unfinished items (`open`) or the items their relations reach
+  (`pulled`), the schedule is not known. Unfinished items past the cap are not scheduled, and a predecessor not pulled
+  is not waited on. So every node's `slack` and `critical`, and every edge's `critical`, are null. Nothing is drawn
+  heavy (the page marks only values above 0), and `focus` is empty. No `ends` and no end note are given. The
+  `graph-truncated` warning now adds "its slack, its critical path and when the work ends" to what is not known.
+- If only the finished items were capped (`done`), the schedule stands, because precedence.py schedules only unfinished
+  items, so a finished item left out changes none of it. The `graph-truncated` warning about cycles still stands.
+- Test: `test_a_dependency_graph_read_only_in_part_states_no_schedule`. With `MOST_OPEN` monkeypatched to 3 (of the 6
+  open), it asserts no end, no note, null slack and critical, an empty focus, and the warning's words. Through the pure
+  adapter it checks the same for a `pulled` cap, and that a `done`-only cap keeps the ends. With the cut forced off, the
+  test failed at the `ends` assertion (then restored).
+- SPEC §4e (*Ergostat's own graphs*) and the module docstring say this.
+
+Sizes, outside tests, docs and dev: against `main`, 987 added and 71 removed (916 net). This gap's own change is 597
+added and 19 removed (578 net, `git diff --shortstat 197d03ee`).
+Overrun reason: measured against main, the diff includes the merged base gap result-frames-and-verdicts (338 net lines, not yet on main); this gap's own change is 578 net lines, under the 600.
+
+Run here:
+- Unit, all passed: test_graph_result_and_panel, test_result_shapes and test_precedence (49).
+- Browser, under the watchdog: test_graph_result_page passed (3, rc 0).
+- ruff is clean. `git merge main` said "Already up to date."
+
+Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
+walk.

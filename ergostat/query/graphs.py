@@ -6,7 +6,8 @@ chart catalog's §2.2): ``{"source": "graph", "diagram": D, "kind"?: K}``.
   met: that item finished, or in a state the relation's ``starts_at`` names; never drawn as a wait still held, G40).
   Its routes are real (``paths_real``), each node has its ``slack``, ``duration`` and whether it is ``critical``, and
   the answer says the critical path's end beside the end levelled by each block's capacity
-  (G42: the critical path alone is not the finish date). Charts 74 and 75.
+  (G42: the critical path alone is not the finish date). Charts 74 and 75. Read past precedence.py's caps on unfinished
+  or pulled items, the schedule is not known, and none of it (slack, critical, either end) is stated (G43).
 - ``process``: the process map (``process.py``), a step a node and a line an edge; its routes are not real.
 - ``service``: the wiring the event log proves (``graph.wiring``), a machine a node and what passed between two an
   edge, ``observed``, ``declared`` (never seen in the window) or ``both``, with when it was last seen. The service map
@@ -51,26 +52,34 @@ def _col(rows: list[dict], key: str, default=None) -> list:
 
 def dependency(ans: dict) -> tuple[dict, dict]:
     """``precedence.build``'s answer as a ``dependency`` frame, and what is said beside it."""
-    items = ans["items"]
+    items, capped = ans["items"], ans.get("capped") or {}
     by = {x["id"]: x for x in items}
     prec = [e for e in ans["edges"] if e["kind"] == "precedence" and e["from"] in by and e["to"] in by]
+    # unfinished items past the cap are not scheduled, and a predecessor not pulled is not waited on: the schedule
+    # (each slack, the critical path and both ends) is then not known, so none of it is stated (G43; finished items
+    # past theirs are not scheduled, so they change none of it)
+    cut = bool(capped.get("open") or capped.get("pulled"))
+    if cut:
+        items = [{**x, "slack": None, "critical": None, "lf": None} for x in items]
+        prec = [{**e, "critical": None} for e in prec]
     frame = {"shape": "graph", "kind": "dependency",
              "nodes": {"id": list(by), "label": [x.get("title") or x["id"] for x in items], "type": _col(items, "kind"),
                        "group": _col(items, "group"), "health": ["unhealthy" if x.get("cycle") else "ok" for x in items],
                        "fields": [{"name": "slack", "unit": "s", "role": "slack", "values": _col(items, "slack")},
                                   {"name": "duration", "unit": "s", "values": _col(items, "duration")},
-                                  {"name": "critical", "unit": "", "values": [None if "critical" not in x else
+                                  {"name": "critical", "unit": "", "values": [None if x.get("critical") is None else
                                                                               float(x["critical"]) for x in items]}]},
              "edges": {"id": [f"{e['from']}>{e['to']}:{e['rel']}" for e in prec], "source": _col(prec, "from"),
                        "target": _col(prec, "to"), "evidence": ["declared"] * len(prec),
                        "relation": ["met" if e.get("met", by[e["from"]]["status"] == "done") else "blocks" for e in prec],
-                       "fields": [{"name": "critical", "unit": "", "values": [float(e.get("critical", False)) for e in prec]}]},
-             "semantics": {"paths_real": True, "focus": ans.get("critical") or []},
+                       "fields": [{"name": "critical", "unit": "", "values": [None if e.get("critical", False) is None else
+                                                                              float(e.get("critical", False)) for e in prec]}]},
+             "semantics": {"paths_real": True, "focus": [] if cut else ans.get("critical") or []},
              "time": {"mode": "snapshot", "since": ans.get("since"), "until": ans.get("now")},
              "omitted": {"nodes": (ans.get("capped") or {}).get("open", 0), "edges": 0, "weight_share": None if ans.get("capped") else 0.0,
                          "how": "the items past precedence.py's caps" if ans.get("capped") else ""}}
     ends = [x["lf"] for x in items if x.get("lf") is not None]
-    said = {"truncated": bool(ans.get("capped")), "cycles": ans.get("cycles") or []}
+    said = {"truncated": bool(capped), "cycles": ans.get("cycles") or [], "unscheduled": cut}
     if ends:
         now = ans["now"]
         said["ends"] = {"now": now, "critical_path": max(ends), "levelled": ans["end"]}
@@ -138,8 +147,9 @@ def panel(full: dict, said: dict) -> dict:
     kind, warnings, notes = full["kind"], [*full.get("warnings", ())], [said["note"]] if said.get("note") else []
     if said.get("truncated") or full["omitted"]["nodes"] or full["omitted"]["edges"]:
         full["semantics"]["acyclic"] = None
+        sched = ", its slack, its critical path and when the work ends" if said.get("unscheduled") else ""
         warnings.append(("graph-truncated", f"only part of the {kind} graph was read ({full['omitted']['how']}), so "
-                                            "whether it has a cycle, and what reaches what, is not known"))
+                                            f"whether it has a cycle, and what reaches what{sched}, is not known"))
     elif full["semantics"]["acyclic"] is False:
         warn, words = CYCLE.get(kind, UNSAID)
         cycles = said.get("cycles") or []

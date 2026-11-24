@@ -261,6 +261,31 @@ def test_a_graph_read_only_in_part_says_whether_it_has_a_cycle_is_not_known():  
     assert out["omitted"]["edges"] == 200 and out["omitted"]["weight_share"] is None
 
 
+def test_a_dependency_graph_read_only_in_part_states_no_schedule(tmp_path, monkeypatch):   # G43, done 3; lesson 3, 8
+    """With precedence.py's open items capped at 3 of the 6 (a, b, c, d, e, g), the others are not scheduled, so no end,
+    slack or critical path is stated as fact: each is null, nothing is heavy, and the warning says they are not known.
+    The same when only the items pulled in by relations were cut."""
+    from ergostat import precedence
+    monkeypatch.setattr(precedence, "MOST_OPEN", 3)
+    [r] = ask(deps(tmp_path), {"source": "graph", "diagram": "dependency", "kind": "ticket"})
+    assert "error" not in r, r
+    assert r["omitted"]["nodes"] == 3 and r["semantics"]["acyclic"] is None
+    assert "ends" not in r and "said" not in r and r["semantics"]["focus"] == []
+    assert set(column(r, "nodes", "slack").values()) == {None} and set(column(r, "nodes", "critical").values()) == {None}
+    assert set(column(r, "edges", "critical").values()) <= {None}
+    [says] = [w["says"] for w in r["meta"]["verdict"]["reasons"] if w["code"] == "graph-truncated"]
+    assert "its slack, its critical path and when the work ends, is not known" in says and r["meta"]["verdict"]["level"] == "warn"
+    item = {"id": "x", "status": "ready", "slack": 0.0, "critical": True, "lf": 100.0, "duration": 10.0}
+    ans = {"items": [item], "edges": [], "now": 0, "end": 200, "since": 0, "critical": ["x"], "cycles": [],
+           "capped": {"pulled": True}}
+    out = graphs.drawn(*graphs.dependency(ans))
+    assert "ends" not in out and "said" not in out and out["semantics"]["focus"] == []
+    assert column(out, "nodes", "slack") == {"x": None} and column(out, "nodes", "critical") == {"x": None}
+    ans["capped"] = {"done": True}                      # finished items past their cap are not scheduled: it stands
+    out = graphs.drawn(*graphs.dependency(ans))
+    assert out["ends"] == {"now": 0, "critical_path": 100.0, "levelled": 200} and out["semantics"]["focus"] == ["x"]
+
+
 def test_what_a_cycle_means_is_said_by_kind():                                     # G44
     item = lambda i, **kw: {"id": i, "status": "blocked", "cycle": True, **kw}      # noqa: E731
     ans = {"items": [item("x"), item("y")], "now": 0, "end": 0, "since": 0, "capped": {}, "critical": [], "cycles": [["x", "y"]],
