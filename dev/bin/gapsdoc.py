@@ -365,7 +365,7 @@ def entries(repo: Path, ref: str) -> tuple[str, dict[str, str]] | None:
         except UnicodeDecodeError as e:                   # (a subclass of ValueError: first)
             bad[stem] = f"unreadable at {ref}: {e}"[:200]
         except ValueError as e:
-            bad[stem] = f"malformed Entry: {str(e).splitlines()[-1]}"[:200]
+            bad[stem] = str(e).splitlines()[-1][:200]       # (parse()'s own words, as main's briefs say them)
     if HEAD.stem in bad:
         raise ValueError(f"{fac.DEFS}/{HEAD.name} at {ref} cannot be read: {bad[HEAD.stem]}")
     return (render(files, files.pop(HEAD.stem))[0], bad) if HEAD.stem in files else None

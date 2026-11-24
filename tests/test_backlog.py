@@ -340,7 +340,7 @@ def test_an_unreadable_record_is_said_by_name_and_the_pass_goes_on(tmp_path):
     assert [x["item"] for x in lines if x["event"] == "gap.found"] == ["gap/epsilon"]   # the pass went on
     d = f.item("gap/delta")
     assert d["fields"]["dependency_problem"] is True
-    assert "delta.md cannot be read (malformed Entry" in d["fields"]["dependency_problems"][0]
+    assert "delta.md cannot be read (bullet line 2 is blank" in d["fields"]["dependency_problems"][0]
     assert d["fields"]["waits_on_parked"] is True                            # held: its dependencies are unknown
     assert "dev/records/zeta.md cannot be read (unreadable at main" in f.stderr   # no gap has it: said on stderr
     assert f.item("gap/alpha-thing")["fields"].get("dependency_problem") is not True

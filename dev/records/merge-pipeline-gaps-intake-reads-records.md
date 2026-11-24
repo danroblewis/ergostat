@@ -117,3 +117,31 @@ unchanged. Size: still +23 net lines in dev/bin against main (budget 50). Run he
 tests/test_backlog.py, tests/test_gaps_doc.py and tests/test_gapsdoc.py together (82 passed), tests/test_factory.py
 (247 passed, 2 skipped for Docker). `ruff check ergostat tests scripts` and the two changed dev/bin files are clean.
 Not run here: the whole unit suite and the four browser files (no page is changed).
+
+Round 5, the merge of main (666d65d6). Its one finding was the conflict with main in dev/README.md,
+dev/bin/gapsdoc.py and tests/test_gaps_doc.py. Main had landed `merge-pipeline-gaps-briefs-read-records`: the briefs,
+the planner and the knowledge block read main's records through `gapsdoc.entries` (`brief.records_at_main`), and
+tests/test_gaps_doc.py reads the live dev/records/ as `gapsdoc.render` draws them (`gaps_text()`) instead of
+docs/GAPS.md. The resolution:
+
+- dev/README.md and gapsdoc.py's docstring say both: the intake and deps read main's records (this branch), and the
+  briefs, planner and knowledge block too (main). "Intake still reads GAPS.md" (main's) is gone, as it is no longer
+  true.
+- tests/test_gaps_doc.py keeps main's `gaps_text()` for every live check (it reads no docs/GAPS.md), and keeps this
+  branch's pinned fixture, now named `FIXTURE` (main uses `GAPS` as a label): the fixture's exact parse by the intake
+  and its upkeep entry's `(done` are checked, and `test_the_fixture_is_docs_gaps_md_as_of_its_commit` stays. In
+  `test_remote_systems_record_entry_is_whole` both asserts are kept (the branch's `remote_problems` and main's equality
+  with the render).
+- A merged-in interaction, found by running tests/test_factory.py after the merge: main's new
+  `test_an_unreadable_record_is_said_in_the_brief_by_name_never_read_as_no_entry` pins `entries()`'s why for a
+  malformed Entry as parse()'s own words, and this branch's `entries()` had prefixed `malformed Entry: `. Main's
+  contract is kept (the prefix dropped); the branch's
+  `test_an_unreadable_record_is_said_by_name_and_the_pass_goes_on` now asserts parse()'s words for delta
+  (`cannot be read (bullet line 2 is blank`).
+
+Size: +22 net lines in dev/bin against main 666d65d6 (budget 50). Run here, after the merge: tests/test_gaps_doc.py,
+tests/test_gapsdoc.py and tests/test_backlog.py together (82 passed before the prefix fix); tests/test_factory.py
+(250 passed, 1 failed: the brief test above, 2 skipped for Docker), then after the fix tests/test_backlog.py,
+tests/test_gapsdoc.py and that brief test together (73 passed), and tests/test_factory.py with tests/test_gaps_doc.py
+(261 passed, 2 skipped for Docker). `ruff check ergostat tests scripts` and the two changed dev/bin files are clean.
+Not run here: the whole unit suite and the four browser files (no page is changed).
