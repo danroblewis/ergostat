@@ -23,7 +23,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import FunctionType, ModuleType
 
-from . import _frames
+from . import _frames, _lint
 
 MOST_TEXT = 4000            # characters of a query's text
 MOST_SERIES = 50            # series one query may answer with
@@ -34,6 +34,7 @@ OFFERED = {"TYPE", "KEYS", "LANGUAGE", "query", "suggest"}
 MOST_SUGGESTIONS = 100      # names one suggestion answers with
 SUGGEST_SECONDS = 3.0
 SUGGESTED = ("metrics", "labels", "values")
+ANALYSIS = {"name": "analysis", "type": "analysis", "language": "ergostat analysis"}   # query/analysis.py: reserved
 OWN_NAME = OWN_TYPE = "model"   # the source that is the project's own model (datasources/model.py)
 _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a label's name, as a suggestion takes it
 
@@ -41,10 +42,11 @@ _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a labe
 class SourceError(Exception):
     """A query that is not answered, and why: ``kind`` is ``limit``, ``unreachable``, ``refused`` or ``unknown``."""
 
-    def __init__(self, kind: str, words: str, at: tuple[int, int] | None = None):
+    def __init__(self, kind: str, words: str, at: tuple[int, int] | None = None, code: str | None = None):
         super().__init__(words)
         self.kind = kind
         self.at = at            # (line, column), each from 1: where in the text the source said it is wrong
+        self.code = code        # the verdict's reason (query/verdicts.py), when it is not the kind's own
 
 
 @dataclass(frozen=True)
@@ -102,7 +104,7 @@ def types() -> dict[str, ModuleType]:
         return dict(_TYPES)
 
 
-OWN = "ergostat"           # the built-in source: ergostat's own readings, as PromQL (a model's source of this name wins)
+OWN = "ergostat"          # the built-in source: ergostat's own readings, as PromQL (a model's source of this name wins)
 NEEDS = ("ergostat's own series answer PromQL only from VictoriaMetrics, and this project keeps its readings in SQLite: "
          "run VictoriaMetrics, set storage: measurements: victoriametrics, and copy the readings over with "
          "ergostat migrate (docs/DASHBOARDS.md, Turning on VictoriaMetrics)")
@@ -131,13 +133,22 @@ def _needs(src) -> None:
 
 
 def listed(spec, store=None, own_only: bool = False) -> list[dict]:
-    """The sources a panel can query (the built-in ``ergostat`` when it answers: on VictoriaMetrics): name, type and
-    language, and never their connection. A panel naming it over SQLite is answered with what it needs. ``own_only``:
-    only those that read nothing outside the project (what anyone under a public name may ask)."""
+    """The sources a panel can query: ergostat's own ``analysis`` first (reserved, never declared, and a declared source
+    of that name is never listed), then the rest (the built-in ``ergostat`` when it answers: on VictoriaMetrics): name,
+    type and language, and never their connection. A panel naming it over SQLite is answered with what it needs.
+    ``own_only``: only those that read nothing outside the project (what anyone under a public name may ask; an
+    analysis re-asks only a source its reader may ask)."""
     every = types()
-    return [{"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
-            for s in sources(spec, store).values() if s.type in every and not s.options.get("needs")
-            and (not own_only or s.type == OWN_TYPE)]
+    return [dict(ANALYSIS), *({"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
+                              for s in sources(spec, store).values() if s.type in every and not s.options.get("needs")
+                              and s.name != ANALYSIS["name"] and (not own_only or s.type == OWN_TYPE))]
+
+
+def language(spec, name: str, store=None) -> str | None:
+    """The language a source is asked in, or None for none of that name."""
+    src = sources(spec, store).get(name)
+    mod = types().get(src.type) if src is not None else None
+    return mod.LANGUAGE if mod is not None else None
 
 
 def own(spec, name: str) -> bool:
@@ -175,11 +186,15 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
         got = mod.query(src, text, w)
     finally:
         ASKING.reset(token)
+    warned = _lint.warnings(mod.LANGUAGE, text)
     if isinstance(got, dict):                       # a typed frame (_frames.py)
         try:
-            return _frames.answer(got, g, MOST_SERIES)
+            out = _frames.answer(got, g, MOST_SERIES)
         except _frames.Bad as e:
-            raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused", f"source {name!r} answered badly: {e}") from e
+            raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused",
+                              f"source {name!r} answered badly: {e}" if e.code is None else f"source {name!r}: {e}",
+                              code=e.code) from e
+        return {**out, "warnings": [*out.get("warnings", ()), *warned]}
     if not isinstance(got, list):
         raise SourceError("refused", f"source {name!r} answered with no series")
     if len(got) > MOST_SERIES:
@@ -192,7 +207,8 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
             if g.since - g.step < t <= g.until and isinstance(v, int | float) and math.isfinite(v):
                 values[g.at(t + 1e-6 * g.step)] = float(v)    # (a time on a bucket's start, never just before it)
         series.append({"name": str(label), "values": values})
-    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False, "shape": "series"}
+    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False, "shape": "series",
+            "warnings": warned}
 
 
 def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", label: str = "",

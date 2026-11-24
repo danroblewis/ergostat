@@ -1,4 +1,4 @@
-"""Each answer's shape (SPEC §4e, *Result shapes*): one of five typed frames, so a chart is chosen by what the data is,
+"""Each answer's shape (SPEC §4e, *Result shapes*): one of six typed frames, so a chart is chosen by what the data is,
 not by where it came from, and a PromQL and a SQL answer of one shape draw the same chart.
 
 - ``series``: values over one time axis. ``roles`` says what they are when it matters: ``input`` and ``output`` (two
@@ -8,15 +8,22 @@ not by where it came from, and a PromQL and a SQL answer of one shape draw the s
 - ``distribution``: how values spread; ``form`` is ``bins``, ``samples`` or ``quartiles``.
 - ``response``: how a system responds; ``has`` holds ``frequency`` and, from a model, ``system`` (its poles and zeros).
 
-Every answer also carries the envelope ``meta``: its source, its query text (a data source's), its provenance and its
-verdict (``ok``, ``warn`` or ``refuse``, with the reasons). The catalog's sixth shape, ``graph``, is not here yet."""
+- ``graph``: nodes and edges of one named ``kind`` of diagram (only a data source's frame, checked in _frames.py).
+
+Every answer also carries the envelope ``meta``: its source, its query text (a data source's), its provenance, its
+verdict (verdicts.py: ``ok``, ``warn`` or ``refuse``, each reason with its fix), ``n`` (the values it holds) and
+``sampling`` (sampling.py: its step, scrape, range windows, observable band and nulls). ``n_effective`` is ``None``:
+not known here, and never a guess. A refused answer holds nothing to draw."""
 
 from __future__ import annotations
 
-SHAPES = ("series", "table", "points", "distribution", "response")
+from . import sampling
+from .verdicts import reason, verdict
+
+SHAPES = ("series", "table", "points", "distribution", "response", "graph")
 TWO_SIGNALS = ["input", "output"]
 CANDLE = ["open", "high", "low", "close"]
-FRAME_KEYS = ("shape", "roles", "order", "form", "has", "dims", "measures", "rows")
+FRAME_KEYS = ("shape", "roles", "order", "form", "has", "dims", "measures", "rows", "kind")
 
 
 def _rows(series: list[dict]) -> list[list]:
@@ -49,22 +56,40 @@ def describe(got: dict, agg: str | None = None) -> dict:
             "rows": _rows(series)}
 
 
-def _verdict(got: dict) -> dict:
+def _verdict(got: dict, sampled=()) -> dict:
     if got.get("error"):
-        return {"level": "refuse", "reasons": [{"code": got.get("error_kind") or "unanswerable", "says": got["error"]}]}
-    if got.get("supported") is False:
-        return {"level": "refuse", "reasons": [{"code": "no-coherence", "says": got.get("refused") or ""}]}
+        busy = "busy:" in got["error"]                  # (a request out of time, whatever asked: try again)
+        return verdict([reason(got.get("error_code") or ("busy" if busy else got.get("error_kind") or "unanswerable"), got["error"])])
+    if got.get("supported") is False:                  # (no curve is sent with it: query/frequency.py)
+        return verdict([reason("no-coherence", got.get("refused") or "")])
     said = [w for w in (got.get("note"), "only part of the record was read" if got.get("truncated") else None) if w]
-    return {"level": "warn", "reasons": [{"code": "partial", "says": w} for w in said]} if said else {"level": "ok", "reasons": []}
+    return verdict([reason("partial", w) for w in said] + [reason(c, w) for c, w in [*(got.get("warnings") or ()), *sampled]])
 
 
-def framed(got: dict, q) -> dict:
-    """The answer to ``q`` with its frame and envelope, as a new dict (a kept answer is shared, and never changed)."""
+def _n(got: dict) -> int:
+    """How many values an answer holds: its series' or points' values, a typed table's measure cells (a missing one is
+    not counted), a graph's nodes, a response's frequencies."""
+    if got.get("shape") == "graph":
+        return len(got["nodes"]["id"])
+    if got.get("shape") == "table":                    # (a data source's: rows, no series)
+        k = len(got.get("dims") or [])
+        return sum(v is not None for r in got.get("rows") or [] for v in r[k:])
+    if "frequency" in got:
+        return len((got.get("frequency") or {}).get("hz") or [])
+    return sum(v is not None for s in got.get("series") or [] for v in s.get("close") or s.get("values") or [])
+
+
+def framed(got: dict, q, window: float | None = None) -> dict:
+    """The answer to ``q`` with its frame and envelope, as a new dict (a kept answer is shared, and never changed).
+    A refused answer keeps nothing to draw: its id, its error and the envelope. ``window``: the request's, in seconds."""
     method = got.get("method")
     meta = {"source": getattr(q, "source", None), "query": getattr(q, "text", None),
             "provenance": got.get("provenance") or ("declared" if method == "model" else "derived" if method == "empirical"
-                                                    else "observed"),
-            "verdict": _verdict(got)}
+                                                    else "observed")}
     if got.get("error"):
-        return {**got, "meta": meta}
-    return {**got, **describe(got, getattr(q, "agg", None)), "meta": meta}
+        return {**{k: got[k] for k in ("id", "error", "error_kind", "error_at", "read_log") if k in got},
+                "meta": {**meta, "verdict": _verdict(got)}}
+    sampled, said = sampling.ledger(got, q, window)
+    meta.update(verdict=_verdict(got, said), n=_n(got), n_effective=None, sampling=sampled)
+    return {**{k: v for k, v in got.items() if k not in ("warnings", "scrape_s", "range_windows_s")},
+            **describe(got, getattr(q, "agg", None)), "meta": meta}
