@@ -60,42 +60,62 @@ async function getText(path, url, signal) {
 }
 export const apiGet = (path, params = {}, signal = undefined) => getText(path, apiUrl(path, params), signal);
 
-/* an API answer for a component: { data, error, loading, ms, reload }. Asked again when the path, the params, the
-   window or the moment change; the call in flight aborted when the component leaves (or asks again). ``every``: asked
-   again that many ms after each answer (at least 500; shortened by ERGOSTAT_POLL_SPEED, as poll() is), never while
-   the tab is hidden. An answer the same as the last changes nothing (``ms`` stays the last changed answer's), so
-   nothing is drawn again for it. */
-export function useApi(path, params = {}, { every = 0 } = {}) {
-  const w = useStore((s) => s.window), at = useStore((s) => s.at);
-  const [got, setGot] = useState({ data: null, error: null, loading: true, ms: null });
-  const [asked, setAsked] = useState(0);
-  const key = path == null ? null : apiUrl(path, params, { window: w, at });
+/* ``fn(signal)`` now, then again ``ms`` after it finished (or its answer's ``{ wait }``), never two at once: the old
+   poll()'s rules. Never faster than twice a second; shortened by ERGOSTAT_POLL_SPEED; never while the tab is hidden
+   (at once when it is shown again); ``ms`` 0: once. Begun again when ``deps`` change; stopped, and fn's signal
+   aborted, when they do or the component leaves */
+export function usePoll(fn, ms, { enabled = true, deps = [] } = {}) {
+  const f = useRef(fn);
+  f.current = fn;
   useEffect(() => {
-    if (key == null) return undefined;
+    if (!enabled) return undefined;
     const c = new AbortController();
-    let timer = null, last = null, first = true, gone = false;
-    const shown = () => { if (!document.hidden) run(); else document.addEventListener("visibilitychange", shown, { once: true }); };
+    let timer = null, due = true, first = true;
     async function run() {
       timer = null;
-      if (gone) return;
-      if (document.hidden && !first) { document.addEventListener("visibilitychange", shown, { once: true }); return; }
-      first = false;
-      const t0 = performance.now();
-      try {
-        const text = await getText(path, key, c.signal);
-        if (gone) return;
-        const ms = Math.round(performance.now() - t0);
-        if (text !== last) { last = text; setGot({ data: JSON.parse(text), error: null, loading: false, ms }); }
-        else setGot((g) => (g.error ? { ...g, ms, error: null } : g));   // (the same answer: nothing drawn again)
-      } catch (e) {
-        if (gone || e?.name === "AbortError") return;
-        setGot((g) => ({ ...g, error: e, loading: false }));
-      }
-      if (every > 0 && !gone) timer = setTimeout(run, Math.max(every, 500) / (window.ERGOSTAT_POLL_SPEED || 1));   // (never faster than 2 a second)
+      if (c.signal.aborted) return;
+      if (document.hidden && !first) { due = true; return; }   // (the first ask is made, as the old pages' first tick)
+      due = first = false;
+      let next;
+      try { next = await f.current(c.signal); } catch (e) { /* the server may be restarting: the next one asks again */ }
+      if (c.signal.aborted || !(ms > 0)) return;
+      const wait = typeof next?.wait === "number" && next.wait >= 0 ? next.wait : Math.max(ms, 500);
+      timer = setTimeout(run, wait / (window.ERGOSTAT_POLL_SPEED || 1));
     }
-    setGot((g) => (g.loading ? g : { ...g, loading: true }));
+    const shown = () => { if (!document.hidden && due) run(); };
+    document.addEventListener("visibilitychange", shown);
     run();
-    return () => { gone = true; clearTimeout(timer); document.removeEventListener("visibilitychange", shown); c.abort(); };
-  }, [key, every, asked]);
+    return () => { c.abort(); clearTimeout(timer); document.removeEventListener("visibilitychange", shown); };
+  }, [ms, enabled, ...deps]);
+}
+
+/* an answer with nothing back this long is ``slow`` (Async says "Still waiting for…") */
+export const SLOW_MS = 1500;
+
+/* an API answer for a component: { data, error, loading, slow, ms, reload }. Asked again when the path, the params, the
+   window or the moment change; the call in flight aborted when the component leaves (or asks again). ``every``: asked
+   again that many ms after each answer, through usePoll. An answer the same as the last changes nothing (``ms`` stays
+   the last changed answer's), so nothing is drawn again for it. ``slow``: when the call on its way began, once it has
+   taken SLOW_MS (0 otherwise); the last good ``data`` is kept meanwhile, and under an error */
+export function useApi(path, params = {}, { every = 0 } = {}) {
+  const w = useStore((s) => s.window), at = useStore((s) => s.at);
+  const [got, setGot] = useState({ data: null, error: null, loading: true, slow: 0, ms: null });
+  const [asked, setAsked] = useState(0);
+  const key = path == null ? null : apiUrl(path, params, { window: w, at });
+  const last = useRef({ key: null, text: null });
+  usePoll(async (signal) => {
+    if (last.current.key !== key) { last.current.key = key; setGot((g) => (g.loading ? g : { ...g, loading: true })); }
+    const t0 = performance.now();
+    const late = setTimeout(() => setGot((g) => ({ ...g, slow: t0 })), SLOW_MS);
+    try {
+      const text = await getText(path, key, signal);
+      if (signal.aborted) return;
+      const ms = Math.round(performance.now() - t0);
+      if (text !== last.current.text) { last.current.text = text; setGot({ data: JSON.parse(text), error: null, loading: false, slow: 0, ms }); }
+      else setGot((g) => (g.error || g.slow || g.loading ? { ...g, ms, error: null, loading: false, slow: 0 } : g));   // (the same answer: nothing drawn again)
+    } catch (e) {
+      if (!signal.aborted && e?.name !== "AbortError") setGot((g) => ({ ...g, error: e, loading: false, slow: 0 }));
+    } finally { clearTimeout(late); }
+  }, every, { enabled: key != null, deps: [key, asked] });
   return { ...got, reload: () => setAsked((n) => n + 1) };
 }

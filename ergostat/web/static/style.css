@@ -1069,6 +1069,17 @@ ul.plain li { margin: var(--sp-0) 0; }
 .card dl { display: grid; grid-template-columns: max-content 1fr; gap: 0 var(--sp-3); font-size: var(--text-sm); }
 .card dd { margin: 0; min-width: 0; }
 .chip { display: inline-block; margin: 0 var(--sp-1) var(--sp-0) 0; padding: 0 var(--sp-1); border-radius: var(--radius); background: var(--chrome); font-size: var(--text-sm); }
+/* the shared components (app/components/, docs/frontend.md): a chip's count, tone and ×; a note's tone; Facts */
+.chip.on { box-shadow: inset 0 -2px 0 var(--accent); }
+.chip > button { min-height: 0; border: 0; padding: 0; font: inherit; color: inherit; }
+.chip .chip-n { font-variant-numeric: tabular-nums; font-weight: 600; }
+.chip .chip-x { margin-left: var(--sp-1); }
+.chip[data-tone=bad], .note[data-tone=bad] { color: var(--bad); }
+.chip[data-tone=warn], .note[data-tone=warn] { color: var(--warn); }
+.chip[data-tone=quiet] { color: var(--muted); }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); margin: var(--sp-3) 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
 details.file-fold > summary, details.earlier > summary { color: var(--muted); cursor: pointer; }
 details.file-fold .file-view { max-width: none; overflow-x: auto; }
 details.earlier > .card { margin-top: var(--sp-2); }
