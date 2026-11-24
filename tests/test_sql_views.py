@@ -52,13 +52,20 @@ def test_a_name_only_the_index_has_is_refused_before_the_text_reaches_the_index(
               "select count(*) as n from temp.sqlite_master", "select count(*) as n from temp.sqlite_temp_master",
               "select _fields(body), 1 as n from items",
               "select _fields(x'00') as f, 1 as n", "select count(*) as n from transitions where id in (select id from items)"]
+    # A WITH name in one place does not make the same name a WITH's elsewhere in the text.
+    texts += [f"select (select count(*) from {t}) as n, (with {t} as (select id from transitions) select count(*) from {t}) "
+              "as m" for t in ("items", "sqlite_master", "meta", "links", "numbers", '"left"', "json_each")]
+    texts += ["select (select count(*) from json_each('[1]')) as n, (with json_each as (select 1) select count(*) "
+              "from json_each) as m"]
     for text in texts:
         r = ask(p, text)
         assert r.get("error_kind") == "refused", (text, r)
     assert spy == []                                                # (the index never ran any)
     assert rows(p, "select count(*) as n from temp.transitions") == [["1", 16]]
-    assert rows(p, "with items as (select id from transitions) select count(*) as n from items") == [["1", 16]]
-    assert len(spy) == 2
+    assert rows(p, "with x as (select id from transitions) select count(*) as n from x") == [["1", 16]]
+    assert rows(p, "select (with x as (select id from transitions) select count(*) from x) as n, (with x as "
+                   "(select id from item_spans) select count(*) from x) as m") == [["1", 16, 16]]
+    assert len(spy) == 3
 
 
 def test_a_check_that_fails_or_runs_out_of_time_does_not_run_the_query(p, spy, monkeypatch):

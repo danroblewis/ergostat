@@ -1609,8 +1609,11 @@ reads the event log.
     with the view's name and columns. It has the same limits, aggregates and time bound as a query.
     - There SQLite's authorizer allows only SELECT, reads of `temp.<view>` and of the query's own `WITH` names, and an
       allowlist of functions (no `load_extension`, no internal helper such as `_fields`).
-    - A name read for no column (`count(*) from items`) reaches the authorizer with no database. It passes only if it is
-      a view or one of the text's own `WITH` names.
+    - A name read for no column (`count(*) from items`) reaches the authorizer with no database, as a `WITH` name may.
+      It passes only if it is a view, or one of the text's own `WITH` names that names nothing else on the stand-in (no
+      table, schema table or table-valued function). A name that does, read for no column, is refused even where a
+      `WITH` declares it. So `(select count(*) from items)` beside a `with items as (...)` elsewhere in the text is
+      refused. Any other read of a `WITH` name outside the `WITH`'s reach is no such table on the stand-in.
     - So a write, `ATTACH`, `PRAGMA`, a transaction or a read of any of the index's own tables (`items`, `moves`,
       `names`, `left`, `sqlite_master`, a `pragma_` table, `json_each`) is refused with `error_kind: refused`, naming
       what it tried. `main.transitions` is no such table on either connection, and is refused.
@@ -1623,7 +1626,8 @@ reads the event log.
       views sees each item the same in both, even if a catch-up is committed meanwhile.
     - The authorizer there allows only SELECT, the functions above plus `_fields` and `json_each`, and reads of what the
       views use: `main.items`, `main.moves`, `main.names`, `json_each` and the temporary views. A name read for no
-      column passes only if it is a view or a `WITH` name the check found. So a text that resolves differently on the
+      column passes only if it is a view or a `WITH` name the check passed (one that is read only as a `WITH`, wherever
+      it is in the text). So a text that resolves differently on the
       index than on the stand-in still cannot read `sqlite_master`, `meta` or another table. It could read `items`
       itself, which is why the check comes first.
 

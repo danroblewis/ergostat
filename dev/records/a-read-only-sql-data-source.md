@@ -112,6 +112,37 @@ Run here, each passing: `tests/test_sql_views.py` (4), `tests/test_sql_source.py
 this branch's base, so there was nothing to merge. Not run: the whole unit suite and the four browser files (the
 factory runs them). No example was touched, so demo_check was not needed.
 
+Round 2: the one review finding (blocking) is fixed. A `WITH` name declared in one place let the same name, read for
+no column, through anywhere in the text, and on the index that read counted the real table.
+- The fix is in `_itemviews.check`. A no-database read of a name that is not a view now passes only if the text
+  declares it in a `WITH` **and** the name names nothing else on the stand-in (`_resolves`: a table, a schema table
+  or a table-valued function; any error but "no such table" counts as yes, so the probe fails closed). The stand-in's
+  `main` holds the index's own tables, so `items`, `sqlite_master`, `meta`, `links`, `numbers`, `left` and `json_each`
+  all name something there, and such a read is refused even where a `WITH` declares the name. A `WITH` name that names
+  nothing else, read outside the `WITH`'s reach, is "no such table" when the text is prepared. So every no-database
+  read of a passed name is a `WITH`'s read, wherever it is in the text.
+- Where I did not follow the review's suggested fix, and why: it said to allow only view names for no-database reads
+  on the index. That would refuse a legitimate `with x as (...) select count(*) from x` on the index, if SQLite reports
+  that read with no database (it may). After the fix, the names the index takes from the check are only `WITH` names
+  that cannot resolve to a table on either connection. A table the index has and the stand-in lacks (an added
+  `extra`) is "no such table" on the stand-in, so a text reading it never passes. Keeping the names is therefore safe,
+  and it is the more reversible choice.
+- Seen while testing: `with items as (select id from transitions) select count(*) as n from items` passes and answers
+  16, so this SQLite does not report that `WITH` read as a no-database `items` read. It reads only the `WITH`, so that
+  is right. Round 1's test asserted it, and I removed that assertion so the test does not hang on how SQLite reports
+  it.
+- Tests: `test_a_name_only_the_index_has_...` adds the review's two-subquery text for `items`, `sqlite_master`, `meta`,
+  `links`, `numbers`, `left` and `json_each`, a `json_each('[1]')` form, and two passing texts with `WITH x`, one of
+  them declaring `x` in two subqueries.
+- Lesson-9: with the fix reverted (`own = names | (auth.ctes - {""})`), the test failed on the `items` text, which
+  answered rows. With `sqlite_master` put first, it failed on that text too. With the fix back in, it passes.
+- SPEC §4e (both the stand-in and the index bullets) and the `check` docstring now state the narrower rule.
+- Run here, each passing: `tests/test_sql_views.py` (4), `tests/test_sql_source.py` (9), `tests/test_stages.py`, and
+  `tests/test_sql_editor.py` (with Playwright under the watchdog, rc 0, nothing skipped). ruff is clean. Not run: the
+  whole unit suite and the four browser files. Local `main` is still the base, so there was nothing to merge.
+
+Overrun reason: 78 net lines against 60. Round 1's 5 over were the no-database read handling. Round 2 adds 13 for the review's blocking hole in that handling (`_resolves`, the probe that a `WITH` name names nothing else, and its docstring). Neither was in the plan.
+
 ## Entry
 
 entry-of: sql-source-over-item-views

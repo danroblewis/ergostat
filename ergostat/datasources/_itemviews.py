@@ -236,11 +236,22 @@ def _prepared(deadline: float):
     return lambda: 1
 
 
+def _resolves(c, name: str) -> bool:
+    """Whether ``name`` names a table, a schema table or a table-valued function on the stand-in (any error but no such
+    table: yes)."""
+    try:
+        c.execute(f'select 1 from "{name.replace(chr(34), chr(34) * 2)}" limit 0')
+    except sqlite3.OperationalError as e:
+        return "no such table" not in str(e)
+    return True
+
+
 def check(spec, deadline: float, text: str, params: dict, why: list) -> set[str]:
     """Prepare ``text`` on a stand-in of the index: an in-memory database of the index's own tables, empty, in its
     ``main`` (so a name resolves as on the index, and is refused by the same words) and an empty temp table per view
     (its name and columns), bounded and authorized as a query is. Returns, only if the text passed, the names it may
-    read with no database (the views and its own ``WITH`` names); raises otherwise (a refusal's words in ``why``)."""
+    read with no database: the views, and its ``WITH`` names that name nothing else (so each read of one is a ``WITH``'s,
+    wherever it is); raises otherwise (a refusal's words in ``why``)."""
     from ..spec import itemindex, projections
     c = sqlite3.connect(":memory:", isolation_level=None)
     try:
@@ -258,7 +269,9 @@ def check(spec, deadline: float, text: str, params: dict, why: list) -> set[str]
         except sqlite3.OperationalError as e:
             if why or "interrupted" not in str(e) or time.monotonic() > deadline:
                 raise
-        own = names | (auth.ctes - {""})
+        c.set_authorizer(None)
+        c.set_progress_handler(None, 0)
+        own = names | {n for n in auth.unsure & auth.ctes if not _resolves(c, n)}
         if bad := sorted(auth.unsure - own):
             why.append(("refused", f"only a SELECT of the views is allowed, and this reads main.{bad[0]}"))
         if why or time.monotonic() > deadline:
