@@ -8,7 +8,9 @@ is matched to a merged gap first by its second parent being the gap's reviewed_h
 carries it. A match says gap.reverted (reverted, revert_sha, reverted_at) unless the gap is reverted already; no
 match says intervention.recorded as intervention/reverted-<sha12> (class reverted-unmatched), which risk.py counts as
 an escape at the pool size then, unless that intervention exists. So a second read records nothing twice. A revert of
-a revert puts the work back: not an escape."""
+a revert puts the work back: not an escape. The verification lane's reverts (verify.py: `Reverted-tip:`) are matched
+by that tip, or by the gap's reverted_by_verify, in any state, since the lane has sent the gap on; those of the merges
+stacked on its culprit (`Stacked-on:`) are no escape and record nothing."""
 
 from __future__ import annotations
 
@@ -23,10 +25,17 @@ import fac
 
 MOST = 200                                             # commits read a run
 REVERTS = re.compile(r"This reverts commit ([0-9a-f]{7,64})")
+VERIFY_TIP = re.compile(r"^Reverted-tip: ([0-9a-f]{40})$", re.M)     # (the verification lane's revert: verify.py)
 
 
-def blamed(gaps: list[dict], sha: str, parents: list[str]) -> dict | None:
-    """The one merged gap whose merge `sha` is: its second parent the gap's reviewed_head, else its main_sha."""
+def blamed(gaps: list[dict], sha: str, parents: list[str], revert: str = "", body: str = "") -> dict | None:
+    """The one merged gap whose merge `sha` is: its second parent the gap's reviewed_head, else its main_sha. A revert
+    by the verification lane (`Reverted-tip:` in its ``body``, verify.py): the one gap in any state (the lane has sent
+    it on) whose reviewed_head is that tip or whose reverted_by_verify holds ``revert``."""
+    if tip := VERIFY_TIP.search(body):
+        hit = [g for g in gaps if str(g["fields"].get("reviewed_head") or "") == tip[1]
+               or revert in (g["fields"].get("reverted_by_verify") or [])]
+        return hit[0] if len(hit) == 1 else None
     merged = [g for g in gaps if g["state"] == "merged"]
     for field, want in (("reviewed_head", parents[1:2]), ("main_sha", [sha])):
         hit = [g for g in merged if want and str(g["fields"].get(field) or "") == want[0]]
@@ -35,14 +44,16 @@ def blamed(gaps: list[dict], sha: str, parents: list[str]) -> dict | None:
     return None
 
 
-def record(repo: Path, gaps: list[dict], ivs: set[str], revert: str, old: str) -> list[str]:
-    """The revert commit `revert` of `old` recorded once: the item it was said of, or nothing when said already."""
+def record(repo: Path, gaps: list[dict], ivs: set[str], revert: str, old: str, said: str = "") -> list[str]:
+    """The revert commit `revert` (its message ``said``) of `old` recorded once: the item it was said of, or nothing
+    when said already. The verification lane's revert of a merge stacked on its culprit (`Stacked-on:`) is no escape:
+    nothing is recorded."""
     head, _, body = fac.git(repo, "log", "-1", "--format=%H %P%x00%B", f"{old}^{{commit}}", check=False).partition("\0")
     got = head.split()                                 # (a commit not in the checkout: unmatched, still an escape)
-    if REVERTS.search(body):
+    if REVERTS.search(body) or (VERIFY_TIP.search(said) and re.search(r"^Stacked-on: gap/", said, re.M)):
         return []
     sha, now = got[0] if got else old, time.time()
-    g = blamed(gaps, sha, got[1:])
+    g = blamed(gaps, sha, got[1:], revert, said)
     if g:
         if g["fields"].get("reverted"):
             return []
@@ -81,7 +92,7 @@ def watch(cfg: dict, repo: Path, main: str) -> list[str]:
             for entry in log.split("\x1e"):
                 revert, _, body = entry.strip().partition("\0")
                 for old in REVERTS.findall(body):
-                    said += record(repo, gaps, ivs, revert, old)
+                    said += record(repo, gaps, ivs, revert, old, body)
         tmp = p.with_suffix(".new")
         tmp.write_text(json.dumps({"last": shas[-1] if shas else last or main, "at": time.time()}))
         tmp.replace(p)
