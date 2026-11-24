@@ -2852,7 +2852,7 @@ def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard
 # the demos swept (dev/records/diagram-spoken-names.md): every focusable part's spoken name, and what the page knows
 # of it to check that name against (its name as drawn, a stock's unit)
 SPOKEN_DEMOS = ["software-factory", "ticket-factory", "image-squeeze", "first-loop", "autoscaler", "ops"]
-SPOKEN = """() => [...document.querySelectorAll('svg.canvas [tabindex="0"]:is(.node, .edge, .bd-frame)')].map((el) => {
+SPOKEN = """() => [...document.querySelectorAll('svg.canvas [tabindex]:is(.node, .edge, .bd-frame)')].map((el) => {
   const n = el.matches('.node') && S.graph.nodes.find((x) => x.id === el.dataset.id);
   const e = el.matches('.edge') && S.graph.edges.find((x) => x.id === el.dataset.id);
   const f = el.matches('.bd-frame') && (S.graph.frames || []).find((x) => x.id === el.dataset.hull);
@@ -2888,6 +2888,8 @@ def test_every_focusable_part_is_named_in_its_views_words_with_its_kind_and_name
                 assert p["role"] == "button" and re.match(SPOKEN_KINDS[view], said), (view, p)
                 assert p["name"] in said and p["unit"] in said, (view, p)
                 assert not re.search(r"undefined|null|NaN|\w:\w", said), (view, p)
+                twice = p["name"] and re.search(rf"(?<!\S){re.escape(p['name'])},? {re.escape(p['name'])}(?![\w-])", said)
+                assert not twice, (view, "its name said twice", p)
                 assert not re.search(NOT_SPOKEN[view], said, re.I), (view, p)
         assert not errors, errors
         pg.close()
@@ -2957,11 +2959,11 @@ SPOKEN_UNIT = """() => {
       loops: ['located-worked'] },
     { id: 'sum:located-worked', kind: 'sum', role: 'comparator', label: 'Σ located-worked', loops: ['located-worked'], ins: [] },
     { id: 'psum:backlog', kind: 'sum', role: 'process-sum', label: 'Σ backlog', ins: [{ sign: '+' }, { sign: '−' }] },
-    { id: 'ref', kind: 'input', role: 'reference', label: 'r located-worked', fn: { value: '180' } },
+    { id: 'ref', kind: 'input', role: 'reference', label: 'r located-worked', fn: { sym: 'r', value: '180' } },
     { id: 'sens', kind: 'block', role: 'sensor', label: 'located', fn: {} },
     { id: 'smp', kind: 'sampler', role: 'sampler', label: 'T', fn: { T: '5m' } },
     { id: 'mux1', kind: 'mux', label: 'mux', n: 3 },
-    { id: 'sub', kind: 'block', role: 'subsystem', label: 'intake', description: 'takes work in', loops: ['located-worked', 'other'] },
+    { id: 'sub', kind: 'block', role: 'subsystem', label: 'intake', fn: { sym: 'intake' }, description: 'takes work in', loops: ['located-worked', 'other'] },
     { id: 'pin', kind: 'port', role: 'in-port', label: 'demand' },
     { id: 'proc', kind: 'block', role: 'process', label: 'located', fn: { sym: 'P' } },
     { id: 'y', kind: 'output', role: 'output', label: 'y located' }],
@@ -3043,9 +3045,11 @@ def test_the_arrows_follow_pipes_connectors_and_signals(browser, tmp_path):
         assert pg.evaluate(ON)["id"] == "stock:backlog", pg.evaluate(ON)
         pg.keyboard.press("ArrowDown")
         line = pg.evaluate(ON)
-        assert line["edge"] and line["aria"].startswith("connector line") and "backlog" in line["aria"] and "sign" in line["aria"], line
+        # (its spoken name, diagram-spoken-names: 'connector from X to Y, positive', its sign in system dynamics' words)
+        assert line["edge"] and line["aria"].startswith("connector from") and "backlog" in line["aria"], line
+        assert re.search(r", (positive|negative|polarity not known)\b", line["aria"]), line
         pg.keyboard.press("ArrowDown")                       # the next connector of the stock (or the same, if it has one)
-        assert pg.evaluate(ON)["edge"] and pg.evaluate(ON)["aria"].startswith("connector line"), pg.evaluate(ON)
+        assert pg.evaluate(ON)["edge"] and pg.evaluate(ON)["aria"].startswith("connector from"), pg.evaluate(ON)
         pg.keyboard.press("Home")
         assert pg.evaluate(ON)["inSvg"] and not pg.evaluate(ON)["edge"], pg.evaluate(ON)
 

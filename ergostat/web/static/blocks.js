@@ -1131,13 +1131,13 @@ function bdSpoken(x, g) {
             lp?.error != null ? minus(lp.error) : null, lp ? goalWord(lp) : null].filter(Boolean).join(", ");
   }
   if (x.kind === "frame") return x.frame === "cascade" ? `inner loop (cascade) of ${x.label}` : `subsystem ${x.label}, open`;
-  const name = String(x.label || "").replace(/^Σ /, "");
+  const name = String(x.label || "").replace(/^Σ /, ""), sym = fn.sym && name !== fn.sym && !name.startsWith(fn.sym + " ");
   const said = [x.kind === "sum" ? `summing junction of ${name}` : x.kind === "mux" || x.kind === "demux" ? `${x.kind} of ${x.n} signals`
-    : x.kind === "sampler" ? `sampler (A/D), T = ${fn.T || "not known"}` : `${bdKind(x)}${fn.sym ? " " + fn.sym : ""} ${name}`,
+    : x.kind === "sampler" ? `sampler (A/D), T = ${fn.T || "not known"}` : `${bdKind(x)}${sym ? " " + fn.sym : ""} ${name}`,
     x.role === "comparator" ? "reference minus measurement"
       : x.kind === "sum" ? (x.ins || []).filter((p) => p.sign).map((p) => (p.sign === "+" ? "plus" : "minus")).join(" ") : fn.kind || fn.value,
     x.role === "subsystem" ? x.description : null, ...(x.loops || []).map(loop), x.alarm ? `alarm ${x.alarm}` : null];
-  return said.filter(Boolean).join(", ");
+  return said.filter((w, i) => w && (i === 0 || w !== name)).join(", ");   // (never its name said twice)
 }
 
 function openBlock(n) {

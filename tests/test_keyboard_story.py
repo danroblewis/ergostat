@@ -31,9 +31,11 @@ FOCUS = ("() => { const a = document.activeElement, r = a.getBoundingClientRect(
          "name: (a.getAttribute('aria-label') || a.textContent || '').trim().replace(/\\s+/g, ' '), "
          "seen: r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth }; }")
 # per view: the system's name, the first part within it, the gap's name, the panel's first line
-WANT = {"view=dynamics": (r"^system desk\b", r"^disturbance arriving\b", r"^auxiliary (excess|gap) backlog\b",
+# (each part's spoken name, in its view's words: dev/records/diagram-spoken-names.md)
+WANT = {"view=dynamics": (r"^module desk\b", r"^flow arriving\b", r"^goal (excess|gap) short-backlog\b",
                           r"- text: (Excess|Gap)"),
-        "view=blocks": (r"^block desk\b", r"^input r ?short-backlog\b", r"^sum Σ short-backlog\b", r"- text: summing junction")}
+        "view=blocks": (r"^subsystem desk\b", r"^reference input r ?short-backlog\b", r"^summing junction of short-backlog\b",
+                        r"- text: summing junction")}
 
 
 @pytest.mark.parametrize("view", list(WANT))
@@ -74,7 +76,7 @@ def test_story_h5_the_off_goal_found_and_read_by_keyboard_alone(browser, tmp_pat
         key("i", first, until=f"() => S.here === 'desk' && ({READY})() && ({IN_SVG})(document.activeElement)")
         if view == "view=dynamics":                      # the disturbance, along its pipe to the stock, its connector, the gap
             key("ArrowRight", r"^stock backlog\b")
-            key("ArrowDown", r"^connector line from backlog to short-backlog\b")
+            key("ArrowDown", r"^connector from backlog to \S")
         key("ArrowRight", gap)                           # (Blocks: the reference, along the signal to Σ)
         key("Enter", ".", until="() => !document.querySelector('#detail').hidden && document.activeElement?.closest('#detail')")
         said = pg.locator("#detail").aria_snapshot().splitlines()   # a landmark (Q75), then the panel's lines
