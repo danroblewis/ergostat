@@ -16,14 +16,13 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 import pytest
 
 from tests.ports import free_port
-
-playwright = pytest.importorskip("playwright.sync_api")
 
 ROOT = Path(__file__).resolve().parent.parent
 SHOTS = os.environ.get("DASHBOARD_SHOTS")
@@ -40,7 +39,9 @@ FIELDS = {
             "part": {"fields": [{"name": "weight", "unit": "g"}], "states": ["queued", "cut", "ground", "done"], "group_by": ["state"]},
             "ergostat.note": {"fields": [], "states": ["open", "doing", "more", "shut"], "group_by": ["state"]},
         }},
-        "moves": {"kinds": {}}, "counts": {"kinds": ["log", "widget", "part"]},
+        # the states work waits in, as /api/items-graph gives them (GRAPH): the default reads them here
+        "moves": {"kinds": {"widget": {"queue": ["new", "ready", "redo", "checked"]}, "part": {"queue": ["queued"]},
+                            "log": {"queue": ["started"]}}}, "counts": {"kinds": ["log", "widget", "part"]},
         "series": {"series": [{"name": "stock.x", "unit": "items"}]}, "events": {"types": []},
     },
     "aggregations": ["count", "sum"], "transforms": ["none", "rate"],
@@ -73,6 +74,7 @@ window.fetch = (url, opts) => {
     window.__queries++;
     window.__since = asked.since;
     window.__asked = asked.queries;
+    window.__every = [...(window.__every || []), ...asked.queries];   // (the panels above the fold are asked first)
   }
   return realFetch(url, opts);
 };
@@ -91,8 +93,12 @@ def answer(route):
 
 @pytest.fixture(scope="module")
 def site(tmp_path_factory):
-    d = tmp_path_factory.mktemp("image-squeeze") / "image-squeeze"
-    shutil.copytree(ROOT / "examples" / "image-squeeze", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    yield from served(tmp_path_factory, "image-squeeze")
+
+
+def served(tmp_path_factory, example):
+    d = tmp_path_factory.mktemp(example) / example
+    shutil.copytree(ROOT / "examples" / example, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
                             env={**os.environ, "ERGOSTAT_HOME": str(d.parent / "home")},
@@ -114,6 +120,7 @@ def site(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def browser():
+    playwright = pytest.importorskip("playwright.sync_api")   # (here: the tests needing no browser run without it)
     with playwright.sync_playwright() as p:
         b = p.chromium.launch()
         yield b
@@ -265,6 +272,7 @@ def test_the_default_has_a_panel_of_every_chart_family(browser, site):
       const rich = JSON.parse(JSON.stringify(f));
       rich.sources.items.kinds.widget.fields = [{ name: "cost_usd", unit: "usd" }, { name: "net_lines", unit: "lines" }];
       rich.sources.frequency = { goals: ["widgets-held"] };
+      rich.datasources = [{ name: "model", type: "model", language: "model" }];
       const made = dashDefault(rich, items.kinds).panels;
       return { made: made.map((p) => normalizeForm(p).form), all: Object.keys(plotForms()), n: made.length, most: DASH_MOST };
     }""", [FIELDS, ITEMS])
@@ -275,7 +283,8 @@ def test_the_default_has_a_panel_of_every_chart_family(browser, site):
 
 def test_the_default_draws_no_response_from_arrivals_against_completions(browser, site):
     """dev/records/frequency-refuses-noise.md: arrivals and completions are not shown as a working Bode or Nyquist
-    example; a goal's declared process is, when there is one."""
+    example; a goal's declared process is, asked of the model data source (dev/records/model-data-source.md), when there
+    is one and a model source to ask."""
     ctx = context(browser)
     pg = opened(ctx, f"{site}/dashboard")
     got = pg.evaluate("""([f, items]) => {
@@ -283,11 +292,38 @@ def test_the_default_draws_no_response_from_arrivals_against_completions(browser
         .map((p) => ({ form: normalizeForm(p).form, q: p.queries[0] }));
       const withGoal = JSON.parse(JSON.stringify(f));
       withGoal.sources.frequency = { goals: ["widgets-held"] };
-      return { bare: freq(dashDefault(f, items.kinds).panels), goal: freq(dashDefault(withGoal, items.kinds).panels) };
+      const noSource = freq(dashDefault(withGoal, items.kinds).panels);
+      withGoal.datasources = [{ name: "prom", type: "prometheus", language: "PromQL" }, { name: "own", type: "model", language: "model" }];
+      return { bare: freq(dashDefault(f, items.kinds).panels), noSource, goal: freq(dashDefault(withGoal, items.kinds).panels) };
     }""", [FIELDS, ITEMS])
-    assert got["bare"] == []
+    assert got["bare"] == [] and got["noSource"] == []
     assert sorted(p["form"] for p in got["goal"]) == ["bode", "nyquist", "pole-zero"]
-    assert all(p["q"] == {"id": "a", "source": "frequency", "model": {"goal": "widgets-held"}} for p in got["goal"])
+    assert all(p["q"] == {"id": "a", "source": "own", "text": "goal widgets-held"} for p in got["goal"])
+    ctx.close()
+
+
+def test_the_model_source_draws_bode_nyquist_and_pole_zero_from_the_live_server(browser, site):
+    """dev/records/model-data-source.md, on the real server: each panel asks the model data source in its own language,
+    the delayed process's pole-zero map states its dt, and a goal not in the model is refused in the panel."""
+    fopdt = {"id": "a", "source": "model", "text": "fopdt gain=2 tau=100s delay=20s"}
+    draft = {"panels": [
+        {"id": "bode", "title": "Bode", "form": "bode", "queries": [fopdt]},
+        {"id": "nyq", "title": "Nyquist", "form": "nyquist", "queries": [fopdt]},
+        {"id": "pz", "title": "Poles", "form": "pole-zero", "queries": [{**fopdt, "text": "fopdt gain=1 tau=10s delay=25s dt=10s"}]},
+        {"id": "nope", "title": "Nope", "form": "bode", "queries": [{**fopdt, "text": "goal nope"}]}]}
+    enc = base64.urlsafe_b64encode(json.dumps(draft).encode()).decode().rstrip("=")
+    ctx = browser.new_context(viewport={"width": 1440, "height": 1000})
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={enc}")
+    for pid in ("bode", "nyq", "pz", "nope"):
+        pg.wait_for_function(ANSWERED, arg=pid)
+    state = lambda pid: pg.locator(f'[data-panel-id="{pid}"]').get_attribute("data-state")   # noqa: E731
+    assert [state(x) for x in ("bode", "nyq", "pz", "nope")] == ["drawn", "drawn", "drawn", "error"]
+    legend = pg.locator('[data-panel-id="pz"] .panel-legend').inner_text()
+    assert "sampled every dt = 10 s" in legend and "from the model the query writes" in legend
+    assert "not in the model" in pg.locator('[data-panel-id="nope"]').inner_text()
+    if SHOTS:
+        pg.screenshot(path=f"{SHOTS}/dashboard-model-source.png", full_page=True)
+    assert pg.errors == []
     ctx.close()
 
 
@@ -584,7 +620,7 @@ def test_a_duration_stat_is_over_the_whole_window_and_says_who_is_still_waiting(
     pg = opened(ctx, f"{site}/dashboard")
     stat = default(pg)["widget: median wait of items that left ready"]
     assert stat["display"]["whole"] is True and stat["display"]["still"] == {"kind": "widget", "state": "ready"}
-    asked = [q for q in pg.evaluate("() => window.__asked") if q.get("measure") == "time_in_state" and "bucket" in q]
+    asked = [q for q in pg.evaluate("() => window.__every") if q.get("measure") == "time_in_state" and "bucket" in q]
     assert asked and all(q["bucket"] >= 86400 for q in asked)
     assert "whole" not in asked[0] and "still" not in asked[0]                    # the server is sent only query keys
     assert pg.evaluate("""() => [[1795390000, 1795400000], [86400 * 20000 - 50, 86400 * 20000 + 50], [1000, 87400]]
@@ -734,4 +770,234 @@ def test_every_worked_example_is_drawn_through_the_shape_gate(browser, site, tmp
     assert heat[:2] == ("heatmap", "drawn"), heat
     assert {f for f, _, _ in got.values()} >= {"heatmap", "scatter", "histogram", "box", "bar"}
     assert pg.errors == []
+    ctx.close()
+
+
+# ---- a diagram panel (dev/records/dashboard-diagram-panel.md): the owner's :8796 is software-factory and :8797 big,
+# which this machine does not reach; each is served here from its example instead
+
+
+@pytest.fixture(scope="module")
+def factory(tmp_path_factory):
+    yield from served(tmp_path_factory, "software-factory")
+
+
+@pytest.fixture(scope="module")
+def big(tmp_path_factory):
+    yield from served(tmp_path_factory, "big")
+
+
+PRODUCT = "/diagram?view=dynamics&system=product"
+
+
+def diagrams(*addresses, before=0, size="full", tall=True) -> str:
+    """A draft of ``before`` line panels, then a diagram panel (d0, d1, ...) for each address."""
+    panels = [{"id": f"f{i}", "title": "filler", "form": "line", "size": "full",
+               "queries": [{"id": "a", "source": "counts", "agg": "last"}]} for i in range(before)]
+    panels += [{"id": f"d{i}", "title": f"diagram {i}", "form": "diagram", "size": size, "tall": tall,
+                "display": {"address": a}} for i, a in enumerate(addresses)]
+    return encoded({"title": "t", "panels": panels})
+
+
+def watched(ctx, url):
+    """The page, with every error said in it or in its frames, and every request it or they made."""
+    pg = ctx.new_page()
+    pg.errors, pg.asked = [], []
+    pg.on("pageerror", lambda e: pg.errors.append(str(e)))
+    pg.on("console", lambda m: pg.errors.append(m.text) if m.type == "error" else None)
+    pg.on("request", lambda r: pg.asked.append(r.url))
+    pg.goto(url)
+    pg.wait_for_selector(".dash-cell")
+    return pg
+
+
+def drawn(pg, pid, timeout=15000):
+    """A diagram panel's frame, once it has said it is drawn."""
+    pg.wait_for_selector(f'[data-panel-id="{pid}"][data-state="drawn"] iframe', timeout=timeout)
+    fr = pg.locator(f'[data-panel-id="{pid}"] iframe').element_handle().content_frame()
+    fr.wait_for_function("() => S.embedDrawn > 0 && document.querySelector('svg.canvas #viewport')")
+    return fr
+
+
+def test_a_diagram_panels_poll_is_answered_with_its_values_alone(factory):
+    """The server half of done item 1, run with no browser: the panel's address asked again with the structure it
+    holds comes back as values alone (``same``), so nothing in it can be laid out again."""
+    ask = f"{factory}/api/graph?view=dynamics&system=product&have="
+    first = json.loads(urllib.request.urlopen(ask + "-", timeout=30).read())
+    assert first.get("structure") and "same" not in first and first.get("nodes")
+    again = json.loads(urllib.request.urlopen(ask + first["structure"], timeout=30).read())
+    assert again.get("same") == first["structure"] and "nodes" not in again
+
+
+@pytest.mark.serial
+def test_a_diagram_panel_draws_in_3s_and_a_poll_brings_its_values_without_a_layout(browser, factory):
+    ctx = context(browser)
+    began = time.monotonic()
+    pg = watched(ctx, f"{factory}/dashboard?draft={diagrams(PRODUCT)}")
+    fr = drawn(pg, "d0")
+    took = time.monotonic() - began
+    assert took < 3, took
+    assert fr.evaluate("() => document.querySelectorAll('svg.canvas #viewport [data-id]').length") > 0
+    assert fr.evaluate("() => [...document.querySelectorAll('.toolbar, .zoom, .diagram > .side')].every((e) => !e.offsetParent)")
+    layouts, said = fr.evaluate("() => [S.layouts, S.embedDrawn]")
+    assert layouts >= 1
+    pg.evaluate("() => dashRefresh()")                                             # the dashboard's poll
+    fr.wait_for_function("(n) => S.embedDrawn > n", arg=said)
+    assert fr.evaluate("() => [S.layouts, S.embedSame]") == [layouts, True]        # the values alone: no layout
+    assert fr.evaluate("() => S.view.k") >= 1
+    if SHOTS:
+        pg.screenshot(path=f"{SHOTS}/dashboard-diagram-product.png")
+    assert pg.errors == []
+    ctx.close()
+
+
+def test_a_whole_model_panel_shows_its_systems_closed_and_no_text_under_11px(browser, big):
+    ctx = context(browser)
+    pg = watched(ctx, f"{big}/dashboard?draft={diagrams('/diagram?view=dynamics', size='m', tall=False)}")
+    fr = drawn(pg, "d0", timeout=30000)
+    assert fr.evaluate("() => new URLSearchParams(location.search).get('open')") == "-"
+    assert fr.evaluate("() => S.graph.nodes.filter((n) => n.kind === 'system').length") >= 2
+    smallest = fr.evaluate("""() => Math.min(...[...document.querySelectorAll('svg.canvas #viewport text')]
+      .filter((t) => t.textContent.trim() && t.getBBox().width).map((t) => parseFloat(getComputedStyle(t).fontSize) * S.view.k))""")
+    assert smallest >= 11, smallest
+    assert "open on the Diagram" in pg.locator('[data-panel-id="d0"] .panel-note').inner_text()
+    if SHOTS:
+        pg.screenshot(path=f"{SHOTS}/dashboard-diagram-big.png")
+    assert pg.errors == []
+    ctx.close()
+
+
+def test_a_click_on_a_diagram_panel_opens_its_address(browser, factory):
+    ctx = context(browser)
+    pg = watched(ctx, f"{factory}/dashboard?draft={diagrams(PRODUCT)}")
+    drawn(pg, "d0")
+    pg.locator('[data-panel-id="d0"] .panel-body').click()
+    pg.wait_for_function("() => location.pathname === '/diagram'")
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(pg.url).query)
+    assert (q["view"], q["system"], "pane" in q) == (["dynamics"], ["product"], False)
+    pg.wait_for_selector(".diagram .toolbar")
+    assert pg.locator(".diagram .toolbar").is_visible() and pg.locator("iframe").count() == 0
+    assert pg.errors == []
+    ctx.close()
+
+
+def test_nothing_loads_until_on_screen_and_one_model_diagram_is_live(browser, factory):
+    ctx = context(browser, height=700)
+    pg = watched(ctx, f"{factory}/dashboard?draft={diagrams(PRODUCT, '/diagram?view=blocks', before=4, tall=False)}")
+    pg.wait_for_function("() => window.__queries > 0")
+    elk = sum("elk.bundled.js" in u for u in pg.asked)                              # the page's own script, as every page's
+    pg.wait_for_timeout(1000)
+    assert pg.locator("iframe").count() == 0
+    assert [u for u in pg.asked if "/api/graph" in u] == [] and sum("elk.bundled.js" in u for u in pg.asked) == elk
+    pg.wait_for_function(SETTLED)                                                  # (scrolled to where it stays)
+    pg.locator('[data-panel-id="d0"]').scroll_into_view_if_needed()
+    drawn(pg, "d0")
+    assert any("/api/graph" in u for u in pg.asked)
+    other = pg.locator('[data-panel-id="d1"]')
+    other.scroll_into_view_if_needed()
+    wake = other.get_by_role("button", name="Draw this diagram here")
+    wake.wait_for()
+    assert pg.locator("iframe").count() == 1                                       # one model diagram live at a time
+    wake.click()
+    drawn(pg, "d1")
+    assert pg.locator("iframe").count() == 1
+    assert pg.locator('[data-panel-id="d0"]').get_by_role("button", name="Draw this diagram here").count() == 1
+    assert pg.errors == []
+    ctx.close()
+
+
+def test_an_address_that_will_not_decode_stops_at_its_panel(browser, factory):
+    """'/items/%zz' is a URL but its path is no text: that panel says it is neither, asks nothing, and the panels
+    around it are drawn (review of round 1: the URIError stopped the whole Dashboard)."""
+    ctx = context(browser)
+    asked = []
+    ctx.route("**/api/items-graph*", lambda r: (asked.append(r.request.url), r.fulfill(json=RELATED)))
+    pg = watched(ctx, f"{factory}/dashboard?draft={diagrams('/items/%zz', '/items/%E0%A4%A', before=1, tall=False)}")
+    for pid in ("d0", "d1"):
+        cell = pg.locator(f'[data-panel-id="{pid}"]')
+        cell.wait_for()
+        assert cell.get_attribute("data-state") == "empty"
+        assert "Not a Diagram or an Items Graph address" in cell.inner_text()
+    assert pg.locator('[data-panel-id="f0"]').count() == 1                         # the rest of the Dashboard drawn
+    pg.wait_for_timeout(300)
+    assert asked == [] and pg.errors == []
+    ctx.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("example", ["the-job", "ops", "autoscaler", "first-loop", "todo-list"])
+def test_a_diagram_panel_says_no_error_on_other_demos(browser, tmp_path_factory, example):
+    url = next(it := served(tmp_path_factory, example))
+    try:
+        ctx = context(browser)
+        pg = watched(ctx, f"{url}/dashboard?draft={diagrams('/diagram?view=dynamics', size='m', tall=False)}")
+        fr = drawn(pg, "d0", timeout=30000)
+        assert fr.evaluate("() => S.view.k") >= 1
+        pg.locator('[data-panel-id="d0"] .panel-body').click()
+        pg.wait_for_selector(".diagram .toolbar")
+        assert pg.errors == []
+        ctx.close()
+    finally:
+        next(it, None)
+
+
+RELATED = {"kinds": [{"name": "widget", "asked": True, "states": ["new", "ready"], "relations": {"depends_on": ["widget"]}}],
+           "items": [{"id": "w1", "kind": "widget", "state": "ready", "status": "unblocked"},
+                     {"id": "w2", "kind": "widget", "state": "new", "status": "blocked", "waiting": ["w1"]}],
+           "edges": [{"kind": "precedence", "from": "w1", "to": "w2"}]}
+
+
+def test_an_items_graph_panel_is_drawn_by_relgraph_when_on_screen(browser, factory):
+    ctx = context(browser, height=700)
+    asked = []
+    ctx.route("**/api/items-graph*", lambda r: (asked.append(r.request.url), r.fulfill(json=RELATED)))
+    pg = watched(ctx, f"{factory}/dashboard?draft={diagrams('/items/widget?view=graph', before=4, tall=False)}")
+    pg.wait_for_function("() => window.__queries > 0")
+    pg.wait_for_timeout(500)
+    assert asked == []
+    pg.wait_for_function(SETTLED)
+    pg.locator('[data-panel-id="d0"]').scroll_into_view_if_needed()
+    pg.wait_for_selector('[data-panel-id="d0"][data-state="drawn"] .rg-node')
+    assert "kinds=widget" in asked[0]
+    assert pg.locator('[data-panel-id="d0"] .rg-node').count() == 2
+    if SHOTS:
+        pg.screenshot(path=f"{SHOTS}/dashboard-diagram-items-graph.png")
+    pg.evaluate("() => dashRefresh()")
+    for _ in range(50):                                                            # the dashboard's poll asks it again
+        if len(asked) >= 2:
+            break
+        pg.wait_for_timeout(100)
+    assert len(asked) >= 2
+    assert pg.errors == []
+    pg.locator('[data-panel-id="d0"] .panel-body').click()                         # (the Items page then reads the fakes)
+    pg.wait_for_function("() => location.pathname === '/items/widget'")
+    ctx.close()
+
+
+def test_an_items_graph_panel_comes_back_after_one_failed_poll(browser, factory):
+    """One poll answered 500 between two equal answers: the panel says the error, then draws the graph again
+    (review of round 2: the last good answer was kept, so an unchanged one after the error was never drawn)."""
+    ctx = context(browser)
+    answers, down = [], []
+
+    def answer(r):
+        answers.append("500" if down else "ok")
+        if down:
+            down.clear()
+            r.fulfill(status=500, body="down for a moment")
+        else:
+            r.fulfill(json=RELATED)
+    ctx.route("**/api/items-graph*", answer)
+    pg = watched(ctx, f"{factory}/dashboard?draft={diagrams('/items/widget?view=graph', tall=False)}")
+    cell = '[data-panel-id="d0"]'
+    pg.locator(cell).scroll_into_view_if_needed()
+    pg.wait_for_selector(f'{cell}[data-state="drawn"] .rg-node')
+    down.append(True)                                                              # the next answer only
+    pg.evaluate("() => dashRefresh()")
+    pg.wait_for_selector(f'{cell}[data-state="error"]')
+    assert pg.locator(f"{cell} .rg-node").count() == 0
+    pg.evaluate("() => dashRefresh()")
+    pg.wait_for_selector(f'{cell}[data-state="drawn"] .rg-node', timeout=5000)
+    assert "500" in answers and answers[-1] == "ok" and pg.locator(f"{cell} .rg-node").count() == 2
+    assert [e for e in pg.errors if "500" not in e] == []                          # only the planted failure said
     ctx.close()

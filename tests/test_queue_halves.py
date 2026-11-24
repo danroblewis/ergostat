@@ -294,12 +294,30 @@ def test_a_crashed_run_names_no_test_and_goes_to_halves(tmp_path):
     (3, "", True), (1, "INTERNALERROR> boom", True), (1, "OSError: [Errno 28] No space left on device", True),
     (1, "FAILED t.py::t - worker 'gw3' crashed while running", True), (1, "FAILED t.py::t - assert 1", False),
     (2, "Interrupted: 1 error during collection", False), (0, "INTERNALERROR> said by a passing test", False),
+    (1, "FAILED t.py::t[OSError: [Errno 28] x] - assert 1", False), (1, "t.py::t[[Errno 28]] FAILED [ 50%]", False),
+    (1, "  File x, line 1\nOSError: [Errno 28] No space left on device\nFAILED t.py::t - assert 1", True),
 ])
 def test_what_counts_as_a_crash(rc, text, crash):
     sys.modules.setdefault("fac", module("fac"))
     sys.path.append(str(BIN))
     try:
         assert bool(module("queue").crashed(rc, text)) is crash
+    finally:
+        sys.path.remove(str(BIN))
+
+
+@pytest.mark.parametrize("passed", [
+    "tests/test_queue_halves.py::test_what_counts_as_a_crash[1-OSError: [Errno 28] No space left on device-True] PASSED",
+    "[gw3] [ 50%] PASSED tests/t.py::t[1-OSError: [Errno 28] No space left on device-True]",
+    "SKIPPED [1] t.py::t[[Errno 28]]: no port", "t.py::t[[Errno 28]] XFAIL", "t.py::t[[Errno 28]] XPASS",
+])
+def test_a_passing_tests_name_is_no_crash(passed):
+    sys.modules.setdefault("fac", module("fac"))
+    sys.path.append(str(BIN))
+    try:
+        log = f"{passed}\nFAILED tests/test_b.py::test_b - assert 1 == 2\n"
+        assert module("queue").crashed(1, log) == ""
+        assert module("queue").crashed(1, log + "FAILED t.py::t - worker 'gw3' crashed while running 't.py::t'\n")
     finally:
         sys.path.remove(str(BIN))
 

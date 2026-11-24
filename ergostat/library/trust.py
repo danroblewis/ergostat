@@ -128,6 +128,7 @@ ITEM = {**COMMON, "id": (S, "which ids are this kind"), "states": (L, "its state
         "join": (one_of(JOIN, list_of(JOIN)), "a parent moved on by its children's states"),
         "about": (S, "the field naming the parts it is about; only check reads it"),
         "attention": (S, "the field whose latest item's words are shown on the attention list"),
+        "pipeline": (NO, "adds a row to the owner's default dashboard, which only the owner says"),
         "lease": (NO, "makes its items a work queue that blocks take and run")}
 STOCK = {**COMMON, **CLAIMED, **SENSORS, "unit": (S, "its unit"), "limit": (S, "its most"), "initial": (S, "its first value"),
          "cumulative": (S, "a running total"), "rate-unit": (S, "how its rate is shown"),

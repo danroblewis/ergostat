@@ -2096,6 +2096,46 @@ def test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip(browse
     assert not problems, f"{name}: " + "\n".join(problems)
 
 
+TOP_LOOP = """() => {
+  const at = (id) => S.layout.children.find((c) => c.id === id), by = Object.fromEntries(S.graph.nodes.map((n) => [n.id, n]));
+  const said = (e) => by[e.source]?.kind === "input" ||
+    S.graph.edges.some((x) => x.sourcePort === e.sourcePort && by[x.target]?.kind === "output");
+  const net = (e) => [...document.querySelectorAll("svg.canvas text.bd-sig")].some((t) => t.dataset.net === e.sourcePort);
+  const node = (id) => document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(id)}"]`)?.textContent || "";
+  const sid = "sum:top:factory>product";
+  return { sum: at(sid), c: at("sys:factory"), p: at("sys:product"), h: at("h:top:factory>product"),
+           signs: [...document.querySelectorAll(`svg.canvas text.bd-sign[data-sum="${sid}"]`)].map((t) => t.textContent).sort(),
+           unlabelled: S.graph.edges.filter((e) => !(said(e) || net(e))).map((e) => e.id),
+           names: ["ref:top:factory>product", "out:top:factory>product", "h:top:factory>product", "dist:top:product"].map(node) };
+}"""
+
+
+def test_the_top_of_blocks_is_a_loop_with_its_junction_ahead_of_the_controller_and_h_beneath(browser, tmp_path):
+    """Story G6 on software-factory: r into Σ to the left of C_factory, e, u to P_product, y out, and the return through
+    H beneath the forward path into Σ's minus input; every wire's label drawn (on it, or by the input or output it is);
+    opening either system draws its signals at its frame's ports."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks", 0)
+        r = pg.evaluate(TOP_LOOP)
+        assert r["sum"]["x"] + r["sum"]["width"] <= r["c"]["x"], r
+        mid = lambda b: b["y"] + b["height"] / 2                                         # noqa: E731
+        assert mid(r["h"]) > max(mid(r["c"]), mid(r["p"])), r
+        assert r["signs"] == ["+", "−"] and not r["unlabelled"], r
+        assert r["names"][0].startswith("r") and r["names"][1].startswith("y") and "H_product" in r["names"][2], r
+        assert r["names"][3].startswith("d"), r
+        for i, s in enumerate(("factory", "product")):
+            drawn(pg, url, f"view=blocks&open={s}", i + 1)
+            ports = pg.evaluate(f"""() => [...document.querySelectorAll('svg.canvas .bd-portmark-g[data-frame="frame:{s}"]')]
+                                     .map((g) => g.textContent)""")
+            # (the signals themselves are pinned in test_blockdiagram; a mark with no room for its name is unnamed, as before)
+            assert len(ports) >= 2 and all(re.match(r"[uy]", p) for p in ports if p), (s, ports)
+        pg.close()
+        assert not errors, errors
+
+
 def test_sensors_polled_alike_are_drawn_alike_with_a_sampler(browser, tmp_path):
     """image-squeeze's service: any two sensors with the same period have the same main label and both a
     sampler; a sampler whose T is slight against its loop's is drawn in the muted stroke, and its panel gives
@@ -3009,6 +3049,44 @@ def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard
         pg.close()
 
 
+@pytest.mark.slow
+def test_a_goal_and_its_feedback_loops_link_each_other_across_the_views(browser, tmp_path):
+    """goal -> feedback loop (Dynamics, the loop chosen) -> goal, and goal -> control loop (Blocks); the list's summary
+    counts the loops that close a goal as the answer does. Structure only: whichever goals are off."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        r = pg.evaluate("""() => ({ head: document.querySelector('.sd-loops-head').textContent,
+          all: S.graph.causalLoops.length, closing: S.graph.causalLoops.filter((c) => c.goal).length })""")
+        assert r["closing"] and r["head"] == f" {r['all']}, {r['closing']} close a goal", r
+        for goal in pg.evaluate("() => Object.keys(S.status.loops)"):      # every goal names at least its control loop
+            pg.evaluate("(g) => openLoop(g)", goal)
+            pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g) && "
+                                 "document.querySelector('#detail .goal-loops a.to-blocks')", arg=goal, timeout=5000)
+        goal = pg.evaluate("() => S.graph.causalLoops.find((c) => c.goal && c.name !== c.goal).goal")   # one named apart
+        pg.evaluate("(g) => openLoop(g)", goal)
+        pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g) && "
+                             "document.querySelector('#detail .goal-loops a.to-dynamics')", arg=goal, timeout=5000)
+        links = pg.locator("#detail .goal-loops a.to-dynamics")
+        first = next(x for x in links.all() if x.inner_text().split(" ", 1)[1] != goal)
+        label, name = first.inner_text().split(" ", 1)
+        first.click()
+        pg.wait_for_function("(n) => S.hlCausal === n && document.querySelector('#detail .subtitle')?.textContent === n",
+                             arg=name, timeout=DRAWN_S * 1000)
+        assert pg.locator("#detail h2").inner_text() == label
+        pg.locator("#detail .serves a.goal-link").click()                  # and back to the goal it serves
+        pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g) && "
+                             "document.querySelector('#detail .goal-loops')", arg=goal, timeout=5000)
+        pg.locator("#detail .goal-loops a.to-blocks").click()              # its control loop, chosen in Blocks
+        pg.wait_for_function("() => S.graph?.kind === 'blocks' && S.bdSel?.node && !document.querySelector('#detail').hidden",
+                             timeout=DRAWN_S * 1000)
+        assert goal in pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel.node).loops")
+        assert not errors, errors
+        pg.close()
+
+
 # the focused part: its key, what it is called, its id, and the graph's kind and role of it
 ON = ("() => { const a = document.activeElement, n = a && S.graph?.nodes.find((x) => x.id === a.dataset?.id); "
       "return a && { key: a.dataset?.key || '', aria: a.getAttribute('aria-label') || '', id: a.dataset?.id || '', "
@@ -3191,6 +3269,10 @@ def test_the_focus_ring_is_the_accent_and_stands_3_to_1_in_both_themes(browser, 
 
 
 SD_WORDS = r"\b(controller|setpoint|rule|goal)s?\b|<=|>="   # (a valve is Sterman's word for where a rate is set)
+# the two places Dynamics names a goal (R11: goal, feedback loop and control loop are three things, cross-referenced):
+# the loop list's summary ("Feedback loops 49, 14 close a goal"), a loop's row (Q62's "serves goal X") and a loop's
+# panel ("Serves goal X")
+SD_GOAL_SAID = r", \d+ closes? a goal|[Ss]erves goals? \S+"
 
 
 def unsign_rollout(d: Path) -> None:
@@ -3235,7 +3317,7 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
         assert r["hullFill"] in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]       # a sector: framed by its corners, no tint
         assert r["hullStroke"] == r["frame"] and r["corners"], r
-        assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, r["side"], re.I), r["side"][:600]
+        assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", r["side"]), re.I), r["side"][:600]
         # every panel: a loop's, a desired level's, a gap's, a connector's
         for sel in [".loop-marker", '.node[data-id^="desired:"]', '.node[data-id^="gap:"]']:
             pg.locator(f"svg.canvas {sel}").first.dispatch_event("click") if sel == ".loop-marker" else None
@@ -3245,7 +3327,7 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
             pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
             pg.wait_for_timeout(300)
             text = pg.locator("#detail").inner_text()
-            assert not re.search(SD_WORDS, text, re.I), (sel, text[:800])
+            assert not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", text), re.I), (sel, text[:800])
         assert not errors, errors
         pg.close()
 
@@ -3475,6 +3557,7 @@ BD_LEGEND_DRAWN = {
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
     "a system as one block": ".bd-subsystem, .bd-frame-system", "a subsystem open": ".bd-frame-system",
+    "a lighter line": "g.bd-edge.bd-record, g.bd-edge.bd-aside, .bd-bus .bd-bar",
 }
 
 
@@ -5156,7 +5239,7 @@ LEGEND = """() => {
 LEGEND_SHOWS = {"stock": "g.node.k-stock", "flow": ".edge.pipe .pipe-out", "biflow": ".edge.pipe .pipe-tail",
                 "source / sink": "g.node.k-cloud", "auxiliary": "g.node.k-auxiliary", "exogenous": "g.node.k-auxiliary",
                 "connector +": ".edge .polarity", "connector −": ".edge .polarity", "reinforcing": ".loop-markers",
-                "balancing": ".loop-markers"}
+                "balancing": ".loop-markers", "a lighter line: information, not material": ".edge .sd-connector"}
 
 
 def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
@@ -5180,6 +5263,103 @@ def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
                 assert row[-1] in signs, (row, signs)
         assert not {"auxiliary", "exogenous", "reinforcing", "balancing"} & set(on), on
         pg.close()
+
+
+TOKEN = """(v) => { const el = document.createElement('span'); el.style.color = `var(${v})`; document.body.append(el);
+  const c = getComputedStyle(el).color; el.remove(); return c; }"""
+SD_TONES = """(tok) => {
+  const ink = tok['--sd-ink'], ink2 = tok['--sd-ink-2'], svg = document.querySelector('svg.canvas'), bad = [];
+  const by = Object.fromEntries(S.graph.nodes.map((n) => [n.id, n]));
+  const drives = new Set(S.graph.edges.filter((e) => e.kind === 'connector' && by[e.source]?.role === 'gap' &&
+                                                     ['valve', 'disturbance'].includes(by[e.target]?.kind)).map((e) => e.id));
+  const want = (el, prop, v, what) => { const got = getComputedStyle(el)[prop];
+    if (got !== v) bad.push(`${what}: ${prop} ${got}, not ${v}`); };
+  let lines = 0, driving = 0;
+  for (const eg of svg.querySelectorAll('g.edge')) {
+    const con = eg.querySelector('.sd-connector');
+    if (!con) continue;
+    lines++; const d = drives.has(eg.dataset.id); driving += d;
+    want(con, 'stroke', d ? ink : ink2, eg.dataset.id);
+    want(eg.querySelector('.sd-head'), 'fill', d ? ink : ink2, eg.dataset.id + ' head');
+  }
+  const full = { stroke: '.pipe-out, .sd-stock, .sd-valve, .sd-cloud, .loop-marker:not(.pol-unknown) .marker-arc',
+                 fill: '.polarity, .node .sd-name, .loop-marker:not(.pol-unknown) .marker-letter' };
+  const counts = {};
+  for (const [prop, sel] of Object.entries(full))
+    for (const el of svg.querySelectorAll(sel)) { counts[sel] = (counts[sel] || 0) + 1; want(el, prop, ink, el.getAttribute('class')); }
+  for (const el of svg.querySelectorAll('.loop-marker:not(.pol-unknown) .marker-name, .k-terminal .sd-shadow'))
+    want(el, 'fill', ink2, el.textContent);
+  const file = standaloneSvg(svg, exportTitle()).text;           // the saved SVG (and the PNG drawn from it) keeps both
+  const html = document.documentElement, tone = (v) => { const el = document.createElement('span'); el.style.color = `var(${v})`;
+    document.body.append(el); const c = getComputedStyle(el).color; el.remove(); return c; };
+  html.classList.add('export-light');                            // (a saved picture is drawn light whatever the theme)
+  const [lk, lk2] = [tone('--sd-ink'), tone('--sd-ink-2')];
+  html.classList.remove('export-light');
+  return { lines, driving, drives: drives.size, counts, bad,
+           saved: [lk !== lk2 && file.includes(`stroke:${lk2}`), file.includes(`stroke:${lk}`)] };
+}"""
+BD_TONES = """(tok) => {
+  const svg = document.querySelector('svg.canvas'), of = (sel, p) => [...svg.querySelectorAll(sel)].map((el) => getComputedStyle(el)[p]);
+  const file = standaloneSvg(svg, exportTitle()).text, html = document.documentElement;   // the saved file, legend and all
+  html.classList.add('export-light');
+  const light = getComputedStyle(document.body).getPropertyValue('--ink-2-line').trim();
+  html.classList.remove('export-light');
+  return { saved: { vars: file.split('var(').length - 1, tone2: file.includes(`stroke="${light}"`) },
+           ink: tok['--ink'], ink2: tok['--ink-2-line'], record: of('g.bd-edge.bd-record .bd-wire', 'stroke'),
+           aside: of('g.bd-edge.bd-aside .bd-wire', 'stroke'), bus: of('.bd-bus .bd-bar', 'fill'),
+           main: of('g.bd-edge:is(.bd-reference, .bd-error, .bd-control, .bd-output, .bd-measured):not(.bd-aside) .bd-wire', 'stroke'),
+           refErr: of('g.bd-edge:is(.bd-reference, .bd-error):not(.bd-aside) .bd-wire', 'stroke') };
+}"""
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_line_tones_information_lighter_than_the_material_path(browser, tmp_path, scheme):
+    """line-tones (docs/DESIGN.md, Colour iii): in Dynamics each connector and its head in the ink's second tone, but a
+    goal's gap into the flow it drives; pipes, stocks, valves, clouds, signs, names and loop markers in full ink; in
+    Blocks a record wire lighter than a reference or an error wire; the saved picture keeps both; the Guide draws."""
+    def page(url):
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        return pg
+
+    def dynamics(pg, tok, lines):
+        got = pg.evaluate(SD_TONES, tok)
+        assert not got["bad"], got["bad"][:12]
+        assert got["lines"] >= lines and got["driving"] == got["drives"], got
+        assert len(got["counts"]) == 2, got["counts"]
+        assert got["saved"] == [True, True], got["saved"]
+        return got
+
+    errors: list[str] = []
+    names = ("--sd-ink", "--sd-ink-2", "--ink", "--ink-2-line")
+    with served("first-loop", tmp_path / "a") as url:                  # goals acting: each gap's link to its flow full ink
+        pg = page(url)
+        drawn(pg, url, "", 0)
+        tok = {n: pg.evaluate(TOKEN, n) for n in names}
+        assert tok["--sd-ink"] != tok["--sd-ink-2"] and tok["--ink"] != tok["--ink-2-line"], tok
+        assert dynamics(pg, tok, 3)["driving"] >= 2
+        pg.close()
+    with served("software-factory", tmp_path / "b") as url:
+        pg = page(url)
+        drawn(pg, url, "system=product", 0)
+        dynamics(pg, tok, 10)
+        drawn(pg, url, "view=blocks&open=product,factory", 1)
+        bd = pg.evaluate(BD_TONES, tok)
+        assert set(bd["main"]) == {bd["ink"]}, bd                       # (no reference here: no loop closes inside)
+        assert bd["aside"] and set(bd["record"] + bd["aside"] + bd["bus"]) == {bd["ink2"]}, bd
+        assert bd["saved"] == {"vars": 0, "tone2": True}, bd["saved"]   # the legend's light line, resolved in the file
+        guide(pg, url, tok)
+        pg.close()
+    with served("the-job", tmp_path / "c") as url:                    # a collector: what it records, lighter than r and e
+        pg = page(url)
+        drawn(pg, url, "view=blocks&system=incidents", 0)
+        bd = pg.evaluate(BD_TONES, tok)
+        assert bd["refErr"] and set(bd["main"]) == {bd["ink"]}, bd
+        assert bd["record"] and set(bd["record"] + bd["aside"] + bd["bus"]) == {bd["ink2"]}, bd
+        assert bd["record"][0] not in bd["refErr"], bd                  # definition of done 3
+        pg.close()
+    assert not errors, errors
 
 
 PRODUCT_GOALS = {"no-live-bugs": "filed-bugs", "few-missing": "filed-features", "users-growing": "filed-features"}
@@ -5237,6 +5417,18 @@ def test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_sa
     assert not errors, errors
 
 
+def guide(pg, url: str, tok: dict) -> None:
+    """The Guide's frames 2 and 12 draw, and the one that shows a link (4) draws it lighter than the pipe."""
+    for frame in (2, 4, 12):
+        pg.goto(f"{url}/guide?frame={frame}")
+        pg.wait_for_function(GUIDE_FRAME, arg=frame, timeout=60000)
+        seen = pg.evaluate(GUIDE_SEEN)
+        assert seen["svgs"] and all(v and n for v, n in seen["svgs"]), (frame, seen)
+        if frame == 4:
+            cons = pg.evaluate("() => [...document.querySelectorAll('svg.g-canvas .sd-connector')].map((c) => getComputedStyle(c).stroke)")
+            assert cons and set(cons) == {tok["--sd-ink-2"]}, cons
+
+
 # Export PNG's picture: the standalone SVG rasterised as exportPng does (at 1x), and for each of its texts, how many
 # dark pixels the image has where the text is (found by laying the same SVG in the page) that the same picture with no
 # text at all lacks (the text's own ink: not a line under it, and nothing over it); and the image's corner colour
@@ -5253,7 +5445,7 @@ EXPORTED_PNG = """async () => {
   const bare = new DOMParser().parseFromString(out.text, 'image/svg+xml');
   bare.querySelectorAll('text').forEach((t) => t.remove());
   const ctx = await raster(out.text), ctx0 = await raster(new XMLSerializer().serializeToString(bare));
-  const dark = (d, i) => d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] < 420;
+  const dark = (d, i) => d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] < 500;   // (the ink or its second tone: loop names)
   const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;z-index:99';
   host.innerHTML = out.text; document.body.append(host);
   const at = host.firstElementChild.getBoundingClientRect();

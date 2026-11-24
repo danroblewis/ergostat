@@ -715,6 +715,8 @@ def api(live: Live, path: str, q: dict, reader: bool = False):
         from ..correspond import table
         shown = got.pop("_model", None) or live.get().model       # a proposal drawn: its model's parts
         got["corr"] = table(got, shown)
+        from .snapshot import untrusted
+        untrusted(got, shown)                         # what an untrusted template made, said on its box (SPEC §2a)
         if q.get("have"):                             # a page polling: only the values, when it holds this structure
             from .graph_poll import answer
             return answer(got, q["have"][0])
@@ -792,6 +794,9 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             return None
         except ig.Bad as e:
             raise BadSet(str(e)) from e
+    if head == "stages" and name == "metrics":     # the pipelines' stage histograms, for Prometheus (SPEC §5a, Stages)
+        from ..datasources._itemviews import stage_metrics
+        return {"text": stage_metrics(p)}
     if head in ("dashboards", "dashboard"):         # the declared dashboards; one's every panel in one answer (SPEC §4f)
         from . import dashboard_api
         return dashboard_api.listing(p) if head == "dashboards" else dashboard_api.answer(live, p, name, q)
@@ -988,7 +993,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                     "moves": {m.valves[v].flow: snap["flows"].get(m.valves[v].flow, {}).get("rate")     # its own valves'
                               for v in (lp["valves"] or (c.drives if c.through else [])) if v in m.valves},
                     "decisions": st.decisions(p, name, since, snap["at"]),
-                    "hints": [h for h in snap["hints"] if h["controller"] == name]}
+                    "hints": [h for h in snap["hints"] if h["controller"] == name], **graph.goal_loops(m, name)}
         # each loop with its stock's trend (the snapshot's), and with perf=1 how it is doing, from the background
         from .control_api import performances
         perf = performances(live, p, snap, list(snap["loops"])) if one("perf") else None
@@ -1152,7 +1157,8 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                                                                       for i in out["items"]))}
         if getattr(spec, "remotes", None):            # each remote's own section, asked by the page on its own
             out["remotes"] = [{"name": k, "url": r["url"]} for k, r in spec.remotes.items()]
-        est = _estimates(p, m, snap, one("whatif"))
+        # eta=0: without the estimates, whose first asking starts their simulation (the dashboard reads the kinds alone)
+        est = _estimates(p, m, snap, one("whatif")) if one("eta") != "0" else None
         if est and est.get("items"):                  # each open item's estimate (SPEC §5a, Completion estimates)
             out["items"] = [{**i, "eta": {k: est["items"][i["id"]].get(k) for k in ("p50", "p90", "why", "runs")}}
                             if i["id"] in est["items"] else i for i in out["items"]]
@@ -1436,6 +1442,9 @@ def handler(project):
                 elif u.path.startswith("/api/intent/"):    # a proposed decision or correction: the owner's answer
                     from .intent_api import post as intent
                     code, data = intent(live, u.path.removeprefix("/api/"), q)
+                elif u.path == "/api/propose" and q.get("keep") == ["dashboard"]:   # the Dashboard's Keep
+                    from .numbers_api import keep
+                    code, data = keep(live, body)
                 else:
                     code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down
@@ -1543,6 +1552,8 @@ def handler(project):
                     return self._send(404, b'{"error": "not found"}', "application/json")
                 if u.path == "/api/export" and (q.get("format") or ["md"])[0] == "md":    # the document itself, for curl
                     return self._send(200, data["markdown"].encode(), "text/markdown; charset=utf-8")
+                if u.path == "/api/stages/metrics":         # Prometheus's text format, for a scrape
+                    return self._send(200, data["text"].encode(), "text/plain; version=0.0.4; charset=utf-8")
                 return self._send(200, json.dumps(data, default=str).encode(), "application/json", True)
             if u.path == "/file":                          # a file an item names (file:PATH), from inside the project only
                 return self._file((parse_qs(u.query).get("path") or [""])[0])
