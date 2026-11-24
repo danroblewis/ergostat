@@ -283,7 +283,7 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
     """A query in a data source's own language, asked of it through the server; never kept, its data having no version."""
     try:
         got = datasources.query(getattr(p.model, "spec", None), q.source, q.text, grid(since, until, points),
-                                work.deadline - time.monotonic(), q.given)
+                                work.deadline - time.monotonic(), q.given, project=p)
     except datasources.SourceError as e:
         return {"id": q.id, "error": f"{q.source}: {e}", "error_kind": e.kind, "read_log": False,
                 **({"error_at": list(e.at)} if e.at else {})}

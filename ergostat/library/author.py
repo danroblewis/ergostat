@@ -55,7 +55,7 @@ def library(root: Path | None, name: str | None = None) -> dict:
     return {**out, "markers": ut.SAYS} if shown else out
 
 
-TEXT = ("description", "reading", "example", "from")               # an untrusted template's text, marked (SPEC §2a)
+TEXT = ("description", "reading", "example", "from", "exports")    # an untrusted template's text, marked (SPEC §2a)
 PARAM_TEXT = ("description", "stand-in", "default", "choices")
 
 

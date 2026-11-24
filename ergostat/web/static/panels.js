@@ -1073,6 +1073,111 @@
     return el;
   }
 
+  /* ------------------------------------------------ a diagram on a dashboard (dev/records/dashboard-diagram-panel.md) */
+
+  /* a Diagram address (view, system, open, select, item or kind) or an Items Graph address (kinds, kind or system), as
+     the panel draws it; null when it is neither */
+  function diagramAddress(text) {
+    let u;
+    try { u = new URL(String(text || ""), location.origin); } catch (e) { return null; }
+    if (u.origin !== location.origin) return null;
+    const got = (k) => u.searchParams.get(k) || "";
+    if (u.pathname === "/diagram") {
+      const q = new URLSearchParams({ view: got("view") || "dynamics" });
+      for (const k of ["system", "open", "select", "item", "kind", "window"]) if (got(k)) q.set(k, got(k));
+      return { model: true, route: `/diagram?${q}` };
+    }
+    if (u.pathname !== "/items" && !u.pathname.startsWith("/items/")) return null;
+    let tail;                                          // a path that will not decode is no address: this panel says so
+    try { tail = decodeURIComponent(u.pathname.slice(7)); } catch (e) { return null; }
+    const kinds = got("kinds") || got("kind") || tail, system = got("system");
+    return kinds || system ? { model: false, ask: kinds ? { kinds } : { system }, route: u.pathname + u.search } : null;
+  }
+  /* one model diagram is live on the page at a time: another is drawn when it is clicked. Nothing is asked until a
+     panel is on the screen; of those that come on it together, the first in reading order is the one drawn */
+  let liveDiagram = null;
+  const onScreen = new IntersectionObserver((es) => {
+    const now = es.filter((e) => e.isIntersecting).map((e) => e.target)
+      .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    for (const el of now) { onScreen.unobserve(el); el.__seen?.(); }
+  });
+  function diagramPanel(config) {
+    let cfg = config, at = diagramAddress(cfg.display?.address), frame = null, graph = null, asked = "", seen = false, ready = false, n = 0;
+    const title = h("h3", { class: "panel-title" }), note = h("p", { class: "panel-note" }), flag = h("span", { class: "panel-flag", role: "status" });
+    const body = h("div", { class: "panel-body panel-diagram" });
+    const el = h("section", { class: "panel panel-form-diagram" }, h("header", { class: "panel-head" }, h("div", { class: "panel-names" }, title, note), flag), body);
+    const say = (words) => { note.textContent = words; note.hidden = !words; };
+    const link = (kid) => h("a", { class: "panel-diagram-link", href: appHref(at.route), title: "Open it whole",
+                                   onclick: (ev) => { if (el.closest(".editing")) ev.preventDefault(); } }, kid);
+    function sleep() {                                   // drawn again on a click, while another is live
+      frame = null; ready = false;
+      if (liveDiagram === api_) liveDiagram = null;
+      body.replaceChildren(h("button", { type: "button", class: "ghost panel-diagram-wake", onclick: wake }, "Draw this diagram here"));
+    }
+    function wake() {
+      if (liveDiagram && liveDiagram !== api_) liveDiagram.sleep();
+      liveDiagram = api_;
+      ready = false;
+      frame = h("iframe", { title: cfg.title || "Diagram", tabindex: "-1", src: `${at.route}&pane=embed` });
+      body.replaceChildren(link(frame));
+      el.dataset.state = "loading";
+    }
+    async function drawGraph() {                         // the Items Graph, by relGraph; drawn again only when it changed
+      const mine = ++n, d = await api("items-graph", at.ask).catch((e) => ({ err: e }));
+      if (mine !== n || !el.isConnected) return;
+      if (d.err) { asked = ""; /* the drawing is gone: the next answer draws it again */ body.replaceChildren(h("p", { class: "panel-message-text" }, String(d.err.message || d.err))); el.dataset.state = "error"; return; }
+      const text = JSON.stringify(d);
+      if (text === asked) return;
+      asked = text;
+      graph ||= relGraph((id) => navigate(`/item/${encodeURIComponent(id)}`));
+      if (!graph.isConnected) body.replaceChildren(link(graph));
+      await graph.draw(rgModel(d, { finished: "hide" }), { finished: "hide" });
+      graph.querySelector(".rg-stage").style.height = "";       // the panel's height, not the Items page's
+      graph.querySelector(".rg-tools button")?.dispatchEvent(new MouseEvent("click"));   // fitted to it (relGraph's Fit; not bubbling to the link)
+      const vp = graph.querySelector(".rg-view"), k = Number(/scale\(([\d.]+)\)/.exec(vp?.getAttribute("transform") || "")?.[1] || 1);
+      if (k < 1) vp.setAttribute("transform", "translate(8,8) scale(1)");   // 11 px text is never drawn smaller
+      say(k < 1 ? "Too large to read here: open on the Items page" : cfg.note || "");
+      el.dataset.state = "drawn";
+    }
+    function heard(ev) {                                 // the frame's word: drawn, and whether it fits
+      const m = ev.data;
+      if (!frame || ev.source !== frame.contentWindow || m?.ergostat !== "embed") return;
+      ready = true;
+      el.dataset.state = "drawn";
+      say(m.fits ? cfg.note || "" : m.folded ? "Its systems closed: open on the Diagram" : "Too large to read here: open on the Diagram");
+    }
+    function show() {
+      if (!at) { body.replaceChildren(h("p", { class: "panel-message-text" }, "Not a Diagram or an Items Graph address")); el.dataset.state = "empty"; return; }
+      if (at.model) { if (!liveDiagram || liveDiagram === api_) wake(); else sleep(); } else drawGraph();
+    }
+    addEventListener("message", heard);
+    el.__seen = () => { seen = true; show(); };
+    onScreen.observe(el);
+    const api_ = { sleep };
+    const apply = (c) => {
+      cfg = c;
+      el.dataset.panelId = c.id ?? "";
+      title.textContent = c.title || "Diagram";
+      say(c.note || "");
+    };
+    el.update = () => {                                  // the dashboard's poll: values only while the structure holds
+      flag.textContent = "";
+      if (el.dataset.state === "late") el.dataset.state = ready || asked ? "drawn" : "loading";
+      if (frame?.contentWindow && ready) frame.contentWindow.postMessage({ ergostat: "embed", type: "poll" }, location.origin);
+      else if (seen && at && !at.model) drawGraph();
+    };
+    el.setState = (state) => { if (state !== "loading" || !el.dataset.state) el.dataset.state = state; flag.textContent = state === "late" ? "Late" : ""; };
+    el.setConfig = (c) => {
+      const was = at?.route;
+      apply(c);
+      at = diagramAddress(c.display?.address);
+      if (seen && at?.route !== was) { asked = ""; graph = null; if (liveDiagram === api_) liveDiagram = null; show(); }
+    };
+    el.destroy = () => { onScreen.unobserve(el); removeEventListener("message", heard); if (liveDiagram === api_) liveDiagram = null; el.remove(); };
+    apply(cfg);
+    return el;
+  }
+
   let pageGroup = null;
   const sharedGroup = () => (pageGroup ||= chartGroup("panels"));
 
@@ -1286,5 +1391,5 @@
   }
 
   window.panelNumbers = { parseUnit, chipOf, formatValue, axisLabels, durationSteps: DURATION_STEPS };
-  Object.assign(window, { chartPanel, queryPanels, queryFields, pagePanels, registerPlotForm, plotForms, normalizeForm, askedOf });
+  Object.assign(window, { chartPanel, diagramPanel, diagramAddress, queryPanels, queryFields, pagePanels, registerPlotForm, plotForms, normalizeForm, askedOf });
 })();
