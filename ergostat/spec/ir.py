@@ -962,6 +962,7 @@ class ItemKind:
     if_unchanged: tuple = ()   # event types applied only to the item as read: their data's `read` is its event count then
     attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
     pipeline: dict | None = None   # its items record stages (ergostat/stages.py): {title, stages, waiting}
+    risk: dict | None = None       # risk-score: {at, failed, passed, from, least} (numbers/itemrisk.py); off when None
 
     def matches(self, id: str) -> bool:
         import fnmatch

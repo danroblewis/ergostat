@@ -70,7 +70,7 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "journal"
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
-                      "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline"}
+                      "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -639,6 +639,30 @@ class Compiler:
                     f"{shown!r}; write \"{shown}\" (quoted) if the field holds text", w.at(k) if hasattr(w, "at") else None,
                     "where-typed", about))
 
+    def risk_score(self, m: Map, what: str, states: list) -> dict | None:
+        """``risk-score:`` (SPEC §5a, *Risk score*): the state an attempt is scored at, the event types that fail it,
+        the states that pass it, and the fields it learns from, each read as a value, each element or a size."""
+        from ..numbers.itemrisk import FIELDS_MOST, HOWS, LEAST, LEAST_MOST
+        from ..runner import TYPE_NAME
+        r = m.get("risk-score")
+        fails, passed, by = (r.get(x) if isinstance(r, dict) else None for x in ("failed", "passed", "from"))
+        least = r.get("least", LEAST) if isinstance(r, dict) else None
+        ok = (isinstance(r, dict) and set(r) <= {"at", "failed", "passed", "from", "least", "description"}
+              and r.get("at") in states
+              and isinstance(fails, list) and fails and all(isinstance(t, str) and TYPE_NAME.match(t) for t in fails)
+              and isinstance(passed, list) and passed and all(isinstance(s, str) and s in states for s in passed)
+              and r.get("at") not in passed
+              and isinstance(by, dict) and 0 < len(by) <= FIELDS_MOST
+              and all(isinstance(f, str) and f and h in HOWS for f, h in by.items())
+              and type(least) is int and 1 <= least <= LEAST_MOST)
+        if not ok:
+            self.err(f"{what}.risk-score: {{at: the state an attempt is scored on entering, failed: [the event types "
+                     f"that fail it], passed: [the states, not at, that pass it], from: {{FIELD: {' | '.join(HOWS)}}} "
+                     f"(1 to {FIELDS_MOST} fields), least: judged attempts before a score (1 to {LEAST_MOST}, default "
+                     f"{LEAST})}}", m.at("risk-score") or m.where, "bad-risk-score")
+            return None
+        return {"at": r["at"], "failed": tuple(fails), "passed": tuple(passed), "from": dict(by), "least": least}
+
     def pipeline(self, m: Map, what: str, rules: dict) -> dict | None:
         """``pipeline:`` (SPEC §5a, *Stages*): its items record stages, folded into ``stages`` by merge; ``title``,
         the stage names its histograms label (at most STAGES_MOST), and ``waiting``: the line of work it takes from
@@ -770,7 +794,9 @@ class Compiler:
                      f"them, are shown on the attention list", m.at("attention"), "bad-attention")
             attention = None
         pipeline = self.pipeline(m, what, rules)
+        risk = self.risk_score(m, what, states) if "risk-score" in m else None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
+                        risk=risk,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},

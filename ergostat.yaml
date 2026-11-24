@@ -167,6 +167,12 @@ items:
       tool_denials: sum              # its sessions' tool calls refused (dev/bin/sessions.py), and which (denied); a
       tool_denials_unknown: sum      # session whose result said nothing of them counts in tool_denials_unknown
       denied: append
+      conflicts: sum                 # its merges refused in the queue for a conflict (queue.py refuse)
+    risk-score:                      # each change's chance of failing once approved, learned from the gaps judged
+      at: approved                   # before it (SPEC §5a, Risk score; ergostat item --kind gap --risk-score [--backtest])
+      failed: [gap.queue-failed, gap.reverted]
+      passed: [merged]
+      from: {paths: each, net_lines: size, source: value, built_by: value, conflicts: size, failed_gates: size}
     join:
       - {children: parent, all: merged, to: joined}   # a split gap waits for the join judge once every sub-gap is
                                                        # merged (plan.py join: merged, split again, or parked)

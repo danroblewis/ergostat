@@ -851,6 +851,14 @@ without it only dead letters count as lost. A panel asks `select forecast_chance
 `forecast_start('lot/A', 40, 0.9, null)` (`forecast_out`, `forecast_lost` too), or reads `forecast_group_by`;
 `/api/forecast?group=lot/A&by=…&at_least=40&confidence=0.9` answers in `asked`.
 
+A **risk score** (SPEC §5a *Risk score*) is each item's chance of failing, learned from what failed before, for a
+person who wants to route checks by it (more checks on a risky change, fewer on a safe one). It is off unless the kind
+declares `risk-score:`: `at` (the state an attempt is scored on entering), `failed` (the event types that fail it,
+a revert too), `passed` (the states that pass it) and `from` (the fields it learns from: `value`, `each` for a list
+such as the paths a change touched, `size` for a number). Before routing anything by it, run `ergostat item --kind K
+--risk-score --backtest` and read its calibration: each score band's failure rate beside its mean score, and the AUC.
+`ergostat item --kind K --risk-score` lists every item's score; an item's detail carries `risk_score`.
+
 ## 3i. Programs fail hard, and are repaired
 
 The scripts the model's blocks run (collectors, steps, actuators) will fail: an API changes shape, a field goes

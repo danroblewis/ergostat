@@ -166,7 +166,8 @@ def test_a_conflicting_own_gap_ends_in_fix_not_approved(tmp_path):
     a = e.item("gap/a")
     assert a.state == "fix" and a.fields["lease"]["history"][-1]["how"] == "ack"   # not nacked back to approved
     assert a.fields["sent_back_by"] == "queue" and a.fields["findings"] == ["conflicts with main: app.py"]
-    assert e.sent_back_by_queue() > 0                                          # the landing model's flow counts it
+    assert a.fields["conflicts"] == 1                                          # what the gap's risk score reads
+    assert e.sent_back_by_queue() > 0                                        # the landing model's flow counts it
 
 
 def test_a_held_send_back_reaches_fix_after_the_run(tmp_path):

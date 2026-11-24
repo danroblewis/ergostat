@@ -2642,6 +2642,43 @@ finished by their p90 (41 tickets)", the share rounded down; fewer than 10 judge
 week to check"; a coverage under 0.7 in the warning ink. Not said until first worked out, and kept as the last worked
 out when one fails.
 
+**Risk score** (`numbers/itemrisk.py`; off unless the kind declares it). Each item's chance of failing, learned from
+what failed before, so that a model can route checks by it. A kind declares `risk-score: {at: STATE, failed: [TYPES],
+passed: [STATES], from: {FIELD: value | each | size}, least: N}`. An **attempt** opens each time an item enters `at`,
+with the `from` fields' values as they stand then. It is judged **failed** at the first event of a `failed` type about
+the item, and **passed** when the item enters a `passed` state. A failed event after it passed fails it after all (a
+change reverted). An item that enters `at` again while an attempt is open **withdraws** that attempt unjudged. The
+kind's events are replayed in the record's order, by `seq` and never by time, so each attempt is scored only from the
+attempts judged before it.
+
+How the score is worked out:
+- It is naive Bayes. It starts from the failure base rate, and each field adds the log odds by which its value failed
+  more or less often. Each value's rate is shrunk toward the base rate by 4 attempts' worth. `each` reads up to 200
+  elements of a list, and its riskiest element counts. `size` reads a number in bands of powers of two. A missing value
+  is the value `(none)`, learned like any other, never read as safe.
+- That sum is then calibrated by Platt scaling, fitted to the judged attempts' sums and outcomes. The fit is held
+  toward no change, and redone as the attempts are judged (each tenth more, at least ten).
+- With fewer than `least` judged attempts (default 10, at most 10,000), there is no score (null), never 0.
+- An item whose earlier events are rolled into a snapshot (§4b) has those attempts unseen. The backtest counts such
+  items.
+- `check` refuses a bad declaration (`bad-risk-score`). A template from an untrusted library may not declare one,
+  because what counts as a failure is the owner's to say.
+
+Where it is read:
+- `ergostat item ID --json` (and the item's detail on the API and MCP) carries `risk_score`: the score now, the three
+  fields that moved it most (each value's failed and judged counts), and how many attempts were judged.
+- `ergostat item --kind K --risk-score [--json]` lists every item, highest first.
+- `--backtest` gives each judged attempt's score as it was given, against what became of it: the failure rate and the
+  mean score per band of 0.1 (calibration), the Brier score beside the base rate's alone, the AUC, and how many
+  attempts were unscored, open, withdrawn or rolled up.
+- The replay is kept in memory between calls and caught up from its last `seq`. It is replayed from the start when
+  the record or the declaration changes under it.
+
+Validated on a synthetic record shaped as the factory's (`tests/test_item_risk.py`). That record has 800 gaps with
+known chances of failing, some failing in the queue and some reverted after merging. Each band of 50 attempts or more
+is within 0.1 of its mean score, and the failure rate rises with the band. The AUC is 0.69 against the true chances'
+0.77, and the Brier score is below the base rate's.
+
 **The overview.** `/items` is an overview of the item kinds: under each system's heading, one small card per kind in
 a dense grid (at 1440x900, sixteen or more in view on a record of the factory's shape), each with the kind's name (a link to its own page,
 `/items/KIND`) and a "process map" link to its map in States (`/diagram?view=process&kind=KIND&mode=states`, §5b),

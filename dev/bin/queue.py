@@ -765,15 +765,16 @@ def waited_hours(g: dict, began: float) -> float:
 
 def refuse(cfg: dict, g: dict, files: list[str], began: float, findings: list[str] | None = None) -> None:
     """A gap whose merge conflicts (or ``findings``: why else): sent back, a failed gate (the kill rule's last parks
-    it)."""
+    it). A conflict is counted in its `conflicts` (the gap's risk score reads it)."""
+    clash = {} if findings else {"conflicts": 1}
     findings = findings or [f"conflicts with {cfg['git']['base']}: {' '.join(files)}"]
     if int(g["fields"].get("failed_gates") or 0) + 1 >= fac.kill_after(cfg):          # a conflict is a failed gate too
-        fac.say("gap.measured", g["id"], failed_gates=1, findings=findings)
+        fac.say("gap.measured", g["id"], failed_gates=1, findings=findings, **clash)
         review.park(cfg, g, f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, in the "
                             f"merge queue: {findings[0]}", "merge-queue", where="queue", kind="kill-rule")
     else:
         tell("gap.sent-back", g["id"], sent_back_by="queue", findings=findings, failed_gates=1, fix_rounds=1,
-                queue_wait_hours=waited_hours(g, began))
+                queue_wait_hours=waited_hours(g, began), **clash)
 
 
 def lines(repo, before: str, after: str) -> dict:
