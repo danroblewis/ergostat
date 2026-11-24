@@ -4332,7 +4332,23 @@ that cannot be read takes the plain order, said (a lost preference, never a stop
 (section 5a) take items at the block by the same rule (`leases/frozen.py`'s `arrange`), from the list in force at
 their moment, and an item's why says its place in the window or that it is urgent. A remote reader sees both events
 through `/remote/v1/events`. A window by horizon (the items to start within a time) is not built: it needs a pass
-that runs whether or not a page asks (docs/proposals/forecasts-and-promises.md, section 5). ergostat looks whenever the record has something new,
+that runs whether or not a page asks (docs/proposals/forecasts-and-promises.md, section 5). **Areas**, off unless
+declared: `areas: {touches: FIELD, holding: [STATE, ...], map: {AREA: {paths: [PATTERN, ...], owner: OWNER}}}` in
+`takes:` keeps items that would spoil each other's work from being worked at once. An item touches an area when a
+value of its FIELD (a text or a list of texts) matches one of the area's patterns (`fnmatch`: `*` matches any run,
+`/` included). An item **holds** the areas it touches while it is leased or in a `holding` state (those items are
+read by each look, whatever block takes from their state). At each look, an item not holding yet is not taken while
+an area it touches is held by another stream; one already holding is never kept waiting (it entered first, so two
+holders never wait on each other), and each item let through holds its areas for the items after it in the same
+look. OWNER says what a stream is: `lane` (the default), each item its own, one at a time; `{field: F}`, the items
+sharing a value of F (they share the area, the next value waits until they are out; an item with no value is a
+stream of its own); `{block: B}`, the area is block B's: another block declaring the area leaves its items alone. A
+FIELD that cannot be read (not a text or a list of texts, or more than 5,000 values) touches every area: the item
+waits while any is held, and held, it holds them all. Each wait is said once in the engine's log (`ITEM waits:
+HOLDER holds AREA`); nothing is recorded. At most 200 areas of at most 200 patterns; a holding state not of the kind,
+a block owner not in the model, or a malformed map is refused whole (`bad-areas`). `ergostat block NAME --now` takes
+by the same rule. The completion estimates do not simulate it: an item held out is projected as if it were not.
+ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. Nor has it `mode: advise` (`check`:
 `advise-with-takes`), which asks before a command or an event, never before each item. To have a person

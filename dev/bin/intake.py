@@ -253,8 +253,13 @@ def main() -> int:
             print(f"intake: {g['id']} continues a branch with no definition of done on it: not taken", file=sys.stderr)
     linked = dependencies(cfg, known, text, dups)
     released = main_moved(cfg, known)
+    import areas  # (each gap's touches, for the implementor's areas: after the definitions, so a gap defined is routed)
+    try:
+        routed = areas.touches(cfg, list(known.values()))
+    except Exception as e:  # noqa: BLE001 - said; the intake's own work stands, and no gap's touches changes
+        routed = f"none ({type(e).__name__}: {e})"
     print(f"intake: {found} found, {closed} closed (GAPS.md marks them done), {defined} defined, {linked} with their "
-          f"dependencies changed, {released} released by main moving", file=sys.stderr)
+          f"dependencies changed, {released} released by main moving, touches said for {routed}", file=sys.stderr)
     return 0
 
 

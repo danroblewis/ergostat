@@ -214,7 +214,7 @@ blocks:
   intake:
     system: open-gaps
     type: program
-    description: the collector - GAPS.md entries on main (gap.found) and definitions of done for open gaps (gap.defined)
+    description: the collector - GAPS.md entries on main (gap.found) and definitions of done for open gaps (gap.defined); with [areas] route on, each waiting or unmerged gap's touches for the implementor's areas (dev/bin/areas.py)
     run: python3 dev/bin/intake.py
     every: 5m
     timeout: 2m
@@ -241,11 +241,61 @@ blocks:
     description: a headless Claude Code session per gap in its own worktree (~/ergostat-wt/<branch>) - the definition committed first, the work, the fast suites
     run: python3 dev/bin/implement.py
     prompt: dev/prompts/implementor.md
-    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true, order: rank,
-            where: {waits_on_parked: null, waits_on_main: null, waits_on_milestone: null}}
-    # (its dependencies finished, none of them parked; not waiting for main to move past tests failing on it; its
-    # milestone active, or it pulled, once [milestones] enforce: dev/bin/milestones.py; by the backlog's rank, the
-    # critical first among equals)
+    takes:
+      kind: gap
+      at: [fix, ready]
+      to: [built]
+      unblocked: true
+      order: rank
+      where: {waits_on_parked: null, waits_on_main: null, waits_on_milestone: null}
+      # (its dependencies finished, none of them parked; not waiting for main to move past tests failing on it; its
+      # milestone active, or it pulled, once [milestones] enforce: dev/bin/milestones.py; by the backlog's rank, the
+      # critical first among equals)
+      areas:
+        # The code areas (SPEC §9.5, Areas): a gap is not started while another gap holds a file of the map that it
+        # touches (its touches field: its branch's files and the paths its definition names), from its start to its
+        # landing. The owner's data: change an owner to {field: milestone} (a milestone's gaps together) or add paths
+        # (patterns: ergostat/web/static/*). The first map was drawn from main's conflicted merges (python3
+        # dev/bin/areas.py draw): each file named in 3 or more, whose gaps' hours in flight summed are at most twice
+        # the history's (a lane carries them in series); the 26 hot files past that (docs/SPEC.md, pages.js, ...) are
+        # left out. Inert until [areas] route = true (dev/factory.toml): until then the intake writes no gap's touches.
+        touches: touches
+        holding: [building, built, in-review, approved, queued, push-pending, queue-failed, fix]
+        map:
+          dev-bin-measure-py: {paths: [dev/bin/measure.py]}   # 16 conflicted merges, landed by 17, load 1.34
+          dev-bin-queue-py: {paths: [dev/bin/queue.py]}   # 14 conflicted merges, landed by 28, load 1.86
+          dev-bin-agents-py: {paths: [dev/bin/agents.py]}   # 13 conflicted merges, landed by 18, load 1.0
+          dev-bin-fac-py: {paths: [dev/bin/fac.py]}   # 11 conflicted merges, landed by 22, load 1.76
+          tests-test-agents-page-py: {paths: [tests/test_agents_page.py]}   # 11 conflicted merges, landed by 11, load 1.44
+          ergostat-library-uses-py: {paths: [ergostat/library/uses.py]}   # 8 conflicted merges, landed by 10, load 1.67
+          tests-test-style-tokens-py: {paths: [tests/test_style_tokens.py]}   # 8 conflicted merges, landed by 11, load 1.7
+          dev-bin-implement-py: {paths: [dev/bin/implement.py]}   # 7 conflicted merges, landed by 16, load 1.02
+          dev-model-knowledge-yaml: {paths: [dev/model/knowledge.yaml]}   # 6 conflicted merges, landed by 14, load 0.79
+          ergostat-leases-dispatch-py: {paths: [ergostat/leases/dispatch.py]}   # 6 conflicted merges, landed by 17, load 1.87
+          tests-test-inbox-page-py: {paths: [tests/test_inbox_page.py]}   # 6 conflicted merges, landed by 6, load 1.08
+          dev-bin-status-py: {paths: [dev/bin/status.py]}   # 5 conflicted merges, landed by 4, load 0.49
+          ergostat-datasources-init-py: {paths: [ergostat/datasources/__init__.py]}   # 5 conflicted merges, landed by 8, load 0.37
+          ergostat-numbers-measures-py: {paths: [ergostat/numbers/measures.py]}   # 5 conflicted merges, landed by 6, load 0.89
+          ergostat-query-engine-py: {paths: [ergostat/query/engine.py]}   # 5 conflicted merges, landed by 9, load 0.43
+          ergostat-web-static-index-html: {paths: [ergostat/web/static/index.html]}   # 5 conflicted merges, landed by 18, load 1.45
+          ergostat-web-static-relations-js: {paths: [ergostat/web/static/relations.js]}   # 5 conflicted merges, landed by 10, load 0.94
+          tests-test-dynamics-view-py: {paths: [tests/test_dynamics_view.py]}   # 5 conflicted merges, landed by 11, load 1.71
+          tests-test-factory-knowledge-py: {paths: [tests/test_factory_knowledge.py]}   # 5 conflicted merges, landed by 25, load 1.5
+          dev-model-landing-yaml: {paths: [dev/model/landing.yaml]}   # 4 conflicted merges, landed by 14, load 0.97
+          ergostat-compute-worker-keeper-py: {paths: [ergostat/compute/worker/keeper.py]}   # 4 conflicted merges, landed by 7, load 0.6
+          ergostat-library-templates-py: {paths: [ergostat/library/templates.py]}   # 4 conflicted merges, landed by 8, load 1.64
+          ergostat-projects-py: {paths: [ergostat/projects.py]}   # 4 conflicted merges, landed by 4, load 0.34
+          dev-bin-plan-py: {paths: [dev/bin/plan.py]}   # 3 conflicted merges, landed by 11, load 0.66
+          dev-bin-pools-py: {paths: [dev/bin/pools.py]}   # 3 conflicted merges, landed by 4, load 0.77
+          dev-bin-watch-py: {paths: [dev/bin/watch.py]}   # 3 conflicted merges, landed by 13, load 0.71
+          ergostat-dynamics-py: {paths: [ergostat/dynamics.py]}   # 3 conflicted merges, landed by 11, load 1.4
+          ergostat-goodmodel-py: {paths: [ergostat/goodmodel.py]}   # 3 conflicted merges, landed by 10, load 1.04
+          ergostat-remote-compose-py: {paths: [ergostat/remote/compose.py]}   # 3 conflicted merges, landed by 5, load 0.63
+          ergostat-spec-itemindex-py: {paths: [ergostat/spec/itemindex.py]}   # 3 conflicted merges, landed by 13, load 0.99
+          ergostat-spec-watchdog-py: {paths: [ergostat/spec/watchdog.py]}   # 3 conflicted merges, landed by 7, load 0.34
+          ergostat-web-eta-api-py: {paths: [ergostat/web/eta_api.py]}   # 3 conflicted merges, landed by 5, load 0.43
+          ergostat-web-static-export-js: {paths: [ergostat/web/static/export.js]}   # 3 conflicted merges, landed by 4, load 0.73
+          ergostat-web-static-split-js: {paths: [ergostat/web/static/split.js]}   # 3 conflicted merges, landed by 4, load 0.54
     # the engine reads implementor-pool (dev/model/pools.yaml) at each dispatch and takes no more than it, never
     # more than 9; implement-when also holds it to the machine's headroom
     pool: {now: stock.implementor-pool, most: 9}
