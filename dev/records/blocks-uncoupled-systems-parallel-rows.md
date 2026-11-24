@@ -102,6 +102,17 @@ one part moves its row's outline with it. SPEC (Drawn as parts) says so.
   clean main. The Python is unchanged this round. Not run: the whole unit suite and the four browser files.
 Overrun reason: 110 net lines against the 100 budget; the 10 over are bdRowOutlines, the review's fix (outlines worked out at draw time, after the anchor shift and the pins), which the round-1 design had no room for.
 
+Round 3. The one finding: main (d0f95413) conflicted in ergostat/blockdiagram.py, at the return of `fold()`. Main
+added `modelling: True` to the `tree` entries of the model's upkeep systems; the branch added `rows` and `caption`.
+Both are kept in the merge commit. No other change this round; the size is as in round 2.
+- Run here after the merge: ruff clean; tests/test_blockdiagram.py 128 passed; tests/test_correspond.py 12 passed;
+  the three `test_uncoupled_systems_are_parallel_rows_…` cases and
+  `test_rows_keep_their_outlines_when_a_coupled_system_opens_or_closes_in_place` passed.
+  `test_the_control_view_draws_every_example_cleanly_as_a_block_diagram` passed on 22 of 23 examples and failed on
+  autoscaler (READY timeout of 240 s, in its loop over the tree's views). This round it was rerun with main's
+  blockdiagram.py, blocks.js and style.css put in place: autoscaler fails the same way there, so it is not this
+  branch. Not run: the whole unit suite and the four browser files.
+
 ## Entry
 
 **Blocks: uncoupled systems are parallel rows.** Two or more top-level systems that no signal joins are drawn as
