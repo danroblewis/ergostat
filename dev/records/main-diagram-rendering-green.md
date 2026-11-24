@@ -80,3 +80,32 @@ Playwright cannot be imported, says so, and falls back to collection only when n
 branch. The merge queue's browser suite still runs the file. This change is in factory tooling, outside the 15 tests.
 It is the smallest change that lets this gap's build step pass, and it is easy to undo. The test is
 tests/test_factory.py::test_a_browser_only_test_file_is_left_to_the_browser_suite_without_playwright.
+
+### Round 2 (the two review findings; what round 1 says above about them is replaced by this)
+
+- scripts/affected_tests.py (browser_only, review finding 1). Round 1 dropped any file whose text held
+  `importorskip("playwright`, so a file that calls it inside a fixture or one test (test_agents_page.py,
+  test_dashboard_page.py, test_export.py, test_walk_scripts.py and others) would have had its unit tests left out of
+  the build, and a branch changing only such a file got a green collection-only build (fail-open). Now a file is left
+  out only when its own top level calls `pytest.importorskip("playwright...")` (`skips_whole_without_playwright`, read
+  with `ast`: a statement of the module, outside any def, class or if). Such a file skips whole without Playwright. An
+  importorskip inside a function, a class or an `if`, or one only quoted in a string, leaves the file in. So does a
+  file that cannot be parsed. I kept the change in this branch and did not move it to its own gap. Without it this
+  gap's build cannot pass: its only changed test file skips whole without Playwright (pytest rc 5). It is still easy
+  to undo. Tests: test_factory.py::test_a_browser_only_test_file_is_left_to_the_browser_suite_without_playwright now
+  also shows a branch whose file has importorskip inside a test still runs that file. The new
+  test_only_a_top_level_importorskip_of_playwright_makes_a_file_browser_only covers each form and four real files
+  (test_agents_page, test_dashboard_page, test_export, test_walk_scripts) that must stay in, and checks that
+  test_diagram_rendering is left out. With the round-1 substring check put back, the first test fails: the file was
+  left out and only collection ran.
+- `test_the_dynamics_view_speaks_system_dynamics_…` (review finding 2). Round 1 removed every `.att` row from the
+  side-panel check, and its reason ("the same in every view") was false: the server rewrites the rows in this view
+  (dynamics.attention, words()). The rows are checked again, and the test removes only the group heads and their
+  "none" lines, as before round 1. `goal NAME` is set aside only for the model's own goal names
+  (`sd_goal_said(goals)`, the same form words() keeps), so "goal is off" would still fail. Breaking the server's
+  wiring (server.py's `sd_attention` call removed) did not fail the test at first. image-squeeze's rows ("goal
+  done-as-meant cannot close: none of its valves acts on a flow of false-done") hold no word of SD_WORDS even
+  untranslated, because SD_WORDS leaves out "valve" on purpose. So the test now also checks the rows alone: there must
+  be one ("cannot close"), and no control word and no "valve" may be left once the kept goal names and part names
+  are set aside (words() says flow there). It fails on "valves" with the wiring removed, and again with
+  words()' translations emptied (dynamics._WORDS). With both restored it passes.

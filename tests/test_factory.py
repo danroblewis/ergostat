@@ -5737,6 +5737,30 @@ def test_a_browser_only_test_file_is_left_to_the_browser_suite_without_playwrigh
     r = affected(tmp_path / "only", {"tests/test_bar.py": browser})
     if importlib.util.find_spec("playwright") is None:        # nothing left: collection only, as a docs-only branch
         assert r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t --collect-only"
+    (tmp_path / "inner").mkdir()                              # an importorskip inside a test: the file is still run
+    inner = 'import pytest\ndef test_page():\n    pw = pytest.importorskip("playwright.sync_api")\n'
+    r = affected(tmp_path / "inner", {"tests/test_bar.py": inner})
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t tests/test_bar.py"
+
+
+def test_only_a_top_level_importorskip_of_playwright_makes_a_file_browser_only():
+    spec = importlib.util.spec_from_file_location("affected_tests", ROOT / "scripts" / "affected_tests.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    whole = m.skips_whole_without_playwright
+    assert whole('import pytest\nplaywright = pytest.importorskip("playwright.sync_api")\n')
+    assert whole('import pytest\npytest.importorskip("playwright")\n')
+    for text in ('import pytest\ndef test_page():\n    pw = pytest.importorskip("playwright.sync_api")\n',
+                 'import pytest\n@pytest.fixture\ndef page():\n    return pytest.importorskip("playwright.sync_api")\n',
+                 'import pytest\nclass TestPage:\n    pw = pytest.importorskip("playwright.sync_api")\n',
+                 'import pytest\nif True:\n    pw = pytest.importorskip("playwright.sync_api")\n',
+                 'import pytest\n"""\npytest.importorskip("playwright.sync_api")\n"""\n',
+                 'import pytest\nyaml = pytest.importorskip("yaml")\n',
+                 'x = (\n'):                                   # (unparsable: run, never left out)
+        assert not whole(text), text
+    for name in ("test_agents_page.py", "test_dashboard_page.py", "test_export.py", "test_walk_scripts.py"):
+        assert not whole((ROOT / "tests" / name).read_text()), name   # (their API tests need no browser)
+    assert whole((ROOT / "tests" / "test_diagram_rendering.py").read_text())
 
 
 def test_an_unreadable_diff_runs_the_full_suite(tmp_path):

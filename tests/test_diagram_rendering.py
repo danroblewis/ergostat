@@ -3767,6 +3767,15 @@ SD_WORDS = r"\b(controller|setpoint|rule|goal)s?\b|<=|>="   # (a valve is Sterma
 SD_GOAL_SAID = r", \d+ closes? a goal|[Ss]erves goals? \S+"
 
 
+def sd_goal_said(goals) -> str:
+    """SD_GOAL_SAID, and the third: an attention row naming one of the model's ``goals`` as ``goal NAME`` (the form
+    dynamics.words() keeps, as in 'goal developer-honest cannot close'). Only those names: 'goal is off' is still a
+    control word."""
+    import re
+    names = "|".join(map(re.escape, sorted(goals, key=len, reverse=True)))
+    return SD_GOAL_SAID + (rf"|\bgoal (?:{names})(?![\w-])" if names else "")
+
+
 def unsign_rollout(d: Path) -> None:
     """image-squeeze with the signs on what its rollout reads taken off: loops of unknown polarity again."""
     f = d / "rollout.yaml"
@@ -3776,7 +3785,10 @@ def unsign_rollout(d: Path) -> None:
 
 def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known(browser, tmp_path):
     import re
+
+    from ergostat import model as mdl
     with served("image-squeeze", tmp_path, unsign_rollout) as url:
+        goal_said = sd_goal_said([lp.name for lp in mdl.load(tmp_path / "image-squeeze").loops()])
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
@@ -3796,21 +3808,28 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                                    e.style.stroke = 'var(--frame)'; hull.parentNode.append(e);
                                    const c = getComputedStyle(e).stroke; e.remove(); return c; })(),
                    corners: !!hull?.parentNode.querySelector(':scope > path.frame-corners'),
-                   // the panel but its legend (first now) and Q42's groups (their heads and rows: 'Goals off',
-                   // 'No goal is off.', 'goal NAME cannot close: ...', the same in every view, a goal named a goal),
-                   // every fold opened: no control word in any of it
+                   // the panel but its legend (first now) and Q42's group words ('Goals off', 'No goal is off.', the
+                   // same in every view), every fold opened: no control word in any of it (the groups' rows are
+                   // checked: the server says them in system dynamics' words, a goal named as 'goal NAME' kept)
                    side: (() => { const s = document.querySelector('.side').cloneNode(true);
                                   s.querySelector('details.legend-box').remove();
-                                  for (const x of s.querySelectorAll('h3.att-head, .att')) x.remove();
+                                  for (const x of s.querySelectorAll('h3.att-head, .att > .none')) x.remove();
                                   for (const d of s.querySelectorAll('details')) d.open = true;
                                   return s.textContent; })() };
         }""")
         assert r["unknown"] > 0 and r["unknownMarked"] == 0 and r["marked"]
+        # Q42's rows as the server says them in this view (dynamics.attention): image-squeeze's say 'goal done-as-meant
+        # cannot close: none of its valves acts on ...' in the other views; here a valve is a flow, its parts' names kept
+        rows = pg.evaluate("""() => [...document.querySelectorAll('.side .att')].map((a) => {
+          const c = a.cloneNode(true); for (const x of c.querySelectorAll('.none')) x.remove(); return c.textContent; })
+          .join(' ')""")
+        assert "cannot close" in rows, rows
+        assert not re.search(SD_WORDS + r"|\bvalves?\b", re.sub(goal_said + r"|\w+(?:[.\-/:]\w+)+", "", rows), re.I), rows
         assert r["sum"].startswith(f"{r['unknown']} of unknown polarity"), r["sum"]
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
         assert r["hullFill"] in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]       # a sector: framed by its corners, no tint
         assert r["hullStroke"] == r["frame"] and r["corners"], r
-        assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", r["side"]), re.I), r["side"][:600]
+        assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, re.sub(goal_said, "", r["side"]), re.I), r["side"][:600]
         # every panel: a loop's, a desired level's, a gap's, a connector's
         for sel in [".loop-marker", '.node[data-id^="desired:"]', '.node[data-id^="gap:"]']:
             pg.locator(f"svg.canvas {sel}").first.dispatch_event("click") if sel == ".loop-marker" else None
@@ -3820,7 +3839,7 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
             pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
             pg.wait_for_timeout(300)
             text = pg.locator("#detail").inner_text()
-            assert not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", text), re.I), (sel, text[:800])
+            assert not re.search(SD_WORDS, re.sub(goal_said, "", text), re.I), (sel, text[:800])
         assert not errors, errors
         pg.close()
 
