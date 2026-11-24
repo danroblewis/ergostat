@@ -1,8 +1,8 @@
 # Knowledge and planning (docs/roadmap/overnight/knowledge.md; the owner, 2026-11-20: "think of this ergostat instance
 # as a resource for you"). Briefs carry the factory's knowledge (dev/knowledge/, dev/bin/knowledge.py); a planner
 # writes each open gap's definition of done, or splits it; a program lints it and a lint-clean plan is the definition
-# at once; an advisory plan review reads a sample against the code and the task graph, its findings appended as notes
-# and recorded by class for the knowledge loop (never a gate); a researcher answers questions; the librarian turns review findings into proposed lessons, approved by the
+# at once (the advisory plan review was removed, the owner, 2026-11-23: dev/records/plan-review-removed.md); a
+# researcher answers questions; the librarian turns review findings into proposed lessons, approved by the
 # coordinator and applied by a program (lesson-apply) to the record the briefs read - a queue of their own, never gaps.
 defaults:
   system: planning
@@ -17,12 +17,12 @@ stocks:
     description: plans the lint sent back (or the old plan review, whose plans the lint's sweep defines), waiting for the planner again
     sensor: {items: gap, state: replan, every: 1m}
   gaps-split:
-    system: intake
+    system: split-and-join
     unit: gaps
     description: gaps split into sub-gaps, each waiting until every one of its sub-gaps is merged (a join)
     sensor: {items: gap, state: split, every: 1m}
   gaps-joined:
-    system: intake
+    system: joins
     unit: gaps
     description: split gaps whose sub-gaps all merged, waiting for the join judge - covered (merged) or short (split again)
     sensor: {items: gap, state: joined, every: 1m}
@@ -36,17 +36,16 @@ stocks:
     unit: entries
     description: the entries of dev/knowledge/ in the running version, each of a declared kind (component, rule, lesson, finding, question, source); the owner's decisions are ergostat.decision items, not entries
     sensor: {items: knowledge, state: active, every: 1m}
-  plan-reviews:
-    system: knowledge
-    unit: reviews
-    description: advisory plan reviews written (review/<branch>-plan), their findings by class - what the librarian and the coordinator learn from
-    cumulative: true
-    sensor: {items: review, state: written, where: {stage: plan}, every: 1m}
   lessons-proposed:
     system: knowledge
     unit: proposals
-    description: lessons the librarian proposed, waiting for the coordinator (the gated action knowledge-change)
+    description: lessons the librarian proposed, and findings the researcher proposed from checked answers, waiting for the coordinator (the gated action knowledge-change)
     sensor: {items: lesson, state: proposed, every: 1m}
+  findings-active:
+    system: knowledge
+    unit: entries
+    description: the active findings - checked research answers approved and applied, carried in briefs whose gap names one of their areas
+    sensor: {items: knowledge, state: active, where: {kind: finding}, every: 1m}
   lessons-to-apply:
     system: knowledge
     unit: lessons
@@ -82,67 +81,37 @@ auxiliaries:
     description: of planned gaps reviewed, the share whose first review found none of the lesson classes their plan named as risks (the plan's tests held them)
     driven-by: [+flow.plans-written]
     sensor: {run: python3 dev/bin/measure.py plan-risks-held, every: 10m, timeout: 1m, description: the factory's measures}
-  plan-reviews-waiting:
-    unit: gaps
-    description: ready gaps marked for the advisory plan review ([plan] review), not yet read
-    driven-by: [+flow.plans-written, -flow.plan-reviews-written]
-    sensor: {run: python3 dev/bin/planreview.py waiting, every: 5m, timeout: 1m, description: the factory's measures}
-  plan-review-agreement:
-    unit: share
-    description: of plan reviews in 14 days, the share that found nothing that would make the build go wrong (agreement with the planner, not a gate)
-    driven-by: [+flow.plan-reviews-written]
-    sensor: {run: python3 dev/bin/planreview.py agreement, every: 10m, timeout: 1m, description: the factory's measures}
-  plan-flagged-fix-rounds:
-    unit: rounds
-    description: of gaps finished in 14 days whose plan review flagged it (blocking findings), their mean code-review fix rounds - against plan-clean-fix-rounds, what the plan review is worth
-    driven-by: [+flow.plan-reviews-written]
-    sensor: {run: python3 dev/bin/planreview.py value fix-rounds flagged, every: 10m, timeout: 1m, description: the factory's measures}
-  plan-clean-fix-rounds:
-    unit: rounds
-    description: of gaps finished in 14 days whose plan review found nothing blocking, their mean code-review fix rounds - against plan-flagged-fix-rounds, what the plan review is worth
-    driven-by: [+flow.plan-reviews-written]
-    sensor: {run: python3 dev/bin/planreview.py value fix-rounds clean, every: 10m, timeout: 1m, description: the factory's measures}
-  plan-flagged-parks:
-    unit: share
-    description: of gaps finished in 14 days whose plan review flagged it (blocking findings), the share parked - against plan-clean-parks, what the plan review is worth
-    driven-by: [+flow.plan-reviews-written]
-    sensor: {run: python3 dev/bin/planreview.py value parks flagged, every: 10m, timeout: 1m, description: the factory's measures}
-  plan-clean-parks:
-    unit: share
-    description: of gaps finished in 14 days whose plan review found nothing blocking, the share parked - against plan-flagged-parks, what the plan review is worth
-    driven-by: [+flow.plan-reviews-written]
-    sensor: {run: python3 dev/bin/planreview.py value parks clean, every: 10m, timeout: 1m, description: the factory's measures}
   planning-cost-share:
     unit: share
-    description: planning dollars (planner and plan review sessions) over all AI dollars, of gaps merged in 14 days that carry a planning cost - where the money went, not a claim that less planning is safe
+    description: planning dollars (the planner's sessions, and the removed plan review's on older gaps) over all AI dollars, of gaps merged in 14 days that carry a planning cost - where the money went, not a claim that less planning is safe
     driven-by: [+flow.plans-written, -flow.small-gaps-defined, -flow.plans-unreviewed]
     sensor: {run: python3 dev/bin/measure.py planning-cost-share, every: 10m, timeout: 1m, description: the factory's measures}
   splits-clean:
-    system: intake
+    system: open-gaps
     unit: share
     description: of sub-gaps merged, the share approved on their first review
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py splits-clean, every: 10m, timeout: 1m, description: the factory's measures}
   splits-covered:
-    system: intake
+    system: open-gaps
     unit: share
     description: of split parents whose first join verdict is in 14 days, the share whose first verdict (in record order) was covered; short then covered counts as not covered
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py splits-covered, every: 10m, timeout: 1m, description: the factory's measures}
   split-budgets-held:
-    system: intake
+    system: open-gaps
     unit: share
     description: of sub-gaps merged in 14 days, the share whose net lines are at or under their own definition's size budget; a definition, budget or net lines it cannot read is not held
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py split-budgets-held, every: 10m, timeout: 1m, description: the factory's measures}
   split-joins:
-    system: intake
+    system: open-gaps
     unit: parents
     description: split parents with at least one join verdict, over the whole record
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py split-joins, every: 10m, timeout: 1m, description: the factory's measures}
   split-overhead:
-    system: intake
+    system: open-gaps
     unit: ratio
     description: of split parents judged covered in 14 days (judged_at), the median of the parent's own AI cost plus its children's (join sub-gaps and continuations too, a parked sub-gap's cost but not its lines) over the median cost of merged unsplit gaps of the children's summed size class; a parent that cannot be priced is left out
     driven-by: [+flow.gaps-split-off]
@@ -173,7 +142,7 @@ flows:
   plans-unreviewed:
     from: gaps-open
     to: gaps-ready
-    description: an open gap sized M (one session under its own cap), or L not picked for the plan review - its plan lint-clean, the gap ready with no plan review
+    description: an open gap sized M, planned in one session under its own cap - its plan lint-clean, the gap ready (defined_by keeps its old name, plan-unreviewed; before the plan review was removed, also L plans not picked for it)
     driven-by: [+stock.gaps-open]
     equation: unreviewed-share * stock.gaps-open / plan-time
     sensor: {items: gap, entering: ready, where: {defined_by: plan-unreviewed}, over: 1d}
@@ -182,7 +151,7 @@ flows:
     description: sub-gaps of a split, each requested and defined by the planner (lint-clean)
     sensor: {items: gap, entering: ready, where: {defined_by: plan-split}, over: 1d}
   gaps-split-off:
-    system: intake
+    system: open-gaps
     from: gaps-open
     to: gaps-split
     description: a gap too large for one branch, split by the planner into sub-gaps with depends-on among them
@@ -190,7 +159,7 @@ flows:
     equation: split-share * stock.gaps-open / plan-time
     sensor: {items: gap, entering: split, where: {lease.back: open}, over: 1d}
   replans-split-off:
-    system: intake
+    system: split-and-join
     from: gaps-replan
     to: gaps-split
     description: a plan sent back that the planner then split into sub-gaps
@@ -198,7 +167,7 @@ flows:
     equation: split-share * stock.gaps-replan / plan-time
     sensor: {items: gap, entering: split, where: {lease.back: replan}, over: 1d}
   splits-joined:
-    system: intake
+    system: split-and-join
     from: gaps-split
     to: gaps-joined
     description: a split gap moved to joined once every sub-gap was merged (a join), for the join judge
@@ -206,7 +175,7 @@ flows:
     equation: stock.gaps-split / split-time
     sensor: {items: gap, entering: joined, over: 1d}
   joins-covered:
-    system: intake
+    system: joins
     from: gaps-joined
     to: gaps-landed
     description: a joined gap the join judge found covered - merged (merged_by join-judge, so not gaps-merged's), with its verdict
@@ -214,7 +183,7 @@ flows:
     equation: (1 - short-share) * stock.gaps-joined / judge-time
     sensor: {items: gap, entering: merged, where: {join_verdict: covered}, over: 1d}
   joins-short:
-    system: intake
+    system: joins
     from: gaps-joined
     to: gaps-split
     description: a joined gap the join judge found short - a sub-gap requested for what was not built, then split again
@@ -222,12 +191,12 @@ flows:
     equation: short-share * stock.gaps-joined / judge-time
     sensor: {items: gap, entering: split, where: {lease.back: joined}, over: 1d}
   joins-parked:
-    system: intake
+    system: joins
     from: gaps-joined
     description: a joined gap found short past the most short rounds - parked with the points still not built
     sensor: {items: gap, entering: parked, where: {parked_in: joined}, over: 1d}
   splits-parked:
-    system: intake
+    system: split-and-join
     from: gaps-split
     description: a split gap parked because one of its sub-gaps parked (or died) - where it stopped names which
     driven-by: [+stock.gaps-split]
@@ -262,13 +231,8 @@ flows:
     sensor: {items: gap, entering: replan, where: {plan_sent_back_by: lint}, over: 1d}
   parked-in-plan:
     from: gaps-replan
-    description: a plan that failed the lint six times, or a gap the coordinator agreed should not be built (park-gap)
+    description: a plan that failed the lint six times, or (before its removal) a gap the plan review asked not be built
     sensor: {items: gap, entering: parked, where: {parked_in: plan}, over: 1d}
-  plan-reviews-written:
-    system: knowledge
-    to: plan-reviews
-    description: an advisory plan review - its findings appended to the definition and recorded by class (review/<branch>-plan) for the knowledge loop
-    sensor: {items: review, entering: written, where: {stage: plan}, over: 1d}
   research-questions:
     system: research
     to: research-asked
@@ -289,7 +253,7 @@ flows:
   lessons-found:
     system: knowledge
     to: lessons-proposed
-    description: a new shape of a known class, or a class found in a second review, proposed by the librarian
+    description: a new shape of a known class, or a class found in a second review, proposed by the librarian; or a finding, from a research answer with a checked source
     sensor: {items: lesson, entering: proposed, over: 1d}
   lessons-approved:
     system: knowledge
@@ -317,6 +281,16 @@ flows:
     from: knowledge-entries
     description: a lesson removed by the coordinator (dev/bin/lesson.py retire) - one briefs carried while first-pass yield did not move
     sensor: {items: lesson, entering: retired, over: 1d}
+  findings-applied:
+    system: knowledge
+    to: findings-active
+    description: an approved finding applied by lesson-apply - an entry finding-<slug> of kind finding, carried by area
+    sensor: {items: lesson, entering: applied, where: {kind: finding}, over: 1d}
+  findings-retired:
+    system: knowledge
+    from: findings-active
+    description: a finding removed by the coordinator (dev/bin/lesson.py retire) - no longer carried in any brief
+    sensor: {items: lesson, entering: retired, where: {kind: finding}, over: 1d}
 
 parameters:
   plan-time:
@@ -349,25 +323,25 @@ parameters:
     unit: "1"
     range: [0, 1]
     estimate: true
-    description: the share of open gaps planned with no plan review (sized M, or L not picked for the sample)
+    description: the share of open gaps sized M, planned in one session under its own cap
   split-time:
     value: 3d
     estimate: true
     description: how long a split gap waits for every one of its sub-gaps to merge
   judge-time:
-    system: intake
+    system: joins
     value: 30m
     estimate: true
     description: how long a joined gap waits for the join judge
   short-share:
-    system: intake
+    system: joins
     value: 0.2
     unit: "1"
     range: [0, 1]
     estimate: true
     description: the share of joined gaps the join judge finds short
   stuck-share:
-    system: intake
+    system: split-and-join
     value: 0.1
     unit: "1"
     range: [0, 1]
@@ -390,26 +364,16 @@ parameters:
 
 goals:
   open-gaps-planned:
-    system: intake
+    system: open-gaps
     stock: gaps-open
     hold: "<= 0"
     tolerance: 0
     description: every open gap planned (while planning is open and money is left)
-  plans-agreed:
-    auxiliary: plan-review-agreement
-    hold: ">= 0.5"
-    tolerance: 0.1
-    description: most plans the plan review reads have nothing that would make the build go wrong (a measure of the planner, never a gate)
   plans-reviewed:
     stock: gaps-planned
     hold: "<= 0"
     tolerance: 0
     description: no plan left in planned (the lint's sweep defines each)
-  plan-reviews-done:
-    auxiliary: plan-reviews-waiting
-    hold: "<= 0"
-    tolerance: 0
-    description: every plan marked for the advisory plan review read
   replans-taken:
     stock: gaps-replan
     hold: "<= 0"
@@ -435,22 +399,14 @@ goals:
     description: every approved lesson applied (lesson-apply's loop reads it)
 
 actions:
-  park-gap:
-    run: python3 dev/bin/planreview.py park {gap} {why}
-    in: .
-    gate: approve
-    class: park
-    args: {gap: the gap (gap/...), why: why the plan review says it should not be built}
-    timeout: 5m
-    description: The plan review says a gap should not be built (done already, a duplicate, wrong for the system) - the coordinator approves, or it is built
   knowledge-change:
     run: python3 dev/bin/lesson.py request {lesson}
     in: .
     gate: approve
     class: knowledge
-    args: {lesson: the proposed lesson (lesson/...)}
+    args: {lesson: the proposed lesson or finding (lesson/...)}
     timeout: 2m
-    description: A proposed change to the review lessons, recorded approved with its exact text for lesson-apply (never a gap) - the coordinator approves
+    description: A proposed change to the review lessons, or a finding, recorded approved with its exact text for lesson-apply (never a gap) - the coordinator approves
 
 blocks:
   plan-when:
@@ -465,12 +421,12 @@ blocks:
     out: block.planner
   ai-stopped:
     type: expr
-    description: planning's AI sessions stopped - the day's AI money spent, or the provider's usage limit holding the AI till its reset (one read of each for plan-when and plan-review-when)
+    description: planning's AI sessions stopped - the day's AI money spent, or the provider's usage limit holding the AI till its reset (one read of each for plan-when)
     in:
       over: goal.ai-budget.off
       held: goal.ai-not-held.off
     expr: max(over, held)
-    out: [block.plan-when, block.plan-review-when]
+    out: block.plan-when
   planner:
     type: ai
     agent: opus
@@ -496,25 +452,6 @@ blocks:
     every: 5m
     timeout: 5m
     out: [flow.planned-plans-defined, flow.replans-defined]
-
-  plan-review-when:
-    type: expr
-    description: review a sample of plans while some wait and the AI is not stopped (ai-stopped) - advice, never a gate
-    in:
-      waiting: goal.plan-reviews-done.off
-      stop: block.ai-stopped
-    expr: waiting * (1 - stop)
-    out: block.plan-review
-  plan-review:
-    type: program
-    system: knowledge
-    description: the advisory plan review, a side loop - a session in a read-only clone of main with the task graph; its findings appended to the ready gap's definition and recorded by class; "should not be built" only asked of the coordinator (park-gap)
-    run: python3 dev/bin/planreview.py
-    every: 10m
-    timeout: 45m
-    actions: [park-gap]
-    in: block.plan-review-when
-    out: flow.plan-reviews-written
 
   split-watch:
     type: program
@@ -558,6 +495,7 @@ blocks:
     pool: 1
     lease: {ttl: 60m, attempts: 2}   # (an unsourced answer is a counted attempt: the second is the dead letter)
     timeout: 2h
+    actions: [knowledge-change]      # a checked answer's finding, asked once
     in: block.research-when
     out: [flow.research-answered, flow.research-unsourced]
 

@@ -31,7 +31,12 @@ Both tables come from one command, which runs only when named (the unit suite ne
     uv run python scripts/named_tests.py tests/test_control_spike.py
 
 It writes `/tmp/control-spike-cost.json` and `/tmp/control-spike-backtest.json` and also prints both in pytest's
-warnings summary. One run takes 220 s on this container.
+warnings summary. The tables below were taken with 5,000 passes, `simulate(runs=200, budget=120)` and three backtest
+seeds, which took 220 s; the file now runs with 500 passes, `runs=20, budget=2`, one seed and `_score` at
+`runs=20, budget=2` (about 58 s, most of it building the factory-size record), so that a gate naming it stays within
+its limits. To take the tables again, set the values noted beside each in the file. `Shadow` has no `per` (the goals
+held per item, SPEC §8, which the factory's model now has), so the spike sets it empty, as the engine's is before
+its first pass.
 
 **Not run on a copy of the factory record.** No copy is in the implementor's container, and the live record cannot
 be shipped. The gate's cost was measured on the factory's **own model** (`ergostat.yaml` at the root, with

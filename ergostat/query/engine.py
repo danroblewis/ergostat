@@ -11,7 +11,8 @@ from collections import OrderedDict
 from dataclasses import replace
 
 from .. import datasources
-from . import analysis, frames, sampling, shaped, sources
+from ..datasources._interpolate import interpolate
+from . import analysis, frames, graphs, sampling, shaped, sources
 from . import parse as parsing
 from . import transforms as tf
 from .buckets import Grid, grid
@@ -73,6 +74,16 @@ class Work:
 
     def late(self) -> bool:
         return time.monotonic() > self.deadline
+
+    def charge(self, key, log: bool) -> None:
+        """A read of the record made by another maker (graphs.py): never started past the deadline, and, of the event
+        log, one of the request's ``LOG_READS``."""
+        if self.late():
+            raise Unanswerable(f"busy: this request ran past {REQUEST_SECONDS:g} s; try again")
+        if log and key not in self.read:
+            if len(self.read) >= LOG_READS:
+                raise Unanswerable(f"busy: this request already read the event log {LOG_READS} times; ask for fewer event charts")
+            self.read[key] = None
 
     def log(self, p, n, type_, since, until, skip) -> list:
         key = (n, type_, since, until, skip)
@@ -291,7 +302,7 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
     spec, store = getattr(p.model, "spec", None), getattr(p, "measurements", None)
     try:
         got = datasources.query(spec, q.source, q.text, grid(since, until, points), work.deadline - time.monotonic(),
-                                store=store, project=p, public=public)
+                                q.given, store=store, project=p, public=public)
     except datasources.SourceError as e:
         return _refused(q, e)
     except Exception as e:                            # (its type only: the words may hold the source's address)
@@ -300,7 +311,8 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
     promql = datasources.language(spec, q.source, store) == "PromQL"
     unsampled = datasources.own(spec, q.source)       # the model's own: worked out, never read from readings
     return {"id": q.id, **got, **({} if unsampled else {"scrape_s": None}),
-            "range_windows_s": sampling.windows(q.text) if promql else [] if unsampled else None}
+            "range_windows_s": sampling.windows(interpolate("PromQL", q.text, q.given)) if promql else
+            [] if unsampled else None}                # (read from the text as sent: a window may be a variable)
 
 
 def _refused(q, e: datasources.SourceError) -> dict:
@@ -344,6 +356,17 @@ def _reread(p, ref, since: float, until: float, work: Work, reader: bool, c) -> 
     return analysis.reasked(got, ref)
 
 
+def _graph(p, q: Query, since: float, until: float, past: bool, work: Work) -> dict:
+    """One of ergostat's own graphs (graphs.py), failing alone."""
+    try:
+        return graphs.answer(p, q, since, until, past, work)
+    except Unanswerable as e:
+        return {"id": q.id, "error": f"graph: {e}", "read_log": False}
+    except Exception as e:                            # one query's failure is its own: the others still answer
+        log.warning("ergostat: query %s (graph) failed: %s", q.id, e)
+        return {"id": q.id, "error": f"graph: could not be read ({type(e).__name__}: {e})", "read_log": False}
+
+
 READER_REFUSED = "a data source is not asked for anyone under a public name (web: open: read); the owner or a login may ask"
 
 
@@ -371,6 +394,7 @@ def answer(live, p, raw: str | None, reader: bool = False) -> dict:
             {"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
             else _reader_refused(q) if isinstance(q, SourceQuery) and reader and not datasources.own(spec, q.source)
             else _from_source(p, q, since, until, asked.points, work, reader) if isinstance(q, SourceQuery)
+            else _graph(p, q, since, until, asked.until is not None, work) if q.source == "graph"
             else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
             else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work), q, until - since)
         answered.setdefault(q.id, out[i])

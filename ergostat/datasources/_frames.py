@@ -32,6 +32,7 @@ KINDS = ("process", "conformance", "dependency", "wait_for", "impact", "service"
 FIELD_ROLES = ("rate", "errors", "latency", "utilisation", "wait", "count", "age", "slack", "exposure")
 EVIDENCE = ("observed", "declared", "both", "inferred", "simulated")
 TIME_MODES = ("snapshot", "window", "frames", "events")
+HEALTH = ("ok", "unhealthy")      # a node's, when it is known: one unhealthy member marks its group (query/graphfit.py)
 
 
 class Bad(ValueError):
@@ -254,9 +255,11 @@ def _graph(f: dict) -> dict:
     if len(set(ids)) != n:
         raise Bad("two nodes share an id")
     node = {"id": ids, "label": [str(x) for x in _column(nodes, "label", n, "nodes")], "fields": _fields(nodes, n, "nodes")}
-    for key in ("type", "group", "parent"):
+    for key in ("type", "group", "parent", "health"):
         if (col := _column(nodes, key, n, "nodes", need=False)) is not None:
             node[key] = [None if x is None else str(x) for x in col]
+    if bad := next((x for x in node.get("health") or () if x not in (None, *HEALTH)), None):
+        raise Bad(f"a node's health is one of {', '.join(HEALTH)}, not {bad!r}")
     eids = [str(i) for i in _list(edges.get("id"), "edges.id")]
     m = len(eids)
     edge = {"id": eids, **{k: [str(x) for x in _column(edges, k, m, "edges")] for k in ("source", "target", "relation", "evidence")}}

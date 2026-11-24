@@ -612,7 +612,7 @@ def test_designer_session_argv_mounts_shots_and_readonly_work(tmp_path, monkeypa
     ran = []
     monkeypatch.setattr(agents, "token", lambda cfg: "tok-123")
     monkeypatch.setattr(agents, "sweep", lambda cfg: [])
-    monkeypatch.setattr(agents, "egress", lambda cfg: None)
+    monkeypatch.setattr(agents, "egress", lambda cfg, role: None)
     monkeypatch.setattr(agents, "killed", lambda name: agents.RUNNING.discard(name))
     res = type(sys)("resources")
     res.sampled = lambda *a: contextlib.nullcontext({})
@@ -643,8 +643,9 @@ def test_designer_and_implementor_may_run_demo_and_walk():
     assert agents.TOOLS["designer"] == REVIEWER + agents.SEE                  # exactly the reviewer's and the two
     assert agents.SEE == [f"Bash({DEMO_UP}:*)", f"Bash({WALK}:*)"]
     assert set(agents.SEE) <= set(agents.TOOLS["implementor"])
-    others = ("reviewer", "planner", "groomer", "researcher", "librarian")
+    others = ("reviewer", "planner", "groomer", "librarian")
     assert not [r for r in others if may(f"{DEMO_UP} start ops", r) or may(f"{WALK} x", r)]
+    assert may(f"{WALK} x --shots /shots", "researcher") and not may(f"{DEMO_UP} start ops", "researcher")
     cfg = {"ai": {"designer_model": "opus", "designer_session_usd": 2.0}}
     args = agents.claude_args(cfg, "designer")
     assert args[args.index("--allowedTools") + 1].split(",") == agents.TOOLS["designer"]
@@ -688,8 +689,149 @@ def test_reviewer_tools_unchanged(tmp_path):
     sys.modules.setdefault("fac", module("fac"))
     agents = module("agents")
     assert agents.TOOLS["reviewer"] == REVIEWER                                   # the reviewer gains nothing
-    for role in ("planner", "plan_reviewer", "join_judge", "pipeline_manager", "groomer"):
+    for role in ("planner", "join_judge", "pipeline_manager", "groomer"):
         assert agents.TOOLS[role] == REVIEWER, role
-    assert agents.TOOLS["researcher"] == REVIEWER + ["WebSearch"]
+    assert agents.TOOLS["researcher"] == REVIEWER + ["WebSearch", "WebFetch", f"Bash({WALK}:*)"]
     args = agents.run_args(factory_cfg(tmp_path), "reviewer", Path("/w"), "n")
     assert not [m for m in mounts(args) if m.endswith(":/shots")] and "/w:/work:ro" in mounts(args)
+
+
+# ---- research-design-queues-research-open-web: the researcher's own network and proxy, WebFetch and the walker
+
+def dockered(agents, monkeypatch, running: dict | None = None) -> list[tuple]:
+    """agents.docker recorded, never run: ``running`` maps a container to the command it runs (.Config.Cmd; absent: not
+    running)."""
+    calls: list[tuple] = []
+
+    def docker(*args, check=True, timeout=120):
+        calls.append(args)
+        out, rc = "", 0
+        if args[:2] == ("network", "inspect"):
+            rc = 1
+        elif args[0] == "inspect":
+            got = (running or {}).get(args[-1])
+            out, rc = (f"true {json.dumps(got)}", 0) if got is not None else ("", 1)
+        return subprocess.CompletedProcess(["docker", *args], rc, out, "")
+    monkeypatch.setattr(agents, "docker", docker)
+    return calls
+
+
+def started(calls: list[tuple]) -> dict:
+    """{a proxy started: (the network it was connected to, the hosts it allows)} from the recorded docker calls."""
+    runs = {c[c.index("--name") + 1]: list(c[c.index("/egress/egress.py") + 2:]) for c in calls if c[0] == "run"}
+    nets = {c[3]: c[2] for c in calls if c[:2] == ("network", "connect")}
+    return {p: (nets[p], hosts) for p, hosts in runs.items()}
+
+
+def test_researcher_on_its_own_network_and_proxy(tmp_path, monkeypatch):
+    import contextlib
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cfg = factory_cfg(tmp_path)
+    (tmp_path / "run").mkdir()
+    for role in [r for r in agents.TOOLS if f"{r}_model" in cfg["ai"]]:
+        args = agents.run_args(cfg, role, Path("/w"), "n")
+        net, proxy = ("ergostat-research", "ergostat-egress-research") if role == "researcher" else (
+            "ergostat-agents", "ergostat-egress")
+        assert flag(args, "--network") == [net], role
+        env = flag(args, "-e")
+        assert f"HTTPS_PROXY=http://{proxy}:3128" in env and f"https_proxy=http://{proxy}:3128" in env, role
+        assert "NO_PROXY=127.0.0.1,localhost" in env, role
+    assert "researcher" in agents.TOOLS and "implementor" in agents.TOOLS
+    # each proxy started on its own network, under the one lock, with its own hosts
+    calls = dockered(agents, monkeypatch)
+    agents.egress(cfg, "researcher")
+    assert ("network", "create", "--internal", "ergostat-research") in calls
+    assert started(calls) == {"ergostat-egress-research": ("ergostat-research", ["api.anthropic.com", "*"])}
+    calls.clear()
+    agents.egress(cfg, "implementor")
+    assert ("network", "create", "--internal", "ergostat-agents") in calls
+    assert started(calls) == {"ergostat-egress": ("ergostat-agents", ["api.anthropic.com"])}
+    # one already running with the settings' hosts is left; one running with others is started again with them
+    calls = dockered(agents, monkeypatch, {"ergostat-egress-research": ["python3", "/egress/egress.py", "3128", "api.anthropic.com", "*"]})
+    agents.egress(cfg, "researcher")
+    assert not started(calls)
+    calls = dockered(agents, monkeypatch, {"ergostat-egress-research": ["python3", "/egress/egress.py", "3128", "api.anthropic.com", "*"]})
+    agents.egress(factory_cfg(tmp_path, research_hosts=["docs.python.org"]), "researcher")
+    assert ("rm", "-f", "ergostat-egress-research") in calls
+    assert started(calls) == {"ergostat-egress-research": ("ergostat-research", ["api.anthropic.com", "docs.python.org"])}
+    # the session: its own proxy started, its pictures' folder made and mounted, no demo paragraph in its brief
+    ran, lanes = [], []
+    monkeypatch.setattr(agents, "token", lambda cfg: "tok-123")
+    monkeypatch.setattr(agents, "sweep", lambda cfg: [])
+    monkeypatch.setattr(agents, "egress", lambda cfg, role: lanes.append(role))
+    monkeypatch.setattr(agents, "killed", lambda name: agents.RUNNING.discard(name))
+    res = type(sys)("resources")
+    res.sampled = lambda *a: contextlib.nullcontext({})
+    monkeypatch.setitem(sys.modules, "resources", res)
+    monkeypatch.setattr(agents.subprocess, "run", lambda argv, **k: ran.append((argv, k["input"])) or
+                        subprocess.CompletedProcess(argv, 0, '{"type": "result"}', ""))
+    keep = Kept(tmp_path / "raw")
+    keep.stem, keep.copy = "alpha-thing-researcher-1", type("C", (), {"follow": lambda self: None})()
+    assert agents.session(cfg, "researcher", "why?", Path("/w"), keep=keep)["type"] == "result"
+    (argv, brief), = ran
+    assert lanes == ["researcher"] and flag(argv, "--network") == ["ergostat-research"]
+    assert f"{(tmp_path / 'run' / 'shots' / keep.stem).resolve()}:/shots" in mounts(argv) and "/w:/work:ro" in mounts(argv)
+    assert (tmp_path / "run" / "shots" / keep.stem).is_dir() and brief == "why?"
+
+
+def test_only_researcher_gets_webfetch(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cfg = factory_cfg(tmp_path)
+    assert "WebFetch" in agents.DENY and "WebSearch" in agents.DENY
+    for role in [r for r in agents.TOOLS if f"{r}_model" in cfg["ai"]]:
+        args = agents.claude_args(cfg, role)
+        allowed = args[args.index("--allowedTools") + 1].split(",")
+        denied = args[args.index("--disallowedTools") + 1].split(",")
+        tools = args[args.index("--tools") + 1].split(",")
+        if role == "researcher":
+            assert {"WebFetch", "WebSearch", f"Bash({WALK}:*)"} <= set(allowed) and "WebFetch" in tools, role
+            assert "WebFetch" not in denied and not may(f"{DEMO_UP} start ops", role)
+            assert may(f"{WALK} '[{{\"goto\": \"https://example.org\"}}]' --shots /shots", role)
+            assert not [t for t in allowed if t in ("Edit", "Write") or "commit" in t]
+        else:
+            assert "WebFetch" not in allowed and "WebFetch" not in tools and "WebFetch" in denied, role
+            assert ("WebSearch" in denied) and "WebSearch" not in allowed, role
+    assert agents.TOOLS["reviewer"] == REVIEWER                                   # unchanged
+    assert agents.TOOLS["implementor"] == [
+        "Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)",
+        "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git merge:*)", f"Bash({NAMED}:*)",
+        "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)", "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)",
+        "Bash(git restore:*)", "Bash(rm:*)", f"Bash({PAGE}:*)", "Bash(uv run python -m tests.graph_fixtures:*)",
+        f"Bash({DEMO_UP}:*)", f"Bash({WALK}:*)"]
+    prompt = " ".join((ROOT / "dev" / "prompts" / "researcher.md").read_text().split())
+    assert "WebFetch, to open a page" in prompt and f"{WALK} STEPS --shots /shots" in prompt
+    assert "Prefer primary sources" in prompt and "A URL you cite must be one you opened" in prompt
+    readme = " ".join((ROOT / "dev" / "README.md").read_text().split())
+    assert "`ergostat-research`" in readme and "`ergostat-egress-research`" in readme
+    assert "WebFetch stays denied to every other role" in readme
+
+
+def test_research_hosts_list_limits_proxy_args(tmp_path, monkeypatch):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    (tmp_path / "run").mkdir()
+    lane = lambda role="researcher", **set_: agents.lane(factory_cfg(tmp_path, **set_), role)  # noqa: E731
+    assert factory_cfg(tmp_path)["agents"]["research_hosts"] == ["*"]
+    assert lane()[2] == ["api.anthropic.com", "*"]
+    absent = factory_cfg(tmp_path)
+    absent["agents"].pop("research_hosts")
+    assert agents.lane(absent, "researcher")[2] == ["api.anthropic.com", "*"]          # its default: any public host
+    listed = lane(research_hosts=["docs.python.org", "Example.ORG", "api.anthropic.com"])
+    assert listed == ("ergostat-research", "ergostat-egress-research", ["api.anthropic.com", "docs.python.org",
+                                                                        "example.org"])
+    assert lane(research_hosts=[])[2] == ["api.anthropic.com"]                           # [] is the API alone, not "any"
+    for bad in ("*", "docs.python.org", [""], ["a b"], [1], ["https://x.org"], ["x.org:443"], ["*.org"], None, {}):
+        with pytest.raises(agents.Refused, match="research_hosts"):
+            lane(research_hosts=bad)
+        assert lane("implementor", research_hosts=bad)[2] == ["api.anthropic.com"]     # not its setting: unaffected
+    # the proxy is started with exactly those names, and the first proxy with the API alone either way
+    calls = dockered(agents, monkeypatch)
+    cfg = factory_cfg(tmp_path, research_hosts=["docs.python.org"])
+    agents.egress(cfg, "researcher")
+    agents.egress(cfg, "reviewer")
+    assert started(calls) == {"ergostat-egress-research": ("ergostat-research", ["api.anthropic.com", "docs.python.org"]),
+                              "ergostat-egress": ("ergostat-agents", ["api.anthropic.com"])}
+    with pytest.raises(agents.Refused, match="research_hosts"):
+        agents.run_args(factory_cfg(tmp_path, research_hosts="*"), "researcher", Path("/w"), "n")

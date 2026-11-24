@@ -92,9 +92,8 @@ def test_a_weekly_limit_stop_holds_ai_leases_until_the_reset(tmp_path):
     for when in ("implement-when", "review-when", "research-when", "ai-stopped"):
         b = spec.blocks[when]
         assert "held" in b.params["expr"] and str(b.inputs["held"]) == "goal.ai-not-held.off", when
-    for when in ("plan-when", "plan-review-when"):                           # planning's through one read (ai-stopped)
-        b = spec.blocks[when]
-        assert "(1 - stop)" in b.params["expr"] and str(b.inputs["stop"]) == "block.ai-stopped", when
+    b = spec.blocks["plan-when"]                                              # planning's through one read (ai-stopped)
+    assert "(1 - stop)" in b.params["expr"] and str(b.inputs["stop"]) == "block.ai-stopped"
     assert spec.blocks["ai-stopped"].params["expr"] == "max(over, held)"
     g = spec.goals["ai-not-held"]
     assert str(g.of) == "auxiliary.ai-held" and g.on_stale == "off"          # a hold not read closes them

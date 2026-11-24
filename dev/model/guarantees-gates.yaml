@@ -1,0 +1,17 @@
+# How often each gate catches something (dev/records/regression-gate-catches.md): one auxiliary per gate in times.py's
+# CATCHING, its catches in the last 14 days by each catch's own time (`gap.sent-back` by sent_back_by, the plan lint's
+# `gap.plan-sent-back` by plan_sent_back_by, the implementor's stray refusals), counted by the timer on each gap
+# (gap.timed: catches, catch_times). Plain measures, with no goal: a gate that never catches is not a regression, it
+# is evidence for keeping or changing it (the simplifier's brief names each one quiet for 30 days, to question, never
+# to remove unasked). gate-catches-unlisted counts a sender not in CATCHING, each named on the timer's stderr.
+defaults:
+  system: guarantees
+
+auxiliaries:
+  gate-catches-queue: {unit: catches, exogenous: true, description: gaps the merge queue sent back (a conflict or a failed merge or push) in 14 days, sensor: {run: python3 dev/bin/measure.py gate-catches-queue, every: 1h, timeout: 1m, description: the queue's catches}}
+  gate-catches-triage: {unit: catches, exogenous: true, description: gaps triage sent back as a real failure in 14 days, sensor: {run: python3 dev/bin/measure.py gate-catches-triage, every: 1h, timeout: 1m, description: triage's catches}}
+  gate-catches-review: {unit: catches, exogenous: true, description: gaps the reviewer sent back to fix in 14 days, sensor: {run: python3 dev/bin/measure.py gate-catches-review, every: 1h, timeout: 1m, description: the review's catches}}
+  gate-catches-lint: {unit: catches, exogenous: true, description: plans the plan lint sent back to the planner in 14 days, sensor: {run: python3 dev/bin/measure.py gate-catches-lint, every: 1h, timeout: 1m, description: the plan lint's catches}}
+  gate-catches-measure-runs: {unit: catches, exogenous: true, description: gaps measure-runs sent back on a failed loaded run in 14 days, sensor: {run: python3 dev/bin/measure.py gate-catches-measure-runs, every: 1h, timeout: 1m, description: measure-runs' catches}}
+  gate-catches-strays: {unit: catches, exogenous: true, description: builds the implementor refused for scratch files in 14 days, sensor: {run: python3 dev/bin/measure.py gate-catches-strays, every: 1h, timeout: 1m, description: the stray refusals}}
+  gate-catches-unlisted: {unit: catches, exogenous: true, description: send-backs by a sender not in CATCHING in 14 days (each named on the timer's stderr), sensor: {run: python3 dev/bin/measure.py gate-catches-unlisted, every: 1h, timeout: 1m, description: the unlisted senders' catches}}

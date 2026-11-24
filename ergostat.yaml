@@ -76,7 +76,7 @@ systems:
     show: [stock.interventions-open, auxiliary.interventions-trend]
   planning:
     within: factory
-    description: each open gap planned (its definition of done, or a split) and the plan reviewed before it is built
+    description: each open gap planned (its definition of done, or a split) and its plan linted before it is built
     show: [stock.gaps-planned, stock.gaps-replan]
   research:
     within: factory
@@ -89,7 +89,7 @@ systems:
   knowledge:
     within: factory
     description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
-    show: [stock.knowledge-entries, stock.lessons-proposed, stock.lessons-to-apply, auxiliary.first-pass-with-lessons]
+    show: [stock.knowledge-entries, stock.lessons-proposed, stock.lessons-to-apply, stock.findings-active, auxiliary.first-pass-with-lessons]
 
 items:
   gap:
@@ -101,10 +101,10 @@ items:
       gap.found: open                # intake: an entry of docs/GAPS.md
       gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
       gap.planned: planned           # planner: its definition of done written (run/plans/)
-      gap.plan-sent-back: replan             # plan review: sent back to the planner with its findings
+      gap.plan-sent-back: replan             # plan lint: sent back to the planner with its findings
       gap.split: split               # planner: split into sub-gaps, each naming it as parent; joined once all merged
                                      # (or the join judge: short, a new sub-gap requested first)
-      gap.defined: ready             # intake, or the plan review: its definition of done exists
+      gap.defined: ready             # intake, or the planner: its definition of done exists
       gap.started: building          # implementor
       gap.built: built
       gap.review-started: in-review  # reviewer
@@ -120,7 +120,8 @@ items:
                                      # manager's close, once the coordinator approved it)
     show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason,
            parked_for, loop_rounds, loop_hours]
-    # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended and gates (dev/bin/times.py)
+    # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended, gates, catches and catch_times
+    # (dev/bin/times.py)
     relations:
       depends_on: {kind: gap, starts_at: [approved, queued, push-pending]}
                                      # precedence: ready to build once every gap it names is finished, or reviewed and
@@ -147,7 +148,7 @@ items:
       stalls: sum                    # its suite runs stopped for a limit, it alone in the batch (queue, triage)
       sessions: sum
       ai_cost_usd: sum
-      planning_cost_usd: sum         # the planner's and the plan review's share of it (plan.py; measure.py)
+      planning_cost_usd: sum         # the planner's share of it (plan.py; measure.py)
       build_hours: sum
       build_failures: sum            # one per failed build, over the gap's life: the kill rule (dev/README.md)
       review_hours: sum
@@ -157,7 +158,6 @@ items:
       contexts: append
       flakes: union
       plan_failures: sum
-      plan_reviews: append
       research: union
       research_waits: sum
       measured_runs: append          # each measure-runs of a named measurement: its head, counts, runs (dev/bin/runs.py)
@@ -312,20 +312,20 @@ items:
 
   lesson:
     id: lesson/*
-    description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
+    description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), or a finding (kind finding) the researcher proposed from a checked answer, carried by its areas - approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
     states: [new, seen, proposed, requested, approved, applied, denied, retired]
                                      # new: no event puts one there; it arrives seen, a working state the librarian
                                      # moves on (lesson.proposed) once a second review finds its class, so why names it;
                                      # lesson.seen is written last, so proposed names lesson.requested, not a move back
     on:
-      lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice
+      lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice; researcher: a finding
       lesson.requested: requested    # before the knowledge queue: a gap with the exact edit (migrated by lesson.py settle)
       lesson.approved: approved      # knowledge-change approved, or lesson.py add / retire
       lesson.applied: applied        # lesson-apply: carried by the briefs from the record
       lesson.denied: denied          # knowledge-change denied: settled, never proposed again (lesson.py settle)
       lesson.retired: retired        # lesson-apply, for lesson.py retire: no longer carried
       lesson.seen: seen              # librarian: a class not listed, found in one review
-    show: [kind, lesson, name, entry, text, times, gap, denied_by, why]
+    show: [kind, lesson, name, entry, areas, research, text, times, gap, denied_by, why]
     fold: {times: sum, reviews: union, findings: append}
 
   knowledge:

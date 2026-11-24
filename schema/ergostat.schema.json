@@ -40,10 +40,12 @@
       }
     },
     "operating": {
-      "description": "The operating state's settings (SPEC 12k): away-after, how long with no event from the owner before they read as away (default 2h, from 5m to 7d). Main file only.",
+      "description": "The operating state's settings (SPEC 12k): away-after, how long with no event from the owner before they read as away (default 2h, from 5m to 7d); and every other key a declared operating state, entered by the owner or a goal's trip, capping the pool of every block that takes items (SPEC 9.5). Main file only.",
       "type": "object",
-      "additionalProperties": false,
-      "properties": {"away-after": {"$ref": "#/$defs/duration"}}
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
+      "properties": {"away-after": {"$ref": "#/$defs/duration"}},
+      "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["rank"], "properties": {"rank": {"type": "integer", "minimum": 1}, "pool": {"type": "integer", "minimum": 0}, "description": {"type": "string"},
+        "trips": {"type": "object", "additionalProperties": {"type": ["object", "null"], "additionalProperties": false, "properties": {"unknown-after": {"$ref": "#/$defs/duration"}}}}}}
     },
     "dashboards": {
       "description": "Shared, named dashboards (SPEC section 4f); in a file whose defaults: set a system, each is named SYSTEM.NAME.",
@@ -2961,6 +2963,16 @@
         "unblocked": {
           "type": "boolean",
           "description": "Only items whose precedence relations name only finished items, the critical first (SPEC section 5a, Relations)"
+        },
+        "frozen": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["first"],
+          "description": "A frozen window (SPEC section 9.5): the next first: items it would take keep their order against a re-rank or new work; an item whose urgent: field says {by, why} goes ahead of them, recorded (block.frozen.broken)",
+          "properties": {
+            "first": {"type": "integer", "minimum": 1, "maximum": 200},
+            "urgent": {"type": "string", "minLength": 1}
+          }
         },
         "faults": {
           "type": "object",

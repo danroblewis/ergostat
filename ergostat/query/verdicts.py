@@ -31,6 +31,9 @@ REASONS: dict[str, tuple[str, str]] = {
     "mixed-windows": ("warn", "ask the queries compared at one step and one range window"),
     "windowed": ("refuse", "take the spectrum of an ergostat series, read raw, or ask the source with no range window"),
     "unanalysable": ("refuse", "widen the window, or pick a signal that moves, is finite and has fewer gaps"),
+    "graph-over-budget": ("warn", "draw it as a matrix (the Heatmap chart), or ask for one kind or a shorter window"),
+    "graph-truncated": ("warn", "ask for one kind or a shorter window, so the whole graph is read"),
+    "graph-cycle": ("warn", "change one of the relations that go round, so the cycle is broken"),
 }
 
 

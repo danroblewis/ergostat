@@ -2,7 +2,8 @@
 ([knowledge] in dev/factory.toml): the house rules and the review lessons always (the files' and the
 record's applied lesson items, lesson.py); then, as they fit, the gap's answered research (an implementor's, a
 reviewer's and a planner's), the owner's
-decisions (ergostat.decision items, confirmed or proposed) whose scope the gap's text names, related gaps, past review
+decisions (ergostat.decision items, confirmed or proposed) whose scope the gap's text names, the findings (applied
+research findings, lesson.py) whose areas it names (an implementor's, a planner's, a researcher's), related gaps, past review
 findings on the files it touches, and the module map of main. Each brief records the ids it carried and dropped, so
 the model can relate what a brief carried to how its gap did.
 
@@ -34,10 +35,11 @@ STOP = set("a an the and or but of to in on for with at by from is are be it thi
            "not no do does don't dont never always should must".split())      # ergostat.decisions.kinds.STOP
 ABOUT = re.compile(r"^\*About:\*\s*(.+)$", re.M)      # the parts of the root model an entry bears on: goal.x, stock.y
 FILES = re.compile(r"\b((?:ergostat|dev|scripts|tests|docs|examples)/[\w./-]+\.(?:py|md|yaml|toml|sh))\b")
-MORE = {"implementor": ("research", "decisions", "related", "findings", "modules"),   # beyond the rules and lessons
+MORE = {"implementor": ("research", "decisions", "found", "related", "findings", "modules"),   # beyond rules, lessons
         "reviewer": ("research", "decisions", "findings", "related", "modules"), "planner": ("research", "decisions",
-        "related", "findings", "modules"), "researcher": ("decisions", "modules"), "pipeline_manager": ("decisions",)}
-HEADS = {"research": "Research for this gap",
+        "found", "related", "findings", "modules"), "researcher": ("decisions", "found", "modules"),
+        "pipeline_manager": ("decisions",)}
+HEADS = {"research": "Research for this gap", "found": "What the factory has found",
          "decisions": "The owner's decisions this gap touches", "related": "Related gaps", "findings": "Past review "
          "findings on the files this gap touches", "modules": "The module map (main; the packages it touches in full)"}
 
@@ -102,10 +104,16 @@ WITHDRAWN = {   # applied "seen as" shapes no longer carried, with why (the reco
 }
 
 
+def found_id(iid: str) -> str:
+    """A finding item's entry id: lesson/finding-<slug> is finding-<slug>."""
+    return "finding-" + iid.removeprefix("lesson/finding-")
+
+
 def applied(es: list[dict], lessons: list[dict]) -> list[dict]:
     """The entries with the record's lesson items (lesson.py): each applied new lesson its own entry (lesson-N, numbered
-    when applied), each applied "seen as" a line under its lesson but those WITHDRAWN, and a lesson retired by
-    lesson.py retire (with its lines) left out. An entry's `items` are the lesson items it carries."""
+    when applied), each applied "seen as" a line under its lesson but those WITHDRAWN, each applied finding an entry
+    finding-<slug> of kind finding with its areas (one whose id a file's entry has is the file's), and a lesson or
+    finding retired by lesson.py retire (with its lines) left out. An entry's `items` are the lesson items it carries."""
     gone = {i["fields"].get("lesson") for i in lessons if i["state"] == "retired" and i["id"].startswith(
         "lesson/retire-")}
     got = sorted((i for i in lessons if i["state"] == "applied"), key=lambda i: int(i["fields"].get("number") or 0))
@@ -119,6 +127,10 @@ def applied(es: list[dict], lessons: list[dict]) -> list[dict]:
                                       "kind": "lesson", "file": f"record: {i['id']}", "areas": [], "about": [],
                                       "text": f"## {i['fields']['lesson'][7:]}. {i['fields']['entry']}", "items": [i["id"]]}
                                      for i in got if i["fields"].get("kind") == "entry")]
+    out += [{"id": found_id(i["id"]), "title": str(i["fields"].get("name") or i["id"]), "kind": "finding",
+             "file": f"record: {i['id']}", "areas": list(i["fields"].get("areas") or []), "about": [],
+             "text": f"## {i['fields'].get('name') or i['id']}\n{i['fields'].get('entry')}", "items": [i["id"]]}
+            for i in got if i["fields"].get("kind") == "finding" and found_id(i["id"]) not in seed]
     by = {e["id"]: e for e in out}
     for i in got:
         if i["fields"].get("kind") == "seen" and i["fields"].get("lesson") in by and i["id"] not in WITHDRAWN:
@@ -305,7 +317,7 @@ def block(cfg: dict, role: str, gap: dict, text: str) -> tuple[str, dict]:
                   "carries only the repository's.")
     touched = sorted(set(FILES.findall(text)))
     words = set(re.findall(r"[a-z]+", f"{text} {gap['fields'].get('title', '')}".lower()))
-    rules = [e for e in es if e["kind"] == "rule" and role != "plan_reviewer"]
+    rules = [e for e in es if e["kind"] == "rule"]
     lessons = [e for e in es if e["kind"] == "lesson"]
     parts = ["## The house rules\n\n" + "\n".join(e["text"].replace("## ", "**", 1).replace("\n", "**\n", 1)
                                                   for e in rules)] if rules else []
@@ -318,6 +330,11 @@ def block(cfg: dict, role: str, gap: dict, text: str) -> tuple[str, dict]:
             ds = sorted((d for d in held() if d["state"] in ("confirmed", "proposed") and any(
                 a in words or a + "s" in words for a in d["fields"].get("scope") or [])), key=lambda d: d["state"])
             got = [(d["id"], shown(d)) for d in ds]                      # the confirmed first
+        elif name == "found":                  # by the decisions' area-word match (an area of words: all of them)
+            got = [(e["id"], f"### {e['id']}: {e['text'].removeprefix('## ')}\n*Areas: {', '.join(e['areas'])}.*\n")
+                   for e in es if e["kind"] == "finding" and any(
+                       (ws := re.findall(r"[a-z]+", a.lower())) and all(w in words or w + "s" in words for w in ws)
+                       for a in e["areas"])]
         elif name == "modules":
             sha, mods = module_map(cfg)
             got = [(f"modules@{sha[:12]}", render_map(mods, touched, budget - used - 80))] if budget - used > 500 \
