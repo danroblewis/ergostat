@@ -7,6 +7,7 @@ sends it back to the owner's rung: only answers after that seq count again. An u
 from __future__ import annotations
 
 from ..actions import record as rec
+from ..inbox import stats
 from ..spec.ir import ACTION
 from . import FAILURE
 from . import fix as fx
@@ -22,9 +23,11 @@ def ladder(a) -> list[str]:
     return [r for r in down if r != "program" or r == own or getattr(a, "approve_with", None)]
 
 
-def rung_of(by) -> str:
-    """The rung that gave an approval, from its ``approved_by``."""
-    return next((r for r in ("ai", "program", "rule") if str(by or "").startswith(f"{r} approver")), "person")
+def rung_of(by) -> str | None:
+    """The rung that gave an approval, from its ``approved_by``; the person's only for the owner's own answers, and None
+    (no rung's evidence) for an agent's through the MCP or the gate's own (SPEC §12r)."""
+    got = next((r for r in ("ai", "program", "rule") if str(by or "").startswith(f"{r} approver")), None)
+    return got or ("person" if stats.by_person(by) else None)
 
 
 def answers(p, block: str) -> tuple[list[dict], int | None, int]:

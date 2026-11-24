@@ -96,6 +96,19 @@ def test_regressed_resets_to_owner_rung(tmp_path, monkeypatch, what):
     assert got[-1]["data"]["approval"]["rung_earned"] == again and a["state"] == "approved"
 
 
+def test_agent_answers_never_promote(tmp_path, monkeypatch):
+    """An agent's approvals through the MCP (``owner via mcp``), or the gate's own, are no person's evidence: 10 of them
+    leave the person answering, and they neither count nor break the person's own run of 10."""
+    p, fid = opened(tmp_path, monkeypatch)
+    history(p, 10, by="owner via mcp")
+    history(p, 5, by=gate.GATE, first=10)
+    assert promote.read(p, owner(), BLOCK)["rung"] == "person"
+    _, got, a = promoted_run(p, monkeypatch, fid)
+    assert not got and not reviews(tmp_path) and a["state"] == "requested", "the person still answers"
+    mine = history(p, 9, by="a@b.example", first=20) + history(p, 1, first=29)
+    assert promote.read(p, owner(), BLOCK)["earned"] == mine
+
+
 def test_a_denial_resets_too(tmp_path, monkeypatch):
     p, _ = opened(tmp_path, monkeypatch)
     history(p, 10)

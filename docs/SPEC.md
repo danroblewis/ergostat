@@ -8445,7 +8445,8 @@ test, and is never stored. It starts at the owner's `approver` and moves down on
 program (only when `approve-with` is set; otherwise skipped), rule; never below the rule, never above the owner's
 rung. A block moves down a rung when the last 10 of its `apply-fix` answers (each action's first `approved` or
 `denied`, ordered by seq, never by time) given **at the current rung** (read from `approved_by`: `ai approver`,
-`program approver`, `rule approver`, else the person) were all approved and `ran`. Any `regressed` or `reverted`
+`program approver`, `rule approver`; the person's rung only for the owner's own answers, `by_person`, so an agent's
+answer through the MCP, `owner via mcp`, or the gate's own counts toward no rung) were all approved and `ran`. Any `regressed` or `reverted`
 failure of the block, or any denial of one of its fixes, sends it back to the owner's rung, and only answers with a
 later seq count again, so a failure made again under the same id never counts its earlier answers. A fix the rung
 escalates is held for the person as above; the person's approval of it counts toward no rung but theirs. A record

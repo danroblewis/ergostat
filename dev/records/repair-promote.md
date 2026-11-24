@@ -77,6 +77,20 @@ or more reversible one:
   (no page changed), as the factory's instructions say. Run: `test_repair_promote.py`, `test_repair_rungs.py`,
   `test_repair_approver.py`, `test_repair_verify.py`, `test_repair2.py`; ruff clean.
 
+Round 2 (one review finding, blocking; answered): `promote.rung_of` read every `approved_by` that was not an
+approver's as the person's rung, so 10 approvals by an agent through the MCP (`owner via mcp`) promoted the block.
+Now the person's rung is counted only when `stats.by_person(approved_by)` holds (`owner`, or a login's email); any
+other answer (`owner via mcp`, the gate's own `GATE`) counts toward no rung: it is skipped, neither earning nor
+breaking a run of 10 (a denial through the MCP still resets, as any denial does). Skipping rather than resetting is
+the more reversible reading. SPEC §12r's "else the person" now says this; the template's `promote` description and
+the agent guide say an agent's answers never earn a step. New test `test_agent_answers_never_promote`: 10 `owner via
+mcp` and 5 gate approvals leave the person answering (the fix stays requested, no review), and the owner's own 10
+answers around them still earn the step; it was seen to fail (`'ai' == 'person'`) with the old reading restored.
+Net lines outside tests, docs and dev now about 101. Run: `test_repair_promote.py` (10 passed),
+`test_repair_rungs.py`, `test_repair_approver.py`, `test_repair_verify.py` (73 passed, 1 skipped for bwrap),
+`test_repair2.py` (31 skipped for bwrap, as on main); ruff clean. `main` has nothing the branch lacks. The unit suite
+and the browser files were not run here (no page changed).
+
 ## Entry
 
 entry-of: repair
