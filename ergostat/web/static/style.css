@@ -775,6 +775,16 @@ pre.plain { white-space: pre-wrap; overflow-wrap: anywhere; }
 pre.code code.hljs { background: transparent; padding: 0; }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
 .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+/* an agent's page (agent.js): its sections read down; its code scrolls in its own box, never the page */
+.agent-page { max-width: 1100px; min-width: 0; }
+.agent-page section { min-width: 0; }
+.agent-page pre, .agent-page .table-wrap, .agent-page .md { max-width: 100%; overflow-x: auto; }
+.agent-page pre.log-tail { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-page code.command { overflow-wrap: anywhere; }
+.agent-page svg.runs { max-width: 100%; }
+.agent-page dd { overflow-wrap: anywhere; min-width: 0; }
+.agent-page details.agent-file > summary, .agent-page details.wrapper > summary { cursor: pointer; font-family: var(--mono); }
+mark.slot { background: var(--accent-wash); color: var(--ink); border-radius: var(--radius); padding: 0 var(--sp-0); }
 .md code { background: var(--chrome); padding: 0 var(--sp-1); border-radius: var(--radius); }
 .md pre code { padding: 0; background: transparent; }
 .md table { width: auto; } .md th, .md td { padding: var(--sp-1) var(--sp-2); }
