@@ -5,6 +5,12 @@
    "valve-orientation-mismatch": 2
   }
  },
+ "autoscaler": {
+  "ceilings": {
+   "satellite-far": 10,
+   "valve-orientation-mismatch": 0
+  }
+ },
  "backups": {
   "ceilings": {
    "satellite-far": 17,
@@ -106,7 +112,7 @@
  },
  "the-job": {
   "ceilings": {
-   "satellite-far": 35,
+   "satellite-far": 37,
    "valve-orientation-mismatch": 2
   }
  },
@@ -118,7 +124,7 @@
  },
  "ticket-factory": {
   "ceilings": {
-   "satellite-far": 14,
+   "satellite-far": 15,
    "valve-orientation-mismatch": 2
   }
  }

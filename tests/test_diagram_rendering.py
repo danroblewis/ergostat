@@ -908,7 +908,8 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         hull = pg.evaluate(frame)
         k = pg.evaluate("() => S.view.k")
         # a place on its top that is the grip's, not under a line that crosses into it (a link's wide hit path is on top)
-        x, y = pg.evaluate("""() => { const g = document.querySelector('g.hull[data-hull="product"] rect.hull-grip'), b = g.getBoundingClientRect();
+        x, y = pg.evaluate("""() => { const g = document.querySelector('g.hull[data-hull="product"] rect.hull-grip');
+          const b = g.getBoundingClientRect();
           for (const f of [0.6, 0.5, 0.7, 0.4, 0.8, 0.3, 0.9, 0.2]) for (const dy of [8, 4, 11]) {
             const x = b.x + b.width * f, y = b.y + Math.min(dy, b.height - 1);
             if (document.elementFromPoint(x, y) === g) return [x, y];
@@ -2184,6 +2185,11 @@ def crossing_rules(geo) -> list:
     return rules.check(geo, CROSSING_RULES) if geo else []
 
 
+# drawn and routed, or (a system with no goal and no block that acts, drawn alone) saying it holds no control system
+BLOCKS_OR_NONE = (f"() => ({READY[6:]}) || "
+                  "/^No control system here/.test(document.querySelector('.canvas-wrap .empty')?.textContent || '')")
+
+
 def blocks_views(tree: dict) -> list[str]:
     return ["view=blocks", "view=blocks&open=*", *(f"view=blocks&open={s}" for s in tree), *(f"view=blocks&system={s}" for s in tree)]
 
@@ -2196,7 +2202,13 @@ def test_the_control_view_draws_every_example_cleanly_as_a_block_diagram(browser
     drawn(pg, url, "view=blocks", 0)
     problems = []
     for i, v in enumerate(blocks_views(pg.evaluate("() => S.graph.tree || {}"))):
-        drawn(pg, url, v, i + 1)
+        if "&system=" in v:                   # a system drawn alone may hold no loop (autoscaler's rescales: an outside
+            pg.goto(f"{url}/diagram?v={i + 1}&{v}", timeout=DRAWN_S * 1000)    # controller, observed): the canvas says so
+            pg.wait_for_function(BLOCKS_OR_NONE, timeout=DRAWN_S * 1000)
+            if not pg.evaluate(READY):
+                continue
+        else:
+            drawn(pg, url, v, i + 1)
         r = pg.evaluate(AUDIT)
         problems += [f"[{v}] {k}: {x}" for k in ("through", "overlap", "netCrossings", "partOverlap") for x in r[k]]
         problems += [f"[{v}] {x}" for x in pg.evaluate(BLOCKS_DOM)]
