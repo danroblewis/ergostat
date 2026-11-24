@@ -1090,8 +1090,9 @@ none said), unless another gap carries its branch on or the park is `deferred` o
 coordinator's `deferred: true` or `cancelled: true`), or an old park classified `unknown` whatever its age; a `waits_on`
 or `needs` park not cleared in `park_wait_hours` (24, at least 1); a continuing gap whose branch intake could not fetch
 (`unfetched`); a `split` park never (each stopped sub-gap raises its own
-trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
-else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
+trigger); a gap past `[manager.stuck_hours]` in its state (`building` by its current visit alone, from its moves, a
+lease taken and given back counting as the same visit, since rounds of rebuilding are bounded by the kill rule; every
+other state by the sum, state-times' closed visits in `time_in` plus the current one when it has it, else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
 queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.
