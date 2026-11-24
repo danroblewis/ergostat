@@ -1277,6 +1277,7 @@ what admits.
 | `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time, its `now` and its `instance`; at most 200 a call |
 | `/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
 | `/remote/v1/process` | its process map (§5b); with `at=ID` (repeated, each id whole, at most 200), `at`: the kind and the step each id asked was last at in the window (an id with no step there left out) |
+| `/remote/v1/forecast` | its forecast, `forecast/v1` (§5a, *The forecast*), as it last worked it out, without the levelled schedule: of the items `item=ID` (repeated, at most 200; `items_missing` the ones it has no estimate for) and `kinds=a,b`, else every item (at most 500, `items_left` the rest); never worked out on the request: 503 while the first is |
 
 **A remote composed of remotes.** An ergostat M that composes a remote A serves A's parts on to its own
 consumer L, which composes them like any of M's (`stock.m-a-open`, in the system `m-a` within `m`).
@@ -1347,6 +1348,7 @@ of them reaches the local record or fold.
 | `/api/items?remote=NAME` (`kind`, `state`, `n` 1..500, `offset` 0..100,000) | `remote`, `url`, `ok`, `why`, `read`, `age`, `counts` (from `/remote/v1/counts`), `total`, `items` (each marked `remote`) |
 | `/api/items/ID?remote=NAME` | `remote`, `ok`, `why`, `read`, `age`, `item` (the remote's own detail); 404 *no such item at NAME* on any 404 there, never a local item of the same id |
 | `/api/events?remote=NAME` (`n` ≤ 1,000, `type` a glob) | `remote`, `ok`, `why`, `read`, `age`, `events` from the cursor cache, in `seq` order, each marked `remote` |
+| `/api/forecast?remote=NAME` (`item=ID` repeated, at most 200, each id checked as for an item; `kinds=a,b`) | `remote`, `ok`, `why`, `read`, `age`, `forecast` (the remote's `/remote/v1/forecast`, §5a *The forecast*); an answer not of schema `forecast/v1`, or a 503 while the remote works its first out, is a failure, never an empty forecast |
 
 Without `remote=` these answer as before; `/api/items` also says `remotes` (each name and url) when the model has
 any. `NAME` must be a key of `remotes:` (else 400 *no remote NAME (this model's: …)*). An item `ID` (such as
@@ -1597,6 +1599,14 @@ reads the event log.
     like a view above, has none.
   - `item_stages`, `stage_estimates` and `item_progress`: the stages of the items of each kind declaring `pipeline:`,
     their expected times and each open item's time left (section 5a, *Stages*).
+  - The forecast as last worked out (section 5a, *The forecast*; never worked out for a query, and a query naming one
+    of these while there is none, or the simulation failed, is refused with why, never answered with no rows):
+    `forecast_items(id, kind, state, p50, p90, mean, start, dead, out, runs, basis, sample, computed, at, version,
+    estimate, none, why)`, one row an open item; and the aggregates, by labels the model bounds,
+    `forecast_kinds(kind, open, unscheduled, …)`, `forecast_stages(kind, state, open, unscheduled, …)` and
+    `forecast_groups(parent, open, unscheduled, …)` (at most 200 groups), each ending `p50, p90, runs, computed, at,
+    version, estimate, none`. Times are Unix seconds; `basis` is "block dev" or "state review", `sample` the record's
+    runs or stays it is drawn from; `estimate` is 1, or 0 with `none` saying why not.
 
   The aggregates `median(x)`, `percentile(x, p)` (p from 0 to 100) and `percentile_cont(x, p)` (p from 0 to 1) are exact.
   They interpolate linearly between the two nearest values, as PostgreSQL's `percentile_cont` does, and ignore nulls.
@@ -2401,6 +2411,27 @@ identified model) is worked out the same way, apart, and drawn on the same pages
 as its error (`eta_error` on the Timeline's answer, tried again as an answer would be) and the Timeline says so
 ("the simulation failed: KeyError: ..."); with none yet it says the simulation is being worked out. The pages say what is left out
 (below), how many runs, and which blocks' runs are assumed.
+
+**The forecast.** What the worker keeps is one stable result, `forecast/v1` (`numbers/forecast.py`), and every reader
+reads it: the Timeline (`eta_api.merge`: the same answers as the simulation's raw result gave it), the Items list, an
+item's page, `GET /api/forecast` (`item=ID`, repeated, at most 200; `kinds=a,b`), a panel's SQL views (§4e) and a
+remote's reader (`/remote/v1/forecast`, §4c). It has the item keys above (`p50`, `p90`, `mean`, `start`, `dead`,
+`out`, `runs`, `why`, `unscheduled`, what it waits in) and adds, per item, its `kind`, `state` and `basis` (what its
+wait now is drawn from: the block running or taking it, `sample` its recorded runs, or its state, `sample` its
+recorded stays and whose curve: own, its kind's, every kind's); per **kind** as before; per **group** (a parent named
+through a `group: true` relation, §5a: its open members and itself, at most 200 groups, the rest counted in
+`groups_left`) and per **stage** (a kind's state with open items now, `KIND/STATE`), when the last of them finishes
+(p50, p90), with `open` and `unscheduled`. Each answer, the whole and every item, kind, group and stage, says its
+`runs` and when it was `computed` (`at` is the moment it is of, `basis` the record's window, seed, horizon, flags,
+what-if, capacity and assumed blocks). An answer with no estimate says why in `none`: the whole when no run finished
+within the budget or the simulation failed (then it has no items, never read as none open); an item not scheduled
+("not scheduled: …") or not finished within the horizon in the median run; a group or stage none of whose items can
+move; a p90 not said for too few runs in `p90_none`. Stable: under one `schema` a key may be added, and none changes
+meaning. `version` goes up by one each time the worker works one out (one counter for every model and what-if since
+the server started), and `seq` is the record's last event it read. When the record changed only where the simulation
+does not read it (the items' states, leases, attempts and relations, the blocks' pools, runs and switches, the
+curves' sizes and each kind's arrival rate are its fingerprint), the last answer is kept, unrun, with its version, up
+to two minutes after it was computed.
 
 **What it leaves out**, and so what makes it wrong: a capacity no block declares (a reviewer who is one person across
 two kinds, a rate limit), a goal that switches a block off (its

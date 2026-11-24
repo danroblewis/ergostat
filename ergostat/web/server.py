@@ -1215,6 +1215,20 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         from .relations_api import graph as items_graph
         est = _estimates(p, m, snap, one("whatif"))   # None while the first is worked out: the legend says so
         return {**merge(items_graph(p, m, snap, q), est), "eta_pending": est is None and abs(time.time() - snap["at"]) < 5}
+    if head == "forecast":      # the forecast as last worked out (SPEC §5a, The forecast): a remote's (asked there
+        from ..numbers.forecast import served  # within its budget, remote/items.py), or this one's
+        from ..remote import items as remote_items
+        from .eta_api import current
+        ids, kinds = list(dict.fromkeys(q.get("item") or [])), [k for k in (one("kinds") or "").split(",") if k]
+        if "remote" in q:
+            return remote_items.forecast(getattr(m, "spec", None), one("remote"), ids, kinds)
+        if len(ids) > remote_items.FORECAST_IDS:
+            raise BadSet(f"at most {remote_items.FORECAST_IDS} items a call (item=)")
+        if abs(time.time() - snap["at"]) >= 5:
+            raise BadSet("forecast: answers as the record is now (never at=)")
+        est = current(p, m)
+        return served(est, ids if "item" in q else None, kinds or None) if est is not None else \
+            {"schema": "forecast/v1", "pending": True, "items": {}, "none": "the forecast is being worked out; ask again"}
     if head == "items-groups":                    # how far along each group is (SPEC §5a, Progress per group)
         from ..spec.grouptally import progress
         if abs(time.time() - snap["at"]) >= 5:
