@@ -88,7 +88,7 @@ async function pageAgents(main) {
     const w = WINDOW_WORDS[S.since] ? `over the ${WINDOW_WORDS[S.since].toLowerCase()}` : windowNote();
     setText(cap, `What the runs cost${w ? ", " + w : ""}: dollars their AI sessions cost (as Claude Code reported them; ` +
       `"est." where only tokens were known and a price table priced them), their tokens, the CPU time of each run's ` +
-      `processes (user and system), and the most memory one run held. Open an agent for its history, run by run.`);
+      `processes (user and system), and the most memory one run held. Open an agent for what it is and its history, run by run.`);
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const cols = [...RUNG_NAMES, "retired"];
     const of = (i) => Object.entries(agents).filter(([, a]) => a.rung === i);
@@ -123,8 +123,8 @@ async function pageAgents(main) {
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
         h("tr", {}, h("th", { colspan: 6 + nums.length, scope: "colgroup", "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
           h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
-        xs.flatMap(([name, a]) => [h("tr", { class: "click", key: name, "data-row": name, onclick: () => openAgent(name) },
-          h("td", { class: "nowrap" }, h("b", {}, name), exc(a) ? h("span", { class: "exception", title: exc(a)[1] }, ` ${exc(a)[0]}`) : null),
+        xs.flatMap(([name, a]) => [h("tr", { class: "click", key: name, "data-row": name, ...rowLink(`/agent/${encodeURIComponent(name)}`) },
+          h("td", { class: "nowrap" }, h("a", { href: `/agent/${encodeURIComponent(name)}` }, h("b", {}, name)), exc(a) ? h("span", { class: "exception", title: exc(a)[1] }, ` ${exc(a)[0]}`) : null),
           h("td", {}, rolesText(a.roles) || h("span", { class: "muted" }, "no roles"),
             (a.hints || []).length ? h("ul", { class: "hints" }, a.hints.map((hint) => h("li", { class: hint.about === "loop" ? "warn" : "", title: hint.says },
               hint.about === "loop" ? op(hint.says)
