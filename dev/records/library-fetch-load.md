@@ -175,6 +175,23 @@ so there was nothing to merge. Not run here: the whole unit suite, the four brow
 
 Size: `git diff --numstat main -- ergostat schema` gives 21 added and 12 removed, 9 net, within 240.
 
+### Round 4: the merge of main (b9341591)
+
+One conflict, in `ergostat/library/uses.py`, in the refusal text. Main (`library-model-text-marked`) now writes the
+refused path, the template name and the folder through `mark(said, FILE)`, escaping control characters; the branch
+had the `trust: owner` wording for a fetched library. Both are kept: the message is `it makes ⟦marked: PATH, under
+template T from FOLDER⟧, SRC, and WHY ... Only the owner can FIX`, where SRC/FIX are "a library folder not marked
+trusted"/"mark a folder trusted" for a folder (main's text, word for word) and the branch's "from the fetched library
+NAME, not marked trust: owner in libraries:"/"mark it trust: owner" for a fetched one. No other file conflicted.
+
+**Tests run**, through `scripts/named_tests.py`, all passing: `test_library_fetch_load`, `test_library_fetch`,
+`test_library_model_marks` (38); `test_library_trust`, `test_library_untrusted`, `test_library_provenance` (125);
+`test_library_diagram_marks`, `test_template_exports`, `test_templates` (74, and one page test in
+`test_library_diagram_marks` skipped because Playwright was not in that run; this branch changes no page). `ruff
+check ergostat tests scripts`: clean. Not run here: the whole unit suite, the four browser files and `demo_check`.
+
+Size: `git diff --shortstat main -- ergostat schema` gives 21 added and 13 removed, 8 net, within 240.
+
 ## Entry
 
 entry-of: shared-libraries
