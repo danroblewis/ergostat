@@ -6420,7 +6420,11 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         avail = pg.locator(".available")
         pg.wait_for_function("() => !/analysing/.test(document.querySelector('.available').textContent)", timeout=120000)
         row = avail.locator("tr", has_text="quality-held").first.inner_text()
-        assert "quality-setting → quality" in row and "not identified" in row, row
+        said = row if "not identified" in row else pg.evaluate("""() => {
+          let r = [...document.querySelectorAll('.available tr')].find((x) => x.textContent.includes('quality-held'));
+          while (r && !r.classList.contains('group')) r = r.previousElementSibling;   // grouped with loops identified alike
+          return r ? r.textContent : ''; }""")
+        assert "quality-setting → quality" in row and "not identified" in said, (row, said)
         assert "small-images" in avail.locator("p", has_text="no one process").inner_text()
         assert "window-time" in avail.inner_text() and "quality-turnover" in avail.inner_text()
         avail.locator("tr", has_text="quality-held").first.get_by_role("link", name="quality-held process", exact=True).click()
@@ -6433,6 +6437,72 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         pg.locator(".available tr", has_text="window-time").first.get_by_role("link", name="quality-turnover").click()
         pg.wait_for_function("() => S.graph?.kind === 'dynamics' && document.querySelector('#detail input.whatif-in')", timeout=60000)
         assert pg.evaluate("() => [...S.sel]") == ["flow.quality-turnover"]
+        assert not errors, errors
+        pg.close()
+
+
+SENTENCES = """() => document.querySelector('main').innerText.split(/\\n|(?<=[.;:!?])\\s+/).map((x) => x.trim())
+  .filter((x) => x.length > 80)"""
+
+
+def check_findings(now: float) -> list[dict]:
+    """/api/exercised's answer as the server makes it (numbers_api.exercised): five parts not exercised and four
+    equations that fit worse than their mean, each with its own numbers."""
+    from ergostat.numbers import exercised as ex
+    from ergostat.numbers import fit as ft
+    quiet = [{"ref": f"flow.f{i}", "why": "never-moved" if i % 2 else "no-variation", "says": f"it never moved (at most {i} an hour)",
+              "since": now - 7200, "until": now, "span": 3600.0 + 600 * i, "readings": 200 + i} for i in range(5)]
+    got = [{"level": "warn", "code": ex.CODE, "about": x["ref"], "message": ex.said(x),
+            **{k: x[k] for k in ("why", "says", "span", "readings")}} for x in quiet]
+    fit = {"partial": {f"flow.g{i}": {"r2": -0.1 * i, "nmse": 1.0 + i, "skill": -0.5 - i, "n": 100 + i} for i in range(4)}, "equations": {}}
+    return got + [{"level": "warn", "code": "calibration-worse-than-mean", "about": ref, "message": msg,
+                   **{k: fit["partial"][ref][k] for k in ("r2", "nmse", "n")}} for ref, msg in ft.worse_than_mean(None, fit)]
+
+
+def test_check_and_the_model_page_say_each_thing_once_in_a_table(browser, tmp_path):
+    """Acceptance (ui-check-and-the-model-page-say-each-thing-once-in): on Check, no warning sentence longer than 80
+    characters occurs more than once: each kind of finding is one table (worst first) under its advice, said once,
+    and a table's header has R²; on Model, loops identified alike are one group under a heading that says how, and
+    a loop's 'process' link opens the block diagram with that loop's systems open (not every one) and the process's
+    panel open."""
+    with served("ticket-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        found = check_findings(time.time())
+        pg.route("**/api/exercised*", lambda r: r.fulfill(json=found))
+        pg.goto(url + "/check")
+        pg.wait_for_selector("table.findings")
+        long = pg.evaluate(SENTENCES)
+        assert len(long) == len(set(long)), [x for x in long if long.count(x) > 1]
+        heads = pg.locator("table.findings th").all_inner_texts()
+        assert "R²" in heads and "points" in heads, heads
+        errs = pg.locator("table.calibration-worse-than-mean tr td:nth-child(3)").all_inner_texts()
+        assert errs == ["4", "3", "2", "1"], errs                                      # the worst scaled error first
+        quiet = pg.locator("table.not-exercised tr td:first-child").all_inner_texts()
+        assert quiet == ["flow f3", "flow f1", "flow f4", "flow f2", "flow f0"], quiet  # never moved first, longest first
+        assert pg.locator("table.not-exercised a").first.get_attribute("href").startswith("/diagram?view=dynamics")
+        alike = pg.locator("table.alike tr td:first-child").all_inner_texts()               # the static check's, alike
+        assert len(alike) > 1 and len(alike) == len(set(alike)), alike
+        pg.goto(url + "/model")
+        pg.wait_for_function("() => document.querySelector('.available table.avail') && "
+                             "!/analysing/.test(document.querySelector('.available').textContent)", timeout=120000)
+        groups = pg.locator(".available tr.group").all_inner_texts()
+        assert groups and all(re.match(r"\d+ loops: ", t) for t in groups), groups
+        said = pg.locator(".available table.avail").first.locator("tr:not(.group) td:nth-child(3)").all_inner_texts()
+        long = [x for x in said if len(x) > 80]
+        assert len(long) == len(set(long)), long
+        link = pg.locator(".available tr", has_text="located-worked").first.get_by_role("link", name="located-worked process", exact=True)
+        assert link.get_attribute("href") != "#"
+        link.click()
+        pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden && S.bdSel?.node",
+                             timeout=60000)
+        opened = pg.evaluate("() => new URLSearchParams(location.search).get('open')").split(",")
+        assert "making" in opened and "*" not in opened and "review" not in opened, opened   # its systems, not every one
+        n = pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel.node)")
+        assert n["role"] == "process" and "located-worked" in n["y_of"], n
+        title = pg.locator("#detail h2").first.inner_text()
+        assert "located" in title, title
         assert not errors, errors
         pg.close()
 
