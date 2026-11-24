@@ -1,7 +1,7 @@
 """Each kind says which of its states are finished, from one function (dev/records/items-kinds-say-which-states-finish.md):
 spec/finished.py finish_of, used by the Items listing, the relations (precedence.Kinds), the estimates, the state
-counts over time (series.py), and with dead (ends_of) the process map (process.py) and message routing
-(messages/route.py), whose outputs change only where the parity test lists
+counts over time (series.py) and, with dead (ends_of), the process map and the item detail's final (process.py);
+message routing (messages/route.py) keeps its own rule. Their outputs change only where the parity test lists
 (dev/records/finished-rule-in-series-and-routing.md)."""
 
 from __future__ import annotations
@@ -223,21 +223,54 @@ def parity_outputs(tmp_path) -> dict:
     return {k: hashlib.sha256(json.dumps(v, sort_keys=True).encode()).hexdigest() for k, v in out.items()}, said
 
 
-# What the change to finish_of changed, per demo, kind and output (and why); everything else stays byte-identical.
-# Only series changed: its finished_states (and so its finished items and median) read no ``messages: {done:}`` and
-# took ``leased`` and ``dead`` as finished, being states no item had left; now finish_of's. The process map's end
-# (ends_of) is what it was on every demo; routing keeps its own rule (route_done_states), so none of its targets moves.
+# What the callers taking finish_of changed, per demo (``@left``: its every-state-left record), kind and output, with
+# the finished states before and after (``final``: the process map's end and the item detail's ``kind_of.final``;
+# ``series``: /api/items-flow's finished_states, and so its finished items and median). Everything else, and every
+# routing target (route_done_states keeps its rule), is byte-identical.
+def _rows(keys, outs: str, before: str, after: str, why: str) -> dict[str, str]:
+    return {f"{k}/{o}": f"{before} -> {after} ({why})" for k in keys for o in outs.split()}
+
+
 _TAKEN = {"action": "done", "alert": "commented", "ci": "upgraded", "doc": "approved", "mention": "answered",
           "pr": "closed", "secret": "rotated", "team-pr": "moving", "ticket": "answered", "update": "sent"}
+_DECLARED_TAKEN = {"image-squeeze/hypothesis": ("[kept, dropped]", "[dropped, dead]"),
+                   "roadmap/ticket": ("[done]", "[done, dead]"),
+                   "the-job/ramp": ("[approved, rejected, broke, proved-fine]", "[proved-fine, dead]"),
+                   "the-job/review": ("[answered]", "[answered, dead]"),
+                   "ticket-factory/ticket": ("[done]", "[stopped, dead]")}
+_BUILT_IN = {"claim": "unchecked", "context": "failed", "correction": "dismissed", "decision": "dismissed",
+             "message": "answered", "model-change": "inconclusive", "modelling-request": "dismissed",
+             "report": "dismissed", "verdict": "missed"}
+_LAST = {**{f"{d}@left/ergostat.{k}": s for d in (*DEMOS, "factory") for k, s in _BUILT_IN.items()},
+         "ticket-factory@left/ergostat.workspace": "quarantined", "factory@left/answer": "answered",
+         "factory@left/task": "done", "image-squeeze@left/case": "met", "image-squeeze@left/session": "lost",
+         "software-factory@left/pr": "deployed", "software-factory@left/ticket": "dropped", "the-job@left/day": "recorded",
+         "the-job@left/outage": "reviewed", "the-job@left/session": "lost", "ticket-factory@left/okr": "off-track"}
 CHANGED: dict[str, str] = {
-    "image-squeeze/hypothesis/series": "[leased, dropped, dead] -> [kept, dropped] (declared)",
-    "roadmap/epic/series": "[underway, shipped] -> [shipped] (declared)",
-    "roadmap/ticket/series": "[leased, done, dead] -> [done] (declared)",
-    "the-job/ramp/series": "[leased, proved-fine, dead] -> [approved, rejected, broke, proved-fine] (declared)",
-    "the-job/review/series": "[leased, answered, dead] -> [answered] (declared)",
-    "ticket-factory/report/series": "[written] -> [] (one state: it lives on)",
-    "ticket-factory/ticket/series": "[leased, stopped, dead] -> [done] (declared)",
-    **{f"the-job/{k}/series": f"[leased, {s}, dead] -> [{s}] (inferred)" for k, s in _TAKEN.items()},
+    # a declared taken kind: a dead letter now ends on the map, as the Items list hides it (the old rule read the
+    # declared states alone); the state counts read the declared states, where they took those no item had left
+    **{k: v for kind, (f, s) in _DECLARED_TAKEN.items() for k, v in {
+        **_rows([kind], "final process", f, f"{f[:-1]}, dead]", "declared, taken: a dead letter ends"),
+        **_rows([f"{kind.replace('/', '@left/', 1)}"], "final", f, f"{f[:-1]}, dead]", "declared, taken: a dead letter ends"),
+        **_rows([kind], "series", s, f, "declared"),
+        **_rows([kind.replace("/", "@left/", 1)], "series", "[leased, dead]", f, "declared")}.items()},
+    **_rows(["factory/gap"], "series", "[parked, closed]", "[merged, closed]", "declared"),
+    **_rows(["factory@left/gap"], "series", "[closed]", "[merged, closed]", "declared"),
+    **_rows(["roadmap/epic", "roadmap@left/epic"], "series", "[underway, shipped]", "[shipped]", "declared"),
+    # an inferred taken kind: a dead letter is no finished work in the state counts (the map's end keeps it)
+    **{k: v for t, s in _TAKEN.items() for k, v in _rows([f"the-job/{t}"], "series", f"[{s}, dead]", f"[{s}]",
+                                                          "inferred: dead is no finish").items()},
+    # one state: a pool lives on, it never ends (factory's pool has an item, so its map changes too)
+    **_rows(["factory/pool", "factory@left/pool"], "final process series", "[held]", "[]", "one state: lives on"),
+    **_rows(["ticket-factory/report", "ticket-factory@left/report"], "final series", "[written]", "[]", "one state: lives on"),
+    # a paused state no item has left is not finished (an item resting there no longer ends on the map)
+    **_rows(["factory/task"], "final process series", "[waiting, done]", "[done]", "paused is never finished"),
+    # every state left, nothing declared: nothing is inferable, so the kind lives on (the old rule took its last state)
+    **{k: v for kind, s in _LAST.items() for k, v in _rows([kind], "final process series", f"[{s}]", "[]",
+                                                            "every state left: lives on").items()},
+    **{k: v for t in _TAKEN for k, v in {**_rows([f"the-job@left/{t}"], "final", "[dead]", "[]", "every state left: lives on"),
+                                         **_rows([f"the-job@left/{t}"], "series", "[leased, dead]", "[]",
+                                                 "every state left: lives on")}.items()},
 }
 
 
@@ -254,8 +287,6 @@ def test_the_process_map_the_state_counts_and_routing_change_only_where_listed(t
     show = lambda xs: "[" + ", ".join(xs) + "]"           # noqa: E731
     at = lambda k: k.rsplit("/", 1)[0] + ("/series" if k.endswith("/series") else "/final")   # noqa: E731
     changed = sorted(k for k in got if got[k] != before[k])
-    (ROOT / "run").mkdir(exist_ok=True)   # TEMP-DEBUG
-    (ROOT / "run" / "changed.txt").write_text("\n".join(f"{k}: {show(was[at(k)])} -> {show(said[at(k)])}" for k in changed))  # TEMP-DEBUG
     assert changed == sorted(CHANGED), "\n".join(f"{k}: {show(was[at(k)])} -> {show(said[at(k)])}" for k in changed)
     for k, why in CHANGED.items():                       # each change is what it says, before and after
         assert f"{show(was[at(k)])} -> {show(said[at(k)])}" == why.split(" (")[0], (k, was[at(k)], said[at(k)])

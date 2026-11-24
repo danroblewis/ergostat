@@ -1881,7 +1881,7 @@ letter ends its items), `finished_from` (`declared`, `inferred` or `none`) and `
 in the tooltip of each kind's legend: `finished: merged, closed (declared)`, `finished: answered (inferred: no item
 has left it yet)`, or `lives on`, with `paused: …` after it. The same rule gives the cumulative flow's finished states
 and cycle times (a dead letter is not finished work, so none ends there), and, with `dead` added for a taken kind
-(where an item's life ends, the states the Items list hides: `finished.ends_of`), the process map's end. Message
+(where an item's life ends, the states the Items list hides: `finished.ends_of`), the process map's end and the final states `/api/items/<id>` gives (`kind_of.final`). Message
 routing keeps its own rule on purpose (`route_done_states`, §12h: where a message about an item goes, the `finished:`
 policy or the work): declared, else a kind's last state and each state no item has left *while some item reached a
 state after it*, because a state items rest in while none has gone on is waiting, not finished (a review briefed,

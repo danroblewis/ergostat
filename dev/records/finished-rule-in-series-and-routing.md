@@ -76,3 +76,62 @@ container). Browser, tests/test_items_page.py: 86 passed, 4 failed, none on this
   pages.js on main says "Goals") fail alone too. They test the header and the switcher, which this branch does not
   touch. Running them on main itself was not possible: `git checkout main -- ergostat` was refused.
 The other three browser files and demo_check were not run (no example touched).
+
+## Where it stopped (round 2)
+
+Built, round 2. Only the parity test, its fixture, a SPEC clause and this record changed. ergostat/ is as in round 1:
+net +10 lines (budget 70). Main (666d65d6) is already merged in.
+
+The review's one finding: round 1's seed never took an item to `dead`, `leased` or a paused state, and never left
+every state. So the parity test could not see the process map's end change, and nothing covered the item detail's
+`kind_of.final`. Round 1's claims ("the old map ended a dead letter's item too", "the process map's end is what it
+was on every demo") were wrong. The old rule ended a dead letter only for a kind with nothing declared. The process
+map keeps `ends_of`, and every change is now listed, not hidden by a named line. Keeping the old end would have kept
+the gap's problem: the map would end items the Items list shows as open, and draw as open the dead letters the Items
+list hides.
+
+What the parity test does now (`tests/test_finished_states.py`):
+- Seed, per kind: one item through every state but the paused ones, one in its first state, one in its second; for a
+  taken kind, one dead-lettered (taken, handed back unfinished, its one attempt used) and one leased now; one item in
+  each paused state, which no item has left. A second record per demo (`@left`) takes one item through every state
+  and back to the first, and one through every state to rest in the last.
+- It runs on the six demos and on the factory-shaped fixture, which gains `task` (inferred, with a paused `waiting`).
+  For each kind it hashes four outputs: the process map, `final` (the item detail's `kind_of.final`, as
+  `web/server.py` makes it from `process._done`), `/api/items-flow` and routing's targets. The fixture also keeps the
+  finished states each output named before (`said`), so each listed change is checked on both sides.
+- The fixture was taken with main's rule back in `process._done` and `series` (commit 8b7655a8, test and fixture
+  only). Then the callers were restored. A scratch script that loads main's modules from `git show` was refused
+  (`uv run python run/gen_before.py …`), so it was done the same way as round 1. With the old rule in place, no
+  output differs from the fixture, so the test fails on every `CHANGED` entry.
+
+Differences in output (294 entries in `CHANGED`, grouped there). Routing targets: none, on any demo or record.
+- **Declared taken kinds**: image-squeeze/hypothesis, roadmap/ticket, the-job/ramp, the-job/review,
+  ticket-factory/ticket. `final` and the process map gain `dead`: the dead-lettered item now ends on the map. In
+  `@left`, only `final` changes (no item is dead there). Items-flow takes the declared states (before: the states no
+  item had left, `leased`/`dead` among them).
+- **Declared, not taken**: factory/gap and roadmap/epic, items-flow only (`[parked, closed]` -> `[merged, closed]`;
+  `[underway, shipped]` -> `[shipped]`).
+- **Inferred taken kinds** (the-job action, alert, ci, doc, mention, pr, secret, team-pr, ticket, update): items-flow
+  drops `dead`. The map's end and `final` are unchanged (`[X, dead]` before and after).
+- **One state**: factory/pool, whose map no longer ends its item, and ticket-factory/report (no item that ends): `[]`,
+  it lives on.
+- **Paused, never left**: factory/task `[waiting, done]` -> `[done]` in all three. An item resting in `waiting` no
+  longer ends on the map.
+- **Every state left, nothing declared** (`@left`): before, the kind's last state (and the item resting there ended);
+  now `[]`, it lives on, and no item ends. This holds for every built-in `ergostat.*` kind on every demo, factory
+  answer and task, image-squeeze case and session, software-factory pr and ticket, the-job day, outage and session,
+  and ticket-factory okr. The-job's inferred taken kinds: `final` `[dead]` -> `[]` and items-flow
+  `[leased, dead]` -> `[]` (no item is in `dead` there, so their map does not move).
+- Not seen on any seeded record: a block's take-from state, other than the first, that no item has left in an
+  inferred kind. No demo has one, since every taken kind beyond the first state declares its done.
+  `finish_of`'s own tests (items-kinds-say-which-states-finish) cover that rule.
+
+Tests: tests/test_finished_states.py 8 passed. test_spec_items, test_process, test_messages: 47 passed.
+test_series, test_item_index, test_items_overview: 72 passed. ruff clean. Browser, tests/test_items_page.py: 87
+passed, 3 failed, none on this change:
+- `test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel` passes alone (load).
+- `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` and
+  `test_every_surface_prints_the_servers_one_count_of_goals_off` failed as in round 1. They test the header (the
+  heading "Loops ·" against "Goals ·") and the project switcher. This branch changes nothing under ergostat/web.
+The other three browser files, test_repair2 and demo_check were not run this round (no example and no page code
+touched).
