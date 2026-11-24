@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import posixpath
+from contextvars import ContextVar
+from pathlib import Path
 
 from ..spec import files
 from ..spec.load import Problem
@@ -14,6 +16,8 @@ from . import templates as tp
 from . import untrusted as ut
 
 LOCK, DIR = "libraries.lock", ".libraries"
+# name -> (a copy's folder, the lock entry it would have): a candidate compiled in memory only (compare.py)
+OVER: ContextVar[dict | None] = ContextVar("fetched_over", default=None)
 
 
 def _lock(doc):
@@ -31,8 +35,9 @@ def _lock(doc):
 
 def _one(doc, name: str, e: dict, entries) -> list[tp.Template]:
     """The library's templates; raises (code, reason) when it is refused."""
-    lk = entries.get(name) if entries is not None else None
-    if entries is None:
+    over = (OVER.get() or {}).get(name)
+    lk = over[1] if over else entries.get(name) if entries is not None else None
+    if lk is None and entries is None:
         raise Refusal("library-unlocked", f"there is no {LOCK} (ergostat library fetch writes it)")
     if not isinstance(lk, dict):
         raise Refusal("library-unlocked", f"{LOCK} has no entry for it (ergostat library fetch)")
@@ -40,7 +45,7 @@ def _one(doc, name: str, e: dict, entries) -> list[tp.Template]:
         raise Refusal("library-unlocked", f"its git, version or path is not {LOCK}'s (ergostat library fetch)")
     if not isinstance(lk.get("tree"), str) or not isinstance(lk.get("commit"), str):
         raise Refusal("library-unlocked", f"its {LOCK} entry has no tree or commit (ergostat library fetch)")
-    root = doc.root / DIR / name
+    root = Path(over[0]) if over else doc.root / DIR / name
     try:
         listing, h = tree.read(root)
     except FileNotFoundError:
@@ -85,7 +90,7 @@ def take(doc, data) -> None:
         entries, broken = None, Refusal("library-lock-unreadable", f"{LOCK} cannot be read: {x}")
     for name, e in cfg.items():
         try:
-            if broken:
+            if broken and name not in (OVER.get() or {}):
                 raise broken
             doc.fetched += _one(doc, name, e, entries)
         except Refusal as r:

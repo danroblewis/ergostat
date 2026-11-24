@@ -26,14 +26,15 @@ from ergostat.sandbox import git
 from ergostat.spec.files import TreeError
 
 LOCK, FOLDER = "libraries.lock", ".libraries"
-SIZE, TIMEOUT = 100_000_000, 120.0
+SIZE, TIMEOUT, TAGS = 100_000_000, 120.0, 1000
 SOURCE = ("git", "version", "path")             # what a lock entry pins (``trust:`` is the owner's, not the lock's)
 _HEX = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _OPTS = ["-c", "http.followRedirects=false", "-c", "credential.helper=", "-c", "core.sshCommand=false"]
 
 
 class FetchError(RuntimeError):
-    """A fetch refused: ``code`` (bad-lock, linked-library-folder, bad-version, git-failed, git-limit, lock-mismatch)
+    """A fetch refused: ``code`` (bad-lock, linked-library-folder, bad-version, git-failed, git-limit, lock-mismatch,
+    and for a dry run bad-main and no-library)
     and ``name``, the library or file it is about."""
 
     def __init__(self, code: str, name: str, why: str):
@@ -53,6 +54,13 @@ def fetch(root, libraries: dict, update: bool = False, say=_say) -> dict[str, st
     resolves the version from scratch. The first refusal stops the fetch, with what was
     done before it kept."""
     wanted = sources.check(libraries)
+    with held(root, say) as (root, folder):
+        return {name: _one(root, folder, name, src, update) for name, src in wanted.items()}
+
+
+@contextlib.contextmanager
+def held(root, say=_say):
+    """The exclusive flock on ``.libraries/.flock`` for the ``with`` block; yields the real root and its folder."""
     root = os.path.realpath(root)
     folder = os.path.join(root, FOLDER)
     if os.path.islink(folder):
@@ -70,9 +78,62 @@ def fetch(root, libraries: dict, update: bool = False, say=_say) -> dict[str, st
         except BlockingIOError:
             say("waiting for the libraries lock")
             fcntl.flock(lfd, fcntl.LOCK_EX)
-        return {name: _one(root, folder, name, src, update) for name, src in wanted.items()}
+        yield root, folder
     finally:
         os.close(lfd)
+
+
+@contextlib.contextmanager
+def candidate(root, name: str, src: dict, say=_say):
+    """A dry run of ``fetch --update`` for one library (``src`` checked): under the flock for the whole ``with`` block,
+    fetched into a fresh ``.tmp-`` folder as ``_one`` does, never swapped in, the lock never written; yields ``{copy,
+    dest, commit, tree, pinned, tags, tags_why}`` and removes the folder afterwards, whatever happens."""
+    with held(root, say) as (root, folder):
+        pinned = read_lock(root).get(name, {}).get("commit")
+        dest = _inside(folder, name)                    # refused as fetch refuses it, before any git
+        tmp = tempfile.mkdtemp(prefix=".tmp-", dir=folder)
+        try:
+            commit, digest = _get(tmp, src, src["version"])
+            tags, why = _tags(tmp, src["git"], pinned if isinstance(pinned, str) and _HEX.fullmatch(pinned) else None)
+            yield {"copy": os.path.join(tmp, "copy"), "dest": dest, "commit": commit, "tree": digest,
+                   "pinned": pinned, "tags": tags, "tags_why": why}
+        finally:
+            _remove(folder, tmp)
+
+
+def _tags(tmp: str, url: str, pinned: str | None) -> tuple[list | None, str | None]:
+    """The remote's tags (``ls-remote``, names as ``version:`` allows) at commits descending from ``pinned`` (all when
+    nothing is pinned); a git failure or limit here makes them None, with why, never none."""
+    repo, out = os.path.join(tmp, "repo.git"), os.path.join(tmp, "out")
+    try:
+        with open(out, "w+b") as f:
+            _run(["ls-remote", "--tags", "--end-of-options", url], tmp, tmp, None, f)
+            f.seek(0)
+            listed = f.read().decode(errors="replace").splitlines()
+        at: dict[str, str] = {}
+        for line in listed:
+            sha, _, ref = line.partition("\t")
+            peeled = ref.endswith("^{}")
+            tag = ref.removeprefix("refs/tags/").removesuffix("^{}")
+            if ref.startswith("refs/tags/") and _HEX.fullmatch(sha) and sources._VERSION.fullmatch(tag) and \
+                    (peeled or tag not in at):
+                at[tag] = sha                           # an annotated tag: its peeled commit
+        if len(at) > TAGS:
+            return None, f"the remote lists more than {TAGS} tags"
+        if pinned is None or not at:
+            return sorted(at), None
+        try:
+            _run(["rev-parse", "--verify", "--quiet", "--end-of-options", pinned + "^{commit}"], tmp, tmp, repo)
+        except FetchError:
+            return None, f"the pinned commit {pinned[:12]} is no longer in the repository"
+        with open(out, "w+b") as f:
+            _run(["rev-list", "--ancestry-path", "--ignore-missing", "^" + pinned, *sorted(set(at.values()))],
+                 tmp, tmp, repo, f)
+            f.seek(0)
+            newer = set(f.read().decode().split())
+    except FetchError as e:
+        return None, str(e)
+    return sorted(t for t, sha in at.items() if sha in newer), None
 
 
 def _whole(dest: str, tree_hash) -> bool:
