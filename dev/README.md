@@ -181,7 +181,10 @@ itself: a clean merge is committed by the factory; a conflicted one is handed to
 (it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
 `scripts/named_tests.py`, below; its refused calls are kept as `tool_denials`, and a session with no result or
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
-`tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
+`tool-denials-unknown` counts; `refused-commands-per-session` is the mean Bash calls refused per session that said,
+so a rise shows. The implementor's and the reviewer's briefs end their working rules with `# How the shell works
+here` (agents.shell_rule, from the role's own allowlist): one allowed command per Bash call, nothing chained, the
+role's commands named, and a refusal never a reason to stop), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
 after: ruff and `[suites] build`, each under the watchdog in a suite container of the agent image and the suite slot.
 The four browser files run there too only with `[suites] build_browser = true` (default false: minutes of 4 CPUs a
