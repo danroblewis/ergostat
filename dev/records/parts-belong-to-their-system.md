@@ -161,3 +161,40 @@ reason is "tooltip on title: Drawn alike here with B27 …", a `<title>` on a lo
 commit 1208bfab adds it (`dynamics.js:457`), the same line is in bf6dbebf's `dynamics.js`, and this branch's diff to
 main does not touch it. So this fails on main and is not fixed here (lesson-13). Not run: the rest of the browser
 file, the other three browser files, the unit suite, `demo_check` (no example changed).
+
+## Where it stopped (round 5)
+
+Main (e8669794) merged in. 127 net lines of code outside `tests/`, `docs/` and `dev/` (`git diff --numstat e8669794 HEAD`).
+The findings were the merge conflicts and the edit to docs/GAPS.md:
+- `ergostat/library/uses.py`: `plan` takes main's `above` (the instance whose template uses this one, now in the use's
+  record) and the branch's `mine` after it; a nested use is handed both. Main's new `unmade` check is kept as it is.
+- `ergostat/web/server.py`: main's fold output, with each closed system's `quiet`, is what `shorten` is now given.
+- `ergostat/web/static/diagram.js`: main's `untrustedBox` wraps the part's drawing; `fullOnHover` still goes on the
+  part's group.
+- `ergostat/web/static/dynamics.js`: main's new text (a flow's "not measured" and its attempts, an auxiliary's gap word
+  and "no feedback", a stock's "unit ?" and its item path) is kept; the name line is drawn by `nameOf(n)`, as before.
+- `docs/SPEC.md` and `tests/test_diagram_rendering.py`: both sides only added (main's *Exports* paragraph and new tests,
+  the branch's *A part's system* paragraph and hover tests); all are kept.
+- docs/GAPS.md is now as main has it. The branch's version had its entry spliced into the middle of another entry,
+  with a stale three-line fragment above it (lesson-7). The entry is now the `## Entry` below. Putting the file back
+  with `git checkout e8669794099f -- docs/GAPS.md` was refused, so the branch's added lines were deleted by hand
+  instead. `git diff e8669794099f -- docs/GAPS.md` is empty.
+
+Tests run, serially: `test_parts_belong.py`, `test_templates.py`, `test_template_exports.py` (57 passed);
+`test_dynamics_view.py`, `test_graph_cli_web.py`, `test_library_trust.py` (133 passed). Ruff clean. Under the watchdog
+with Playwright, from `tests/test_diagram_rendering.py`: this branch's two hover tests and main's
+`test_the_blocks_legend_defines_the_subsystem_letter_and_its_size_and_a_name_is_printed_once`, which sat next to them
+in the conflict (3 passed, rc 0). Not run: the rest of the browser file, the other three browser files, the unit
+suite, `demo_check` (no example changed).
+
+## Entry
+
+section: Remote systems and libraries
+done: 2026-11-24 A library instance's parts and a remote's record their system and short name, and the Dynamics view draws a part inside its own system's box by its short name.
+
+- **A part knows its system** (done on `parts-belong-to-their-system`, `dev/records/parts-belong-to-their-system.md`;
+  owner, 2026-11-22; SPEC §2a, *A part's system*): a library instance's parts and a remote's record their system and
+  short name where they are made (`spec.belongs`). The Dynamics view draws a part inside its own system's box by its
+  short name, and by its full name when pointed at and in every link. Full names are unchanged. *Left:* a `once: true`
+  template's own parts, a remote's stand-ins and names a parameter gives whole record no system, so they always read
+  by their full names.
