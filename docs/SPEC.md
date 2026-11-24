@@ -4387,7 +4387,9 @@ look that plans a lane on top of another it then fails to take (the budget refus
 is stopping) takes nothing on top of it. A lane passed when its run moved its item on (into a `passed`
 state, when declared). One that did not (its run gave it back, its lease expired, or it left the item elsewhere)
 stops every lane on top of it (`ergostat.run.killed`), and each ends given back uncounted; a lane on top that ends red
-while a lane it is on has not passed is given back uncounted too, its red not proven its own. A run on top should
+while a lane it is on has not passed is given back uncounted too, its red not proven its own. A kept run on top
+taken up after a restart keeps its lease's `on`: a lane it is on that does not pass from then stops it, and so does
+taking it up when one ended without passing before (or cannot be read). A run on top should
 move its item on only after those it is on have passed (a run that did so first stands). `ergostat block NAME --now`
 takes no notice of lanes. The same rule (`leases/lanes.py`'s `plan`) replays a fixture of items with arrival and run
 minutes, giving merges per hour against one lane (`lanes.replay`); the completion estimates do not model lanes yet.

@@ -169,6 +169,63 @@ def test_an_expired_base_discards_its_lane_on_top(tmp_path, monkeypatch):
     assert state(p, "a").state == "ready" and killed == ["batch/b"]
 
 
+def restart(p, monkeypatch, *ids: str):
+    """A new engine takes up the kept runs on ``ids`` (spec/adopt.py ``adopt``, still going), from their leases."""
+    d, killed = dispatcher(p, monkeypatch)
+    for i in ids:
+        lease = state(p, i).fields["lease"]
+        d.adopt(p.model.spec.blocks["lane"], f"batch/{i}", lease["fence"], lease["holder"], True)
+    return d, killed
+
+
+def test_a_base_failing_under_a_taken_up_lane_discards_it(tmp_path, monkeypatch):
+    """lesson-3, lesson-5: after a restart the taken-up lane on top keeps its lease's ``on``, so its base going red, or
+    its base's lease expiring, stops it, and its end is given back uncounted."""
+    p = project(tmp_path, ahead=1)
+    d, _ = dispatcher(p, monkeypatch)
+    ready(p, {"a": ["x.py"], "b": ["x.py"], "c": ["z.py"]})
+    tick(d, p)
+    d, killed = restart(p, monkeypatch, "a", "b", "c")
+    assert held(d) == {"batch/a": (), "batch/b": ("batch/a",), "batch/c": ()} and killed == []
+    end(d, p, "a", "failed", {"exit": 1})
+    assert killed == ["batch/b"]
+    end(d, p, "b", "", {"exit": -15, "note": "killed: its base"})
+    last = state(p, "b").fields["lease"]["history"][-1]
+    assert state(p, "b").state == "ready" and last["counted"] is False and "did not pass" in last["why"], last
+
+    ready(p, {"e": ["y.py"], "f": ["y.py"]})
+    tick(d, p)
+    d, killed = restart(p, monkeypatch, "e", "f")
+    e = state(p, "e")
+    d.expire(e, e.fields["lease"], time.time() + 10_000, 60.0)
+    assert killed == ["batch/f"]
+
+
+def test_a_base_failed_before_its_lane_was_taken_up_discards_it(tmp_path, monkeypatch):
+    """lesson-1: the base ended red before the new engine had the lane on top in ``going``, so no ``discard`` found it:
+    taking it up stops it, and its end is given back uncounted."""
+    p = project(tmp_path, ahead=1)
+    d, _ = dispatcher(p, monkeypatch)
+    ready(p, {"a": ["x.py"], "b": ["x.py"], "c": ["z.py"]})
+    tick(d, p)
+    end(d, p, "a", "failed", {"exit": 1})                                 # (the engine before: its kill did not reach b)
+    d, killed = restart(p, monkeypatch, "b", "c")
+    assert held(d) == {"batch/b": ("batch/a",), "batch/c": ()} and killed == ["batch/b"]
+    end(d, p, "b", "", {"exit": 0})
+    last = state(p, "b").fields["lease"]["history"][-1]
+    assert state(p, "b").state == "ready" and last["counted"] is False and "did not pass" in last["why"], last
+    end(d, p, "c", "landed")
+    assert killed == ["batch/b"]                                          # a lane apart: kept
+
+    ready(p, {"e": ["y.py"], "f": ["y.py"]})
+    tick(d, p)
+    end(d, p, "e", "landed")                                              # its base passed before the restart: kept
+    d, killed = restart(p, monkeypatch, "f")
+    assert held(d) == {"batch/f": ("batch/e",)} and killed == []
+    end(d, p, "f", "landed")
+    assert state(p, "f").state == "landed"
+
+
 def test_red_on_top_of_a_base_under_way_is_not_counted(tmp_path, monkeypatch):
     """A lane on top that goes red while its base still runs is not proven red on its own: given back uncounted (it
     waits behind the base, then runs again); once its base has passed, its red counts."""

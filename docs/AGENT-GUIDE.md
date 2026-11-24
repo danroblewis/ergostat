@@ -99,7 +99,7 @@ Work through these steps in order. Ask the person only what you cannot infer.
    3, within: {cpu: 12, memory: 12g}, each: {cpu: 4, memory: 4g}}` to `takes:` (each item lists what it touches in
    `paths`; `pool:` must be at least `most`; without `each` it runs one lane until its runs are measured). With `ahead: 1` an overlapping item runs on top of the lane it overlaps
    (its run's lease says `on`) and is stopped and given back uncounted when that lane does not pass (`passed: [STATE]`:
-   where a passing run leaves its item). Off by default too.
+   where a passing run leaves its item), also after a restart takes its kept run up. Off by default too.
    **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare
    `attention: FIELD` on its kind: the words of that field on the kind's latest item that has them are a warning on
    the page's attention list (SPEC §5a), so the finding is said where it is seen, not only stored.

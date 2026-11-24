@@ -99,6 +99,29 @@ Round 2: both blocking findings of review 1 are fixed. Review 1 listed no other 
   four browser files (no page changed). No example touched. main merged: already up to date.
 - **Size:** about 25 more net lines outside tests, docs and dev, about 375 in all (budget 600). Left is as in round 1.
 
+Round 3: the one finding of review 2 (blocking) is fixed. The review listed no other findings.
+- **A taken-up lane on top keeps its `on`** (dispatch.py `adopt`, lanes.py `taken_up`; lesson-3, lesson-5).
+  `adopt()` now reads the item's lease from the fold and copies its `on` into `going` when that lease is this run's
+  at this fence. So after a restart, `discard` finds the lane when its base goes red, is given back, or its lease
+  expires. Test: `test_a_base_failing_under_a_taken_up_lane_discards_it` (restart; a fails: b on a is stopped and its
+  end is given back uncounted; e's lease expires: f on e is stopped). With the copy removed, the test failed (b held
+  with no `on`).
+- **A base that ended before the take-up** (lesson-1). `adopt` reads the lease, then writes `going` under the lock,
+  so a base that failed before the write would have been missed. After the write, `taken_up` reads each base the
+  lane is on. One that holds no lease and is not passed (or cannot be read: the worst case) stops the lane now, and
+  its end is given back uncounted, as `discard` would have done. A base that fails after the write finds the lane
+  through `discard`. Test: `test_a_base_failed_before_its_lane_was_taken_up_discards_it` (a failed under the engine
+  before; taking up b on a stops it. f on e, whose e landed before the restart, is kept and lands). With the call
+  removed, the first case failed. With every base read as not passed, the kept cases failed.
+- **Not changed, said here:** a lane on top whose run moves its item on before its kill lands still stands. That is
+  as in round 1, and SPEC §9.5 already says so ("a run that did so first stands"). SPEC §9.5 and the agent guide now
+  say that a taken-up lane on top is discarded the same way.
+- **Run here:** tests/test_merge_lanes.py (18), test_runs_adopted, test_leases, test_lease_kill, test_lease_end_turns,
+  test_frozen_window, test_spec_structure, test_take_order, test_gaps_doc, test_gapsdoc. All pass, and ruff is
+  clean. Not run here: the whole unit suite and the four browser files (no page changed). No example touched. main
+  merged: already up to date.
+- **Size:** about 25 more net lines outside tests, docs and dev, about 400 in all (budget 600). Left is as in round 1.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)

@@ -496,13 +496,20 @@ class Dispatcher:
     def adopt(self, b, item: str, fence: int, run: str, live: bool) -> None:
         """A kept run an engine before this one started, taken up (``spec/adopt.py``): its lease is ours to end, and
         never given back as we stop. Still going, its lease is renewed now: the time no engine was up is not held
-        against it (a lease held by another, a newer fence, is left as it is: the fold refuses its run's lines)."""
+        against it (a lease held by another, a newer fence, is left as it is: the fold refuses its run's lines). A lane
+        on top keeps its lease's ``on``, so a base that does not pass stops it (leases/lanes.py ``discard``)."""
+        it = its.one(self.p.events, self.spec, item) if b.takes and b.takes.lanes else None
+        lease = (held(it.fields) if it else None) or {}
+        on = lease.get("on") if lease.get("holder") == run and lease.get("fence") == fence else None
         with self.lock:
             self.ours.add(run)
             self.mine[run] = (b, item, fence)
             self.keeping.add(run)
             self.adopted.add(run)
-            self.going.setdefault(b.name, {})[item] = {"run": run, "fence": fence, "block": b}
+            self.going.setdefault(b.name, {})[item] = {"run": run, "fence": fence, "block": b,
+                                                       **({"on": tuple(on)} if on else {})}
+        if on:
+            lanes.taken_up(self, b, item, run, fence, on)      # (a base that failed before it was in going)
         if live:
             self.renew(item, run, fence, "taken up")
 
