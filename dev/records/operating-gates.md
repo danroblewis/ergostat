@@ -213,6 +213,16 @@ Not run here: the unit suite and the four browser files (the factory runs them).
   2 with no event, plus `grant(..., 86401)`.
 - Ending a stale bypass is allowed (above); the allowlist guards grants only.
 
+**Round 2.** The only finding was the merge conflict with main (d0f95413) in `ergostat/actions/gate.py`. Main gave
+`risk.assess` two more arguments (the run and the item) and moved the session's `run_once` under the `auto` branch.
+The resolution keeps the branch's request under the shared lock and passes main's new arguments to `assess`. The
+session's `run_once` still runs only when the request was approved `auto` and not fenced, after the lock is released,
+so it behaves as main's does. No other code changed. After the merge, these pass: `test_operating_gates` (31),
+`test_gated_actions`, `test_program_actions`, `test_cli_fallback`, `test_act_risk`, `test_act_reshape`,
+`test_regime_gates`, `test_operating`, `test_leased_workspaces`, `test_inbox`, `test_spec_schema` and
+`test_spec_structure`. Ruff is clean. The round 1 guard-break runs were not repeated, because none of the guarded code
+changed. Not run here: the unit suite and the four browser files.
+
 ## Entry
 
 entry-of: operating-modes-regime
