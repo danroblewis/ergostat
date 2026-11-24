@@ -81,9 +81,13 @@ def test_a_flagged_off_path_is_unreachable_by_default(tmp_path, monkeypatch):
     assert flags.REL == str(flags.FILE.relative_to(ROOT))
 
 
+PLAIN = Path(flags.__file__)                                   # (a file that drives no browser)
+
+
 class Item:
-    def __init__(self, *marks):
+    def __init__(self, *marks, path: Path = PLAIN, fixturenames: tuple = ()):
         self.nodeid, self.marks, self.added = "tests/test_x.py::t", list(marks), []
+        self.path, self.fixturenames = path, fixturenames
 
     def iter_markers(self, name):
         return [m for m in self.marks if m.name == name]
@@ -112,6 +116,33 @@ def test_a_flagged_test_is_skipped_while_off_and_runs_when_on(tmp_path, monkeypa
     for bad in (pytest.mark.flag("bored").mark, pytest.mark.flag().mark, pytest.mark.flag("board", "x").mark):
         with pytest.raises(pytest.UsageError):                          # never a silent skip
             _flagged_off([Item(bad)])
+
+
+def test_a_flagged_browser_test_stops_the_run(tmp_path, monkeypatch):
+    """The queue and the daily run count a skipped page test as a failure, and no build runs page tests with a
+    branch's flags on: a flag marker on a test that drives a browser stops the run, never a skip."""
+    from tests.conftest import _flagged_off
+    decl = tmp_path / "flags.json"
+    decl.write_text(OFF)
+    monkeypatch.setattr(flags, "FILE", decl)
+    monkeypatch.setenv(flags.ENV, "board")                              # (on, too: refused either way)
+    page_file = tmp_path / "test_page.py"
+    page_file.write_text("pw = pytest.importorskip('play" "wright.sync_api')\n")
+    mark = pytest.mark.flag("board").mark
+    for it in (Item(mark, fixturenames=("home", "page")), Item(mark, fixturenames=("browser",)),
+               Item(mark, path=page_file), Item(mark, path=tmp_path / "gone.py")):
+        with pytest.raises(pytest.UsageError, match="drives a browser"):
+            _flagged_off([it])
+    for it in (Item(mark, fixturenames=("home",)), Item(pytest.mark.slow.mark, path=page_file)):
+        _flagged_off([it])                                              # a unit test, or no flag: as before
+        assert it.added == []
+    # a real run: a flagged page test (an undeclared flag, so nothing else could pass it) stops the run, rc 4, no skip
+    page_file.write_text("import pytest\n\n\n@pytest.mark.flag('none-such')\ndef test_p(page):\n    pass\n")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-rs", "-p", "tests.conftest", "-p", "no:cacheprovider",
+                        str(page_file)], cwd=ROOT, capture_output=True, text=True, timeout=120, env=env)
+    assert r.returncode == 4 and "drives a browser" in r.stdout + r.stderr, r.stdout + r.stderr
+    assert "SKIPPED" not in r.stdout
 
 
 def test_turning_a_flag_on_is_found(tmp_path):

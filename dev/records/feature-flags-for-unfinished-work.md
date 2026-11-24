@@ -52,12 +52,36 @@ ergostat, tests, scripts (and dev/bin/queue.py). main merged: already up to date
 the four browser files (the factory and the queue run them; tests/conftest.py changed, so every test's collection
 passes through the new hook).
 
+Round 2. The review's one finding, which blocked: a flagged browser test would skip while its flag is off, and the
+queue and browserday count any skipped page test as a failure. No build runs page tests with a branch's flags on
+either. Answered with the review's second option, the more reversible one: the mechanism and the guide are narrowed
+to unit tests, and the narrowing is enforced, not only written down. tests/conftest.py `_flagged_off` now stops the
+run (`pytest.UsageError`, exit 4) when a `flag(...)` marker sits on a test that drives a browser: one that asks for a
+`browser` or `page` fixture, or whose file mentions playwright; a file that cannot be read counts as one. So a
+flagged page test never reaches the queue's or browserday's skip count as a skip. It turns the run red with a reason
+that names the rule. Neither dev/bin/queue.py nor dev/bin/browserday.py changed. The guide (docs/DEVELOPMENT.md,
+Feature flags) has a new rule, "Only unit tests can be flagged": a flagged page or panel lands with unit tests of its
+server side, and its browser tests come with the change that turns the flag on. "When a flag is worth it" now says
+unit tests. dev/prompts/planner.md and the ergostat/flags.py docstring say the same. The detection reads a file's
+text and its fixture names. A test that drives a browser some other way (a subprocess running walk.py from a file
+that never names playwright) is not seen. The guide states the rule as those two signs, not as "every browser test".
+New test: tests/test_flags.py test_a_flagged_browser_test_stops_the_run. It checks the hook on stand-in items (page
+fixture, browser fixture, a playwright file, an unreadable file; a unit test and an unflagged page file pass as
+before), then runs a real pytest on a flagged `page` test: exit 4, the reason given, no SKIPPED line. Seen to fail
+(lesson-9): with the guard disabled it fails ("DID NOT RAISE UsageError"); restored. Lines outside tests, docs and
+dev this round: ergostat/flags.py docstring only (net 0), total still 143 of 600.
+
+Run here (round 2): tests/test_flags.py (6 passed); ruff clean on ergostat, tests, scripts and dev/bin/queue.py;
+`git merge main`: already up to date. Not run here: the unit suite and the four browser files. No test in the tree
+carries a flag marker, so the new check runs for none of them.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)
 
 - **Work can land switched off behind a flag** (done, on `feature-flags-for-unfinished-work`; docs/DEVELOPMENT.md,
   Feature flags): `ergostat/flags.json` declares a flag off and the code asks `flags.on(NAME)`. Tests marked
-  `flag(NAME)` skip while it is off, and the declaring branch's build runs them with the flag on. A change that
+  `flag(NAME)` skip while it is off, and the declaring branch's build runs them with the flag on; only unit tests
+  can be flagged (the marker on a browser test stops the run). A change that
   turns a flag on runs the whole unit suite in the build and the browser files in the queue. The guide says when a
   flag is worth it (isolated pages, panels and features, never engine paths).

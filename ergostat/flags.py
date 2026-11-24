@@ -2,10 +2,10 @@
 
 A flag is declared in ergostat/flags.json, ``{"NAME": {"on": false, "about": "what it gates"}}``; the code it gates
 asks ``on("NAME")`` and the tests of that code carry ``@pytest.mark.flag("NAME")``, which skips them while the flag
-is off (tests/conftest.py). Declared off is the default; the file ships empty, so nothing is gated. Turning a flag
-on (its ``on`` made true, or the declaration of an off flag removed) is a change of its own: turned_on() names it,
-and the checks then run in full (scripts/affected_tests.py: the whole unit suite; the merge queue: the browser
-files whatever its paths).
+is off (tests/conftest.py; unit tests only: on a test that drives a browser the marker stops the run). Declared
+off is the default; the file ships empty, so nothing is gated. Turning a flag on (its ``on`` made true, or the
+declaration of an off flag removed) is a change of its own: turned_on() names it, and the checks then run in full
+(scripts/affected_tests.py: the whole unit suite; the merge queue: the browser files whatever its paths).
 
 ``ERGOSTAT_FLAGS=a,b`` turns the named declared flags on for one process (a test run of the flagged path, or the
 build of the branch that declares them); it never declares one. An undeclared name raises UnknownFlag, so a typo is
