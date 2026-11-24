@@ -45,8 +45,13 @@ stocks:
   lessons-proposed:
     system: knowledge
     unit: proposals
-    description: lessons the librarian proposed, waiting for the coordinator (the gated action knowledge-change)
+    description: lessons the librarian proposed, and findings the researcher proposed from checked answers, waiting for the coordinator (the gated action knowledge-change)
     sensor: {items: lesson, state: proposed, every: 1m}
+  findings-active:
+    system: knowledge
+    unit: entries
+    description: the active findings - checked research answers approved and applied, carried in briefs whose gap names one of their areas
+    sensor: {items: knowledge, state: active, where: {kind: finding}, every: 1m}
   lessons-to-apply:
     system: knowledge
     unit: lessons
@@ -289,7 +294,7 @@ flows:
   lessons-found:
     system: knowledge
     to: lessons-proposed
-    description: a new shape of a known class, or a class found in a second review, proposed by the librarian
+    description: a new shape of a known class, or a class found in a second review, proposed by the librarian; or a finding, from a research answer with a checked source
     sensor: {items: lesson, entering: proposed, over: 1d}
   lessons-approved:
     system: knowledge
@@ -448,9 +453,9 @@ actions:
     in: .
     gate: approve
     class: knowledge
-    args: {lesson: the proposed lesson (lesson/...)}
+    args: {lesson: the proposed lesson or finding (lesson/...)}
     timeout: 2m
-    description: A proposed change to the review lessons, recorded approved with its exact text for lesson-apply (never a gap) - the coordinator approves
+    description: A proposed change to the review lessons, or a finding, recorded approved with its exact text for lesson-apply (never a gap) - the coordinator approves
 
 blocks:
   plan-when:
@@ -558,6 +563,7 @@ blocks:
     pool: 1
     lease: {ttl: 60m, attempts: 2}   # (an unsourced answer is a counted attempt: the second is the dead letter)
     timeout: 2h
+    actions: [knowledge-change]      # a checked answer's finding, asked once
     in: block.research-when
     out: [flow.research-answered, flow.research-unsourced]
 

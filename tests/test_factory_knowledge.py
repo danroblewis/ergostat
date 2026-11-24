@@ -457,7 +457,7 @@ def test_researcher_answers(tmp_path):
     said, lines = f.run("plan.py", gid)
     assert said == ["gap.measured"] and "waits for its research" in json.dumps(lines)   # no plan before its answer
     said, _ = f.run("research.py", rid)
-    assert said == ["research.answered"]
+    assert said == ["research.answered", "lesson.proposed"]                  # (and its finding)
     r = f.item(rid)
     assert r["state"] == "answered" and r["fields"]["summary"] == "The stand-in's answer."
     assert (f.model / r["fields"]["report"]).read_text().startswith("# The stand-in's answer")
@@ -487,7 +487,7 @@ def test_research_source_file_and_line_checked(tmp_path):
     _, rid = asked(f)
     said, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("`app.py:1`: it prints", "`app.py:1-9`: all"))
     r = f.item(rid)["fields"]
-    assert said == ["research.answered"] and r["sources_checked"] == ["`app.py:1`: it prints"]
+    assert said == ["research.answered", "lesson.proposed"] and r["sources_checked"] == ["`app.py:1`: it prints"]
     assert r["sources_unchecked"] == [{"source": "`app.py:1-9`: all", "why": "app.py: line 9 past the end (1 lines)"}]
 
 
@@ -503,7 +503,7 @@ def test_research_missing_source_is_unsourced_and_asked_again(tmp_path):
     assert any(x.get("nack", {}).get("count") is True for x in lines)          # given back, to be asked again
     said, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("`app.py`: the app"))
     r = f.item(rid)
-    assert said == ["research.answered"] and r["state"] == "answered"
+    assert said == ["research.answered", "lesson.proposed"] and r["state"] == "answered"
     brief = (f.model / r["fields"]["contexts"][-1]["brief"][5:]).read_text()
     assert "Asked again: the last answer had no source that could be checked (nowhere.py: no such file" in brief
 
@@ -2100,3 +2100,135 @@ def test_no_reviews_has_no_value(tmp_path):
     reviewed(f, "review/a-1", "gap/a", now - DAY, None)                              # only a review left out
     r = size_measure(f, "lessons-recurring")
     assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr and "left out, 1 review(s)" in r.stderr
+
+
+# ---- research-design-queues-findings-applied-carried: a checked research answer is a finding, applied and carried
+
+QUESTION = "How does the queue decide a flake?"
+CHECKED = answer("`app.py:1`: it prints")
+
+
+def findings_of(f: Instance) -> list[dict]:
+    return [i for i in f.db()["items"].values() if i["id"].startswith("lesson/finding-")]
+
+
+def ask_areas(f: Instance, areas: str, question: str = QUESTION) -> str:
+    rid = f.tool("ask.py", "--areas", areas, question).stdout.strip()
+    assert f.drain() == ["research.asked"]
+    return rid
+
+
+def found(f: Instance, areas: str = "queue, Flake rate") -> tuple[str, str]:
+    """(a question asked with --areas and answered with a checked source, the finding it proposed)."""
+    rid = ask_areas(f, areas)
+    assert f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=CHECKED)[0] == ["research.answered", "lesson.proposed"]
+    [lid] = [i["id"] for i in findings_of(f)]
+    return rid, lid
+
+
+def test_checked_answer_proposes_one_finding(tmp_path):
+    f = Instance(tmp_path)
+    rid, lid = found(f)
+    assert f.item(rid)["fields"]["areas"] == ["queue", "flake rate"]
+    assert lid.startswith("lesson/finding-how-does-the-queue-decide-a-flake-") and len(lid.rsplit("-", 1)[1]) == 6
+    it = f.item(lid)
+    assert it["state"] == "proposed" and it["fields"]["kind"] == "finding" and it["fields"]["areas"] == ["queue",
+                                                                                                         "flake rate"]
+    assert it["fields"]["entry"] == f"A.\nSource: {rid}\n- `app.py:1`: it prints" and it["fields"]["research"] == rid
+    assert [a[:2] for a in f.db()["acts"]] == [["act", "knowledge-change"]] and f"lesson={lid}" in f.db()["acts"][0]
+    assert f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=CHECKED)[0] == ["research.answered"]   # at most one
+    assert len(findings_of(f)) == 1 and len(f.db()["acts"]) == 1
+    # a planner's question: its areas are its gap's packages
+    g = Instance(tmp_path / "planner")
+    g.define("# alpha thing\n\nIn `dev/bin/brief.py` and `ergostat/spec/load.py`.\n\n## Definition of done\n\nIt works.\n")
+    g.fold([{"event": "research.asked", "item": "research/p-1", "data": {"question": QUESTION, "asked_by": "planner",
+                                                                         "gap": "gap/alpha-thing"}}], None)
+    assert g.run("research.py", "research/p-1", FACTORY_STANDIN_RESEARCHER=CHECKED)[0][-1] == "lesson.proposed"
+    assert findings_of(g)[0]["fields"]["areas"] == ["dev/bin", "ergostat/spec"]
+
+
+def test_unsourced_answer_proposes_nothing(tmp_path):
+    f = Instance(tmp_path)
+    rid = ask_areas(f, "queue")
+    for _ in range(2):                                           # unsourced, then a dead letter: neither proposes
+        said, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("`nowhere.py:3`: it"))
+        assert "lesson.proposed" not in said and said[0].startswith("research.")
+    assert f.item(rid)["state"] == "dead" and findings_of(f) == [] and not f.db().get("acts")
+
+
+def test_applied_finding_carried_by_area(tmp_path):
+    f = Instance(tmp_path)
+    f.opened()
+    _, lid = found(f)
+    eid = "finding-" + lid.removeprefix("lesson/finding-")
+    assert eid not in f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "implementor", "the queue")["knowledge"]  # proposed
+    assert applied(f, lid) == ["lesson.applied"]
+    for role in ("implementor", "planner", "researcher"):
+        got = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", role, "how the queue reruns a failure")
+        assert eid in got["knowledge"] and "## What the factory has found" in got["text"]
+        assert f"### {eid}: {QUESTION}\nA.\nSource: research/" in got["text"] and "*Areas: queue, flake rate.*" in got["text"]
+        both = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", role, "the flake rates")      # a many-word area, plural
+        assert eid in both["knowledge"]
+        none = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", role, "the rate of a flaky lease")
+        assert eid not in none["knowledge"] + none["knowledge_dropped"] and "What the factory has found" not in none["text"]
+    assert eid not in f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "reviewer", "the queue")["knowledge"]
+    must = f.py(BLOCK, json.dumps({"chars": 1}), "gap/alpha-thing", "implementor", "x")["knowledge_chars"]
+    lean = f.py(BLOCK, json.dumps({"chars": must + 50}), "gap/alpha-thing", "implementor", "the queue")
+    assert eid in lean["knowledge_dropped"] and eid not in lean["knowledge"]              # dropped, and said
+    lines = sync(f, running(tmp_path, review_lessons=REAL_LESSONS.read_text()))
+    k = next(x["data"] for x in lines if x["item"] == f"knowledge/{eid}")
+    assert k["kind"] == "finding" and k["areas"] == ["queue", "flake rate"] and k["title"] == QUESTION
+
+
+def test_denied_finding_never_proposed_again(tmp_path):
+    f = Instance(tmp_path)
+    rid, lid = found(f)
+    deny(f, "ergostat.action/f1", lid)
+    f.tool("lesson.py", "settle")
+    assert f.drain() == ["lesson.denied"] and f.item(lid)["state"] == "denied"
+    again = ask_areas(f, "queue, lease")                          # the same question, asked again
+    assert again != rid
+    for r in (again, rid):
+        assert f.run("research.py", r, FACTORY_STANDIN_RESEARCHER=CHECKED)[0] == ["research.answered"]
+    assert f.item(lid)["state"] == "denied" and len(findings_of(f)) == 1 and len(f.db()["acts"]) == 1
+    f.tool("lesson.py", "request", lid, ok=False)                 # only a proposal is approved
+
+
+def test_retired_finding_not_carried(tmp_path):
+    f = Instance(tmp_path)
+    f.opened()
+    _, lid = found(f)
+    applied(f, lid)
+    eid = "finding-" + lid.removeprefix("lesson/finding-")
+    dev = running(tmp_path, review_lessons=REAL_LESSONS.read_text())
+    sync(f, dev)
+    assert f.item(f"knowledge/{eid}")["state"] == "active"
+    f.tool("lesson.py", "retire", "finding-not-there", "no such finding", ok=False)
+    f.tool("lesson.py", "retire", eid, "carried for a month to no effect")
+    assert f.drain() == ["lesson.approved"]
+    assert f.run("lesson.py", f"lesson/retire-{eid}", argv=("apply",))[0] == ["lesson.retired", "lesson.retired"]
+    assert f.item(lid)["state"] == "retired"
+    for role in ("implementor", "planner", "researcher"):
+        got = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", role, "the queue")
+        assert eid not in got["knowledge"] + got["knowledge_dropped"] and "What the factory has found" not in got["text"]
+    f.tool("lesson.py", "retire", eid, "again", ok=False)                                # retired already
+    assert {x["item"] for x in sync(f, dev) if x["event"] == "knowledge.retired"} == {f"knowledge/{eid}"}
+
+
+def test_no_gap_requested_for_a_finding(tmp_path):
+    f = Instance(tmp_path)
+    said = []
+    rid = f.tool("ask.py", "--areas", "queue", QUESTION).stdout.strip()
+    said += f.drain()
+    got, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=CHECKED)
+    lid = findings_of(f)[0]["id"]
+    said += got + applied(f, lid)
+    eid = "finding-" + lid.removeprefix("lesson/finding-")
+    f.tool("lesson.py", "retire", eid, "done with it")
+    said += f.drain() + f.run("lesson.py", f"lesson/retire-{eid}", argv=("apply",))[0]
+    assert said == ["research.asked", "research.answered", "lesson.proposed", "lesson.applied", "lesson.approved",
+                    "lesson.retired", "lesson.retired"]
+    db = f.db()
+    assert not [i for i in db["items"].values() if i["kind"] == "gap"]
+    assert [a[1] for a in db["acts"]] == ["knowledge-change"]
+    assert not (f.model / "run" / "defs").is_dir() or not list((f.model / "run" / "defs").iterdir())

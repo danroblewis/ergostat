@@ -89,7 +89,7 @@ systems:
   knowledge:
     within: factory
     description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
-    show: [stock.knowledge-entries, stock.lessons-proposed, stock.lessons-to-apply, auxiliary.first-pass-with-lessons]
+    show: [stock.knowledge-entries, stock.lessons-proposed, stock.lessons-to-apply, stock.findings-active, auxiliary.first-pass-with-lessons]
 
 items:
   gap:
@@ -312,20 +312,20 @@ items:
 
   lesson:
     id: lesson/*
-    description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
+    description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), or a finding (kind finding) the researcher proposed from a checked answer, carried by its areas - approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
     states: [new, seen, proposed, requested, approved, applied, denied, retired]
                                      # new: no event puts one there; it arrives seen, a working state the librarian
                                      # moves on (lesson.proposed) once a second review finds its class, so why names it;
                                      # lesson.seen is written last, so proposed names lesson.requested, not a move back
     on:
-      lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice
+      lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice; researcher: a finding
       lesson.requested: requested    # before the knowledge queue: a gap with the exact edit (migrated by lesson.py settle)
       lesson.approved: approved      # knowledge-change approved, or lesson.py add / retire
       lesson.applied: applied        # lesson-apply: carried by the briefs from the record
       lesson.denied: denied          # knowledge-change denied: settled, never proposed again (lesson.py settle)
       lesson.retired: retired        # lesson-apply, for lesson.py retire: no longer carried
       lesson.seen: seen              # librarian: a class not listed, found in one review
-    show: [kind, lesson, name, entry, text, times, gap, denied_by, why]
+    show: [kind, lesson, name, entry, areas, research, text, times, gap, denied_by, why]
     fold: {times: sum, reviews: union, findings: append}
 
   knowledge:

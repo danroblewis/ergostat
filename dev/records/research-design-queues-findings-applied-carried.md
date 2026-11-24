@@ -33,3 +33,26 @@ Acceptance tests (tests/test_factory_knowledge.py):
 Size budget: 150 net lines (code and YAML; tests and docs excluded).
 
 Area: research-design-queues. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: every definition-of-done item is in the code, and the six acceptance tests pass. About 65 net lines of
+code and YAML, inside the 150 budget.
+
+Choices made with nobody to ask (the most reversible one each time):
+- The hash6 is taken from the question's text, not the research id. So the same question asked again gives the same
+  finding id, and a denied finding stays denied (item 3).
+- An area of several words or a package (`flake rate`, `dev/bin`) matches when each of its words, or that word's
+  plural, is in the gap's text. For a one-word area this is the decisions' rule exactly. The decisions' own match is
+  not changed.
+- A planner's question takes its gap's packages: the folders of the files its definition (if it has one) and its
+  GAPS entry name. A question from `ask.py` with no `--areas` gets no areas, so its finding is applied but carried
+  nowhere.
+- If the record can't be read when the finding would be proposed, nothing is proposed and the reason goes to stderr.
+  The answer still stands. The worst case is one finding lost, never a denied one asked again (lesson-3).
+- The researcher block names `actions: [knowledge-change]` so its run may ask the gate.
+- A finding entry whose id a file's entry already has is left to the file.
+- Three older tests in tests/test_factory_knowledge.py pinned that a checked answer says only `research.answered`.
+  They now expect `lesson.proposed` too, as item 1 requires.
+- The README's last paragraph still said an approved lesson "becomes a gap". That contradicted item 5, so it now says
+  lesson-apply applies it (never a gap).
