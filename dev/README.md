@@ -907,6 +907,19 @@ from the record. Saying any of this never fails or delays a merge: a failure to 
 run was killed ends when the next run takes over: `given-back` when recovery puts main back, and, killed after its
 merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
 
+The merge pipeline's health is read from the batch items (`dev/bin/landing.py`, through `measure.py`):
+`main-still-minutes` (since the latest batch whose landing stood, ended `landed` or `partial`, at its `landed_at`;
+one still pushing, or whose push was denied, moved nothing), `batch-runs`, `batch-first-green`, `crash-lost-minutes`
+and `gaps-landed-per-hour` (the last day, landings that stood), charted together on the dashboard
+`landing.merge-pipeline`. The goal `main-moving` (in `landing.yaml`, beside its measure; the pipeline watch reads its
+reason in code, with no `in:` edge, which would widen `managing`'s boundary) holds `main-stalled-minutes` at 120 (tolerance 30): the minutes main has
+not moved while gaps wait (approved, queued, or leased by merge-queue), from the later of its last move and the oldest
+waiting gap's approval, so it is 0, never off, while nothing waits. Its reason, `measure.py main-stalled-why`, names
+the current batch, its run and the cause ("batch/x-… (isolating, 3 gap(s)), run 6 (halves) crashed: OSError: …"); the
+pipeline watch puts it in its `no-merge` condition, and the pipeline manager's brief carries it and the current batch's
+fields under *The merge queue*, in place of `run/queue.json`. A waiting gap's *Why isn't this done?* names the batch it
+is in, with its run, or how many batches holding approved gaps are ahead of it (SPEC §5a, *place*).
+
 A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
 `ergostat-factory-*`, killed when its run ends or is stopped, and swept by `main-watch` once past its time.

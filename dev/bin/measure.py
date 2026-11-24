@@ -53,6 +53,9 @@ when nothing in the window to measure, but for the twelve named at the end, whic
                       XL > 400. The window is on the latest merge (merged_at). A gap whose latest merge has no
                       merged_lines is left out of the share, never a hit, and named on stderr.
   size-accuracy-high  the same, of the gaps sized with high confidence only
+  main-still-minutes, main-stalled-minutes, batch-runs, batch-first-green, crash-lost-minutes, gaps-landed-per-hour
+                      the merge pipeline's, from its batch items (landing.py says each); main-stalled-why prints
+                      the goal main-moving's reason: the current batch, its run and the cause
   planning-cost-share planning dollars (planning_cost_usd: the planner's and the plan review's sessions, the whole
                       reservation of one that failed; 0 for an S gap and a sub-gap) over all AI dollars (ai_cost_usd),
                       summed over the gaps merged in the window that carry planning_cost_usd. A gap without it is left
@@ -91,6 +94,7 @@ import time
 sys.dont_write_bytecode = True
 import brief  # noqa: E402
 import fac  # noqa: E402
+import landing  # noqa: E402
 import parks  # noqa: E402
 import times  # noqa: E402
 
@@ -137,6 +141,11 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         return size_accuracy(name, since)
     if name == "planning-cost-share":
         return planning_cost_share(since)
+    if name in landing.MEASURES:                        # from the batch items (landing.py)
+        try:
+            return landing.reading(name, fac.items("batch"), fac.items("gap"), now, since)
+        except landing.NoValue as e:
+            raise SystemExit(str(e)) from None
     gaps = fac.items("gap")
     if name in SPLITS:
         return split_reading(name, gaps, since)
@@ -463,6 +472,8 @@ if __name__ == "__main__":
         print(code_reading(name))
     elif name.removesuffix("-change") in (*CODE, "code-coverage"):
         print(code_change(name))
+    elif name == "main-stalled-why":                    # the goal main-moving's reason (landing.py)
+        print(landing.reason(fac.items("batch"), fac.items("gap"), time.time()))
     elif name in ("coverage", "coverage-below-floor"):
         print(coverage_reading(name, sys.argv[2:]))
     else:
