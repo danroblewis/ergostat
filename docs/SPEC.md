@@ -1555,8 +1555,9 @@ reads the event log.
   `scrape-unknown`. The sources that record each change at its time (`items`, `moves`, `counts`, `events`) are not
   sampled: their `scrape_s` is null with no warning. Nor is a `model` source's answer, worked out from the model and
   never read from readings (`scrape_s` null, `range_windows_s` `[]`, no warning). When a request's answers (refused ones aside) differ in step or in
-  range windows, each warns `mixed-windows`, naming every step and window (G4). The page sends every panel's queries in
-  one request, so this compares across panels too. Windows the controller consumes (G3) need loop roles, and are not
+  range windows, each warns `mixed-windows`, naming every step and window (G4). It compares one request's answers: the
+  page asks the panels above the fold in one request and the rest in another, so it compares across the panels of
+  each, and a panel's warning can depend on which request it was in. Windows the controller consumes (G3) need loop roles, and are not
   checked yet.
 - **The built-in source `ergostat`.** ergostat's own readings, as a `prometheus` source no model declares (one the model
   declares under that name is its own instead). Over `victoriametrics` (section 4b) it asks the server that holds them,

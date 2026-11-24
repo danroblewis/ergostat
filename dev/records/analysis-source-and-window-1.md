@@ -123,7 +123,40 @@ Round 2, answering every finding of the review:
   `test_query_fixes.py`, `test_query_spread.py` and `test_group_progress.py`, all passing. ruff is clean. No page
   changed, so no browser file was run in round 2. The whole unit suite and the four browser files were not run here.
 
-Overrun reason: 347 lines added and 32 removed outside tests, docs and dev, 315 net against 240. The call language with columns for its refusals, the reference checks (self, missing, analysis, failed), the per-request bound held at parse and again at run time, the readings bound, the four verdict codes and (round 2) the scrape on every answer built from series readings are each asked for, and each costs a few lines. The rest is docstrings.
+Round 3, the merge of main (72ae37ea), conflicted in SPEC, `datasources/__init__.py`, `engine.py`, `frames.py` and
+`tests/test_data_sources.py`. Each was resolved keeping both sides:
+- `datasources.listed` lists `analysis` first, then main's sources (the built-in `ergostat` and the undeclared
+  `model`). A public reader is offered `analysis` and `model`. `language()` now reads main's `sources()`, so the
+  built-in `ergostat` source's PromQL range windows are read too.
+- The engine keeps main's reader rule (a public reader may ask the `model` source, no other), and an analysis passes
+  the reader on. A reader's `raw(X)` over a source query X they may not ask is refused, and nothing is sent. The
+  refusal comes from the failed-reference rule (X itself was refused). Passing the reader on is a second guard, so
+  removing it alone does not fail the new check in `test_an_anonymous_public_reader_is_refused_a_source_and_nothing_is_sent`.
+- `frames.framed` keeps main's `provenance` from the answer, and the branch's verdict with the sampling reasons.
+- Main's `model` source works its answer out from the model and reads no readings. It is left out of sampling like
+  items: `scrape_s` null, `range_windows_s` [], and no `scrape-unknown`. Without that, every model response warned,
+  and `test_model_data_source.py` failed. The `sql` source, new on main, is a data source like any other: its scrape is
+  not known, so it warns. That fails closed. Whether its time-stamped item rows should count as not sampled is left
+  for later.
+- Tests main pinned that this gap changes by design were updated:
+  - the listings in `test_model_data_source.py`, `test_data_sources.py` and `test_analysis_source.py` now hold
+    `analysis` and `model`;
+  - `test_dashboard_first_load.py` compares the split page load with one request of every query, leaving out the
+    `mixed-windows` reason. G4 compares one request's answers, and main's page now asks the panels above the fold
+    apart from the rest, so that one warning differs between the two by design. SPEC says so; its round-1 sentence
+    that the page sends every panel in one request was no longer true.
+- Tests run in round 3: `test_analysis_source.py`, `test_data_sources.py`, `test_model_data_source.py`,
+  `test_result_frames_and_verdicts.py`, `test_result_shapes.py`, `test_sql_source.py`, `test_metrics_store_labels.py`
+  (5 skipped: they need `ERGOSTAT_TEST_VM_URL`), `test_query_engine.py`, `test_query_fixes.py`, `test_query_axes.py`,
+  `test_query_frequency.py`, `test_query_spread.py`, `test_group_progress.py`, `test_dashboard_first_load.py` and
+  `test_dashboard_keep.py` all pass. These browser files pass with Playwright under the watchdog, none skipped:
+  `test_panel_editor.py`, `test_sql_editor.py`, `test_result_frames_page.py`, `test_result_shapes_page.py`,
+  `test_dashboard_page.py` and `test_panels.py`.
+- One timing failure was seen: `test_query_engine.py::test_a_factory_sized_record_answers_each_source_within_100_ms_without_the_log`
+  took 109 ms for `counts` in a run with two other files. Run alone it passed. A `counts` answer reads no scrape; it
+  only gets the ledger, which is a few dict operations. The whole unit suite was not run here.
+
+Overrun reason: 360 lines added and 38 removed outside tests, docs and dev against main, 322 net against 240. The call language with columns for its refusals, the reference checks (self, missing, analysis, failed), the per-request bound held at parse and again at run time, the readings bound, the four verdict codes and (round 2) the scrape on every answer built from series readings are each asked for, and each costs a few lines. Round 3 adds the merge with main's reader rule and its model source. The rest is docstrings.
 
 ## Entry
 
@@ -131,7 +164,8 @@ section: Done recently
 
 - **The analysis source and the window ledger** (analysis-source-and-window-1). A panel query `{"source": "analysis",
   "text": "raw(A)"}` is answered on the server over query A of the same request. `analysis` is reserved, never declared,
-  and listed first among `datasources` with its language. The call language is closed: a call, the query ids, then
+  and listed first among `datasources` with its language, to a public reader too. A reader's analysis of a source they
+  may not ask is refused, and nothing is sent. The call language is closed: a call, the query ids, then
   `key=value` options. The only call is `raw`, with one option, `points`. A bad call, option or reference, or text that
   does not parse (with its column), is refused alone. `raw(A)` of an ergostat series reads the readings, never the
   roll-ups, on one grid at their median spacing, coarsened only to stay within the point bound. A hole longer than
@@ -139,7 +173,7 @@ section: Done recently
   `raw` of a data source's query asks it again at the finest step and warns `not-raw`. Every answer carries
   `meta.sampling`: step, scrape (null and warned `scrape-unknown` where not known, on every answer read from series
   readings), PromQL range windows, the observable band `[2 × max(scrape, step), window / 2]` and the nulls `W/k` inside
-  it, the longest 50 of all windows (G1, G2). A request whose answers differ in step or range windows warns on each
+  it, the longest 50 of all windows (G1, G2). The `model` source's answers, like items, are not sampled. A request whose answers differ in step or range windows warns on each
   (`mixed-windows`, G4). Left: G3 (windows the controller consumes) waits for `loop-roles-and-loop-panels`; `pair`,
   `psd`, `spectrogram` and `ccf` are the next sub-gap; the page's batching does not yet rewrite the ids inside an
   analysis text.
