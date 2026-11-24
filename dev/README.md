@@ -181,7 +181,10 @@ itself: a clean merge is committed by the factory; a conflicted one is handed to
 (it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
 `scripts/named_tests.py`, below; its refused calls are kept as `tool_denials`, and a session with no result or
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
-`tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
+`tool-denials-unknown` counts; `refused-commands-per-session` is the mean Bash calls refused per session that said,
+so a rise shows. The implementor's and the reviewer's briefs end their working rules with `# How the shell works
+here` (agents.shell_rule, from the role's own allowlist): one allowed command per Bash call, nothing chained, the
+role's commands named, and a refusal never a reason to stop), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
 after: ruff and `[suites] build`, each under the watchdog in a suite container of the agent image and the suite slot.
 The four browser files run there too only with `[suites] build_browser = true` (default false: minutes of 4 CPUs a
@@ -884,7 +887,8 @@ first 8; the rest count as real) runs alone twice (`[suites] rerun`, `-rA`). One
 green. The others raise one intervention of class `queue` (which pipeline-watch raises as a situation) naming them,
 main's sha, and the first-parent commits since the last green sha as `suspects` (the latest 50 when no green is known
 or it is no ancestor of main). A red run that names no test (a skip, a stall) raises one with the log's tail, and so
-does a crashed run (the queue's `crashed()`: exit 3, `INTERNALERROR>`, a full disk, a lost worker), whose FAILED lines
+does a crashed run (the queue's `crashed()`: exit 3, `INTERNALERROR>`, a full disk, a lost worker, read from neither a
+PASSED, SKIPPED, XFAIL or XPASS line nor the test name on a FAILED one, so a test named for `[Errno 28]` is no crash), whose FAILED lines
 are not read, since they name whatever was running; neither is ever green. It holds no batch back: the queue's own check on main (`main_red`) is unchanged. The auxiliary
 `browser-main-green` reads the file (1 green, 0 red; no reading when it is missing or cannot be read), and the goal
 of that name shows it on the Dynamics diagram. The daily run reads the goal (read, not commanded, so it keeps its
@@ -905,6 +909,19 @@ and `batch-run-failures` read its progress from its own pytest logs (the least a
 from the record. Saying any of this never fails or delays a merge: a failure to write is dropped. A batch whose queue
 run was killed ends when the next run takes over: `given-back` when recovery puts main back, and, killed after its
 merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
+
+The merge pipeline's health is read from the batch items (`dev/bin/landing.py`, through `measure.py`):
+`main-still-minutes` (since the latest batch whose landing stood, ended `landed` or `partial`, at its `landed_at`;
+one still pushing, or whose push was denied, moved nothing), `batch-runs`, `batch-first-green`, `crash-lost-minutes`
+and `gaps-landed-per-hour` (the last day, landings that stood), charted together on the dashboard
+`landing.merge-pipeline`. The goal `main-moving` (in `landing.yaml`, beside its measure; the pipeline watch reads its
+reason in code, with no `in:` edge, which would widen `managing`'s boundary) holds `main-stalled-minutes` at 120 (tolerance 30): the minutes main has
+not moved while gaps wait (approved, queued, or leased by merge-queue), from the later of its last move and the oldest
+waiting gap's approval, so it is 0, never off, while nothing waits. Its reason, `measure.py main-stalled-why`, names
+the current batch, its run and the cause ("batch/x-… (isolating, 3 gap(s)), run 6 (halves) crashed: OSError: …"); the
+pipeline watch puts it in its `no-merge` condition, and the pipeline manager's brief carries it and the current batch's
+fields under *The merge queue*, in place of `run/queue.json`. A waiting gap's *Why isn't this done?* names the batch it
+is in, with its run, or how many batches holding approved gaps are ahead of it (SPEC §5a, *place*).
 
 A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named

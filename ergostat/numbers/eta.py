@@ -5,7 +5,8 @@ open items together, from what the record measured (``etamodel.py``). Each run:
   ``survival.py``), then moves by the kind's **semi-Markov path** (the record's next-state shares, rework included);
 - an item in a state a block takes from **queues** at that block in its ``takes:`` order (the states of ``at`` in
   order, then oldest first; ``unblocked``: those more items wait on first), at most the block's **capacity** at once
-  (its pool, its agent's seats, its daemon: whichever binds, seats and daemons shared); each run is a recorded
+  (its pool, its agent's seats, its daemon, the concurrency its gate was measured to admit: whichever binds, seats
+  and daemons shared; a take the run refused at once is the gate closed, not a run); each run is a recorded
   attempt, drawn whole (how long, and how it ended: moved on, or given back or expired, which returns it to the
   queue after its put-off: rework);
 - a **leased** item's run is drawn given how long its lease has been held;
@@ -417,6 +418,11 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
             cap = b.capacity(pools)
             bind = next((f" ({n.split(':', 1)[1]}'s {'seats' if n.startswith('agent') else 'runs at once'}: {c})"
                          for n, c in b.shared if c < (pools or {}).get(b.name, b.pool)), "")
+            if b.measured and b.name not in (pools or {}):    # the gate admits fewer than the pool: it binds
+                bind = f" ({b.measured})"
+            if b.refusals:
+                bind += (f"; {len(b.refusals) / (len(b.refusals) + len(b.attempts)):.0%} of its takes refused (its gate"
+                         f" closed), each put off about {human(sorted(b.refusals)[len(b.refusals) // 2])}")
             put = f"; put off until it is due in {human(x.not_before - inp.at)}" if x.not_before > inp.at else ""
             w = b.workspace
             if w and w not in x.holds and sum(1 for y in inp.items.values() if w in y.holds) >= inp.workspaces[w]:
