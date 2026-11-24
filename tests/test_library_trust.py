@@ -212,6 +212,7 @@ CASES = {
     "person-review": ("blocks:\n  x: {type: person, review: x}\n", "blocks.u-x.review"),
     "external": ("blocks:\n  x: {type: external, agent: a}\n", "blocks.u-x.type"),
     "judge": ("blocks:\n  x: {type: judge}\n", "blocks.u-x.type"),
+    "budget": ("blocks:\n  x: {type: budget, budget: 1, levels: [a, b], in: {spent: stock.s}}\n", "blocks.u-x.type"),
     "no-type": ("blocks:\n  x: {in: stock.s, goal: g}\n", "blocks.u-x.type"),
     "on-stale": ("blocks:\n  x: {type: onoff, goal: g, on-stale: hold}\n", "blocks.u-x.on-stale"),
     "sensor-push": ("flows:\n  f: {to: s, sensor: {push: true}}\n", "flows.u-f.sensor.push"),

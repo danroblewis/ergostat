@@ -70,6 +70,13 @@ def on(cfg: dict) -> bool:
     return (cfg.get("verify") or {}).get("after") is True
 
 
+def retroactive(cfg: dict, repo: Path) -> bool:
+    """Whether regressions that land are found and reverted after: the lane on, a verified commit to bisect from, and
+    the lane not held. What the error budget's level may drop on (the auxiliary verify-retroactive); run/verify.json
+    unreadable raises, so the reading is missing and the level stays at its strictest."""
+    return on(cfg) and bool(verified(repo)) and not state(cfg).get("held")
+
+
 # ---- the settings
 
 def param(text: str, name: str) -> str:
@@ -702,6 +709,9 @@ def main(argv: list[str]) -> int:
         v = verified(repo)
         print(v)
         return 0 if v else 1
+    if argv[:1] == ["retroactive"]:                      # 1 while regressions are found and reverted after they land
+        print(1 if retroactive(cfg, repo) else 0)
+        return 0
     if argv[:1] == ["start"]:                            # the switch-over: main as pushed, which the queue's full
         v = verified(repo) or pushed_main(cfg, repo)     # suites passed, is the first verified commit
         fac.git(repo, "update-ref", "-m", "verify: start", REF, v, verified(repo) or "0" * 40)
@@ -724,7 +734,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(replay(fac.items("batch"), fac.items("gap"), time.time() - days * 86400, lines_most,
                                 hours_most, quick_minutes), indent=1))
         return 0
-    raise SystemExit("verify.py start | run [--now WHY] | verified | replay [--days N]")
+    raise SystemExit("verify.py start | run [--now WHY] | verified | retroactive | replay [--days N]")
 
 
 if __name__ == "__main__":

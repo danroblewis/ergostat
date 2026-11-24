@@ -364,9 +364,68 @@ class Alarm(Builtin):
         return 1.0 if now - self.since >= float(self.p.get("for") or 0) else 0.0
 
 
+def _known(v) -> float | None:
+    """A reading as a number, or None when it is missing or not a finite one (NaN, infinite, a bool's text)."""
+    return float(v) if isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v) else None
+
+
+class Budget(Builtin):
+    """An error budget sets a check level (SPEC §9.2): ``budget`` regressions allowed over the window its ``spent``
+    input counts. Its output is a level, 0 (the lightest checks) to len(levels) - 1 (the strictest), where it starts.
+    The level drops one step while the budget left is at least ``healthy`` of it, and the level has stood ``hold``;
+    below ``healthy`` it never drops, and as the budget burns it rises at once, to the strictest when none is left. It
+    drops only while its ``retroactive`` input (the way to find and revert regressions after they land) is declared and
+    reads over 0; undeclared, off, unread, or ``spent`` unread, the level is the strictest. (Unread includes a reading
+    past its sensor's clock: the engine gives a budget none, ``Engine.fresh_only``.) Each move says why (``why``); ``more`` is the budget
+    left, a series of its own."""
+
+    def __init__(self, block, spec):
+        super().__init__(block, spec)
+        self.why: tuple[str, str] | None = None             # (the decision, its reason) when the level moved this step
+        self.more: dict[str, float] = {}
+
+    def keeps(self):
+        return True
+
+    def compute(self, get, now):
+        names, budget = list(self.p["levels"]), float(self.p["budget"])
+        healthy, hold = float(self.p.get("healthy", 0.5)), float(self.p.get("hold", 86400.0))
+        top = len(names) - 1
+        cur = top if self.out is None else max(0, min(top, int(self.out)))   # (fewer levels since: within them)
+        ins = self.b.inputs
+        spent = _known(get(ins["spent"])) if "spent" in ins else None
+        spent = spent if spent is not None and spent >= 0 else None          # (a count below 0 is no count)
+        retro = _known(get(ins["retroactive"])) if "retroactive" in ins else None
+        self.more = {} if spent is None else {"left": budget - spent}
+        if "retroactive" not in ins:
+            to, why = top, "no way to find and revert regressions after they land is declared (retroactive): it never drops"
+        elif retro is None or retro <= 0:
+            to, why = top, "the way to find and revert regressions after they land is off or unread: strictest"
+        elif spent is None:
+            to, why = top, "the regressions spent cannot be read: counted as the whole budget spent"
+        else:
+            share = (budget - spent) / budget
+            words = f"{budget - spent:g} of {budget:g} regressions left ({share:.0%}; healthy at {healthy:.0%})"
+            held = now - self.changed_at if self.changed_at is not None else 0.0
+            if share <= 0:
+                to, why = top, words
+            elif share < healthy:                                           # unhealthy: it rises, or stays; never drops
+                to, why = max(cur, min(top, math.ceil(top * (healthy - share) / healthy))), words
+            elif cur > 0 and held < hold:
+                to, why = cur, f"{words}: held at {names[cur]} until it has stood {hold:g} s"
+            else:
+                to, why = max(0, cur - 1), words
+        if self.out is None or to != cur:
+            what = "starts at" if self.out is None else "drops to" if to < cur else "rises to"
+            self.why = (f"check level {what} {names[to]} ({to})", why)
+        else:
+            self.why = None
+        return float(to)
+
+
 TYPES = {"onoff": OnOff, "compare": Compare, "proportional": Proportional, "limit": Limit, "delay": Delay,
          "schedule": Schedule, "lookup": Lookup, "select": Select, "expr": Expr, "timer": Timer, "counter": Counter,
-         "alarm": Alarm}
+         "alarm": Alarm, "budget": Budget}
 
 
 def make(block: Block, spec: Spec) -> Builtin:

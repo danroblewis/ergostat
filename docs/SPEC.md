@@ -3943,8 +3943,8 @@ after readings land, after a run ends, and every second (the clock's pass):
 - A pass works out **what changed**: the parts with a new reading, the goals on them, the built-ins that read
   what changed (in the built-ins' order, as always), and the machine blocks commanded by what changed, whose stocks or
   goals have a new reading, or whose run ended. The first pass after ergostat starts or the model changes works out
-  everything. Built-ins whose output can move with time alone step at every pass: every `delay`, `timer` and
-  `schedule`, an `onoff` with `min-on`, `min-off` or `until`, an `alarm` with `for`, a `counter` with `reset`, a `limit`
+  everything. Built-ins whose output can move with time alone step at every pass: every `delay`, `timer`, `schedule`
+  and `budget`, an `onoff` with `min-on`, `min-off` or `until`, an `alarm` with `for`, a `counter` with `reset`, a `limit`
   with a `rate`.
 - What only time makes due is seen at the clock's pass: a block paced by `every` whose pace has run out starts at the
   next whole second, as does a block a step test stops holding.
@@ -4321,9 +4321,30 @@ A first set, kept small:
 | `timer` | one signal | 1 once it has been nonzero this long | `after` |
 | `counter` | one signal | how many times it became nonzero | `reset` (a duration) |
 | `alarm` | one signal | raises an alarm while out of bounds (`for` that long): one line in *needs attention*, and "alarm raised" on its block in the Blocks view (cleared when it fails or its input is unknown); a command or query sensor it reads is read on a pool of its own, never on the sensor pool it may watch | `above`, `below`, `for` |
+| `budget` | `spent` and, optionally, `retroactive` (`in:` a map) | a check level, 0 (the lightest) to the strictest, set by an error budget (below) | `budget`, `levels`, `healthy` (default 0.5), `hold` (default 1d) |
 | `judge` | what it reads, for the diagram | what it moved on its ports (`testing`, `passed`, `failed`, `accepted`: flows) | `every`, `hold-out`, `windows`, `threshold`, `accept`: the judge of changes to the model, on its own clock and on the program rung (section 12e) |
 
 More (filters, rate of change, latches) can be added when a case needs them.
+
+**An error budget** (`type: budget`) is a control loop on how much checking a change gets. `budget` is the regressions
+allowed over a window (over 0, at most 10⁶); `spent` reads how many reached the work over that window (a sensor's
+count: the window is the sensor's). `levels` names the check levels, 2 to 10, the lightest first; what each level
+checks is the model's own (the blocks that read it decide). The output is the level's number, and it starts at the
+strictest. With the budget left at least `healthy` of it, the level drops one step once it has stood `hold`; below
+`healthy` it never drops: as the budget burns it rises at once, to the step `⌈top × (healthy − left share) / healthy⌉`
+when that is stricter, and to the strictest when nothing is left. It drops only while `retroactive` (a signal over 0
+while regressions that get through are found and reverted after) is declared and reads over 0: undeclared, the level
+never drops; off, unread or not a finite number, or with `spent` unread, not a finite number or below 0, it is the
+strictest at once. Unread includes a stale reading: a stock, flow or auxiliary it reads whose newest reading is past
+its sensors' clocks (three readings missed, section 9.6; no grace after a start or a sleep), or whose sensor reads on
+no clock (manual, items, changes), counts as no reading, so a sensor that fails cannot leave its last one standing in.
+A part with no sensor is read as it is. It is stepped every pass, so a
+held level drops on time alone. Each move is a `controller.decided` event about the block, its `decision` ("check level
+drops to standard (1)") and its `why` (the budget left, its share, and the rule that moved it). Its budget left
+(`budget − spent`) is written as a series of its own, `block/NAME/left`; a sensor reads the level and the budget left
+as `ergostat.errors.level@NAME` and `ergostat.errors.left@NAME` (section 12e), so an auxiliary carries each to a
+chart. Its state is the engine's: a restart starts it at the strictest again. A library you did not write may not
+declare one (SECURITY.md).
 
 ### 9.3 Machine block types
 
@@ -6718,6 +6739,7 @@ Everything ergostat owns here is named `ergostat.`, so it never collides with a 
 | `ergostat.model.open-findings` | What `ergostat check` finds, errors aside |
 | `ergostat.cost.usd`, `.tokens`, `.cpu`, `.memory`, `.runs` | What the runs cost over the last day (or `-hour`), every block's or `@BLOCK`'s (section 9.1) |
 | `ergostat.budget.left` | Dollars of `budget.daily` left over the trailing 24 h: daily less spent less reserved. No value when no `budget:` is declared or the record cannot be read (section 9.9) |
+| `ergostat.errors.level@BLOCK`, `ergostat.errors.left@BLOCK` | An error budget block's check level, and the regressions its budget still allows, as the engine last wrote them (`block/BLOCK`, `block/BLOCK/left`; section 9.2). No value before its first pass; an error when BLOCK is not a `budget` block |
 
 A measure's reference is `ergostat.model.NAME`: it reads beside `stock.x`, `flow.x` and `auxiliary.x`, and is
 never one of them (a project's names have no dots). It is read by a sensor, `builtin: ergostat.model.fit`

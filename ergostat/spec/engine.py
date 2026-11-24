@@ -50,7 +50,7 @@ from . import adopt, runrecord, stream, triggers
 from . import blocks as bl
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
-from .observer import KEEP, PORTS, RUN, Observer, estimated, opted, stale_age
+from .observer import KEEP, PORTS, RUN, Observer, estimated, fresh, opted, stale_age
 
 TICK = 1.0
 READERS = 8                 # the fixed pool that runs sensors' commands and queries: no thread per reading (scale.md #1)
@@ -94,7 +94,7 @@ def every_pass(b: Block) -> bool:
     ``until`` other than its goal). The others are functions of their inputs and of their own last output, which a
     step with the same inputs keeps: stepped when what they read changed."""
     p = b.params
-    return b.type in ("delay", "timer", "schedule") or \
+    return b.type in ("delay", "timer", "schedule", "budget") or \
         (b.type == "onoff" and bool(p.get("min-on") or p.get("min-off") or p.get("until"))) or \
         (b.type == "alarm" and bool(p.get("for"))) or (b.type == "counter" and bool(p.get("reset"))) or \
         (b.type == "limit" and p.get("rate") is not None)
@@ -489,6 +489,8 @@ class Engine:
             blk, key = self.builtins[name], f"block.{name}"
             before = self.signals.get(key)
             get, mode = self.get, self.stale_mode(blk.b)
+            if blk.b.type == "budget":                      # an error budget: a stale reading is no reading, never held
+                get, mode = self.fresh_only(blk.b, now), None
             if mode == "hold":                              # a stale input: it keeps its output
                 continue
             if mode == "off":
@@ -498,6 +500,10 @@ class Engine:
             except Exception as e:                          # one block failing never stops the others
                 self.say(f"block {name}: {type(e).__name__}: {e}")
                 v = None
+            for k, x in getattr(blk, "more", {}).items():   # a block's other series (an error budget's left), as they move
+                if self.signals.get(f"{key}/{k}") != x:
+                    self.signals[f"{key}/{k}"] = x
+                    rows.append((f"block/{name}/{k}", now, x))
             if v is None:
                 if before and self.spec.blocks[name].type == "alarm":
                     rows.append((f"block/{name}", now, 0.0))   # failing, or its input unknown: no longer said raised
@@ -515,8 +521,9 @@ class Engine:
                 rows.append((f"block/{name}", now, v))
                 changed.add(key)
                 self._downstream(key, i, heap, late)
-                if bool(before) != bool(v):
-                    self.decided(self.spec.blocks[name], v, now, crossed, out)
+                said = getattr(blk, "why", None)          # (a block that says why it moved: an error budget's level)
+                if bool(before) != bool(v) or said:
+                    self.decided(self.spec.blocks[name], v, now, crossed, out, said)
         return changed, set_goals, late
 
     def _downstream(self, key: str, i: int, heap: list, late: set) -> None:
@@ -598,17 +605,19 @@ class Engine:
         kept["engine.wiring"] = w
         return w
 
-    def decided(self, b: Block, v: float, now: float, crossed: dict | None = None, out: list | None = None) -> None:
+    def decided(self, b: Block, v: float, now: float, crossed: dict | None = None, out: list | None = None,
+                said: tuple[str, str] | None = None) -> None:
         """A built-in's output turning on or off, said as a decision of the goal it serves: caused by that
-        goal's crossing, when it crossed in this same pass."""
+        goal's crossing, when it crossed in this same pass. ``said``: the decision and its reason, when the block
+        gives them (an error budget's level moving)."""
         served = [r.name for r in b.reads() if r.kind == "goal"] or [b.name]
         cmd = [t.name for t in b.targets() if t.kind == "block"]
         verb = "act" if v else "stop"
         for g in served:
             ev = self._event(out, "controller.decided", item=g if g in self.spec.goals else b.name, source=b.name,
                              causedby=(crossed or {}).get(g),
-                             data={"decision": f"{verb}{(': ' + ', '.join(cmd)) if cmd else ''}",
-                                   "why": f"{b.type} {b.name} → {v:g}", "block": b.name, "value": v})
+                             data={"decision": said[0] if said else f"{verb}{(': ' + ', '.join(cmd)) if cmd else ''}",
+                                   "why": said[1] if said else f"{b.type} {b.name} → {v:g}", "block": b.name, "value": v})
             self.cause[b.name] = ev["id"]
 
     # ---- the observer (observer.py, SPEC §9.6)
@@ -704,6 +713,18 @@ class Engine:
             return b.on_stale
         pols = {opted(self.spec).goals.get(r.name) for r in b.reads() if r.kind == "goal" and r.name in self.stale}
         return "hold" if "hold" in pols else "off" if "off" in pols else None
+
+    def fresh_only(self, b: Block, now: float):
+        """Its ``get``, with each stock, flow or auxiliary it reads whose newest reading is past its sensors' clocks
+        (``observer.fresh``) read as None: a sensor that fails writes no reading, and the last one must not stand in."""
+        gone = set()
+        for r in b.inputs.values():
+            t = self.spec.measured(r.kind).get(r.name)
+            if t is not None:
+                last = max((self.seen[s.series] for s in t.sensors.values() if s.series in self.seen), default=None)
+                if not fresh(self.spec, r, last, now):
+                    gone.add(r)
+        return self.get if not gone else (lambda r: None if r in gone else self.get(r))
 
     def seeing_off(self, b: Block):
         """Its ``get``, with each stale goal it reads seen as off, and the goal's stale value not read (so an ``until``
@@ -2038,6 +2059,7 @@ class Engine:
                 kept.b, kept.spec, kept.p = b, new, b.params
             for n in set(self.builtins) - set(builtins):
                 self.signals.pop(f"block.{n}", None)
+                self.signals.pop(f"block.{n}/left", None)        # (an error budget's other series)
             self.builtins = builtins
             for g in set(self.status) - goals:                   # (a goal removed, or moved to another shard)
                 self.status.pop(g, None)

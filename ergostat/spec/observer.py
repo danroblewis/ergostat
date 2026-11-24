@@ -63,6 +63,17 @@ def stale_age(spec: Spec, ref: Ref, last: float | None, now: float, since: float
     return None if None in due or now <= min(due) else now - last
 
 
+def fresh(spec: Spec, ref: Ref, last: float | None, now: float) -> bool:
+    """Whether a part's newest reading, taken at ``last``, is within each of its sensors' clocks now (``stale_by``), with
+    no grace for a start or a sleep. A part with no sensor (a declared value) is fresh; one with a sensor but no reading,
+    or a sensor read on no clock (manual, items, changes), cannot be shown fresh: it is not."""
+    t = spec.measured(ref.kind).get(ref.name)
+    if t is None or not t.sensors:
+        return True
+    due = [stale_by(s, last) for s in t.sensors.values()] if last is not None else [None]
+    return None not in due and now <= min(due)
+
+
 def estimated(spec: Spec, ref: Ref) -> bool:
     """Whether a reference names a stock's estimate or uncertainty (not a sensor of that name)."""
     st = spec.stocks.get(ref.name) if ref.kind == "stock" else None

@@ -110,10 +110,12 @@ TYPE_KEYS = {
     "timer": {"after"},
     "counter": {"reset"},
     "alarm": {"above", "below", "for"},
+    "budget": {"budget", "levels", "healthy", "hold"},
 }
 NEEDS = {"program": ["run"], "ai": ["prompt"], "person": ["ask"], "onoff": ["goal"], "proportional": ["goal", "gain"],
          "delay": ["delay"], "schedule": ["table"], "lookup": ["table"], "select": ["pick"], "expr": ["expr"],
-         "timer": ["after"]}
+         "timer": ["after"], "budget": ["budget", "levels", "in"]}
+BUDGET_MOST, LEVELS_MOST = 1e6, 10                   # a budget's regressions allowed, and its levels, at most
 ONE_INPUT = ("compare", "limit", "delay", "lookup", "timer", "counter", "alarm")
 KIND_RUNS = {"person": {"person", "external"}, "ai": {"ai", "program", "external"}, "narrow-ai": {"ai", "program", "external"},
              "decision": {"program", "external"}, "program": {"program", "external"}, "rule": {"program", "external"}}
@@ -198,6 +200,30 @@ class Compiler:
         except DurationError as e:
             self.err(f"{e} (like 30s, 5m, 2h, 1d)", m.at(key), "bad-duration")
             return default
+
+    def budget_block(self, m: Map, what: str, params: dict) -> None:
+        """An error budget's keys (SPEC §9.2): ``budget`` over 0 and at most BUDGET_MOST, ``levels`` 2 to LEVELS_MOST
+        distinct names (the lightest first), ``healthy`` over 0 and at most 1, ``hold`` a duration, and ``in`` a map of
+        ``spent`` and, optionally, ``retroactive``. A bad one is refused, so no block runs on it."""
+        def num(v, most: float) -> bool:
+            return isinstance(v, int | float) and not isinstance(v, bool) and 0 < v <= most   # (NaN: False)
+        b, lv, h = m.get("budget"), m.get("levels"), m.get("healthy")
+        if b is not None and not num(b, BUDGET_MOST):
+            self.err(f"{what}.budget: the regressions allowed over the window, over 0 and at most {BUDGET_MOST:g}",
+                     m.at("budget"), "bad-number")
+        if lv is not None and not (isinstance(lv, list) and 2 <= len(lv) <= LEVELS_MOST and len(set(map(str, lv))) == len(lv)
+                                   and all(isinstance(x, str) and x.strip() for x in lv)):
+            self.err(f"{what}.levels: 2 to {LEVELS_MOST} distinct names, the lightest checks first ([light, full])",
+                     m.at("levels"), "bad-levels")
+        if h is not None and not num(h, 1):
+            self.err(f"{what}.healthy: the share of the budget left at which the level may drop, over 0 and at most 1",
+                     m.at("healthy"), "bad-number")
+        if m.get("hold") is not None:
+            params["hold"] = self.duration(m, "hold", what)
+        ins = m.get("in")
+        if ins is not None and not (isinstance(ins, dict) and "spent" in ins and set(ins) <= {"spent", "retroactive"}):
+            self.err(f"{what}.in: a map of spent (the regressions over the window) and, to let the level drop, retroactive "
+                     f"(on while regressions are found and reverted after they land)", m.at("in"), "bad-ref")
 
     def cron(self, m: Map, key: str, what: str):
         v = m.get(key)
@@ -529,7 +555,8 @@ class Compiler:
                              f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
                              f"oldest, asked), or ergostat.interventions.waiting (or per-day, trend, standing, chattering, "
                              f"blocked-hours, top-share), or ergostat.upkeep.index-files (or retired-index-files, "
-                             f"heartbeat-age, stalls, restarts, rollup-due, events-past-keep, measurements-due)",
+                             f"heartbeat-age, stalls, restarts, rollup-due, events-past-keep, measurements-due), or "
+                             f"ergostat.errors.level (or left) with @BLOCK, an error budget block",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -1623,6 +1650,8 @@ class Compiler:
             params["until"] = sp
         if t == "select" and m.get("pick") not in (None, "min", "max", "first"):
             self.err(f"{what}.pick: min, max or first", m.at("pick"), "bad-pick")
+        if t == "budget":
+            self.budget_block(m, what, params)
         if t == "expr" and m.get("expr") is not None:
             from .blocks import ExprError, compile_expr
             try:

@@ -34,6 +34,8 @@ from ..spec.ir import (
     CONTEXT_MEASURES,
     COST,
     COST_MEASURES,
+    ERRORS,
+    ERRORS_MEASURES,
     INBOX_MEASURES,
     INTENT,
     INTENT_MEASURES,
@@ -116,6 +118,17 @@ def findings(p) -> float:
     return float(sum(1 for x in problems if x.level not in ("error", "note")))   # a craft note is not a finding
 
 
+def errors(p, block: str, which: str) -> float | None:
+    """An error budget block's last level, or its budget left, as the engine wrote them (``block/NAME``,
+    ``block/NAME/left``); None with no reading yet. A name that is not such a block is an error, never a number."""
+    spec = getattr(p.model, "spec", None)
+    b = spec.blocks.get(block) if spec is not None else None
+    if b is None or b.type != "budget":
+        raise MeasureError(f"no error budget block {block!r} (a block of type: budget)")
+    got = p.measurements.latest(f"block/{block}" + ("/left" if which == "left" else ""))
+    return float(got[1]) if got else None
+
+
 def _meta():
     from . import meta
     return meta.READERS
@@ -185,10 +198,12 @@ def measure(p, name: str) -> float | None:
         if m.group(2) and m.group(2) not in spec.workspaces:
             raise MeasureError(f"no workspace pool {m.group(2)!r}")
         return float(wp.counts(p, spec, m.group(2))[m.group(1)])
+    if m := ERRORS.match(name):                    # an error budget block's level, or its budget left (SPEC §9.2)
+        return errors(p, m.group(2), m.group(1))
     if name not in MODEL_MEASURES:
         known = [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES,
                  *ACTIONS_MEASURES, *WORKSPACES_MEASURES, *COST_MEASURES,
-                 *INBOX_MEASURES, *BUDGET_MEASURES, *UPKEEP_MEASURES]
+                 *INBOX_MEASURES, *BUDGET_MEASURES, *UPKEEP_MEASURES, *ERRORS_MEASURES]
         raise MeasureError(f"no measure {name!r}: {', '.join(known)}")
     if getattr(p.model, "spec", None) is None:
         raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
