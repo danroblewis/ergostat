@@ -463,3 +463,24 @@ Run here, after the merge:
 - Not run: the whole unit suite and the four browser files (the factory's job).
 
 Refused here: nothing.
+
+### Continued, round 4
+
+The only finding was the conflict with main (4557d0d8) in `ergostat/datasources/prometheus.py`. It is answered by the
+merge at 3020415e. Main had added `_histogram`, which reads an answer of `le` buckets as a distribution frame, at the
+same place the branch had added `values` (the `label_values` GET). Both functions are kept, side by side. `query`
+merged cleanly with main's histogram reading, and `values` still asks `/api/v1/label/NAME/values` through `_get`.
+
+No code changed beyond the merge. The size is 434 net lines outside tests, docs and dev (520 added, 86 removed in
+`ergostat` and `scripts`, measured against main; budget 600).
+
+Run here, after the merge:
+- ruff is clean.
+- Unit files: test_dashboard_variables, test_data_sources and test_query_engine (108 passed); test_result_shapes,
+  test_promql_suggest and test_sql_source (32 passed).
+- Under the watchdog: test_dashboard_variables_page, test_data_source_panels and test_result_shapes_page, 19 passed,
+  rc 0, none skipped.
+- Not run: the whole unit suite and the four browser files (the factory's job).
+
+Refused here: nothing. The merge commit was made with `git commit --no-edit` as asked, so it carries git's merge
+message without the Co-Authored-By trailer.
