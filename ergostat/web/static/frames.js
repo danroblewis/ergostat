@@ -1,5 +1,5 @@
 /* each answer's shape, and the chart families that take it (SPEC §4e, Result shapes). The server says what an answer is:
-   series, table, points, distribution or response, with its roles, form, order or dims. Each family declares, under
+   series, table, points, distribution, response or graph, with its roles, form, order or dims. Each family declares, under
    `shapes`, what it takes of each shape; this says whether it takes an answer and, when not, how to reshape the data,
    in one sentence. It also lays a table out as each family reads it, and holds the reshaping no query language does
    for us: pivot, join by field, group. Reshaping happens here, after the answer: it never asks the server again. */
@@ -14,7 +14,7 @@
   /* does result r meet c, what a family declared it takes of r's shape */
   function meets(c, r) {
     if (r.shape === "series") {
-      if (c.roles === "none") return !(r.roles || []).length;
+      if (c.roles === "none") return !hasRoles(r, TWO) && !hasRoles(r, CANDLE);   // (a loop's sp, pv, ... are plain series too)   // (a loop's sp, pv, ... are plain series too)
       if (Array.isArray(c.roles)) return hasRoles(r, c.roles);
       return !hasRoles(r, CANDLE);                       // (candles are for a family that names their roles)
     }
@@ -24,9 +24,9 @@
         && (c.rows == null || (r.rows || []).length === c.rows) && (c.measures == null || (r.measures || []).length >= c.measures);
     }
     if (r.shape === "points") return !c.order || r.order === c.order;
-    if (r.shape === "distribution") return !c.form || c.form.includes(r.form);
+    if (r.shape === "distribution") return (!c.form || c.form.includes(r.form)) && (!c.over_time || !!r.over_time);
     if (r.shape === "response") return !c.has || (r.has || []).includes(c.has);
-    return false;
+    return r.shape === "graph";
   }
   function wanted(shape, c) {
     if (shape === "series") return c.roles === "none" ? "values over time" : !Array.isArray(c.roles) ? "values over time or two signals"
@@ -34,14 +34,16 @@
     if (shape === "table") return `a table${c.dims === 1 ? " of one dimension" : ""}${c.dim === "number" ? " that is a number" : ""}`
       + `${c.rows === 1 ? " and one row" : ""}${c.measures ? ` and ${c.measures} measures` : ""}`;
     if (shape === "points") return c.order === "time" ? "points in time order" : "points";
-    if (shape === "distribution") return `a distribution as ${list(c.form || ["bins"])}`;
+    if (shape === "distribution") return `a distribution as ${list(c.form || ["bins"])}${c.over_time ? " over time" : ""}`;
+    if (shape === "graph") return "a graph's edges";
     return c.has === "system" ? "a model's poles and zeros" : "a frequency response";
   }
   function what(r) {
     if (r.shape === "series") return hasRoles(r, TWO) ? "two signals" : hasRoles(r, CANDLE) ? "candles" : "values over time";
     if (r.shape === "table") return `a table of ${plural((r.dims || []).length, "dimension")}, ${plural((r.measures || []).length, "measure")} and ${plural((r.rows || []).length, "row")}`;
     if (r.shape === "points") return r.order === "time" ? "points in time order" : "points";
-    if (r.shape === "distribution") return `a distribution as ${r.form}`;
+    if (r.shape === "distribution") return `a distribution as ${r.form}${r.over_time ? " over time" : ""}`;
+    if (r.shape === "graph") return `a ${r.kind} graph of ${plural(r.nodes.id.length, "node")} and ${plural(r.edges.id.length, "edge")}`;
     return (r.has || []).includes("system") ? "a model's response" : "a frequency response from data";
   }
   /* null when the family `reg` takes every one of these results; else one sentence: what it needs, and how to get it */
@@ -60,6 +62,12 @@
   /* a table as `family` reads it: a stat or table a value a row, a scatter its first two measures against each other,
      the rest each measure across the one dimension. The server's own layout is kept until a reshaping drops it */
   function drawable(r, family) {
+    if (r.shape === "graph" && family === "table" && !r.error) {      // a row an edge, a value each of its fields (else its n)
+      const e = r.edges, name = (i) => `${e.source[i]} → ${e.target[i]} (${e.relation[i]}, ${e.evidence[i]})`;
+      const fields = e.fields.length ? e.fields : [{ name: "n", values: e.n || e.id.map(() => null) }];
+      return { ...r, x: undefined, times: [0], series: e.id.flatMap((_, i) => fields.map((f) => ({
+        name: fields.length > 1 || e.fields.length ? `${name(i)} · ${f.name}` : name(i), values: [f.values[i]] }))) };
+    }
     if (r.shape !== "table" || r.error) return r;
     const dims = r.dims || [], ms = r.measures || [], rows = r.rows || [], d = dims.length;
     const name = (row) => row.slice(0, d).join(" · ");

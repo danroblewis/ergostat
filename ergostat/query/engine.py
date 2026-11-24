@@ -287,7 +287,7 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
                                 public=public)
     except datasources.SourceError as e:
         return {"id": q.id, "error": f"{q.source}: {e}", "error_kind": e.kind, "read_log": False,
-                **({"error_at": list(e.at)} if e.at else {})}
+                **({"error_at": list(e.at)} if e.at else {}), **({"error_code": e.code} if e.code else {})}
     except Exception as e:                            # (its type only: the words may hold the source's address)
         log.warning("ergostat: query %s (source %s) failed: %s", q.id, q.source, type(e).__name__)
         return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__})", "read_log": False}
@@ -315,7 +315,8 @@ def answer(live, p, raw: str | None, reader: bool = False) -> dict:
             "results": [frames.framed(
                 {"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
                 else {"id": q.id, "error": f"{q.source}: {READER_REFUSED}", "error_kind": "refused",
-                      "read_log": False} if isinstance(q, SourceQuery) and reader and not datasources.own(spec, q.source)
+                      "error_code": "reader", "read_log": False}
+                if isinstance(q, SourceQuery) and reader and not datasources.own(spec, q.source)
                 else _from_source(p, q, since, until, asked.points, work, reader) if isinstance(q, SourceQuery)
                 else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
                 else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work), q)
