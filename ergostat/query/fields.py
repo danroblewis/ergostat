@@ -78,10 +78,11 @@ def _read(p) -> dict:
 
 
 def fields(live, p, reader: bool = False) -> dict:
-    """``reader``: anyone under a public name, who may not ask a data source, so is offered none (SPEC §4e)."""
+    """``reader``: anyone under a public name, who may not ask a data source but the model's own, so is offered only
+    that (SPEC §4e)."""
     key = ("query-fields", int(time.time() // KEEP), getattr(live, "mtime", None))
     got = live.cached(key)
     if got is None:
         got = _read(p)
         live.keep(key, got)
-    return {**got, "datasources": []} if reader else got
+    return {**got, "datasources": datasources.listed(getattr(p.model, "spec", None), own_only=True)} if reader else got
