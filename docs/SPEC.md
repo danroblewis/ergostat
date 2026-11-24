@@ -5894,7 +5894,7 @@ gives, in its `controller`, that block's law as identified (`identified`: the la
 record held out) and says it, or says why it has none (its law not asked for, or not identified, and why); no margins
 are worked out from it (they need a law written in the model). `examples/autoscaler` shows it. *Not yet*: whether the law changed (someone retuned the controller:
 two laws against one on held-out error; a first comparison of each half's numbers raised it on unchanged controllers),
-a known law tested against the record, and the law's numbers sampled by the risk.
+and the law's numbers sampled by the risk. (A known law is tested against the record: *Known laws*, below.)
 
 **Known laws** (`control/laws.py`): an external block with `identify:` may declare the law of a controller that ships
 with the system it runs in, `law: {kind: KIND, ...}`, from this catalogue; each parameter is typed and bounded, and one
@@ -5923,7 +5923,25 @@ before). **bad-law**, at the key: an unknown kind or parameter, a value not its 
 declared is drawn as its block's function in Blocks (the law in the block's notation, as an identified law's, marked
 *declared KIND* where an identified law is marked *identified*; a law the record identifies is drawn over it, the
 declared one kept in the block's rows) and said in words with its parameters by `explain` (and its MCP tool); it is not
-yet run in the projection or tested against the record.
+yet run in the projection.
+
+**A declared law tested against the record** (`external.declared`): on the identification's own grid and the same
+split, the declared law is stepped on the input as measured, on the grid's period (an HPA's `every` is replaced by the
+sensors' period, so its windows count whole samples of that period), with a pure delay of 0 to 6 samples searched by
+its one-step error on the first three quarters (the declaration says nothing of the sensors' delay), and judged on the
+last quarter as the identification judges its own laws: skill one step ahead, R² run free, its points, and its score,
+n ln(SSE/n) plus k ln n where k counts only its delay (its declared numbers are given, not fitted). Too little record
+(under 40 points, an output that never moved, no readings) says why, as identify says, and nothing is judged.
+`check` says **external-law-disagrees** when the declared law's held-out skill is below 0 (worse than holding the last
+value) or the law identified from the same record scores lower (the identification's parsimony rule, its own
+parameters counted against it): "block B: declared KIND (its law) fits its record worse than …: it does not behave as
+configured", with its skill, R², the points held out and the record's window. The claim is only that: the law as
+declared, on this record, at this sampling, fits worse; it is not a finding that the controller is misconfigured (a
+metric read differently, a sampling slower than the controller's own, or another controller on the same output may
+each fit worse too). A law that holds is never a finding. `/api/loop-control` gives it in the loop's `controller`, beside
+`identified`, as `declared: {kind, short, skill, r2, points, worse}` (or `{kind, why}`; the loop's own top-level
+`declared` stays the goal's declared process), and the loop's table writes both laws' held-out fit in its *held-out fit*
+row. With no `law:` nothing of this is worked out or said.
 
 ## 12e. Improving the model, as a loop
 

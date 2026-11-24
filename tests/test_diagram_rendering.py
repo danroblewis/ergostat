@@ -2388,6 +2388,42 @@ def test_a_loops_table_is_drawn_again_when_a_proposal_below_it_is_accepted(brows
         pg.close()
 
 
+def test_a_loops_table_shows_a_declared_laws_fit_beside_the_identified(browser, tmp_path):
+    """The tuner's loop answer routed to carry an external controller's two laws (SPEC §12d): the table's held-out fit
+    row says the identified law's skill and R² and, beside it, the declared law's, with its points and that it fits its
+    record worse; a declared law too little record judges says why."""
+    import json
+    declared = [{"kind": "kubernetes-hpa", "short": "⌈u x / 0.8⌉", "skill": -37.5, "r2": -4.32, "points": 481, "worse": True},
+                {"kind": "kubernetes-hpa", "why": "21 points of record on a 15s grid (at least 40)"}]
+
+    def answer(route):
+        d = route.fetch().json()
+        if d and not d.get("why"):
+            d["controller"] = {**(d.get("controller") or {}), "block": "tuner", "declared": declared[0],
+                               "identified": {"short": "+1 > 0.55, −1 < 0.186", "skill": 0.5, "r2": -1.26}}
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(d))
+
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/loop-control?*", answer)
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="Fit", exact=True).click()
+        pg.locator('g.node[data-id="blk:tuner"] .hit').first.click()
+        pg.wait_for_function(SETTLED, timeout=60000)
+        fit = dict(pg.evaluate(LOOP_PANEL)["rows"])["held-out fit"]
+        assert "validation" in fit and "; tuner's law identified +1 > 0.55, −1 < 0.186: skill 0.5 one step ahead" in fit, fit
+        assert "declared kubernetes-hpa ⌈u x / 0.8⌉: skill −37.5 one step ahead, R² −4.32 run free of 481 points, fits its " \
+               "record worse" in fit, fit
+        row = pg.evaluate("""(c) => { const t = loopTable({ goal: 'g', controller: c });
+          return [...t.rows].find((r) => r.cells[0].textContent === 'held-out fit').cells[1].textContent; }""",
+                          {"block": "hpa", "declared": declared[1]})
+        assert row.endswith("; hpa's law declared kubernetes-hpa: not judged, 21 points of record on a 15s grid (at least 40)"), row
+        assert not errors, errors
+        pg.close()
+
+
 PROC_ORDER = """() => {
   // the process panel: its identification (the first .control) before the block's words and headings outside it
   const d = document.querySelector('#detail'), c = d.querySelector('.control');
