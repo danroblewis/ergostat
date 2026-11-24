@@ -4327,9 +4327,9 @@ being worked, never held (docs/vocabulary.md).
 
 An operating state is a situation of the whole model that schedules its limits
 (`docs/proposals/coordinator/08-modes-and-protection.md` §2): entered by the owner's typed act or by a goal's
-trip, left by the owner, and, while it is entered, capping the pool of every block that takes items. Gates and acts
-scheduled by state, bypass leases, act risk, the budget permissive and the owner's presence are not built yet
-(docs/GAPS.md).
+trip, left by the owner, and, while it is entered, capping the pool of every block that takes items. The state in
+force also schedules gated actions' gates, and the owner may grant a bypass lease on a class (§12k, *Gates by declared
+state*). The budget permissive is not built yet (docs/GAPS.md).
 
 **Declared.** A model may have a top-level `operating:` section, each entry a state named like a part
 (`^[a-z0-9][a-z0-9-]{0,63}$`):
@@ -7686,6 +7686,89 @@ actions:
   still sent, and an unreadable record never turns a channel's messages into denials counted as told.
 - `gate.in_force` (`ergostat/actions/gate.py`) reads the state; `risk.cell` and `risk.schedule`
   (`ergostat/actions/risk.py`) pick the column and fill the defaults.
+
+### Gates by declared state, and bypass leases
+
+In a model that declares operating states (§9.5, *Operating states*), an action's `gate:` may be a map from a
+declared state to `auto`, `approve` or `deny`, with an optional `else:` for every state not written. `normal` is the
+**default state**: the state when none is entered.
+
+```yaml
+operating:
+  incident: {rank: 3}
+  freeze: {rank: 2}
+actions:
+  deploy: {run: ./deploy.sh {branch}, class: release, gate: {normal: auto, freeze: approve, else: deny}}
+```
+
+- **Which map.** A `gate:` map is by declared state when the model declares states under `operating:`, or when it has
+  `else:`. Otherwise it is by §12k column, as above. So in a model with states, every map is by state. A plain gate
+  is the same in every state, and never reads the state or takes the lock below.
+- **Compile.** Each mistake is reported with where it was written. A key that is neither `normal`, a declared state nor `else` is
+  `unknown-ref`. A value that is not a gate is `bad-value`. A map with no `else` that leaves `normal` or a declared state
+  out is `gate-uncovered`. A map in a model with no states declared is `gate-needs-states`. A refused cell is left
+  out.
+- **One resolution**, `schedule.resolve(action, state, bypasses, now) -> (gate, why)` (`ergostat/actions/schedule.py`),
+  used by the request, the act and the class table of `ergostat actions`. A plain gate resolves to itself. For a map:
+  an unread state is `deny`, and so is a state with no cell and no `else` (a model can change after it was checked).
+  Otherwise the state's cell, or, while the class has a bypass standing, the looser of that cell and `normal`'s.
+  Strictness is `auto < approve < deny`. A bypass never makes a gate looser than its `normal` cell, and with none the
+  result is exactly the cell.
+- **The state read.** The highest-ranked state entered, `normal` when none is (`operating/fold.py: current`). A
+  record that cannot be read, or a state entered that the model no longer declares, reads as no state, so the gate
+  is `deny`, even for an action the owner approved.
+- **Under the §12k column.** The action's §12k columns are filled from its `normal` cell (*Unwritten cells never
+  loosen*). The gate in force is the stricter of the two layers, then stepped by act-risk as before, so a §12k incident
+  still denies it. The request records the gate in force as `gate`, the declared state read as `state`, and
+  `scheduled: {state, gate, why}`.
+- **The operating lock.** `<state dir>/operating.lock`, `flock`, opened afresh at each acquisition. Entering a
+  declared state (the owner's or a run's `enter`, and a trip's entry), leaving one (read, decided and written under
+  it), granting a bypass and ending one (the standing read and the write) take it exclusive. The gate's decisions on a map
+  gate take it shared: at the request, from the read to the recorded step; at the act, from the re-read until the command has started.
+  None of these takes the lock again while holding it. A state change waits for a command's start, never for its
+  whole run.
+- **At the act** (`gate.run_once`, after the run-once file and fencing, under the shared lock), the state and the
+  bypasses are read again and resolved. The gate's own approval (`auto`) still holds only if the result is still
+  `auto`. The owner's holds under `auto` or `approve`. `deny` refuses both. A refused act is `failed` with `exit:
+  null`, `seconds: 0` and `refused: WHY`, and its command never starts. The command is started in a session of its
+  own (`gate._spawn`), and on its timeout its whole process group is killed.
+- **Which races are tested.** Tests open the gap between the re-check and the start, and between `enter`'s read and
+  its write, for `enter` and for a bypass's `end`. Those are the changes that tighten a gate. `leave` and `grant` only
+  loosen. A race with either can only leave an act refused or held under the stricter answer it read. Their exclusive
+  lock is held for the same order, and no test opens a gap for them.
+
+**Bypass leases.** The owner may let one class through while a state holds it back:
+
+```
+ergostat bypass release --for 2h --note "hotfix"   # the class's gate no stricter than under normal, for 2 h
+ergostat bypass release --end                       # ended now
+ergostat bypass                                     # the bypasses standing
+```
+
+- Each bypass is the built-in item `ergostat.bypass/CLASS` (built in when any action has a gate by state; shown in the
+  Items tab), with the events `ergostat.bypass.granted` (`until`, `by`, `note`) and `ergostat.bypass.ended` (`ended`,
+  `ended_by`).
+- `CLASS` must match `^[a-z][a-z0-9-]{0,63}$` and be the class of an action with a gate by state. `--for` is more than
+  0 and at most 24 h. Anything else is refused with exit 2 and nothing recorded. `--end` needs a bypass standing on
+  the class. It does not need the class to still have a map gate, because ending only tightens. With none standing it is
+  refused with exit 2.
+- **Folded in `seq` order**, never by time. A grant starts a fresh lease: its `ended` and `ended_by` are cleared, and
+  nothing of an earlier grant is kept. An end ends it. A bypass is **standing** while `until > now`, strictly. When it
+  is read, `until` is held to the grant event's time + 24 h.
+- **Read as none when unsure.** An item that cannot be read, a grant whose data is not an object, an `until` that is
+  missing, not a number, NaN or infinite, and a query that raises all count as no bypass. Such a grant also ends any
+  earlier one.
+- Shown in `ergostat bypass`, in `ergostat actions`'s class table (the gate in force, with `(bypass until HH:MM)`)
+  and on the item.
+- **The owner's act, and how far that is enforced.** Two checks enforce it. `ergostat.bypass.*` is under
+  `ergostat.`, so `runner.OWN_TYPES` refuses it from every path an agent writes events through: a block's event line,
+  `POST /api/events` and the engine's socket (`intake/envelope`), `ergostat event --add`, and MCP `record_event`. And
+  `ergostat bypass` grants and ends refuse with exit 2 when `ERGOSTAT_RUN` is in the caller's environment (the mark
+  the engine gives every run it starts). Neither the MCP server nor the web server offers a bypass. These checks refuse
+  every agent path that writes the record and every caller that carries a run's mark. An unsandboxed process that
+  strips its own environment is not stopped by them. The boundary against that is the gated session's sandbox
+  (*The sandbox: what is enforced*, above).
+- `bypass` acts, so the read-only fallback (§9.1) never runs it.
 
 ### Reshaping an act
 

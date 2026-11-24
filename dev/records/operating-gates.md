@@ -131,3 +131,89 @@ All in `tests/test_operating_gates.py`.
 - The wrapper around operating-states' enter/leave touches another gap's module that is not on main; the report must say how the wrap matched that gap's final names and that its suite still passes after merge (lesson-7).
 - Bypass --for: negative, unparseable and absurd units are refused with rc 2 and no event, not only 0 and 25h; add to test_bypass_ceiling.
 - --end on a class that no longer has a map gate is refused by the allowlist; decide (and document) whether listing/ending such a stale bypass is allowed, since ending should never be blocked by a check meant to stop loosening.
+
+## Where it stopped
+
+Built, round 1. Every item of the definition is in the code. The size is 277 net lines in `ergostat/` and 5 in
+`schema/` (budget 380). The 20 acceptance tests are in `tests/test_operating_gates.py`, with one more,
+`test_bypass_never_runs_on_the_fallback`. That makes 31 cases with the parametrized ones, and all pass.
+`tests/test_gated_actions.py`, `tests/test_program_actions.py` and `tests/test_cli_fallback.py` pass unchanged, and
+so do `test_regime_gates`, `test_operating`, `test_act_risk`, `test_act_reshape`, `test_leased_workspaces`,
+`test_inbox`, `test_spec_schema` and `test_spec_structure`. Ruff is clean. `HEAD..main` is empty, so there was nothing
+to merge.
+
+Not run here: the unit suite and the four browser files (the factory runs them). No page changed.
+
+**Each guard broken by hand, and the test seen failing** (each then put back):
+- `run_once` without the shared lock: all three lock tests failed (`['entered', 'spawned']`, the act returning before
+  the write, `['ended', 'spawned']`).
+- `enter` taking the lock shared: `test_state_entry_waits_for_command_start` and `test_act_waits_for_state_entry`
+  failed. `end` taking it shared: `test_bypass_end_waits_for_command_start` failed.
+- No re-check at the act: `test_released_then_state_changed_not_run`, `test_owner_approval_refused_when_state_denies`
+  and both cases of `test_bypass_ended_before_start_fails_unrun` failed.
+- `standing` sorted by time: the regrant test failed on grant@t, end@t-5.
+- The read-time clip at grant + 24 h removed: `test_bypass_ceiling` failed.
+- `until >= now` as standing: `test_resolve_never_looser` failed.
+- `r.kill()` instead of `os.killpg`: `test_run_timeout_stops_its_group` failed at its deadline.
+- The `gate-uncovered` check dropped: `test_gate_map_compiles_and_errors` failed.
+- An unread state read as `normal`: `test_unreadable_state_refuses_owner_approved[raises]` failed.
+- The finite-number check in `standing` dropped: the `inf` case of `test_bypass_corrupt_counts_as_none` failed.
+- The class allowlist dropped: `test_bypass_class_allowlist` failed.
+- Not broken separately: a cached lock fd. The lock tests run their competitor in a thread of the same process, so a
+  shared fd would never block and the tests would fail the same way as with the lock removed.
+
+**Choices taken where nobody could be asked** (each reversible; SPEC §12k, *Gates by declared state*, says them):
+- *Two kinds of gate map.* Main already had `gate:` maps by the §12k columns (normal, away, maintenance, freeze,
+  incident), from `regime-scheduled-gates`, which this definition did not mention. Rule: a map is by declared state
+  when the model declares states under `operating:`, or when the map has `else:`. Otherwise it is a §12k column map,
+  as before. So `gate-needs-states` is for an `else:` map in a model with no states. An unknown key in a column map
+  stays `bad-value`, and `test_regime_gates` passes unchanged.
+- *`Action.gate` stays a string.* The definition says `str | dict`. Instead the map is `Action.states` and `gate` is
+  its `normal` cell (else `else`'s). Reason: `gate` is read as a string in program.py, server.py, cli/gated.py,
+  numbers/impact_fields.py, inbox/interventions.py and the pages. Making it a dict would break each of them, outside
+  the files to touch.
+- *Both layers apply.* A map-gated action's §12k columns are filled from its `normal` cell. The gate in force at the
+  request is the stricter of that column and `resolve`'s answer, then act-risk. So a §12k incident still denies it,
+  and a bypass can never loosen past the §12k column either. At the act the declared-state re-check comes first
+  (refused: `failed`). The existing §12k checks follow (`denied`, or held again).
+- *`current`.* operating-states has no reader shaped like `current(p, spec)`. Its `fold.in_force` returns top=None
+  both for "none entered" and for "unreadable". So `fold.current(p, spec)` was added beside it: the top state entered,
+  `normal` when none is, raising when the record cannot be read. `schedule.state` catches the raise and refuses an
+  undeclared name (both → None → deny).
+- *A trip's entry takes the exclusive lock too* (`operating/trips.py: _record`, one line). It enters a state as `enter`
+  does, and only tightens.
+- *`--end`* needs only the name pattern and a bypass standing on the class, not a map gate still on it, because ending
+  only tightens. With none standing it is refused (rc 2, nothing recorded). `ergostat bypass` lists every class
+  standing.
+- *A bad grant after a good one* ends the earlier lease (no bypass): the stricter reading.
+- *The intake path.* `intake/envelope.parse` only decodes. The `OWN_TYPES` refusal is in `envelope.check`, which every
+  push calls after it, so the test calls both.
+- *GAPS (item 9).* docs/GAPS.md is not edited: the merge queue refuses a branch that edits it and writes the line from
+  the `## Entry` below.
+- *Not covered:* the §12k state's own acts (`ergostat operating freeze`) do not take the operating lock. That was not
+  asked, and the act re-reads that state as before. `run_once` takes the lock when the request was map-gated or the
+  model in hand has a map. An action changed from plain to map between that model's load and the act is still
+  re-checked by `at_act`, but outside the lock.
+
+**Answers to the plan review:**
+- Regrant order: added grant@t, end@t-5 (not standing) and end@t, grant@t-5 (standing). Sorting by time failed the
+  test (above).
+- The lock opens a fresh fd per acquisition (`os.open` in `schedule.lock`). No path takes it again while holding it.
+  `request` lets go before it calls `run_once`. `enter`, `leave`, `grant` and `end` never call each other; `end`
+  calls `standing`, which takes no lock.
+- `grant` and `leave` only loosen. A race with either can only leave an act refused or held under the stricter answer
+  it read. SPEC says so (*Which races are tested*), and claims no test for them.
+- `_spawn` uses `start_new_session=True`. The timeout test polls with a 10 s deadline. Running out of time fails it,
+  and a zombie or reaped pid counts as gone. The background `sleep` writes to /dev/null, so with only the child killed,
+  `communicate` returns and the sleep is still alive.
+- The wrap matched operating-states as merged into this branch (59bcca6b): `operating/acts.py`'s `enter(p, spec, name,
+  why, env)` and `leave(...)`. Their read, decision and write are now inside `schedule.lock(p, exclusive=True)`.
+  `tests/test_operating.py` passes after the change.
+- `test_bypass_ceiling` refuses `25h`, `0`, `0s`, `-1h`, `soon`, `5y`, `1e9h`, a 400-digit day count and `inf`, each rc
+  2 with no event, plus `grant(..., 86401)`.
+- Ending a stale bypass is allowed (above); the allowlist guards grants only.
+
+## Entry
+
+entry-of: operating-modes-regime
+done: 2026-11-24 Gates by declared operating state and bypass leases, on `operating-gates` (SPEC §12k, *Gates by declared state*). `gate:` can be a map from a declared state (and `normal`, `else:`) to a gate. One `schedule.resolve` decides it at the request and again at the act, under a shared `flock` held from the re-check until the command has started. Entering, leaving, granting and ending take that lock exclusive, and an unread state is `deny`. `ergostat bypass CLASS --for DUR | --end` is the owner's lease (at most 24 h, folded by seq), refused from a run and from every agent's event path. A timed-out action's process group is killed. Left: the §12k state's own acts under the lock, P3/T1 and presence.

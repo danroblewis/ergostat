@@ -427,6 +427,18 @@ def test_bypass_class_allowlist(tmp_path):
     assert bypass_events(p) == []
 
 
+def test_bypass_never_runs_on_the_fallback(tmp_path, capsys):
+    from ergostat.goodmodel import keep
+    p = project(tmp_path)
+    assert keep(p) is None
+    with open(tmp_path / "ergostat.yaml", "a") as f:
+        f.write("\nbroken: [\n")
+    for argv in (["bypass", "careful", "--for", "1h"], ["bypass"]):
+        assert cli(p, *argv) == 2
+        assert "acts, so it never runs on the last good model" in capsys.readouterr().err
+    assert bypass_events(p) == []
+
+
 # ---- status, and the run step
 
 def test_actions_table_shows_gate_in_force(tmp_path, monkeypatch, capsys):
