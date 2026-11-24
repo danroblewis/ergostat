@@ -4371,7 +4371,8 @@ through `/remote/v1/events`. A window by horizon (the items to start within a ti
 that runs whether or not a page asks (docs/proposals/forecasts-and-promises.md, section 5). **Lanes**, off unless
 declared: `lanes: {apart: FIELD, most: N, within: {cpu: C, memory: SIZE}, each: {cpu: C, memory: SIZE}, ahead: K,
 passed: [STATE]}` in `takes:` (N from 1 to 16, K from 0 to 4, cores above 0 and at most 1024, a size above 0 and at
-most 1p, `each` within `within`, `passed` states of the kind; refused otherwise: `bad-lanes`). FIELD is the list of
+most 1p, `each` within `within`, `passed` one or more states of the kind and needed when K is above 0; refused
+otherwise, a falsy or empty `passed` too: `bad-lanes`). FIELD is the list of
 what an item touches (words; one word is a list of one; missing, empty or not words: it touches everything, so it
 runs alone). At each look the block's lanes are its leased items; of the items it may take, in its order, one that
 shares no entry with any lane starts apart; one that shares entries only with lanes on one lane's chain starts on top
@@ -4384,8 +4385,8 @@ until enough end. One lane always runs, even when a measured lane alone costs mo
 be read allows one lane, said, and so does one whose cores or memory are neither in `each` nor measured by any of
 those runs (an unknown cost is the worst case: a block with no `each` runs one lane until its runs are measured). A
 look that plans a lane on top of another it then fails to take (the budget refuses it, the bounds are full, ergostat
-is stopping) takes nothing on top of it. A lane passed when its run moved its item on (into a `passed`
-state, when declared). One that did not (its run gave it back, its lease expired, or it left the item elsewhere)
+is stopping) takes nothing on top of it. A lane passed when its run moved its item on into a `passed`
+state (none declared: none passes). One that did not (its run gave it back, its lease expired, or it left the item elsewhere)
 stops every lane on top of it (`ergostat.run.killed`), and each ends given back uncounted; a lane on top that ends red
 while a lane it is on has not passed is given back uncounted too, its red not proven its own. A kept run on top
 taken up after a restart keeps its lease's `on`: a lane it is on that does not pass from then stops it, and so does

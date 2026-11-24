@@ -122,6 +122,26 @@ Round 3: the one finding of review 2 (blocking) is fixed. The review listed no o
   merged: already up to date.
 - **Size:** about 25 more net lines outside tests, docs and dev, about 400 in all (budget 600). Left is as in round 1.
 
+Round 4: the one finding of the reviews and the queue (blocking, lesson-3) is fixed. No other finding was listed.
+- **A lane on top needs its `passed` states** (compile.py `lanes`, lanes.py `passed`, `taken_up`, `unproven`).
+  `passed` is read checking for None, not falsiness. When present it must be one or more non-empty state names, so
+  `passed: false`, `0`, `{}`, `[]` and `""` are refused (`bad-lanes`). `ahead` above 0 without `passed` is refused
+  too, since no base could then be told failed. At run time a lane passes only when its run leaves its item in a
+  `passed` state. With none declared (only `ahead: 0` allows that, and then nothing is on top) none passes: the worst
+  case, no longer "any move passes". So a base moved to `failed` always discards its lane on top. SPEC §9.5 and the
+  agent guide (its example now says `ahead: 1, passed: [landed]`) say so.
+- **Test:** `test_a_lane_on_top_needs_its_passed_states` (ahead without passed, and each falsy or empty passed, are
+  refused; `passed: landed` with ahead and no passed without ahead are kept; `lanes.passed` with none declared passes
+  neither `failed` nor `landed`). Seen to fail, each mutation reverted: with the ahead check removed (at `ahead: 1`);
+  with the present-but-empty check removed (at `passed: []`); with the runtime read as "none declared: any move
+  passes" (at the `lanes.passed` assert).
+- **Run here:** tests/test_merge_lanes.py (19), test_spec_schema, test_runs_adopted, test_leases, test_lease_kill,
+  test_spec_structure, test_lease_end_turns, test_take_order, test_frozen_window. All pass, and ruff is clean. Not
+  run here: the whole unit suite and the four browser files (no page changed). No example touched. main merged:
+  already up to date.
+- **Size:** about 0 more net lines outside tests, docs and dev (the fallback to `moved_on` is gone), about 400 in
+  all (budget 600). Left is as in round 1.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)

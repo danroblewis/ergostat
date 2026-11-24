@@ -900,7 +900,7 @@ class Lanes:
     """A block's lanes (SPEC §9.5): items whose ``apart`` lists share no entry run at once, one sharing an entry on top
     of a lane ``ahead`` deep at most; ``most`` lanes, each costed ``cpu`` cores and ``memory`` bytes (or more, as
     measured; 0: not declared, so one lane until runs measure it), within ``within_cpu`` and ``within_memory``; a lane
-    passed when left in ``passed`` (any move, empty)."""
+    passed only when left in ``passed`` (needed with ``ahead`` above 0; empty: none passes)."""
 
     apart: str
     most: int

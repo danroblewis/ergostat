@@ -372,6 +372,28 @@ def test_lanes_checked_with_their_bounds(tmp_path):
     assert lanes.plan([("a", frozenset("x")), ("b", frozenset("x"))], [("r", frozenset("x"), ())], 9, 99)[1][1] == ("r", "a")
 
 
+def test_a_lane_on_top_needs_its_passed_states(tmp_path):
+    """Without ``passed:`` no base could be told failed (a base left ``failed`` would let its lane on top stand), so
+    ``ahead`` above 0 needs it, and a falsy ``passed`` (false, 0, {}, [], "") is refused, not read as none declared.
+    At run time an end with no ``passed`` declared never passes (lesson-3: the worst case)."""
+    good = "{apart: paths, most: 2, within: {cpu: 4, memory: 4g}"
+    for bad in (", ahead: 1}", ", ahead: 2, passed: []}", ", ahead: 1, passed: false}", ", passed: false}",
+                ", passed: 0}", ", passed: {}}", ", passed: []}", ', passed: ""}', ", ahead: 1, passed: [landed, 0]}"):
+        (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL.replace("LANES", f", lanes: {good}{bad}")))
+        _, problems = read(tmp_path / "ergostat.yaml")
+        assert any("takes.lanes" in x.message and x.code == "bad-lanes" for x in problems if x.level == "error"), bad
+    for ok, ps in ((", ahead: 1, passed: landed}", ("landed",)), ("}", ())):
+        (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL.replace("LANES", f", lanes: {good}{ok}")))
+        spec, problems = read(tmp_path / "ergostat.yaml")
+        assert not [x for x in problems if x.level == "error"], ok
+        assert spec.blocks["lane"].takes.lanes.passed == ps
+    b = SimpleNamespace(takes=SimpleNamespace(lanes=Lanes("paths", 2, 4.0, G, 0.0, 0)))
+    assert not lanes.passed(b, "ack", "failed") and not lanes.passed(b, "ack", "landed")
+    b.takes.lanes = Lanes("paths", 2, 4.0, G, 0.0, 0, 1, ("landed",))
+    assert lanes.passed(b, "ack", "landed") and not lanes.passed(b, "ack", "failed")
+    assert not lanes.passed(b, "nack", "landed")
+
+
 FIXTURE = Path(__file__).parent / "fixtures" / "lanes_replay.json"
 
 

@@ -154,9 +154,9 @@ def choose(d, b, every: list, got: list, room_now: int, now: float) -> tuple[lis
 
 
 def passed(b, how: str, state: str | None) -> bool:
-    """A lane's end that lets those on top of it stand: given back never does; moved on, into ``passed`` when declared."""
-    ps = b.takes.lanes.passed
-    return how == "ack" and (not ps or state in ps)
+    """A lane's end that lets those on top of it stand: given back never does; moved on, only into ``passed`` (none
+    declared, as only ``ahead: 0`` allows: nothing passes, the worst case, and nothing is on top to discard)."""
+    return how == "ack" and state in b.takes.lanes.passed
 
 
 def discard(d, b, base: str, run: str, why: str) -> list[str]:
@@ -179,12 +179,10 @@ def taken_up(d, b, item: str, run: str, fence: int, on) -> str | None:
     """A lane on top taken up after a restart (dispatch.py ``adopt``), once it is in ``going`` (so a base ending from
     now on finds it): a base that ended without passing before that (given back, expired, left outside ``passed``, or
     unreadable: lesson-3) stops it now, as ``discard`` would have. Returns that base, or None."""
-    from .dispatch import moved_on
     from .fold import held
     for o in on or ():
         it = its.one(d.p.events, d.spec, o)
-        if it is not None and (held(it.fields) or (it.state in b.takes.lanes.passed if b.takes.lanes.passed
-                                                   else moved_on(b, it))):
+        if it is not None and (held(it.fields) or it.state in b.takes.lanes.passed):
             continue
         why = f"the lane it ran on top of ({o}) did not pass (ended so before it was taken up): discarded, not counted"
         with d.lock:
@@ -198,11 +196,9 @@ def taken_up(d, b, item: str, run: str, fence: int, on) -> str | None:
 def unproven(d, b, lease: dict) -> str | None:
     """A lane on top that ends red: the first of what it ran on that has not passed (still under way, or given back),
     so its red is not proven its own and is not counted; None when all of them passed (or it ran apart)."""
-    from .dispatch import moved_on
     for o in lease.get("on") or []:
         it = its.one(d.p.events, d.spec, o)
-        if it is None or (it.fields.get("lease") or {}).get("holder") or not (
-                it.state in b.takes.lanes.passed if b.takes.lanes.passed else moved_on(b, it)):
+        if it is None or (it.fields.get("lease") or {}).get("holder") or it.state not in b.takes.lanes.passed:
             return o
     return None
 

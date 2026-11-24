@@ -110,16 +110,20 @@ def lanes(c, raw, what: str) -> Lanes | None:
     if not isinstance(f, dict):
         return bad(": a map: apart: (a field), most: (lanes at once) and within: {cpu: N, memory: SIZE}")
     c.keys(f, LANES_KEYS, w)
-    ap, n, k, ps = f.get("apart"), f.get("most"), f.get("ahead", 0), f.get("passed") or []
-    ps = [ps] if isinstance(ps, str) else ps
+    ap, n, k, ps = f.get("apart"), f.get("most"), f.get("ahead", 0), f.get("passed")
+    ps = [] if ps is None else [ps] if isinstance(ps, str) else ps         # (checked for None, never falsiness)
     if not isinstance(ap, str) or not re.fullmatch(r"[^\s-]\S*", ap):
         return bad(".apart: a field's name (the list of what an item touches: items sharing an entry never run apart)")
     if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= LANES_MOST:
         return bad(f".most: a whole number from 1 to {LANES_MOST} (the lanes at once)", f.at("most"))
     if isinstance(k, bool) or not isinstance(k, int) or not 0 <= k <= AHEAD_MOST:
         return bad(f".ahead: a whole number from 0 to {AHEAD_MOST} (how deep a lane may run on top of others)", f.at("ahead"))
-    if not isinstance(ps, list) or not all(isinstance(x, str) for x in ps):
+    if not isinstance(ps, list) or not all(isinstance(x, str) and x for x in ps) or (
+            "passed" in f and not ps):
         return bad(".passed: a state, or a list of them (where a lane that passed is left)", f.at("passed"))
+    if k and not ps:
+        return bad(".passed: needed with ahead: above 0 (the states where a lane that passed is left; without them no "
+                   "base could be told failed)", f.at("ahead"))
     got = {}
     for key, need in (("within", True), ("each", False)):
         m = f.get(key, {} if not need else None)
