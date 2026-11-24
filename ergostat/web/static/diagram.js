@@ -224,7 +224,8 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
   // row of stocks taller, or wider)
   if (sat && Object.keys(sat.kept).length && !opts.plain && again === 0) {
     const plain = await layoutGraph(g, aspect, cut, 0, { ...opts, plain: true, dry: true });
-    if (screenFit(plain) > SAT_KEEP * screenFit(lay)) return finishLayout(plain, g, opts);
+    // (each as laid out, before the pins move it: what was put by hand never changes which layout is drawn round it)
+    if (plain.laidFit > SAT_KEEP * screenFit(lay)) return finishLayout(plain, g, opts);
   }
   return finishLayout(lay, g, opts);
 }
@@ -237,6 +238,7 @@ function screenFit(lay) {                                 // the zoom at which t
 function finishLayout(lay, g, opts) {
   if (!lay.finished) {
     lay.finished = true;
+    lay.laidFit = screenFit(lay);                        // (before the pins: the satellites' room is judged on it, above)
     applyPins(lay, g);
     orientValves(lay, g);                                // valves face their pipes and their links (valves.js)
   }

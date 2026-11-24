@@ -906,9 +906,14 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         before = pg.evaluate(places)
         frame = "() => { const c = S.layout.containers.find((c) => c.name === 'product'); return [c.bx ?? c.x, c.by ?? c.y]; }"
         hull = pg.evaluate(frame)
-        grip = pg.locator('g.hull[data-hull="product"] rect.hull-grip').bounding_box()
         k = pg.evaluate("() => S.view.k")
-        x, y = grip["x"] + grip["width"] * 0.6, grip["y"] + 8
+        # a place on its top that is the grip's, not under a line that crosses into it (a link's wide hit path is on top)
+        x, y = pg.evaluate("""() => { const g = document.querySelector('g.hull[data-hull="product"] rect.hull-grip'), b = g.getBoundingClientRect();
+          for (const f of [0.6, 0.5, 0.7, 0.4, 0.8, 0.3, 0.9, 0.2]) for (const dy of [8, 4, 11]) {
+            const x = b.x + b.width * f, y = b.y + Math.min(dy, b.height - 1);
+            if (document.elementFromPoint(x, y) === g) return [x, y];
+          }
+          return [b.x + b.width * 0.6, b.y + 8]; }""")
         pg.mouse.move(x, y)
         pg.mouse.down()
         for step in range(1, 11):
@@ -928,7 +933,8 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         assert not r["through"] and not r["partOverlap"] and not r["netCrossings"], (r["through"], r["partOverlap"])
         drawn(pg, url, "open=*", 9)                                   # a new visit: still where it was put
         again = pg.evaluate(places)
-        assert all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
+        assert all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after), \
+            {i: (after[i], again.get(i)) for i in after if again.get(i) != after[i]}
         pg.locator('g.pins .pin[data-id="hull:product"]').dispatch_event("click")
         pg.wait_for_function("() => !S.pins['hull:product']", timeout=10000)
         assert not errors, errors
