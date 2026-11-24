@@ -91,7 +91,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    ticket, at: todo, unblocked: true, order: [-priority, rank]}` (lowest first; `-FIELD` highest first; the items
    without it after those with it; the critical first among equals). The completion estimates and the Timeline
    project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
-   notes an order field no item holds yet (`takes-order-unset`).
+   notes an order field no item holds yet (`takes-order-unset`). **To keep the next few in their order** (work about
+   to start not reshuffled by later arrivals or re-ranks), add `frozen: {first: 3, urgent: rush}` to `takes:`; an
+   item goes ahead of the window only when its `rush` says `{"by": WHO, "why": WHY}`, and that is recorded
+   (`block.frozen.broken`). Leave it out unless the person asks for it: it is off by default.
    **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare
    `attention: FIELD` on its kind: the words of that field on the kind's latest item that has them are a warning on
    the page's attention list (SPEC §5a), so the finding is said where it is seen, not only stored.

@@ -54,6 +54,8 @@ class BlockIn:
     lanes: int = 0                 # its capacity, from ``capacities`` (0: worked out from pool and shared)
     measured: str = ""             # its measured concurrency, said, when it binds (``capacities``)
     refusals: list[float] = field(default_factory=list)   # its takes refused (the gate closed): each one's put-off
+    frozen: tuple[int, str] | None = None   # takes: {frozen: {first, urgent}} (SPEC §9.5; leases/frozen.py)
+    held: list[str] = field(default_factory=list)          # its frozen window in force at ``at``
 
     def capacity(self, pools: dict | None = None) -> int:
         if self.lanes and self.name not in (pools or {}):
@@ -177,7 +179,9 @@ class Inputs:
 
 
 def _orders(spec, kind: str) -> set[str]:
-    return {f.lstrip("-") for b in spec.blocks.values() if b.takes and b.takes.kind == kind for f in b.takes.order}
+    bs = [b for b in spec.blocks.values() if b.takes and b.takes.kind == kind]
+    return {f.lstrip("-") for b in bs for f in b.takes.order} | {b.takes.frozen.urgent for b in bs if b.takes.frozen
+                                                                 and b.takes.frozen.urgent}
 
 
 def _fold(moves: list[dict], at: float):
@@ -373,6 +377,7 @@ def _refusal(r: dict) -> bool:
 def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
     """Each block's attempts and its run-time curve, and its refusals (not attempts: its gate closed); each open
     item's lease, attempts and put-off."""
+    from ..leases import frozen
     from ..leases.terms import terms
     runs = _runs(p, spec, p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=out.at), ix)
     offs = gated_off(p, spec, out.at)
@@ -401,6 +406,12 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
         bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), c["pool"], c["shared"],
                      bool(b.takes.unblocked), t["attempts"], float(t["ttl"]), ws, b.takes.order, offs.get(b.name, ""),
                      pool_said=c["said"], lanes=c["lanes"], measured=c["source"] if c.get("measured") else "")
+        if b.takes.frozen:                              # (unreadable: the plain order, as the dispatcher takes it)
+            bi.frozen = (b.takes.frozen.first, b.takes.frozen.urgent)
+            try:
+                bi.held = frozen.in_force(p.events, b.name, until=out.at)
+            except Exception:  # noqa: BLE001 - the dispatcher says it; here the plain order
+                bi.frozen = None
         rs = by_block.get(b.name, [])
         if ws:                                          # a run given back for want of a workspace held nothing: a wait
             out.workspaces[ws] = spec.workspaces[ws].size

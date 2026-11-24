@@ -41,7 +41,7 @@ from ..costs import budget
 from ..library import bounds
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
-from . import ENDED, EXPIRED, RENEWED, TAKEN, faults, groups, poolnow
+from . import ENDED, EXPIRED, RENEWED, TAKEN, faults, frozen, groups, poolnow
 from . import gone as run_gone
 from .fold import held
 from .kill import kill
@@ -241,9 +241,17 @@ class Dispatcher:
                 room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
             if room <= 0:
                 return
-            for it in self.groups.only(b, ordered(b, unblocked(self, b, self.ready(b, every, now))), every, now)[:room]:
+            got, hurry = self.in_order(b, self.ready(b, every, now))
+            for it in self.groups.only(b, got, every, now)[:room]:
                 self.stale = True
-                self.take(b, self.whole(ix, it))
+                if self.take(b, self.whole(ix, it)) and it.id in hurry:
+                    frozen.broken(self, b, it.id, hurry[it.id], SOURCE)
+
+    def in_order(self, b, got: list) -> tuple[list, dict]:
+        """The items a block may take, in the order it takes them (``ready.ordered``, then its frozen window: SPEC §9.5),
+        and the urgent among them that would go ahead of a frozen window (→ the record of it)."""
+        got = ordered(b, unblocked(self, b, got))
+        return frozen.order(self, b, got, SOURCE) if b.takes.frozen else (got, {})
 
     def pool_now(self, b) -> int:
         """The block's pool now: its ``pool:``, or its stock's level as the engine last read it (a stored value: no
@@ -280,9 +288,11 @@ class Dispatcher:
         ``outcome["refused"]``."""
         out: dict = {}
         with self.lock:
-            got = ordered(b, unblocked(self, b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
-                                                          time.time())))
+            got, hurry = self.in_order(b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
+                                                     time.time()))
             started = self.take(b, got[0], inline=True, out=out) if got else None
+            if started and got[0].id in hurry:
+                frozen.broken(self, b, got[0].id, hurry[got[0].id], SOURCE)
         if out.get("refused"):
             if outcome is not None:
                 outcome["refused"] = out["refused"]
@@ -358,7 +368,7 @@ class Dispatcher:
         if inline:
             return b, item, given, run, ev["id"]
         threading.Thread(target=self._work, args=(b, item, given, run, ev["id"]), daemon=True).start()
-        return None
+        return True                                               # (taken: its run started)
 
     def _work(self, b, item: dict, lease: dict, run: str, taken: str, why: str = "item") -> list[str]:
         slot = self.e.slots.get(b.agent or "")

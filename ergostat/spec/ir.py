@@ -885,6 +885,16 @@ class Takes:
                                                      # without one after those with it; the order above among equals
     healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
     hold_by: list[str] = field(default_factory=list)   # ``faults: {hold-by: [F]}``: a value failing together is held
+    frozen: Frozen | None = None    # ``frozen: {first: N, urgent: F}``: its next N keep their order (leases/frozen.py)
+
+
+@dataclass(frozen=True)
+class Frozen:
+    """A block's frozen window (SPEC §9.5): the first ``first`` items it would take keep their order; an item whose
+    ``urgent`` field says ``{by, why}`` goes ahead of them, recorded."""
+
+    first: int
+    urgent: str = ""
 
 
 @dataclass
