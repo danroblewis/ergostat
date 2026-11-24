@@ -72,6 +72,13 @@ auxiliaries:
     description: AI sessions whose refused tool calls are unknown (a timeout, a crash, a result silent on them)
     driven-by: [+stock.gaps-building]
     sensor: {run: python3 dev/bin/measure.py tool-denials-unknown, every: 10m, timeout: 1m, description: the factory's measures}
+  refused-commands-per-session:
+    unit: calls/session
+    description: >-
+      the mean Bash calls refused per AI session (chained commands, a program not allowed), over the sessions that said
+      what they were refused; the others are left out, and with none that said there is no value
+    driven-by: [+stock.gaps-building]
+    sensor: {run: python3 dev/bin/measure.py refused-commands-per-session, every: 10m, timeout: 1m, description: the factory's measures}
   size-accuracy:
     unit: share
     description: of merged gaps the planner sized, the share whose merged lines fell inside their size class (S/M/L/XL)
@@ -90,6 +97,32 @@ auxiliaries:
       no value without a readable report at most 20 of main's merges old
     driven-by: [-flow.gaps-merged]
     sensor: {run: python3 dev/bin/measure.py coverage-below-floor, every: 30m, timeout: 1m, description: the factory's measures}
+  # The merge pipeline's health, from its batch items (dev/bin/landing.py; the goal main-moving is landing.yaml's)
+  main-still-minutes:
+    unit: minutes
+    description: minutes since main last moved - since the latest batch whose landing stood (ended landed or partial, pushed); no value before any did
+    driven-by: [-flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py main-still-minutes, every: 1m, timeout: 1m, description: the batch items}
+  batch-runs:
+    unit: runs
+    description: mean runs of the suites per batch (full, named, halves), over the batches ended in 14 days; no value with none
+    driven-by: [+flow.queue-failures]
+    sensor: {run: python3 dev/bin/measure.py batch-runs, every: 10m, timeout: 1m, description: the batch items}
+  batch-first-green:
+    unit: share
+    description: the share of batches whose first run passed, over the batches started in 14 days with a run finished; no value with none
+    driven-by: [-flow.queue-failures]
+    sensor: {run: python3 dev/bin/measure.py batch-first-green, every: 10m, timeout: 1m, description: the batch items}
+  crash-lost-minutes:
+    unit: minutes
+    description: minutes of the batch runs that crashed (an error of the run, never a test's failure), over the batches started in 14 days
+    driven-by: [+auxiliary.batch-runs]
+    sensor: {run: python3 dev/bin/measure.py crash-lost-minutes, every: 10m, timeout: 1m, description: the batch items}
+  gaps-landed-per-hour:
+    unit: gaps/hour
+    description: gaps the batches landed over the last 24 hours, per hour
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py gaps-landed-per-hour, every: 10m, timeout: 1m, description: the batch items}
 
 goals:
   first-pass-good:

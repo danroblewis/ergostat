@@ -465,7 +465,8 @@ def wording(x: dict) -> tuple[str, str]:
     answers), failed when it makes one."""
     f = x.get("findings") or {}
     new, answered = [*(f.get("new") or []), *(f.get("notes_new") or [])], [*(f.get("answered") or []), *(f.get("notes_answered") or [])]
-    what = {"description": "a description", "unit": "a unit", "rename": "a rename"}.get(x.get("kind"), "a change of words")
+    what = {"description": "a description", "unit": "a unit", "rename": "a rename",
+            "display": "a display change"}.get(x.get("kind"), "a change of words")
     if new:
         return "failed", f"{what} that makes {len(new)} new finding{'s' if len(new) > 1 else ''} ({', '.join(new[:3])})"
     return "passed", (f"{what}: the replay reads the record the same with it; it answers "

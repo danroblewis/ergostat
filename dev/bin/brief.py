@@ -11,6 +11,7 @@ import re
 import time
 from pathlib import Path
 
+import agents
 import fac
 import knowledge
 
@@ -79,7 +80,8 @@ def assemble(cfg: dict, role: str, gap: dict, worktree: Path, **extra) -> tuple[
         "base": cfg["git"]["base"], "definition": definition.strip(), "gaps_entry": entry or "(not in GAPS.md)",
         "guides": "\n".join(f"- {g}" for g in guides), "findings": findings_text(findings),
         "definition_path": fac.definition_file(gap, worktree), "budget": str(fac.budget_of(definition)),
-        "round": str(int(f.get("rounds") or 0) + 1), "knowledge": know, **{k: str(v) for k, v in extra.items()},
+        "round": str(int(f.get("rounds") or 0) + 1), "knowledge": know, "shell": agents.shell_rule(role),
+        **{k: str(v) for k, v in extra.items()},
     }
     text = re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), m.group(0)), template.read_text())
     context = {"role": role, "template": f"dev/prompts/{role}.md", "guides": guides, "files": named,
