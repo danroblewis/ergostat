@@ -23,7 +23,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import FunctionType, ModuleType
 
-from . import _frames
+from . import _frames, _lint
 
 MOST_TEXT = 4000            # characters of a query's text
 MOST_SERIES = 50            # series one query may answer with
@@ -41,10 +41,11 @@ _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a labe
 class SourceError(Exception):
     """A query that is not answered, and why: ``kind`` is ``limit``, ``unreachable``, ``refused`` or ``unknown``."""
 
-    def __init__(self, kind: str, words: str, at: tuple[int, int] | None = None):
+    def __init__(self, kind: str, words: str, at: tuple[int, int] | None = None, code: str | None = None):
         super().__init__(words)
         self.kind = kind
         self.at = at            # (line, column), each from 1: where in the text the source said it is wrong
+        self.code = code        # the verdict's reason (query/verdicts.py), when it is not the kind's own
 
 
 @dataclass(frozen=True)
@@ -175,11 +176,15 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
         got = mod.query(src, text, w)
     finally:
         ASKING.reset(token)
+    warned = _lint.warnings(mod.LANGUAGE, text)
     if isinstance(got, dict):                       # a typed frame (_frames.py)
         try:
-            return _frames.answer(got, g, MOST_SERIES)
+            out = _frames.answer(got, g, MOST_SERIES)
         except _frames.Bad as e:
-            raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused", f"source {name!r} answered badly: {e}") from e
+            raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused",
+                              f"source {name!r} answered badly: {e}" if e.code is None else f"source {name!r}: {e}",
+                              code=e.code) from e
+        return {**out, "warnings": [*out.get("warnings", ()), *warned]}
     if not isinstance(got, list):
         raise SourceError("refused", f"source {name!r} answered with no series")
     if len(got) > MOST_SERIES:
@@ -192,7 +197,8 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
             if g.since - g.step < t <= g.until and isinstance(v, int | float) and math.isfinite(v):
                 values[g.at(t + 1e-6 * g.step)] = float(v)    # (a time on a bucket's start, never just before it)
         series.append({"name": str(label), "values": values})
-    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False, "shape": "series"}
+    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False, "shape": "series",
+            "warnings": warned}
 
 
 def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", label: str = "",
