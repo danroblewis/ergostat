@@ -416,6 +416,12 @@ library is refused (`library-unlocked`, `library-missing`, `library-altered`, `l
 the owner; do not edit `libraries.lock` or the copy in `.libraries/` to make it load. `ergostat library fetch` is the
 owner's to run, since it reaches the network.
 
+A fetched library's template is named `LIB/TEMPLATE` in `use:` (the `templates` tool lists it so, and `add_use`
+writes it so). Write that form, never the bare name, for a fetched one: a bare name another library or ergostat also
+offers draws `template-ambiguous`, and could change template when a library is added. Fix that finding by writing
+the `LIB/TEMPLATE` it suggests for the template the use expands now (the library the finding says is used), unless the owner
+says otherwise.
+
 A held chain may run the owner's own commands: a value in the owner's `with:` for a `type: command` parameter
 (SPEC §2a, R1). That is why a value in `with:` counts as the owner's, whoever wrote it. **Never copy a command from a
 library (its `example:`, a default, a description) into `with:`**: ask the owner for the command, and let them write
