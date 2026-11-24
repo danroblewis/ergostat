@@ -2276,7 +2276,7 @@ def test_the_top_of_blocks_is_a_loop_with_its_junction_ahead_of_the_controller_a
         assert not errors, errors
 
 
-ROWS = """() => {
+BD_ROWS = """() => {
   const at = (id) => S.layout.children.find((c) => c.id === id);
   const cap = [...document.querySelectorAll("svg.canvas text.bd-row-caption")];
   return { rows: (S.graph.rows || []).map((r) => ({ system: r.system, parts: r.nodes.map(at), frame: r.frame &&
@@ -2300,7 +2300,7 @@ def test_uncoupled_systems_are_parallel_rows_each_with_r_left_and_y_right_and_a_
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks", 0)
-        r = pg.evaluate(ROWS)
+        r = pg.evaluate(BD_ROWS)
         pg.close()
     assert not errors, errors
     assert [x["system"] for x in r["rows"]] == systems == [o["system"] for o in r["outlines"]], r
@@ -2341,7 +2341,7 @@ def test_rows_keep_their_outlines_when_a_coupled_system_opens_or_closes_in_place
                                  "!S.anchor && S.layout && !S.layout.routing && document.querySelectorAll('svg.canvas rect.bd-row').length",
                                  timeout=30000)
             pg.wait_for_timeout(300)
-            seen.append((opened, anchor, pg.evaluate(ROWS)))
+            seen.append((opened, anchor, pg.evaluate(BD_ROWS)))
         pg.close()
     assert not errors, errors
     assert all(a for _, a, _ in seen), [(o, a) for o, a, _ in seen]     # (each time, the drawing was to be kept in place)
@@ -3778,11 +3778,12 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                                    e.style.stroke = 'var(--frame)'; hull.parentNode.append(e);
                                    const c = getComputedStyle(e).stroke; e.remove(); return c; })(),
                    corners: !!hull?.parentNode.querySelector(':scope > path.frame-corners'),
-                   // the panel but its legend (first now) and Q42's group words ('Goals off', 'No goal is off.', the
-                   // same in every view), every fold opened: no control word in any of it
+                   // the panel but its legend (first now) and Q42's groups (their heads and rows: 'Goals off',
+                   // 'No goal is off.', 'goal NAME cannot close: ...', the same in every view, a goal named a goal),
+                   // every fold opened: no control word in any of it
                    side: (() => { const s = document.querySelector('.side').cloneNode(true);
                                   s.querySelector('details.legend-box').remove();
-                                  for (const x of s.querySelectorAll('h3.att-head, .att > .none')) x.remove();
+                                  for (const x of s.querySelectorAll('h3.att-head, .att')) x.remove();
                                   for (const d of s.querySelectorAll('details')) d.open = true;
                                   return s.textContent; })() };
         }""")
