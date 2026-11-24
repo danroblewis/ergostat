@@ -21,7 +21,7 @@ from .. import runner as old
 from ..costs.sampler import Sampler
 from ..leases.kill import grace
 from . import proc
-from .config import WARM_ALL
+from .config import STORE, WARM_ALL
 from .observe import Observed
 from .proc import Process
 from .work import Hands
@@ -127,6 +127,7 @@ class Supervisor(Hands):
         again from the engine, which a later swap may have moved on."""
         mine = lambda n: self.e.own(f"daemon.{n}", spec)          # noqa: E731
         used = {b.params["daemon"] for b in spec.blocks.values() if b.params.get("daemon")}
+        used |= {STORE} if getattr(getattr(spec, "storage", None), "run", None) and STORE in spec.daemons else set()
         used = {n for n in used | {s.daemon for s in spec.sensors() if s.daemon} if mine(n)}
         want = {}                                    # a warm one: a process of its own per run held at once, NAME#i
         for n in used:

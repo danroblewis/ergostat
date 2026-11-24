@@ -869,7 +869,8 @@ The defaults need no services; a project names another backend in `storage:` (ma
 storage:
   events: segments                 # or sqlite
   measurements:
-    backend: sqlite                # or victoriametrics, with url: http://127.0.0.1:8428
+    backend: sqlite                # or victoriametrics, with url: http://127.0.0.1:8428 (unnamed: see "The default")
+    run: victoria-metrics ...      # victoriametrics: the command ergostat runs and supervises (the daemon victoriametrics)
     raw: 2d                        # raw readings kept this long (never: kept until keep)
     tiers: {1m: 14d, 10m: 90d, 1h: 2y}   # then buckets of each width, each kept this long
   rollup:
@@ -959,8 +960,29 @@ to a fresh read of the record (the modules' `stored()`, `events.query`, the inbo
 records on both event stores, followed a chunk at a time, read cold, built again, after a roll-up, a
 prune and a fresh record, after a crash part way (each chunk is one transaction: the next process
 resumes from the last committed), and read by another process while one follows (it reads what was
-committed, unblocked). The answers are as of what the index has folded, not of an earlier `until`:
-the status reads them only when it asks about now.
+committed, unblocked). The status answer and the modules it calls (the inbox and its stats,
+interventions, gated actions, messages, reports, model changes, modelling requests, leases' attention,
+loop crossings) read these tables and no longer fold the record themselves (`projections.stored`,
+`query`, `asks`). `records` is as of what the index has folded: a read as of an earlier `until` is
+answered from it when no item of the family has an event after `until` (its `last` column), and
+otherwise by the same fold over the family's events up to then, in memory, as is a record kept nowhere
+on disk, a record whose index is not made yet (these reads make no index file: the files are a stock the
+upkeep template's tidier holds, §2a), and one whose index cannot be read and could not be built again
+(the record is the truth, so the answer is the same, only slower). The snapshot says how old it is: `as_of` is the record's last seq as it was read and when the
+answer was made, and the status answer adds its `age` in seconds. Two more tables serve the loops and
+agents: `latest`, each item's newest event of the types `LATEST` names (runs, failures, starts,
+decisions, openings, auxiliaries set), by seq (a read as of a moment before it reads the record for that
+item); and `ticks`, what each run and opening adds to the window's tallies (`events.runs`, `opened`),
+its time and, for an opening, its amount as written. Contradicted claims are a mark. An action's work
+item (its why) is read from the item index. A `where:` match as of a moment (`state.counted`) folds an
+item changed since from the record only when an event since may have changed a field it is matched on
+(the index keeps, per item, when each top-level field was last touched: a snapshot or a `set` touches
+all of them) or its events came out of time order around that moment; the rest are the index's as they
+stood then. A status answer catches the index up once (`itemindex.pinned`) and reads no event log once
+it is current; it reads the window's readings of every sensor together where the raw readings answer
+alone (`Measurements.ranges`), the newest readings from the store's `newest()`, and the store's first
+reading by each series' index. On the factory-size fixture it answers in under 100 ms
+(`tests/test_status_reads_projections.py`).
 
 **Items rolled up.** An item's events older than its horizon (`rollup.after`, or its kind's) are
 replaced by one event, `ergostat.item.snapshot`, the item as it stood after them:
@@ -998,22 +1020,73 @@ buckets, a few hours of record per transaction; a source is forgotten only once 
 taken it. A reading that arrives for a span already rolled up is merged into its buckets. Every
 read stitches the sources: raw where it is kept, buckets before that; a bucketed read (a chart's
 points) takes the coarsest tier no wider than its own buckets; a read of readings one by one gets
-each old bucket's last reading. `victoriametrics` keeps every reading as
-`ergostat_reading{project, series}` in the server, which compresses and keeps them for its own
+each old bucket's last reading. `victoriametrics` keeps every reading under its series' name and bounded labels,
+with `project` (the state directory's name) and `series` (its ergostat name) beside them, in the server, which
+compresses and keeps them for its own
 `-retentionPeriod` (the open-source server does not downsample): buckets are computed by the
 server (MetricsQL over `query_range`), raw readings exported when there are few (20,000 at most),
 and old spans bucketed otherwise; a reading set aside (`forget`) is kept in
 `measurements.forgotten.json`, and the ledger of backfilled readings (section 6) in
 `measurements.backfilled.db` beside it (with `sqlite`, it is in `measurements.db`).
 
+**Names and labels in PromQL** (`victoria.promql_name`). Each label's value is a part, block or measure the model
+declares, so the labels are bounded by the model; nothing with a generated id (an item, a run) is ever a label, which
+stays in the event log.
+
+| Series | Metric and labels |
+|---|---|
+| `sensor/STOCK.SENSOR` (a sensor; `sensor/PART.set`, a setting) | `ergostat_sensor{part="STOCK", sensor="SENSOR"}` |
+| `sensor/NAME` | `ergostat_sensor{part="NAME"}` |
+| `run/BLOCK/MEASURE` (`cost_usd`, `tokens`, `cpu`, `memory`, `seconds`) | `ergostat_run_MEASURE{block="BLOCK"}` |
+| `observer/NAME/MEASURE` | `ergostat_observer_MEASURE{observer="NAME"}` |
+| `valve/NAME` | `ergostat_valve_position{valve="NAME"}` |
+| `block/NAME` | `ergostat_block_output{block="NAME"}` |
+| `KIND/REST`, any other | `ergostat_KIND{name="REST"}` |
+| `NAME` (no `/`) | `ergostat_series{name="NAME"}` |
+
+A record written before these names holds every series as `ergostat_reading{project, series}`; it is still read
+(every selector takes `ergostat_.+`) until `ergostat migrate` renames it.
+
+**Moving the readings to VictoriaMetrics** (`ergostat migrate [--url URL] [--dry-run]`, `ergostat/migrate.py`). Every
+reading the SQLite store answers (raw, and each old bucket's last reading) is copied to the server under its name and
+labels. A series under the old single name is renamed: written under its labels, then the old name deleted, but only
+once every one of its readings is held under the new one. For each series, only the readings the server does not
+already hold under the new name are sent: the same millisecond, and the same value to a relative 1e-9, since the
+server keeps a value's leading decimal digits, not its binary float. Each series is then read back. A reading sent
+that the server did not keep (older than its `-retentionPeriod`, one month by default, or too far ahead) is counted
+as `missing`, not as sent, and named by series in `lost` (`{n, first, last}`). The command then exits 1 and does not
+suggest switching the backend. Once every reading is held, a second run sends nothing and changes nothing, and a run
+after more readings were written sends only those. `measurements.db` is only read. The ledger of backfills is not copied: a file
+backfilled before is sent again by a later `--backfill`.
+
+**The default** when the YAML names no backend: a record that has one keeps it (`measurements.db`: an existing SQLite
+install, until it migrates and names `victoriametrics`; or `measurements.backend`, the mark a new record's choice
+leaves, so a server that is away is never read as "use SQLite"; `ergostat reset` leaves the mark `sqlite` when it
+deletes a `measurements.db`, so a reset SQLite install stays SQLite; on a VictoriaMetrics record it first deletes the
+project's series in the server, every name, through `delete_series`, and the backfill ledger with the rest, and a
+server that is away refuses the reset with nothing deleted). A new record under the default home
+(`~/.ergostat/<key>`) takes `victoriametrics` when one answers at `http://127.0.0.1:8428` (`/health`, within half a
+second) as it is first opened, and `sqlite` when none does. A new record under any other `ERGOSTAT_HOME` (the
+throwaway homes of the demo checks, load tests, benchmarks, the factory fixture and library trials) takes `sqlite`
+without asking, so it never writes into a live server, whose `project` label it could share.
+`ERGOSTAT_DEFAULT_MEASUREMENTS` (`sqlite` or `victoriametrics`) decides instead of asking, under any home (the tests
+set `sqlite`).
+Ergostat starts no server of its own accord: one runs because the owner runs it, or names it in `run:`.
+
+**Supervised** (`run:`, with `backend: victoriametrics`). The command becomes the daemon `victoriametrics` (section
+9.7): started with the engine although no block or sensor names it, restarted after a back-off when it exits, given up
+past `restart: max`, its process group stopped with ergostat. It serves no run and no reading (it never reads the
+protocol on its standard input). A `daemons:` entry of that name is an error. While it starts, the engine's writes
+fail as they do whenever the server is away.
+
 **Chosen by measurement** (`scripts/loadtest.py`, the demos' records tiled to 1, 7 and 30 days;
 the numbers in `docs/proposals/harness-parity-plan.md`, section 4). The segmented log is the
 default for events: a fifth of SQLite's size for the same record (110 MB against 557 MB for a week
-of image-squeeze), written faster, and read as fast or faster by every page. SQLite stays the
-default for measurements: VictoriaMetrics holds them in almost nothing and answers the pages as
-well, but every reading the engine reads is a request to the server, and the engine kept to under
-one reading a second where it makes six; it is for a project that already runs one, until the
-engine reads through a cache.
+of image-squeeze), written faster, and read as fast or faster by every page. For measurements the
+owner chose VictoriaMetrics as the default for new installs (2026-11-23: dashboards are PromQL, and SQLite answers
+none), against what was measured here: VictoriaMetrics holds the readings in almost nothing and answers the pages as
+well, but every reading the engine reads is a request to the server, and the engine kept to under one reading a
+second where it makes six, until the engine reads through a cache. That measurement was not repeated for this choice.
 
 **Upkeep.** The engine rolls items up, forgets what is past `keep`, and rolls the measurements into
 their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--dry-run` says what
@@ -1452,6 +1525,21 @@ reads the event log.
   sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
   A refusal the source places in the text (Prometheus's `2:3: parse error: ...`, or `at char 5`) also has `error_at`,
   `[line, column]` from 1, the column in UTF-8 bytes as Prometheus counts it (the page turns it into a place in the text).
+- **The built-in source `ergostat`.** ergostat's own readings, as a `prometheus` source no model declares (one the model
+  declares under that name is its own instead). Over `victoriametrics` (section 4b) it asks the server that holds them,
+  with `extra_label=project=<state key>` on each query and suggestion, so the server answers only this project's series
+  whatever the text says; the names and labels are section 4b's (*Names and labels in PromQL*), e.g.
+  `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It is listed in `datasources` and offered by the editor. Over
+  `sqlite` it is not listed, and a panel naming it is refused in its own result (`error_kind: refused`) with what it
+  needs: VictoriaMetrics, `storage: measurements: victoriametrics` and `ergostat migrate`; the page's other panels are
+  answered as before. **`rate()` and `increase()` differ from Prometheus's.** Prometheus takes the samples inside the
+  window, at least two, and extrapolates their change toward the window's edges (not past where a counter was zero), so
+  an integer counter's increase can be fractional and a window with one sample has no answer. VictoriaMetrics counts
+  from the last sample before the window and does not extrapolate, so the increase of an integer counter is a whole
+  number and a window with one sample is answered. One rise by one in five minutely samples: Prometheus says 1.125,
+  VictoriaMetrics 1 (`tests/test_metrics_store_labels.py::test_rate_and_increase_differ_from_prometheus_as_recorded`,
+  which runs against a real binary; Prometheus's side is its algorithm, written in the test). VictoriaMetrics's side is
+  what its documentation says (MetricsQL); it has not yet been seen to pass, since no binary was where it was written.
 - **The query editor.** A language with an editor of its own gets it in place of the text field (`static/promql.js` for
   PromQL, registered as `queryEditors.PromQL`; the panel editor picks by the source's language and names none). The PromQL
   one highlights the text as it is written (functions, keywords, metrics, labels, strings, numbers), completes PromQL's
@@ -5848,7 +5936,7 @@ gives, in its `controller`, that block's law as identified (`identified`: the la
 record held out) and says it, or says why it has none (its law not asked for, or not identified, and why); no margins
 are worked out from it (they need a law written in the model). `examples/autoscaler` shows it. *Not yet*: whether the law changed (someone retuned the controller:
 two laws against one on held-out error; a first comparison of each half's numbers raised it on unchanged controllers),
-a known law tested against the record, and the law's numbers sampled by the risk.
+and the law's numbers sampled by the risk. (A known law is tested against the record: *Known laws*, below.)
 
 **Known laws** (`control/laws.py`): an external block with `identify:` may declare the law of a controller that ships
 with the system it runs in, `law: {kind: KIND, ...}`, from this catalogue; each parameter is typed and bounded, and one
@@ -5877,7 +5965,25 @@ before). **bad-law**, at the key: an unknown kind or parameter, a value not its 
 declared is drawn as its block's function in Blocks (the law in the block's notation, as an identified law's, marked
 *declared KIND* where an identified law is marked *identified*; a law the record identifies is drawn over it, the
 declared one kept in the block's rows) and said in words with its parameters by `explain` (and its MCP tool); it is not
-yet run in the projection or tested against the record.
+yet run in the projection.
+
+**A declared law tested against the record** (`external.declared`): on the identification's own grid and the same
+split, the declared law is stepped on the input as measured, on the grid's period (an HPA's `every` is replaced by the
+sensors' period, so its windows count whole samples of that period), with a pure delay of 0 to 6 samples searched by
+its one-step error on the first three quarters (the declaration says nothing of the sensors' delay), and judged on the
+last quarter as the identification judges its own laws: skill one step ahead, R² run free, its points, and its score,
+n ln(SSE/n) plus k ln n where k counts only its delay (its declared numbers are given, not fitted). Too little record
+(under 40 points, an output that never moved, no readings) says why, as identify says, and nothing is judged.
+`check` says **external-law-disagrees** when the declared law's held-out skill is below 0 (worse than holding the last
+value) or the law identified from the same record scores lower (the identification's parsimony rule, its own
+parameters counted against it): "block B: declared KIND (its law) fits its record worse than …: it does not behave as
+configured", with its skill, R², the points held out and the record's window. The claim is only that: the law as
+declared, on this record, at this sampling, fits worse; it is not a finding that the controller is misconfigured (a
+metric read differently, a sampling slower than the controller's own, or another controller on the same output may
+each fit worse too). A law that holds is never a finding. `/api/loop-control` gives it in the loop's `controller`, beside
+`identified`, as `declared: {kind, short, skill, r2, points, worse}` (or `{kind, why}`; the loop's own top-level
+`declared` stays the goal's declared process), and the loop's table writes both laws' held-out fit in its *held-out fit*
+row. With no `law:` nothing of this is worked out or said.
 
 ## 12e. Improving the model, as a loop
 

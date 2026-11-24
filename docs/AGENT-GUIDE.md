@@ -741,6 +741,9 @@ blocks:
 - `external-unidentified` means too little record (40 points of both at least, and three moves of its output) or no law
   fits: wait for more, or check the sensors read the right series. `external-not-run` means its output is an auxiliary
   (or a stock its `out:` flow does not move): the law is drawn, but the projection runs a generic stand-in.
+- `external-law-disagrees` means the declared `law:` fits its record worse (held-out skill below 0, or the identified
+  law scores lower): check the declared numbers against the controller's live configuration, and the sensors' period
+  against its own, before calling it misconfigured; the finding claims only the worse fit.
 - Inside its own loop (an HPA reads utilisation, which its replicas change at once), a proportional or PI law fitted with
   no delay has its gain biased toward 0 (Ljung ch. 13), and says so: read its gain as a lower bound. A switching law's
   thresholds carry a *spread* (how far they could move and tell the moves as well), not a standard error.

@@ -121,7 +121,7 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
 - **Hints**, apart from the problems:
   - the refactor path: a controller filled by a person, an AI agent or a decision that decided the
     same thing (numbers taken out) at least 80% of at least 10 times could be filled by a lower rung;
-  - a loop off at least half the time though it acts: *falling behind* when its valve moved less
+  - a goal off at least half the time though it acts (said as `goal NAME was off N% of the time`): *falling behind* when its valve moved less
     than the load came in (saturated only when every opening moved the same amount: the valve at
     its limit); otherwise it answers too late, and the slowest stage (sensor, controller or valve,
     by its schedule) is named. For a job emptying a stock under an upper setpoint, the longest
@@ -129,7 +129,9 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
     cannot run that often.
 - **Attention**: problems first (goals off, goals open or unknown past two minutes of record,
   agents failing, lines refused or unreadable, missing readings while running, unexplained
-  residuals), then the hints. What a run by hand refused is not kept as a problem.
+  residuals), then the hints. An entry or hint about a goal reads `goal NAME` and carries the name as
+  its `goal` field, which the page's Evidence link and the CLI read. What a run by hand refused is not
+  kept as a problem.
 
 ## 6. The diagram
 
