@@ -223,3 +223,39 @@ Tests:
   (47), test_item_index (59), test_store_conformance (46 passed, 12 skipped: VictoriaMetrics with no server, stores
   with no tiers). Ruff clean.
 - Not run here: the whole unit suite and the four browser files (no page changed). The factory runs them.
+
+## Where it stopped
+
+Round 3 of the continued gap (gap/status-is-a-maintained-projection-2-continued-2), on main as of b9341591 (already
+merged, nothing new). All three done items stay built and their tests pass. Net code outside tests, docs and dev:
++340 lines (538 added, 198 deleted) of the 600, for the whole branch.
+
+The queue's findings (a batch of 9 failed to merge; two tests then failed on this branch alone), and what changed:
+- `tests/test_item_about.py::test_status_with_an_unreadable_index_says_unknown`: once the index could not be read and
+  could not be built again, the status raised `DatabaseError` from the new table reads (`projections.opened` →
+  `ticks_of`). The old code read those from the log. Now `projections.index_of` probes the index under its healing
+  guard. When it cannot be read (`sqlite3.DatabaseError`, `OSError`), it returns None, and every table read takes its
+  existing no-index path: the record's own events, folded the same way. This is not a fail-open: the record is the
+  truth, so the answer is the same, only slower. The about line still says "unknown", as before.
+- `tests/test_upkeep_template.py::test_the_tidier_block_moves_its_two_flows_through_the_engine`: a block run delivers
+  messages (`deliver.for_context` → `messages.record.stored` → `projections.stored`), and that now opened the item
+  index. Opening it made a new index file, so the tidier counted one more file and tidied 3, not 2. Now the status's
+  table reads never make an index file: `itemindex.index_for(..., made=True)` gives None when no index file exists and
+  none is open, and the read takes the record path, as before this branch. Whatever made the index before (the item
+  folds, sensors, the page) still makes it. Decision taken alone, the reversible option: keep the other gap's test as
+  it is and change this branch. The other option was to accept the new file and change that test's expected count.
+  Cost: until something else makes the index, a status answer reads the log at the old speed.
+- SPEC §4b says both.
+
+Tests:
+- `tests/test_index_projections.py`: 14 pass. New:
+  `test_with_no_index_made_or_one_unreadable_the_reads_make_no_file_and_read_the_record` (no file made by the reads;
+  the answers equal the old code's with no index, and again with an unreadable one that cannot be healed). It was seen
+  to fail with `made=False` put back (a file made) and with the probe and its catch removed (`index_of` gives the
+  broken index). Its seed also showed a bug in this branch's own `_check`: an action with neither `class` nor `action`
+  made it ask `records(cls=None)`, which means no filter. That one test line now skips None.
+- The two queue failures pass, and both failed before the change (seen above).
+- Also run, passing: test_item_about and test_upkeep_template whole, test_status_reads_projections (4),
+  test_item_index, test_inbox, test_messages (116), test_runner_and_state, test_gated_actions, test_reports (70).
+  Ruff clean.
+- Not run here: the whole unit suite and the four browser files (no page changed). The factory runs them.

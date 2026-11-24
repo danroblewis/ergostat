@@ -160,7 +160,7 @@ def _check(p, r: random.Random) -> None:
                 assert ix.records(fam, states=[st]) == {k: v for k, v in got.items()
                                                         if (v[0] if fam == "change" else v["state"]) == st}, (fam, st)
         cls = {a.get("class") or a.get("action") for a in want["action"].values()}
-        for c in cls:
+        for c in cls - {None}:                             # (cls=None asks for no class filter)
             assert ix.records("action", cls=c) == {k: v for k, v in want["action"].items()
                                                    if (v.get("class") or v.get("action")) == c}
         assert ix.records("action", states=["requested"], cls="a") == {
@@ -299,6 +299,36 @@ def test_an_index_of_an_older_layout_is_rebuilt(tmp_path, monkeypatch):
     _cold(p)
     assert itemindex.index_for(p.events, p.model.spec, False).path != old
     _check(p, r)
+
+
+def test_with_no_index_made_or_one_unreadable_the_reads_make_no_file_and_read_the_record(tmp_path, monkeypatch):
+    from pathlib import Path
+    p = _project(tmp_path, "sqlite")
+    r = random.Random("unmade")
+    _add(p, _events(r, 150, T0), T0, r)
+    _cold(p)
+    items = Path(p.dir) / "items"
+    made = lambda: itemindex.files(items)[0] if items.exists() else []   # noqa: E731
+    assert made() == []
+    assert _modules(p) == _fresh_records(p)                # no index made yet: the record's events, folded the same way
+    assert made() == []                                    # and no file made by reading
+    _latest_and_tallies(p, r)
+    ix = itemindex.index_for(p.events, p.model.spec, False)
+    assert made() == [ix.path]
+    _check(p, r)
+    ix.close()                                             # unreadable, and it cannot be built again: the record is read
+    ix.path.write_bytes(b"this is not a database" * 100)
+    for suf in ("-wal", "-shm"):
+        ix.path.with_name(ix.path.name + suf).unlink(missing_ok=True)
+
+    def heal(self, e):
+        raise e
+    monkeypatch.setattr(itemindex.Index, "_heal", heal)
+    assert projections.index_of(p) is None
+    assert _modules(p) == _fresh_records(p)
+    _latest_and_tallies(p, r)
+    for name in BLOCKS:
+        assert projections.asks(p, name, True) == old.asks(p, name, True)
 
 
 def test_a_crash_part_way_resumes_from_what_was_committed(tmp_path, monkeypatch):

@@ -960,7 +960,9 @@ loop crossings) read these tables and no longer fold the record themselves (`pro
 `query`, `asks`). `records` is as of what the index has folded: a read as of an earlier `until` is
 answered from it when no item of the family has an event after `until` (its `last` column), and
 otherwise by the same fold over the family's events up to then, in memory, as is a record kept nowhere
-on disk. The snapshot says how old it is: `as_of` is the record's last seq as it was read and when the
+on disk, a record whose index is not made yet (these reads make no index file: the files are a stock the
+upkeep template's tidier holds, §2a), and one whose index cannot be read and could not be built again
+(the record is the truth, so the answer is the same, only slower). The snapshot says how old it is: `as_of` is the record's last seq as it was read and when the
 answer was made, and the status answer adds its `age` in seconds. Two more tables serve the loops and
 agents: `latest`, each item's newest event of the types `LATEST` names (runs, failures, starts,
 decisions, openings, auxiliaries set), by seq (a read as of a moment before it reads the record for that

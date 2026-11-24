@@ -352,12 +352,20 @@ def newer(ix, fam: str, until: float) -> bool:
 # ---- what the status's modules read through (the index when the record has one; else the same fold, in memory)
 
 def index_of(p):
-    """The record's item index, its tables caught up to the record; None for a record kept nowhere on disk."""
+    """The record's item index, its tables caught up to the record; None (the record is read instead) for a record
+    kept nowhere on disk, an index not made yet (a read here makes no file: the index files are a stock the upkeep
+    template tidies, SPEC §2a), or one that cannot be read and could not be built again."""
     spec = getattr(getattr(p, "model", None), "spec", None)
     if spec is None:
         return None
-    from .items import _index
-    return _index(p.events, spec, False)
+    from .itemindex import index_for
+    try:
+        ix = index_for(p.events, spec, False, made=True)
+        if ix is not None:
+            ix.guard(lambda: ix.db)
+        return ix
+    except (sqlite3.DatabaseError, OSError):
+        return None
 
 
 class _Scratch:

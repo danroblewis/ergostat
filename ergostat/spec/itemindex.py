@@ -1014,20 +1014,20 @@ def pinned():
         _PIN.got = None
 
 
-def index_for(events, spec, transcript: bool) -> Index | None:
+def index_for(events, spec, transcript: bool, made: bool = False) -> Index | None:
     """The index of this record's items for these kinds (opened once per process), caught up (once, while
-    ``pinned``); None for a record kept nowhere on disk."""
+    ``pinned``); None for a record kept nowhere on disk, or, with ``made``, for an index not made yet (no file is made)."""
     pin = getattr(_PIN, "got", None)
-    key = (id(events), id(spec), transcript)
+    key = (id(events), id(spec), transcript, made)
     if pin is not None and key in pin:
         return pin[key]
-    ix = _index_for(events, spec, transcript)
+    ix = _index_for(events, spec, transcript, made)
     if pin is not None:
         pin[key] = ix
     return ix
 
 
-def _index_for(events, spec, transcript: bool) -> Index | None:
+def _index_for(events, spec, transcript: bool, made: bool = False) -> Index | None:
     d = state_dir(events)
     if d is None or not hasattr(events, "generation"):
         return None
@@ -1039,6 +1039,8 @@ def _index_for(events, spec, transcript: bool) -> Index | None:
     idle = getattr(storage, "item_idle", None) or IDLE
     with _OPEN_LOCK:
         ix = _OPEN.get(at)
+        if ix is None and made and not path.exists():
+            return None
         if ix is None:
             if not path.exists() and not upkept(spec):  # (under use: upkeep its tidier does it: SPEC §2a, Upkeep)
                 with contextlib.suppress(OSError):    # (a folder that cannot be listed: nothing tidied, as before)
