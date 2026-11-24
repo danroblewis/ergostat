@@ -130,6 +130,20 @@ offered:
   Other files whose fixtures say `gap.defined` without `touches` and then dispatch the real implementor on the
   factory model would now hold a gap that never got touches. Only `Slots` was found doing that.
 
+### Round 3
+
+The queue's one finding was a conflict with main (fa5a570c), which added `takes: {lanes:}` (merge-lanes-in-parallel)
+on the same lines as `takes: {areas:}`. The merge keeps both:
+
+- `TAKES_KEYS`, `Takes` and the schema carry `lanes` and `areas` side by side; each is compiled as on its own side.
+- The dispatcher applies the areas' rule first, then the lanes': `areas.only` filters what `groups.only` lets through,
+  and `lanes.choose` plans lanes over that. An item an area holds out is never planned on a lane, and the check that
+  skips an item on top of a lane not taken stays as main wrote it.
+- SPEC §9.5 keeps the *Areas* paragraph, then *Lanes*, and says which rule goes first.
+- New test: `test_lanes_take_only_what_the_areas_let_through`. A block declares both. Two items share no lane entry but
+  touch one area: the second waits.
+- The factory model declares no lanes, so its implementor is unchanged.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)

@@ -169,6 +169,22 @@ def test_block_now_follows_the_rule(tmp_path, monkeypatch):
     assert taken == []
 
 
+def test_lanes_take_only_what_the_areas_let_through(tmp_path, monkeypatch):
+    """A block declaring lanes and areas: two items sharing no lane entry would start apart, but they touch one area,
+    so the second waits for the first (SPEC §9.5: the areas' rule before the lanes')."""
+    lanes = ", lanes: {apart: files, most: 4, within: {cpu: 4, memory: 4g}, each: {cpu: 1, memory: 1g}}"
+    p = model(tmp_path)
+    text = (tmp_path / "ergostat.yaml").read_text().replace("to: [done], areas:", f"to: [done]{lanes}, areas:", 1)
+    (tmp_path / "ergostat.yaml").write_text(text)
+    p = Project(mdl.load(tmp_path))
+    assert p.model.spec.blocks["dev"].takes.lanes is not None
+    d, taken, said = dispatcher(p, monkeypatch)
+    opened(p, {"a": {"files": ["src/queue.py"]}, "b": {"files": ["src/q/x.py"]}, "c": {"files": ["lib.py"]}})
+    tick(d, p)
+    assert ids(taken) == ["a", "c"]
+    assert any("ticket/b waits: ticket/a holds queue" in s for s in said)
+
+
 def test_areas_checked(tmp_path):
     for bad in ("3", "{touches: files}", "{touches: files, map: {}}", "{touches: [x], map: {q: {paths: a}}}",
                 "{touches: files, map: {q: {paths: []}}}", "{touches: files, map: {q: {paths: a, owner: crew}}}",
