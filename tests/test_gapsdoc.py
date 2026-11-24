@@ -330,7 +330,7 @@ def test_the_split_commit_moves_every_entry_into_the_records_and_every_reader_se
     records = {Path(p).stem: t for p, t in after.items() if p.startswith("dev/records/") and "GAPS-head" not in p}
     text, problems = gapsdoc.render(records, s["head"])
     assert text == gaps and problems and all(gapsdoc.BENIGN.search(p) for p in problems)   # (the two External logs)
-    assert intake.gaps_md(text) == intake.gaps_md(gaps) and intake.twice(text) == intake.twice(gaps)  # gaps, closes
+    assert intake.gaps_md(text) == intake.gaps_md(gaps)            # gaps, closes (and two of one id: intake.read)
     assert deps.from_gaps(text) == deps.from_gaps(gaps)            # links and their sources
 
 

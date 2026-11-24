@@ -9,8 +9,8 @@ its section's last, by name. render() reports by name every malformed Entry, two
 (gap ids cut to 32, as intake does), a listed entry or an umbrella with none: rendered, never silently dropped.
 split() is the inverse; an exact duplicate entry (a union merge's) is dropped and said by name and line. Each landing
 of the merge queue carries the batch's own GAPS.md edits into the records and GAPS-head.md (carry()) and writes GAPS.md from them
-(regenerate()); deps.py, the briefs, the planner and the knowledge block read the entries from main's records
-(entries(); brief.records_at_main), intake still reads GAPS.md.
+(regenerate()); the intake, deps.py, the briefs, the planner and the knowledge block read the entries from main's
+records (entries(); brief.records_at_main), not the file.
 
     gapsdoc.py render [--check]       GAPS.md from dev/records to stdout (--check: only the problems); exits 1 on any
     gapsdoc.py split --dry-run [FILE] what split would make of FILE (docs/GAPS.md): records, duplicates, problems
@@ -21,6 +21,7 @@ from __future__ import annotations
 import datetime
 import itertools
 import re
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -341,16 +342,31 @@ def rendered_at(repo: Path, ref: str) -> str:
 
 
 def entries(repo: Path, ref: str) -> tuple[str, dict[str, str]] | None:
-    """GAPS.md's text as the records in dev/records/ at ``ref`` render it, and {record: why} for each that cannot be
-    read (git cannot show it, or its Entry is malformed: not drawn); None before the split (no GAPS-head.md there)."""
-    files, bad = {}, {}
-    for n in (n for n in fac.git(repo, "ls-tree", "--name-only", ref, f"{fac.DEFS}/").splitlines()
-              if n.endswith(".md") and Path(n).stem != UNPLACED.stem):
-        try:                                           # (a malformed Entry is kept: render() draws none of it)
-            parse(files.setdefault(Path(n).stem, fac.git(repo, "show", f"{ref}:{n}")))
-        except (RuntimeError, ValueError) as e:
-            bad[Path(n).stem] = str(e).splitlines()[-1][:200]
-    if HEAD.stem in bad:                               # (the head names gaps too: its Depends on table)
+    """GAPS.md's text as the records in dev/records/ at ``ref`` render it, read with one git call, and {record: why}
+    for each that cannot be read (git cannot show it or it is not UTF-8: not read; its Entry is malformed: render()
+    draws none of it), never read as having no entry. None before the split (no GAPS-head.md at ``ref``); an
+    unreadable GAPS-head.md raises ValueError (the head names gaps too: its Depends on table)."""
+    names = [n for n in fac.git(repo, "ls-tree", "-z", "--name-only", ref, f"{fac.DEFS}/").split("\0")
+             if n.endswith(".md") and Path(n).stem != UNPLACED.stem]
+    r = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], capture_output=True, timeout=600,
+                       input="".join(f"{ref}:{n}\n" for n in names).encode())
+    if r.returncode:
+        raise RuntimeError(f"git cat-file --batch in {repo}: {r.stderr.decode(errors='replace').strip()[-400:]}")
+    files, bad, out = {}, {}, r.stdout
+    for n in names:
+        header, _, out = out.partition(b"\n")
+        f, stem = header.split(), Path(n).stem
+        if len(f) != 3 or f[1] != b"blob":                 # (missing, or not a file: a submodule's commit)
+            bad[stem] = f"unreadable at {ref}: {header.decode(errors='replace')[-120:]}"
+            continue
+        data, out = out[:int(f[2])], out[int(f[2]) + 1:]
+        try:
+            parse(files.setdefault(stem, data.decode()))
+        except UnicodeDecodeError as e:                   # (a subclass of ValueError: first)
+            bad[stem] = f"unreadable at {ref}: {e}"[:200]
+        except ValueError as e:
+            bad[stem] = str(e).splitlines()[-1][:200]       # (parse()'s own words, as main's briefs say them)
+    if HEAD.stem in bad:
         raise ValueError(f"{fac.DEFS}/{HEAD.name} at {ref} cannot be read: {bad[HEAD.stem]}")
     return (render(files, files.pop(HEAD.stem))[0], bad) if HEAD.stem in files else None
 
