@@ -1,9 +1,11 @@
-"""GAPS.md's entries for upkeep's fault injection (dev/records/from-upkeep-s-fault-injection.md) and Remote
-systems (dev/records/remote-systems.md): done, said once, citing only files and commits main has. Read from a fixture
-(tests/fixtures/gaps_doc_entries.md: those entries and the IR's, as docs/GAPS.md held them at FIXTURE_COMMIT), never
-the live docs/GAPS.md, which the merge queue rewrites from the records as gaps land."""
+"""The entries for upkeep's fault injection (dev/records/from-upkeep-s-fault-injection.md) and Remote systems
+(dev/records/remote-systems.md): done, said once, citing only files and commits main has. Read as the records in
+dev/records/ render them (gapsdoc.render), never the docs/GAPS.md the merge queue writes from them. The intake's
+parse is also pinned on a fixture (tests/fixtures/gaps_doc_entries.md: those entries and the IR's, as docs/GAPS.md
+held them at FIXTURE_COMMIT)."""
 
 import ast
+import functools
 import json
 import re
 import subprocess
@@ -13,8 +15,22 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parents[1]
-GAPS = ROOT / "tests" / "fixtures" / "gaps_doc_entries.md"
+FIXTURE = ROOT / "tests" / "fixtures" / "gaps_doc_entries.md"
 FIXTURE_COMMIT = "278f54a403730f231134ebd5c133a3610a64e9fa"       # main when the fixture was cut from its GAPS.md
+RECORDS = ROOT / "dev" / "records"
+GAPS = "GAPS.md as dev/records/ render it"
+if str(ROOT / "dev" / "bin") not in sys.path:
+    sys.path.append(str(ROOT / "dev" / "bin"))     # appended: dev/bin/queue.py must not shadow the standard library's
+
+
+@functools.cache
+def gaps_text() -> str:
+    """GAPS.md's text as the tree's dev/records/ render it (GAPS-head.md and every record but GAPS-unplaced.md)."""
+    import gapsdoc
+    records = {p.stem: p.read_text(encoding="utf-8") for p in sorted(RECORDS.glob("*.md"))
+               if p.stem not in ("GAPS-head", "GAPS-unplaced")}
+    return gapsdoc.render(records, (RECORDS / "GAPS-head.md").read_text(encoding="utf-8"))[0]
+
 TITLE = "From upkeep's fault injection"
 CITED = ("docs/roadmap/overnight/resilience-core.md", "docs/roadmap/overnight/cli-fallback.md",
          "docs/roadmap/overnight-2026-11-19.md")
@@ -51,16 +67,14 @@ def main_ref() -> str:
 
 
 def test_upkeep_entry_is_not_found_open_by_intake():
-    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import intake; "
-            "print(json.dumps(intake.gaps_md(open(sys.argv[2]).read())))")
-    r = subprocess.run([sys.executable, "-c", code, str(ROOT / "dev" / "bin"), str(GAPS)], cwd=ROOT,
-                       capture_output=True, text=True, timeout=60)
-    assert r.returncode == 0, r.stderr
-    entries = json.loads(r.stdout.strip().splitlines()[-1])
-    assert [(e["title"], e["section"]) for e in entries] == [                                     # it parsed
+    pinned = run_bin("import intake; print(json.dumps(intake.gaps_md(sys.stdin.read())))", FIXTURE.read_text())
+    assert [(e["title"], e["section"]) for e in pinned] == [                                      # it parsed
         ("Remote systems", "Remote systems and libraries"), ("The IR and a Rust runtime", "Runtime, scale and latency")]
+    assert upkeep_entry(FIXTURE.read_text())[0].split("**", 2)[2].lstrip().startswith("(done")
+    entries = run_bin("import intake; print(json.dumps(intake.gaps_md(sys.stdin.read())))", gaps_text())
+    assert len(entries) >= 10 and any(e["section"] == "Runtime, scale and latency" for e in entries)   # it parsed
     assert not [e for e in entries if e["title"].startswith(TITLE)]
-    first = upkeep_entry(GAPS.read_text())[0]
+    first = upkeep_entry(gaps_text())[0]
     assert first.split("**", 2)[2].lstrip().startswith("(done"), first
 
 
@@ -71,13 +85,13 @@ def test_the_fixture_is_docs_gaps_md_as_of_its_commit():
     if r.returncode:
         return
     there, at = r.stdout.split("\n"), 0
-    for line in GAPS.read_text().rstrip("\n").split("\n"):
+    for line in FIXTURE.read_text().rstrip("\n").split("\n"):
         assert line in there[at:], line
         at = there.index(line, at) + 1
 
 
 def test_upkeep_entry_cites_only_paths_that_exist():
-    entry = "\n".join(upkeep_entry(GAPS.read_text()))
+    entry = "\n".join(upkeep_entry(gaps_text()))
     paths = PATH.findall(entry)
     assert paths
     assert [p for p in paths if not (ROOT / p).exists()] == []
@@ -86,7 +100,7 @@ def test_upkeep_entry_cites_only_paths_that_exist():
 
 
 def test_upkeep_entry_cites_only_commits_on_main():
-    lines = upkeep_entry(GAPS.read_text())
+    lines = upkeep_entry(gaps_text())
     hashes = HASH.findall("\n".join(lines))
     assert len(hashes) >= 2
     ref = main_ref()
@@ -182,7 +196,7 @@ def run_bin(code: str, data: str) -> object:
 
 
 def test_remote_systems_entry_is_found_done_by_intake():
-    text = GAPS.read_text()
+    text = gaps_text()
     first = entry(text, REMOTE)[0]
     spliced = text.replace(first, "- **Remote systems** (first slice done, 72da4e1, merged from `remote`; what is "
                                   "left below is open;", 1)
@@ -195,7 +209,7 @@ def test_remote_systems_entry_is_found_done_by_intake():
 
 
 def test_remote_systems_entry_has_one_done_and_no_stale_left():
-    lines = entry(GAPS.read_text(), REMOTE)
+    lines = entry(gaps_text(), REMOTE)
     assert remote_problems(lines) == []
     assert len(clauses(lines, "Left")) <= 1 and len(clauses(lines, "Done")) == 1
     mtls = [n for n, ln in enumerate(lines) if "Mutual TLS" in ln]
@@ -208,7 +222,7 @@ def test_remote_systems_entry_has_one_done_and_no_stale_left():
 
 
 def test_ir_entry_holds_remote_ir_serving():
-    ir = "\n".join(entry(GAPS.read_text(), "The IR and a Rust runtime"))
+    ir = "\n".join(entry(gaps_text(), "The IR and a Rust runtime"))
     assert "format=ir" in ir and "ergostat-model/1" in ir, ir
     assert "docs/proposals/remote-systems.md" in ir
     left = (ROOT / "docs" / "proposals" / "remote-systems.md").read_text().split("**Left for later**", 1)[1]
@@ -226,13 +240,14 @@ def test_remote_systems_record_entry_is_whole():
     assert said and "problem" not in said, said
     assert said["section"] == "Remote systems and libraries" and said["entry_of"] is None
     assert said["bullet"][0].startswith(f"- **{REMOTE}** (done") and remote_problems(said["bullet"]) == []
+    assert said["bullet"] == entry(gaps_text(), REMOTE)
     assert "problem" in run_bin("import gapsdoc\ntry: print(json.dumps(gapsdoc.parse(sys.stdin.read())))\n"
                                 "except ValueError as e: print(json.dumps({'problem': str(e)}))",
                                 record.replace("\n  (Owner, 2026-11-18.)", "\n\n  (Owner, 2026-11-18.)", 1))
 
 
 def test_remote_systems_entry_cites_only_paths_and_commits_that_exist():
-    lines = entry(GAPS.read_text(), REMOTE)
+    lines = entry(gaps_text(), REMOTE)
     text = "\n".join(lines)
     paths = FILE.findall(text)
     assert {"docs/proposals/remote-systems.md", "examples/remote-pair/", "tests/test_remote.py",

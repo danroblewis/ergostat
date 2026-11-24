@@ -10,7 +10,7 @@ lessons below; your plan is where they are prevented.
 - Title: {title}
 - Branch: `{branch}`
 
-## Its entry in docs/GAPS.md
+## Its entry (the `## Entry` of its record, as main's dev/records/ render it into docs/GAPS.md)
 
 {gaps_entry}
 
