@@ -194,8 +194,72 @@ def test_a_person_is_asked_and_a_decision_says_how_it_decides(browser, tf, df):
     said = pg.inner_text("#what-it-is")
     assert pg.eval_on_selector_all("#what-it-is ol.decisions li", "ls => ls.length") or \
         "no decisions in the window" in said, said
+    assert "What it said in the window" in said and "Commands acted on" in said, said   # labelled apart
+    assert re.search(r"out: block\.doc-writer\s*\n?\s*\d+", said), said                # counted, not an answer set
+    assert not pg.query_selector("#what-it-is ul.answers"), said
     assert not pg.errors, pg.errors
     pg.close()
+
+
+@pytest.fixture(scope="module")
+def at(tmp_path_factory):
+    proc, url = serve(tmp_path_factory.mktemp("at"), "alert-triage")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def test_a_narrow_ais_page_shows_its_prompt_rendered_and_its_specification_rows(browser, at):
+    pg = opened(browser, at, "triage")
+    assert first_h2(pg) == "Its specification"
+    assert "N narrow-ai" in pg.inner_text(".agent-page .meta")
+    pg.wait_for_selector("#what-it-is .md")
+    assert "prompts/triage.md" in pg.inner_text("#what-it-is") and pg.inner_text("#what-it-is .md").strip()
+    heads = pg.eval_on_selector_all("#what-it-is h3", "es => es.map((e) => e.textContent)")
+    assert heads[:3] == ["what it works", "what it may move", "what it costs and how long"], heads
+    rows = pg.inner_text("#what-it-is")
+    assert "takes" in rows and "dismissed" in rows and "flow.alerts-dismissed" in rows and "timeout" in rows, rows
+    assert not pg.errors, pg.errors
+    pg.close()
+
+
+def test_a_decisions_page_counts_its_declared_answers_and_flags_the_rest(browser, tmp_path, monkeypatch):
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from tests.test_agent_means import MODEL, seed_approver
+    d = tmp_path / "approver"
+    (d / "bin").mkdir(parents=True)
+    (d / "bin" / "x.py").write_text("print('x')\n")
+    (d / "ergostat.yaml").write_text(MODEL)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    seed_approver(Project(mdl.load(d)))                           # the record the page reads, before it starts
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        url = f"http://127.0.0.1:{port}"
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        pg = opened(browser, url, "approve")
+        assert first_h2(pg) == "How it decides"
+        pg.wait_for_selector("#what-it-is ul.answers")
+        rows = pg.eval_on_selector_all("#what-it-is ul.answers li", "ls => ls.map((l) => [l.className, l.textContent])")
+        assert ["answer", "approved (2)"] in rows and ["answer", "denied (1)"] in rows, rows
+        assert ["answer never", "deferred never given"] in rows, rows                     # declared, never given
+        assert ["answer other", "other: a dead letter (1)"] in rows, rows                 # outside them: flagged
+        assert ["answer other", "other: given back to new (1)"] in rows, rows
+        assert any(c == "answer unattributed" and t.startswith("unattributed: 1 request") for c, t in rows), rows
+        assert not pg.errors, pg.errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
 
 
 NO_SPEC = [   # what is shown for a text, the reference to a SPEC section only taken out, never another word or a line

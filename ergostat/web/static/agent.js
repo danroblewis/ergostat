@@ -57,12 +57,29 @@ function lawPart(sp) {
     ["table", "points", "schedule"].filter((k) => P[k] && typeof P[k] === "object").map((k) => [h("h3", {}, k), fieldView(P[k])]),
     sp?.implied_by ? h("p", { class: "implied-by" }, "implied by ", agentA(sp.implied_by), "'s goal") : null];
 }
+/* how a decision decides, its rung's span now: for item work its declared answers (takes.to) each with its count in
+   the window, what left the item elsewhere flagged; for a controller what it said and its commands acted on, apart */
 function decidesPart(sp) {
-  const d = sp?.decisions, hint = d?.hint;
-  return [h("h3", {}, "The answers it gave in the window"), d?.count
-    ? h("ol", { class: "decisions" }, d.kinds.map(([w, n]) => h("li", {}, w.replaceAll("#", "N"), h("span", { class: "muted" }, ` (${n})`))))
-    : h("p", { class: "muted" }, "no decisions in the window"),
-    hint ? h("p", { class: "ladder-hint" }, `${hint.controller}: “${hint.decision}” in ${Math.round(hint.share * 100)}% of ${hint.count} decisions; a cheaper rung could fill it.`) : null];
+  const d = sp?.decisions, hint = d?.hint, m = sp?.means, c = m?.spans?.at(-1)?.counts || {};
+  const n = (x) => h("span", { class: "muted" }, ` (${x})`), word = (w) => w.replaceAll("#", "N");
+  if (m?.work === "items") {
+    return [h("h3", {}, "What it may decide, and what it did in the window"), h("ul", { class: "answers" },
+      c.to.map(([s, k]) => h("li", { class: k ? "answer" : "answer never" }, s, k ? n(k) : h("span", { class: "muted" }, " never given"))),
+      c.other.map(([w, k]) => h("li", { class: "answer other" }, h("b", {}, "other: "), w, n(k))),
+      c.unattributed ? h("li", { class: "answer unattributed" }, `unattributed: ${c.unattributed} ${sp.params?.takes?.kind || "item"} lease ends whose take is not in the record`) : null)];
+  }
+  return [h("h3", {}, "What it said in the window"), (c.said || []).length
+    ? h("ol", { class: "decisions" }, c.said.map(([w, k]) => h("li", {}, word(w), n(k)))) : h("p", { class: "muted" }, "no decisions in the window"),
+    hint ? h("p", { class: "ladder-hint" }, `${hint.controller}: “${hint.decision}” in ${Math.round(hint.share * 100)}% of ${hint.count} decisions; a cheaper rung could fill it.`) : null,
+    (c.carried || []).length ? [h("h3", {}, "Commands acted on"), dl(c.carried.map((r) => [r.port, r.note || String(r.n)]))] : null];
+}
+/* a narrow AI's specification: its block's contract as declared, in the proposal's order, and what its runs wrote */
+const specRows = (sp) => (sp?.means?.spec || []).map(([shown, kv]) => [h("h3", {}, shown),
+  dl(kv.map(([k, v]) => [k, v != null && typeof v === "object" ? fieldView(v) : noSpec(String(v))]))]);
+/* the block's rung per span of the model's recorded versions: a ladder move as its history */
+function rungsText(sp) {
+  const s = sp?.means?.spans || [], v = (x) => (x.first == null ? "the model now" : x.first === x.last ? `v${x.first}` : `v${x.first} to v${x.last}`);
+  return s.length > 1 ? s.map((x) => `${x.rung ?? "not in the model"}: ${v(x)}`).join(", ") : null;
 }
 
 /* what it is, by its rung: the section a person, an AI, a narrow AI, a decision, a program or a rule is read by */
@@ -80,7 +97,7 @@ function whatItIs(a, sp, files) {
       wrap.length || P.run ? h("details", { class: "wrapper", key: "wrapper" }, h("summary", {}, "Its wrapper"),
         P.run ? h("p", {}, "Runs ", h("code", { class: "command" }, String(P.run))) : null, wrap.map((f) => fileBox(f, true))) : null];
   }
-  if (r === 2) return [promptPart(sp, files) || none("No prompt written."), keysList(P, ["model", "out", "outputs", "max-cost", "run"])];
+  if (r === 2) return [promptPart(sp, files) || (sp?.means?.spec ? null : none("No prompt written.")), specRows(sp)];
   if (r === 3) return [promptPart(sp, files) || programPart(sp, files), decidesPart(sp)];
   if (r === 4) return [programPart(sp, files), !P.run && !P.daemon && sp ? h("p", { class: "muted" }, sp.rung_why) : null];
   return lawPart(sp);
@@ -94,7 +111,7 @@ function definitionPart(sp) {
 function placePart(a, sp, loops, name) {
   const pl = a.place || {}, list = (xs) => xs.flatMap((x, i) => [i ? ", " : "", agentA(x)]);
   const w = pl.working, word = (n) => `${n} ${w.kind}${n === 1 ? "" : "s"}`;
-  return [dl([["serves", servesEl(a, sp, loops, true)], ["fills", rolesText(a.roles) || "nothing"],
+  return [dl([["serves", servesEl(a, sp, loops, true)], ["fills", rolesText(a.roles) || "nothing"], ["its rung over versions", rungsText(sp)],
     ["commanded by", (pl.commanded_by || []).length ? list(pl.commanded_by) : null], ["commands", (pl.commands || []).length ? list(pl.commands) : null],
     ["working now", w ? (w.n == null ? "not known" : h("a", { href: itemsHref(w.set), class: "working" }, `working ${word(w.n)}`)) : null]]),
     h("p", {}, h("a", { href: `/diagram?view=blocks&around=block/${encodeURIComponent(name)}` }, "Show on Blocks"))];
