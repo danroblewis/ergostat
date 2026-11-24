@@ -126,6 +126,17 @@ def test_the_score_is_on_each_item_and_queryable(tmp_path, capsys):
     assert "risk_score" not in its.detail(p.events, p.model.spec, "milestone/m")          # off unless declared
 
 
+def test_a_score_that_fails_is_said_on_the_detail_never_failing_it(tmp_path, monkeypatch):
+    p = project(tmp_path, factory_kinds())
+    factory_record(p, n=20)
+
+    def broken(*a):
+        raise RuntimeError("unreadable")
+    monkeypatch.setattr(itemrisk, "item", broken)
+    d = its.detail(p.events, p.model.spec, "gap/g3")
+    assert d["fields"] and d["risk_score"] == {"score": None, "why": [], "said": "failed: RuntimeError: unreadable"}
+
+
 def test_the_factory_records_what_its_score_reads(tmp_path):
     """The implementor's gap.built carries the paths the branch changed against its base (a stacked gap's own, not
     its base's) and the agent that built it; a queue conflict is counted in `conflicts` (tests/test_queue.py)."""

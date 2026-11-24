@@ -54,7 +54,7 @@ Choices taken alone (the most reversible):
 - **No page shows it.** The item page renders the detail's fields, not `risk_score`, and the rules forbid new panels.
   It is read through the CLI, the API's and MCP's item detail.
 
-Tests (`tests/test_item_risk.py`, 15):
+Tests (`tests/test_item_risk.py`, 16):
 - Done 1, `test_a_backtest_on_a_factory_record_shows_calibration`. It runs on the factory's own gap and milestone kinds
   (read from `ergostat.yaml`) and a synthetic factory-shaped record: 800 gaps with known chances of failing, some
   failing in the queue and some reverted five gaps after merging. What it shows:
@@ -73,6 +73,9 @@ Tests (`tests/test_item_risk.py`, 15):
 - `test_the_factory_records_what_its_score_reads`: a stacked gap's `paths` are its own, not its base's, and
   `built_by` is recorded.
 - 9 cases of `test_a_bad_declaration_is_refused`, including `null`, `least: 0` and `least: true`.
+- `test_a_score_that_fails_is_said_on_the_detail_never_failing_it` (lesson 3). A replay that raises puts
+  `failed: <error>` in `risk_score`, and the detail is still served. Without the catch, the raise is the test's
+  failure. That failure was not run separately.
 - `tests/test_queue.py::test_a_conflicting_own_gap_ends_in_fix_not_approved` now also asserts `conflicts == 1`.
 
 Seen to fail with the code broken, each put back after:
@@ -88,7 +91,7 @@ The order test first passed with the time-sorted mutation. Its event was fed thr
 a fresh replay. It now clears the replay first and compares every attempt's score.
 
 Run here, one file at a time:
-- tests/test_item_risk.py (15 passed);
+- tests/test_item_risk.py (16 passed);
 - tests/test_spec_schema.py, tests/test_library_trust.py and tests/test_cli_fallback.py (106 passed);
 - tests/test_spec_structure.py, tests/test_queue.py and tests/test_item_search.py (41 passed);
 - the factory model's three `ergostat check` tests (test_factory.py, test_factory_split_systems.py and
