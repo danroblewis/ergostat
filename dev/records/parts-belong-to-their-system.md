@@ -229,6 +229,20 @@ failure as round 4: "tooltip on title: Drawn alike here with B… requests-handl
 here (lesson-13). Not run: the rest of the browser file, the other three browser files, the unit suite, `demo_check`
 (no example changed).
 
+## Where it stopped (round 7)
+
+Main (d0f95413) merged in. 128 net lines of code outside `tests/`, `docs/` and `dev/`
+(`git diff --numstat d0f95413 HEAD`). The only finding was the merge conflict, in two files:
+- `ergostat/web/static/dynamics.js`, `sdSystem`: main's box rect (with its new `sys-off` class from `systemOff(n)`) is
+  kept as main has it; the title is still drawn by `nameOf(n)`, the branch's one change on that line.
+- `tests/test_diagram_rendering.py`: both sides only added (the branch's hover test and its `SAYS`/`ROWS` helpers,
+  main's `test_a_suggestion_about_a_goal_has_an_evidence_link_to_its_panel`). Both are kept.
+
+Tests run, serially: `test_parts_belong.py`, `test_dynamics_view.py`, `test_graph_cli_web.py` (95 passed). Ruff clean.
+Under the watchdog with Playwright, from `tests/test_diagram_rendering.py`: this branch's three hover tests (3 passed,
+rc 0), `test_each_closed_system_box_says_what_the_system_is` and main's new suggestion test (3 passed, rc 0). Not
+run: the rest of the browser file, the other three browser files, the unit suite, `demo_check` (no example changed).
+
 ## Entry
 
 section: Remote systems and libraries
