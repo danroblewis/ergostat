@@ -265,6 +265,22 @@ def test_a_graph_read_only_in_part_says_whether_it_has_a_cycle_is_not_known():  
     assert out["omitted"]["edges"] == 200 and out["omitted"]["weight_share"] is None
 
 
+def test_a_capped_graph_over_the_panel_budget_keeps_its_share_unknown():        # G43; lesson 3
+    """ergostat's own graphs past their makers' caps say ``weight_share`` None with no edges counted as left out. Fitted
+    to the panel (50 nodes into 40), the unknown stays unknown, not 0 (nor only the share the fit dropped)."""
+    wiring = {"nodes": [{"id": f"agent:{i}", "label": str(i), "runs": i} for i in range(50)],
+              "edges": [{"id": f"e{i}", "source": f"agent:{i}", "target": f"agent:{i + 1}", "count": i + 1, "last": 1,
+                         "perHour": 1.0, "seen": True, "declared": False} for i in range(49)], "since": 0, "until": 1}
+    known = graphs.drawn(*graphs.service(wiring))
+    assert len(known["nodes"]["id"]) == 40 and known["omitted"]["weight_share"] == 0.0    # a known share stays known
+    out = graphs.drawn(*graphs.service({**wiring, "capped": True}))
+    assert len(out["nodes"]["id"]) == 40 and out["omitted"]["edges"] == 0 and out["omitted"]["weight_share"] is None
+    items = [{"id": f"x{i}", "status": "ready", "duration": 10.0} for i in range(50)]
+    ans = {"items": items, "edges": [], "now": 0, "end": 0, "since": 0, "critical": [], "cycles": [], "capped": {"open": 7}}
+    dep = graphs.drawn(*graphs.dependency(ans))
+    assert len(dep["nodes"]["id"]) == 40 and dep["omitted"]["weight_share"] is None
+
+
 def test_a_dependency_graph_read_only_in_part_states_no_schedule(tmp_path, monkeypatch):   # G43, done 3; lesson 3, 8
     """With precedence.py's open items capped at 3 of the 6 (a, b, c, d, e, g), the others are not scheduled, so no end,
     slack or critical path is stated as fact: each is null, nothing is heavy, and the warning says they are not known.

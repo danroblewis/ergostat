@@ -145,7 +145,7 @@ def fit(g: dict, most_nodes: int, most_edges: int) -> tuple[dict, list[str]]:
         return g, []
     om = g["omitted"]
     was = om.get("weight_share")
-    joined = None if (was is None and om.get("edges")) or share is None else 1 - (1 - (was or 0.0)) * (1 - share)
+    joined = None if was is None or share is None else 1 - (1 - was) * (1 - share)   # an unknown stays unknown
     return {**g, "nodes": new_nodes, "edges": new_edges,
             "semantics": {**g["semantics"], "paths_real": g["semantics"]["paths_real"] and len(order) == len(key)},
             "omitted": {"nodes": om.get("nodes", 0), "edges": (om.get("edges") or 0) + dropped, "weight_share": joined,
