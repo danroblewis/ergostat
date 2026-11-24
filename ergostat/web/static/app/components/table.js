@@ -2,7 +2,7 @@
    ``rows`` keyed by ``rowKey`` (a field's name or a function), its ``caption`` said to screen readers only. ``groups``
    [{ key, head, rows }] in place of rows: a tbody each under its heading; ``total`` { key: content } a last row. A
    clickable row: ``rowHref(row)`` (a page: a plain click goes there, a modified or middle click opens a new tab, as
-   util.js rowLink) or ``onRow(row)``; a click on a link or a button in it is its own. ``empty``: said in place of a
+   util.js rowLink) or ``onRow(row)``; a click on a link in it is the link's (with onRow, on a button or field too). ``empty``: said in place of a
    table with no rows. ``hold``: while the pointer or the focus is in it, the rows stay as they are and "N updates
    waiting" is said over it; they are drawn once the reader has left (util.js holdStill's rule) */
 import { html, useEffect, useRef, useState } from "/static/app/core.js";

@@ -382,3 +382,64 @@ one moves, so the nine page gaps can land in any order.
 - No page writes its own fetch, poll, abort, loading text, table head, chip or link. A reviewer greps for `fetch(`,
   `setTimeout(` and `h("table"` in a page's file.
 - Each page gap reports code lines before and after with `metrics.py`.
+
+## Where it stopped
+
+Round 1 (2026-11-24). Built: section 6's minimum set and its hooks, each with a usage example in docs/frontend.md
+("Components") and a browser test; the design is in docs/frontend-components.md. Size: 284 net lines of code outside
+tests, docs and dev (315 added, 31 removed, from the merge the definition sits on, fdb8819c), inside the 600 budget.
+
+**What was built** (`ergostat/web/static/app/components/`, one file each, ~7 to 51 lines):
+- `core.js` (the foundation's, changed): `usePoll(fn, ms, { enabled, deps })` with the old poll()'s rules (after
+  each finish, `{ wait }`, hidden tab, ERGOSTAT_POLL_SPEED, at least 500 ms apart, its signal aborted on leaving);
+  `useApi` now polls through it and has `slow` (when the call on its way began, after `SLOW_MS` = 1.5 s).
+- `hooks.js`: `useWindow`, `useQueryState`, `useKeys` (one listener; the component drawn last wins; Escape and mod+
+  keys reach it from a field, plain keys do not).
+- `dom.js` `Dom` (the bridge: `node`, or `make(el)` with its cleanup); `page.js` `Page`; `side-panel.js`
+  `openPanel`/`closePanel`; `async.js` `Async`; `table.js` `Table` (columns, groups, total, rowHref, onRow, empty,
+  hold); `note.js` `Note`; `section.js` `Section`; `facts.js` `Facts`; `ref.js` `Ref`; `chip.js` `Chip`, `StateChip`.
+- `style.css`: 11 lines for the chip's tones, count and ×, the note's tones and Facts (tokens only).
+
+**Choices made alone (the most reversible, said here).**
+- The folder is `app/components/`, as the definition says, not the design's `app/ui/`.
+- `SidePanel` is `openPanel` into the one existing frame: the body (a component, or an old element through `Dom`)
+  is rendered into a box that details.js `showDetail` places under the kind and title, and unmounted (its calls
+  aborted) when the panel is emptied (a MutationObserver on `#detail`). A second, Preact-drawn frame reading a
+  `store.panel` would sit beside the 51 old openers' frame; the frame moves when the Diagram's gap moves those
+  openers. Escape, the ×, the focus by keyboard and "About this" stay showDetail's and main.js's.
+- `AppShell` is the foundation's `shell.js`; its window menu stays main.js's `whenMenu` (the foundation's choice).
+  Not redone here.
+- No `format.js`: the formatters stay util.js's globals, used by name (frontend.md rule 4). A module of its own
+  would be a second copy or a re-export through `window` of `const`s that are not on it; they move with util.js.
+- The router and its link capture are the foundation's (util.js); `useQueryState` is in `hooks.js` and writes
+  through `setQuery`. The call log stays util.js's `ERGOSTAT_CALLS`.
+- Left to the first page that needs them, as section 6 and the design's rule say: Table's `sort` and
+  `columns[].card`, Section's `fold`, Facts' `inline`, Ref's `to: "event"` (no one address for an event today),
+  useApi's `keep` (no new page calls the header's endpoints yet), the header's "1 slow", `useSelection`,
+  `useStored` and the components of the "added by the first page" table.
+- `useWindow().setAt` redraws the page through `route()`, as the header's moment slider does on change.
+
+**Tests run** (each by id, under the watchdog; all passed):
+- New, `tests/test_frontend_components.py`, all eight: Page/Section/Note/Facts; Table; Async; Chip/StateChip; Ref;
+  Dom; openPanel; the hooks. Each was seen to fail with its code broken: Table's hold turned off (no "1 update
+  waiting"); the panel's unmount removed (no aborted call); usePoll ignoring `{ wait }` (too few polls); Async's slow
+  note removed; `off` given the warn tone; Dom's cleanup not called. The panel test first had a race of its own (it
+  asserted the held route had been reached); that clause was removed, the aborted call proving the call was made.
+- The foundation's, for the changed `useApi`: all five of `tests/test_frontend_core.py`.
+- Unit files: test_style_tokens.py, test_architecture.py, test_ui_front.py, test_footprint.py, test_web_access.py,
+  test_snapshot_sets.py, test_page_names_source.py. `ruff check` is clean. `git merge main`: already up to date.
+- Not run here: the whole unit suite, the four browser files and demo_check (no example touched); the merge queue
+  runs them. No demo walk: no page exports `page` yet, so every page a walk shows is unchanged by this gap.
+
+**Left**: each page gap composes these (docs/frontend.md); nothing of this gap's definition is left.
+
+## Entry
+
+section: Interface
+
+- **The small set of shared, parameterized components every page is built from** (done, on `preact-components`; docs/frontend.md "Components", design in
+  docs/frontend-components.md): the parts every moved page is built from, in `app/components/`: `Page`, `Section`,
+  `Note`, `Facts`, `Table` (groups, a total, rows that open, hold-still), `Async` (loading, "Still waiting for…",
+  could not be read with Retry, empty), `Chip` and `StateChip`, `Ref`, `Dom` (the bridge to old code) and
+  `openPanel`; the hooks `usePoll`, `useApi`'s `slow`, `useWindow`, `useQueryState` and `useKeys`.
+  *Left*: the rest of the design's set, each added by the first page that needs it.

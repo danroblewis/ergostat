@@ -150,6 +150,7 @@ def test_table_draws_groups_a_total_and_rows_that_open_and_holds_still_while_the
 
 ASYNC = """export function page() {
   const slow = useApi("slowthing"), bad = useApi("broken"), none = useApi("nothing"), some = useApi("something");
+  window.__reloadBad = bad.reload;
   const each = (d) => html`<span class="got">${d.join(",")}</span>`;
   return html`<div class="page g">
     <div id="slow"><${Async} of=${slow} what="the goals">${each}<//></div>
@@ -179,6 +180,10 @@ def test_async_says_loading_then_still_waiting_could_not_be_read_with_retry_and_
     pg.click("#bad button:text('Retry')")
     pg.wait_for_function("() => document.querySelector('#bad .got')?.textContent === '7'", timeout=5000)
     assert pg.locator("#bad [data-tone=bad]").count() == 0
+    broken["status"] = 500                                # failing again: said over the last answer, which stays
+    pg.evaluate("window.__reloadBad()")
+    pg.wait_for_function("() => document.querySelector('#bad [data-tone=bad]')", timeout=5000)
+    assert pg.inner_text("#bad .got") == "7"
     assert pg.inner_text("#none p") == "Nothing matches clear" and pg.get_attribute("#none p a", "href") == "/record"
     assert pg.inner_text("#some .got") == "1,2"
     pg.unroute_all(behavior="ignoreErrors")
@@ -286,7 +291,7 @@ def test_open_panel_shows_a_live_body_in_the_one_panel_and_unmounts_it_when_clos
     pg.wait_for_function("() => document.querySelector('#detail:not([hidden]) .panel-body .body')", timeout=5000)
     assert pg.text_content("#detail .head .kind") == "goal" and pg.text_content("#detail h2") == "queue"
     assert pg.locator("#detail .head button.close").count() == 1
-    assert pg.inner_text("#detail .body") == "queue: asking" and held
+    assert pg.inner_text("#detail .body") == "queue: asking"     # (its call held: the abort below shows it was made)
     pg.keyboard.press("Escape")
     pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)
     pg.wait_for_function("() => window.ERGOSTAT_CALLS.some((c) => c.path === 'held' && c.status === 'aborted')", timeout=5000)
