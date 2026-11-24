@@ -3,9 +3,9 @@ and stage's), for the Items page, the Timeline, an item's page, ``/api/forecast`
 views and the remote API (SPEC §5a, *Completion estimates*, *The forecast*; ``numbers/eta.py``). Worked out by one
 worker thread, never on a request: a request is given what was last worked out (None the first time) and asks for
 the next when the record changed since, at most every ``EVERY`` seconds (and every ``KEPT`` seconds whatever: a
-lease's age moves with the clock). A record changed only where the simulation does not read it (its fingerprint, the
-items' states, leases and relations, the blocks' pools and runs, unchanged) keeps the last answer and its version,
-unrun, within ``KEPT`` of when it was computed. The worker works out one
+lease's age moves with the clock). A record changed only where the simulation does not read it (its fingerprint,
+``forecast.fingerprint``: every input but what moves with the clock alone, unchanged) keeps the last answer and its
+version, unrun, within ``KEPT`` of when it was computed. The worker works out one
 at a time, the latest asked for first (an older ask for another what-if waits, and is dropped when a newer one for the
 same comes). The owner's what-if (a block's ``pool`` or ``failure``) is kept apart; the eight used last are kept.
 How well last week's estimates held (``numbers/etacheck.py``: each kind's calibration) is worked out by the same

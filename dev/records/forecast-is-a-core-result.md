@@ -96,6 +96,42 @@ The browser file `tests/test_items_page.py`, under the watchdog, had 86 passed a
 Not run here: the whole unit suite, the other three browser files and `demo_check` (no example was touched). The
 live instance was not measured or touched.
 
+Round 2, the two review findings answered (both blocking; there were no others). Size now 311 net lines under
+`ergostat/` (349 added, 38 removed), within the 600 budget.
+
+- **The fingerprint left out inputs.** `forecast.fingerprint` now takes every input of `etamodel.Inputs` the
+  simulation reads, not a chosen few. It adds each item's `fields` (the order a block's `takes: {order: [...]}`
+  queues by) and `level`, `Inputs.groups` (group membership) and `Inputs.workspaces`, every `BlockIn` setting (kind,
+  states, unblocked, attempts allowed, TTL, workspace, order, assumed, pool said, measured), and each kind's states,
+  finished and paused states, and its next-state and first-state shares rounded to 0.001. Only inputs that move with
+  the clock alone are taken by size or rounded: the curves' stays and the blocks' runs and refusals by how many, the
+  arrival rate to 0.1 an hour, and the shares. `Inputs.at` is left out, and so is `finished_at`, which only the
+  backtest reads. SPEC §5a and the eta_api docstring now say this. The new test is
+  `test_a_group_move_or_a_queue_order_edit_is_worked_out_again`. It moves an ungrouped item into the group `ticket/g0`
+  (4 members become 5) and must get a new answer. It then gives the last item in dev's queue `priority: 9` (dev's
+  takes order by `-priority`), and the new answer must put that item at position 1. Two breaks were made and watched
+  fail, then undone: dropping the groups from the fingerprint failed the first step (the old answer came back), and
+  dropping `fields` failed the second.
+- **A remote's 503 failed the whole remote.** In `remote/items._ask`, a 503 answer to a forecast ask (the remote is
+  still working out its forecast) now refuses that ask alone. It returns 503 "still working out its forecast", or
+  the last kept forecast marked not ok. It does not set `st['failed']`, so the remote's counts, listings and details
+  are asked as before. The ask still counts against the period's budget. Any other failure still fails the remote
+  for the period. The two-instance test now makes the reader's first ask while the remote has no forecast. It
+  asserts 503 with that reason, then that `remote_items.listing` of that remote comes back ok with counts and items,
+  and only then lets the remote work its forecast out. Two breaks were made and watched fail, then undone. Removing
+  the new branch failed the first assert (502). Keeping the branch but still setting `st['failed']` failed the
+  listing (RemoteRefused).
+
+Decision taken alone (the more reversible): only a 503 on the forecast ask is treated as "not yet". A 503 to counts,
+listings or details (for example the server's queue being full) still fails the remote for the period, as before.
+Changing that belongs outside this gap.
+
+Tests run in round 2, one file at a time: `tests/test_forecast_result.py` (8 passed), `test_remote_items.py` (24),
+`test_eta.py` (27), `test_take_order.py` (4), `test_remote.py` (21), `test_sql_source.py` (9). `ruff` is clean.
+Main was already merged into the branch (`main` is an ancestor of HEAD). Not run in round 2: the browser files (no
+page or JS changed in this round), the whole unit suite and `demo_check`. The live instance was not measured or
+touched.
+
 ## Entry
 
 section: Modelling

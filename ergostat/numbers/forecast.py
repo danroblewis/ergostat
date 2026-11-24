@@ -38,13 +38,25 @@ def sets(inp) -> tuple[dict[str, list[str]], int]:
 
 
 def fingerprint(inp, pools: dict, failures: dict) -> str:
-    """What the simulation reads of the record, without the clock: an answer is reused while this is unchanged."""
+    """What the simulation reads of the record, without the clock: an answer is reused while this is unchanged. Every
+    input is in it but those that move with the clock alone, taken by size or rounded instead: a curve's stays and a
+    block's runs and refusals by how many (a stay or run still going grows), a kind's arrival rate to 0.1 an hour and
+    its next-state and first-state shares to 0.001."""
     items = sorted((x.id, x.kind, x.state, x.entered, x.queued, x.lease, x.attempts, x.not_before, tuple(x.preds),
-                    x.unscheduled, tuple(sorted(x.holds))) for x in inp.items.values())
-    blocks = [(b.name, b.pool, b.lanes, b.off, len(b.attempts), len(b.refusals), tuple(b.shared)) for b in inp.blocks]
-    kinds = sorted((k.name, tuple((s, km.n) for s, km in sorted(k.km.items())), round(k.arrivals, 1))   # (a rate
-                   for k in inp.kinds.values())                                    # drifts with the clock alone)
-    text = repr((items, blocks, kinds, sorted(pools.items()), sorted(failures.items())))
+                    x.level, x.unscheduled, tuple(sorted(x.holds)), repr(sorted(x.fields.items())))
+                   for x in inp.items.values())
+    blocks = [(b.name, b.kind, tuple(b.at), b.pool, b.lanes, b.off, len(b.attempts), len(b.refusals), tuple(b.shared),
+               b.unblocked, b.most, b.ttl, b.workspace, tuple(b.order), b.assumed, b.pool_said, b.measured)
+              for b in inp.blocks]
+    def shares(xs):
+        return tuple((s, round(w, 3)) for s, w in xs)
+    kinds = sorted((k.name, tuple(k.states), tuple(sorted(k.finished)), tuple(sorted(k.paused)),
+                    tuple((s, km.n) for s, km in sorted(k.km.items())), round(k.arrivals, 1),
+                    tuple((s, shares(v)) for s, v in sorted(k.next.items())), shares(k.arrive_at))
+                   for k in inp.kinds.values())
+    groups = sorted((g, tuple(m)) for g, m in inp.groups.items())
+    text = repr((items, blocks, kinds, groups, sorted(inp.workspaces.items()), sorted(pools.items()),
+                 sorted(failures.items())))
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 

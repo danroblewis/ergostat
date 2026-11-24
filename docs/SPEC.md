@@ -2429,9 +2429,14 @@ within the budget or the simulation failed (then it has no items, never read as 
 move; a p90 not said for too few runs in `p90_none`. Stable: under one `schema` a key may be added, and none changes
 meaning. `version` goes up by one each time the worker works one out (one counter for every model and what-if since
 the server started), and `seq` is the record's last event it read. When the record changed only where the simulation
-does not read it (the items' states, leases, attempts and relations, the blocks' pools, runs and switches, the
-curves' sizes and each kind's arrival rate are its fingerprint), the last answer is kept, unrun, with its version, up
-to two minutes after it was computed.
+does not read it, the last answer is kept, unrun, with its version, up to two minutes after it was computed. Its
+fingerprint is every input the simulation reads (`forecast.fingerprint`): the items' states, leases, attempts,
+relations, group membership and the fields a block's queue is ordered by; the blocks' settings, pools, switches and
+workspace pools; each kind's states and shares. The inputs that move with the clock alone are taken by size or
+rounded instead: each curve's recorded stays and each block's recorded runs and refusals by how many there are, each
+kind's arrival rate to 0.1 an hour and its next-state and first-state shares to 0.001. A
+remote still working out its forecast (its 503) refuses that ask alone; the reader's counts, listings and details from
+that remote are asked as before.
 
 **What it leaves out**, and so what makes it wrong: a capacity no block declares (a reviewer who is one person across
 two kinds, a rate limit), a goal that switches a block off (its

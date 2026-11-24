@@ -108,6 +108,8 @@ def _ask(spec, name: str, r: dict, table: str, key, path: str, params: dict | No
     code, body, _, why = client.get(r["url"], path, token, params, timeout=cache.TIMEOUT, tls=r.get("tls"))
     if code == 404 and table == "details":                      # that item is missing there, not the remote down
         raise RemoteRefused(404, f"no such item at {name}")
+    if code == 503 and table == "forecasts":                    # not worked out there yet: this ask, not the remote down
+        return served(False, f"{name} is still working out its forecast; ask again shortly", 503)
     if code == 200 and not shaped(body):
         code, why = -1, "unexpected answer"
     if code != 200:
@@ -162,7 +164,8 @@ def detail(spec, name: str, item_id: str) -> dict:
 def forecast(spec, name: str, ids: list[str] | None = None, kinds: list[str] | None = None) -> dict:
     """The remote's forecast (``forecast/v1``, numbers/forecast.py), as it last worked it out: of the items ``ids``
     (at most ``FORECAST_IDS``, each checked as ``detail`` checks one) and ``kinds``, or all it serves. An answer of
-    another schema is a failure, never read as no estimate; one being worked out there is a failure this period."""
+    another schema is a failure, never read as no estimate. One still being worked out there (its 503) refuses this
+    ask alone (503, or the last one kept, not ok), and the remote's counts, listings and details are asked as before."""
     r = remote(spec, name)
     ids, kinds = list(dict.fromkeys(ids or [])), sorted(set(kinds or []))
     if len(ids) > FORECAST_IDS or not all(openable(i) for i in ids):

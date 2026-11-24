@@ -35,11 +35,14 @@ NOW = 1_790_000_000.0 + 8 * 3600
 GROUPED = MODEL.replace("blocked_by: ticket", "blocked_by: ticket\n      parent: {kind: ticket, group: true}")
 
 
-def grouped(tmp_path, extra: str = "", now: float = NOW) -> Project:
+ORDERED = GROUPED.replace("takes: {kind: ticket, at: new}", "takes: {kind: ticket, at: new, order: [-priority]}")
+
+
+def grouped(tmp_path, extra: str = "", now: float = NOW, model: str = GROUPED) -> Project:
     """Eight hours of record up to ``now`` (``time.time()`` where the worker reads the real clock), and a group: the
     parent ticket/g0 and its three members."""
     tmp_path.mkdir(parents=True, exist_ok=True)
-    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(GROUPED.replace("{pool}", "3")) + extra)
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(model.replace("{pool}", "3")) + extra)
     p = Project(mdl.load(tmp_path))
     generate(p, now - 8 * 3600, 8, rate=4, pool=3, backlog=12, seed=5)
     p.events.add("ticket.opened", item="ticket/g0", data={"title": "a group"}, at=now - 600)
@@ -173,6 +176,26 @@ def test_the_forecast_is_reused_until_what_it_reads_changes(tmp_path, monkeypatc
     assert eta_api._work(p, p.model.spec, ["ticket"], w, (None,), kept)[0] is not fc   # past KEPT: always again
 
 
+def test_a_group_move_or_a_queue_order_edit_is_worked_out_again(tmp_path, monkeypatch):
+    p = grouped(tmp_path, model=ORDERED)
+    at_now(monkeypatch)
+    w = parse_whatif(p.model.spec, {})[1]
+    fc, fp = eta_api._work(p, p.model.spec, ["ticket"], w)
+    kept = {"ans": fc, "fp": fp}
+    loose = next(i for i, e in sorted(fc["items"].items()) if e["state"] == "new" and not i.startswith("ticket/g"))
+    p.events.add("ticket.edited", item=loose, data={"parent": "ticket/g0"}, at=NOW - 1)   # moved into the group
+    moved, fp2 = eta_api._work(p, p.model.spec, ["ticket"], w, (p.events.last_seq(),), kept)
+    assert moved is not fc and fp2 != fp
+    assert (fc["groups"]["ticket/g0"]["basis"]["members"], moved["groups"]["ticket/g0"]["basis"]["members"]) == (4, 5)
+    queue = {i: e["position"] for i, e in moved["items"].items() if e.get("waits_in") == "dev" and e.get("position")}
+    last = max(queue, key=queue.get)
+    assert queue[last] > 1
+    kept = {"ans": moved, "fp": fp2}
+    p.events.add("ticket.edited", item=last, data={"priority": 9}, at=NOW - 1)          # first in dev's queue now
+    first, fp3 = eta_api._work(p, p.model.spec, ["ticket"], w, (p.events.last_seq(),), kept)
+    assert first is not moved and fp3 != fp2 and first["items"][last]["position"] == 1
+
+
 def test_the_worker_versions_each_forecast_it_works_out(tmp_path, fresh):
     p = grouped(tmp_path, now=time.time())
     first = eta_api.estimates(p, p.model, wait=30)
@@ -236,8 +259,6 @@ def test_a_model_read_as_a_remote_exposes_its_forecast_to_the_model_reading_it(t
     b = None
     try:
         tok = tokens.issue(there.dir, "reader")
-        assert _get(f"{a_url}/remote/v1/forecast", tok)[0] in (200, 503)        # never worked out on the request
-        fc = eta_api.estimates(there, there.model, wait=30)
         here_dir = tmp_path / "reader"
         here_dir.mkdir()
         (here_dir / "shop.token").write_text(tok)
@@ -254,6 +275,11 @@ def test_a_model_read_as_a_remote_exposes_its_forecast_to_the_model_reading_it(t
             """))
         here = Project(mdl.load(here_dir))
         b, b_url = web_serve(here, free_port())
+        code, first = _get(f"{b_url}/api/forecast?remote=shop")      # never worked out on the request: not yet there
+        assert code == 503 and "still working out its forecast" in first["error"], first
+        listed = remote_items.listing(here.model.spec, "shop")       # the remote is not failed for that
+        assert listed["ok"] and listed["counts"]["ticket"] and listed["items"], listed
+        fc = eta_api.estimates(there, there.model, wait=30)
         ids = ["ticket/g1", "ticket/g2"]
         code, got = _get(f"{b_url}/api/forecast?remote=shop&" + "&".join(f"item={quote(i, safe='')}" for i in ids))
         assert code == 200 and got["ok"] and got["remote"] == "shop", got
