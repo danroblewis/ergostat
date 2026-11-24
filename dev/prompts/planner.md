@@ -76,7 +76,9 @@ Each definition is exactly these, in this order:
 
 Say **what** must be true, not **how**: name files and the behaviour, not function signatures or line numbers - the
 implementor reads the code. At most **8 acceptance tests**, each the one that would fail if the change were wrong;
-no test of something the code already guards. A size budget over 250 lines means split it. List only the review
+no test of something the code already guards. A size budget over 250 lines means split it. A new page, panel or
+other isolated feature with slow or many tests of its own may land behind a feature flag, off (docs/DEVELOPMENT.md,
+Feature flags, says when one is worth it; never on an engine path); turning it on is then a gap of its own. List only the review
 lessons that truly apply (two or three), each in one line. The definition should fit on one screen (about 60 lines).
 
 # Your answer

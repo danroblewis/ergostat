@@ -119,13 +119,33 @@ agent = "cleaner"
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: takes 10 s or more; started first in a parallel run, so it is not the last to finish")
     config.addinivalue_line("markers", "serial: holds a time bound only on a quiet machine: run alone in a parallel run")
+    config.addinivalue_line("markers", "flag(name): tests a path behind the feature flag NAME: skipped while it is off "
+                                       "(ergostat/flags.py)")
     if os.environ.get("ERGOSTAT_COVERAGE"):            # the line tracer, only when asked for (dev/README.md, Coverage)
         from tests import coverage_lines
         coverage_lines.register(config)
 
 
 def pytest_collection_modifyitems(config, items):
+    _flagged_off(items)
     _slow_first(items)
+
+
+def _flagged_off(items):
+    """Each test marked ``flag(NAME)`` skipped while that flag is off (declared off and not in ERGOSTAT_FLAGS). A
+    marker naming no declared flag stops the run: never read as off (a skip) or on."""
+    from ergostat import flags
+    for it in items:
+        for m in it.iter_markers("flag"):
+            name = m.args[0] if len(m.args) == 1 and not m.kwargs else None
+            try:
+                off = not isinstance(name, str) or not flags.on(name)
+            except flags.UnknownFlag:
+                raise pytest.UsageError(f"{it.nodeid}: flag({name!r}) is not declared in {flags.REL}") from None
+            if not isinstance(name, str):
+                raise pytest.UsageError(f"{it.nodeid}: the flag marker takes one name: flag('NAME')")
+            if off:
+                it.add_marker(pytest.mark.skip(reason=f"feature flag {name} is off"))
 
 
 def _slow_first(items):
@@ -213,7 +233,7 @@ def home(tmp_path, monkeypatch):
     """Each test's own ergostat home, and nothing inherited from an ergostat running these tests: a suite run as a
     block of an engine (the factory's merge queue) inherits its ERGOSTAT_SOCKET, ERGOSTAT_RUN and the rest, and a
     test's CLI would then talk to that engine instead of its own."""
-    for k in [k for k in os.environ if k.startswith("ERGOSTAT_")]:
+    for k in [k for k in os.environ if k.startswith("ERGOSTAT_") and k != "ERGOSTAT_FLAGS"]:   # (flags: as collected)
         monkeypatch.delenv(k)
     monkeypatch.setenv("ERGOSTAT_CALL_RETRY", "5")    # a run outliving its test's engine gives up soon (rs-calls)
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))

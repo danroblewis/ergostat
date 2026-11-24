@@ -148,6 +148,52 @@ failed requests are printed at the end. The exit code is 0 when every step ran a
 bad shot name are refused with 2 before Chromium starts. Chromium gets no proxy for 127.0.0.1 and localhost; when
 `HTTPS_PROXY` is set, it is the proxy for every other host.
 
+## Feature flags
+
+Work can land switched off. A change declares a flag in `ergostat/flags.json`:
+
+```json
+{"items-board": {"on": false, "about": "the Items tab's board layout"}}
+```
+
+The code it adds asks `flags.on("items-board")` (`ergostat/flags.py`) before it does anything, so while the flag is
+off that path cannot be reached. The tests of that path carry `@pytest.mark.flag("items-board")`, and they are skipped
+while the flag is off. Everything else runs as before and shows that the code around the flag still works with it
+off. The rules:
+
+- **Off is the default.** A flag is off unless its `on` is `true`. If the file cannot be read or parsed, every flag
+  reads as off. A name that is not declared raises `UnknownFlag`, so a typo never decides. A `flag(...)` marker that
+  names an undeclared flag stops the test run. The file ships empty: nothing in ergostat is gated.
+- **Turning a flag on is a change of its own, with the full checks.** That change sets `"on": true`, or it removes an
+  off flag's declaration together with the guard. The implementor's build (`scripts/affected_tests.py`) then runs the
+  whole unit suite instead of the affected tests. The merge queue runs the four browser files whatever
+  `[suites] browser_paths` says (`queue.browser_wanted`). A flags file that cannot be read on either side counts as
+  turned on.
+- **The branch that declares a flag tests it.** Its own build turns its new flags on with `ERGOSTAT_FLAGS=name,...`,
+  so its flagged tests run there and are skipped everywhere else. You can do the same by hand:
+  `ERGOSTAT_FLAGS=items-board uv run python -m pytest -q tests/test_x.py`. `ERGOSTAT_FLAGS` turns on only flags that
+  are already declared. It is for one test run, never for a real instance.
+- **Once a flag has been on for a while, remove it.** Take out the guard and the declaration in one change. The flag
+  was already on, so this does not count as turning it on.
+
+**When a flag is worth it.** Use one for work that sits apart from everything else: a new page, a new panel, a new
+view or export, a new command. Two conditions should both hold. First, the work's own tests are slow or many (most
+often browser tests), so skipping them while the work is unfinished saves real suite time. Second, the guard is one
+`if` at the place where the work is entered (a route, a command, the server's answer that tells a page to show it),
+with nothing shared below it. The flags are read in Python only: a page's scripts see a flag only through what the
+server sends them. A flag
+is not worth it:
+
+- on an engine path: the runner, the store, the fold, scheduling, leases, the model compiler, or anything else a
+  running instance depends on. There the off path and the on path both matter, and both would need testing.
+- for a small change that lands finished in one branch.
+- to land work whose own tests fail. A flagged test still has to pass in the build of the branch that declares it.
+- when the guard would need more than one `if`. Spreading checks through shared code means testing both branches of
+  every check, which costs more than it saves.
+
+While a flag is off, nothing checks its path on main. So the change that turns it on runs the full checks, and the
+daily browser run on main is the safety net for the four browser files.
+
 ## What stays on your computer
 
 - The macOS sandbox tests: `tests/test_sandbox_attacks.py` tests `sandbox-exec` only on macOS; in the container it
