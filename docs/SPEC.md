@@ -8056,9 +8056,13 @@ actions:
 - **The state read.** The highest-ranked state entered, `normal` when none is (`operating/fold.py: current`). A
   record that cannot be read, or a state entered that the model no longer declares, reads as no state, so the gate
   is `deny`, even for an action the owner approved.
-- **Under the §12k column.** The action's §12k columns are filled from its `normal` cell (*Unwritten cells never
-  loosen*). The gate in force is the stricter of the two layers, then stepped by act-risk as before, so a §12k incident
-  still denies it. The request records the gate in force as `gate`, the declared state read as `state`, and
+- **Under the §12k column.** A map-gated action's §12k columns are filled as if its gate were `auto` (*Unwritten
+  cells never loosen*: `normal`, `away` and `maintenance` are `auto`, `freeze` is `approve`, `incident` is `deny`).
+  The gate in force is the stricter of that column and `resolve`'s answer, then stepped by act-risk as before. So with
+  the §12k state at `normal` (or away, or maintenance) and no bypass, the gate in force is exactly `resolve`'s cell,
+  including a state's cell looser than `normal`'s (`{normal: deny, freeze: auto, else: approve}` runs at once under
+  `freeze`), and the class table shows that same cell. Only the §12k state's own `freeze` or `incident` tightens
+  it further, and a bypass can never loosen past either layer. The request records the gate in force as `gate`, the declared state read as `state`, and
   `scheduled: {state, gate, why}`.
 - **The operating lock.** `<state dir>/operating.lock`, `flock`, opened afresh at each acquisition. Entering a
   declared state (the owner's or a run's `enter`, and a trip's entry), leaving one (read, decided and written under

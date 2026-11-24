@@ -223,6 +223,31 @@ so it behaves as main's does. No other code changed. After the merge, these pass
 `test_spec_structure`. Ruff is clean. The round 1 guard-break runs were not repeated, because none of the guarded code
 changed. Not run here: the unit suite and the four browser files.
 
+**Round 3.** There was one finding, and it was blocking: the §12k layer, built from the `normal` cell, tightened a
+state's cell when that cell was looser than `normal`'s. So the request and the act disagreed with `resolve` and with
+the class table. That replaces the round-1 choice *Both layers apply* above:
+- *Fix* (`actions/compile.py`). A map-gated action's §12k columns are now filled from `auto`, as `risk.schedule("auto")`
+  does: `normal`, `away` and `maintenance` are auto, `freeze` is approve and `incident` is deny. With no §12k freeze or
+  incident in force, the gate in force is exactly `resolve`'s cell. §12k's own freeze and incident still tighten it, and
+  a bypass still cannot loosen past either layer. `Action.gate` stays the `normal` cell (`else`'s, or `approve`), for
+  display only. `gate.py` is unchanged.
+- *Test.* `test_state_cell_looser_than_normal_applies` uses `thaw: {normal: deny, freeze: auto, else: approve}`. It
+  checks these cases:
+  - Denied in normal.
+  - Run at once in freeze.
+  - Approved by the gate as a program's request and run by `run_once` in freeze (the act's re-check).
+  - Shown as `auto` in the class table.
+  - Held, not denied, under incident (`else: approve`), then run on the owner's approval.
+
+  With the old composition put back, it failed (`'deny' == 'auto'` at the freeze request). With the fix it passes.
+- *SPEC.* §12k *Under the §12k column* now states the same composition, which removes the contradiction with "with
+  none the result is exactly the cell". The agent guide says a cell may be looser than `normal`'s.
+
+After the change, these pass: `test_operating_gates` (32), `test_gated_actions`, `test_program_actions`,
+`test_cli_fallback`, `test_regime_gates`, `test_operating`, `test_act_risk`, `test_act_reshape`, `test_spec_schema`,
+`test_spec_structure`, `test_inbox` and `test_leased_workspaces`. Ruff is clean. `HEAD..main` is empty, so there was
+nothing to merge. Net code is about +3 lines (within budget). Not run here: the unit suite and the four browser files.
+
 ## Entry
 
 entry-of: operating-modes-regime

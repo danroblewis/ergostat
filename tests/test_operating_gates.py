@@ -48,13 +48,18 @@ actions:
     run: "touch plain.txt"
     gate: auto
     in: .
+  thaw:
+    run: "touch thawed.txt; echo ok"
+    gate: {normal: deny, freeze: auto, else: approve}
+    class: thaw
+    in: .
   slow:
     run: "sleep 30 >/dev/null 2>&1 & echo $! > bg.pid; wait"
     gate: auto
     timeout: 1s
     in: .
 blocks:
-  dev: {type: program, run: "true", actions: [ship, hold, plain, slow], every: 1h}
+  dev: {type: program, run: "true", actions: [ship, hold, plain, thaw, slow], every: 1h}
 """
 
 
@@ -194,6 +199,31 @@ def test_request_scheduled_by_state(tmp_path):
     assert c["scheduled"]["state"] == "incident" and not mark(p, "shipped")
     first = p.events.query(n=None, item=c["id"], type="ergostat.action.requested")[0]["data"]
     assert first["state"] == "incident" and first["scheduled"]["gate"] == "deny"
+
+
+def test_state_cell_looser_than_normal_applies(tmp_path, capsys):
+    """A state's cell looser than the default state's is the gate in force, at the request and at the act: with no
+    bypass the gate is exactly resolve's cell, and the class table says the same."""
+    p = project(tmp_path)
+    a = ask(p, "thaw")
+    assert a["state"] == "denied" and a["gate"] == "deny" and not mark(p, "thawed")
+    enter(p, "freeze")                                    # thaw's freeze cell: auto
+    b = ask(p, "thaw")
+    assert b["gate"] == "auto" and b["state"] == "ran" and mark(p, "thawed")
+    (tmp_path / "thawed.txt").unlink()
+    c = ask(p, "thaw", asker="program")                   # approved by the gate; the act re-checks it, in freeze
+    assert c["state"] == "approved" and c["approved_by"] == "gate"
+    got = gate.run_once(p, p.model.spec, c["id"])
+    assert got["state"] == "ran" and mark(p, "thawed")
+    capsys.readouterr()
+    assert cli(p, "actions") == 0
+    row = next(x for x in capsys.readouterr().out.splitlines() if x.startswith("thaw"))
+    assert " auto" in row and "deny" not in row, row
+    (tmp_path / "thawed.txt").unlink()
+    enter(p, "incident")                                  # thaw's else: approve, looser than normal's deny
+    d = ask(p, "thaw")
+    assert d["state"] == "requested" and d["gate"] == "approve"
+    assert gate.approve(p, p.model.spec, d["id"])["state"] == "ran" and mark(p, "thawed")
 
 
 def test_released_then_state_changed_not_run(tmp_path):

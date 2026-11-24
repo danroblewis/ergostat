@@ -31,8 +31,10 @@ def actions(c, spec) -> None:
                   m.where, "missing-key")
             continue
         by_state = by_states(c, m.get("gate"))           # (checked once operating: is read: state_maps, below)
+        # A map by state: its §12k columns start from auto, so only §12k's own freeze/incident steps tighten it and
+        # with neither in force the gate is exactly resolve's cell, never the normal cell's.
         base = by_state.get(sch.DEFAULT, by_state.get(sch.ELSE))
-        gates = ({"normal": base} if base in GATES else {}) if by_state else \
+        gates = {"normal": "auto"} if by_state else \
             columns(c, m, "gate", what, cell_of, "auto (run at once), approve (held until the owner approves), "
                     "deny (never run) or {reshape: ACTION} (that smaller action asked for at once, this one held)")
         shapes = {k: g[1] for k, g in gates.items() if isinstance(g, tuple)}      # a reshape cell: approve, for itself
@@ -69,7 +71,8 @@ def actions(c, spec) -> None:
             fenced = True
         s, ts = risk(c, m, what)
         ts = {k: ts.get(k, ts.get("normal", THRESHOLD)) for k in rk.COLUMNS}      # unwritten: normal's
-        spec.actions[name] = Action(name, str(m["run"]), gates["normal"], cls, {str(k): str(v) for k, v in args.items()},
+        plain = (base if base in GATES else "approve") if by_state else gates["normal"]
+        spec.actions[name] = Action(name, str(m["run"]), plain, cls, {str(k): str(v) for k, v in args.items()},
                                     c.duration(m, "timeout", what, 120.0), c.duration(m, "wait", what, 300.0),
                                     str(where) if where else None, c.text(m, "description"), m.where, fenced,
                                     s, ts["normal"], gates, ts, shapes, by_state)

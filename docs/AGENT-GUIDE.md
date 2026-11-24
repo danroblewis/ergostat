@@ -672,6 +672,8 @@ actions:
   later then starts strict.
 - In such a model every `gate:` map is by declared state. The §12k columns (`away:`, `maintenance:`) are for models
   that declare no states.
+- Each cell is the gate under that state, even one looser than `normal`'s (`{normal: deny, freeze: auto, else:
+  approve}` runs at once under `freeze`). Only §12k's own `ergostat operating freeze` or `incident` tightens it.
 - When the person needs one class through during a freeze, tell them about `ergostat bypass CLASS --for 2h --note
   "..."`. It is theirs to run, never a run's: it makes the class's gate no stricter than under `normal`, for at most
   24 h, and `ergostat bypass CLASS --end` ends it.
