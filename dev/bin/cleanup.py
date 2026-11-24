@@ -9,6 +9,8 @@ by name, and nothing else.
     previous, any younger than the same hours, and any whose switch waits (installed, approved or draining, read from
     the record: an approved switch can wait a day): removed with `git worktree remove`, never by hand.
 
+A folder gone between listing and removal (another hand removed it) is skipped, and the rest are still removed.
+
     cleanup.py [--dry-run]    remove them (or only say which), and say what was freed"""
 
 from __future__ import annotations
@@ -182,17 +184,34 @@ def sizes(cfg: dict) -> dict:
             "sessions-removed-early": counted(cfg)}
 
 
-def remove(cfg: dict, d: Path) -> None:
+def remove(cfg: dict, d: Path) -> bool:
+    """Remove ``d``; False when it was gone already (removed by another hand between listing and now), so the pass
+    goes on with the rest. A file in it that vanishes meanwhile is passed over; any other failure raises."""
     if SHA.match(d.name):
-        fac.git(fac.path(cfg, "checkout"), "worktree", "remove", "--force", str(d))
-        return
+        try:
+            fac.git(fac.path(cfg, "checkout"), "worktree", "remove", "--force", str(d))
+        except RuntimeError:
+            if os.path.lexists(d):
+                raise
+            return False
+        return True
     if d.resolve().parent != (fac.path(cfg, "live") / "sessions").resolve():
         raise ValueError(f"{d} is not in the sessions folder")
 
-    def writable(fn, p, _):                         # (git's objects are read-only)
-        os.chmod(p, stat.S_IRWXU)
-        fn(p)
-    shutil.rmtree(d, onexc=writable)
+    def writable(fn, p, e):                         # (git's objects are read-only)
+        try:
+            if isinstance(e, FileNotFoundError):
+                raise e
+            os.chmod(p, stat.S_IRWXU)
+            fn(p)
+        except FileNotFoundError:
+            if Path(p) == d:                        # (the folder itself gone: said so; a file in it: passed over)
+                raise
+    try:
+        shutil.rmtree(d, onexc=writable)
+    except FileNotFoundError:
+        return False
+    return True
 
 
 def waiting() -> set[str]:
@@ -212,22 +231,24 @@ def main(argv: list[str]) -> int:
         print(f"no session folder removed early: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         early = []
     gone = [*aged, *(d for d in old if d.name not in keep)]
-    freed, early_gb, late = du(gone), du(early), []
+    freed, early_gb, late, vanished = du(gone), du(early), [], []
     for d in [*gone, *early]:
         if d in early and time.time() - touched(d) <= QUIET:     # (touched since it was chosen: kept)
             late.append(d)
             continue
         print(("would remove " if "--dry-run" in argv else "removing ") + str(d), flush=True)
-        if "--dry-run" not in argv:
-            remove(cfg, d)
+        if "--dry-run" not in argv and not remove(cfg, d):
+            print(f"{d} was gone already: skipped", flush=True)
+            (late if d in early else vanished).append(d)
     if late:
         early, early_gb = [d for d in early if d not in late], round(early_gb - du(late), 2)
     if "--dry-run" not in argv and any(SHA.match(d.name) for d in gone):
         fac.git(fac.path(cfg, "checkout"), "worktree", "prune", check=False)
     if "--dry-run" not in argv and early:
         count(cfg, len(early), early_gb)
-    print(f"{len(gone) + len(early)} folders, {freed + early_gb:g} GB ({len(early)} of finished gaps, "
-          f"{early_gb:g} GB, early)", flush=True)
+    print(f"{len(gone) - len(vanished) + len(early)} folders, {freed + early_gb:g} GB ({len(early)} of finished gaps, "
+          f"{early_gb:g} GB, early)" + (f"; {len(vanished)} gone already, within the GB as measured before"
+                                        if vanished else ""), flush=True)
     return 0
 
 

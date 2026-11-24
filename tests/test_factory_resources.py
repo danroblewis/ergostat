@@ -3,6 +3,7 @@ dev/bin/cleanup.py, dev/model/resources.yaml)."""
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import json
 import os
@@ -189,9 +190,35 @@ def env_of(spec, block: str, given: dict) -> float:
     return eval_expr(compile_expr(b.params["expr"]), {k: given[k] for k in b.inputs})
 
 
+@functools.cache
+def factory_model():
+    return read(ROOT / "ergostat.yaml")
+
+
+@pytest.mark.slow                                                       # (the model's checks: about 20 s)
+def test_cleanup_fires_at_29_gb_with_the_gate_still_held():
+    """dev/records/cleanup-starts-before-the-gate.md, 1: at 29 GB free the 25 GB gate holds (builders start), and
+    cleanup-when is on, through the margin goal (30 GB) the model declares."""
+    spec, _ = factory_model()
+    gate, margin = spec.goals["disk-free-enough"], spec.goals["disk-free-for-cleanup"]
+    assert gate.of.name == margin.of.name == "disk-free"
+    assert (margin.hold.op, margin.hold.value) == (">=", 30) and margin.hold.value > gate.hold.value
+    off = {g.name: int(g.hold.outside(29.0)) for g in (gate, margin)}
+    assert off == {"disk-free-enough": 0, "disk-free-for-cleanup": 1}          # the gate held, the margin crossed
+    b = spec.blocks["cleanup-when"]
+    assert {k: (r.kind, r.name, r.port) for k, r in b.inputs.items()} == {
+        "folders": ("goal", "factory-disk-within", "off"), "margin": ("goal", "disk-free-for-cleanup", "off"),
+        "disk": ("goal", "disk-free-enough", "off")}
+    at = lambda free, folders=0: env_of(spec, "cleanup-when", {   # noqa: E731
+        "folders": folders, "margin": int(margin.hold.outside(free)), "disk": int(gate.hold.outside(free))})
+    assert at(29.0) == 1 and env_of(spec, "machine-full", dict(fit=0, cpu=0, memory=0, vm=0, threads=0, disk=0)) == 0
+    assert at(31.0) == 0 and at(31.0, folders=1) == 1 and at(20.0) == 1
+    assert [r.name for r in b.outputs["out"]] == ["disk-cleanup"]
+
+
 @pytest.mark.slow                                                       # (the model's checks: about 20 s)
 def test_gates_respect_headroom(res):
-    spec, problems = read(ROOT / "ergostat.yaml")
+    spec, problems = factory_model()
     assert not [p for p in problems if p.level == "error"]
     sp = res.setpoints()                                                # the program reads the model's own setpoints
     assert {k: spec.goals[g].hold.value for k, g in res.GOALS.items()} == sp

@@ -699,13 +699,15 @@ measured use of a session and its suite (of the session alone when `[suites] slo
 and the readings include those running). **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
 the risk target (the tuner's, or whatever sets it), the headroom a separate cap in the gates and in each run
 (`pools.my_turn`); it only ever lowers what the pool allows. A resource past its goal, or a headroom not known, holds
-new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous, nor
+new sessions (`machine-full`). `cleanup-when` starts `disk-cleanup` below `disk-free-for-cleanup` (30 GB), a margin
+above the 25 GB gate, so cleanup begins while builders still start. `disk-cleanup` removes session folders and installs (never current or previous, nor
 one whose switch waits) older than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
 which. A finished gap's session folders go sooner: once every gap whose branch (or id) the folder's name begins with
 is in a state of `[resources] finished_states` (approved, queued, push-pending, merged, closed: the work is on the
 branch), unless touched in the last ten minutes or mounted by a running container. A record, the setting or Docker
 that cannot be read removes none early. They are counted in `run/resources/cleanup.json`, read as the reading
-`sessions-removed-early` (`resources.py line` shows it). `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
+`sessions-removed-early` (`resources.py line` shows it). A folder gone between listing and removal is skipped and the
+rest are removed. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
 
 ## Coverage: the modules below a floor
 
