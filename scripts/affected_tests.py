@@ -9,7 +9,11 @@ of its flagged path run in its own build while they skip everywhere else.
     uv run python scripts/affected_tests.py [--base main] -- uv run python -m pytest -q -n 8 --dist worksteal
 
 Arguments after the command (the suites' --deselect of quarantined tests) go to pytest as they are. Only files that
-exist are named, so a deleted test file never fails the selection."""
+exist are named, so a deleted test file never fails the selection. A browser file (an importorskip of Playwright
+at the file's top level, so the whole file skips without it) that dev/factory.toml's ``[suites] browser`` names, and
+its browser_paths match, is left out where Playwright cannot be imported: it would only skip, and the merge queue's
+browser suite runs it. Any other browser file is still named, so a branch changing only it fails (rc 5: nothing
+ran). A file whose importorskip is inside a fixture or a test is still run: its other tests need no browser."""
 
 from __future__ import annotations
 
@@ -54,6 +58,58 @@ def selected(paths: list[str]) -> list[str]:
     return sorted(t for t in out if os.path.isfile(t))
 
 
+def skips_whole_without_playwright(text: str) -> bool:
+    """Whether a test file's own top level (a statement of the module, outside any def, class or if) calls
+    ``pytest.importorskip("playwright...")``, so that without Playwright the whole file skips. An importorskip inside
+    a fixture or a test skips only those, and the file's other tests must run: False. A file that cannot be parsed:
+    False (it is run)."""
+    import ast
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return False
+    for stmt in tree.body:
+        if not isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Expr)) or stmt.value is None:
+            continue
+        for node in ast.walk(stmt.value):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "importorskip" and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "pytest" and node.args and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str) and node.args[0].value.split(".")[0] == "playwright"):
+                return True
+    return False
+
+
+def in_browser_suite(config: str = "dev/factory.toml") -> set[str]:
+    """The test files the merge queue's browser suite runs for a branch that changes them: named in ``[suites]
+    browser``'s command and, where ``browser_paths`` is set, matched by it (else the queue never runs the suite for
+    that branch). A config that cannot be read, or a command that names no file: none (nothing is left out)."""
+    import fnmatch
+    import shlex
+    import tomllib
+    try:
+        suites = tomllib.loads(Path(config).read_text(encoding="utf-8"))["suites"]
+        named = {w for w in shlex.split(suites["browser"]) if w.startswith("tests/") and w.endswith(".py")}
+        paths = suites.get("browser_paths") or []
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+    if not isinstance(paths, list):
+        return set()
+    return {t for t in named if not paths or any(fnmatch.fnmatch(t, str(p)) for p in paths)}
+
+
+def browser_only(tests: list[str]) -> list[str]:
+    """Those of ``tests`` that skip whole without Playwright (skips_whole_without_playwright), when it cannot be
+    imported here, and that the merge queue's browser suite runs (in_browser_suite): run alone they make pytest's
+    rc 5 (nothing ran). A browser file outside that suite is kept, and its rc 5 stands. With Playwright, none."""
+    import importlib.util
+    if importlib.util.find_spec("playwright") is not None:
+        return []
+    suite = in_browser_suite()
+    return [t for t in tests if t in suite
+            and skips_whole_without_playwright(Path(t).read_text(encoding="utf-8", errors="replace"))]
+
+
 def main(argv: list[str]) -> int:
     base = "main"
     if argv[:1] == ["--base"]:
@@ -73,6 +129,9 @@ def main(argv: list[str]) -> int:
         print(f"affected_tests: {'; '.join(turned)}: the full suite", flush=True)
     else:
         tests = selected(paths)
+        if skipped := browser_only(tests):
+            print(f"affected_tests: no Playwright here, left to the browser suite: {' '.join(skipped)}", flush=True)
+            tests = [t for t in tests if t not in skipped]
         print(f"affected_tests: {len(paths)} changed, running {' '.join(tests) or 'collection only'}", flush=True)
         cmd += tests or ["--collect-only"]
     os.execvp(cmd[0], cmd)                             # (its own process: a kill of the suite reaches pytest)

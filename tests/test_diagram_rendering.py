@@ -906,9 +906,15 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         before = pg.evaluate(places)
         frame = "() => { const c = S.layout.containers.find((c) => c.name === 'product'); return [c.bx ?? c.x, c.by ?? c.y]; }"
         hull = pg.evaluate(frame)
-        grip = pg.locator('g.hull[data-hull="product"] rect.hull-grip').bounding_box()
         k = pg.evaluate("() => S.view.k")
-        x, y = grip["x"] + grip["width"] * 0.6, grip["y"] + 8
+        # a place on its top that is the grip's, not under a line that crosses into it (a link's wide hit path is on top)
+        x, y = pg.evaluate("""() => { const g = document.querySelector('g.hull[data-hull="product"] rect.hull-grip');
+          const b = g.getBoundingClientRect();
+          for (const f of [0.6, 0.5, 0.7, 0.4, 0.8, 0.3, 0.9, 0.2]) for (const dy of [8, 4, 11]) {
+            const x = b.x + b.width * f, y = b.y + Math.min(dy, b.height - 1);
+            if (document.elementFromPoint(x, y) === g) return [x, y];
+          }
+          return [b.x + b.width * 0.6, b.y + 8]; }""")
         pg.mouse.move(x, y)
         pg.mouse.down()
         for step in range(1, 11):
@@ -928,7 +934,8 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         assert not r["through"] and not r["partOverlap"] and not r["netCrossings"], (r["through"], r["partOverlap"])
         drawn(pg, url, "open=*", 9)                                   # a new visit: still where it was put
         again = pg.evaluate(places)
-        assert all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
+        assert all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after), \
+            {i: (after[i], again.get(i)) for i in after if again.get(i) != after[i]}
         pg.locator('g.pins .pin[data-id="hull:product"]').dispatch_event("click")
         pg.wait_for_function("() => !S.pins['hull:product']", timeout=10000)
         assert not errors, errors
@@ -2178,6 +2185,14 @@ def crossing_rules(geo) -> list:
     return rules.check(geo, CROSSING_RULES) if geo else []
 
 
+# drawn and routed, or (a system with no goal and no block that acts, drawn alone) saying it holds no control system
+BLOCKS_OR_NONE = (f"() => ({READY[6:]}) || "
+                  "/^No control system here/.test(document.querySelector('.canvas-wrap .empty')?.textContent || '')")
+# the only systems that, drawn alone in Blocks, hold no control system (by example): each must say so, and every
+# other system must draw. autoscaler's rescales is the observed HPA, an outside controller: no goal, no block that acts
+NO_CONTROL_SYSTEM = {"autoscaler": {"rescales"}}
+
+
 def blocks_views(tree: dict) -> list[str]:
     return ["view=blocks", "view=blocks&open=*", *(f"view=blocks&open={s}" for s in tree), *(f"view=blocks&system={s}" for s in tree)]
 
@@ -2190,7 +2205,14 @@ def test_the_control_view_draws_every_example_cleanly_as_a_block_diagram(browser
     drawn(pg, url, "view=blocks", 0)
     problems = []
     for i, v in enumerate(blocks_views(pg.evaluate("() => S.graph.tree || {}"))):
-        drawn(pg, url, v, i + 1)
+        pg.goto(f"{url}/diagram?v={i + 1}&{v}", timeout=DRAWN_S * 1000)
+        pg.wait_for_function(BLOCKS_OR_NONE, timeout=DRAWN_S * 1000)
+        none, ready = v.partition("&system=")[2] in NO_CONTROL_SYSTEM.get(name, ()), bool(pg.evaluate(READY))
+        if none or not ready:                 # only a listed system may say it holds none; every other view must draw
+            if none == ready:
+                problems.append(f"[{v}] " + ("draws a control system, though NO_CONTROL_SYSTEM lists it as holding none"
+                                             if none else "draws no control system: 'No control system here'"))
+            continue
         r = pg.evaluate(AUDIT)
         problems += [f"[{v}] {k}: {x}" for k in ("through", "overlap", "netCrossings", "partOverlap") for x in r[k]]
         problems += [f"[{v}] {x}" for x in pg.evaluate(BLOCKS_DOM)]
@@ -2276,7 +2298,7 @@ def test_the_top_of_blocks_is_a_loop_with_its_junction_ahead_of_the_controller_a
         assert not errors, errors
 
 
-ROWS = """() => {
+BD_ROWS = """() => {
   const at = (id) => S.layout.children.find((c) => c.id === id);
   const cap = [...document.querySelectorAll("svg.canvas text.bd-row-caption")];
   return { rows: (S.graph.rows || []).map((r) => ({ system: r.system, parts: r.nodes.map(at), frame: r.frame &&
@@ -2300,7 +2322,7 @@ def test_uncoupled_systems_are_parallel_rows_each_with_r_left_and_y_right_and_a_
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks", 0)
-        r = pg.evaluate(ROWS)
+        r = pg.evaluate(BD_ROWS)
         pg.close()
     assert not errors, errors
     assert [x["system"] for x in r["rows"]] == systems == [o["system"] for o in r["outlines"]], r
@@ -2341,7 +2363,7 @@ def test_rows_keep_their_outlines_when_a_coupled_system_opens_or_closes_in_place
                                  "!S.anchor && S.layout && !S.layout.routing && document.querySelectorAll('svg.canvas rect.bd-row').length",
                                  timeout=30000)
             pg.wait_for_timeout(300)
-            seen.append((opened, anchor, pg.evaluate(ROWS)))
+            seen.append((opened, anchor, pg.evaluate(BD_ROWS)))
         pg.close()
     assert not errors, errors
     assert all(a for _, a, _ in seen), [(o, a) for o, a, _ in seen]     # (each time, the drawing was to be kept in place)
@@ -2762,7 +2784,7 @@ def test_blocks_crossings_hop_dots_only_at_takeoffs_slashes_clear_and_a_drag_and
         assert bad == [], "\n".join([str(bad)] + [f"{e['id']} {e['pts']}" for e in geo["edges"] if any(e["id"] in x["parts"] for x in bad)]
                                     + [str(h) for h in geo["hops"] if any(h["edge"] in x["parts"] for x in bad)])
         nid = "blk:product-manager"
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()     # (not a part whose name has 'fit' in it: model-fits)
         bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 40, 160)
         pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
         pg.wait_for_timeout(300)
@@ -3749,6 +3771,15 @@ SD_WORDS = r"\b(controller|setpoint|rule|goal)s?\b|<=|>="   # (a valve is Sterma
 SD_GOAL_SAID = r", \d+ closes? a goal|[Ss]erves goals? \S+"
 
 
+def sd_goal_said(goals) -> str:
+    """SD_GOAL_SAID, and the third: an attention row naming one of the model's ``goals`` as ``goal NAME`` (the form
+    dynamics.words() keeps, as in 'goal developer-honest cannot close'). Only those names: 'goal is off' is still a
+    control word."""
+    import re
+    names = "|".join(map(re.escape, sorted(goals, key=len, reverse=True)))
+    return SD_GOAL_SAID + (rf"|\bgoal (?:{names})(?![\w-])" if names else "")
+
+
 def unsign_rollout(d: Path) -> None:
     """image-squeeze with the signs on what its rollout reads taken off: loops of unknown polarity again."""
     f = d / "rollout.yaml"
@@ -3758,7 +3789,10 @@ def unsign_rollout(d: Path) -> None:
 
 def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known(browser, tmp_path):
     import re
+
+    from ergostat import model as mdl
     with served("image-squeeze", tmp_path, unsign_rollout) as url:
+        goal_said = sd_goal_said([lp.name for lp in mdl.load(tmp_path / "image-squeeze").loops()])
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
@@ -3779,7 +3813,8 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                                    const c = getComputedStyle(e).stroke; e.remove(); return c; })(),
                    corners: !!hull?.parentNode.querySelector(':scope > path.frame-corners'),
                    // the panel but its legend (first now) and Q42's group words ('Goals off', 'No goal is off.', the
-                   // same in every view), every fold opened: no control word in any of it
+                   // same in every view), every fold opened: no control word in any of it (the groups' rows are
+                   // checked: the server says them in system dynamics' words, a goal named as 'goal NAME' kept)
                    side: (() => { const s = document.querySelector('.side').cloneNode(true);
                                   s.querySelector('details.legend-box').remove();
                                   for (const x of s.querySelectorAll('h3.att-head, .att > .none')) x.remove();
@@ -3787,11 +3822,18 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                                   return s.textContent; })() };
         }""")
         assert r["unknown"] > 0 and r["unknownMarked"] == 0 and r["marked"]
+        # Q42's rows as the server says them in this view (dynamics.attention): image-squeeze's say 'goal done-as-meant
+        # cannot close: none of its valves acts on ...' in the other views; here a valve is a flow, its parts' names kept
+        rows = pg.evaluate("""() => [...document.querySelectorAll('.side .att')].map((a) => {
+          const c = a.cloneNode(true); for (const x of c.querySelectorAll('.none')) x.remove(); return c.textContent; })
+          .join(' ')""")
+        assert "cannot close" in rows, rows
+        assert not re.search(SD_WORDS + r"|\bvalves?\b", re.sub(goal_said + r"|\w+(?:[.\-/:]\w+)+", "", rows), re.I), rows
         assert r["sum"].startswith(f"{r['unknown']} of unknown polarity"), r["sum"]
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
         assert r["hullFill"] in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]       # a sector: framed by its corners, no tint
         assert r["hullStroke"] == r["frame"] and r["corners"], r
-        assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", r["side"]), re.I), r["side"][:600]
+        assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, re.sub(goal_said, "", r["side"]), re.I), r["side"][:600]
         # every panel: a loop's, a desired level's, a gap's, a connector's
         for sel in [".loop-marker", '.node[data-id^="desired:"]', '.node[data-id^="gap:"]']:
             pg.locator(f"svg.canvas {sel}").first.dispatch_event("click") if sel == ".loop-marker" else None
@@ -3801,7 +3843,7 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
             pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
             pg.wait_for_timeout(300)
             text = pg.locator("#detail").inner_text()
-            assert not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", text), re.I), (sel, text[:800])
+            assert not re.search(SD_WORDS, re.sub(goal_said, "", text), re.I), (sel, text[:800])
         assert not errors, errors
         pg.close()
 
@@ -5003,8 +5045,8 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
         pg.goto(url + "/goals")
         pg.locator("td.spark-cell").first.click()
         pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=20000)
-        # the Items page: the kind's flow, and under its table its cycle times
-        pg.goto(url + "/items/ticket")
+        # the Items page: the kind's flow, and under its table its cycle times (every state: by default its state groups)
+        pg.goto(url + "/items/ticket?states=all")
         pg.wait_for_function(f"() => ({CHARTS.format('.cfd')})() >= 1 && ({CHARTS.format('.chart.cycle')})() >= 1", timeout=20000)
         states = pg.evaluate("() => [...document.querySelectorAll('.cfd-states .stbox')].map((x) => x.textContent)")
         assert states == ["3open", "3doing", "6done"], states
@@ -5298,9 +5340,10 @@ def test_off_in_the_scope_is_hatched_labelled_and_keyed_and_the_arrows_read_in_b
             errors: list[str] = []
             pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
             pg.goto(url + "/loops")
-            pg.evaluate("""() => { window.SAID = []; const f = CanvasRenderingContext2D.prototype.fillText;
+            # (window's, by a name the page's own scripts do not use: pages.js has a SAID of its own)
+            pg.evaluate("""() => { window.__canvasSaid = []; const f = CanvasRenderingContext2D.prototype.fillText;
                 CanvasRenderingContext2D.prototype.fillText = function (t, ...r) {
-                  SAID.push([String(t), this.canvas]); return f.call(this, t, ...r); }; }""")
+                  window.__canvasSaid.push([String(t), this.canvas]); return f.call(this, t, ...r); }; }""")
             pg.locator("td.spark-cell").first.click()
             pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3 && document.querySelector('#detail .scope .off-key')",
                                  timeout=20000)
@@ -5310,7 +5353,7 @@ def test_off_in_the_scope_is_hatched_labelled_and_keyed_and_the_arrows_read_in_b
                     return ({OFF_PIXELS})(u.ctx.canvas, [u.bbox.left, u.bbox.top + 2, u.bbox.width, 10]); }}""")
                 assert wash > 30 and ink > 10, (scheme, i, wash, ink)
             assert pg.evaluate("""() => { const c = document.querySelectorAll('#detail .scope .chart-plot')[2].plot.ctx.canvas;
-                return SAID.some(([t, k]) => t === 'off' && k === c); }"""), "the e chart, over the time axis, says 'off'"
+                return window.__canvasSaid.some(([t, k]) => t === 'off' && k === c); }"""), "the e chart, over the time axis, says 'off'"
             foot = pg.locator("#detail .scope .chart-foot")
             assert "Red: off" not in foot.inner_text() and foot.locator(".off-said").inner_text().strip() == "off"
             wash, ink = foot.locator("canvas.off-key").evaluate(f"(c) => ({OFF_PIXELS})(c, [0, 0, c.width, c.height])")
@@ -6192,7 +6235,9 @@ def test_the_exported_png_shows_every_loop_name_the_values_and_its_legend_on_whi
         got = pg.evaluate(EXPORTED_PNG)
         assert got["corner"] == [255, 255, 255, 255], got["corner"]
         said = " ".join(t for t, _, _ in got["texts"])
-        assert len(rows) > 10 and all(r in said for r in rows), [r for r in rows if r not in said]
+        # (product drawn alone: the process, its sensors, ports, take-offs, lighter lines, vectors and signal words; its
+        # goals' junctions and controllers are factory's, drawn at the top level, so their rows are not in its legend)
+        assert len(rows) >= 6 and all(r in said for r in rows), (len(rows), [r for r in rows if r not in said])
         assert all(t in said for t in pg.evaluate("() => exportTitle()"))
         assert all(n >= 5 for t, n, _ in got["texts"] if "summing junction" in t), got["texts"]
         assert all(t[2] for t in got["texts"]), [t for t in got["texts"] if not t[2]]   # no subscript cut at the edge
@@ -6999,7 +7044,9 @@ flows:
 
 def queued(tmp_path: Path, monkeypatch) -> Path:
     """The queue model, and two hours of record as the world ran it with k = 3 (an hour is under three of
-    the queue's time constant, 30 minutes: too little to propose a value from)."""
+    the queue's time constant, 30 minutes: too little to propose a value from). Each arrivals reading is the rate
+    over the 30 s up to it, as a sensor reads a rate: read as the rate over the 30 s after it, arrivals reach the
+    queue a reading late, and the residual finder rightly proposes a delay on them (hidden.py)."""
     from ergostat import model as mdl
     from ergostat.store import Project
     d = tmp_path / "queue"
@@ -7010,10 +7057,10 @@ def queued(tmp_path: Path, monkeypatch) -> Path:
     now, q = time.time(), 0.0
     for i in range(241):
         a = 10 + 5 * ((i // 20) % 2)
+        for _ in range(30 if i else 0):
+            q += (a - 3 * q) / 3600
         p.measurements.add("sensor/queue.main", q, at=now - 7200 + i * 30)
         p.measurements.add("sensor/arrivals.main", a, at=now - 7200 + i * 30)
-        for _ in range(30):
-            q += (a - 3 * q) / 3600
     return d
 
 
@@ -7085,7 +7132,7 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         assert entry.locator("h3").inner_text() == "A parameter's value"            # the kind of change, its title
         entry.get_by_role("button", name="Effect and diff").click()
         prop = entry.inner_text()
-        assert "k: 2 1/h → 3" in prop and "value: 2" in prop and "Accept" in prop, prop
+        assert re.search(r"k: 2 1/h → (3|2\.99\d*|3\.0\d*) ", prop) and "value: 2" in prop and "Accept" in prop, prop
         # its valve's panel offers it too; accepted there, the file says the new value, its comment kept
         drawn(pg, url, "view=dynamics", 1)
         pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'flow:served'))")
