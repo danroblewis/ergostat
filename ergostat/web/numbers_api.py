@@ -456,10 +456,13 @@ def exercised(live, p, snap: dict) -> list[dict]:
             _, q = ex.of_project(p, spec, snap["at"])
         except Exception:                            # a record that cannot be read says nothing here
             q = {}
-        got = [{"level": "warn", "code": ex.CODE, "about": ref, "message": ex.said(x)} for ref, x in sorted(q.items())]
+        got = [{"level": "warn", "code": ex.CODE, "about": ref, "message": ex.said(x),         # (and its numbers: a row)
+                **{k: x[k] for k in ("why", "says", "span", "readings")}} for ref, x in sorted(q.items())]
         try:                                         # and each equation that fits worse than its mean (calibration per part)
-            got += [{"level": "warn", "code": "calibration-worse-than-mean", "about": ref, "message": msg}
-                    for ref, msg in ft.worse_than_mean(spec, reference(live, p, snap)["fit"])]
+            fit = reference(live, p, snap)["fit"]
+            got += [{"level": "warn", "code": "calibration-worse-than-mean", "about": ref, "message": msg,
+                     **{k: (fit["partial"].get(ref) or fit["equations"].get(ref)).get(k) for k in ("r2", "nmse", "n")}}
+                    for ref, msg in ft.worse_than_mean(spec, fit)]
         except Exception:
             pass
         live.keep(key, got)

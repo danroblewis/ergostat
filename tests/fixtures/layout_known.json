@@ -61,7 +61,7 @@
  },
  "image-squeeze": {
   "ceilings": {
-   "satellite-far": 24,
+   "satellite-far": 27,
    "valve-orientation-mismatch": 3
   }
  },

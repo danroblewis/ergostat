@@ -241,8 +241,9 @@ when `.libraries` or `.libraries/NAME` is a link. Every load checks the copy aga
 hash, links hashed by their target, never followed, FIFOs and devices refused unopened) and parses the very bytes it
 hashed. What this does not cover: a library with `trust: owner` is trusted wholesale, as any folder you mark so; the
 lock pins what you fetched, not that it is safe; and a script a template runs from `${here}` is read again when it
-runs, so a change to it between load and run is not caught here. A library without `trust: owner` is listed but never
-expanded until the provenance gate and the sandbox reach fetched libraries.
+runs, so a change to it between load and run is not caught here. A library without `trust: owner` is untrusted exactly
+as an untrusted folder is: its uses are held, checked against the same allowlist and bounded, its text is marked (in
+`check`, the name of the file it came from too, with control characters written `\uXXXX`), and a use that makes more than that is refused (`library-untrusted`).
 
 ## The page from elsewhere
 

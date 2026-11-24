@@ -103,7 +103,9 @@ A sensor measures one stock or one flow. How it reads decides what it costs:
 | `manual:` | a person records it | none |
 
 Commands and queries run on a fixed **pool of eight threads**, never a thread per reading, so a thousand sensors
-due at once queue for the eight rather than starting a thousand threads. A `run:` sensor's reading is a process
+due at once queue for the eight rather than starting a thousand threads. A sensor read every minute or more often,
+with a timeout of a minute or less, has a fast lane of four threads instead, so it never waits behind slow readings.
+A `run:` sensor's reading is a process
 started from scratch (a shell, then usually an interpreter), which is what makes many command sensors costly: 170
 sensors every 3 minutes is 57 process starts a minute. A **daemon** sensor is asked over a pipe instead (below).
 
