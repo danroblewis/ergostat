@@ -80,23 +80,25 @@ def remove(repo: Path, root: Path, name: str) -> None:
         shutil.rmtree(wt)
 
 
-def sweep(cfg: dict, repo: Path) -> list[str]:
-    """The worktrees a SIGKILLed run left under run/queue-half/, removed (under the queue's lock); their names.
-    Anything else there is kept."""
-    root = fac.run_dir(cfg, ROOT).resolve()
+def sweep(cfg: dict, repo: Path, where: str = ROOT) -> list[str]:
+    """The worktrees a SIGKILLed run left under run/queue-half/ (or run/<where>/: the verification lane's own,
+    verify.py, swept under its own lock), removed (under the queue's lock); their names. Anything else there is kept."""
+    root = fac.run_dir(cfg, where).resolve()
     gone = sorted(p.name for p in root.iterdir() if MADE.match(p.name))
     for name in gone:
         remove(repo, root, name)
     return gone
 
 
-def run_all(cfg: dict, repo: Path, heads: list[str], check, tag: str, most: int = 2) -> list:
-    """check(i, worktree) on each of ``heads`` (head i in run/queue-half/<tag>-i), at most ``most`` at a time; one result
-    per head, in heads' order: what it returned, or the exception that ended it."""
-    if not TAG.match(tag) or not 1 <= len(heads) <= HEADS_MOST:
-        raise ValueError(f"a round's tag {tag!r} is not a run tag, or {len(heads)} heads are not 1 to {HEADS_MOST}")
-    root, repo = fac.run_dir(cfg, ROOT).resolve(), Path(repo)
-    sweep(cfg, repo)
+def run_all(cfg: dict, repo: Path, heads: list[str], check, tag: str, most: int = 2, where: str = ROOT) -> list:
+    """check(i, worktree) on each of ``heads`` (head i in run/<where>/<tag>-i: run/queue-half/ unless the verification
+    lane's own), at most ``most`` at a time; one result per head, in heads' order: what it returned, or the exception
+    that ended it."""
+    if not TAG.match(tag) or not 1 <= len(heads) <= HEADS_MOST or where not in (ROOT, "verify-half"):
+        raise ValueError(f"a round's tag {tag!r} is not a run tag, or {len(heads)} heads are not 1 to {HEADS_MOST}, "
+                         f"or {where!r} is not a half's folder")
+    root, repo = fac.run_dir(cfg, where).resolve(), Path(repo)
+    sweep(cfg, repo, where)
     made, out, stop, gate = [], [None] * len(heads), threading.Event(), threading.Semaphore(most)
     done = [threading.Event() for _ in heads]           # (set as each ends: never is_alive, a broken join's lie)
 

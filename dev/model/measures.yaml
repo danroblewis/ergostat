@@ -123,6 +123,27 @@ auxiliaries:
     description: gaps the batches landed over the last 24 hours, per hour
     driven-by: [+flow.gaps-merged]
     sensor: {run: python3 dev/bin/measure.py gaps-landed-per-hour, every: 10m, timeout: 1m, description: the batch items}
+  # Merge first, verify after (dev/bin/verify.py: its verifications in run/verify-log.jsonl), compared with today's queue
+  suite-runs-per-merged-gap:
+    unit: runs/gap
+    description: the batches' suite runs and the verifications' over the gaps merged in 14 days (the queue's alone while [verify] after is off - today's number); no value with none merged
+    driven-by: [+auxiliary.batch-runs]
+    sensor: {run: python3 dev/bin/measure.py suite-runs-per-merged-gap, every: 30m, timeout: 1m, description: the batch items and the verifications}
+  merge-to-verified-hours:
+    unit: hours
+    description: the median hours from a gap's merge on main to the verification that passed it, over the gaps verified in 14 days; no value with none
+    driven-by: [+auxiliary.suite-runs-per-merged-gap]
+    sensor: {run: python3 dev/bin/measure.py merge-to-verified-hours, every: 30m, timeout: 1m, description: the gaps' verified_at}
+  verify-escapes:
+    unit: verifications
+    description: verifications in 14 days that found main red and named the merge (an escape the quick check let through)
+    driven-by: [+flow.queue-failures]
+    sensor: {run: python3 dev/bin/measure.py verify-escapes, every: 30m, timeout: 1m, description: the verifications}
+  verify-reverts:
+    unit: merges
+    description: merges the verification lane reverted in 14 days (each culprit and those stacked on it)
+    driven-by: [+auxiliary.verify-escapes]
+    sensor: {run: python3 dev/bin/measure.py verify-reverts, every: 30m, timeout: 1m, description: the verifications}
 
 goals:
   first-pass-good:
