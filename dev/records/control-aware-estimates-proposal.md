@@ -23,3 +23,28 @@ Acceptance tests: the proposal review passes; the timing and backtest tables are
 Budget: documentation; measurement code at most 150 lines.
 
 Milestone: timeline-real-schedule. Owner items: 17 (feeds 18's Gantt panel). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Round 1: written. docs/proposals/control-aware-estimates.md settles the nine. Its tables come from the spike
+tests/test_control_spike.py (121 lines of code; it runs only when named:
+`uv run python scripts/named_tests.py tests/test_control_spike.py`, 220 s here). It changes no code: no Flags.control
+stub was added, because the proposal recommends against coupling and a flag that does nothing would claim more
+than the code does.
+
+- Done 1: the nine are settled, the bar is given as numbers (§8), and the reproducing command is named.
+- Done 2, **narrowed**: the gate's cost (378 µs a Shadow pass, 26 µs the two take gates alone) was measured on the
+  factory's own model, and the events per run (37,019) on the factory-size fixture, the CI stand-in. No copy of the
+  factory record is in this container, so nothing was measured on the copied record. The build's §8.3 runs the
+  backtest on such a copy, by the coordinator.
+- Done 3: on the gated record, two-way coupling equals measured concurrency estimate for estimate (MAE 409 min,
+  coverage 0.93), and stationary availability gets 820 min and 0.50. The proposal recommends not coupling, says why,
+  and amends the build to the gate's admission limit worked out once at now.
+- Done 4: the owner's question is one sentence at the end.
+- Decisions taken alone (reversible): the machine's headroom is moved by one per session while the limit at now is
+  searched for, because with it held the factory's gate is closed for every count. The build gap's flag ships off
+  until its bar passes.
+- Found, outside this gap (not fixed): on the factory-size fixture, today's model makes 147 runs in 121 s, so within
+  eta.BUDGET (5 s) it makes about 6 runs, fewer than FEW, and no p90 is said.
+- Tests run: tests/test_control_spike.py (2 passed, by named_tests). ruff is clean. No page or shipped code changed,
+  so no other suite was run here.
