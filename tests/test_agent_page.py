@@ -200,8 +200,11 @@ def test_a_person_is_asked_and_a_decision_says_how_it_decides(browser, tf, df):
 @pytest.mark.parametrize("name", ["work", "keep-located-worked", "approve"])
 def test_at_phone_width_the_page_does_not_scroll_sideways(browser, tf, name):
     pg = opened(browser, tf, name, width=390)
+    pg.evaluate("() => document.querySelectorAll('.agent-page details').forEach((d) => { d.open = true; })")   # its code shown
     pg.wait_for_timeout(600)
     assert pg.evaluate("() => document.scrollingElement.scrollWidth") <= 390
+    page = pg.evaluate("() => { const p = document.querySelector('.agent-page'); return [p.scrollWidth, p.clientWidth]; }")
+    assert page[0] <= page[1], page                                      # its code scrolls in its own box, not the page
     assert not pg.errors, pg.errors
     pg.close()
 

@@ -22,3 +22,64 @@ Acceptance tests: Playwright tests for 1-5 on :8791 and examples/docs-fresh plus
 Budget: 320 net lines; the Coordinator may split it as (a) route, header, 'What it is' and 'Its definition', (b) 'Its place' and 'What it did' moved from the panel.
 
 Milestone: agent-show-page. Owner items: 19. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Round 1: built. About 198 net lines outside tests and docs (220 added, 19 removed in ergostat/), under the 320 budget.
+
+What is in it:
+- `static/agent.js` (new): `pageAgent`, routed from `route()` in util.js; 'agent' joins UI_PAGES in server.py and
+  util.js. Header meta line: kind (rung letter and word, `rung_why` as its title), machine, system, serves (each goal a
+  link to /goals?select=G with its word through `goalWord`), engaged, mode, defined at (a link to the definition
+  section). Sections, each an anchor (`#what-it-is`, `#its-definition`, `#its-place`, `#what-it-did`): the rung's own
+  first ('What they are asked', 'Its prompt', 'Its specification', 'How it decides', 'Its program', 'Its law'), then
+  'Its definition' (the YAML highlighted under file:line, or 'not written: ergostat put it in front of X'), 'Its place'
+  (goals served, roles, what commands it and what it commands, 'working N tickets' linking to the Items set of the
+  items it holds now, 'Show on Blocks'), 'What it did' (the panel's tally, runs chart, cost, Recent runs, log tail
+  named by its file). Polled every 4 s, redrawn only when an answer changed. 'no agent NAME' with a link to /agents.
+- `details.js`: the panel's parts moved into `engagedText`, `agentTally` and `agentRuns`, used by the panel and the
+  page; the panel gains 'Open its page'. The log heading names its file.
+- `server.py`: the agent answer gains `place` (system, mode, goal, commands, commanded_by, working {n, kind, set};
+  n is null, said 'not known', when the leases cannot be read, never 0), and its log tail has absolute paths taken out
+  (`agent_spec.plain`, split out of `agent_spec.spec`; agent_spec.py is outside the Files list, a 10-line move).
+- `pages.js`: a row on /agents goes to /agent/NAME (`rowLink`), its name an ordinary link.
+- `snapshot.py` is unchanged: it already takes agents/NAME, agents/NAME/files and loops, all the page asks for.
+  The page in a snapshot was not tested.
+- docs/DESIGN.md lists /agent/NAME among the page's addresses.
+
+Decisions taken without the owner, each easy to undo:
+- A row on /agents now goes to the page, as the definition says, so the panel is opened from the diagram (and
+  'Open its page' links back). The panel tests in tests/test_agents_page.py that opened the panel by clicking a row
+  now open it with `openAgent(NAME)` (the `panel()` helper, which waits for the panel to be read); what they assert
+  about the panel is unchanged.
+- Done item 3 ('no text matches SPEC §') is kept by taking SPEC-section references out of what the page shows: a
+  parenthetical naming 'SPEC §' or a trailing 'SPEC §N' is dropped from the docstring, the YAML source, prompts,
+  asks, program files and the description (`noSpec`). The examples carry such references in comments and docstrings
+  (ticket-factory's `use: modelling` comment, the-job's bin/prepare.py), so the text shown is that text less those
+  references.
+- Done item 2's 'releases at' exists only for a relay with a band. The ticket-factory example's located-worked goal
+  has none, so its keep-located-worked is an ideal relay (shown with its threshold, no 'releases at'). The test checks
+  that, then serves a copy with `tolerance: 2` on the goal and checks 'releases at' and 'hysteresis' there. The live
+  :8791 demo was not reachable from here.
+- A person's 'open asks now' is read from the agent's run under way (`running_since`): 'Asked now: since …' or
+  'Nothing is asked of them now'. Not each inbox entry.
+- Not done from the layout (not in the definition of done): an expr rule's inputs each with its value now (the law's
+  rows are shown as Blocks shows them); a lookup's or schedule's table is shown when its key is `table`, `points` or
+  `schedule`.
+
+Tests: tests/test_agent_page.py (31: done items 1-5, the row and panel link, and the render sweep over every
+examples/*/ergostat.yaml: each agent's page opened, no console error, first h2 the rung's, no '/private/tmp', '.venv',
+'SPEC §' or temporary folder in its textContent). Seen to fail when broken: slot marking off (item 1 fails); SPEC
+references left in (the fixer and the-job sweep failed before `noSpec`); code allowed to overflow its box (the phone
+test fails, once it opens every disclosure; it passed before that, so it was strengthened); the ideal relay has no
+'releases at' (seen while writing the test).
+Run here: tests/test_agent_page.py (31 passed), tests/test_agents_page.py (14 passed), tests/test_agent_spec.py and
+tests/test_graph_cli_web.py (68 passed), test_diagram_rendering.py's readers test for ticket-factory (passed), ruff
+clean. Not run here: the whole unit suite and the four browser files. main has not moved since the branch was made.
+
+## Entry
+
+**Agent show page** (done): /agent/NAME shows what an agent is by its rung (its ask, prompt and wrapper, specification,
+how it decides with its answers tallied, program with ergostat's own module named, or law), its definition as written,
+its place (goals, what commands it and what it commands, the items it is working), and what it did; a row on /agents
+goes there and the panel links to it.
