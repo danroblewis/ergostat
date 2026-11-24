@@ -128,7 +128,8 @@ FRAMES = [
 """, "only": ["stock:customers", "stock:ad-spend"]}]},
     {"id": "between", "part": "why",
      "text": "Between them is the rest of the system. System dynamics draws what is: the goal as a desired level and a gap "
-             "that drives the flow, or 'no feedback' when nothing acts on it. Control draws what we control.",
+             "that drives the flow, or 'no feedback' when nothing acts on it. A goal not holding says so on its gap: "
+             "'off by 36' in red, its balancing loop's marker red too. Control draws what we control.",
      "views": [{"view": "dynamics", "model": WANTED}, {"view": "blocks", "model": WANTED}]},
     # ---------------------------------------------------------------- system dynamics: what is
     {"id": "fills", "part": "dynamics",
@@ -150,7 +151,8 @@ FRAMES = [
      "plot": _plot([_run({"customers": 0}, {"signups": (None, "customers", [[10, []]]),
                                             "churn": ("customers", None, [[1, ["churn-now"]]])},
                          inputs={"churn-now": [[0, 4], [8, 10]]})], 20, "customers")},
-    {"id": "links", "part": "dynamics", "text": "A link carries a sign: more customers, more churn (+).",
+    {"id": "links", "part": "dynamics", "text": "A link carries information, not material, so it is drawn lighter than the pipe. "
+                                                "It has a sign: more customers, more churn (+).",
      "views": [{"view": "dynamics", "loops": False, "model": CUSTOMERS + """
     auxiliaries:
       churn-fraction:

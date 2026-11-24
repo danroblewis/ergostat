@@ -248,6 +248,114 @@ def test_every_loop_is_labelled_and_runs_through_parts_drawn_and_lines_it_is_a_l
             assert any(c["name"] in e["causal"] and {e["from"], e["to"]} == {a, b} for e in g["edges"]), (c["name"], a, b)
 
 
+SMALL = """\
+name: small
+parameters:
+  r: 2
+  k: 1
+stocks:
+  people:
+    unit: people
+    sensor:
+      manual: true
+flows:
+  births:
+    to: people
+    driven-by: +stock.people
+    equation: r * stock.people
+  deaths:
+    from: people
+    driven-by: +stock.people
+    equation: k * stock.people
+  leaving:
+    from: people
+goals:
+  few:
+    stock: people
+    hold: "<= 100"
+blocks:
+  thin:
+    type: program
+    run: "true"
+    in: [goal.few.error]
+    out: flow.leaving
+"""
+
+
+def test_each_loop_through_a_gap_names_its_goal_and_the_goal_names_its_loops(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(SMALL)
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    live = Live(Project(mdl.load(tmp_path)))
+    g = api(live, "graph", {"view": ["dynamics"], "open": ["*"]})
+    loops = {c["name"]: c for c in g["causalLoops"]}
+    closing = {n for n, c in loops.items() if c["goal"]}
+    # a loop through a gap carries its goal; one through none (births R, deaths B) carries none
+    assert closing and all(loops[n]["goal"] == "few" and "goal.few" in loops[n]["parts"] for n in closing)
+    assert all(c["goal"] is None and not any(p.startswith("goal.") for p in c["parts"])
+               for n, c in loops.items() if n not in closing)
+    assert {loops[n]["polarity"] for n in loops if n not in closing} == {"R", "B"}
+    assert [loops[n]["polarity"] for n in closing] == ["B"]                # thin drains people when it is over 100
+    lp = api(live, "loops/few", {})
+    assert [x["name"] for x in lp["feedback_loops"]] == sorted(closing)    # the same loops, from the goal's side
+    assert lp["feedback_loops"][0]["label"] == loops[next(iter(closing))]["label"]
+    assert lp["control_loop"]["controllers"] == ["thin"] and lp["control_loop"]["name"] == "few"
+
+
+TWO = """\
+name: two
+stocks:
+  a:
+    unit: people
+    sensor:
+      manual: true
+  b:
+    unit: people
+    sensor:
+      manual: true
+flows:
+  move:
+    from: a
+    to: b
+  back:
+    from: b
+    to: a
+goals:
+  calm:
+    stock: b
+    hold: "<= 50"
+  few:
+    stock: a
+    hold: "<= 100"
+blocks:
+  thin:
+    type: program
+    run: "true"
+    in: [goal.few.error]
+    out: flow.move
+  slow:
+    type: program
+    run: "true"
+    in: [goal.calm.error]
+    out: flow.back
+"""
+
+
+def test_a_loop_through_two_gaps_closes_both_goals(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(TWO)
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    live = Live(Project(mdl.load(tmp_path)))
+    loops = {c["name"]: c for c in api(live, "graph", {"view": ["dynamics"], "open": ["*"]})["causalLoops"]}
+    both = [n for n, c in loops.items() if {"goal.few", "goal.calm"} <= set(c["parts"])]
+    assert both, loops                                   # a -> few -> thin -> move -> b -> calm -> slow -> back -> a
+    assert all(loops[n]["goal"] == "calm" for n in both)  # its one goal, the first by name
+    for g in ("few", "calm"):                            # yet it closes each, so each goal's panel lists it
+        fl = [x["name"] for x in api(live, f"loops/{g}", {})["feedback_loops"]]
+        assert set(both) <= set(fl), (g, fl)
+        assert set(fl) == {n for n, c in loops.items() if f"goal.{g}" in c["parts"]}
+
+
 def test_closed_systems_fold_the_loops_into_their_boxes(factory):
     g = factory(view="dynamics")
     ids = {n["id"] for n in g["nodes"]}
@@ -314,15 +422,18 @@ def test_the_attention_cards_speak_system_dynamics():
     from ergostat.dynamics import attention
     snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0,
                                        "off_by_words": "off by 4"}}}
-    att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
-           {"level": "hint", "what": "loop backlog-clear", "says": "was off 60% of the time: saturated, moving its most "
+    g = "backlog-clear"
+    att = [{"level": "bad", "what": f"goal {g}", "goal": g, "says": "backlog is 4, setpoint <= 0 (off by 4)"},
+           {"level": "hint", "what": f"goal {g}", "goal": g, "says": "was off 60% of the time: saturated, moving its most "
             "each run. Its valve moved 2/h out while 3/h came in"},
-           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill it"},
-           {"level": "hint", "what": "loop a", "says": "keeps feeding x: Hold it back (its controller can read x)"}]
+           {"level": "hint", "what": "controller x", "controller": "x",
+            "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill it"},
+           {"level": "hint", "what": "goal a", "goal": "a", "says": "keeps feeding x: Hold it back (its controller can read x)"}]
     out = attention(att, snap)
     assert out[0]["says"] == "backlog is 4, desired backlog = 0: off by 4"
-    # a controlled goal is called a goal ('loop' is for R and B loops): never 'loop backlog-clear'
+    # a controlled goal is called a goal ('loop' is for R and B loops), by its field: never 'loop backlog-clear'
     assert [a["what"] for a in out] == ["goal backlog-clear", "goal backlog-clear", "goal x", "goal a"]
+    assert [a["goal"] for a in out] == [g, g, "x", "a"]                         # the field kept, for its Evidence link
     assert out[1]["says"].startswith("was off 60% of the time: saturated, moving its most each run. Its flow moved")
     assert "(what serves it can read x)" in out[3]["says"], out[3]["says"]
     import re
@@ -333,7 +444,7 @@ def test_the_attention_cards_speak_system_dynamics():
 
 def test_a_goal_s_suggestion_says_what_serves_it():
     from ergostat.dynamics import attention
-    att = [{"level": "hint", "what": "controller fixes", "says": "loop fixes was off 70% of the time though its valve keeps "
+    att = [{"level": "hint", "what": "goal fixes", "goal": "fixes", "says": "goal fixes was off 70% of the time though its valve keeps "
             "up on average: it answers too late; its controller (fixer, every 1m) is the slowest stage"}]
     out = attention(att, {"loops": {}})
     assert out[0]["says"] == ("goal fixes was off 70% of the time though its flow keeps up on average: it answers too late; "

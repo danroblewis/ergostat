@@ -28,6 +28,10 @@ function showDetail(...kids) {
   const hd = (S.keyHead || inside) &&d.querySelector("h2, h3");    // opened by keyboard: the focus to its heading (keys.js)
   if (hd) { S.keyHead = null; hd.tabIndex = -1; hd.focus(); }
 }
+/* a box an untrusted library's template made (n.untrusted, its name): said in words, in its title and its accessible
+   name (keys.js), never by colour alone; the name only ever text (SPEC §2a) */
+const untrustedSays = (n) => n?.untrusted == null ? "" : `untrusted library${n.untrusted ? `, template ${n.untrusted}` : ""}`;
+function untrustedBox(el, n) { if (untrustedSays(n)) el.append(s("title", {}, untrustedSays(n))); return el; }
 /* a panel being opened: its kind and title, and "Loading…", at once, until what it says has been read */
 function panelLoading(kind, title) {
   const note = h("p", { class: "muted panel-loading" }, "Loading…");
@@ -186,6 +190,7 @@ async function openLoopNow(name, asController) {
     ].filter(Boolean).join("; ") : null],
     ["moves", Object.entries(lp.moves || {}).map(([f, r]) => `${f} ${rateText(r, "", f)}`).join(", ") || null],  // its own valves' only
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
+  if (lp.control_loop) kids.push(goalLoopsLine(name, lp));
   // each that acts for it in one line, from the counts Agents and the Record use
   for (const a of lp.actors || []) kids.push(h("p", { class: "actor-line" }, h("b", {}, a.name), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
     + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
@@ -231,6 +236,17 @@ async function openLoopNow(name, asController) {
   }
   kids.push(h("p", {}, h("a", { href: `/diagram?around=loop/${encodeURIComponent(name)}` }, "Draw this loop alone")));
   showDetail(...kids);
+}
+
+/* a goal's loops in the other views: the feedback loops that close it (Dynamics) and its control loop (Blocks), each
+   a link that switches to that view with the loop chosen (openTool, review.js) */
+function goalLoopsLine(name, lp) {
+  const go = (text, how) => h("a", { href: "#", class: `goal-loop to-${how.view}`, onclick: (ev) => { ev.preventDefault(); openTool(how); } }, text);
+  const fl = lp.feedback_loops || [], cl = lp.control_loop;
+  const ctl = (n, _i, all) => (all.some(isController(name)) ? isController(name) : isComparator(name))(n);
+  return h("p", { class: "goal-loops" }, "Feedback loops: ",
+    fl.length ? fl.flatMap((c, i) => [i ? ", " : "", go(`${c.label} ${c.name}`, { view: "dynamics", causal: c.name })]) : h("span", { class: "muted" }, "none"),
+    " (Dynamics) · Control loop: ", go(cl.controllers.join(", ") || name, { view: "blocks", find: ctl, goal: name }), " (Blocks)");
 }
 
 /* a goal ahead, with the loops running (closedloop.py's Monte Carlo, in words by forecast_words.py), and a

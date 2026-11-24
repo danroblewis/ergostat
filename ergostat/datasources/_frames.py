@@ -3,7 +3,8 @@ with a frame instead of a list of series:
 
 - ``{"shape": "series", "time": [...], "series": [{"key", "unit"?, "role"?, "values": [...]}]}``: values at those times,
   placed on the panel's grid as a list of series is. Roles ``input`` and ``output`` make two signals, drawn one against
-  the other; ``open``, ``high``, ``low`` and ``close`` make one series of candles.
+  the other; ``open``, ``high``, ``low`` and ``close`` make one series of candles. Any other role (a loop's ``sp``,
+  ``pv``, ``op``, ``mv``, limits, ``mode``) stays on its series, and ``roles`` lists them; one role is one series'.
 - ``{"shape": "table", "dims": [{"name", "type"}], "measures": [{"name", "unit"?}], "rows": [[...], ...]}``: a dim is
   a ``string``, ``number`` or ``time``; a row holds its dims' values, then its measures' numbers.
 - ``{"shape": "points", "x": {"name", "unit"?, "values"}, "y": {...}, "t"?: [...], "order"?: "time", "group"?: [...]}``.
@@ -12,6 +13,9 @@ with a frame instead of a list of series:
   ``over_time``, the count in each bucket at each time.
 - ``{"shape": "graph", "kind", "nodes", "edges", "semantics", "time", "omitted"}``: a diagram of one named kind
   (the catalog's §2.2); every edge's ends are nodes, ``paths_real`` is said, and ``acyclic`` is worked out here.
+- ``{"shape": "response", "frequency": {"hz", "re", "im", "magnitude_db", "phase_deg", "coherence"?}, "system"?: {"form",
+  "gain", "tau", "delay", "poles": [[re, im]], "zeros": [...], "dt"?}, "path"?, "fit"?, "provenance"?}``: how a system
+  responds; a model's carries ``system``, and its poles are the sampled model's at ``dt`` when it has one.
 
 A role on a series, or on a graph's field, is one of a closed list. Whatever the type, a frame is checked and bounded
 here; one that is not one of these is refused, never drawn half."""
@@ -82,6 +86,9 @@ def _series(f: dict, g, most_series: int) -> dict:
             raise Bad(f"series {s.get('key')!r} has the role {s['role']!r}; a role is one of {', '.join(ROLES)}")
         placed.append((str(s.get("key", "")), s.get("role"), str(s.get("unit") or ""), _on_grid(time, values, g)))
     roles = {r: (k, u, v) for k, r, u, v in placed if r}
+    if len(roles) < sum(1 for _, r, _, _ in placed if r):
+        twice = next(r for r in roles if sum(1 for _, x, _, _ in placed if x == r) > 1)
+        raise Bad(f"two series have the role {twice!r}; a role is one series' (give each loop its own query)")
     base = {"times": g.times, "step": g.step, "capped": 0, "read_log": False, "shape": "series"}
     if set(roles) >= {"input", "output"}:
         (xk, xu, xv), (yk, yu, yv) = roles["input"], roles["output"]
@@ -91,7 +98,8 @@ def _series(f: dict, g, most_series: int) -> dict:
         return {**base, "roles": list(CANDLE), "unit": roles["close"][1], "series": [
             {"name": roles["close"][0], **{r: roles[r][2] for r in CANDLE}, "count": [None] * g.n}]}
     return {**base, "unit": placed[0][2] if placed and len({u for _, _, u, _ in placed}) == 1 else "",
-            "series": [{"name": k, "values": v} for k, _, _, v in placed]}
+            **({"roles": [r for _, r, _, _ in placed if r]} if roles else {}),
+            "series": [{"name": k, "values": v, **({"role": r} if r else {})} for k, r, _, v in placed]}
 
 
 def _maps(v, what: str, most: int) -> list[dict]:
@@ -285,9 +293,63 @@ def _graph(f: dict) -> dict:
             "omitted": {k: omitted[k] for k in ("nodes", "edges", "weight_share", "how")}}
 
 
+def _pairs(v, what: str) -> list[dict]:
+    out = []
+    for z in _list(v, what, 200):
+        if not isinstance(z, list) or len(z) != 2 or None in (got := [_number(x) for x in z]):
+            raise Bad(f"each of {what} is [re, im], two finite numbers")
+        out.append({"re": got[0], "im": got[1]})
+    return out
+
+
+def _response(f: dict) -> dict:
+    """How a system responds: ``frequency`` and, from a model, ``system`` (its form, numbers, poles and zeros, and the
+    ``dt`` of the sampled model they belong to, if they do). ``supported: false`` with ``refused`` carries no curve."""
+    fr, sy = f.get("frequency"), f.get("system")
+    if not isinstance(fr, dict) or (sy is not None and not isinstance(sy, dict)):
+        raise Bad("a response holds frequency: {hz, re, im, magnitude_db, phase_deg} and, from a model, system:")
+    cols = ("hz", "re", "im", "magnitude_db", "phase_deg")
+    freq = {k: [_number(v) for v in _list(fr.get(k), f"frequency.{k}")] for k in cols}
+    if len({len(v) for v in freq.values()}) != 1:
+        raise Bad(f"frequency's {', '.join(cols)} must be of one length")
+    co = fr.get("coherence")
+    freq["coherence"] = None if co is None else [_number(v) for v in _list(co, "frequency.coherence")]
+    if f.get("supported") is False and freq["hz"]:
+        raise Bad("a response refused carries no curve")
+    out = {"shape": "response", "has": ["frequency", "system"] if sy is not None else ["frequency"], "frequency": freq,
+           "unit": str(f.get("unit") or ""), "capped": 0, "read_log": False, "method": "model" if sy else "empirical",
+           "samples": 0}
+    if sy is not None:
+        dt = _number(sy.get("dt"))
+        out.update(system={k: (_number(sy[k]) if k != "form" else str(sy[k])) for k in ("form", "gain", "tau", "delay", "dt")
+                           if sy.get(k) is not None},
+                   poles=_pairs(sy.get("poles"), "system.poles"), zeros=_pairs(sy.get("zeros") or [], "system.zeros"),
+                   domain="z" if dt else "s", delay_seconds=_number(sy.get("delay")) or 0.0, **({"dt": dt} if dt else {}))
+    for k in ("path", "fit", "provenance", "process_from", "refused", "supported"):
+        if f.get(k) is not None:
+            out[k] = _plain(f[k], k)
+    return out
+
+
+def _plain(v, what: str, depth: int = 0):
+    """What a response says of itself, as JSON can hold it: words, flags, finite numbers (any other number is None),
+    and lists and maps of them two deep at most."""
+    if v is None or isinstance(v, str | bool):
+        return v
+    if isinstance(v, int | float):
+        return _number(v)
+    if depth < 2 and isinstance(v, list):
+        return [_plain(x, what, depth + 1) for x in _list(v, what, 200)]
+    if depth < 2 and isinstance(v, dict) and len(v) <= 50:
+        return {str(k): _plain(x, what, depth + 1) for k, x in v.items()}
+    raise Bad(f"{what} holds {type(v).__name__}, or is nested too deep")
+
+
 def answer(f: dict, g, most_series: int) -> dict:
     """The frame ``f`` drawn on the grid ``g``; ``Bad`` when it is not one of the frames above."""
     shape = f.get("shape")
+    if shape == "response":
+        return _response(f)
     if shape == "series":
         return _series(f, g, most_series)
     if shape == "table":
@@ -298,4 +360,4 @@ def answer(f: dict, g, most_series: int) -> dict:
         return _buckets(f, g, most_series)
     if shape == "graph":
         return _graph(f)
-    raise Bad(f"a data source answers a series, a table, points, a histogram's buckets or a graph, not {shape!r}")
+    raise Bad(f"a data source answers a series, a table, points, a response, a histogram's buckets or a graph, not {shape!r}")

@@ -22,10 +22,12 @@ function showOnDiagram(parts, systems = []) {
    the part is drawn, the part chosen and its panel opened once it is drawn (toolArrived, after each drawing).
    `part` is a model part (stock.x, flow.x, auxiliary.x); `find` picks a shape (a loop's process block); `causal`
    names a feedback loop in the dynamics view */
-function openTool({ view, part = null, find = null, causal = null, goal = null }) {
+/* a tool's address: the view with the loop's systems open (and no others), else every system open */
+const toolHref = ({ view, systems = null }) => `/diagram?${new URLSearchParams({ view, open: systems?.length ? systems.join(",") : "*" })}`;
+function openTool({ view, part = null, find = null, causal = null, goal = null, systems = null }) {
   S.toolOpen = { view, part, find, causal, goal, at: Date.now() };
   S.graphSig = ""; S.fitted = false;
-  navigate(`/diagram?${new URLSearchParams({ view, open: "*" })}`);
+  navigate(toolHref({ view, systems }));
 }
 function toolArrived() {
   const t = S.toolOpen, g = S.graph;
@@ -55,7 +57,7 @@ function lookAt(el) {
 }
 /* a panel holding several loops' sections (a MIMO process, a controller of several): scrolled to the loop's own */
 function scrollToLoop(goal, tries = 40) {
-  const el = [...document.querySelectorAll("#detail .control h3")].find((x) => x.textContent.includes(`loop ${goal}`));
+  const el = [...document.querySelectorAll("#detail .control h3[data-goal]")].find((x) => x.dataset.goal === goal);
   if (el) return el.scrollIntoView({ block: "start" });
   if (tries > 0) setTimeout(() => scrollToLoop(goal, tries - 1), 250);
 }
@@ -250,7 +252,7 @@ function reviewEntry(e, { onDone }) {
                     where.new.length ? h("div", { class: "small muted" }, "new: ", ...partWords(where.new)) : null,
                     where.gone.length ? h("div", { class: "small muted" }, "removed: ", ...partWords(where.gone)) : null,
                     where.files.length ? h("div", { class: "small muted mono" }, where.files.map((f) => `${f.file}:${f.lines.join(",")}`).join("  ")) : null)],
-        ["made by", e.by_block ? proposedBy(e) : e.made_by === "owner" ? "you (a what-if)" : null],
+        ["made by", e.by_block ? proposedBy(e) : e.made_by === "owner" ? (e.kind === "display" ? "you (Keep, on the Dashboard)" : "you (a what-if)") : null],
         ["why", e.by_block && (e.reasons || []).length ? reasonsView(e.reasons) : e.why],
         ["scorecard", e.redesign?.rescoring ? h("div", { class: "small muted" }, e.redesign.rescore_error ? `rescoring: ${e.redesign.rescore_error}; the judge scores it again once it can be read` : "rescoring: carried to the model as it is, the judge scores it again")
           : e.redesign?.scorecard?.why ? h("div", { class: e.redesign.scorecard.verdict === "better" ? "small s-ok" : "small s-open" }, e.redesign.scorecard.why) : null],
@@ -312,7 +314,7 @@ async function availLoops(goals, redraw, box) {
     }
   } finally { availBusy = false; }
 }
-const toolLink = (text, how, title = null, label = null) => h("a", { href: "#", title, "aria-label": label, onclick: (ev) => { ev.preventDefault(); typeof how === "function" ? how() : openTool(how); } }, text);
+const toolLink = (text, how, title = null, label = null) => h("a", { href: typeof how === "function" ? "#" : toolHref(how), title, "aria-label": label, onclick: (ev) => { ev.preventDefault(); typeof how === "function" ? how() : openTool(how); } }, text);
 const linkList = (xs) => xs.filter(Boolean).flatMap((x, i) => (i ? [", ", x] : [x]));
 const isProcess = (goal) => (n) => n.role === "process" && (n.y_of || []).includes(goal);
 const isController = (goal) => (n) => n.role === "controller" && n.id?.startsWith("blk:") && (n.loops || []).includes(goal);
@@ -347,20 +349,31 @@ function nextWord(d) {
   else if (d.declared || (r.found && r.proposable)) out.push(c.law ? (t.why ? `tuning: ${t.why}` : "margins and tuning: the controller's panel") : `no tuning: ${c.says || "no linear law"}`);
   return out.join("; ");
 }
+/* loops identified alike are one group: its heading says how, once ("12 loops: an integrator, from the model") */
 function loopRows(goals) {
-  return goals.map((g) => {
-    const got = AVAIL.get(g), d = got?.d;
-    const name = h("td", {}, h("b", {}, g));
-    if (!got) return h("tr", {}, name, h("td", { class: "muted", colspan: 3 }, "analysing…"));
-    if (!d) return h("tr", {}, name, h("td", { class: "muted", colspan: 3 }, got.err || "not a loop of the model's goals"));
-    const u = (d.u || "").split(".").slice(1).join("."), y = (d.y || "").split(".").slice(1).join(".");
-    const links = d.why ? [toolLink("scope", { view: "blocks", find: isComparator(g) }, "its scope and how it is doing", `${g} scope`)]
-      : [toolLink("process", { view: "blocks", find: isProcess(g), goal: g }, "identification, step response, Bode, step tests", `${g} process`),
-         toolLink("controller", { view: "blocks", find: isController(g), goal: g }, "margins, closed-loop step and Bode, tuning", `${g} controller`),
-         toolLink("scope", { view: "blocks", find: isComparator(g) }, "how it is doing: Harris index, oscillation, settling", `${g} scope`)];
-    return h("tr", {}, name, h("td", { class: "small" }, u && y ? `${u} → ${y}` : "", h("div", {}, processWord(d))),
-      h("td", { class: "small" }, nextWord(d)), h("td", { class: "small nowrap" }, ...linkList(links)));
+  const groups = new Map();
+  for (const g of goals) {
+    const d = AVAIL.get(g)?.d, k = d ? `${processWord(d)}\n${nextWord(d)}` : `\n\n${g}`;
+    groups.set(k, [...(groups.get(k) || []), g]);
+  }
+  return [...groups.values()].flatMap((gs) => {
+    const d = gs.length > 1 && AVAIL.get(gs[0]).d;
+    return [d ? h("tr", { class: "group" }, h("td", { colspan: 4 }, h("b", {}, `${gs.length} loops: ${processWord(d)}`),
+      nextWord(d) ? h("span", { class: "small" }, `; ${nextWord(d)}`) : null)) : null, ...gs.map((g) => loopRow(g, !!d))].filter(Boolean);
   });
+}
+function loopRow(g, grouped) {
+  const got = AVAIL.get(g), d = got?.d;
+  const name = h("td", {}, h("b", {}, g));
+  if (!got) return h("tr", {}, name, h("td", { class: "muted", colspan: 3 }, "analysing…"));
+  if (!d) return h("tr", {}, name, h("td", { class: "muted", colspan: 3 }, got.err || "not a loop of the model's goals"));
+  const u = (d.u || "").split(".").slice(1).join("."), y = (d.y || "").split(".").slice(1).join("."), systems = d.systems;
+  const links = d.why ? [toolLink("scope", { view: "blocks", find: isComparator(g), systems }, "its scope and how it is doing", `${g} scope`)]
+    : [toolLink("process", { view: "blocks", find: isProcess(g), goal: g, systems }, "identification, step response, Bode, step tests", `${g} process`),
+       toolLink("controller", { view: "blocks", find: isController(g), goal: g, systems }, "margins, closed-loop step and Bode, tuning", `${g} controller`),
+       toolLink("scope", { view: "blocks", find: isComparator(g), systems }, "how it is doing: Harris index, oscillation, settling", `${g} scope`)];
+  return h("tr", {}, name, h("td", { class: "small" }, u && y ? `${u} → ${y}` : "", grouped ? null : h("div", {}, processWord(d))),
+    h("td", { class: "small" }, grouped ? "" : nextWord(d)), h("td", { class: "small nowrap" }, ...linkList(links)));
 }
 function paramRows(d) {
   const rd = d.readiness || {}, np = Object.entries(d.not_proposed || {});

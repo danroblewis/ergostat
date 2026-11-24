@@ -61,8 +61,8 @@ class Server:
                     "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}})
         return out
 
-    def say(self, a: dict) -> dict:
-        r = gt.result(a)
+    def say(self, a: dict, more: dict | None = None) -> dict:
+        r = {**gt.result(a), **(more or {})}
         if a["state"] in ("ran", "failed", "denied"):
             gt.delivered(self.project(), a["id"], "session", session=self.session, run=self.cfg.get("run"),
                          block=self.cfg.get("block"))
@@ -87,9 +87,12 @@ class Server:
             a = gt.request(p, spec, name, args or {}, ctx)
         except gt.GateError as e:
             return _text(str(e), error=True)
+        t = rec.get(p, a["reshaped_to"]) if a.get("reshaped_to") else None
+        full, a = (a, t) if t is not None else (None, a)   # reshaped: answered by the smaller act, the full one held
         if a["state"] == "requested":
-            a = gt.wait(p, spec, a["id"], spec.actions[name].wait)
-        return self.say(a)
+            a = gt.wait(p, spec, a["id"], spec.actions[a["action"]].wait)
+        return self.say(a, full and {"full": {**gt.result(full), "note": f"{full['action']} is held for the owner as "
+                                              f"{full['id']}; {a['action']} was asked for in its place"}})
 
     def handle(self, msg: dict) -> dict | None:
         mid, method = msg.get("id"), msg.get("method", "")

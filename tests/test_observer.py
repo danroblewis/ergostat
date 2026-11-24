@@ -107,7 +107,7 @@ def test_a_stale_reading_turns_a_goal_stale_for_each_policy(tmp_path, monkeypatc
     assert len(went) == 1 and went[0]["data"]["on_stale"] == policy
     snap = state.snapshot(e.p, now=e.clock.t)
     assert snap["loops"]["short"]["status"] == "stale" and snap["loops"]["short"]["on_stale"] == policy
-    assert any(a["what"] == "loop short" and "stale" in a["says"] for a in state.attention(snap, True, e.p.model))
+    assert any(a["what"] == "goal short" and "stale" in a["says"] for a in state.attention(snap, True, e.p.model))
     expect = {"act": (0.0, 0.0), "hold": (1.0, 1.0), "off": (1.0, 1.0)}[policy]   # (the goal's .off, the onoff's output)
     assert (e.signals["goal.short.off"], e.signals["block.keep"]) == expect
     assert bool(e.p.events.query(n=None, type="loop.holding", item="short")) == (policy == "act")
@@ -288,7 +288,7 @@ def test_the_page_says_a_goal_is_stale_and_needs_attention(tmp_path, monkeypatch
     snap = state.snapshot(e.p, now=e.clock.t + 31)
     lp = snap["loops"]["short"]
     assert lp["status"] == "stale" and lp["stale"] == pytest.approx(31) and lp["on_stale"] == "off"
-    said = [a for a in state.attention(snap, True, e.p.model) if a["what"] == "loop short"]
+    said = [a for a in state.attention(snap, True, e.p.model) if a["what"] == "goal short"]
     assert said and said[0]["level"] == "warn" and "it counts as off" in said[0]["says"]
     _read(e, "sensor/queue.main", 9)                            # off outranks stale
     assert state.snapshot(e.p, now=e.clock.t + 31)["loops"]["short"]["status"] == "off"
@@ -370,10 +370,21 @@ def _record(src: Path, tmp: Path, monkeypatch) -> dict:
             "problems": [(x.level, x.code, x.about, x.message.replace(str(d), "")) for x in m.problems]}
 
 
-@pytest.mark.parametrize("example", [x for x in EXAMPLES if mdl.load(x).spec and mdl.load(x).spec.goals],
-                         ids=lambda p: p.name)
+# Examples that ask the observer for something, and the goals they ask it of: image-squeeze uses the regressions
+# template, whose goals are off while stale (SPEC §12r, "Regression guarantees"), and asks nothing else of it.
+ASKS = {"image-squeeze": {"tests-green": "off", "changes-hold": "off"}}
+
+
+def test_an_example_that_asks_the_observer_asks_only_what_is_listed():
+    for name, goals in ASKS.items():
+        o = ob.opted(mdl.load(next(x for x in EXAMPLES if x.name == name)).spec)
+        assert o.goals == goals and not o.stocks and not o.blocks, name
+
+
+@pytest.mark.parametrize("example", [x for x in EXAMPLES if mdl.load(x).spec and mdl.load(x).spec.goals
+                                     and x.name not in ASKS], ids=lambda p: p.name)
 def test_models_that_use_none_of_it_record_what_they_did_without_it(tmp_path, example, monkeypatch):
-    """Every example asks nothing of the observer: driven alike, as it is and with the observer stubbed out entirely,
+    """Every example not in ASKS asks nothing of the observer: driven alike, as it is and with the observer stubbed out entirely,
     it records the same, section by section."""
     assert not ob.opted(mdl.load(example).spec), example.name
     with monkeypatch.context() as mp:

@@ -288,7 +288,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
             "gaps_md") else stray_brief(text, suites["stray"]) if suites.get("stray") else findings_brief(
             text, suites["findings"]) if suites.get("findings") else (
             f"{text}\n\n# The fast suites failed after your work\n\n`{suites['failed']}` failed"
-            f" ({', '.join(suites['tests']) or 'see the tail'}). Fix the code (not the tests' bounds), commit, and"
+            f" ({', '.join(suites['tests']) or 'see the tail'}{onmain.whose(suites, gap['id'])})."
+            " Fix the code (not the tests' bounds), commit, and"
             f" stop. The tail of its output:\n\n```\n{suites['tail']}\n```\n")
         try:
             got = fac.session(cfg, "implementor", prompt, work)
@@ -312,8 +313,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
         if new:                                                 # findings added to the model: back before the suites
             suites = {"failed": "check findings", "tests": new, "findings": new, "tail": "\n".join(new)}
             continue
-        suites, retried = onmain.check(cfg, gap["id"], home, branch, against, logs, f"{fac.run_tag(branch, began)}-{i}",
-                                       deadline, seen, retried)
+        suites, retried = onmain.check(cfg, gap["id"], home, branch, base_sha, logs, f"{fac.run_tag(branch, began)}-{i}",
+                                       deadline, seen, retried, bases)   # (on main itself: only main's can be main's)
         fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in onmain.fast(cfg))
         used += [v["resources"] for v in suites.values() if isinstance(v, dict) and v.get("resources")]
         if not suites.get("failed") or suites.get("main_broken"):    # (main's failures are never the session's)
@@ -347,7 +348,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
         why = (f"refused before the suites, its scratch files still on the branch: {', '.join(suites['stray'])}"
                if suites.get("stray") else "sent back before the suites, new `ergostat check` findings: "
                + ", ".join(suites["findings"]) if suites.get("findings") else
-               f"the fast suites failed ({suites['failed']}: {', '.join(suites['tests'][:5])})")
+               f"the fast suites failed ({suites['failed']}: {', '.join(suites['tests'][:5])}"
+               f"{onmain.whose(suites, gap['id'])})")
         if fails >= fac.gate(cfg, "build_failures"):
             park(cfg, gap, f"Its fast suites failed {fails} times (the kill rule); the last: {why}.\n\n"
                            f"```\n{suites['tail'][-1500:]}\n```")

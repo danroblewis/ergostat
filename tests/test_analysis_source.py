@@ -196,11 +196,11 @@ def test_bounds_hold(tmp_path, monkeypatch):
 
 def test_analysis_is_offered_and_reserved(tmp_path, prom):
     p = record(tmp_path, SAW)
-    assert api(Live(p), "query/fields", {})["datasources"] == [datasources.ANALYSIS]
+    assert api(Live(p), "query/fields", {})["datasources"] == [datasources.ANALYSIS, ds.OWN]   # (and the model's own)
     assert datasources.ANALYSIS["name"] == parsing.ANALYSIS
     (tmp_path / "q").mkdir()
     q = ds.project(tmp_path / "q", f'analysis: {{type: prometheus, url: "{prom}"}}')     # declared: never listed, never asked
-    assert api(Live(q), "query/fields", {})["datasources"] == [datasources.ANALYSIS]
+    assert api(Live(q), "query/fields", {})["datasources"] == [datasources.ANALYSIS, ds.OWN]
     ds.Stub.seen.clear()
     [r] = ask(q, ("R", {"source": "analysis", "text": "up"}))
     assert ds.Stub.seen == [] and "'up' is not a call" in r["error"] and r["error_at"] == [1, 1]

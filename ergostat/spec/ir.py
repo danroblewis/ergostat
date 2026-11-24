@@ -309,8 +309,9 @@ def is_measure(name: str) -> bool:
             or name in BUDGET_MEASURES)
 
 
-CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign")   # what accept: names (SPEC §12e)
-NAMED_ONLY = ("rename", "redesign")   # promoted only by name (accept: {rename: auto}), never by accept: auto for every kind
+CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign",
+                  "display")   # what accept: names (SPEC §12e)
+NAMED_ONLY = ("rename", "redesign", "display")   # promoted only by name (accept: {rename: auto}), never by accept: auto for every kind
 
 
 @dataclass
@@ -493,7 +494,9 @@ class Action:
     ``args``: name → what it is; ``wait``: how long a session waits for the owner before going on without it;
     ``in_``: where it runs (else the session's working directory); ``fenced``: False for an action that runs once
     approved whatever became of the lease it was asked under (one whose command is safe whenever it runs);
-    ``severity`` (1 to 5; None: no ``risk:``) and ``threshold``: its act-risk (``actions/risk.py``)."""
+    ``severity`` (1 to 5; None: no ``risk:``) and ``threshold``: its act-risk (``actions/risk.py``). ``gate`` and
+    ``threshold`` are the ``normal`` column; ``gates`` and ``thresholds``: each operating column's, defaults filled
+    (``risk.schedule``; empty: from ``gate`` and ``threshold``)."""
     name: str
     run: str
     gate: str = "approve"
@@ -507,6 +510,9 @@ class Action:
     fenced: bool = True
     severity: int | None = None
     threshold: float = 8.0
+    gates: dict[str, str] = field(default_factory=dict)
+    thresholds: dict[str, float] = field(default_factory=dict)
+    reshapes: dict[str, str] = field(default_factory=dict)   # column -> the smaller action asked for there (its cell: approve)
 
 
 @dataclass
@@ -938,6 +944,7 @@ class ItemKind:
     moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
     if_unchanged: tuple = ()   # event types applied only to the item as read: their data's `read` is its event count then
     attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
+    pipeline: dict | None = None   # its items record stages (ergostat/stages.py): {title, stages, waiting}
 
     def matches(self, id: str) -> bool:
         import fnmatch

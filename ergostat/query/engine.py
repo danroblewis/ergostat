@@ -284,19 +284,23 @@ def _shaped(live, p, q: Query, by_id: dict, refused: set, since: float, until: f
     return got
 
 
-def _from_source(p, q: SourceQuery, since: float, until: float, points: int, work: Work) -> dict:
+def _from_source(p, q: SourceQuery, since: float, until: float, points: int, work: Work, public: bool = False) -> dict:
     """A query in a data source's own language, asked of it through the server; never kept, its data having no version.
-    Its scrape interval is not known; its range windows are read from a PromQL text."""
-    spec = getattr(p.model, "spec", None)
+    Its scrape interval is not known (a ``model`` source's is not sampled at all); its range windows are read from a
+    PromQL text."""
+    spec, store = getattr(p.model, "spec", None), getattr(p, "measurements", None)
     try:
-        got = datasources.query(spec, q.source, q.text, grid(since, until, points), work.deadline - time.monotonic())
+        got = datasources.query(spec, q.source, q.text, grid(since, until, points), work.deadline - time.monotonic(),
+                                store=store, project=p, public=public)
     except datasources.SourceError as e:
         return _refused(q, e)
     except Exception as e:                            # (its type only: the words may hold the source's address)
         log.warning("ergostat: query %s (source %s) failed: %s", q.id, q.source, type(e).__name__)
         return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__})", "read_log": False}
-    promql = datasources.language(spec, q.source) == "PromQL"
-    return {"id": q.id, **got, "scrape_s": None, "range_windows_s": sampling.windows(q.text) if promql else None}
+    promql = datasources.language(spec, q.source, store) == "PromQL"
+    unsampled = datasources.own(spec, q.source)       # the model's own: worked out, never read from readings
+    return {"id": q.id, **got, **({} if unsampled else {"scrape_s": None}),
+            "range_windows_s": sampling.windows(q.text) if promql else [] if unsampled else None}
 
 
 def _refused(q, e: datasources.SourceError) -> dict:
@@ -304,7 +308,8 @@ def _refused(q, e: datasources.SourceError) -> dict:
             **({"error_at": list(e.at)} if e.at else {}), **({"error_code": e.code} if e.code else {})}
 
 
-def _analysis(p, q: SourceQuery, queries: dict, answered: dict, since: float, until: float, work: Work, n: int) -> dict:
+def _analysis(p, q: SourceQuery, queries: dict, answered: dict, since: float, until: float, work: Work, n: int,
+              reader: bool = False) -> dict:
     """A call over another query of this request (analysis.py), refused alone; never kept."""
     try:
         if n > parsing.MOST_ANALYSIS:                 # (parse refuses these: held again here, as they run)
@@ -315,7 +320,7 @@ def _analysis(p, q: SourceQuery, queries: dict, answered: dict, since: float, un
         if work.late():
             raise datasources.SourceError("limit", f"busy: this request ran past {REQUEST_SECONDS:g} s; try again")
         if isinstance(ref, SourceQuery):
-            got = _from_source(p, ref, since, until, datasources.MOST_POINTS, work)
+            got = _from_source(p, ref, since, until, datasources.MOST_POINTS, work, reader)
             return {**got, "id": q.id} if got.get("error") else {**analysis.reasked(got, ref), "id": q.id}
         return {"id": q.id, **analysis.raw(p.measurements, ref, since, until, c)}
     except datasources.SourceError as e:
@@ -330,8 +335,10 @@ READER_REFUSED = "a data source is not asked for anyone under a public name (web
 
 def answer(live, p, raw: str | None, reader: bool = False) -> dict:
     """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or unanswerable says so in its
-    result. ``reader``: anyone under a public name, whose data source queries are each refused, never sent (SPEC §4d, §4e)."""
+    result. ``reader``: anyone under a public name, whose data source queries are each refused, never sent, but for the
+    model's own (datasources/model.py), which reads only what the reader's other queries read (SPEC §4d, §4e)."""
     asked = parse(decode(raw))
+    spec = getattr(p.model, "spec", None)
     now = time.time()
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY
     since = until - asked.since
@@ -348,15 +355,19 @@ def answer(live, p, raw: str | None, reader: bool = False) -> dict:
             continue
         out[i] = frames.framed(
             {"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
-            else {"id": q.id, "error": f"{q.source}: {READER_REFUSED}", "error_kind": "refused",
-                  "error_code": "reader", "read_log": False} if isinstance(q, SourceQuery) and reader
-            else _from_source(p, q, since, until, asked.points, work) if isinstance(q, SourceQuery)
+            else _reader_refused(q) if isinstance(q, SourceQuery) and reader and not datasources.own(spec, q.source)
+            else _from_source(p, q, since, until, asked.points, work, reader) if isinstance(q, SourceQuery)
             else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
             else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work), q, until - since)
         answered.setdefault(q.id, out[i])
     for n, i in enumerate(calls, 1):
         q = asked.queries[i]
-        out[i] = frames.framed(_analysis(p, q, queries, answered, since, until, work, n), q, until - since)
+        out[i] = frames.framed(_analysis(p, q, queries, answered, since, until, work, n, reader), q, until - since)
     results = [out[i] for i in range(len(asked.queries))]
     sampling.mixed(results)
     return {"now": now, "since": since, "until": until, "step": grid(since, until, asked.points).step, "results": results}
+
+
+def _reader_refused(q) -> dict:
+    return {"id": q.id, "error": f"{q.source}: {READER_REFUSED}", "error_kind": "refused", "error_code": "reader",
+            "read_log": False}
