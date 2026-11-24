@@ -9,7 +9,7 @@ its section's last, by name. render() reports by name every malformed Entry, two
 (gap ids cut to 32, as intake does), a listed entry or an umbrella with none: rendered, never silently dropped.
 split() is the inverse; an exact duplicate entry (a union merge's) is dropped and said by name and line. Each landing
 of the merge queue carries the batch's own GAPS.md edits into the records and GAPS-head.md (carry()) and writes GAPS.md from them
-(regenerate()); every reader still reads GAPS.md.
+(regenerate()); deps.py reads the entries from the records (entries()), the other readers still read GAPS.md.
 
     gapsdoc.py render [--check]       GAPS.md from dev/records to stdout (--check: only the problems); exits 1 on any
     gapsdoc.py split --dry-run [FILE] what split would make of FILE (docs/GAPS.md): records, duplicates, problems
@@ -337,6 +337,21 @@ def rendered_at(repo: Path, ref: str) -> str:
     files = {Path(n).stem: fac.git(repo, "show", f"{ref}:{n}") for n in names if n.endswith(".md")}
     files.pop(UNPLACED.stem, None)
     return render(files, files.pop(HEAD.stem))[0] if HEAD.stem in files else ""
+
+
+def entries(repo: Path, ref: str) -> tuple[str, dict[str, str]] | None:
+    """GAPS.md's text as the records in dev/records/ at ``ref`` render it, and {record: why} for each that cannot be
+    read (git cannot show it, or its Entry is malformed: not drawn); None before the split (no GAPS-head.md there)."""
+    files, bad = {}, {}
+    for n in (n for n in fac.git(repo, "ls-tree", "--name-only", ref, f"{fac.DEFS}/").splitlines()
+              if n.endswith(".md") and Path(n).stem != UNPLACED.stem):
+        try:                                           # (a malformed Entry is kept: render() draws none of it)
+            parse(files.setdefault(Path(n).stem, fac.git(repo, "show", f"{ref}:{n}")))
+        except (RuntimeError, ValueError) as e:
+            bad[Path(n).stem] = str(e).splitlines()[-1][:200]
+    if HEAD.stem in bad:                               # (the head names gaps too: its Depends on table)
+        raise ValueError(f"{fac.DEFS}/{HEAD.name} at {ref} cannot be read: {bad[HEAD.stem]}")
+    return (render(files, files.pop(HEAD.stem))[0], bad) if HEAD.stem in files else None
 
 
 def regenerate(root: Path, pre: str, before: str | None = None) -> dict:

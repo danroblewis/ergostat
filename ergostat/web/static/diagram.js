@@ -806,7 +806,7 @@ function drawGraph(svg, g, lay) {
                           partDown(ev, n);                // a drag, or a click (interact.js)
                         },
                         ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
-    ng.append(((sd && SD_DRAW[n.kind]) || DRAW[n.kind] || drawCloud)(n, ln.width, ln.height, ln));
+    untrustedBox(ng, n).append(((sd && SD_DRAW[n.kind]) || DRAW[n.kind] || drawCloud)(n, ln.width, ln.height, ln));
     const pid = pinId(n.id, n);                       // (a system's box and its open outline share one)
     if (S.pins?.[pid]) pinsG.append(pinMark(pid, ln.x + ln.width - 4, ln.y - 6, undefined, n.kind));   // (its kind: hidden with it, flows only)
     for (const lb of ln.labels || []) {
@@ -848,6 +848,7 @@ function drawGraph(svg, g, lay) {
 /* the side panel, hidden by clicking the diagram's background (and shown again the same way);
    remembered in this browser */
 function sideHidden() {
+  if (EMBED) return true;                              // a dashboard's panel: the drawing alone (split.js)
   try { return localStorage.getItem("ergostat.side") === "hidden"; } catch (e) { return false; }
 }
 function toggleSide() {
@@ -898,6 +899,7 @@ const NARROW = "(max-width: 700px)", NARROW_K = 0.7;   // a phone (style.css's n
 function fit(svg, lay, legible = false) {
   const r = svg.getBoundingClientRect();
   if (!lay || !r.width) return;
+  if (EMBED) return embedFit(svg, lay, r);
   // on a phone the toolbars sit above and below the canvas, not over it: the canvas is all the drawing's
   if (matchMedia(NARROW).matches) return fitNarrow(svg, lay, Math.min(1.25, (r.width - 20) / lay.width, (r.height - 20) / lay.height), legible, r);
   const [TOP, BOTTOM] = bars(svg, r), b = drawnBox(svg, lay), room = r.height - TOP - BOTTOM;
@@ -923,6 +925,26 @@ function showSystem(svg, name) {
   const sx = S.view.x + c.x * S.view.k, sy = S.view.y + c.y * S.view.k;
   S.view = { k, x: S.view.x * k / S.view.k + into(sx, 20, c.width * k, r.width - 40), y: S.view.y * k / S.view.k + into(sy, TOP, c.height * k, room) };
   applyView(svg);
+}
+
+/* a dashboard's panel (split.js: EMBED): the drawing whole at its own size or more, so no text is under 11 px; too
+   large, its systems closed (once), and still too large, shown from its top left, the panel saying to open it whole */
+function embedFit(svg, lay, r) {
+  const whole = Math.min(1.25, (r.width - 16) / lay.width, (r.height - 16) / lay.height), k = Math.max(1, whole), fits = whole >= 1;
+  S.view = { k, x: (fits ? (r.width - lay.width * k) / 2 : 8) - (lay.ox || 0) * k, y: (fits ? (r.height - lay.height * k) / 2 : 8) - (lay.oy || 0) * k };
+  applyView(svg);
+  const q = parseRoute().q;
+  S.embedFits = fits;
+  if (fits || q.get("open") === "-" || S.graph?.kind === "process") return;
+  S.embedFits = null;                                  // (not said: the closed boxes come next)
+  q.set("open", "-");
+  history.replaceState(null, "", `${location.pathname}?${q}&pane=embed`);
+  setTimeout(() => route());
+}
+function embedSaid() {
+  if (S.embedFits === null) return;
+  S.embedDrawn = (S.embedDrawn || 0) + 1;              // (how many: the tests count them, beside S.layouts)
+  window.parent.postMessage({ ergostat: "embed", fits: S.embedFits !== false, folded: parseRoute().q.get("open") === "-" }, location.origin);
 }
 
 /* the drawing fitted to a phone's canvas, down to NARROW_K; still too big, it is centred on its first part (a system
@@ -1293,7 +1315,7 @@ async function pageDiagram(main, q) {
     const ask = { view, system, around, ...subQ, ...openArg, ...pmArg, ...(proposal ? { proposal } : {}) }, key = JSON.stringify(ask);
     if (!SNAP) ask.have = (S.held?.key === key && S.held.hash) || "-";   // the structure it holds: then only the values come
     const t0 = performance.now();
-    try { g = await api("graph", ask); fails = 0; }
+    try { g = await api("graph", ask); fails = 0; S.embedSame = !!g.same; }
     catch (e) {
       if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); svg.querySelector(".opening-note")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
       return;
@@ -1414,8 +1436,12 @@ async function pageDiagram(main, q) {
   S.relayout = () => { S.graphSig = ""; return tick(); };      // after a part is pinned or unpinned
   S.redrawSide = () => { if (S.graph) renderSide(side, S.graph, view); };       // the parts chosen changed (charts.js)
   S.redraw = () => { if (!S.pressed && !S.nodeDrag && !S.hullDrag && S.layout) (S.graph?.kind === "process" ? pmDraw : drawGraph)(svg, S.graph, S.layout); };   // libavoid's lines came
+  S.embedFits = undefined;
   const first = await tick();
-  S.timer = poll(tick, 2500, shell, first);
+  if (EMBED) {                                     // a dashboard's panel: asked again on the dashboard's poll alone
+    S.embedTick = async () => { if (shell.isConnected) { await tick(); if (shell.isConnected) embedSaid(); } };
+    embedSaid();
+  } else S.timer = poll(tick, 2500, shell, first);
 }
 
 /* a change waiting, drawn as it would leave the model (/api/graph?proposal=ID): the shapes of the parts it adds dashed
