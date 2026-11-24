@@ -434,3 +434,32 @@ Run here, after the merge:
 - Not run: the whole unit suite and the four browser files (the factory's job).
 
 Refused here: a Write of a scratch file to `/tmp` (the file tools are kept to `/work`). It was never needed.
+
+### Continued, round 3
+
+The only finding was the conflicts with main (666d65d6) in `ergostat/datasources/__init__.py` and
+`ergostat/query/engine.py`. They are answered by the merge at 658acbc4. Main had added the built-in `ergostat` source
+(the project's own readings in VictoriaMetrics, held to the project by `extra_label`): `_sources(spec)` became
+`sources(spec, store)`, and a source that cannot answer (over SQLite) is refused with what it needs (`_needs`). Each
+conflict keeps both sides:
+- `datasources/__init__.py`: the branch's `_source(spec, name, store=None)` finds a source through main's
+  `sources(spec, store)` and calls `_needs`, so `query` and the branch's `values` both refuse the built-in source over
+  SQLite in main's words. `query` takes the branch's `given` and main's `store`, `project` and `public`.
+- `query/engine.py`: `_from_source` passes `q.given`, `store=`, `project=p` and `public=public`.
+- `query/variables.py` (merged cleanly, changed with it): `/api/query/values` passes the project's measurements as
+  `store`, so a variable may list `label_values(...)` of the built-in `ergostat` source too. Its GET goes through
+  main's `_ask`, which adds the `extra_label`, so the listing is held to the project as a query is.
+- Not tested here: `label_values` against a live VictoriaMetrics (main's tests of that need `ERGOSTAT_TEST_VM_URL`).
+
+The size is 434 net lines outside tests, docs and dev (520 added, 86 removed in `ergostat` and `scripts`, measured
+against main; budget 600).
+
+Run here, after the merge:
+- ruff is clean.
+- Unit files: test_dashboard_variables, test_data_sources and test_query_engine (108 passed); test_metrics_store_labels,
+  test_model_data_source and test_sql_source (60 passed, 5 skipped: main's VictoriaMetrics tests, which need
+  `ERGOSTAT_TEST_VM_URL`).
+- Under the watchdog: test_dashboard_variables_page and test_data_source_panels, 12 passed, rc 0, none skipped.
+- Not run: the whole unit suite and the four browser files (the factory's job).
+
+Refused here: nothing.
