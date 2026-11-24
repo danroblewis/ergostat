@@ -171,6 +171,40 @@ async function openNodeNow(n) {
   showDetail(...kids);
 }
 
+/* no agent of its own is listed (a valve's agent is optional): say what the model declares and its valves did, never
+   that nothing ran; "no block acts for it" only when it has no valve and no path the long way (its loop's own words) */
+const unlisted = (lp, n = lp.openings_total, m = lp.row?.measure ?? lp.stock) => Array.isArray(lp.valves) && !lp.valves.length
+  ? (lp.through?.length ? `It is acted on through ${lp.through.map((x) => x.replace(/^[a-z]+\./, "")).join(" → ")}; what each did is not counted here`
+    : Array.isArray(lp.through) ? `No block acts for it: nothing that reads it or ${m} moves ${m}, directly or through what it commands`
+      : "What acts on it is not known")
+  : `No agent that acts for it is recorded; ${n == null ? "whether its valves opened is not known"
+  : n ? `its valves opened ${n} time${n === 1 ? "" : "s"} in this window` : "its valves did not open in this window"}`;
+/* a goal's evidence as a runbook (an SRE's order): four lines, each one sentence (what is wanted and where it is now; how
+   long off against how long it usually takes; what acts on it; what to expect), then the remedy, then the charts, and its
+   parts and prose last */
+function runbookLines(lp) {
+  const line = (...kids) => h("p", { class: "runbook-line" }, ...kids);
+  const word = goalWord(lp), far = lp.off_by_words ? `, ${lp.off_by_words}` : "", off = goalOffFor(lp);   // null unless off
+  const usual = lp.back_in != null ? `it usually holds again ${dur(lp.back_in)} after going off (${lp.times_off} times)`
+    : "it has not gone off and come back in this window, so there is no usual time yet";
+  // each that acts for it, from the counts Agents and the Record use
+  const acts = (lp.actors || []).map((a) => h("span", { class: "actor-line" }, h("b", {}, agentA(a.name)), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
+    + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
+  return [line(statusEl(word), `: ${lp.row?.measure ?? lp.stock} should be ${goalBound(lp)}${lp.per ? `, each ${lp.per}` : ""}; it is ${fmt(lp.row ? lp.row.value : lp.value)} now${far}.`),
+    line(off ? `${off.charAt(0).toUpperCase()}${off.slice(1)}; ${usual}.` : `${exceptional(word) ? `Not known to be off (${word})` : "Not off now"}; when off, ${usual}.`),
+    line(...(acts.length ? acts.flatMap((a, i) => [i ? "; " : "", a]) : [lp.open_loop ? "It acts on its schedule and reads nothing" : unlisted(lp)]), "."),
+    line(SNAP ? "Ahead: a snapshot makes no forecast." : "Ahead: being worked out…")];   // its forecast sentence, when it comes (goalAhead)
+}
+/* the remedy: this goal's own suggestion (the snapshot's hints, made only once it has a verdict), in the words of the
+   Suggestions entry the page shows for it (Dynamics says them in its own words), else as the hint says it */
+function remedyLines(name, lp) {
+  const mine = (lp.hints || []).filter((x) => x.about === "loop").map((x) => op(x.says));
+  const shown = (S.graph?.attention || S.status?.attention || []).filter((a) => a.level === "hint" && /^(?:loop|goal) (\S+)$/.exec(a.what)?.[1] === name)
+    .map((a) => `${a.what} ${op(a.says)}`);
+  return (mine.length && shown.length === mine.length ? shown : mine).map((t) => h("p", { class: "remedy" }, h("b", {}, "Remedy: "), t, " ",
+    h("a", { href: "#", class: "hit24", onclick: (ev) => { ev.preventDefault(); document.querySelector("#detail .scope")?.scrollIntoView({ block: "start" }); } }, "Evidence")));
+}
+
 function openLoop(name, asController = false) { return askedAgain(() => openLoop(name, asController), () => openLoopNow(name, asController)); }
 async function openLoopNow(name, asController) {
   let lp;
@@ -181,7 +215,9 @@ async function openLoopNow(name, asController) {
   const kids = asController
     ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("controller"), whatIs("goal")]
     : [h("div", { class: "kind" }, lp.open_loop ? "Goal, open loop" : "Goal"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("goal")];
-  kids.push(loopScope(name, { numbers: "new" }));       // its scope first (charts.js); time off and back in are below
+  const lines = runbookLines(lp);
+  kids.push(h("div", { class: "runbook" }, ...lines), ...remedyLines(name, lp));
+  kids.push(loopScope(name, { numbers: "new" }));       // then its scope (charts.js); its parts and prose below
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
   kids.push(dl([["status", statusEl(goalWord(lp))], ["holds", `${lp.stock}, ${holdText(lp.setpoint, lp.band)}${lp.per ? `, each ${lp.per}` : ""}`],
@@ -196,9 +232,6 @@ async function openLoopNow(name, asController) {
     ["moves", Object.entries(lp.moves || {}).map(([f, r]) => `${f} ${rateText(r, "", f)}`).join(", ") || null],  // its own valves' only
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
   if (lp.control_loop) kids.push(goalLoopsLine(name, lp));
-  // each that acts for it in one line, from the counts Agents and the Record use
-  for (const a of lp.actors || []) kids.push(h("p", { class: "actor-line" }, h("b", {}, agentA(a.name)), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
-    + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
   kids.push(h("table", { class: "parts" }, tableCaption(`The parts along loop ${name}`), headRow(["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
     (lp.parts || []).map((pt) => h("tr", {}, h("td", {}, pt.kind), h("td", {}, h("b", {}, pt.name),
@@ -220,10 +253,10 @@ async function openLoopNow(name, asController) {
       h("table", {}, m.top.map((o) => h("tr", {}, h("td", {}, o.class), h("td", { class: "num" }, `${o.count} (${Math.round(o.share * 100)}%)`),
         h("td", { class: "num" }, `${fmt(o.hours)}h blocked`), h("td", {}, o.cause)))));
   }
-  kids.push(goalAhead(name, lp));                       // with the loops running: its chance of being off ahead
+  kids.push(goalAhead(name, lp, lines[3]));             // with the loops running: its chance of being off ahead (line 4 its sentence)
   kids.push(controlBox(name, "loop"));                  // its process identified, its controller with it (control.js)
   for (const g of lp.gaps || []) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Cannot close: "), g));
-  for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
+  for (const hint of (lp.hints || []).filter((x) => x.about !== "loop")) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
   if (lp.crossings?.length) {
     kids.push(h("h3", {}, `Crossings${lp.crossings_total > lp.crossings.length ? `, the newest ${lp.crossings.length} of ${lp.crossings_total}` : ""}`));
     // each to the Record: the goal's events (its controller, agents, valves) from it to the next crossing
@@ -256,22 +289,24 @@ function goalLoopsLine(name, lp) {
 
 /* a goal ahead, with the loops running (closedloop.py's Monte Carlo, in words by forecast_words.py), and a
    setpoint to try (a what-if, drawn on every chart, never kept) */
-function goalAhead(name, lp) {
+function goalAhead(name, lp, line = null) {
   const box = h("div", { class: "ahead whatif-redraw" });
   if (SNAP) return box;
+  const said = (t, cls = "") => { if (line) { setText(line, `Ahead: ${t}`); line.className = `runbook-line ${cls}`.trim(); } };   // the panel's fourth line
   const now = String(lp.setpoint ?? "").split(" ").pop();
   let tries = 0;                                         // its risk is worked out apart: asked for again until it comes
   const load = () => api("series", { refs: ["stock", "auxiliary", "flow"].map((k) => `${k}.${lp.stock}`).join(","), replay: 1, fan: 1,
                                      points: CHART_POINTS, ...whatifParams() }).then((d) => {
     const g = (d.risk || []).find((x) => x.goal === name);
     if (d.fan_pending && tries++ < 8) setTimeout(() => { if (box.isConnected) load(); }, 2500);
-    if (d.loops !== "closed") { box.replaceChildren(h("h3", {}, "Ahead"), h("p", { class: "muted small" }, d.no_estimate || "No estimate")); return; }
+    if (d.loops !== "closed") { said(`${d.no_estimate || "no estimate"}`.replace(/\.?$/, "."), "muted"); box.replaceChildren(h("h3", {}, "Ahead"), h("p", { class: "muted small" }, d.no_estimate || "No estimate")); return; }
+    said(g?.sentence ? g.sentence.replace(/\.?$/, ".") : d.fan_pending ? "being worked out…" : "no estimate, this goal's stock is not in the projection.", g?.p_off_end >= 0.5 ? "s-open" : "");
     box.replaceChildren(h("h3", {}, "Ahead, with the loops running"),
       g?.sentence ? forecastEl(g)
         : h("p", { class: "muted small" }, d.fan_pending ? "being worked out\u2026" : "No estimate: this goal's stock is not in the projection"),
       h("p", { class: "muted small" }, "What if it held at ", whatifField(`goal.${name}`, `what if ${name} held at`, now, "another setpoint"),
         " (the identified models and estimates by their errors, the inputs by how far their mean could move; a fixed seed)"));
-  }).catch(() => box.replaceChildren());
+  }).catch(() => { said("its forecast could not be read.", "muted"); box.replaceChildren(); });
   load();
   box.redraw = () => { tries = 0; load(); };
   return box;

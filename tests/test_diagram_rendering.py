@@ -5230,6 +5230,93 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
         proc.wait(10)
 
 
+RUNBOOK = """() => {
+  const d = document.querySelector('#detail'), kids = [...d.children];
+  const at = (sel) => kids.findIndex((k) => k.matches(sel) || k.querySelector(sel));
+  const less = (e) => [...e.childNodes].filter((n) => n.nodeName !== 'A').map((n) => n.textContent).join('').trim();
+  return { lines: [...d.querySelectorAll('.runbook .runbook-line')].map((p) => p.textContent),
+           word: d.querySelector('.runbook .runbook-line .status')?.textContent,
+           remedy: [...d.querySelectorAll('p.remedy')].map((p) => less(p).replace(/^Remedy: /, '')),
+           evidence: [...d.querySelectorAll('p.remedy a')].map((a) => a.textContent),
+           order: { runbook: at('.runbook'), remedy: at('p.remedy'), charts: at('.scope'), parts: at('table.parts'),
+                    prose: kids.findIndex((k) => k.matches('dl')) },   // (its own rows, not the scope's numbers)
+           text: d.innerText,
+           wide: [d, ...d.querySelectorAll('.runbook-line, p.remedy')].filter((e) => e.scrollWidth > e.clientWidth + 1)
+             .map((e) => e.className) };
+}"""
+NO_ONE = "nothing its controller moves is one setting or one valve, so it has no one process to identify"
+
+
+def test_a_goals_evidence_opens_with_its_four_lines_and_its_remedy_then_the_charts_then_parts_and_prose(
+        browser, tmp_path, monkeypatch):
+    """Acceptance (evidence-panel-reads-as-a-runbook): an off goal's panel opens, before any chart, with four
+    one-sentence lines (the first saying /api/loops' word) and one remedy line, the Suggestions entry for that goal
+    word for word, with its Evidence link; the charts follow, its parts and prose last; nothing in it says 'Not
+    worked out'; at 390 px the lines fit without scrolling sideways."""
+    d = goal_named(tmp_path, monkeypatch, False)
+    y = (d / "ergostat.yaml").read_text()                 # and a goal no block acts for (worker moves its stock for another),
+    (d / "ergostat.yaml").write_text(y.replace("    tolerance: 1\n",   # and one on an auxiliary a block sets with no goal: key
+                                               '    tolerance: 1\n  small-backlog:\n    stock: backlog\n    hold: "<= 50"\n'
+                                               '  low-throttle:\n    auxiliary: throttle\n    hold: "<= 0.5"\n')
+                                       .replace("auxiliaries:\n",
+                                                "auxiliaries:\n  throttle:\n    unit: share\n    sensor:\n      manual: true\n")
+                                       + "  damper:\n    type: program\n    run: echo 0.1\n    in: goal.low-throttle.error\n"
+                                         "    out: auxiliary.throttle\n")
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        word = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())["short-backlog"]["word"]
+        assert word == "off", word
+        errors: list[str] = []
+        for width, view in ((1500, ""), (1500, "view=blocks"), (390, "")):   # (each drawing words its Suggestions)
+            pg = browser.new_page(viewport={"width": width, "height": 900})
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            if width < 400:                              # a loop with no one process (control/loop.py): its scope says so
+                pg.route("**/api/loop-control?*", lambda r: r.fulfill(json={"goal": "short-backlog", "why": NO_ONE}))
+            drawn(pg, url, view, 0)
+            pg.wait_for_function(f"() => ({HINTS})().some((t) => t.includes('short-backlog'))", timeout=30000)
+            (hint,) = [t for t in pg.evaluate(HINTS) if "short-backlog" in t]
+            pg.evaluate("() => openLoop('short-backlog')")
+            pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=30000)
+            pg.wait_for_selector("#detail .control h3", timeout=30000)   # how it is doing, under the scope
+            got = pg.evaluate(RUNBOOK)
+            assert width > 400 or f"Read it by its time off and its crossings (below): {NO_ONE}." in got["text"], got["text"]
+            assert len(got["lines"]) == 4, got["lines"]
+            for t in got["lines"]:                       # one sentence each
+                assert re.fullmatch(r"[^.]*(\.\d[^.]*)*[.…]", t.strip()) and not re.search(r"[.;]\s+[A-Z]", t), t
+            assert got["word"] == word, got
+            assert got["remedy"] == [hint] and got["evidence"] == ["Evidence"], (got["remedy"], hint)
+            o = got["order"]
+            assert -1 < o["runbook"] < o["remedy"] < o["charts"] < o["parts"] and o["charts"] < o["prose"], o
+            assert "Not worked out" not in got["text"], got["text"]
+            assert not got["wide"], (width, got["wide"])
+            assert got["lines"][2].startswith("worker: commanded"), got["lines"]   # its block, listed as an actor
+            if not view and width > 400:                 # a goal nothing acts for: said so, never that nothing ran
+                for goal, says in (("small-backlog", "No block acts for it: nothing that reads it or backlog moves backlog,"
+                                                      " directly or through what it commands."),
+                                   ("low-throttle", "damper: commanded ")):        # the block that sets it, listed
+                    pg.evaluate(f"() => openLoop('{goal}')")
+                    pg.wait_for_function(f"() => document.querySelector('#detail h2')?.textContent.startsWith('{goal}')"
+                                         " && document.querySelectorAll('#detail .runbook-line').length === 4", timeout=30000)
+                    third = pg.evaluate("() => document.querySelectorAll('#detail .runbook-line')[2].textContent")
+                    assert third == says if says.endswith(".") else third.startswith(says), third
+            pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 PHONE_GOALS = """
 name: phone
 stocks:
