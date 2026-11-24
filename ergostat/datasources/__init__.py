@@ -20,7 +20,7 @@ import pkgutil
 import re
 import threading
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import FunctionType, ModuleType
 
 from . import _frames
@@ -34,6 +34,7 @@ OFFERED = {"TYPE", "KEYS", "LANGUAGE", "query", "suggest"}
 MOST_SUGGESTIONS = 100      # names one suggestion answers with
 SUGGEST_SECONDS = 3.0
 SUGGESTED = ("metrics", "labels", "values")
+OWN_NAME = OWN_TYPE = "model"   # the source that is the project's own model (datasources/model.py)
 _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a label's name, as a suggestion takes it
 
 
@@ -55,6 +56,8 @@ class Window:
     step: float
     points: int
     seconds: float          # how long it may take
+    project: object = field(default=None, compare=False)    # the project asked of (a model source reads its own)
+    public: bool = False    # asked for anyone under a public name (web: open: read)
 
     @property
     def end(self) -> float:
@@ -99,19 +102,23 @@ def types() -> dict[str, ModuleType]:
         return dict(_TYPES)
 
 
-OWN = "ergostat"            # the built-in source: ergostat's own readings, as PromQL (a model's source of this name wins)
+OWN = "ergostat"           # the built-in source: ergostat's own readings, as PromQL (a model's source of this name wins)
 NEEDS = ("ergostat's own series answer PromQL only from VictoriaMetrics, and this project keeps its readings in SQLite: "
          "run VictoriaMetrics, set storage: measurements: victoriametrics, and copy the readings over with "
          "ergostat migrate (docs/DASHBOARDS.md, Turning on VictoriaMetrics)")
 
 
 def sources(spec, store=None) -> dict:
-    """The model's ``sources:``, and with the project's measurements (``store``) the built-in ``ergostat``: a
-    Prometheus-compatible source over the VictoriaMetrics that holds them, asked only for this project's series (its
-    ``extra_label``, which the server enforces whatever the text says); over SQLite, one that says what it needs."""
+    """The model's ``sources:``; the model itself as one named ``model`` unless a source declared takes that name (its
+    connection is the project's own model and record, datasources/model.py, so it needs no declaring); and with the
+    project's measurements (``store``) the built-in ``ergostat``: a Prometheus-compatible source over the
+    VictoriaMetrics that holds them, asked only for this project's series (its ``extra_label``, which the server
+    enforces whatever the text says); over SQLite, one that says what it needs."""
+    from ..spec.ir import Source
     got = dict(getattr(spec, "sources", None) or {})
+    if spec is not None and OWN_NAME not in got:
+        got[OWN_NAME] = Source(OWN_NAME, OWN_TYPE)
     if store is not None and OWN not in got:
-        from ..spec.ir import Source
         vm = getattr(store, "name", "") == "victoriametrics"
         got[OWN] = Source(OWN, "prometheus", getattr(store, "base", "") if vm else "",
                           options={"extra_label": f"project={store.project}"} if vm else {"needs": NEEDS})
@@ -123,16 +130,28 @@ def _needs(src) -> None:
         raise SourceError("refused", src.options["needs"])
 
 
-def listed(spec, store=None) -> list[dict]:
+def listed(spec, store=None, own_only: bool = False) -> list[dict]:
     """The sources a panel can query (the built-in ``ergostat`` when it answers: on VictoriaMetrics): name, type and
-    language, and never their connection. A panel naming it over SQLite is answered with what it needs."""
+    language, and never their connection. A panel naming it over SQLite is answered with what it needs. ``own_only``:
+    only those that read nothing outside the project (what anyone under a public name may ask)."""
     every = types()
     return [{"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
-            for s in sources(spec, store).values() if s.type in every and not s.options.get("needs")]
+            for s in sources(spec, store).values() if s.type in every and not s.options.get("needs")
+            and (not own_only or s.type == OWN_TYPE)]
 
 
-def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=None, project=None) -> dict:
-    """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError."""
+def own(spec, name: str) -> bool:
+    """Whether source ``name`` reads only the project's own model and record; an unknown name does not (nor the
+    built-in ``ergostat``, which reads a server)."""
+    src = sources(spec).get(name)
+    return src is not None and src.type == OWN_TYPE
+
+
+def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=None, project=None,
+          public: bool = False) -> dict:
+    """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError.
+    ``store``: the project's measurements (for the built-in ``ergostat``); ``project``: the project asked of, given to
+    the type in its window; ``public``: asked for a public reader."""
     src = sources(spec, store).get(name)
     if src is None:
         raise SourceError("unknown", f"no source named {name!r} under sources:")
@@ -150,7 +169,7 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=No
         raise SourceError("limit", f"the window has {g.n} points, more than the {MOST_POINTS} allowed")
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
-    w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS))
+    w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS), project, public)
     token = ASKING.set(project)
     try:
         got = mod.query(src, text, w)

@@ -125,7 +125,8 @@ def test_over_sqlite_a_promql_panel_says_what_it_needs_and_the_rest_of_the_page_
     assert own["error_kind"] == "refused" and "only from VictoriaMetrics" in own["error"]
     assert "ergostat migrate" in own["error"] and "storage: measurements: victoriametrics" in own["error"]
     assert "error" not in old, old                                   # (the other panels are answered as before)
-    assert datasources.listed(p.model.spec, p.measurements) == []    # (not offered where it cannot answer)
+    named = [s["name"] for s in datasources.listed(p.model.spec, p.measurements)]
+    assert "ergostat" not in named and "model" in named            # (not offered where it cannot answer)
     with pytest.raises(datasources.SourceError, match="only from VictoriaMetrics"):
         datasources.suggest(p.model.spec, "ergostat", "metrics", store=p.measurements)
 
@@ -133,7 +134,8 @@ def test_over_sqlite_a_promql_panel_says_what_it_needs_and_the_rest_of_the_page_
 def test_over_victoriametrics_the_builtin_source_asks_for_this_project_only(tmp_path, stub):
     p = project(tmp_path, f"storage:\n  measurements: {{backend: victoriametrics, url: '{stub}'}}\n")
     assert isinstance(p.measurements, Victoria)
-    assert datasources.listed(p.model.spec, p.measurements) == [{"name": "ergostat", "type": "prometheus", "language": "PromQL"}]
+    assert {"name": "ergostat", "type": "prometheus", "language": "PromQL"} in datasources.listed(p.model.spec, p.measurements)
+    assert not datasources.own(p.model.spec, "ergostat")             # (it reads a server: never asked for a public reader)
     Stub.seen.clear()
     g = grid(1_795_400_000.0, 1_795_400_400.0, 4)
     got = datasources.query(p.model.spec, "ergostat", 'ergostat_sensor{project="another"}', g, store=p.measurements)
