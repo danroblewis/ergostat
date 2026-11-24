@@ -65,6 +65,7 @@ AI sessions and programs: where they work and what they may do
   act            From a block's run: ask for one of its gated actions ($ERGOSTAT_CMD act NAME --arg K=V)
   operating      The operating state and the owner's presence; freeze | incident | maintenance --for DUR | normal;
                  the states the model declares: enter NAME --why TEXT, leave NAME --why TEXT
+  bypass         The owner's bypass leases on a class gated by state: CLASS --for DUR [--note TEXT], CLASS --end
 
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)

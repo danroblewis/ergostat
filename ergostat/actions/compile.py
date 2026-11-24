@@ -10,9 +10,10 @@ import re
 import string
 
 from ..durations import DurationError, parse_duration
-from ..spec.ir import GATES, NAME, Action
+from ..spec.ir import BYPASS, GATES, NAME, Action, bypass_kind
 from . import operating as op
 from . import risk as rk
+from . import schedule as sch
 from .risk import HIGHEST, THRESHOLD
 
 ACTION_KEYS = {"run", "gate", "class", "args", "timeout", "wait", "in", "description", "fenced", "risk"}
@@ -29,8 +30,11 @@ def actions(c, spec) -> None:
             c.err(f"{what}: run: the command it runs, a template ({{branch}}, {{item}}, and its args: filled in, quoted)",
                   m.where, "missing-key")
             continue
-        gates = columns(c, m, "gate", what, cell_of, "auto (run at once), approve (held until the owner approves), "
-                        "deny (never run) or {reshape: ACTION} (that smaller action asked for at once, this one held)")
+        by_state = by_states(c, m.get("gate"))           # (checked once operating: is read: state_maps, below)
+        base = by_state.get(sch.DEFAULT, by_state.get(sch.ELSE))
+        gates = ({"normal": base} if base in GATES else {}) if by_state else \
+            columns(c, m, "gate", what, cell_of, "auto (run at once), approve (held until the owner approves), "
+                    "deny (never run) or {reshape: ACTION} (that smaller action asked for at once, this one held)")
         shapes = {k: g[1] for k, g in gates.items() if isinstance(g, tuple)}      # a reshape cell: approve, for itself
         gates = {k: "approve" if k in shapes else g for k, g in gates.items()}
         gates = rk.schedule(gates.get("normal", "approve"), gates)
@@ -68,11 +72,49 @@ def actions(c, spec) -> None:
         spec.actions[name] = Action(name, str(m["run"]), gates["normal"], cls, {str(k): str(v) for k, v in args.items()},
                                     c.duration(m, "timeout", what, 120.0), c.duration(m, "wait", what, 300.0),
                                     str(where) if where else None, c.text(m, "description"), m.where, fenced,
-                                    s, ts["normal"], gates, ts, shapes)
+                                    s, ts["normal"], gates, ts, shapes, by_state)
         if shapes:
             shaped.append((name, m, what))
     for name, m, what in shaped:
         reshapes(c, spec, name, m.get("gate"), what)
+
+
+def by_states(c, v) -> dict:
+    """A ``gate:`` map read by declared operating state (SPEC §12k, *Gates by declared state*): when the model declares
+    states under ``operating:``, or the map has ``else:``. Any other map is by §12k column, as before."""
+    body = c.doc.sections.get("operating") or {}
+    states = isinstance(body, dict) and any(k != "away-after" for k in body)
+    return v if isinstance(v, dict) and (sch.ELSE in v or states) else {}
+
+
+def state_maps(c, spec) -> None:
+    """Each gate by state checked once the states are read (after ``operating:``), each mistake at its line: a key
+    neither a state nor ``else`` (``unknown-ref``), a value not a gate (``bad-value``), a declared state left out with no
+    ``else`` (``gate-uncovered``), a map in a model that declares no states (``gate-needs-states``). What is refused is
+    left out, so it resolves to ``else`` or ``deny``. Any map gate: the bypass kind is built in."""
+    known = {sch.DEFAULT, *spec.operating}
+    for a in spec.actions.values():
+        m = a.states
+        if not m:
+            continue
+        what, at = f"action {a.name}.gate", getattr(m, "at", lambda _: None)
+        if not spec.operating:
+            c.err(f"{what}: a gate by operating state needs the states declared under operating:", a.where,
+                  "gate-needs-states")
+        good = {}
+        for k, g in m.items():
+            if k != sch.ELSE and k not in known:
+                c.err(f"{what}.{k}: not an operating state of the model ({', '.join(sorted(known))}) nor else" +
+                      c.suggest(str(k), known), at(k) or a.where, "unknown-ref")
+            elif g not in GATES:
+                c.err(f"{what}.{k}: auto, approve or deny, not {g!r}", at(k) or a.where, "bad-value")
+            else:
+                good[str(k)] = g
+        if sch.ELSE not in m and (left := sorted(known - set(m))):
+            c.err(f"{what}: no cell for {', '.join(left)} and no else: write them, or else:", a.where, "gate-uncovered")
+        a.states = good or {sch.ELSE: "deny"}
+    if any(a.states for a in spec.actions.values()):
+        spec.items[BYPASS] = bypass_kind()
 
 
 def cell_of(g):

@@ -2798,7 +2798,7 @@
           "description": "The command template: {name} is one of its args, or ergostat's own ({item}, {branch}, {workdir}, {block}, {run}), each shell-quoted"
         },
         "gate": {
-          "oneOf": [
+          "anyOf": [
             {"enum": ["auto", "approve", "deny"]},
             {
               "type": "object",
@@ -2808,9 +2808,14 @@
                 {"type": "object", "required": ["reshape"], "additionalProperties": false,
                  "properties": {"reshape": {"$ref": "#/$defs/name"}}}
               ]}
+            },
+            {
+              "type": "object",
+              "propertyNames": {"pattern": "^([a-z0-9][a-z0-9-]{0,63}|else)$"},
+              "additionalProperties": {"enum": ["auto", "approve", "deny"]}
             }
           ],
-          "description": "auto: run at once; approve: held until the owner approves; deny: never run (default approve); or a map by operating state, a cell of which may be {reshape: ACTION}: that smaller action asked for at once, this one held"
+          "description": "auto: run at once; approve: held until the owner approves; deny: never run (default approve); or a map by §12k operating column, a cell of which may be {reshape: ACTION}: that smaller action asked for at once, this one held; or, when the model declares operating states (or the map has else:), a map by declared state with an optional else:"
         },
         "class": {
           "$ref": "#/$defs/name",

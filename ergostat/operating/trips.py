@@ -58,8 +58,10 @@ def answered(p, state: str) -> set[tuple[str, str]]:
 
 
 def _record(p, state: str, goal: str, spell: str, cause: str | None, why: str) -> dict:
-    return p.events.add(ENTERED, item=item_of(state), source=SOURCE, causedby=cause,
-                        data={"by": "trip", "why": why, "goal": goal, "spell": spell})
+    from ..actions.schedule import lock
+    with lock(p, exclusive=True):                              # (as the owner's enter: no gate decides in between)
+        return p.events.add(ENTERED, item=item_of(state), source=SOURCE, causedby=cause,
+                            data={"by": "trip", "why": why, "goal": goal, "spell": spell})
 
 
 def check(p, spec, now: float | None = None, say=lambda s: None) -> str | None:
