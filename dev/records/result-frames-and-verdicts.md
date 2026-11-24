@@ -346,6 +346,26 @@ Run here, none skipped:
 
 Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
 
+### Round 11
+
+The finding was the same again: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. This
+clone has none to resolve:
+- local `main` is still e8669794, the merge-base;
+- `git merge main` says "Already up to date";
+- no conflict markers are in `docs/SPEC.md` or in any file under `ergostat/`.
+
+Against main the two files differ by 55 lines added and 17 removed, the same change rounds 9 and 10 recorded. The
+conflict the queue reports must be with a main newer than e8669794, which this clone cannot see. This branch waits for
+the factory to merge that main in. Whoever does should keep both sides, as rounds 3 and 9 did. Nothing changed in this
+round apart from this note.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62).
+- Browser, rc 0: test_result_frames_page, test_result_shapes_page and test_data_source_panels (16).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently
