@@ -80,9 +80,9 @@
                                          yTicks: buckets?.yTicks });
         const { box, X, Y } = plot;
         F.clipTo(ctx, box, () => counts.forEach((col, cx) => col.forEach((c, cy) => {
-          if (!c && o.empty !== "zero") return;
+          if (!c && c !== null && o.empty !== "zero") return;
           const x0 = Math.floor(X.at(xEdges[cx])), x1 = Math.ceil(X.at(xEdges[cx + 1])), y0 = Math.ceil(Y.at(yEdges[cy])), y1 = Math.floor(Y.at(yEdges[cy + 1]));
-          ctx.fillStyle = colour(at(c));
+          ctx.fillStyle = c === null ? F.ink("--muted") : colour(at(c));    // (an edge of unknown weight: muted, off the ramp)
           ctx.fillRect(x0, y1, x1 - x0, y0 - y1);
         })));
         plot.finish();
@@ -110,7 +110,7 @@
         const { box, X, Y } = plot;
         if (x < box.left || x > box.right || y < box.top || y > box.bottom) return null;
         const cx = seat(xEdges, X.inv(x)), cy = seat(yEdges, Y.inv(y));
-        if (buckets?.said) return { lines: [], text: `${buckets.said(cx, cy)}: ${counts[cx][cy] || "no edge"}` };
+        if (buckets?.said) return { lines: [], text: `${buckets.said(cx, cy)}: ${counts[cx][cy] === null ? "an edge of unknown weight" : counts[cx][cy] || "no edge"}` };
         const xWord = n.xKind === "time" ? `${F.whenText(xEdges[cx])} to ${F.whenText(xEdges[cx + 1])}`
           : `${N().formatValue(xEdges[cx], n.xUnit)} to ${N().formatValue(xEdges[cx + 1], n.xUnit)}`;
         const yWord = (i) => (buckets ? buckets.yTicks.words[i] : N().formatValue(yEdges[i], opts.unit));
@@ -118,7 +118,8 @@
                  text: `${xWord}; ${yWord(cy)} to ${yWord(cy + 1)}: ${counts[cx][cy] ?? "no count"}` };
       };
       const notes = [...(o.palette === "diverging" ? [{ text: `paper is the average occupied cell (${mean.toFixed(1)})` }] : []),
-                     ...(buckets?.fitted?.length ? [{ text: `Fitted to 300 rows: ${buckets.fitted.join("; ")}` }] : [])];
+                     ...(buckets?.fitted?.length ? [{ text: `Fitted to 300 rows: ${buckets.fitted.join("; ")}` }] : []),
+                     ...(buckets?.said && flat.includes(null) ? [{ text: "a grey cell is an edge whose weight is not known" }] : [])];
       return { paint, pick, notes, entries: (result.series || []).length > 1 ? result.series.map((x) => ({ key: x.key, name: x.name, colour: x.colour, off: off.has(x.key) })) : [],
                model: { counts, xEdges, yEdges, top, total: flat.reduce((a, b) => a + b, 0), centre, at: [0, 1, top].map(at) } };
     });

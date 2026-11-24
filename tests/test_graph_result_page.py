@@ -118,6 +118,22 @@ def test_an_over_budget_graph_collapses_says_so_and_its_matrix_is_drawn_by_the_h
         s.close()
 
 
+def test_a_matrix_cell_of_unknown_weight_is_drawn_as_unknown(browser):          # lesson 3; done 3
+    r = many()
+    r["matrix"]["cells"] = [[a, b, None if w == 5 else w] for a, b, w in r["matrix"]["cells"]]    # (as graphfit.matrix sends it)
+    s = GraphSite(browser)
+    try:
+        s.mount(graph_config("heatmap", pid="m"), r, META)
+        assert s.page.evaluate(STATE, "m") == "drawn"
+        flat = [c for col in s.model()["counts"] for c in col]
+        assert flat.count(None) == 1 and sum(c or 0 for c in flat) == sum(range(1, 51)) - 5     # w4 (n 5): unknown, not 1
+        legend = s.page.evaluate("() => document.querySelector('[data-panel-id=\"m\"]').textContent")
+        assert "a grey cell is an edge whose weight is not known" in legend
+        assert not s.errors, s.errors
+    finally:
+        s.close()
+
+
 def test_what_the_graph_panel_cannot_draw_it_says(browser, dependency, tmp_path):  # done 3
     from tests.test_result_shapes import samples
     seq = {**dependency, "kind": "sequence"}

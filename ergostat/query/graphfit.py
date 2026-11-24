@@ -38,17 +38,18 @@ def _eweight(edges: dict, i: int) -> float | None:
     if "n" in edges:
         return None if edges["n"][i] is None else float(edges["n"][i])
     summed = [f for f in edges["fields"] if f.get("role") in SUMMED]
-    return 1.0 if not summed else _weight(summed, i) if any(f["values"][i] is not None for f in summed) else None
+    return 1.0 if not summed else None if summed[0]["values"][i] is None else float(summed[0]["values"][i])
 
 
 def _merged(fields: list[dict], members: list[list[int]], names: list[str]) -> tuple[list[dict], list[dict | None]]:
-    """Each field over each set of ``members``: summed when it may be, else its worst member's (``worst``: whose)."""
+    """Each field over each set of ``members``: summed when it may be, else its worst member's (``worst``: whose).
+    Null when any member's is: a partial sum is not the total, and the unknown member could be the worst."""
     out, worst = [], [None if len(m) == 1 else {} for m in members]
     for f in fields:
         values = []
         for k, m in enumerate(members):
             known = [(f["values"][i], i) for i in m if f["values"][i] is not None]
-            if len(m) == 1 or not known:
+            if len(m) == 1 or len(known) < len(m):
                 values.append(f["values"][m[0]] if len(m) == 1 else None)
             elif f.get("role") in SUMMED:
                 values.append(sum(v for v, _ in known))
@@ -114,7 +115,7 @@ def fit(g: dict, most_nodes: int, most_edges: int) -> tuple[dict, list[str]]:
     if "parent" in nodes:
         new_nodes["parent"] = [nodes["parent"][m[0]] if len(m) == 1 and nodes["parent"][m[0]] in at else None for m in members]
     if "health" in nodes:
-        new_nodes["health"] = [("unhealthy" if "unhealthy" in hs else "ok" if "ok" in hs else None)
+        new_nodes["health"] = [("unhealthy" if "unhealthy" in hs else "ok" if hs == {"ok"} else None)
                                for hs in ({nodes["health"][i] for i in m} for m in members)]
     by: dict[tuple, list[int]] = {}
     inside = 0
@@ -145,9 +146,9 @@ def fit(g: dict, most_nodes: int, most_edges: int) -> tuple[dict, list[str]]:
                  "evidence": [_evidence({edges["evidence"][i] for i in m}) for m in groups],
                  "holds": [len(m) for m in groups], "worst": eworst, "fields": efields}
     for col, pick in (("n", sum), ("first_seen", min), ("last_seen", max), ("confidence", min)):
-        if col in edges:
-            new_edges[col] = [(lambda vs: pick(vs) if vs else None)([edges[col][i] for i in m if edges[col][i] is not None])
-                              for m in groups]
+        if col in edges:                    # (an unknown n or confidence leaves the merged one unknown; a time not seen is not)
+            new_edges[col] = [(lambda vs: pick(vs) if vs and (len(vs) == len(m) or col in ("first_seen", "last_seen")) else None)(
+                [edges[col][i] for i in m if edges[col][i] is not None]) for m in groups]
     if inside:
         how.append(f"{inside} edges inside a collapsed node are held by it")
     if not how:
@@ -169,10 +170,9 @@ def matrix(g: dict) -> dict:
     group = nodes.get("group") or [None] * len(nodes["id"])
     order = sorted(range(len(nodes["id"])), key=lambda i: (group[i] is None, group[i] or "", nodes["label"][i], nodes["id"][i]))
     row = {nodes["id"][i]: r for r, i in enumerate(order)}
-    cells: dict[tuple[int, int], float] = {}
+    cells: dict[tuple[int, int], float | None] = {}
     for i in range(len(edges["id"])):
-        w = edges["n"][i] if edges.get("n") and edges["n"][i] is not None else _weight(edges["fields"], i)
-        at = (row[edges["source"][i]], row[edges["target"][i]])
-        cells[at] = cells.get(at, 0.0) + w
+        w, at = _eweight(edges, i), (row[edges["source"][i]], row[edges["target"][i]])
+        cells[at] = None if w is None or cells.get(at, 0.0) is None else cells.get(at, 0.0) + w   # unknown: null, never 1
     return {"ids": [nodes["id"][i] for i in order], "labels": [nodes["label"][i] for i in order],
             "group": [group[i] for i in order], "cells": [[r, c, w] for (r, c), w in sorted(cells.items())], "fitted": how}

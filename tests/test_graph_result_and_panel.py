@@ -253,6 +253,34 @@ def test_edges_of_unknown_weight_left_out_leave_their_share_unknown():          
     assert graphfit.fit(g, *graphfit.PANEL)[0]["omitted"]["weight_share"] is None
 
 
+def test_a_matrix_cell_of_unknown_weight_is_null_never_one():                     # lesson 3; done 3
+    """n0 > n1 has n 3; n1 > n2 has n null; n2 > n0 twice, once null: the two unknown cells are null, not 1 or 3."""
+    g = graph(3, 4)
+    g["edges"]["source"], g["edges"]["target"] = ["n0", "n1", "n2", "n2"], ["n1", "n2", "n0", "n0"]
+    g["edges"]["n"] = [3, None, 4, None]
+    assert graphfit.matrix(_frames.answer(g, None, 0))["cells"] == [[0, 1, 3.0], [1, 2, None], [2, 0, None]]
+    del g["edges"]["n"]                                  # no n: the first summed field weighs it, null when it is
+    g["edges"]["fields"] = [{"name": "calls", "role": "count", "values": [3, None, 4, None]}]
+    assert graphfit.matrix(_frames.answer(g, None, 0))["cells"] == [[0, 1, 3.0], [1, 2, None], [2, 0, None]]
+
+
+def test_a_merged_field_with_an_unknown_member_is_unknown_not_a_partial_total():   # lesson 3; G45
+    """Group a (n0..n20) to group b (n21..n41) by three edges of n 5, null and 7, count 5, null, 7, latency 0.2, null,
+    0.1: the merged edge holds 3, and its n, count and latency are null, never 12, 12 and 0.2. A node group with a
+    count null in one member, or a health not known in one, is not known either; with every member known, it is."""
+    g = graph(42, 0, group=["a"] * 21 + ["b"] * 21, health=["ok"] * 20 + [None] + ["ok"] * 21)
+    g["nodes"]["fields"][0]["values"][3] = None
+    g = {**g, "edges": {"id": ["x", "y", "z"], "source": ["n0", "n1", "n2"], "target": ["n21", "n22", "n23"],
+                        "relation": ["calls"] * 3, "evidence": ["observed"] * 3, "n": [5, None, 7], "confidence": [0.9, None, 0.8],
+                        "fields": [{"name": "count", "role": "count", "values": [5, None, 7]},
+                                   {"name": "latency", "unit": "s", "role": "latency", "values": [0.2, None, 0.1]}]}}
+    e = graphfit.fit(_frames.answer(g, None, 0), *graphfit.PANEL)[0]["edges"]
+    assert (e["holds"], e["n"], e["confidence"], [f["values"] for f in e["fields"]]) == ([3], [None], [None], [[None], [None]])
+    assert e["worst"] == [{}]                            # no member named the worst when one is not known
+    nodes = graphfit.fit(_frames.answer(g, None, 0), *graphfit.PANEL)[0]["nodes"]
+    assert nodes["fields"][0]["values"] == [None, sum(range(21, 42))] and nodes["health"] == [None, "ok"]
+
+
 def test_an_over_budget_graph_warns_and_offers_the_matrix():                     # chart 77
     out = graphs.drawn(*graphs.service({"nodes": [{"id": f"agent:{i}", "label": str(i), "runs": i} for i in range(50)],
                                         "edges": [], "since": 0, "until": 1}))
