@@ -162,6 +162,10 @@ async function openNodeNow(n) {
   showDetail(...kids);
 }
 
+/* no agent of its own is listed (a valve's agent is optional): say what its valves did, never that nothing ran */
+const unlisted = (lp, n = lp.openings_total) => Array.isArray(lp.valves) && !lp.valves.length ? "Nothing is declared to act on it: no block drives its stock"
+  : `No agent that acts for it is recorded; ${n == null ? "whether its valves opened is not known"
+  : n ? `its valves opened ${n} time${n === 1 ? "" : "s"} in this window` : "its valves did not open in this window"}`;
 /* a goal's evidence as a runbook (an SRE's order): four lines, each one sentence (what is wanted and where it is now; how
    long off against how long it usually takes; what acts on it; what to expect), then the remedy, then the charts, and its
    parts and prose last */
@@ -175,7 +179,7 @@ function runbookLines(lp) {
     + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
   return [line(statusEl(word), `: ${lp.row?.measure ?? lp.stock} should be ${goalBound(lp)}${lp.per ? `, each ${lp.per}` : ""}; it is ${fmt(lp.row ? lp.row.value : lp.value)} now${far}.`),
     line(word === "off" ? `${off.charAt(0).toUpperCase()}${off.slice(1)}; ${usual}.` : `${word === "holding" ? "Not off now" : `Not known to be off (${word})`}; when off, ${usual}.`),
-    line(...(acts.length ? acts.flatMap((a, i) => [i ? "; " : "", a]) : [lp.open_loop ? "It acts on its schedule and reads nothing" : "Nothing that acts for it ran in this window"]), "."),
+    line(...(acts.length ? acts.flatMap((a, i) => [i ? "; " : "", a]) : [lp.open_loop ? "It acts on its schedule and reads nothing" : unlisted(lp)]), "."),
     line(SNAP ? "Ahead: a snapshot makes no forecast." : "Ahead: being worked out…")];   // its forecast sentence, when it comes (goalAhead)
 }
 /* the remedy: this goal's own suggestion (the snapshot's hints, made only once it has a verdict), in the words of the

@@ -62,3 +62,22 @@ Not done, or not proven:
     test_a_panel_open_on_what_is_chosen_stays_open_across_a_switch_of_view_in_its_words (waiting on /api/part/flow)
     fail in the part and flow panels (openNodeNow, openEdge, dynamics.js), which are unchanged.
 - Not run by me: the whole unit suite and the four browser files (the factory runs them).
+
+Round 2:
+
+- Merged main (59600738): the one conflict in details.js was resolved by keeping main's title ("Goal", "Goal, open loop",
+  `whatIs("goal")`) and adding the branch's runbook lines and remedy before the scope.
+- The review's finding (line 3 says "Nothing that acts for it ran in this window" when no actor is listed): fixed.
+  `unlisted` in details.js now says only what is known. With no valves it says "Nothing is declared to act on it: no
+  block drives its stock". With valves but no listed agent it says "No agent that acts for it is recorded", then that
+  its valves opened N times in this window (`openings_total`), that they did not open, or that whether they opened is
+  not known. The acceptance test now adds a fixture goal that no block acts on (`small-backlog`) and checks its third
+  line, and it checks that the off goal's third line lists its block (`worker: commanded…`). I put the old wording
+  back and the test failed on that third line, then passed again with the fix. The "valves but no listed agent" case
+  is not covered by a fixture: a blocks model always gives each valve its block as agent (spec/legacy.py), so only an
+  older valve-format model reaches it.
+- Run: the acceptance test (passes), tests/test_forecast_panel.py (passes), and ruff (clean). tests/test_agents_page.py:
+  13 pass, and test_each_row_says_how_it_is_engaged_and_which_goal_it_serves fails as in round 1 (the Agent panel
+  still reads "Loading…"; openAgentNow is unchanged by the branch). The whole tests/test_diagram_rendering.py was
+  stopped at its 20-minute limit about 30% through, with about 25 failures, roughly one test in four. It did not
+  name them, so I cannot say which failed or why. Not run: the unit suite and the other browser files.
