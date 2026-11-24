@@ -211,7 +211,7 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
                                       "depth": depth, "trust": t.trust, "untrusted": untrusted, "outer": within,
-                                      "above": above,
+                                      "above": above, "parameters": sorted(made.sections.get("parameters") or {}),
                                       "owner_runs": trust.owner_runs(made.marked or {}, author(t)) if untrusted else [],
                                       "library": t.library, **exports(t, inst, made)}))
     if made.standins:

@@ -1,6 +1,7 @@
-"""``ergostat library fetch [NAME...] [--update]`` (SPEC §2a): the main file's ``libraries:`` read live with the
-loader's own YAML reader, checked, and each library fetched and locked (``library/fetch.py``). It never opens the
-project and never runs on the last good model: a main file that does not read stops it before any git process.
+"""``ergostat library fetch [NAME...] [--update] [--dry-run]`` (SPEC §2a): the main file's ``libraries:`` read live
+with the loader's own YAML reader, checked, and each library fetched and locked (``library/fetch.py``), or with
+``--dry-run`` one update reviewed without taking it (``library/compare.py``). It never opens the project and never
+runs on the last good model: a main file that does not read stops it before any git process.
 ``ergostat library`` alone lists them (``listing``), offline, on the last good model when the main file is broken."""
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ def register(sub, common) -> None:
     lp.add_argument("what", nargs="?", choices=["fetch"])
     lp.add_argument("names", nargs="*", metavar="NAME", help="only these libraries (leave out: all)")
     lp.add_argument("--update", action="store_true", help="resolve each version again, even an unchanged one")
+    lp.add_argument("--dry-run", action="store_true", help="with --update and one NAME: fetch the new version aside, "
+                    "take nothing, and say what it breaks and changes (exit 1 when it adds an error)")
     lp.set_defaults(fn=cmd_library)
 
 
@@ -50,6 +53,8 @@ def cmd_library(args) -> int:
     if unknown:
         print(f"no library {unknown[0]!r} in libraries: (there are: {', '.join(cfg)})", file=sys.stderr)
         return 2
+    if args.dry_run:
+        return _dry_run(args, main, cfg)
     rc = 0
     for name in args.names or list(cfg):          # one after another; each read-decide-write under the flock
         try:
@@ -67,6 +72,26 @@ def cmd_library(args) -> int:
             print(f"library {name}: not fetched: {x}", file=sys.stderr)
             rc = 1
     return rc
+
+
+def _dry_run(args, main, cfg) -> int:
+    """``fetch NAME --update --dry-run`` (library/compare.py): 0 when the candidate adds no error, else 1."""
+    from ..library import compare, fetch
+    from ..spec.files import TreeError
+    if not args.update or len(args.names) != 1:
+        print("--dry-run reviews one update: ergostat library fetch NAME --update --dry-run", file=sys.stderr)
+        return 2
+    name = args.names[0]
+    try:
+        r = compare.update(main, name, cfg[name], None, lambda line: print(line, file=sys.stderr, flush=True))
+    except fetch.FetchError as x:
+        print(f"library {name}: not reviewed: {x}", file=sys.stderr)
+        return 2 if x.code in ("bad-lock", "linked-library-folder") else 1
+    except (TreeError, OSError) as x:
+        print(f"library {name}: not reviewed: {x}", file=sys.stderr)
+        return 1
+    print("\n".join(compare.lines(r)))
+    return 0 if r["ok"] else 1
 
 
 def listing(main, data, bad) -> int:

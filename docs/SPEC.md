@@ -560,6 +560,31 @@ moved aside, the new one put in its place, and `libraries.lock` (JSON: `{NAME: {
 library, with only NAME's entry changed; on any failure the old copy and its entry stay.
 Fetch refuses when `.libraries` or `.libraries/NAME` is a link, and deletes only the temporary folder it made.
 
+*Before an update.* `ergostat library fetch NAME --update --dry-run` (one NAME, with `--update`; else rc 2) and the MCP
+tool `library_update` (`name`, optional `version`) review an update without taking it (`ergostat/library/compare.py`).
+The version is the entry's, or the one given, which must pass the `version:` allowlist above before any git process
+(else **bad-library-source**). Holding the same flock throughout, the candidate is fetched as above (same git
+environment, caps and time limit) into a new `.libraries/.tmp-*` folder, which is deleted afterwards whatever happens;
+it is never swapped in and `libraries.lock` is never written. The model is then compiled twice in memory, the main file
+read live: on the locked copy, and with the candidate's folder and commit standing in for NAME's copy and lock entry
+(no file read is noted for the last good model's snapshot, and nothing is recorded). The report: the commit `from`
+(the locked one; null when there is none) and `to`; `tags`, the remote's tags (one `git ls-remote --tags`, names
+matching the `version:` allowlist, an annotated tag by the commit it points at) at commits that descend from the
+pinned one (`rev-list --ancestry-path`), every tag when nothing is pinned, or null with `tags_why` when that cannot be
+told (a git failure or limit, the pinned commit gone, more than 1,000 tags); the library's `templates` added and
+removed; for each use of one of its templates (an instance in either compile), its `params` added, removed and newly
+required, `defaults` changed (name, from, to), `exports_removed` (as exported, every part when the template has no
+`exports:`), `parts` added and removed (the refs `uses` records: stocks, flows, auxiliaries, goals and blocks, by full
+name), and `values` moved: its parameters' values as expanded, and the model `parameters:` that use itself made in
+both compiles (recorded in the use as `parameters`, so `t` is never given `t-x`'s, and a `once` template's unprefixed
+names count; their `value`); and `problems`, every error and finding of the candidate's model that the
+current one lacks (compared by level, code, `about` and message), errors first and among them a broken reference
+(`unknown-ref`, `bad-ref`) first. `ok` is true when none of them is an error: the command exits 0, else 1 (2 for an
+unreadable lock or a linked folder, as fetch). For a library without `trust: owner`, the defaults and values are marked
+as the library's text and the problems as `check` marks them, with `untrusted` saying what the marks mean; template,
+parameter and part names are references and are not marked. A value written into a part's own fields by the template
+(not through a parameter) is not compared, nor anything the two models do when run.
+
 Every time the model loads, each library is checked, in order, and the first failure refuses it (an error naming the
 library and why): **library-unlocked** (no `libraries.lock`, no entry, an entry without `commit` or `tree`, or whose
 `git`, `version` or `path` is not the config's), **library-lock-unreadable** (the lock is not JSON of that shape:

@@ -213,6 +213,13 @@ TOOLS = [
      "referencing a remote's part (its parts are its owner's, never edited here) and before proposing a change near "
      "one (a change to them is text for its owner). Read only: no remote is asked, nothing is written.",
      "inputSchema": _obj({"name": {"type": "string"}, "proposals": {"type": "boolean"}})},
+    {"name": "library_update", "description": "Review an update to a fetched library (libraries:, SPEC §2a) before it "
+     "is taken, as `ergostat library fetch NAME --update --dry-run`: its version (or version:) fetched aside and the "
+     "model compiled on it in memory, nothing taken or recorded. Returns the commit from and to, newer tags, templates "
+     "added and removed, per use the parameters added, removed and newly required, defaults changed, exports and parts "
+     "removed and added, values moved, and the errors and findings it adds (a broken reference first); ok: false when "
+     "it adds an error. Show the owner what it breaks before anyone runs fetch --update.",
+     "inputSchema": _obj({"name": {"type": "string"}, "version": {"type": "string"}}, ["name"])},
 ]
 
 
@@ -269,6 +276,8 @@ class Server:
             return _text({"scores": [co.score_line(k, x) for k, x in got["kinds"].items()], **got})
         if name == "remotes":
             return self.remotes(a)
+        if name == "library_update":
+            return self.library_update(a)
         if name == "improve_model":
             from . import helpdocs
             skill, guide = helpdocs.read("improve-model"), helpdocs.read("modelling")
@@ -507,6 +516,23 @@ class Server:
                     got["proposals_why"] = "its model's version can't be read, so nothing is written for it"
             out.append(got)
         return _text({"remotes": out})
+
+    def library_update(self, a: dict) -> dict:
+        """``library fetch NAME --update --dry-run``'s report (library/compare.py), the model's YAML read live."""
+        from .library import compare, fetch, sources
+        from .spec.files import TreeError
+        path = mdl.find(self.root)
+        if path is None or path.name != mdl.YAML:
+            return {**_text(f"no {mdl.YAML} here or above {self.root}"), "isError": True}
+        name = str(a.get("name") or "")
+        try:
+            cfg = compare.libraries(path)
+            if name not in cfg:
+                raise fetch.FetchError("no-library", name, f"not in libraries: (there are: {', '.join(cfg) or 'none'})")
+            version = a.get("version")
+            return _text(compare.update(path, name, cfg[name], None if version is None else str(version), lambda _: None))
+        except (fetch.FetchError, sources.SourceError, TreeError, OSError) as e:
+            return {**_text(f"not reviewed: {e}"), "isError": True}
 
     def author(self, name: str, a: dict) -> dict:
         """The authoring tools (ergostat/library/author.py): templates, add_use, scaffold, try_use, where_drawn."""
