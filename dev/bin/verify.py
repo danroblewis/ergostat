@@ -218,6 +218,16 @@ def reapplied(repo, onto: str, g: dict) -> str | None:
     return onto
 
 
+REVERTS = re.compile(r"^This reverts commit ([0-9a-f]{40})", re.M)
+
+
+def reverts(window: list[dict]) -> dict[str, str]:
+    """This lane's reverts in ``window`` still standing (none reapplied there): {the commit reverted: its revert}."""
+    back = {m[1] for c in window if "Reapplied-tip:" in c["body"] and (m := REVERTS.search(c["body"]))}
+    return {m[1]: c["sha"] for c in window if "Reverted-tip:" in c["body"] and (m := REVERTS.search(c["body"]))
+            and c["sha"] not in back}
+
+
 def gap_of(gaps: list[dict], c: dict) -> dict | None:
     """The one gap whose merge ``c`` is: its second parent the gap's reviewed_head, else its branch named."""
     hit = [g for g in gaps if str(g["fields"].get("reviewed_head") or "") == c["parents"][1]]
@@ -379,20 +389,29 @@ def verify(cfg: dict, repo: Path, st: dict, base: str, tip: str, why: str, q) ->
     if by_name and alone([base]) == ["fail"] and alone([base]) == ["fail"]:
         return hold(cfg, st, f"the verified {base[:12]} fails {', '.join(tests[:5])} alone now: main's own, no merge's",
                     **line, runs=runs[0])
-    heads = [c["sha"] for c in merges(window)]
-    heads += [tip] if not heads or heads[-1] != tip else []
+    standing, at_ = reverts(window), {c["sha"]: k for k, c in enumerate(window)}
+    places = [k for k, c in enumerate(window) if len(c["parents"]) == 2 and c["sha"] not in standing]
+    places += [len(window) - 1] if not places or places[-1] != len(window) - 1 else []
+    heads = []
+    for k in places:                                    # (each prefix less what this lane reverted after it: a merge
+        h = window[k]["sha"]                            # found and reverted before is never found again)
+        for t in [c["sha"] for c in window[:k] if c["sha"] in standing and at_[standing[c["sha"]]] > k]:
+            h = h and revert_commit(repo, h, t, f"verify: the prefix without {t[:12]}")
+        heads.append(h)
+    if None in heads:
+        return hold(cfg, st, "a prefix of the window cannot be built without the merges reverted in it", **line)
     named_check = lambda picks: alone([heads[i] for i in picks])                            # noqa: E731
     full_check = lambda picks: [said(r) for r in full([heads[i] for i in picks])]          # noqa: E731
     lo, hi = first_red(-1, len(heads) - 1, named_check, halves.NAMED_AT_ONCE) if by_name else (-1, len(heads) - 1)
     lo, hi = first_red(lo, hi, full_check, FULL_AT_ONCE)
-    c = next((x for x in window if x["sha"] == heads[hi]), None)
-    if hi - lo != 1 or not c or len(c["parents"]) != 2:
+    c = window[places[hi]]
+    if hi - lo != 1 or len(c["parents"]) != 2 or c["sha"] in standing:
         return hold(cfg, st, f"the bisection of {base[:12]}..{tip[:12]} could not name a merge (prefixes "
                              f"{lo + 1} to {hi} of {len(heads)})", **line, runs=runs[0])
     alone_on = q.dry(repo, base, c["parents"][1], "verify: the culprit alone on the verified commit")[0]
     r = (alone([alone_on]) if by_name else [said(full([alone_on])[0])]) if alone_on else ["unknown"]
-    later = [x for x in merges(window[window.index(c) + 1:])          # (stacked on it: its branch holds the culprit's)
-             if fac.git_ok(repo, "merge-base", "--is-ancestor", c["parents"][1], x["parents"][1])]
+    later = [x for x in merges(window[places[hi] + 1:])               # (stacked on it: its branch holds the culprit's)
+             if x["sha"] not in standing and fac.git_ok(repo, "merge-base", "--is-ancestor", c["parents"][1], x["parents"][1])]
     found = []
     for x in [c, *later]:
         if not (g := gap_of(gaps, x)):
@@ -413,8 +432,7 @@ def green(cfg: dict, repo: Path, st: dict, base: str, tip: str, window: list, ga
         return f"the verified ref moved under this run: {tip[:12]} not recorded"
     st.pop("again", None)
     save(cfg, st)
-    now = time.time()
-    out = {sha for c in window for sha in re.findall(r"^This reverts commit ([0-9a-f]{40})", c["body"], re.M)}
+    now, out = time.time(), reverts(window)
     for c in merges(window):
         if c["sha"] not in out and (g := gap_of(gaps, c)):           # (a merge reverted since: not verified)
             fac.say("gap.measured", g["id"], verified_sha=tip, verified_at=now,

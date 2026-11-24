@@ -9572,6 +9572,42 @@ suites outside the factory hold the queue. One held past `[manager] broken_minut
 text names the readings that hold it (`suites-running`, `threads`, `memory` or `push-waiting`); dev/README.md has the
 details.
 
+### Merge first, verify after: the factory's main tested by the amount of change
+
+With `[verify] after = true` (off until the coordinator switches it on), the factory's merge queue lands an approved
+batch on a quick check instead of its full suites: the merge is clean, ergostat imports (`[suites] imports`), and the
+test files the batch added or changed pass with a short smoke set (`[verify] smoke`). A red quick check is chased as a
+red full run is (by name, then by halves). Main's full suites then run beside landing, in the block `verifier`
+(`dev/bin/verify.py`), on its own worktree and half of the queue's CPUs, never holding the queue's lock while they run:
+
+```yaml
+parameters:
+  verify-lines: {system: merging, value: 1500, unit: lines}   # net lines merged since the verified commit
+  verify-hours: {system: merging, value: 2h}                  # or the oldest unverified commit this old
+blocks:
+  verifier:
+    type: program
+    run: python3 dev/bin/verify.py run
+    every: 10m
+    in: [auxiliary.merge-to-verified-hours]
+    out: [auxiliary.verify-escapes, auxiliary.verify-reverts]
+```
+
+Verification is due when the merges since the verified commit reach `verify-lines` net lines (each merge's own count, as
+its absolute value), when its oldest unverified commit is `verify-hours` old, after a revert, or when asked
+(`verify.py run --now WHY`, before a publish). Green moves the git ref `verified` to that commit, and each gap merged
+in the window records `verified_sha`, `verified_at` and `verify_hours`; version switches (`upgrade.py watch`) and the
+publish job (`verify.py verified`) take only that commit. Red: one to three tests that pass alone twice are flakes, as
+in the queue; tests that fail alone on the verified commit are main's own (an intervention, nothing reverted). Else the
+merges since the verified commit are bisected in rounds of several prefixes at once, the first red merge is tried alone
+on the verified commit, and it and the merges stacked on it are reverted on main under the queue's lock, each a commit
+saying `This reverts commit`; the culprit goes to flake triage (`gap.queue-failed` with its tests), what was stacked
+on it back to `approved`, the reverts' push is asked as the queue's own, and main is verified again. A gap coming back
+has its reverts undone before it merges. A culprit no gap owns, a revert that conflicts, or a bisection that cannot
+tell stops the lane with an intervention. The dashboard `landing.merge-pipeline` charts `suite-runs-per-merged-gap`,
+`merge-to-verified-hours`, `verify-escapes` and `verify-reverts` beside the queue's own measures, and
+`verify.py replay` replays a week's batches before and after.
+
 ### Done items the implementor cannot do: found at plan time, routed before building
 
 The factory's planner (`dev/bin/plan.py`) classifies each done item of a gap's definition against what an

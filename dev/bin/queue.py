@@ -32,7 +32,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    `[suites] host` (the sandbox's tests, which skip in the container) runs on the Mac, never boxed, as a suite like
    the others (its log `<tag>-host.txt`; red bisects); empty, the step is off. The outer shell's exit 126 or 127
    is a step that did not start (NotStarted; a pytest missing behind uv exits 1: red), and a test it skips that the
-   unit run skipped too fails it (nowhere());
+   unit run skipped too fails it (nowhere()). With `[verify] after`, verify.quick() stands in for all of this step
+   (imports, the changed test files and the smoke set), and main's full suites run later in verify.py's own lane;
+   a gap whose merge that lane reverted has the reverts undone before its dry merge (verify.reapplied());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    when its 1 to 3 named tests each pass alone on the red tree twice and the suites it did not finish pass, it lands as

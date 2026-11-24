@@ -986,6 +986,66 @@ A gap is never left a dead letter: a run that fails on its last attempt parks th
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
 `ergostat-factory-*`, killed when its run ends or is stopped, and swept by `main-watch` once past its time.
 
+## Merge first, verify after
+
+The owner (2026-11-23): merge everything first and verify after; regressions tested less often, by the amount of
+change. `dev/bin/verify.py` does it, off until `[verify] after = true` in `factory.local.toml` (the coordinator's
+switch; off, the queue runs its full suites as above and the block `verifier` does nothing).
+
+**Land fast.** The queue's run is the same (lock, batch, dry merges, stacks, push), but each tree it would run the full
+suites on gets the quick check instead (`verify.quick`): `[suites] imports` (ergostat imports), then the test files
+the batch added or changed (`git diff --name-only` from main, `tests/**/test_*.py`) with `[verify] smoke` (a smoke set
+meant to take under 2 minutes; at most 50), through `[suites] rerun` with main's quarantine deselected. A red quick
+check takes the queue's two paths (by name, by halves) exactly as a red full run does, so the culprit goes to flake
+triage and the rest land. Lint is meant for the pre-commit hook (the gap lint-in-a-pre-commit-hook, not on main yet);
+until it lands, ruff is caught only by verification, whose full run starts with it.
+
+**Verify by amount of change.** The block `verifier` (every 10 minutes, its own lock in `run/verify.lock`) fetches main
+as pushed and verifies it when the merges since the ref `verified` reach `verify-lines` net lines (1,500; each merge's
+own net count, as its absolute value, so a removal never hides an addition), when the oldest unverified commit is
+`verify-hours` old (2 h), after a revert, or when asked: `python3 dev/bin/verify.py run --now publish` before a
+publish. Both are parameters in `dev/model/landing.yaml` (a controller may move them; `[verify] lines` and `hours`
+override them, for tests). The full suites (`queue.suites`, browser always) run in `run/verify-half/`, on the second
+half of `[agents] queue_cpuset` with half the workers (`halves.share`), in containers named `suite-verify-*` that the
+queue's sweep leaves alone. The queue's lock is taken only to write reverts, never while a suite runs, so landing never
+waits for verification (both still count against the load interlock's slots).
+
+**Green** moves `refs/heads/verified` in the checkout (compare-and-swap from the commit read at the start), and each gap
+merged in the window gets `verified_sha`, `verified_at` and `verify_hours`. **Red**, as the queue does: 1 to 3 tests
+that pass alone twice on the tip (and the suites the run did not finish pass) are flakes (`flake.seen`), and main is
+verified; tests that fail alone twice on the verified commit are main's own: an intervention (class queue), nothing
+reverted, the lane held (run/verify.json `held`) until the intervention is remedied. Otherwise the merges since the
+verified commit are bisected (each prefix built without the merges the lane reverted later in the window, so a second
+culprit in the same window is found next, never the first again): in rounds of up to 4 prefixes at once on the failing tests when they fail alone on the
+tip, else 2 full runs at once (`halves.run_all`, `verify.first_red`). The first red merge is tried alone on the
+verified commit (`verify_confirmed` true or false on the gap). It and every later merge whose branch holds its branch
+(a stacked gap) are reverted on main under the queue's lock, newest first, once no push of the queue's waits: each a
+commit `Revert "Merge branch ..."` with `This reverts commit <merge>` (escapes.py counts it) and `Reverted-tip:
+<branch tip>`. The culprit says `gap.queue-failed` (its tests, `pre` its base, `reverted_by_verify`), so flake triage
+takes it as today; each stacked gap says `gap.retried` (back to approved, uncounted). The reverts' push is asked like
+the queue's (run/queue.json `pending`, marked `reverts`: no gap waits on it), and the next run verifies again. A merge
+no gap owns, a revert that conflicts, or a bisection that cannot tell holds the lane with an intervention instead.
+
+**Coming back.** When the queue merges a gap whose merge was reverted, it first undoes those reverts on the base
+(`verify.reapplied`: a commit `Reapply gap/...`, `Reapplied-tip:`), since a branch's commits already in main's history
+merge as nothing. A gap stacked on a reverted base waits for it (`queue.stack`: a base taken out by the lane is not on
+main, `verify.taken_out`).
+
+**Verified is a ref.** `python3 dev/bin/verify.py verified` prints it (exit 1 with none): the publish job takes that
+commit. With the lane on, `main-watch` opens versions of the verified commit only, once the pushed main holds it
+(`verify.switchable`).
+
+**Measured.** `suite-runs-per-merged-gap` (the batches' and the verifications' suite runs over the gaps merged; while
+the lane is off it is today's number), `merge-to-verified-hours`, `verify-escapes` and `verify-reverts`, charted on
+`landing.merge-pipeline` beside the queue's own. `python3 dev/bin/verify.py replay [--days 7]` replays the record's
+batches: before (each run a full one, approval to landing) and after (each run a quick check of `[verify]
+quick_minutes`, a verification per window of `verify-lines` or `verify-hours`, and for each gap the queue failed a red
+verification with its bisection), an estimate with its assumptions said.
+
+**Switching over** (the coordinator): `python3 dev/bin/verify.py start` (the ref at main as pushed, which the full
+suites passed), then `[verify] after = true`, then point the publish job at `verify.py verified`. Back: `after =
+false`; the ref stays and is not read.
+
 ## Stacked gaps
 
 The factory does not wait for a dependency to merge. `depends_on` in ergostat.yaml is

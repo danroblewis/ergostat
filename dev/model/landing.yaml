@@ -414,8 +414,7 @@ dashboards:
   merge-pipeline:                    # named landing.merge-pipeline (SPEC §4f)
     description: the merge pipeline's health, from its batch items
     panels:
-      - {panel: chart, size: full, refs: [auxiliary.main-stalled-minutes, auxiliary.main-still-minutes, auxiliary.batch-runs, auxiliary.batch-first-green, auxiliary.crash-lost-minutes, auxiliary.gaps-landed-per-hour]}
-      - {panel: chart, size: full, refs: [auxiliary.suite-runs-per-merged-gap, auxiliary.merge-to-verified-hours, auxiliary.verify-escapes, auxiliary.verify-reverts]}
+      - {panel: chart, size: full, refs: [auxiliary.main-stalled-minutes, auxiliary.main-still-minutes, auxiliary.batch-runs, auxiliary.batch-first-green, auxiliary.crash-lost-minutes, auxiliary.gaps-landed-per-hour, auxiliary.suite-runs-per-merged-gap, auxiliary.merge-to-verified-hours, auxiliary.verify-escapes, auxiliary.verify-reverts]}
 
 actions:
   push-main:

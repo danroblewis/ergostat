@@ -111,6 +111,23 @@ def test_a_reverted_gap_and_its_stack_come_back_whole(tmp_path):
     assert "Reapply gap/a" in git(f.checkout, "log", "--format=%s", "main")
 
 
+def test_two_culprits_in_one_window_are_found_one_after_the_other(tmp_path):
+    f = lane(tmp_path)
+    start = ref(f)
+    approved_gaps(f, {"p": 0, "a": 1, "q": 2, "c": 3}, bad="a", batch=4, edits={"c": "bad-c.txt"})
+    f.run("queue.py", "gap/p")
+    pushed(f)
+    f.run("verify.py", argv=("run",))
+    assert f.item("gap/a")["state"] == "queue-failed" and f.item("gap/c")["state"] == "merged"
+    pushed(f)
+    said, _ = f.run("verify.py", argv=("run",))                         # red again: c, never a again
+    assert said.count("gap.queue-failed") == 1 and f.item("gap/c")["state"] == "queue-failed"
+    assert ref(f) == start and not on_main(f, "bad-c.txt") and on_main(f, "q.txt")
+    pushed(f)
+    f.run("verify.py", argv=("run",))
+    assert ref(f) == git(f.checkout, "rev-parse", "main")
+
+
 def test_a_dependent_never_lands_while_its_reverted_base_is_away(tmp_path):
     f, _ = landed_stack(tmp_path)
     f.run("verify.py", argv=("run",))
