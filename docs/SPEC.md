@@ -1689,14 +1689,17 @@ reads the event log.
   cut by its maker's caps) stays `null` once fitted, never 0, and so does the share when any edge's weight is not
   known (an `n` that is null), since then neither what was left out nor the whole is known. An aggregated node or edge says how many it `holds`; counts
   and rates are summed, and nothing else is: a latency, a wait, an age, a slack or a field with no role holds its worst
-  member's value, and `worst` names that member. One unhealthy member marks its group. A collapsed graph's
+  member's value, and `worst` names that member. A merged field (and a merged `n` or `confidence`) with any member's
+  value null is null: a partial sum is not the total, and the unknown member could be the worst. One unhealthy member
+  marks its group; a group is `ok` only when every member is. A collapsed graph's
   `paths_real` is false. `acyclic` is worked out on the whole graph first, and is `null` (not known) when the graph
   was cut before it came (its maker's caps, or `omitted` not empty), with `graph-truncated`. Over the budget it is
   warned (`graph-over-budget`), and the fix offers the matrix. A cycle is said by kind: a warning (`graph-cycle`) in a
   `dependency`, `wait_for` or `lineage` graph, and otherwise a sentence under the drawing (a line back in a process map
   is a return or concurrency, a message back in a `sequence` a reply); a kind with no words of its own is warned of
   generically, never left unsaid. The answer also holds `matrix`, the graph fitted to 300 rows (a budget from the
-  network-diagrams report, not measured here) as an adjacency matrix in group order (chart 77).
+  network-diagrams report, not measured here) as an adjacency matrix in group order (chart 77); a cell with any edge of
+  unknown weight is null, and the heatmap draws it grey, off the ramp, and says what grey means.
 - **Drawing a graph.** The graph family draws one graph answer. Its layout is never in the answer: ELK lays it out in a
   Web Worker (`graph-layout.js`; on the page's own thread only when no worker can start), layered for each kind but
   `impact` (radial), and one layout is kept for each set of nodes and edges, so a refresh that changes only values

@@ -7,12 +7,13 @@
 - **Honest aggregation.** A node or an edge that holds others says how many (``holds``). Counts and rates (fields of
   role ``count``, ``rate`` or ``errors``, and an edge's ``n``) are summed; no other field is (latency, wait, age, slack,
   utilisation, exposure, or one with no role): it holds its worst member's value (the least slack, the most of the
-  rest), and ``worst`` names that member. One unhealthy member marks its group. An edge inside a group is held by the
+  rest), and ``worst`` names that member; with any member's value null, the merged value is null. One unhealthy member
+  marks its group, and a group is ``ok`` only when every member is. An edge inside a group is held by the
   group, not drawn. A route through a collapsed node is no evidence, so a collapsed graph's ``paths_real`` is false.
 - **Analysis on the full graph.** ``acyclic`` is the full graph's, worked out before the fit, and kept.
 - **The matrix** (chart 77): the same graph fitted to 300 rows (ND §12.3's budget, `[unsure]`: not measured here) and
   laid out as an adjacency matrix, its rows and columns ordered by group, then label; a cell is the weight of the
-  edges from its row to its column."""
+  edges from its row to its column, null when any of them weighs what is not known."""
 
 from __future__ import annotations
 
