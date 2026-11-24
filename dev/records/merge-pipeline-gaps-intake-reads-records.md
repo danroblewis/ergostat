@@ -82,3 +82,30 @@ tests/test_factory.py (239 passed, 2 skipped for Docker), tests/test_gaps_doc.py
 together). `ruff check ergostat tests scripts` is clean, and so is dev/bin/intake.py. Ruff on all of dev/bin finds two
 errors in plan.py and review.py, which this gap does not touch. Not run here: the whole unit suite and the four
 browser files (no page is changed).
+
+Round 3, the merge of main (b9341591). Its one finding was the conflict with main, in dev/README.md,
+dev/bin/gapsdoc.py and dev/bin/intake.py. Main had landed `merge-pipeline-gaps-deps-read-records`, which adds its own
+`gapsdoc.entries(repo, ref) -> (text, {record: why})`, read by `deps.from_main()`, and has `deps.plan(...,
+unreadable)` hold a gap whose record cannot be read. The resolution keeps main's signature and contract (and its
+tests in tests/test_backlog.py pass unchanged), and keeps what this branch adds:
+
+- `entries()` reads with the branch's one `git cat-file --batch`. A record that is not a blob, or not UTF-8, is in
+  `{record: why}` as `unreadable at REF: ...`, and a malformed Entry as `malformed Entry: ...`. An unreadable
+  GAPS-head.md raises main's `dev/records/GAPS-head.md at REF cannot be read`. render()'s own problems are no longer
+  returned, as on main. The one this gap used (two titles slugging to one branch) is caught by `intake.read()`'s
+  count by branch.
+- `intake.read()` returns `(text, entries, unreadable, problems)`. `dependencies()` takes the same text and
+  `unreadable` and calls `deps.from_gaps(text)` and `deps.plan(..., unreadable)`. It does not call `deps.from_main()`,
+  so main is read once per pass and the found/closed and dependency halves cannot see two different mains. A gap whose
+  record cannot be read is now held (main's rule) and said on itself. A record no gap has is said on stderr by
+  deps.plan (`deps: dev/records/NAME.md cannot be read (...)`). `deps.from_main()` is still main's, and only its tests
+  call it now.
+- Tests changed to fit: `test_an_unreadable_record_is_said_by_name_and_the_pass_goes_on` asserts deps' wording and
+  that delta is held. `test_intake_says_the_same_from_the_records_as_from_the_gaps_md_they_render` drops its
+  render-problem line, so the External event logs lines are the same on both paths. With the decode error swallowed
+  again, the first test was seen to fail (no `zeta.md cannot be read` on stderr).
+
+Size: +23 net lines in dev/bin against main (budget 50). Run here, each file alone after the merge:
+tests/test_backlog.py (33 passed), tests/test_factory.py (243 passed, 2 skipped for Docker), tests/test_gaps_doc.py
+with tests/test_gapsdoc.py (49 passed). `ruff check ergostat tests scripts` and the two changed dev/bin files are
+clean. Not run here: the whole unit suite and the four browser files (no page is changed).
