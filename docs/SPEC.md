@@ -1021,6 +1021,46 @@ stays in the event log.
 A record written before these names holds every series as `ergostat_reading{project, series}`; it is still read
 (every selector takes `ergostat_.+`) until `ergostat migrate` renames it.
 
+**Item metrics** (`ergostat/itemmetrics.py`). On VictoriaMetrics, the engine's lead keeps these from the item index
+(§5a), never by replaying the log for a request and never one sample per event. Each is written once a minute, with
+`project`:
+
+| Metric | Labels | What |
+|---|---|---|
+| `ergostat_items` (gauge) | `kind`, `state`, `milestone` | items in each state (a stock) |
+| `ergostat_item_transitions_total` (counter) | `kind`, `from`, `to` | moves (a flow); an arrival is `from="(new)"`, an item the index forgets (its events pruned) `to="(gone)"` |
+| `ergostat_item_last_transition_timestamp_seconds` (gauge) | `kind`, `from`, `to` | when the latest such move was |
+| `ergostat_item_time_in_state_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `kind`, `state` | how long items stayed in a state, **observed when they leave it**: an item still in it is not counted, so it cannot see stuck work (for that, SQL over the item views with open items) |
+| `ergostat_item_field_total` (counter) | `kind`, `field` | what items' numeric fields (§5a, *numbers*) went up by, added; a fall is not counted |
+| `ergostat_events_total` (counter) | `type`, `source` | the events about items that the index folded (no transcript lines, no roll-up snapshots) |
+
+With the two edges named, a gauge's change over a window is its net transitions: `increase(...{to="S"}) -
+increase(...{from="S"})`. `time() - max(ergostat_item_last_transition_timestamp_seconds{kind="gap",to="merged"})` is
+how long since the last merge. The buckets are 1, 5 and 15 minutes, 1 and 4 hours, 1, 3, 7 and 30 days. An item's
+state comes from its moves (a kind without states is in no gauge). `milestone` is the field of the kind's group
+relation named `milestone`, as it is held now, and only on the gauge: on a counter, an item moved to another milestone
+would make the counter fall.
+
+Each value is the index as of the minute: its moves, numeric changes and events at or before it. Two things count from
+the first minute not yet written: an event stamped earlier that arrived after that minute was written, and what the
+index *carried*. When a prune makes the index forget items, it keeps what they counted (their moves, stays and fields)
+in its `carried` table, with a move of each to `(gone)`, so no counter falls. The index also counts events per type,
+source and minute (`event_counts`), and these stay when events are taken out. The checkpoint
+`itemmetrics.json` holds the last minute written. It is read and written under a lock, so a restart writes on from it,
+and a write the server refuses leaves it, so the same minutes are sent next time. A checkpoint that cannot be read
+stops the job rather than backfill again. A first run backfills from the index's first minute, at most a day or 500,000
+samples a pass (the rest at the next pass, seconds later), and says what it cannot recover. If events were taken out
+before the index was built, the items pruned then are in no metric, and the items pruned since count only from when
+they were forgotten. Rebuilding the index (`ergostat compact --reindex`) loses what it carried, so its counters reset.
+`ergostat reset` forgets the checkpoint.
+
+Labels are bounded. Only `kind`, `state`, `from`, `to`, `le`, `field`, `type`, `source` and `milestone` can be labels
+(`Refused` for any other, so an item's id, a branch, a session or a commit never is one). A label with more than 100
+values in a kind's metric (`source` and `type`: in all of them) is left out, its series added together, and named in
+the checkpoint's `refused`. This is decided at each pass, from the index as it is then. So a label that passes the limit
+later ends its series there, and the summed series starts there. Over SQLite nothing is written: those readings have
+no labels.
+
 **Moving the readings to VictoriaMetrics** (`ergostat migrate [--url URL] [--dry-run]`, `ergostat/migrate.py`). Every
 reading the SQLite store answers (raw, and each old bucket's last reading) is copied to the server under its name and
 labels. A series under the old single name is renamed: written under its labels, then the old name deleted, but only
