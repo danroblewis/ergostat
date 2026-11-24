@@ -386,7 +386,8 @@ spread. That is `test_extra_matches_binomial`.
 adds chance only if it finishes in time. The search tries every k up to `most` and reports each: "k=0 41%, k=1 70%,
 k=2 84%, k=3 83%, k=4 80%, k=5 77%, k=6 74%: no k up to 6 reaches 90%: best 84% at 2". Each is at most the
 binomial's chance for the same count (43%, 78%, 93%, 98%, …), which time can only lower. The added lot competes for
-the same four lanes, which is why the chance is not monotone. The answer here is a promise that cannot be kept, said before work starts, and not more lots.
+the same four lanes, which is why the chance is not monotone. The answer here is a promise that cannot be kept,
+said before work starts, and not more lots.
 
 **Frozen window**: `frozen: {for: 8h}` on the oven keeps the next eight hours' loading order. A rush order's lots go
 ahead only with `urgent`, and are recorded when they do. **Make-to-stock**, on the same model: the `shelf` stock's

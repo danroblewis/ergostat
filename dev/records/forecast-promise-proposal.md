@@ -81,3 +81,11 @@ that ran past the file's width was rewrapped.
   hand a fourth time (0.3677 + 0.3837 + 0.1835 = 0.9349) and agrees. `test_extra_matches_binomial` in the quote gap
   remains the check.
 - Still 0 net lines of code. Only ruff was run.
+
+Round 5 (no review findings to answer): main has no commit the branch lacks (`git log branch..main` is empty), so
+nothing new to check against. Read through again; no change of design. One more line in §9.2 ("the same four
+lanes, ...") ran past the file's width and was rewrapped; the only lines still longer are table rows.
+- The inline check `uv run python -c "from math import comb; ..."` was refused again. The M = 13 row was worked by
+  hand (0.3383 + 0.3824 + 0.1995 + 0.0636 = 0.9837) and agrees. `test_extra_matches_binomial` in the quote gap
+  remains the check.
+- Still 0 net lines of code. Only ruff was run.
