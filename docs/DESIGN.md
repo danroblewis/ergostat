@@ -121,7 +121,7 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
 - **Hints**, apart from the problems:
   - the refactor path: a controller filled by a person, an AI agent or a decision that decided the
     same thing (numbers taken out) at least 80% of at least 10 times could be filled by a lower rung;
-  - a loop off at least half the time though it acts: *falling behind* when its valve moved less
+  - a goal off at least half the time though it acts (said as `goal NAME was off N% of the time`): *falling behind* when its valve moved less
     than the load came in (saturated only when every opening moved the same amount: the valve at
     its limit); otherwise it answers too late, and the slowest stage (sensor, controller or valve,
     by its schedule) is named. For a job emptying a stock under an upper setpoint, the longest
@@ -129,7 +129,9 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
     cannot run that often.
 - **Attention**: problems first (goals off, goals open or unknown past two minutes of record,
   agents failing, lines refused or unreadable, missing readings while running, unexplained
-  residuals), then the hints. What a run by hand refused is not kept as a problem.
+  residuals), then the hints. An entry or hint about a goal reads `goal NAME` and carries the name as
+  its `goal` field, which the page's Evidence link and the CLI read. What a run by hand refused is not
+  kept as a problem.
 
 ## 6. The diagram
 
@@ -300,9 +302,11 @@ page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and proc
 attention, goals and their control loops, feedback loops or the process map's kinds, model changes, legend), Goals, Agents (one list, by rung), Items (the
 record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
 its old address `/fit` goes there; first **What's available**: each loop, whether its process is
-identified and what would identify it, or that it closes through queues; each parameter to estimate,
+identified and what would identify it (loops identified alike said once, as a group: "12 loops: an
+integrator, from the model"), or that it closes through queues; each parameter to estimate,
 the parts it is in and whether the record is long enough yet; and where each model tool lives, every
-link choosing the part and opening its view and panel; `docs/MODEL-TOOLS.md` is the guide; then the
+link choosing the part and opening its view and panel (a loop's: with only the systems its goal and stock
+are in open); `docs/MODEL-TOOLS.md` is the guide; then the
 review queue: every change waiting, read like a pull request, each with what kind of change it is, where
 (Show on diagram chooses its parts and opens both views), why, how it was found, its benefit, its effect
 simulated in memory and the exact diff Accept writes; Simulate all pending; what ergostat can and cannot
@@ -314,7 +318,8 @@ little record"; the total led by its scaled error; the fit's history across vers
 each accepted change; Calibrate (each part alone, each system alone, or every stock integrated, with the
 loops a decision leaves open listed), the proposals waiting,
 and why the estimates not proposed were not; and the residuals),
-Check, and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
+Check (each finding once; a kind that comes about many parts, as one table under its advice, said once,
+worst first, each part a link to the diagram; the notes as a list), and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
 the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
 it (why: what we control and what we want; system dynamics; control; then the project's own model,
 both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which

@@ -224,12 +224,14 @@ class _Head:
         self.seqs: list[int] = []
         self.by_item: dict = {}
         self.by_type: dict = {}
+        self.t_min = INF                                   # the earliest time it holds (``first_time``)
         self.by_key: dict = {f: {} for f in KEYED}
         for e in evs:
             self.add(e)
 
     def add(self, e: dict) -> None:
         i = len(self.evs)
+        self.t_min = min(self.t_min, e["time"])
         self.evs.append(e)
         self.seqs.append(e["seq"])
         self.by_item.setdefault(e.get("item"), []).append(i)
@@ -998,7 +1000,7 @@ class Segments:
 
     def first_time(self) -> float | None:
         segs, hd, hn = self._hstate()
-        got = [s.t_min for s in segs] + [hd.evs[i]["time"] for i in range(hn)]
+        got = [s.t_min for s in segs] + ([hd.t_min] if hn else [])
         return min(got) if got else None
 
     def last_seq(self) -> int:
