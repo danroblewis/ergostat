@@ -16,9 +16,14 @@ const DASH_DRAWN_MOST = 64;                            // charts on the page, th
 const dashOwn = (table, key) => typeof key === "string" && Object.hasOwn(table, key);   // never a name every object inherits
 const DASH_WINDOW = "1d";                              // what a dashboard with no window of its own opens on
 const DASH = { draft: null, kept: false, editing: false, cells: new Map(), undo: [], timer: null, wasHere: false,
-               since: null, grid: null, head: null, live: null, said: null, page: 0, asked: 0, narrow: null, flight: null, retry: 0,
+               since: null, grid: null, head: null, live: null, said: null, page: 0, asked: 0, narrow: null, retry: 0,
                drag: null, pending: null, lifted: null, slot: null, settle: 0,
-               values: new Map(), room: new Map(), got: null };   // a repeated panel's values and the grid rows kept for them
+               values: new Map(), room: new Map(), got: null,     // a repeated panel's values and the grid rows kept for them
+               sel: new Map(), options: new Map(), varSaid: new Map(), vars: null,   // the variables: chosen, offered
+               listVer: new Map(), listed: 0,                     // the newest listing each variable keeps
+               ver: new Map(), flights: new Set() };               // the ask each panel's answer is awaited from
+const DASH_VAR_VALUES = 200, DASH_VAR_VALUE = 200, DASH_VAR_TEXT = 4000;   // a variable's values, as the server bounds them
+const DASH_VAR_RE = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;   // $name, ${name}: as the server reads them
 
 /* ---- the layout engine: pure, no page. An item is {id, x, y, w, h} on 12 columns and rows of equal height; a row
    ({row: true}) is a full-width line one high, and the panels under it, down to the next row, are its own ---- */
@@ -202,9 +207,17 @@ function dashClean(d) {
     seen.add(id);
     return id;
   };
-  const vars = {};
+  /* a variable: a list (custom, every value chosen at first), or {type: custom, values, multi}, {type: constant,
+     value} or {type: query, source, text: "label_values(...)", multi} */
+  const vars = {}, values = (v, most) => [...new Set((Array.isArray(v) ? v : []).filter((x) => typeof x === "string" || Number.isFinite(x))
+    .map((x) => words(x, DASH_VAR_VALUE)))].slice(0, most);
+  const varOf = (v) => (Array.isArray(v) ? values(v, DASH_REPEAT_MOST) : !isObject(v) ? null
+    : v.type === "constant" ? { type: "constant", value: words(v.value, DASH_VAR_VALUE) }
+    : v.type === "custom" ? { type: "custom", values: values(v.values, DASH_VAR_VALUES), multi: v.multi === true }
+    : v.type === "query" ? { type: "query", source: words(v.source, DASH_LONGEST.id), text: words(v.text, DASH_VAR_TEXT), multi: v.multi === true }
+    : null);
   for (const [k, v] of Object.entries(isObject(d.vars) ? d.vars : {}).slice(0, DASH_VARS))
-    if (Array.isArray(v)) vars[words(k, DASH_LONGEST.id)] = [...new Set(v.filter((x) => typeof x === "string" || Number.isFinite(x)).map((x) => words(x, DASH_LONGEST.id)))].slice(0, DASH_REPEAT_MOST);
+    if (/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) && k !== "__proto__" && varOf(v)) vars[k] = varOf(v);
   let room = DASH_MOST;
   const panelOf = (p) => {
     const r = isObject(p.repeat) ? p.repeat : null;
@@ -244,7 +257,20 @@ function dashAddress(d, since) {
   const q = new URLSearchParams();
   if (d && dashFitsLink(d)) q.set("draft", dashEncode(d));
   if (since) q.set("since", since);
+  for (const [k, v] of DASH.sel) if (dashOwn(DASH.draft?.vars || {}, k)) for (const x of v) q.append(`var-${k}`, x);   // what each variable is set to
   return `/dashboard${q.toString() ? `?${q}` : ""}`;
+}
+/* the variables chosen in an address: var-NAME, once per value */
+function dashSelFrom(q) {
+  const sel = new Map();
+  for (const [k, v] of q) {
+    const name = k.startsWith("var-") ? k.slice(4) : "";
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name) || (!sel.has(name) && sel.size >= DASH_VARS)) continue;
+    const got = sel.get(name) || [];
+    if (got.length < DASH_VAR_VALUES && !got.includes(v)) got.push(v.slice(0, DASH_VAR_VALUE));
+    sel.set(name, got);
+  }
+  return sel;
 }
 /* the server refuses a very long address (414), and proxies refuse shorter ones: a larger draft stays in this browser */
 const DASH_LINK_MOST = 30000;
@@ -260,7 +286,7 @@ function saveDashboardDraft(d) {
   DASH.declared = null;                                // a declared one changed is the reader's own draft
   try { localStorage.setItem(dashKey(), JSON.stringify(clean)); } catch (e) { /* kept in the address alone */ }
   if (parseRoute().path === "/dashboard") replaceRoute(dashAddress(clean, clean.since));
-  if (DASH.grid?.isConnected) { dashDraw(); dashHead(); }
+  if (DASH.grid?.isConnected) { dashDraw(); dashHead(); dashVarsBar(); }
   if (!dashFitsLink(clean) && DASH.said) { DASH.said.textContent = DASH_TOO_LONG; dashAnnounce(DASH_TOO_LONG); }
 }
 
@@ -516,14 +542,103 @@ const dashItems = (d) => [...d.panels.map((p) => ({ id: p.id, ...p.layout })),
                           ...(d.rows || []).map((r) => ({ id: r.id, row: true, x: 0, y: r.layout.y, w: DashLayout.COLS, h: 1 }))];
 const dashHeld = (d) => d.panels.length + (d.rows || []).reduce((n, r) => n + (r.panels?.length || 0), 0);
 const dashRow = (d, id) => (d.rows || []).find((r) => r.id === id);
-/* a variable's name in a query's words, given its value */
-function dashSub(v, name, value) {
-  if (typeof v === "string") return v.split(`\${${name}}`).join(value).split(`$${name}`).join(value);
-  if (Array.isArray(v)) return v.map((x) => dashSub(x, name, value));
-  return v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, dashSub(x, name, value)])) : v;
+/* ---- the variables ---- */
+
+const dashVarDef = (v) => (Array.isArray(v) ? { type: "custom", values: v, multi: true } : v || null);
+const dashUses = (text) => new Set([...String(text ?? "").matchAll(DASH_VAR_RE)].map((m) => m[1] || m[2]));
+/* the values a variable offers: a list's, a constant's one, or what its query last listed */
+function dashOptions(name) {
+  const v = dashVarDef(DASH.draft?.vars?.[name]);
+  return !v ? [] : v.type === "constant" ? [v.value] : v.type === "custom" ? v.values : DASH.options.get(name) || [];
 }
-/* the values a repeated panel shows one panel for: its variable's, or the series its query last answered with */
-const dashValues = (d, p) => (p.repeat?.var ? d.vars?.[p.repeat.var] || [] : DASH.values.get(p.id) || []).slice(0, DASH_REPEAT_MOST);
+/* what a variable is set to (null: no such variable): a constant its value; else what was chosen, or by default its
+   first value (every value, when it takes several) */
+function dashPicked(name) {
+  const v = dashVarDef(DASH.draft && dashOwn(DASH.draft.vars || {}, name) ? DASH.draft.vars[name] : null);
+  if (!v) return null;
+  if (v.type === "constant") return [v.value];
+  if (DASH.sel.has(name)) return DASH.sel.get(name);
+  return dashOptions(name).slice(0, v.multi ? DASH_VAR_VALUES : 1);
+}
+/* a panel's queries as they are asked. A query in a source's language is sent the values of each variable it names,
+   and the server writes them in by that language's rules (datasources/_interpolate.py); in an old form's field a
+   variable takes its one value, and a list's element that is the variable alone takes every value */
+function dashBind(queries, pick) {
+  const sub = (s) => s.replace(DASH_VAR_RE, (m, a, b) => { const v = pick(a || b); return v?.length === 1 ? v[0] : m; });
+  const alone = (x) => (typeof x === "string" ? /^\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))$/.exec(x) : null);
+  const walk = (v) => (typeof v === "string" ? sub(v)
+    : Array.isArray(v) ? v.flatMap((x) => { const m = alone(x), all = m && pick(m[1] || m[2]); return all || [walk(x)]; })
+    : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)])) : v);
+  return (queries || []).map((q) => {
+    if (typeof q?.text !== "string") return walk(q);
+    const vars = {};
+    for (const n of dashUses(q.text)) { const v = pick(n); if (v) vars[n] = v; }
+    return Object.keys(vars).length ? { ...q, vars } : q;
+  });
+}
+/* each variable's values listed by its query, in order (a query may name the variables before it, and one listed
+   again lists again those that name it). Each listing is numbered (DASH.listVer, from one counter never reset) and only
+   a variable's newest is kept, so an earlier listing answering later never overwrites it. A choice the new listing
+   does not offer is let go (all of it gone: the variable takes its default again). Answers whether a choice was let go */
+async function dashLoadOptions(changed = null) {
+  const d = DASH.draft, page = DASH.page, moved = new Set(changed ? [changed] : []);
+  let dropped = false;
+  for (const [n, raw] of Object.entries(d?.vars || {})) {
+    const v = dashVarDef(raw);
+    if (v.type !== "query" || (changed && ![...dashUses(v.text)].some((u) => moved.has(u)))) continue;
+    const vars = {}, seq = ++DASH.listed;
+    for (const u of dashUses(v.text)) { const x = u !== n && dashPicked(u); if (x) vars[u] = x; }
+    DASH.listVer.set(n, seq);
+    let got;
+    try {
+      const r = await fetch(`/api/query/values?q=${dashEncode({ source: v.source, text: v.text, since: WINDOWS[S.since], until: S.at || null, vars })}`);
+      got = r.ok ? await r.json() : { error: `the values answered ${r.status}` };
+    } catch (e) { got = { error: "the server did not answer" }; }
+    if (page !== DASH.page || DASH.draft !== d) return false;
+    if (DASH.listVer.get(n) !== seq) continue;         // a later listing was asked: it, and its own call, list on
+    const offered = Array.isArray(got?.values) ? got.values.slice(0, DASH_VAR_VALUES) : [];
+    DASH.options.set(n, offered);
+    DASH.varSaid.set(n, got?.error ? String(got.error) : "");
+    const was = DASH.sel.get(n), kept = was?.filter((x) => offered.includes(x));
+    if (was && kept.length !== was.length) {
+      dropped = true;
+      if (kept.length) DASH.sel.set(n, kept); else DASH.sel.delete(n);
+    }
+    moved.add(n);
+  }
+  return dropped;
+}
+/* a variable set: the address keeps it, and only the panels whose queries then change are asked again */
+async function dashSetVar(name, values) {
+  const page = DASH.page;
+  DASH.sel.set(name, values.slice(0, DASH_VAR_VALUES));
+  if (parseRoute().path === "/dashboard") replaceRoute(dashAddress(DASH.draft, S.since));
+  if (await dashLoadOptions(name) && page === DASH.page && parseRoute().path === "/dashboard") {
+    replaceRoute(dashAddress(DASH.draft, S.since));    // a dependent's choice let go leaves the address too
+  }
+  dashVarsBar();
+  dashDraw();
+  dashAnnounce(`$${name}: ${values.join(", ") || "nothing chosen"}`);
+}
+/* the variables, at the top: one choice each (several, for one that takes several); a constant is not shown */
+function dashVarsBar() {
+  const d = DASH.draft, bar = DASH.vars;
+  if (!bar || !d) return;
+  const shown = Object.entries(d.vars || {}).map(([n, v]) => [n, dashVarDef(v)]).filter(([, v]) => v.type !== "constant");
+  bar.hidden = !shown.length;
+  bar.replaceChildren(...shown.map(([n, v]) => {
+    const picked = new Set(dashPicked(n)), offered = [...new Set([...dashOptions(n), ...picked])];
+    const pick = h("select", { "data-var": n, "aria-label": `Variable ${n}`, multiple: v.multi ? "" : null,
+                               size: v.multi ? String(Math.min(4, Math.max(2, offered.length))) : null,
+                               onchange: (ev) => dashSetVar(n, [...ev.target.selectedOptions].map((o) => o.value)) },
+                   ...offered.map((x) => h("option", { value: x, selected: picked.has(x) ? "" : null }, x)));
+    const said = DASH.varSaid.get(n);
+    return h("label", { class: "dash-var" }, h("span", { class: "muted small" }, `$${n}`), pick,
+             said ? h("span", { class: "note small" }, said) : null);
+  }));
+}
+/* the values a repeated panel shows one panel for: its variable's chosen, or the series its query last answered with */
+const dashValues = (d, p) => (p.repeat?.var ? dashPicked(p.repeat.var) || [] : DASH.values.get(p.id) || []).slice(0, DASH_REPEAT_MOST);
 /* what is drawn, and where: each repeated panel shows its first value and is followed by a copy for each other value,
    laid out beside it in its row. The copies are not in the draft; only they lay themselves out. Only a drawing that is
    ``kept`` (not a drag's or a lifted panel's preview) changes the room kept for them */
@@ -533,9 +648,9 @@ function dashView(d, items = dashItems(d), kept = false) {
   for (const p of d.panels) {
     const values = p.repeat ? dashValues(d, p).slice(0, 1 + Math.max(0, left)) : [];
     left -= Math.max(0, values.length - 1);
-    if (!values.length) { panels.push(p); continue; }
+    if (!values.length) { panels.push({ ...p, queries: dashBind(p.queries, dashPicked) }); continue; }
     const one = (value, id) => ({ ...p, id, value, title: `${p.title}: ${value}`, ...(id === p.id ? {} : { copyOf: p.id }),
-                                  ...(p.repeat.var ? { queries: dashSub(p.queries, p.repeat.var, value) } : {}) });
+                                  queries: dashBind(p.queries, (n) => (n === p.repeat.var ? [value] : dashPicked(n))) });
     const copies = values.slice(1).map((v) => `${p.id}~${v}`);
     panels.push(one(values[0], p.id), ...values.slice(1).map((v, i) => one(v, copies[i])));
     const got = DashLayout.spread(at, p.id, copies, DASH.room.get(p.id) || 0);
@@ -654,7 +769,8 @@ function dashDraw() {
     if (c) c.el.replaceWith(made.el); else grid.append(made.el);
     DASH.cells.set(r.id, made);
   }
-  let fresh = false, copied = false;
+  const fresh = new Set();                             // the panels asked again: new, or asking something else now
+  let copied = false;
   for (const p of view.panels) {
     const c = DASH.cells.get(p.id);
     if (!c) {
@@ -662,13 +778,13 @@ function dashDraw() {
       DASH.cells.set(p.id, made);
       grid.append(made.el);
       made.panel.setState?.("loading");
-      if (dashAsks(p)) fresh = true; else copied = true;
+      if (dashAsks(p)) fresh.add(p.id); else copied = true;
       continue;
     }
     const sig = dashSig(p);
     if (c.sig !== sig) {
       const asks = (x) => JSON.stringify(JSON.parse(x).queries);
-      if (asks(c.sig) !== asks(sig) || JSON.parse(c.sig).repeat?.query !== p.repeat?.query) fresh = true;
+      if (dashAsks(p) && (asks(c.sig) !== asks(sig) || JSON.parse(c.sig).repeat?.query !== p.repeat?.query)) fresh.add(p.id);
       c.sig = sig;
       c.panel.setConfig?.(c.still ? { ...p, note: c.still } : p);
     }
@@ -689,7 +805,7 @@ function dashDraw() {
   const back = focused && DASH.cells.get(focused)?.el;
   if (back) (act && back.querySelector(`[data-act="${act}"]`) || back).focus({ preventScroll: true });
   dashPlotsMoved();
-  if (fresh) dashRefresh();
+  if (fresh.size) dashRefresh(fresh);
   else if (copied) dashFeed();
 }
 /* an answer that does not come: the panels say late after a while and keep what they show; the request is then given
@@ -718,12 +834,13 @@ function dashStillWords(items, matched, at) {
   const mid = ages.length / 2, median = ages.length % 2 ? ages[Math.floor(mid)] : (ages[mid - 1] + ages[mid]) / 2;
   return `still waiting: ${items.length}, median age ${dur(median)}`;
 }
-async function dashStill(n) {
+/* the notes of the panels an ask held (``ids``); one asked again since (or a page left, which clears DASH.ver) stops it */
+async function dashStill(n, ids) {
   for (const p of DASH.draft?.panels || []) {
     const still = p.display?.still, c = DASH.cells.get(p.id);
-    if (!still || !c) continue;
+    if (!still || !c || !ids.has(p.id)) continue;
     const got = await api("items", { kind: still.kind, state: still.state, n: DASH_STILL_MOST, alone: 1 }).catch(() => null);
-    if (n !== DASH.asked || !got || !DASH.cells.has(p.id)) return;
+    if (DASH.ver.get(p.id) !== n || !got || !DASH.cells.has(p.id)) continue;
     const note = dashStillWords((got.items || []).filter((i) => i.kind === still.kind && i.state === still.state),
                                 got.total ?? got.matched?.[still.kind] ?? 0, S.at || nowS());
     if (note !== c.still) { c.still = note; c.panel.setConfig?.({ ...p, note }); }
@@ -744,60 +861,70 @@ function dashFirst(panels) {
   return first.length ? [first, rest] : [panels, []];
 }
 /* an answer still to come is late (a panel with nothing drawn yet says it is still loading); only one that failed is an error */
-function dashSayLate(words, failed = false) {
-  for (const c of DASH.cells.values()) c.panel.setState?.(failed && !c.drawn ? "error" : "late", words);
+function dashSayLate(words, failed = false, ids = null) {
+  for (const [id, c] of DASH.cells) if (!ids || ids.has(id) || ids.has(id.split("~")[0])) c.panel.setState?.(failed && !c.drawn ? "error" : "late", words);
 }
-async function dashRefresh() {
+/* every panel asked (``only``: those panels alone, as when a variable they use changed). Each panel takes only the
+   answer of the last ask it was in (DASH.ver, by sequence), so an earlier ask answering later never overwrites it */
+async function dashRefresh(only = null) {
   const d = DASH.draft, n = ++DASH.asked;
-  DASH.flight?.abort();
-  clearTimeout(DASH.retry);
+  if (!only) { for (const f of DASH.flights) f.abort(); clearTimeout(DASH.retry); }
   if (!d?.panels.length) return;
-  const ctrl = DASH.flight = new AbortController();
-  const late = setTimeout(() => { if (n === DASH.asked) dashSayLate(`waiting ${dur(DASH_LATE / 1000)} for the answer`); }, DASH_LATE);
+  const panels = dashView(d).panels.filter((p) => dashAsks(p) && (!only || only.has(p.id)));
+  if (!panels.length) return;
+  for (const p of panels) DASH.ver.set(p.id, n);
+  const ids = new Set(panels.map((p) => p.id)), mine = () => new Set([...ids].filter((id) => DASH.ver.get(id) === n));
+  const ctrl = new AbortController();
+  DASH.flights.add(ctrl);
+  const late = setTimeout(() => { if (mine().size) dashSayLate(`waiting ${dur(DASH_LATE / 1000)} for the answer`, false, mine()); }, DASH_LATE);
   const giveUp = setTimeout(() => ctrl.abort(), DASH_GIVE_UP);
   try {
-    const [first, rest] = dashFirst(dashView(d).panels.filter(dashAsks));
-    let got = await dashAsk(first, ctrl);
-    if (n !== DASH.asked) return;
-    if (rest.length) {                                 // what is seen drawn, then the rest asked of the same moment
-      DASH.got = got;
-      dashFeed();
-      const until = [...got.values()].find((a) => a.meta?.until != null)?.meta.until;
+    const keep = (asked) => {                          // the answers of the panels this ask still holds, over the others
+      const held = mine();
+      return [held, DASH.got = new Map([...(DASH.got?.get ? DASH.got : []), ...[...asked].filter(([id]) => held.has(id))])];
+    };
+    const [first, rest] = dashFirst(panels);
+    const asked = await dashAsk(first, ctrl);
+    let [held, got] = keep(asked);
+    if (rest.length && held.size) {                    // what is seen drawn, then the rest asked of the same moment
+      dashFeed(held);
+      const until = [...asked.values()].find((a) => a.meta?.until != null)?.meta.until;
       const more = await dashAsk(rest, ctrl, S.at || until || null);
-      if (n !== DASH.asked) return;
-      got = new Map([...got, ...more]);
+      [held, got] = keep(more);
     }
-    DASH.got = got;
+    if (!held.size) return;
     let changed = false;                               // a repeated panel's values, as its query now answers
-    for (const p of d.panels.filter((x) => x.repeat?.query)) {
+    for (const p of d.panels.filter((x) => x.repeat?.query && held.has(x.id))) {
       const names = (got?.get?.(p.id)?.results || []).filter((r) => String(r.id) === p.repeat.query)
         .flatMap((r) => (r.series || []).map((x) => String(x.name)));
       const values = [...new Set(names)].slice(0, DASH_REPEAT_MOST);
       if (values.join("\u0000") !== (DASH.values.get(p.id) || []).join("\u0000")) { DASH.values.set(p.id, values); changed = true; }
     }
     if (changed) dashDraw();
-    dashFeed();
+    dashFeed(held);
     if (DASH.said) DASH.said.textContent = `Updated ${clock(nowS())}`;
-    dashStill(n);
+    dashStill(n, held);
   } catch (e) {
-    if (n !== DASH.asked) return;
+    const held = mine();
+    if (!held.size) return;
     const timedOut = e?.name === "AbortError";
-    dashSayLate(timedOut ? `no answer in ${dur(DASH_GIVE_UP / 1000)}; asking again` : "The server did not answer", !timedOut);
+    dashSayLate(timedOut ? `no answer in ${dur(DASH_GIVE_UP / 1000)}; asking again` : "The server did not answer", !timedOut, held);
     if (DASH.said) DASH.said.textContent = timedOut ? "No answer; asking again" : "Could not refresh; asking again";
-    if (!DASH.timer) DASH.retry = setTimeout(() => { if (DASH.grid?.isConnected && !document.hidden) dashRefresh(); }, DASH_RETRY);
+    if (!DASH.timer) DASH.retry = setTimeout(() => { if (DASH.grid?.isConnected && !document.hidden) dashRefresh(only && held); }, DASH_RETRY);
   } finally {
     clearTimeout(late);
     clearTimeout(giveUp);
-    if (DASH.flight === ctrl) DASH.flight = null;
+    DASH.flights.delete(ctrl);
   }
 }
-/* the last answers, given to each panel drawn; a copy of a panel repeated by its query's label reads its source's */
-function dashFeed() {
+/* the last answers, given to each panel drawn (``only``: the panels just answered, and the copies of those repeated by
+   their query's label, which read their source's answer) */
+function dashFeed(only = null) {
   const got = DASH.got, d = DASH.draft;
   if (!got?.get || !d) return;
   for (const p of dashView(d).panels) {
     const c = DASH.cells.get(p.id), byLabel = !!p.repeat?.query, a = got.get(byLabel ? p.copyOf || p.id : p.id);
-    if (!c || !a) continue;
+    if (!c || !a || (only && !only.has(byLabel ? p.copyOf || p.id : p.id))) continue;
     const answer = dashAnswer(p, byLabel ? dashPick(a.results, p.repeat.query, p.value) : a.results, a.meta);
     c.el.classList.toggle("dash-no-change", dashStartsNearZero(answer));
     c.panel.update(answer, a.meta);
@@ -1365,7 +1492,8 @@ function dashLeave(n) {
     DASH.timer?.stop();
     DASH.timer = null;
     DASH.asked++;
-    DASH.flight?.abort();
+    DASH.ver.clear();                                  // no ask still out is any panel's: its answer or failure is dropped
+    for (const f of DASH.flights) f.abort();
     clearTimeout(DASH.retry);
     dashPendEnd();
     if (DASH.drag) dashDragEnd(false);
@@ -1382,6 +1510,9 @@ async function pageDashboard(main, q) {
   DASH.wasHere = false;
   if (!stayed) { DASH.editing = false; DASH.undo = []; DASH.values.clear(); DASH.room.clear(); }
   DASH.got = null;
+  DASH.sel = dashSelFrom(q);
+  DASH.options.clear();
+  DASH.varSaid.clear();
   S.timer = dashLeave(n);
   const p = h("div", { class: "page dash" });
   const notice = h("p", { class: "note", hidden: "" });
@@ -1391,7 +1522,8 @@ async function pageDashboard(main, q) {
   DASH.grid = h("div", { class: "dash-grid", onkeydown: dashKeydown, onpointerdown: dashPointerDown,
                          oncontextmenu: (ev) => { if (DASH.pending || DASH.drag) ev.preventDefault(); },
                          onfocusout: (ev) => { if (DASH.lifted && !ev.relatedTarget?.closest?.(`[data-panel="${DASH.lifted.id}"]`) && document.hasFocus()) dashDrop(true); } }, h("p", { class: "muted page-loading" }, "Loading…"));
-  p.append(DASH.head, notice, DASH.grid, DASH.live);
+  DASH.vars = h("div", { class: "dash-vars", hidden: "" });
+  p.append(DASH.head, DASH.vars, notice, DASH.grid, DASH.live);
   main.append(p);
   if (SNAP) {                                          // its panels ask the server for what the window holds
     DASH.grid.replaceChildren(h("p", { class: "note dash-snapshot" }, "The Dashboard needs the live server: a snapshot keeps only the answers taken when it was made. Open it with ergostat web."));
@@ -1442,6 +1574,10 @@ async function pageDashboard(main, q) {
   DASH.narrow = matchMedia(DASH_NARROW);
   DASH.narrow.addEventListener("change", dashDraw);
   dashHead();
+  const dropped = await dashLoadOptions();             // a panel is first asked with its variables' values known
+  if (n !== DASH.page) return;
+  if (dropped) replaceRoute(dashAddress(DASH.kept ? d : null, since));   // an address's choice no longer offered
+  dashVarsBar();
   if (!d.panels.length && !d.rows?.length) {
     DASH.grid.append(h("p", { class: "note dash-empty" }, "Nothing is recorded to chart yet. Panels appear here once the model has items or series."));
     return;

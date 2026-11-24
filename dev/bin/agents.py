@@ -84,13 +84,13 @@ def shell_rule(role: str) -> str:
 
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
-            "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "designer": 3600, "librarian": 600, "groomer": 3000,
+            "join_judge": 1800, "researcher": 3600, "designer": 3600, "librarian": 600, "groomer": 3000,
             "pipeline_manager": 2400, "suite-queue": 3600, "suite-triage": 3600,   # seconds, each below its block's
             "measure-load": 43200}   # (runs.WALL, a whole measurement: its load lives through every run)
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=5g"]
 SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
-TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
+TOOLS.update(planner=TOOLS["reviewer"], librarian=["Read"],
              join_judge=TOOLS["reviewer"], pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
              researcher=TOOLS["reviewer"] + ["WebSearch", "WebFetch", SEE[1]])   # all read-only: only the implementor
 # writes. WebSearch is run by the API itself; WebFetch and the walker go out through the researcher's own proxy (lane())

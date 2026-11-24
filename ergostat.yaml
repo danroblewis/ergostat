@@ -76,7 +76,7 @@ systems:
     show: [stock.interventions-open, auxiliary.interventions-trend]
   planning:
     within: factory
-    description: each open gap planned (its definition of done, or a split) and the plan reviewed before it is built
+    description: each open gap planned (its definition of done, or a split) and its plan linted before it is built
     show: [stock.gaps-planned, stock.gaps-replan]
   research:
     within: factory
@@ -101,10 +101,10 @@ items:
       gap.found: open                # intake: an entry of docs/GAPS.md
       gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
       gap.planned: planned           # planner: its definition of done written (run/plans/)
-      gap.plan-sent-back: replan             # plan review: sent back to the planner with its findings
+      gap.plan-sent-back: replan             # plan lint: sent back to the planner with its findings
       gap.split: split               # planner: split into sub-gaps, each naming it as parent; joined once all merged
                                      # (or the join judge: short, a new sub-gap requested first)
-      gap.defined: ready             # intake, or the plan review: its definition of done exists
+      gap.defined: ready             # intake, or the planner: its definition of done exists
       gap.started: building          # implementor
       gap.built: built
       gap.review-started: in-review  # reviewer
@@ -148,7 +148,7 @@ items:
       stalls: sum                    # its suite runs stopped for a limit, it alone in the batch (queue, triage)
       sessions: sum
       ai_cost_usd: sum
-      planning_cost_usd: sum         # the planner's and the plan review's share of it (plan.py; measure.py)
+      planning_cost_usd: sum         # the planner's share of it (plan.py; measure.py)
       build_hours: sum
       build_failures: sum            # one per failed build, over the gap's life: the kill rule (dev/README.md)
       review_hours: sum
@@ -158,7 +158,6 @@ items:
       contexts: append
       flakes: union
       plan_failures: sum
-      plan_reviews: append
       research: union
       research_waits: sum
       measured_runs: append          # each measure-runs of a named measurement: its head, counts, runs (dev/bin/runs.py)

@@ -689,7 +689,7 @@ def test_reviewer_tools_unchanged(tmp_path):
     sys.modules.setdefault("fac", module("fac"))
     agents = module("agents")
     assert agents.TOOLS["reviewer"] == REVIEWER                                   # the reviewer gains nothing
-    for role in ("planner", "plan_reviewer", "join_judge", "pipeline_manager", "groomer"):
+    for role in ("planner", "join_judge", "pipeline_manager", "groomer"):
         assert agents.TOOLS[role] == REVIEWER, role
     assert agents.TOOLS["researcher"] == REVIEWER + ["WebSearch", "WebFetch", f"Bash({WALK}:*)"]
     args = agents.run_args(factory_cfg(tmp_path), "reviewer", Path("/w"), "n")
