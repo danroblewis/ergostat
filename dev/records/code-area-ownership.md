@@ -143,6 +143,17 @@ on the same lines as `takes: {areas:}`. The merge keeps both:
 - New test: `test_lanes_take_only_what_the_areas_let_through`. A block declares both. Two items share no lane entry but
   touch one area: the second waits.
 - The factory model declares no lanes, so its implementor is unchanged.
+- **Seen to fail:** with `areas.only` taken out of the dispatcher's path, the new test takes both items (reverted).
+- **Run here:**
+  - tests/test_code_areas.py (9 passed).
+  - tests/test_code_areas_factory.py and tests/test_merge_lanes.py, run together with test_code_areas.py before the
+    new test was added (33 passed).
+  - tests/test_factory_split_systems.py, tests/test_factory.py and tests/test_plan.py (259 passed, 2 skipped for want
+    of Docker).
+  - tests/test_ai_limit_hold.py and tests/test_factory_knowledge.py (109 passed).
+  - ruff is clean.
+  
+  **Not run here:** the whole unit suite and the four browser files (no page changed).
 
 ## Entry
 
