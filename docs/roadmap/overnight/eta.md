@@ -183,3 +183,51 @@ The owner's case is unchanged (no workspace pool): 250 items, MAE 61, bias −4,
 **Size: 1,015 net lines, 215 over the 800 budget.** The workspace capacity adds 57 lines on the 958:
 reading the holders from the workspaces' events, holding and freeing in the simulation, and waiting without holding.
 It stands as the reason given above: every piece is part of the definition of done or a fix the gate asked for.
+
+### Refused takes are a closed gate; measured concurrency (2026-11-23)
+
+Gap `eta-refused-takes-are-a-closed-gate`. On the factory a block's pool (36 implementors) is not what binds: an
+implement-when gate admits a handful at once, and the runs it does not admit are taken and given back at once
+(nack, not counted, put off 300 s). The model read each of those as a run and scheduled the pool. Two changes
+(`etamodel.py`): **(a)** an uncounted give-back shorter than 30 s (`MIN_RUN`) is a refusal, out of the block's
+attempts and its run-time curve; **(b)** `capacities` caps a block's lanes at its measured concurrency, the p90 of its
+runs going at once over the time items waited in its states (`MEASURED`), never above its capacity, which the
+simulation and the levelled pass both take.
+
+**The gated record** (`tests/eta_synthetic.py`, `gated_record`): a dev pool of 20 under a gate admitting 4 at once,
+refusals given back in 2 s and put off 300 s, runs lognormal about 3 h (σ 0.25), an admitted run moving the ticket to
+`doing` (as a factory's gap moves to building); 10% failing, 10% sent back by review; a history of 0.4 tickets an hour
+for 36 h, quiet until day 5, then 40 brought in at once. Three truths (seeds 0–2), each cut 15 min, 2 h and 4 h after
+the batch (the backtest's full set of components; items, MAE of the p50 in minutes, bias of the mean in minutes,
+share by their p50, share by their p90):
+
+| model | truth 0 | truth 1 | truth 2 | mean MAE, mean p90 |
+|---|---|---|---|---|
+| before (every give-back a run, the pool of 20) | 118, 965, −848, 0.15, 0.39 | 117, 710, −592, 0.15, 0.46 | 118, 865, −715, 0.16, 0.48 | 847, 0.44 |
+| (a) alone | 118, 1061, −1020, 0.03, 0.20 | 117, 819, −752, 0.08, 0.22 | 118, 1015, −913, 0.09, 0.24 | 965, 0.22 |
+| (b) alone | 118, 619, −149, 0.40, 0.85 | 117, 410, +160, 0.50, 1.00 | 118, 498, +160, 0.54, 1.00 | 509, 0.95 |
+| **(a) and (b)** | 118, 489, −267, 0.04, 0.80 | 117, 294, +38, 0.11, 1.00 | 118, 444, +44, 0.11, 1.00 | **409, 0.93** |
+
+**The four existing records:** the owner's case (three truths) and the steady records (6/h and 3/h, a pool of 3,
+seeds 7 and 8, cuts at 8, 16, 24, 32 h) read the **same inputs** under both changes at every cut: no give-back there
+is uncounted, and the measured concurrency equals the pool (items wait only while every lane is busy), so the
+capacity and the attempts are unchanged and the seeded estimates with them; their rows above stand.
+`test_backtest_gated_record_improves` pins that for one owner's truth and one steady record. The ticket-factory
+demo record was **not run** here (it is made by running the demo; this session could run only the named tests); its
+`work` give-backs for want of a workspace were already dropped, and any other uncounted one under 30 s now is a
+refusal.
+
+**Verdict:** both stay. (b) is what helps: the error falls from 847 to 509 min and the p90 covers 0.95 where it
+covered 0.44. (a) alone makes it worse (a run curve of real runs, still 20 lanes: 965 min, 0.22), so it is kept only
+with (b), where it lowers the error again, to 409 min (0.48 of before: done item 3 asks a third at least), the p90
+covering 0.93 (0.95 with (b) alone: within the truths' spread, truth 0 being 0.80 against 0.85). The cost is said:
+with both, few items finish by their p50 (0.04–0.11, against about half with (b) alone). Without the refusals
+replayed, the simulation takes the waiting tickets in their queue order, while in the record the next admitted is
+whichever refused ticket's put-off ends first: a lottery the model cannot see, so each ticket's p50 is narrow and
+mostly early, and the p90 still covers. This reverses the dropped Little's-law cap in spirit: a measured cap that
+binds only where a control loop holds the block under its pool.
+
+**The owner's picture** (done item 2): on the gated record no more than 4 tickets start in the first projected
+hour, in the levelled pass (`test_levelled_pass_uses_measured_concurrency`) and the simulated Timeline
+(`test_measured_concurrency_caps_a_gated_block`); never more than 4 at once in either. Not checked on a copy of the
+factory record: none is in this container.
