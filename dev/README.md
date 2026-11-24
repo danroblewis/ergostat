@@ -144,13 +144,11 @@ mkdir -p run/defs && $EDITOR run/defs/<branch>.md        # the gap's `branch` fi
 `dev/records/<branch>.md` is a definition only with a `## Definition of done` section, so one holding only its
 `## Entry` makes nothing ready, and the old file is read). A gap's GAPS.md
 entry is written in its record, as its `## Entry` section (dev/prompts/definition.md shows the shape), never in
-`docs/GAPS.md`: each landing of the merge queue carries the batch's own GAPS.md edits into the records
-(`gapsdoc.carry`: a new entry gets a record of its own, `dev/records/<branch>.md` holding only its Entry, and text
-outside the entries goes to `dev/records/GAPS-head.md`; one it cannot place, such as an entry whose branch names
-another title's record, goes to `dev/records/GAPS-unplaced.md` and is said as `gaps_md_unplaced`), then
+`docs/GAPS.md` (the text outside the entries is `dev/records/GAPS-head.md`): each landing of the merge queue
 writes GAPS.md from the records and commits it as `docs/GAPS.md from the records` (a render that fails says
-`gaps_md: why` on the run and lands the batch without it), and the implementor refuses, uncounted, a branch whose own
-commits change GAPS.md. The intake and its dependency reader read the entries from main's records, once a pass
+`gaps_md: why` on the run and lands the batch without it). No branch edits GAPS.md: the implementor refuses,
+uncounted, a branch whose own commits change it, and the queue sends an approved one back to `fix`, uncounted,
+where the implementor's brief says why; its batch lands without it. The intake and its dependency reader read the entries from main's records, once a pass
 (`gapsdoc.entries`: what GAPS.md renders, without the file; before the split, `docs/GAPS.md`); a record it cannot
 read, and two entries of one branch (two records of one title, in any section, *Done recently* too), are said by
 name, as a dependency problem on the gap (a gap whose record cannot be read is held) or on stderr, never read as no
