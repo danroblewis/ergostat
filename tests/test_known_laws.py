@@ -249,7 +249,7 @@ def test_loop_control_carries_declared(tmp_path):
     d = c["declared"]
     assert set(d) == {"kind", "short", "skill", "r2", "points", "worse"} and d["kind"] == "kubernetes-hpa", c
     assert d["short"] == "⌈u x / 0.8⌉" and d["points"] == 481 and d["worse"] and d["skill"] < 0, d
-    assert c["block"] == "hpa" and c["identified"]["family"] == "stepper", c
+    assert c["block"] == "hpa" and c["identified"]["family"] == "ratio", c      # an HPA's record: the ratio family
     from ergostat.web.server import Live, api
     assert api(Live(p), "loop-control", {"goal": ["headroom"]})["controller"]["declared"] == d
     model(tmp_path, "", closed)                    # with no law, the controller's answer has no declared
