@@ -69,19 +69,10 @@ def fold(mid: str, events: list[dict]) -> dict:
 
 
 def stored(p, since: float | None = None, until: float | None = None, n: int | None = None) -> dict[str, dict]:
-    """Every message received since then (the latest ``n`` events' worth, when given), folded, oldest first."""
-    by: dict[str, list[dict]] = {}
-    evs = p.events.query(n=n, type=f"{MESSAGE}.*", until=until)
-    for e in evs:
-        by.setdefault(e["item"], []).append(e)
-    out = {}
-    for item, es in by.items():
-        if es[0]["type"] != f"{MESSAGE}.received":     # its start fell outside what was read: read it whole
-            es = p.events.query(n=None, item=item)
-        if since is not None and es[0]["time"] < since:
-            continue
-        out[item] = fold(item, es)
-    return out
+    """Every message received since then, folded, oldest first (the item index's table: ``projections.stored``). ``n``
+    is kept for its callers: it capped the events read when they were read from the record, and caps nothing now."""
+    from ..spec import projections
+    return projections.stored(p, "message", since, until)
 
 
 def get(p, mid: str) -> dict | None:

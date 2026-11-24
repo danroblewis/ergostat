@@ -960,8 +960,29 @@ to a fresh read of the record (the modules' `stored()`, `events.query`, the inbo
 records on both event stores, followed a chunk at a time, read cold, built again, after a roll-up, a
 prune and a fresh record, after a crash part way (each chunk is one transaction: the next process
 resumes from the last committed), and read by another process while one follows (it reads what was
-committed, unblocked). The answers are as of what the index has folded, not of an earlier `until`:
-the status reads them only when it asks about now.
+committed, unblocked). The status answer and the modules it calls (the inbox and its stats,
+interventions, gated actions, messages, reports, model changes, modelling requests, leases' attention,
+loop crossings) read these tables and no longer fold the record themselves (`projections.stored`,
+`query`, `asks`). `records` is as of what the index has folded: a read as of an earlier `until` is
+answered from it when no item of the family has an event after `until` (its `last` column), and
+otherwise by the same fold over the family's events up to then, in memory, as is a record kept nowhere
+on disk, a record whose index is not made yet (these reads make no index file: the files are a stock the
+upkeep template's tidier holds, §2a), and one whose index cannot be read and could not be built again
+(the record is the truth, so the answer is the same, only slower). The snapshot says how old it is: `as_of` is the record's last seq as it was read and when the
+answer was made, and the status answer adds its `age` in seconds. Two more tables serve the loops and
+agents: `latest`, each item's newest event of the types `LATEST` names (runs, failures, starts,
+decisions, openings, auxiliaries set), by seq (a read as of a moment before it reads the record for that
+item); and `ticks`, what each run and opening adds to the window's tallies (`events.runs`, `opened`),
+its time and, for an opening, its amount as written. Contradicted claims are a mark. An action's work
+item (its why) is read from the item index. A `where:` match as of a moment (`state.counted`) folds an
+item changed since from the record only when an event since may have changed a field it is matched on
+(the index keeps, per item, when each top-level field was last touched: a snapshot or a `set` touches
+all of them) or its events came out of time order around that moment; the rest are the index's as they
+stood then. A status answer catches the index up once (`itemindex.pinned`) and reads no event log once
+it is current; it reads the window's readings of every sensor together where the raw readings answer
+alone (`Measurements.ranges`), the newest readings from the store's `newest()`, and the store's first
+reading by each series' index. On the factory-size fixture it answers in under 100 ms
+(`tests/test_status_reads_projections.py`).
 
 **Items rolled up.** An item's events older than its horizon (`rollup.after`, or its kind's) are
 replaced by one event, `ergostat.item.snapshot`, the item as it stood after them:
