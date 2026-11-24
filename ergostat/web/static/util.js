@@ -474,11 +474,12 @@ async function refreshHeader() {
     const open = document.querySelector('meta[name="ergostat-public"]') ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here" : "";   // web: open: read
     const said = SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? "Model errors" : off || upkeep ? `${off} off` : st.running ? "Running" : "Not running";
+    const names = !off ? ""
+      : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
+        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");   // (upkeep apart), each by its word
     const tip = [edited ? `${st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)}:\n${st.edited.errors.join("\n")}`
       : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running || SNAP ? "" : ", not running"}` : "",
-      upkeep ? `model upkeep ${upkeep}` : "",
-      Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
-        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n"), open].filter(Boolean).join("\n");   // (upkeep apart), each by its word
+      upkeep ? `model upkeep ${upkeep}` : "", names, open].filter(Boolean).join("\n");
     if (run.title !== tip) run.title = tip;
     const to = appHref(edited ? "/check" : "/goals");
     if (run.getAttribute("href") !== to) run.setAttribute("href", to);
