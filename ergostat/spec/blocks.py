@@ -373,9 +373,10 @@ class Budget(Builtin):
     """An error budget sets a check level (SPEC §9.2): ``budget`` regressions allowed over the window its ``spent``
     input counts. Its output is a level, 0 (the lightest checks) to len(levels) - 1 (the strictest), where it starts.
     The level drops one step while the budget left is at least ``healthy`` of it, and the level has stood ``hold``;
-    as the budget burns it rises at once, to the strictest when none is left. It drops only while its ``retroactive``
-    input (the way to find and revert regressions after they land) is declared and reads over 0; undeclared, off,
-    unread, or ``spent`` unread, the level is the strictest. Each move says why (``why``); ``more`` is the budget
+    below ``healthy`` it never drops, and as the budget burns it rises at once, to the strictest when none is left. It
+    drops only while its ``retroactive`` input (the way to find and revert regressions after they land) is declared and
+    reads over 0; undeclared, off, unread, or ``spent`` unread, the level is the strictest. (Unread includes a reading
+    past its sensor's clock: the engine gives a budget none, ``Engine.fresh_only``.) Each move says why (``why``); ``more`` is the budget
     left, a series of its own."""
 
     def __init__(self, block, spec):
@@ -405,12 +406,15 @@ class Budget(Builtin):
         else:
             share = (budget - spent) / budget
             words = f"{budget - spent:g} of {budget:g} regressions left ({share:.0%}; healthy at {healthy:.0%})"
-            to = top if share <= 0 else max(0, min(top, math.ceil(top * (healthy - share) / healthy)))
             held = now - self.changed_at if self.changed_at is not None else 0.0
-            if to < cur and held < hold:
+            if share <= 0:
+                to, why = top, words
+            elif share < healthy:                                           # unhealthy: it rises, or stays; never drops
+                to, why = max(cur, min(top, math.ceil(top * (healthy - share) / healthy))), words
+            elif cur > 0 and held < hold:
                 to, why = cur, f"{words}: held at {names[cur]} until it has stood {hold:g} s"
             else:
-                to, why = (cur - 1 if to < cur else to), words
+                to, why = max(0, cur - 1), words
         if self.out is None or to != cur:
             what = "starts at" if self.out is None else "drops to" if to < cur else "rises to"
             self.why = (f"check level {what} {names[to]} ({to})", why)

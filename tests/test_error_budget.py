@@ -25,10 +25,10 @@ name: eb
 auxiliaries:
   escapes:
     unit: regressions
-    sensor: {manual: true}
+    sensor: {run: "true", every: 1h}
   retro:
     unit: switch
-    sensor: {manual: true}
+    sensor: {run: "true", every: 1h}
   level:
     unit: level
     sensor: {builtin: ergostat.errors.level@eb, every: 1m}
@@ -55,12 +55,19 @@ def project(tmp_path: Path, retroactive: bool = True) -> Project:
     return Project(mdl.load(tmp_path))
 
 
+def series(p: Project, aux: str) -> str:
+    return next(iter(p.model.spec.auxiliaries[aux].sensors.values())).series
+
+
 def stepper(p: Project):
-    """The engine's own built-in pass, on the readings given: (level, its events, its rows) a step."""
+    """The engine's own built-in pass, on the readings given, each one taken at the step's time (None: no reading, as a
+    sensor that fails gives, so the last one stays): (level, its events, its rows) a step."""
     e = Engine(p, say=lambda s: None)
 
     def step(at: float, escapes, retro=1.0):
-        e.signals["auxiliary.escapes"], e.signals["auxiliary.retro"] = escapes, retro
+        for aux, v in (("escapes", escapes), ("retro", retro)):
+            if v is not None:
+                e.signals[f"auxiliary.{aux}"], e.seen[series(p, aux)] = v, at
         events, rows = [], []
         e._builtins(at, None, {}, events, rows)
         p.measurements.add_many(rows)
@@ -93,7 +100,7 @@ def test_the_level_moves_with_the_budget_both_ways_with_a_recorded_reason(tmp_pa
     assert level == 1 and said[0]["data"]["decision"] == "check level drops to standard (1)"
 
 
-@pytest.mark.parametrize("retro", [0.0, None, float("nan"), -1.0])
+@pytest.mark.parametrize("retro", [0.0, float("nan"), -1.0])
 def test_with_the_retroactive_way_off_or_unread_the_level_is_the_strictest(tmp_path, retro):
     step = stepper(project(tmp_path))
     step(T0, 0.0)
@@ -104,13 +111,63 @@ def test_with_the_retroactive_way_off_or_unread_the_level_is_the_strictest(tmp_p
     assert step(T0 + 10 * DAY, 0.0, retro)[0] == 2        # and it stays there, however healthy the budget
 
 
-@pytest.mark.parametrize("spent", [None, float("nan"), float("inf"), -1.0])
+@pytest.mark.parametrize("spent", [float("nan"), float("inf"), -1.0])
 def test_regressions_that_cannot_be_read_count_as_the_budget_spent(tmp_path, spent):
     step = stepper(project(tmp_path))
     step(T0, 0.0)
     assert step(T0 + DAY, 0.0)[0] == 1
     level, said, _ = step(T0 + DAY + 60, spent)
     assert level == 2 and "cannot be read" in said[0]["data"]["why"]
+
+
+@pytest.mark.parametrize("never", ["escapes", "retro"])
+def test_an_input_never_read_is_the_strictest(tmp_path, never):
+    step = stepper(project(tmp_path))
+    for d in range(4):
+        level, said, _ = step(T0 + d * DAY, None if never == "escapes" else 0.0, None if never == "retro" else 1.0)
+        assert level == 2, d
+        if d == 0:
+            assert ("off or unread" if never == "retro" else "cannot be read") in said[0]["data"]["why"]
+
+
+@pytest.mark.parametrize("failing", ["escapes", "retro"])
+def test_a_failed_sensor_s_last_reading_does_not_stand_in_once_it_is_past_its_clock(tmp_path, failing):
+    """The engine's own path: readings written to the record, measured, then the pass. A sensor that fails writes no
+    reading, so its last one (retroactive 1, or an old low count) stays the newest; past three of its readings (every
+    1h) it is no reading, and the level is the strictest, never dropping a step a day on it."""
+    p = project(tmp_path)
+    e = Engine(p, say=lambda s: None)
+
+    def at(t: float, read: tuple[str, ...]) -> float:
+        for aux, v in (("escapes", 0.0), ("retro", 1.0)):
+            if aux in read:
+                p.measurements.add(series(p, aux), v, at=t)
+        e.measure()
+        events: list = []
+        e._builtins(t, None, {}, events, [])
+        return e.signals.get("block.eb"), [x for x in events if x["type"] == "controller.decided"]
+
+    both, other = ("escapes", "retro"), tuple(x for x in ("escapes", "retro") if x != failing)
+    t = T0
+    while t < T0 + DAY:                                   # both read each hour: it drops after its hold
+        at(t, both)
+        t += 3600
+    assert at(T0 + DAY, both)[0] == 1
+    assert at(T0 + DAY + 3 * 3600, other)[0] == 1        # the failed sensor's reading is still within its clock
+    level, said = at(T0 + DAY + 3 * 3600 + 60, other)    # past it: no reading
+    assert level == 2 and said[0]["data"]["decision"] == "check level rises to full (2)"
+    assert ("off or unread" if failing == "retro" else "cannot be read") in said[0]["data"]["why"]
+    for d in range(2, 6):                                 # and it stays there, a day at a time, while the sensor fails
+        assert at(T0 + d * DAY, other)[0] == 2, d
+
+
+def test_an_unhealthy_budget_never_lets_the_level_drop(tmp_path):
+    """Below ``healthy`` the level only rises or stays: at full with 1 of 4 left (25%, under 50%), it holds for weeks,
+    though the step that share rises to is standard."""
+    step = stepper(project(tmp_path))
+    for d in range(30):
+        level, said, _ = step(T0 + d * DAY, 3.0)
+        assert (level, len(said)) == (2, 1 if d == 0 else 0), d
 
 
 def test_with_no_retroactive_mechanism_declared_the_level_never_drops(tmp_path):

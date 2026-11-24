@@ -79,3 +79,40 @@ Choices, each the most reversible reading I could find:
 
 Size: about 140 net lines in `ergostat/`, under the 600 budget. dev/ and docs/ are not counted.
 No `## Entry` was written: this file may only gain this section.
+
+### Round 2: the two blocking findings
+
+Both are fixed. Where round 1's text above says otherwise, this part holds.
+
+1. An old reading stood in for a failed sensor (lesson-3, 8, 9). The finding was right: the engine fed the block the
+   newest reading however old, so retroactive 1 from before a failure kept the level dropping.
+   - Fix: `Engine.fresh_only` (engine.py). For a budget block, a stock, flow or auxiliary input whose newest reading is
+     past its sensors' clocks reads as None (`observer.fresh`). The clock is the observer's rule: three periods, or
+     three cron times. There is no grace after a start or a sleep, so an old reading is never fresh after a restart.
+   - A sensor that reads on no clock (manual, items, changes) cannot be shown fresh, so it counts as unread. A part
+     with no sensor is read as it is.
+   - A budget block ignores `on-stale: hold`, so a stale input can never keep a low level.
+   - The factory: `verify-retroactive` reads every 10m and `verify-escapes` every 30m. So 30 or 90 minutes after
+     either one fails, the level is full.
+   - Test: `test_a_failed_sensor_s_last_reading_does_not_stand_in_once_it_is_past_its_clock[escapes|retro]`. It takes
+     the real path: readings written to the record, `Engine.measure`, then the pass. The level drops to standard,
+     then one sensor stops writing. The level stays at standard while the reading is within its clock, rises to full
+     just past it, and stays at full for days. Also `test_an_input_never_read_is_the_strictest`.
+   - The test stepper no longer sets a None signal, a state a failing sensor never produces. A None now means no new
+     reading, so the last one stays. The None cases moved to these two tests. The model's two inputs now have
+     clocked `run:` sensors.
+   - Seen to fail: with `fresh_only` replaced by the plain `get`, both cases of the new test fail (the level stays 1).
+2. The level dropped while the budget was unhealthy (blocks.py). Fixed: below `healthy` the level only rises, to the
+   formula's step when that is stricter, or stays.
+   - Test: `test_an_unhealthy_budget_never_lets_the_level_drop`. With 1 of 4 left, the level stays at full for 30 days.
+   - Seen to fail: with the old target rule restored, it fails (the level reads 1).
+   - Docs corrected to match the code: SPEC §9.2, the `Budget` docstring, dev/README and both landing.yaml
+     descriptions. The old README claim "unreadable ... it stays at full" now says when, and after how long.
+
+Tests run in round 2, all passing: `tests/test_error_budget.py` (27), `tests/test_spec_blocks.py` and
+`tests/test_closedloop.py` (60 with the first), `tests/test_observer.py`, `tests/test_library_trust.py` and
+`tests/test_verify_after.py` (115), and `tests/test_factory.py` (251 passed, 2 skipped: Docker absent). `main` was
+already merged in (no new commits on it). ruff is clean. Not run here: the full unit suite and
+the four browser files (the merge queue runs them). No page changed.
+
+Size: about 35 more net lines in `ergostat/`, still well under 600.

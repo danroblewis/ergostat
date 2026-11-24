@@ -50,7 +50,7 @@ from . import adopt, runrecord, stream, triggers
 from . import blocks as bl
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
-from .observer import KEEP, PORTS, RUN, Observer, estimated, opted, stale_age
+from .observer import KEEP, PORTS, RUN, Observer, estimated, fresh, opted, stale_age
 
 TICK = 1.0
 READERS = 8                 # the fixed pool that runs sensors' commands and queries: no thread per reading (scale.md #1)
@@ -489,6 +489,8 @@ class Engine:
             blk, key = self.builtins[name], f"block.{name}"
             before = self.signals.get(key)
             get, mode = self.get, self.stale_mode(blk.b)
+            if blk.b.type == "budget":                      # an error budget: a stale reading is no reading, never held
+                get, mode = self.fresh_only(blk.b, now), None
             if mode == "hold":                              # a stale input: it keeps its output
                 continue
             if mode == "off":
@@ -711,6 +713,18 @@ class Engine:
             return b.on_stale
         pols = {opted(self.spec).goals.get(r.name) for r in b.reads() if r.kind == "goal" and r.name in self.stale}
         return "hold" if "hold" in pols else "off" if "off" in pols else None
+
+    def fresh_only(self, b: Block, now: float):
+        """Its ``get``, with each stock, flow or auxiliary it reads whose newest reading is past its sensors' clocks
+        (``observer.fresh``) read as None: a sensor that fails writes no reading, and the last one must not stand in."""
+        gone = set()
+        for r in b.inputs.values():
+            t = self.spec.measured(r.kind).get(r.name)
+            if t is not None:
+                last = max((self.seen[s.series] for s in t.sensors.values() if s.series in self.seen), default=None)
+                if not fresh(self.spec, r, last, now):
+                    gone.add(r)
+        return self.get if not gone else (lambda r: None if r in gone else self.get(r))
 
     def seeing_off(self, b: Block):
         """Its ``get``, with each stale goal it reads seen as off, and the goal's stale value not read (so an ``until``

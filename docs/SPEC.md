@@ -4228,11 +4228,15 @@ More (filters, rate of change, latches) can be added when a case needs them.
 allowed over a window (over 0, at most 10⁶); `spent` reads how many reached the work over that window (a sensor's
 count: the window is the sensor's). `levels` names the check levels, 2 to 10, the lightest first; what each level
 checks is the model's own (the blocks that read it decide). The output is the level's number, and it starts at the
-strictest. With the budget left at least `healthy` of it, the level drops one step once it has stood `hold`; as the
-budget burns it rises at once, to the step `⌈top × (healthy − left share) / healthy⌉`, and to the strictest when
-nothing is left. It drops only while `retroactive` (a signal over 0 while regressions that get through are found and
-reverted after) is declared and reads over 0: undeclared, the level never drops; off, unread or not a finite number,
-or with `spent` unread, not a finite number or below 0, it is the strictest at once. It is stepped every pass, so a
+strictest. With the budget left at least `healthy` of it, the level drops one step once it has stood `hold`; below
+`healthy` it never drops: as the budget burns it rises at once, to the step `⌈top × (healthy − left share) / healthy⌉`
+when that is stricter, and to the strictest when nothing is left. It drops only while `retroactive` (a signal over 0
+while regressions that get through are found and reverted after) is declared and reads over 0: undeclared, the level
+never drops; off, unread or not a finite number, or with `spent` unread, not a finite number or below 0, it is the
+strictest at once. Unread includes a stale reading: a stock, flow or auxiliary it reads whose newest reading is past
+its sensors' clocks (three readings missed, section 9.6; no grace after a start or a sleep), or whose sensor reads on
+no clock (manual, items, changes), counts as no reading, so a sensor that fails cannot leave its last one standing in.
+A part with no sensor is read as it is. It is stepped every pass, so a
 held level drops on time alone. Each move is a `controller.decided` event about the block, its `decision` ("check level
 drops to standard (1)") and its `why` (the budget left, its share, and the rule that moved it). Its budget left
 (`budget − spent`) is written as a series of its own, `block/NAME/left`; a sensor reads the level and the budget left

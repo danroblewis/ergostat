@@ -1063,9 +1063,12 @@ false`; the ref stays and is not read.
 
 **The error budget sets the check level.** The block `error-budget` (an ergostat `budget` block, SPEC §9.2) allows 2
 regressions reaching main (`verify-escapes`) over 14 days. It sets `check-level`: 2 full, 1 standard, 0 light. It
-starts at full. With half the budget or more left it drops one step a day; as the budget burns it rises at once, and
-with none left it is full. It drops only while `verify-retroactive` reads 1 (`python3 dev/bin/verify.py retroactive`:
-the lane on, a verified commit, the lane not held). So with the lane off, held, or unreadable, it stays at full. Each
+starts at full. With half the budget or more left it drops one step a day; below half it never drops: as the budget
+burns it rises at once, and with none left it is full. It drops only while `verify-retroactive` reads 1 (`python3
+dev/bin/verify.py retroactive`: the lane on, a verified commit, the lane not held). So with the lane off or held it
+goes to full. When run/verify.json cannot be read, or `verify-escapes`' measure fails, no reading is written; once the
+last one is three readings old (30 minutes for `verify-retroactive`, 90 for `verify-escapes`) the block reads none,
+and it goes to full. Each
 move is a `controller.decided` event on `error-budget` with its reason. `check-level` and `error-budget-left` are
 charted on `landing.merge-pipeline`. Nothing reads the level yet. What each level skips before merge (fewer pre-merge
 tests, no blocking review) is the coordinator's to wire into the queue and the reviewer once the lane is on.
