@@ -568,6 +568,36 @@ A gap without it is left out, never counted as 0; one with a planning cost negat
 and named on stderr; with none it has no value (exit 1). It says where the money went, not that less planning is
 safe.
 
+**Done items the implementor cannot do** (`plan.env_needs`, run on every definition the planner, the size path, a
+split or the plan lint makes, and on every definition the coordinator wrote, whether the intake or the planner finds
+it, or it lands while the planner runs: `plan.route`, the coordinator's file left as it is). Each point of
+`## Definition of done` (a numbered or bulleted point with its lines, or a paragraph) is read for what an implementor's
+container cannot do. A backticked span that reads as a command (it starts with a known program such as `uv`,
+`python`, `git`, `npm`, `docker` or `ergostat`, or a script path with arguments) passes only if it is on the
+allowlist once `uv run`, `python -m` and `scripts/suite_watch.py ... --` are taken off: `git`, `ruff`, `pytest`,
+`scripts/named_tests.py`, `scripts/demo_check.py`. Any other command is a **measure** need. So are a server on a port
+(`port 8765`, `localhost:8000`, "on a port") and an environment variable on a command (`CORR_SHOTS=1 ...`). Screenshots
+looked at by a person, the sandbox (`--sandbox`, "docker sandbox", or an item that runs or loads under seatbelt or
+`sandbox-exec`) or the platform ("runs on macOS", "checked on a Mac"), and input files read from outside the repository (an input file, or a read, load or
+import, followed by `~/`, `/Users/`, `/home/`, `$HOME` or "outside/not in the repo", in an item that does not say
+the path is refused, rejected or denied) are **owner** needs. A bare mention is not: `docker run --init` in a test,
+"macOS's five-entry limit", "its seatbelt filter lists to 5 entries", "a path outside the repository is refused" are pytest's to check (a command off the
+allowlist, like `docker run`, is still a measure need). A measure need of a definition that names no acceptance test
+is the owner's too. The definition is given a `## Needs before building` section, a line per such item ("done item N:
+`needs: measure`, a server on a port"), and the gap records them as `env_needs`. A definition with only measure needs is
+ready, with `measure_runs_wanted` (its acceptance tests and the items): the request a `measure-runs` of those tests
+answers once it is built (*The pipeline manager*). One with an owner need is never ready: the same event that records
+its definition parks it (`parked_for: needs`, `parked_by: plan-env`, `parked_in: plan`, `parked_until` the items,
+who: owner), so the implementor, which takes only ready and fix gaps, never leases it. The owner answers with
+`ergostat event --add gap.need-met --item gap/NAME --data '{"need_met": "what was done"}'`, and the park resumer
+(`parks.py resume`) makes it ready again as itself (`gap.defined`, `released_from: parked`, then `gap.resumed` with
+`resumed_as` its own id), re-read under the continue lock; `manage.py continue` refuses such a park, since no branch
+was built to continue. What reads as a command, or as one of these needs, is a pattern list: an item that says it in
+other words is not marked (its park comes after a review, as before, and `env-parks` counts it only if the gap was
+marked), and one that names a need it does not have in these words (a read from `~/` that is a test's fixture, say)
+is parked for the owner until `gap.need-met`: the lists both miss and over-match, and tests/test_plan.py pins only
+the cases it names.
+
 ## The pools: sized by risk, against your tolerance
 
 One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 9 and 6, in
@@ -1136,7 +1166,12 @@ The measures `manager-triggers-per-session` and `manager-actions-per-session` sa
 
 **A definition's named measurement** (`measure-runs GAP --runs N --tests "T" [--load K]`, `dev/bin/runs.py`). Use it
 when a definition's acceptance is a repeated or loaded run that its sessions cannot make, and the gap is parked or
-built with "Where it stopped" saying the measurement was not run here. The first user is gap/lease-shutdown-race:
+built with "Where it stopped" saying the measurement was not run here. A gap whose plan marked a done item
+`needs: measure` (*Plans, research and what the factory knows*) carries the request as `measure_runs_wanted`: the
+tests to give `--tests`. One marked `needs: owner` was parked at plan time, before any build, and waits for the
+owner's `gap.need-met`. The velocity record carries `env-parks` beside `first-pass-yield`: the parks such items caused
+in 14 days, at plan time (`env_parked_at`) and by a review that parked a marked gap for a need. Such a review is left
+out of `first-pass-yield`, since the failure was the container's, not the implementor's. The first user is gap/lease-shutdown-race:
 `--runs 30 --load 4 --tests "-n 8 tests/test_leases.py"`. It makes N runs (1-50) of the selection T on the branch
 head, in a clone of the drop at it. T is test files or ids under `tests/` and at most one `-n` of 1-8. Each run is
 `[suites] measure`, under `scripts/suite_watch.py`, in the shared suite slot and a suite container. With `--load`, K

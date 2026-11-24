@@ -9141,6 +9141,21 @@ suites outside the factory hold the queue. One held past `[manager] broken_minut
 text names the readings that hold it (`suites-running`, `threads`, `memory` or `push-waiting`); dev/README.md has the
 details.
 
+### Done items the implementor cannot do: found at plan time, routed before building
+
+The factory's planner (`dev/bin/plan.py`) classifies each done item of a gap's definition against what an
+implementor's container can run: pytest under `suite_watch`, ruff, `demo_check` and git. An item outside it is marked
+in the definition (`## Needs before building`, "done item N: `needs: measure|owner`" and the reason) and recorded on
+the gap as `env_needs`. A **measure** need (a command off the list, a server on a port, an env variable on a command)
+leaves the gap ready, carrying `measure_runs_wanted`: its acceptance tests and the items, the request a `measure-runs`
+of those tests answers once it is built. An **owner** need (screenshots looked at by a person, the Docker sandbox, an
+item run on macOS or under seatbelt, input files outside the repository), or a measure need of a definition that
+names no acceptance test, parks the gap in the same event that records its definition, so it is never leased to an
+implementor; it is ready again only after the owner records `gap.need-met`. The velocity record counts these parks as
+`env-parks` beside `first-pass-yield` (the plan-time parks, and reviews that parked a marked gap for a need), and
+`first-pass-yield` leaves those reviews out. The classifier is a pattern list that both misses and over-matches;
+dev/README.md (*Plans, research and what the factory knows*) has the patterns and the cases the tests pin.
+
 ## 14. From the TOML format
 
 | TOML | YAML |
