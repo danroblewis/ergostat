@@ -271,6 +271,10 @@
                 "url": {
                   "type": "string"
                 },
+                "run": {
+                  "type": "string",
+                  "minLength": 1
+                },
                 "raw": {
                   "anyOf": [
                     {
@@ -2797,10 +2801,14 @@
             {
               "type": "object",
               "propertyNames": {"enum": ["normal", "away", "maintenance", "freeze", "incident"]},
-              "additionalProperties": {"enum": ["auto", "approve", "deny"]}
+              "additionalProperties": {"oneOf": [
+                {"enum": ["auto", "approve", "deny"]},
+                {"type": "object", "required": ["reshape"], "additionalProperties": false,
+                 "properties": {"reshape": {"$ref": "#/$defs/name"}}}
+              ]}
             }
           ],
-          "description": "auto: run at once; approve: held until the owner approves; deny: never run (default approve); or a map by operating state"
+          "description": "auto: run at once; approve: held until the owner approves; deny: never run (default approve); or a map by operating state, a cell of which may be {reshape: ACTION}: that smaller action asked for at once, this one held"
         },
         "class": {
           "$ref": "#/$defs/name",

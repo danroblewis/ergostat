@@ -46,8 +46,9 @@ def read(p, spec, since: float, until: float) -> list[dict]:
                 up = None
         if up is not None:
             out.append({"class": f"alarm:{b.name}", "cause": cause, "time": up, "answered": None, "verdict": None})
-    for f in p.events.query(n=None, type="ergostat.daemon.failed", since=since, until=until):   # a daemon given up (§9.7)
-        back = p.events.query(n=None, type="ergostat.daemon.started", item=f["item"], after_seq=f["seq"])
+    from ..spec.projections import query
+    for f in query(p, "ergostat.daemon.failed", n=None, since=since, until=until):   # a daemon given up (§9.7)
+        back = query(p, "ergostat.daemon.started", n=None, item=f["item"], after_seq=f["seq"])
         out.append({"class": f"alarm:daemon:{f['item']}", "cause": ", ".join(f["data"].get("users") or []),
                     "time": f["time"], "answered": back[0]["time"] if back else None, "verdict": "revived" if back else None})
     return sorted(out, key=lambda x: x["time"])
@@ -58,17 +59,9 @@ def request_id(cls: str) -> str:
 
 
 def requests_now(p) -> dict[str, dict]:
-    """Every modelling request, folded, by its class."""
-    from ..spec import items as its
-    from ..spec.ir import model_request_kind
-    by: dict[str, list] = {}
-    for e in p.events.query(n=None, type=f"{MODEL_REQUEST}.*"):
-        by.setdefault(e["item"], []).append(e)
-    out = {}
-    for item, es in by.items():
-        it = its.fold(item, es, model_request_kind())
-        out[it.fields.get("class") or item] = {**it.fields, "id": item, "state": it.state, "moves": it.moves}
-    return out
+    """Every modelling request, folded, by its class (the item index's table: ``projections.stored``)."""
+    from ..spec import projections
+    return projections.stored(p, "model-request")
 
 
 def _periods(r: dict, state: str, now: float, most: float | None = None) -> list[tuple[float, float]]:
@@ -279,9 +272,9 @@ def _ran(p, spec, cls: str, cause: str, since: float) -> bool:
     if kind == "alarm":
         return any(not v for _, v in p.measurements.range(f"block/{name}", since, time.time() + DAY))
     if kind == "change":
+        from ..spec.projections import query
         from .stats import by_person
-        return any(not by_person(e["source"]) for e in p.events.query(n=200, type="ergostat.model-change.accepted",
-                                                                      since=since))
+        return any(not by_person(e["source"]) for e in query(p, "ergostat.model-change.accepted", n=200, since=since))
     if kind == "steptest":
         g = spec.goals.get(cause.removeprefix("goal "))
         return bool(g is not None and g.process)

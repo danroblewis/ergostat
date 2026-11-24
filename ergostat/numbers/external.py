@@ -1,14 +1,17 @@
 """An external block's law identified from its record (SPEC §12d, *Existing controllers*): ``identify: {input, output}``
 read from their sensors' record on one grid, fitted by ``extlaw``; the law the closed-loop projection runs in place of
-the generic stand-in (``ExternalModel``), a law declared (``law:``, control/laws.py) run in its place; and its
-findings, ``external-unidentified`` and ``external-not-run``."""
+the generic stand-in (``ExternalModel``), a law declared (``law:``, control/laws.py) run in its place; a declared law
+judged on the same record (``declared``); and its findings, ``external-unidentified``, ``external-not-run`` and
+``external-law-disagrees``."""
 
 from __future__ import annotations
 
 import copy
 import logging
+import math
+import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from statistics import median
 
 from ..spec.ir import KnownLaw, Ref, Spec
@@ -72,6 +75,45 @@ def identify(p, spec: Spec, name: str, since: float, until: float) -> dict:
         _CACHE.pop(next(iter(_CACHE)))
     _CACHE[key] = got
     return got
+
+
+def declared(p, spec: Spec, name: str, since: float, until: float) -> dict | None:
+    """The block's declared law (``law:``) judged on the record on identify's grid, as identify judges its own laws:
+    ``{"kind", "law", "why", "beaten"}``, ``law`` None with why (too little record, as identify says); ``beaten`` the
+    identified law when its parsimony score is lower than the declared law's error (its parameters given, not fitted,
+    so only a delay counts against it). None: no law declared."""
+    known = spec.blocks[name].law
+    if known is None:
+        return None
+    got = identify(p, spec, name, since, until)
+    memo = got.setdefault("declared", {})                  # kept with the identification, keyed by the law as declared
+    if str(known) in memo:
+        return memo[str(known)]
+    xs, us = got["xs"], got["us"]
+    out = {"kind": known.kind, "law": None, "why": got["why"], "beaten": None}
+    if got["ts"] and len(xs) >= el.MIN_POINTS and max(us) > min(us):
+        from ..control import laws as kl
+        nf = int(len(xs) * (1 - el.HELD_OUT))
+        dt = got["ts"][1] - got["ts"][0]
+
+        def fitted_sse(w):                                 # its delay, as identify searches one, on the part fitted only
+            one = el.run(w, xs[:nf], us[:nf])
+            return sum((a - b) ** 2 for a, b in zip(one[1:], us[1:nf], strict=True))
+        base = kl.law(known, dt)
+        law = min((replace(base, delay=d * dt) for d in range(el.MAX_DELAY + 1)), key=lambda w: (fitted_sse(w), w.delay))
+        el.judge(law, xs, us, nf)
+        nh = len(xs) - nf
+        law.score -= (law.k - (law.delay > 0)) * math.log(nh)   # the declared numbers are not fitted: no penalty for them
+        best = got["law"]
+        out.update(law=law, why="", beaten=best if best is not None and best.score < law.score else None)
+    memo[str(known)] = out
+    return out
+
+
+def disagrees(d: dict | None) -> bool:
+    """A declared law judged that fits its record worse: below 0 skill held out, or beaten by the law identified."""
+    w = (d or {}).get("law")
+    return w is not None and (w.skill is not None and w.skill < 0 or d["beaten"] is not None)
 
 
 def cached(p, spec: Spec, now: float | None = None) -> dict[str, dict] | None:
@@ -207,7 +249,8 @@ def models(p, spec: Spec, since: float, until: float) -> dict[str, ExternalModel
 
 def findings(p, spec: Spec, now: float, say) -> None:
     """``external-unidentified`` (too little record, or no law fits) and ``external-not-run`` (identified, but its output
-    is not a flow or a stock its own flow moves, so the projection runs the generic stand-in) (SPEC §12d)."""
+    is not a flow or a stock its own flow moves, so the projection runs the generic stand-in), and
+    ``external-law-disagrees`` (its declared law fits its record worse) (SPEC §12d)."""
     from . import observe as ob
     if not blocks(spec):
         return
@@ -222,3 +265,17 @@ def findings(p, spec: Spec, now: float, say) -> None:
             how = f"declared ({b.law.kind})" if b.law is not None else f"identified ({got['law'].short()})"
             say("external-not-run", f"block {name} (external): its law is {how} but not run "
                 f"ahead: {io['output']} is not a flow, nor a stock one of its out: flows moves", b.where, f"block.{name}")
+        d = declared(p, spec, name, g.since, g.until)
+        if not disagrees(d):
+            continue                                       # holds (never a finding), or too little record to say
+        w = d["law"]
+        than = (f"the law identified from it, {d['beaten'].short()} (score {d['beaten'].score:.4g} against {w.score:.4g})"
+                if d["beaten"] else "holding its last value")
+        at = lambda t: time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(t))   # noqa: E731
+        say("external-law-disagrees", f"block {name}: declared {d['kind']} ({w.short()}) fits its record worse than {than}: "
+            f"it does not behave as configured (skill {_f(w.skill)}, R² {_f(w.r2)} on the last quarter of {w.points} points "
+            f"held out, the record from {at(got['ts'][0])} to {at(got['ts'][-1])})", b.where, f"block.{name}")
+
+
+def _f(x: float | None) -> str:
+    return "–" if x is None else f"{x:.2f}"

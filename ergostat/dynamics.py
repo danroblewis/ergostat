@@ -492,16 +492,18 @@ _WORDS = [
 _KEPT = r"\w+(?:[.\-/:]\w+)+|\b(?:rule|ai|owner) tier\b"
 
 
-def words(text: str) -> str:
+def words(text: str, goals=()) -> str:
     """A card's text in system dynamics' words: no controller, setpoint, rule, goal or valve in its own words; its
-    codes, ids, part names and tiers kept as they are."""
+    codes, ids, part names and tiers kept as they are, and a goal named (``goal NAME`` for a NAME in ``goals``)."""
     import re
     kept: list[str] = []
+    names = "|".join(map(re.escape, sorted(goals, key=len, reverse=True)))
+    named = rf"\bgoal (?:{names})(?![\w-])|" if names else ""
 
     def keep(m) -> str:
         kept.append(m.group(0))
         return f"\x00{len(kept) - 1}\x00"
-    text = re.sub(_KEPT, keep, text)
+    text = re.sub(named + _KEPT, keep, text)
     for a, b in _WORDS:
         text = re.sub(a, b, text)
     return re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
@@ -514,28 +516,26 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
     out = []
     loops = snap.get("loops") or {}
     # 'loop' is kept for R and B loops here: a controlled goal is called a goal
-    goals = set(loops) | {w.split(" ", 1)[1] for w in (a.get("what", "") for a in att) if w.startswith(("loop ", "controller "))}
+    # the goal by its field (a controller's hint: the goal it serves, of its name), never parsed from the words
+    of = [a.get("goal") or a.get("controller") for a in att]
+    goals = set(loops) | {n for n in of if n}
     pat = re.compile(r"\bloop (" + "|".join(map(re.escape, sorted(goals, key=len, reverse=True))) + r")(?![\w-])") if goals else None
-    for a in att:
-        a = dict(a)
+    for a, name in zip(att, of, strict=True):
+        a = dict(a, **({"goal": name} if name else {}))
         what = a.get("what", "")
-        name = what.split(" ", 1)[1] if what.startswith(("loop ", "controller ")) else None
         lp = loops.get(name) if name else None
-        if lp and lp.get("status") == "off" and what.startswith("loop ") and a.get("level") != "hint":
+        if lp and lp.get("status") == "off" and a.get("level") != "hint":
             sp = _sp(lp.get("setpoint") or "")
             want = sp.lstrip("≤≥=<> ")
             gap = f": {lp['off_by_words']}" if lp.get("off_by_words") else ""
             a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
         else:
-            a["says"] = words(a.get("says", ""))
+            a["says"] = words(a.get("says", ""), goals)
         if pat:
             a["says"] = pat.sub(r"goal \1", a["says"])
         for k in ("first", "more"):                   # an entry waiting on a person, as its card draws it
             if a.get(k):
-                a[k] = words(a[k])
-        if name:
-            a["what"] = f"goal {name}"
-        else:
-            a["what"] = words(what)
+                a[k] = words(a[k], goals)
+        a["what"] = f"goal {name}" if name else words(what, goals)
         out.append(a)
     return out

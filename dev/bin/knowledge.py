@@ -230,13 +230,15 @@ def render_map(mods: dict, touched: list[str], room: int) -> str:
 
 
 def related(cfg: dict, gap: dict) -> list[tuple[str, str]]:
-    """The gaps near this one (what it depends on, its parent and siblings, its GAPS.md section): each one's
-    definition, state and where it stopped."""
+    """The gaps near this one (what it depends on, its parent and siblings, its entry's section as main's records render
+    it, else the section intake recorded): each one's definition, state and where it stopped."""
     import brief
     f, gaps = gap["fields"], {g["id"]: g for g in fac.items("gap")}
-    mine = fac.ids(f.get("parent"))
+    text = brief.records_at_main(cfg)[0]
+    sec = lambda g: brief.entry_in(text, str(g["fields"].get("title") or ""))[1] or g["fields"].get("section")  # noqa: E731
+    mine, own = fac.ids(f.get("parent")), sec(gap)
     near = [*fac.ids(f.get("depends_on")), *mine] + [i for i, g in gaps.items() if (mine and fac.ids(
-        g["fields"].get("parent")) == mine) or (f.get("section") and g["fields"].get("section") == f.get("section"))]
+        g["fields"].get("parent")) == mine) or (own and sec(g) == own)]
     out = []
     for gid in [n for n in dict.fromkeys(near) if n in gaps and n != gap["id"]][:6]:
         g = gaps[gid]["fields"]
