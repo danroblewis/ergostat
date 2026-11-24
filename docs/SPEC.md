@@ -131,7 +131,7 @@ library:                                # main file only: folders of templates (
 
 | Key | Type | Meaning |
 |---|---|---|
-| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so; an untrusted folder's never does (below) |
+| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so; an untrusted folder's never does (below); `LIB/TEMPLATE` for a fetched library's (*Libraries fetched by git URL*) |
 | `with` | map | The template's parameters. A parameter it does not take, a value of the wrong type (a duration that does not parse, a setpoint, a cron expression, a name) and a required one left out are errors at that line |
 | `within` | system name | The system the instance is part of |
 | `description` | string | |
@@ -554,6 +554,18 @@ there names every refused library, its code and why. The listing is kept in the 
 (`trees`), so the fallback reads the library back without the copy or the lock. `check` says which uses come
 from a library. The copy is checked when the model loads; a script a template runs from `${here}` is read again when it
 runs, and nothing here says that what runs is what was locked.
+
+`use: LIB/TEMPLATE` names a fetched library's template: it is looked up only in library LIB (a key of `libraries:`),
+whatever else offers the name, so two libraries may each offer one name and both be used. LIB not a library, or
+refused, is **unknown-template** naming the libraries (and, when refused, its code and why); TEMPLATE not in LIB is
+**unknown-template** listing what LIB offers. A bare name is found as above. When two or more sources offer it (each
+library, ergostat's own, a library folder) and one of them is a fetched library, the use is a **template-ambiguous**
+finding naming each source and the `LIB/TEMPLATE` forms, so that adding a library cannot silently change which
+template it gets. Inside a fetched library's template a use may name `LIB/TEMPLATE` too, and a bare name is looked up
+first in that template's own library, then as above (no finding there: the library's text, not the owner's). The
+instance is named by its key as ever; its `where` (and so an edit's "made by template") says `LIB/TEMPLATE`, and its
+record keeps `library`. The `templates` tool lists each fetched template as `LIB/TEMPLATE`, shadowed or not, and
+`add_use` writes that form for a bare name that finds one.
 
 ### Upkeep
 
@@ -4936,6 +4948,8 @@ where the error is 0.
 - **template-library**: a template in a `library:` folder that does not read, or one used in place of
   ergostat's own; in an untrusted folder, also a template whose name or a parameter's name is refused, or one not
   used because a trusted one has its name (its text marked, section 2a, *Untrusted libraries*);
+- **template-ambiguous**: a use naming a template by its bare name that a fetched library and another source both
+  offer: each source named, and the `LIB/TEMPLATE` forms (section 2a, *Libraries fetched by git URL*);
 - **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
   is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
   (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its

@@ -181,21 +181,43 @@ def within(f: Path, bad: set[Path]) -> Path | None:
     return None
 
 
+def qualified(t: Template) -> str:
+    """Its name in a use: ``LIB/TEMPLATE`` for a fetched library's, else its bare name."""
+    return f"{t.library}/{t.name}" if t.library else t.name
+
+
+def lookup(got: dict[str, Template], fetched, name: str, inside: str | None = None) -> Template | None:
+    """The template a use names (SPEC §2a): ``LIB/TEMPLATE`` only in fetched library LIB; a bare name first in
+    ``inside`` (the fetched library whose template holds the use), then as find_all chose."""
+    lib, slash, bare = name.partition("/")
+    if slash or inside:
+        lib, bare = (lib, bare) if slash else (inside, name)
+        t = next((t for t in fetched if t.library == lib and t.name == bare), None)
+        if t is not None or slash:
+            return t
+    return got.get(name)
+
+
+def source(t: Template) -> str:
+    return f"library {t.library}" if t.library else "ergostat's own" if t.builtin else "a library folder"
+
+
 def find_all(extra: list[Path] | None = None, untrusted: set[Path] | None = None,
-             fetched: list[Template] = ()) -> tuple[dict[str, Template], list[str]]:
+             fetched: list[Template] = (), offers: dict | None = None) -> tuple[dict[str, Template], list[str]]:
     """Every template, by name: an owner's template shadows ergostat's own of the same name (said in the notes),
     and the first folder wins between the owner's own. A folder in ``untrusted`` is read after every trusted one, so its
     templates never shadow a trusted one, whatever the order (said, marked). Also what could not be read, and what was
     shadowed; a note from an untrusted folder has its library text marked. A file under any untrusted folder is
     untrusted, even when a trusted folder (its parent) also reaches it. ``fetched``: the fetched libraries' templates,
-    already read, after the owner's folders and before ergostat's own."""
+    already read, after the owner's folders and before ergostat's own. ``offers``: filled with each name's sources
+    (``source``), every one that offers it, shadowed or not."""
     got: dict[str, Template] = {}
     notes: list[str] = []
     bad = {d for d in untrusted or () if d != HERE}
     order = folders(extra)
     for d in [x for x in order if x not in bad] + [x for x in order if x in bad]:
         for t in fetched if d == HERE else ():
-            _put(got, notes, t, bad)
+            _put(got, notes, t, bad, offers)
         if not files.is_dir(d):
             if d != HERE:
                 notes.append(f"{'untrusted ' if d in bad else ''}library folder {ut.escape(d) if d in bad else d} does not exist")
@@ -211,11 +233,13 @@ def find_all(extra: list[Path] | None = None, untrusted: set[Path] | None = None
             except TemplateError as e:
                 notes.append(ut.note(owner, str(e)) if owner is not None else str(e))
                 continue
-            _put(got, notes, t, bad)
+            _put(got, notes, t, bad, offers)
     return got, notes
 
 
-def _put(got: dict, notes: list, t: Template, bad: set) -> None:
+def _put(got: dict, notes: list, t: Template, bad: set, offers: dict | None = None) -> None:
+    if offers is not None and source(t) not in offers.setdefault(t.name, []):
+        offers[t.name].append(source(t))
     was = got.get(t.name)
     if was is not None and trusted(was) != trusted(t):          # the trusted one, whichever came first
         kept, skipped = (was, t) if trusted(was) else (t, was)
