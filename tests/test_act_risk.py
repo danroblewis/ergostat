@@ -12,6 +12,7 @@ from ergostat import model as mdl
 from ergostat import spec as spec_mod
 from ergostat.actions import gate, record, risk
 from ergostat.claims import record as claims
+from ergostat.leases import RENEWED
 from ergostat.store import Project
 
 DAY = 86400.0
@@ -425,6 +426,19 @@ def test_own_events_are_not_staleness(tmp_path):
     assert a["risk"]["score"] == 3.0 and a["state"] == "ran" and ran(tmp_path)
     moved(p, by="dev", run="another-run")                            # the same source, another run: a move
     assert risk.staleness(p, run, ITEM)[0] == 1
+
+
+def test_engine_renewal_of_the_runs_lease_is_not_staleness(tmp_path):
+    p = project(tmp_path)
+    known(p)
+    run = start(p)
+    for seen in ("activity", "taken up"):                            # the watchdog's and adopt's, as dispatch writes them
+        p.events.add(RENEWED, item=ITEM, source="ergostat", data={"run": run, "fence": 1, "seen": seen})
+    a = ask(p, tmp_path, run=run)
+    assert (a["risk"]["s"], a["risk"]["s_why"]) == (0, "not moved since the run started")
+    assert a["risk"]["score"] == 3.0 and a["state"] == "ran" and ran(tmp_path)
+    p.events.add(RENEWED, item=ITEM, source="ergostat", data={"run": "another-run", "fence": 2, "seen": "activity"})
+    assert risk.staleness(p, run, ITEM)[0] == 1                      # another run's lease renewed: a move
 
 
 def test_staleness_by_seq_not_time(tmp_path):

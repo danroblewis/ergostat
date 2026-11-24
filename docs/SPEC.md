@@ -7148,7 +7148,9 @@ written. Scores run from 1 to 100, and T is absolute, not a multiple of S, so se
 - `s` is the staleness of the state the act was planned on: 1 when the action's work item (`item`) has an event, from
   a writer other than the asking run (one not `causedby` it), whose `seq` is greater than that run's start (its
   `agent.started` event, whose id is the run's). Order is by `seq`, never by time, so two events in the same second
-  are still ordered. Events the asking run wrote itself do not count. Each case where it cannot be told counts as
+  are still ordered. Events the asking run wrote itself do not count, nor do the engine's renewals of that run's lease
+  (`ergostat.lease.renewed` with `data.run` the run: the watchdog and an adoption write them with no `causedby`); a
+  renewal of another run's lease does. Each case where it cannot be told counts as
   s = 1, its reason recorded: `no asking run`, `no work item`, `the run's start not found`, `record unreadable`.
   Otherwise s = 0 (`not moved since the run started`). An owner's own request, naming no run, always has s = 1.
 

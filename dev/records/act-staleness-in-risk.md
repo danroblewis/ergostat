@@ -94,6 +94,30 @@ changed), which the factory and the queue run. `main` had nothing new to merge (
 `uv run python dev/bin/gapsdoc.py render --check` was refused here, so the Entry's form was not checked by the tool.
 It follows the same form as `regime-scheduled-gates`' Entry: `entry-of:` followed by one `done:` line.
 
+Round 2, answering the review's one finding (blocking; it was the only one listed).
+
+- **The finding.** The engine renews a running lease with `ergostat.lease.renewed` on the work item, the run only in
+  `data.run` and no `causedby`: the watchdog (`ergostat/leases/dispatch.py:626`) and an adoption (`:426`). Round 1
+  counted those as moves, so any run renewed by the engine read s = 1 for every later act. Round 1's claim above, that
+  "a lease renewal ... carr[ies] `causedby` = run", was true only of a renewal the run asks for itself
+  (`leases/acts.py:40`), not of the engine's. That claim was wrong.
+- **The fix.** `risk.own(e, run)`: an event is the run's own when it is `causedby` the run, or when it is an
+  `ergostat.lease.renewed` whose `data.run` is the run. `staleness()` leaves those out. A renewal of another run's lease
+  still counts as a move. The fix is in `risk.py`, which is in the Files list. Writing the engine's renewals with
+  `causedby` = run would have meant editing `dispatch.py` (outside the Files list), and `fold.renew` keys on
+  `causedby`. So the reader was changed and the writers were left alone, which is the more reversible choice.
+- **SPEC §12k** now says the engine's renewals of the asking run's lease do not count, and another run's renewal does.
+- **New test** `tests/test_act_risk.py::test_engine_renewal_of_the_runs_lease_is_not_staleness`: two engine renewals,
+  written the way `dispatch.py` writes them, between the start and the request give s = 0 and the act runs. A renewal
+  of another run's lease then gives s = 1. I broke the code on purpose by disabling the renewal clause in `own`, and
+  the test failed (s = 1). Then I restored the code.
+- Net lines in `ergostat/` for round 2: +8 (`risk.py`). Round 1 plus round 2 come to about +32, against a budget of 60.
+- Run here, one file at a time through `scripts/named_tests.py`: `test_act_risk.py` 33 passed;
+  `test_regime_gates.py`, `test_gated_actions.py`, `test_leased_workspaces.py` 30 passed; `test_inbox.py`,
+  `test_repair_approver.py`, `test_interventions.py` 63 passed, 1 skipped (bwrap namespaces, not a page test);
+  `test_repair_verify.py` 35 passed. `ruff check ergostat tests scripts` is clean. `HEAD..main` is empty, so there was
+  nothing to merge. Not run here: the whole unit suite and the four browser files (no page changed).
+
 ## Entry
 
 entry-of: operating-modes-regime

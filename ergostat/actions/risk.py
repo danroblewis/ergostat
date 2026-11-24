@@ -14,6 +14,8 @@ from __future__ import annotations
 import math
 import time
 
+from ..leases import RENEWED
+
 ORDER = ("auto", "approve", "deny")      # least to most strict
 COLUMNS = ("normal", "away", "maintenance", "freeze", "incident")      # what the operating state picks (SPEC §12k)
 NOVEL = 90 * 86400.0                     # how far back a run of the same action makes it known
@@ -63,8 +65,13 @@ def novelty(p, name: str, now: float, aid: str | None = None) -> tuple[int, str]
     return 1, "not run within 90 days"
 
 
+def own(e: dict, run: str) -> bool:
+    """The run's own write: caused by it, or the engine's renewal of its lease (``data.run``, no ``causedby``)."""
+    return e.get("causedby") == run or (e.get("type") == RENEWED and (e.get("data") or {}).get("run") == run)
+
+
 def staleness(p, run: str | None, item: str | None) -> tuple[int, str]:
-    """s: 1 when ``item`` has an event by a writer other than ``run`` (not caused by it) with a ``seq`` after the run's
+    """s: 1 when ``item`` has an event by a writer other than ``run`` (not its ``own``) with a ``seq`` after the run's
     start, else 0. Ordered by ``seq``, never by time (lesson-2); anything not found or not read is 1 (lesson-3)."""
     if not run:
         return 1, "no asking run"
@@ -74,7 +81,7 @@ def staleness(p, run: str | None, item: str | None) -> tuple[int, str]:
         start = p.events.get(run)                        # (get also takes an id's prefix: the id and type are checked)
         if not start or start.get("id") != run or start.get("type") != START or not isinstance(start.get("seq"), int):
             return 1, "the run's start not found"
-        moved = [e for e in p.events.query(n=None, item=item, after_seq=start["seq"]) if e.get("causedby") != run]
+        moved = [e for e in p.events.query(n=None, item=item, after_seq=start["seq"]) if not own(e, run)]
     except Exception:                                    # noqa: BLE001
         return 1, "record unreadable"
     if moved:
