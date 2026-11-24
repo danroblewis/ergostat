@@ -909,6 +909,13 @@ and `batch-run-failures` read its progress from its own pytest logs (the least a
 from the record. Saying any of this never fails or delays a merge: a failure to write is dropped. A batch whose queue
 run was killed ends when the next run takes over: `given-back` when recovery puts main back, and, killed after its
 merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
+The batch kind is a pipeline (SPEC §5a, *Stages*): each stage of each run is said as it starts and ends
+(`batch.stage-started`, `-finished`, through `batches.stage()`): ruff, unit, browser, host and demo in `suites()`
+(`passed`, `failed`, `stopped` when the failure of the suite beside it stopped it, `error`), `named` in `named()`
+(the failing tests alone, on main, and on each prefix), and `push-wait` from `pending()` until `pushed()` settles it.
+The Dashboard's Merge queue row (the root model's `record` sql source) reads them: the running batch and the gaps
+waiting in rank order, its stage now with elapsed, expected and time left, each of its stages, recent batches and the
+median of each stage over time; a Prometheus scraping `/api/stages/metrics` has them as histograms.
 
 The merge pipeline's health is read from the batch items (`dev/bin/landing.py`, through `measure.py`):
 `main-still-minutes` (since the latest batch whose landing stood, ended `landed` or `partial`, at its `landed_at`;

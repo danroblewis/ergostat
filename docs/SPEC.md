@@ -1474,6 +1474,8 @@ reads the event log.
   - One view per item kind, named for the kind with `-` read as `_`: `(id, state, first, last, entered, events, ...)`,
     then the kind's `show:` fields that are plain words. A kind whose name is not then a plain word, or that is named
     like a view above, has none.
+  - `item_stages`, `stage_estimates` and `item_progress`: the stages of the items of each kind declaring `pipeline:`,
+    their expected times and each open item's time left (section 5a, *Stages*).
 
   The aggregates `median(x)`, `percentile(x, p)` (p from 0 to 100) and `percentile_cont(x, p)` (p from 0 to 1) are exact.
   They interpolate linearly between the two nearest values, as PostgreSQL's `percentile_cont` does, and ignore nulls.
@@ -1710,7 +1712,41 @@ items:
 | `finished` | list of its states, not its first | none | The states it counts as finished, when `messages: done:` does not name the kind (a template's kind says its own: a template writes no `messages:`); `bad-finished` for a state it does not have, or its first |
 | `moves-from` | map of one of its `on:` events → a list of its states | none | The only states that event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for an event not in `on:` or a state it does not have) |
 | `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
+| `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{kind, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge`; any other rule for it is refused (`bad-pipeline`), as is a library's |
 | `system`, `description` | | | |
+
+**Stages** (`ergostat/stages.py`). A kind with `pipeline:` is a pipeline: each of its items records the named stages it
+goes through as ordinary events, any type (the merge queue's are `batch.stage-started` and `batch.stage-finished`),
+whose data folds into the item's `stages` field by merge, keyed by a span id the recorder makes:
+
+- started: `{"stages": {SPAN: {"stage": "unit", "run": "2", "run_kind": "full", "started": T, "until": T}}}`;
+- finished: `{"stages": {SPAN: {"finished": T, "outcome": "passed"}}}` (`passed` is the one normal outcome;
+  `failed`, `stopped` for one cut short, `error`).
+
+A span per stage run, so a stage may repeat (in one run or in another) and stages may run at once. A stage with no
+finish is `running` while its item is open and before its `until` (by when its recorder said it ends or is stopped);
+past either it is `unfinished`, so a recorder that died never reads as running. The SQL source (section 4e) answers
+three views of them, read in the same snapshot as the others:
+
+- `item_stages(id, kind, span, stage, run, run_kind, state, outcome, started, finished, seconds)`: each stage, in the
+  order the record began them. `state` is `done`, `running` or `unfinished`; `seconds` is the duration when done, the
+  time so far when running, and null when unfinished.
+- `stage_estimates(kind, run_kind, stage, expected, samples)`: the median of the stage's latest 20 `passed` runs on the
+  same kind of item and of run, with how many there were. Under 3, `expected` is null: no estimate.
+- `item_progress(id, kind, run, run_kind, stage, note, elapsed, expected, samples, left)`: each open item's running
+  stages (one row a stage; none running, one row with a null stage). `left` is the time left: each running stage's
+  expected less its elapsed (at least 0), the longest of those that run at once, plus the later steps of the latest
+  run of its kind whose stages all passed (a step: the stages that ran at once; its longest expected). It is null,
+  with `note` saying why, when that run or an estimate is missing, when a stage of the item did not pass ("the
+  remaining path depends on what fails"), or when one is unfinished.
+
+`GET /api/stages/metrics` gives the finished stages of every pipeline as one Prometheus histogram,
+`ergostat_stage_seconds` (`_bucket`, `_sum`, `_count`; buckets of 10 s to 4 h), labelled only by `kind`, `stage` (a
+declared name, else `other`) and `outcome` (one of the four, else `other`): a Prometheus that scrapes it answers PromQL
+over them. The default Dashboard gives each pipeline (two at most, with a `sql` source declared) a row of its own,
+named for its `title`: its running item and the line waiting, in the order `waiting` takes them; its stages now with
+elapsed, expected and time left; each stage of its running item; its recent items; and each stage's median over time,
+each an ordinary SQL panel over these views.
 
 **Which states are finished.** One rule (`spec/finished.py`) decides it for the Items listing, the relations' status
 and critical path, and the completion estimates: the states `messages: {done:}` declares for the kind, else those
