@@ -88,6 +88,18 @@ Round 3, answering the one finding (blocking: a conflict with main in docs/AGENT
   test_templates.py (73 passed); ruff clean. Not run here: the whole unit suite and the four browser files (no page
   changed).
 
+Round 4, answering the one finding (blocking: conflicts with main in ergostat/cli/library.py and
+ergostat/library/fetched.py; there were no others):
+
+- Merged main (fa5a570c). cli/library.py: main's `ergostat library` listing (`what` optional, `listing`) and this
+  branch's `--dry-run` / `_dry_run` both kept; the docstring says both. fetched.py: main's `import re` beside the
+  branch's `ContextVar` and `Path` imports. One line more than a pure union: main's new `doc.listed` entry for a
+  library compiled as the candidate is described by the candidate's lock entry (from `OVER`), not the locked one, so
+  the in-memory candidate model does not say the old commit.
+- Run after the merge: tests/test_library_update.py (10 passed); test_library_fetch.py, test_library_qualified.py,
+  test_library_trust.py (81 passed); ruff clean. Not run here: the whole unit suite and the four browser files (no
+  page changed).
+
 ## Entry
 
 section: Remote systems and libraries
