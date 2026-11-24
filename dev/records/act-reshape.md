@@ -123,3 +123,41 @@ and the four browser files (the factory runs them). No page changed.
 
 entry-of: operating-modes-regime
 done: 2026-11-24 Reshaping an act, on `act-reshape` (SPEC §12k): a gate cell `{reshape: ACTION}` holds the full act for the owner and asks for the smaller declared action at once under its own gate and act-risk, each linked to the other (`reshaped_to` / `reshaped_from`), the session answered by the smaller one; unknown targets, extra args and chains refused at compile as `bad-reshape`.
+
+## Where it stopped (round 2)
+
+Built, round 2. The one finding (blocking) on a program asking again for a reshaped act is fixed in
+`ergostat/actions/program.py`, in each of its three parts, and each part has its own test:
+1. A held target is taken over by the lease. When `start` finds the held full act and takes it over (`reask`), it
+   also takes over the target it was reshaped to (`program.target`: `reask` on the target, and then the fenced check
+   on the target too). When the owner approves the target, it runs under the lease that asked last and is not failed
+   as fenced: `test_program_reask_takes_target_over_with_lease` (lease 1, then 2, then approve: ran, not fenced).
+2. A target that failed is asked for anew. A target that no longer stands, by the same rule `known()` applies to any
+   act (now `program.stands`: failed, fenced, or denied by a gate whose cell is no longer deny), is asked for again.
+   The full act's new `reshaped_to` is written first (an `ergostat.action.reshaped` event; it is not a state move),
+   and then the new target, with `reshaped_from` in its first event: the same order and reason as round 1. A lock
+   file named by the old target (`O_EXCL`, the same way as `run_once`) means two asks at once replace it only once
+   (lesson-1). The one that loses the race gets the new target if it is written already, else the old one as it
+   stands. Test: `test_program_failed_target_asked_anew`. The first ask fails, the second asks anew and runs, the full
+   act links to the new target, and a third ask gets that target back with no new record.
+3. Once the owner has answered the full act, the answer is the full act. `ask` follows `reshaped_to` only while the
+   full act is not answered (`program.answered`: past `requested` and approved or denied by someone, never by the gate
+   alone). A full act the owner approved (and that ran) or denied is the answer to a later ask, and is delivered to
+   that run: `test_program_answered_by_full_once_owner_answers` (both cases).
+
+Each fix was broken by hand and its test failed: no `reask` on the target (test 1); a failed target counted as
+standing (test 2); `reshaped_to` always followed (test 3). The module docstring (the promise at program.py:12-16) and
+SPEC §12k (*Reshaping an act*: a new item, "A program asking again") now say this.
+
+A correction to round 1: it said regime-scheduled-gates "is on main". It is not. It is merged under this branch as
+the base (f3425a8f), and `main` does not have it. `HEAD..main` is still empty. Measured against that base, the gap is
+103 net lines outside tests and docs (budget 110). Against `main`, the diff also holds the base gap's own lines.
+
+Left as it was, and not part of the finding: two programs taking over the same held act at the same moment write two
+`reasked` events with no lock. That was already so for every held act before this gap. The later event wins, as it
+does for an act that was never reshaped.
+
+Run: `tests/test_act_reshape.py` (13 passed), `tests/test_program_actions.py`, `tests/test_gated_actions.py`,
+`tests/test_regime_gates.py`, `tests/test_act_risk.py`, `tests/test_operating_state.py`, `tests/test_spec_schema.py`,
+`tests/test_spec_structure.py`: all passed. ruff is clean. The unit suite and the four browser files were not run here
+(the factory runs them). No page changed.
