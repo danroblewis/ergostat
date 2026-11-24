@@ -9,9 +9,11 @@
   refused, never written in.
 - A PromQL comment is left as it is.
 
-A language with no rules here refuses every variable it is given (fail closed). ``analysis`` and ``model`` (the call
-syntax of the chart catalog, ``psd(A, detrend="linear")``) have the call rules, ready for when those types exist. A name
-that is not among the variables given is left as written."""
+A language with no rules here refuses every variable it is given (fail closed). ``analysis`` (the call syntax of the
+chart catalog, ``psd(A, detrend="linear")``) has the call rules, ready for when that type exists. ``model``
+(datasources/model.py: ``goal NAME``, ``fopdt gain=K tau=DURATION``) reads a quote as part of a word, so it has no
+strings: a value there is always one plain name, number or duration, and so one word. A name that is not among the
+variables given is left as written."""
 
 from __future__ import annotations
 
@@ -37,7 +39,9 @@ class Rules:
 # label_replace(v, dst, replacement, src, regex): the regex is anchored RE2, and the replacement expands $1, ${name}
 PROMQL = Rules("\"'`", "#", True, _METRIC, {"label_replace": {2: "replacement", 4: "regex"}})
 CALLS = Rules("\"'", None, False, _IDENT)
-LANGUAGES = {"promql": PROMQL, "analysis": CALLS, "model": CALLS}
+# the model source's one line of words (datasources/model.py): no quotes or comments, so a value is always one bare word
+MODEL = Rules("", None, False, _IDENT)
+LANGUAGES = {"promql": PROMQL, "analysis": CALLS, "model": MODEL}
 
 
 def uses(text: str) -> set[str]:

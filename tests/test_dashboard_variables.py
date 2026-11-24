@@ -94,7 +94,7 @@ def test_a_value_with_quotes_or_regex_characters_cannot_change_a_querys_meaning(
             ("up{kind='${kind}'} # $kind", "\"'`", "#", "PromQL"),
             ('label_replace(up, "dst", "$kind", "src", "(.*)")', "\"'`", "#", "PromQL"),
             ('psd(A, detrend="$kind")', "\"'", None, "analysis"),
-            ("fan(stock='$kind', h=8h)", "\"'", None, "model")]:
+            ("fan(stock='$kind', h=8h)", "\"'", None, "analysis")]:
         got = interpolate(lang, template, g)
         shape, lits = lex(got, quotes, comment)
         want_shape, want_lits = lex(template, quotes, comment)
@@ -134,6 +134,26 @@ def test_a_value_that_cannot_go_where_it_is_used_is_refused():
     lr = 'label_replace(up, "$l", "$l-$1", "s", "$l(.*)") + label_join(up, "d", "$l", "s")'
     assert interpolate("PromQL", lr, {"l": ["a.$b"]}) == \
         'label_replace(up, "a.$b", "a.$$b-$1", "s", "a\\\\.\\\\$b(.*)") + label_join(up, "d", "a.$b", "s")'
+
+
+@pytest.mark.parametrize("value", HOSTILE + ["x dt=1s", "x\tdeclared", "gain=9", "1 tau=1y"])
+def test_a_model_query_takes_a_value_only_as_one_word_its_parser_reads_as_written(value):
+    """The model source's language has no strings (a quote is part of a word), so a hostile value is refused wherever
+    it is put, quoted or not; a plain one is the one word it replaces, as model.py's parser reads it."""
+    from ergostat.datasources import model as source
+    for template in ("goal $g", 'goal "$g"', "goal '${g}' declared", "fopdt gain=$g tau=30s", "ipdt gain=1 delay=$g"):
+        with pytest.raises(datasources.SourceError) as e:
+            interpolate("model", template, {"g": [value]})
+        assert e.value.kind == "refused", (template, value)
+    for template, good, parsed in [("goal $g declared", "queue_wait", ("goal", "queue_wait", {"how": "declared"})),
+                                   ("fopdt gain=$g tau=${g}m", "2", ("fopdt", None, {"gain": 2.0, "tau": 120.0})),
+                                   ("ipdt gain=1 delay=$g dt=5s", "30s", ("ipdt", None, {"gain": 1.0, "delay": 30.0,
+                                                                                         "dt": 5.0}))]:
+        got = interpolate("model", template, {"g": [good]})
+        assert got == template.replace("${g}", good).replace("$g", good)
+        assert source._parsed(got)[:3] == parsed, got
+    with pytest.raises(datasources.SourceError):
+        interpolate("model", "goal $g", {"g": ["a", "b"]})          # several values where one word goes
 
 
 def test_a_language_with_no_rules_refuses_every_variable():

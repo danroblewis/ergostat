@@ -359,7 +359,8 @@ def test_the_first_draw_says_who_is_still_waiting_with_the_poll_off(browser, sit
     assert pg.evaluate("() => DASH.timer") is None                       # the poll is Off
     pg.wait_for_function("() => [...document.querySelectorAll('.panel-note')].some((e) => e.textContent.includes('still waiting: 3'))",
                          timeout=5000)
-    assert pg.evaluate("() => window.__queries") == 1                     # one ask, the first draw's
+    assert pg.evaluate("() => DASH.asked") == 1                           # one ask, the first draw's
+    assert pg.evaluate("() => window.__queries") <= 2                     # (sent as the panels above the fold, then the rest)
     assert pg.errors == []
     ctx.close()
 

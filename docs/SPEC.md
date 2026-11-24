@@ -1488,8 +1488,9 @@ reads the event log.
   escaped as a literal regular expression, several as `(?:a|b)`; `label_replace`'s replacement (3rd) takes one value
   with each `$` written `$$`, so it names no group; and any other string exactly one value; outside a string a value must be one plain name or number or
   duration (never a keyword), else the query is refused (`error_kind: refused`); a comment is left as written. The
-  `analysis` and `model` call languages have the same rules without regular expressions; a language with no rules
-  refuses every variable used in it. In the older query forms a field takes a variable's one value, and a list element
+  `analysis` call language has the same rules without regular expressions. The `model` source's language (below) has
+  no strings, a quote being part of a word, so a value there is always one plain name, number or duration, one word,
+  else refused. A language with no rules (`sql` among them) refuses every variable used in it. In the older query forms a field takes a variable's one value, and a list element
   that is the variable alone takes every value; with several chosen, a field is left as written (`$kind`), which
   matches nothing. Changing a variable asks again only the panels whose queries then
   change (those that use it, and the copies of a panel repeated by it); each panel takes only the answer of the last

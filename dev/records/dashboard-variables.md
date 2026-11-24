@@ -386,3 +386,51 @@ Run here, after the merge:
 - Not run: the whole unit suite and the four browser files (the factory's job).
 
 Refused here: nothing.
+
+### Continued, round 2
+
+The only finding was the conflicts with main (e8669794) in `docs/SPEC.md`, `ergostat/datasources/__init__.py`,
+`ergostat/query/engine.py` and `ergostat/web/static/dashboard.js`. They are answered by the merge at e743f9e3. Main had
+added the `model` source, which is the project's own model, with a `public` flag so that a reader under `open: read` may
+ask it. It had also added a first draw that asks the panels above the fold first (`dashFirst`). Each conflict keeps both
+sides:
+- `datasources/__init__.py`: main's `own()` is kept. The branch's `_source` now finds a source through main's
+  `_sources` (so the undeclared `model` source is found), and `query` takes both `given` and main's `public`.
+- `query/engine.py`: `_from_source` passes `q.given`, `project=p` and `public=public`.
+- `dashboard.js` `dashRefresh`: main's fold-first split is applied to the panels this ask holds (all of them, or only
+  those a variable changed). Each of the two answers is kept only for the panels whose newest ask this still is
+  (`DASH.ver`), as before. The rest are not asked once no panel is held.
+- SPEC §4e: the branch's *Variables* paragraph is followed by main's *The model as a data source*. The reader sentence
+  is main's (`datasources` lists only `model` to a reader). §11 names both the `label_values` GET and the `model` type.
+
+After the merge, one change beyond it, in the same rule this gap owns. Round 1 wrote rules for `model` in the
+catalog's call syntax and said they "must be checked against their parsers when they arrive". Main's `model` parser
+(`datasources/model.py`) arrived in this merge, and the check failed: its one line of words has no strings, since a
+quote is part of a word. So under the call rules, `goal "$g"` would have let a value like `x dt=1s` add a word.
+- `_interpolate.py`: `model` has its own rules (`MODEL`): no quotes and no comment. A value is always placed bare, so it
+  must be one plain name, number or duration, one word, or the query is refused. `analysis` keeps the call rules.
+- New test, `tests/test_dashboard_variables.py::test_a_model_query_takes_a_value_only_as_one_word_its_parser_reads_as_written`.
+  It tries 19 hostile values (the 15 HOSTILE ones and 4 that try to add a word), in five templates, quoted and not, and
+  each must be refused. Three plain values must come out as written, and `model._parsed` must read them as the expected
+  form, goal and numbers. The done-2 test's former `model` template is now run as `analysis`, the language of its syntax.
+- Seen to fail: with `model` on the call rules again, the new test failed 19 times.
+- `test_dashboard_variables_page.py::test_the_first_draw_says_who_is_still_waiting_with_the_poll_off` counted HTTP
+  requests (`window.__queries == 1`). Main's first draw sends two, the above-the-fold panels and then the rest. It now
+  checks one ask (`DASH.asked == 1`) and at most two requests. That is what it meant: one draw, with no poll.
+- SPEC §4e says the `model` rule, and that `sql` has none.
+- Choice taken without asking: a goal name in a `model` variable must be a plain identifier (letters, digits, `_`). A
+  name with other characters is refused (fail closed).
+
+The size is 434 net lines outside tests, docs and dev (517 added, 83 removed in `ergostat` and `scripts`, measured
+against main; budget 600).
+
+Run here, after the merge:
+- ruff is clean.
+- Unit files: test_dashboard_variables, test_data_sources and test_query_engine (108 passed); test_model_data_source,
+  test_sql_source and test_result_shapes (58 passed).
+- Under the watchdog, all with rc 0 and none skipped: test_dashboard_variables_page (9 passed, after the change above;
+  before it, 1 failed as described); test_dashboard_page, test_dashboard_layout and test_data_source_panels (79
+  passed). test_dashboard_first_load passed in the same run as the first.
+- Not run: the whole unit suite and the four browser files (the factory's job).
+
+Refused here: a Write of a scratch file to `/tmp` (the file tools are kept to `/work`). It was never needed.
