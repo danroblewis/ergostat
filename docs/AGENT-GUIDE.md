@@ -880,6 +880,25 @@ exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per 
 "transform": "rate", "rate_per": "hour", "group_by": "state"}]}`. Prefer `items`, `moves`, `counts` and `series`; the
 `events` source reads the log, bounded, and says so.
 
+To look at how signals move, add a query of the reserved `analysis` source over the request's other queries, by id.
+Each call reads raw readings (an ergostat `series` with no transform, or a data source asked again at its finest step)
+on one grid, never the values the panel drew:
+
+| Call | Options (bound) | Answer |
+|---|---|---|
+| `raw(A)` | `points` (16 to 5,000) | `series`, with its gap mask |
+| `pair(A, B)` | none | `points` in time order: x from A, y from B, one per grid time both hold |
+| `psd(A)` | `detrend=linear\|mean\|none`, `segments` (1 to 64; 4) | `points` by period (s): Welch power, `lower`/`upper` a 95% band per period |
+| `spectrogram(A)` | `length` (a duration: 16 to 1,024 samples), `detrend`, `cells` (1 to 5,000) | `table`: stretch `start` × `frequency` → `power` |
+| `ccf(A, B)` | `most_lag` (a duration: 1 to 256 samples) | `points` by lag (s); positive: B moves after A; ±1.96/√n band |
+
+Read the refusals as the answer, never as zero: a record too short, holding a NaN or ±inf, with no stretch of 16
+samples between its gaps, or flat is `unanalysable`; a spectrum of a data source's query with a range window (`rate(x[5m])`)
+is `windowed` (G1: ask an ergostat series, or the source without the window). A period under `not_observable_s` (twice
+the scrape or step) is never answered. The ccf band holds only for two independent white signals: a peak past it in
+autocorrelated signals is not evidence of a link. `pair` and `ccf` of signals read at different steps or windows warn
+`mixed-windows`.
+
 ## 3l. A shared dashboard: declared by you, never by a person
 
 People do not write `dashboards:` by hand; you (or the Supervisor) add one when the owner asks for a shared view,

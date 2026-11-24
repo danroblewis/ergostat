@@ -1529,7 +1529,7 @@ reads the event log.
   listed, and is never asked). `/api/query/fields` lists it first among `datasources`, its language `ergostat analysis`.
   A query `{"id": "r", "source": "analysis", "text": "raw(A)"}` is answered on the server over another query of the same
   request, named by its id. The language is small and closed: a call's name, the ids of the queries it reads, then
-  `key=value` options. The one call is `raw` (`pair`, `psd`, `spectrogram` and `ccf` are to come), reading one query,
+  `key=value` options. The calls are `raw`, `pair`, `psd`, `spectrogram` and `ccf` (below); `raw` reads one query,
   with one option, `points` (16 to 5,000; 5,000 by default). Refused, each in its own result while the others answer:
   an unknown call or option, an id after an option, text that does not parse (with `error_at`, `[1, column]`), and a
   reference to an id not in the request, to itself, to another analysis query, or to a query whose answer failed (a
@@ -1545,6 +1545,39 @@ reads the event log.
   part is left empty and warned. More than 500,000 readings in the window is a `limit`. A metrics store whose raw
   readings cannot be told from its roll-ups (VictoriaMetrics) is refused. A a data source's query is asked again at the
   finest step 1,000 points allow; the answer warns `not-raw`, naming its range windows, which still smooth it.
+  `pair(A, B)`, `psd(A)`, `spectrogram(A)` and `ccf(A, B)` (`query/spectra.py`) read each query only through that
+  re-read (a refusal of it, such as `only-rollups`, is theirs), never the values the panel drew; two signals are put on
+  one grid, the coarser of their steps, each bucket the mean of its values and empty where it holds none. The FFT,
+  coarsening to at most 2,048 samples, detrending and the stretches between gaps are `query/frequency.py`'s.
+  - `pair(A, B)`, no options: `points` with `order: "time"`, x from A, y from B, one per grid time where both hold a
+    value, `t` ascending. Signals read at different steps or range windows warn `mixed-windows`, naming each one's step
+    and windows (G4); so does `ccf`.
+  - `psd(A, detrend=linear|mean|none, segments=N)` (linear and 4 by default; `segments` 1 to 64): `points` with
+    `order: "x"`, period in seconds against Welch power (one-sided, Hann stretches overlapping by half, the signal's
+    unit squared per Hz). Each value has `lower` and `upper`: an approximate 95% interval for that period alone, from
+    chi-square with `dof` = 2 × round(9/11 × the stretches), at least 2 (each half-overlapping stretch counted as 9/11
+    of an independent one, as the coherence floor counts them); it assumes the signal is stationary noise about that
+    period, and is not a band for all periods at once. A period under `not_observable_s` `[0, 2 × max(scrape,
+    step)]` (G2; the step after coarsening) is not answered. On a raw grid, whose step is never under its scrape, that
+    bound is the FFT's own shortest period; it cuts more only when the scrape is the longer. A data source's query with
+    a range window, or whose windows are not read, is refused (`windowed`, G1), never computed on the windowed values;
+    one with none is answered from its re-read, with its `not-raw` and `scrape-unknown` warnings.
+  - `spectrogram(A, length=D, detrend=..., cells=N)`: a `table` of dims `start` (time) and `frequency` (Hz) and the
+    measure `power`, with psd's guards. `length` is a duration (`90`, `90s`, `10m`, `2h`, `1d`), 16 to 1,024 samples
+    (by default an eighth of the record within those), cut to the longest length not over it with no prime factor
+    past 5. `cells`
+    (1 to 5,000; 5,000 by default) bounds stretches × frequencies: past it the stretches are thinned evenly and a
+    `partial` warning says so; one stretch with more frequencies than `cells` is refused.
+  - `ccf(A, B, most_lag=D)`: `points` with `order: "x"`, the lag in seconds against the correlation of A at t with B at
+    t + lag, so a positive lag means B moves after A. `most_lag` is a duration, 1 to 256 samples (by default a quarter
+    of the record, at most 256); a `most_lag` that leaves any lag fewer than 32 pairs is refused. `lower` and `upper` are ∓1.96/√n, n the
+    lag's pairs: 95% of lags of two independent white signals fall inside it. It holds for nothing else: two
+    autocorrelated signals cross it often with no link between them.
+  - Each refuses, as `unanalysable` and in words naming the cause, a record where the signals hold a value together at
+    fewer than 32 samples, one holding a NaN or ±inf, one that does not vary (or, for psd and spectrogram, a stretch that
+    is a straight line once detrended), and one with no unbroken stretch of 16 samples between its gaps (for psd, too
+    few for its `segments`). A refusal holds no curve, table or zeros. Each count above its maximum is refused, naming
+    the bound.
 - **Sampling.** Every answer carries `meta.sampling`: `step_s`; `scrape_s`, the readings' median spacing where they are
   read (an ergostat `series`, from the newest 2,000 raw readings in the window, and `raw`, from all it reads; an answer
   built from series readings, such as candles, an X-paired or binned series or a frequency response, carries the
