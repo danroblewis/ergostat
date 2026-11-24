@@ -4938,9 +4938,9 @@ error its log as above. What the engine sends it is appended to its **inbox**, a
 daemon's standard input from where it last delivered (saved after each line); what it prints goes to its **journal**,
 which the engine follows from a saved offset. Both are in `<state>/daemons/KEY/` (KEY: a hash of its name), with a
 state file per process: its keeper's run id, its pid and start time, its command, where its journal was read to, and
-each run it holds with the line that handed it over, written before that line is sent and kept until the run's
-`agent.ran` or `agent.failed` is recorded (a daemon's run's end has an id made from the run's, so it is written once
-whichever engine writes it).
+each run it holds with the line that handed it over and where its journal was read to then (`at`: the run's answers
+come after it), written before that line is sent and kept until the run's `agent.ran` or `agent.failed` is recorded
+(a daemon's run's end has an id made from the run's, so it is written once whichever engine writes it).
 - **The engine stops or is killed** (`run --stop`, SIGKILL to its group, a crash): the daemon goes on. It is sent
   nothing meanwhile and never the end of its input, so it keeps doing what it holds; what it prints is in its journal.
   It is not sent `stop` and not killed; the runs it holds record no end and keep their leases, with their fences, for
@@ -4948,9 +4948,12 @@ whichever engine writes it).
 - **The next engine** takes up each process it finds, on its first start of the daemon: each run its state holds (one
   with an `agent.started` and no end in the record, of a block that still uses this daemon) is held again, its lease
   renewed as it is taken up and by the watchdog while it waits (`seen: keeper`); its timeout counts again from the
-  take-up. Its journal is read from the saved offset to its end; each event a journal line makes has an id of the
-  process and the line's place, so a line read again (an engine killed between a line's events and its saved
-  offset) adds none. Then each run still not answered is sent again, its line the same, `run` the same id: delivery
+  take-up. Its journal is read to its end from the earliest `at` of the runs taken up (or the saved offset, if
+  that is earlier; a run with no `at`, from the journal's start): an engine before may have read a run's `done`
+  and saved the offset past it, then been killed or stopped before the run's end was recorded, and the run is
+  still held, so its answer is read again and recorded, never waited for. Below the saved offset only a line of a
+  run taken up is taken again (a reading, an observation or another run's line was the engine before's); each
+  event a journal line makes has an id of the process and the line's place, so a line read again adds none. Then each run still not answered is sent again, its line the same, `run` the same id: delivery
   is **at least once**, and a daemon drops a repeat by its run id (it may also be sent a run it answered just after
   the journal was read: a `done` it gives for a run no longer held is dropped, as above). Its end is recorded as the
   run's (`taken_up: true`), then its lease's ack or nack.

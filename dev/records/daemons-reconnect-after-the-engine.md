@@ -81,6 +81,28 @@ test_metrics_store_labels, test_daemons_outlive_engine (15), test_daemons (34), 
 failures of the batch of 26, if any were this branch's, are not known here; only this one was named.
 Overrun reason: 620 net lines against 600: round 2's 18 (its two blocking fixes) and round 3's 2 (the guard that lets the sweep pass over an engine with no project, the queue's finding); nothing else was added.
 
+Round 4, the review's one finding (blocking; there were no others): the journal's offset was saved past a run's
+`done` before that run's end was recorded, by another thread, with nothing ordering the two, so (a) an engine killed
+in between left the run held with its answer behind the offset (sent again, dropped by the daemon as a repeat, never
+answered), and (b) a clean stop's `leave` during `take` dropped the run's lines as of no run held and saved the
+offset past them. Fix (the review's first suggestion): each held run's state now keeps `at`, the journal offset when
+it was handed over (its answers come after it); a taking-up engine reads from the earliest `at` of the runs it takes
+up (`take_from_held`; a run with no `at` from the journal's start), and below the saved offset gives only a held run
+its lines again (`held_line`: a reading, an observation or another run's line is not re-delivered); events of a line
+read again add none (line-place ids), and the saved offset never goes below the one read before. SPEC §9.7 says so.
+Tests: `test_an_answer_read_by_an_engine_killed_before_it_recorded_the_end_is_recorded_by_the_next` (`_through`
+patched to stop once the answer is read, the offset seen saved past it), `test_an_answer_read_as_the_engine_stops_is_recorded_by_the_next`
+(`leave` called inside `chunk` as the `done` is taken), each then a third engine records the run once, not sending it
+a third time; and `test_a_journal_read_again_gives_only_a_held_run_its_lines_again`. Broken by hand and seen to fail:
+`take_from_held` made a no-op (both window tests fail: "its answer, read before the engine ended, is lost"), the
+held-line filter removed (the unit test fails). Run one file at a time, all passing: test_daemons_outlive_engine (18),
+test_daemons, test_daemons_restart, test_metrics_store_labels (5 skipped for want of `ERGOSTAT_TEST_VM_URL`, as on
+main), test_warm, test_daemon_lines, test_runs_outlive_engine, test_resilience, test_engine_shard,
+test_daemon_observations; ruff clean. `main` (d0f95413) is already merged in. Not run here: the whole unit suite and
+the browser files. Left as before: a run whose `agent.ran` was recorded but whose lease was not yet acked when the
+engine died is not taken up (its end is there), so its lease expires as any other's.
+Overrun reason: 644 net lines against 600: round 2's 18 and round 3's 2 as above, and round 4's 24 (each held run's journal position, the read again from it and the filter that gives only held runs their lines again, the review's blocking finding); nothing else was added.
+
 ## Entry
 
 section: Runtime, scale and latency
@@ -88,7 +110,8 @@ section: Runtime, scale and latency
 - **A daemon outlives its engine** (done, on `daemons-reconnect-after-the-engine`; SPEC §9.7): `outlive-engine: true`
   (default `runs: outlive_engine`; never warm) runs a daemon under a keeper through a relay that feeds its input from
   an inbox file, its output a journal read from a saved offset. Stopped or killed, the engine leaves it going; the
-  next takes up the runs it held (saved before each hand-over), reads the journal to its end, sends again what is
+  next takes up the runs it held (saved before each hand-over, with where the journal was read to then), reads the
+  journal to its end from the earliest of those (an answer read but not recorded is read again), sends again what is
   unanswered with the same `run` id (at least once), restarts one found ended with its runs (given back, uncounted,
   if the restart fails), drains one whose command changed, and drains or lets go a process of a daemon no longer
   kept. Not done: inbox and journal rotation, readings sent again, the restart-in-place path tested.

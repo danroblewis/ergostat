@@ -6,9 +6,11 @@ killed leaves it going: it is sent nothing meanwhile and goes on with what it ho
 
 Its folder is ``<state>/daemons/KEY/`` (KEY: its name's hash), with ``state.json``: its process (its keeper's run id,
 its pid and start time), where its journal was read to, and each run it holds with the line that handed it over,
-written before that line is sent and kept until the run's end is recorded (``acked``). A starting engine takes those
-runs up (each still a run: its lease kept and renewed, its end recorded once, ``adopt.end_id``), reads the journal
-from the offset to its end, then sends each run not yet answered again, with the same ``run`` id: delivery is at least
+written before that line is sent and kept until the run's end is recorded (``acked``), with where the journal was read
+to then (``at``). A starting engine takes those runs up (each still a run: its lease kept and renewed, its end recorded
+once, ``adopt.end_id``), reads the journal to its end from the earliest ``at`` of those (an engine before may have read
+a run's ``done`` and saved the offset past it, then been killed or stopped before its end was recorded; below the saved
+offset only a held run's lines are taken again), then sends each run not yet answered again, with the same ``run`` id: delivery is at least
 once, and a daemon drops a repeat by its id. A journal line's events have ids of its place (``store.LINE``), so a
 line read again adds none. A process found ended is restarted, the runs it had not answered handed to the new one."""
 
@@ -59,7 +61,8 @@ def read_state(path: Path, name: str) -> dict | None:
           and type(st.get("pid")) is int and st["pid"] > 0 and isinstance(st.get("start"), str | None)
           and isinstance(st.get("since"), int | float) and not isinstance(st["since"], bool)
           and type(st.get("offset")) is int and st["offset"] >= 0 and isinstance(st.get("held"), dict)
-          and all(isinstance(v, dict) and v.get("run") == k for k, v in st["held"].items()))
+          and all(isinstance(v, dict) and v.get("run") == k for k, v in st["held"].items())
+          and isinstance(st.get("at", {}), dict) and all(type(v) is int for v in st.get("at", {}).values()))
     return st if ok else None
 
 
@@ -88,8 +91,9 @@ class KeptProcess(Process):
         self.base, self.old = base, old
         self.saving = threading.RLock()          # (its state written whole, of the latest offset and runs held)
         self.lines: dict[str, dict] = {}         # each run held: the line that handed it over, till its end is recorded
+        self.at: dict[str, int] = {}             # and where its journal was read to then: its answers are past it
         self.leaving = threading.Event()
-        self.offset = old["offset"] if old else 0
+        self.offset = self.replay = old["offset"] if old else 0   # (below ``replay``: read by an engine before)
         super().__init__(d, cwd, env, log, on_push, on_observe)
 
     def _begin(self, cwd, env: dict) -> None:
@@ -125,15 +129,16 @@ class KeptProcess(Process):
         with self.saving:
             if self.done_with:
                 return
-            st = {"journal": JOURNAL, "name": self.d.name, "proc": self.procid, **self.rec, "offset": self.offset,
-                  "held": dict(self.lines)}
+            st = {"journal": JOURNAL, "name": self.d.name, "proc": self.procid, **self.rec,
+                  "offset": max(self.offset, self.replay), "held": dict(self.lines),
+                  "at": {r: self.at.get(r, 0) for r in self.lines}}
             keeper.put(str(self.f["state"]), json.dumps(st))
 
     def hold(self, run: str, h: Handle, line: dict | None) -> bool:
         """As a daemon's, its line in its state before it is sent: a run handed over is never one a next engine
         does not know of."""
         with self.saving:
-            self.lines[run] = line
+            self.lines[run], self.at[run] = line, self.offset   # (its answers, printed once it is sent, come after)
             self._save()
         with self.lock:                          # (its holder and its runs changed together: ``_through`` reads both)
             self.runs[run], self.idle_since, h.sent, h.kept = h, None, line is not None, self
@@ -142,6 +147,7 @@ class KeptProcess(Process):
     def acked(self, run: str) -> bool:
         """Its run's end recorded: no longer taken up or sent again."""
         with self.saving:
+            self.at.pop(run, None)
             if self.lines.pop(run, None) is None:
                 return False
             self._save()
@@ -208,6 +214,8 @@ class KeptProcess(Process):
         pos = self.offset
         for raw in data[:cut].splitlines(keepends=True):
             pos += len(raw)
+            if pos <= self.replay and not self.held_line(raw):
+                continue                         # (taken by an engine before: only a run still held is given it again)
             token = store.LINE.set([f"{self.procid}:{pos}", 0])
             try:
                 self.chunk(raw.rstrip(b"\n") + b"\n")
@@ -216,6 +224,20 @@ class KeptProcess(Process):
         self.offset = pos
         self._save()
         return True
+
+    def held_line(self, raw: bytes) -> bool:
+        """Whether a journal line is one of a run it holds."""
+        try:
+            run = json.loads(raw).get("run")
+        except (ValueError, RecursionError, AttributeError):
+            return False
+        with self.lock:
+            return isinstance(run, str) and run in self.runs
+
+    def take_from_held(self) -> None:
+        """Taken up: its journal read again from where it was when the earliest run it holds was handed over, since
+        an engine before may have read a run's answer and not recorded its end (killed, or stopping, in between)."""
+        self.offset = min([self.offset, *(self.at.get(r, 0) for r in self.lines)])
 
     def leave(self) -> None:
         """The engine stopping: it goes on. Each run it holds ended here as left (``LEFT``: no end recorded, its lease
@@ -306,7 +328,8 @@ def found(sup, d, base: Path, log: str, push, observe) -> tuple[list[KeptProcess
     live, dead = [], []
     for st in states(base, d.name):
         old = KeptProcess(d, base, None, {}, open(log, "a", encoding="utf-8"), push, observe, old=st)
-        take_up(sup, old, st["held"])
+        take_up(sup, old, st["held"], st.get("at", {}))
+        old.take_from_held()
         gone = adopt.alive(old.rec) is False or keeper.ended(str(old.f["keeper"])) is not None
         while old.take(eof=gone):                # (its journal read to its end now, before anything is sent again)
             pass
@@ -381,9 +404,10 @@ def names(base: Path) -> set[str]:
     return got
 
 
-def take_up(sup, p: KeptProcess, held: dict) -> None:
+def take_up(sup, p: KeptProcess, held: dict, at: dict) -> None:
     """Each run it held, by the line that handed it over, taken up: held again (its answer still to come, in its
-    journal or later), its lease kept, its end recorded as the run's (``_through``)."""
+    journal from ``at``, or later), its lease kept, its end recorded as the run's (``_through``). One with no ``at``
+    is read for from the journal's start."""
     from ..costs import ai as costs_ai
     from ..library import bounds
     from ..spec.engine import Said
@@ -410,7 +434,7 @@ def take_up(sup, p: KeptProcess, held: dict) -> None:
             eng.live[run] = Waiting(h)
         with p.lock:
             p.runs[run] = h
-        p.lines[run], h.kept = line, p
+        p.lines[run], p.at[run], h.kept = line, max(0, at.get(run, 0)), p
         if item:
             eng.dispatch.adopt(b, item, fence, run, True)
         threading.Thread(target=_through, args=(sup, b, begun, h, said, usage, item, fence, key), daemon=True,

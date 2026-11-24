@@ -216,6 +216,74 @@ def test_a_message_not_answered_is_sent_again_with_its_id_and_none_is_lost(tmp_p
         e.daemons.close()
 
 
+def answered_in_the_window(p, tmp_path, monkeypatch, window) -> None:
+    """The second engine takes the run up and sends it again; the daemon answers; ``window(run)`` (patched in) puts that
+    engine's end between reading the answer (its offset saved past it) and recording the run's end. A third engine
+    must record it once, from the journal, without sending it a third time (the daemon drops a repeat)."""
+    run = killed_mid_item(p, tmp_path)
+    items = lambda: [x for x in got(tmp_path) if x["op"] == "item"]   # noqa: E731
+    seen = window(run)
+    e = taken_up(p)
+    try:
+        assert wait_for(lambda: len(items()) == 2), f"not sent again: {items()}"
+        (tmp_path / "go").write_text("")
+        assert seen.wait(30), "its answer never read"
+        out = kept.files(kept.folder(p.dir, "block.worker"), state(p)["proc"])["out"]
+        assert wait_for(lambda: state(p)["offset"] == out.stat().st_size), "its offset never saved past the answer"
+    finally:
+        e.daemons.close()
+    assert not ends(p) and run in state(p)["held"], "the window not opened: its end recorded, or it not held"
+    monkeypatch.undo()
+    e = taken_up(p)
+    try:
+        assert wait_for(lambda: ends(p)), "its answer, read before the engine ended, is lost"
+        ended_once(p, run)
+        assert len(items()) == 2, "answered, yet sent again"
+    finally:
+        e.daemons.close()
+
+
+@pytest.mark.slow
+def test_an_answer_read_by_an_engine_killed_before_it_recorded_the_end_is_recorded_by_the_next(tmp_path, daemons,
+                                                                                                 monkeypatch):
+    """The engine killed after its journal's offset was saved past a run's ``done`` and before the run's end was
+    recorded (``_through`` never gets to it): the next engine reads the journal again from where it was when the run
+    was handed over, and records the end."""
+    p = project(tmp_path)
+    daemons(p)
+
+    def window(run):
+        seen = threading.Event()
+
+        def killed_before_the_end(sup, b, begun, h, *a):
+            h.done.wait()                            # (the answer read, its offset saved; then nothing: killed)
+            seen.set()
+        monkeypatch.setattr(kept, "_through", killed_before_the_end)
+        return seen
+    answered_in_the_window(p, tmp_path, monkeypatch, window)
+
+
+@pytest.mark.slow
+def test_an_answer_read_as_the_engine_stops_is_recorded_by_the_next(tmp_path, daemons, monkeypatch):
+    """A clean stop's ``leave`` while the reader is taking the run's ``done``: the line is dropped as of no run held,
+    its offset saved past it; the next engine reads it again and records the end."""
+    p = project(tmp_path)
+    daemons(p)
+    chunk = kept.KeptProcess.chunk
+
+    def window(run):
+        seen = threading.Event()
+
+        def stopping_meanwhile(self, data, eof=False):
+            if f'"done": 0, "run": "{run}"'.encode() in data and not seen.is_set():
+                self.leave()
+                seen.set()
+            return chunk(self, data, eof)
+        monkeypatch.setattr(kept.KeptProcess, "chunk", stopping_meanwhile)
+        return seen
+    answered_in_the_window(p, tmp_path, monkeypatch, window)
+
+
 @pytest.mark.slow
 def test_a_daemon_that_died_while_no_engine_was_up_is_restarted_and_given_what_it_held(tmp_path, daemons):
     """Done 3: it exits while no engine is up; the next engine restarts it (``ergostat.daemon.restarted``) and hands
@@ -455,6 +523,28 @@ def test_a_run_is_in_its_daemon_s_state_before_its_line_is_sent(tmp_path):
             wait_for(lambda: p.proc.poll() is not None, 10)
             p.finish()
     assert wait_for(lambda: not any(base.glob("*.*")) and not any((base / "runs").glob("*")), 10), "its files stay"
+
+
+def test_a_journal_read_again_gives_only_a_held_run_its_lines_again(tmp_path):
+    """Taken up from where its earliest held run was handed over: below the saved offset, only a run still held is
+    given its lines again (a push, an observation or another run's line was taken by the engine before); past it,
+    every line is; the offset saved is never below the one read before."""
+    from types import SimpleNamespace
+    out = tmp_path / "a.out"
+    before = [{"sensor": "s", "reading": 1}, {"event": "e", "run": "gone"}, {"event": "e", "run": "r"},
+              {"done": 0, "run": "r"}]
+    text = "".join(json.dumps(x) + "\n" for x in before)
+    out.write_text(text + json.dumps({"sensor": "s", "reading": 2}) + "\n")
+    given, saved = [], []
+    x = SimpleNamespace(f={"out": out}, offset=len(text), replay=len(text), skipping=False, lock=threading.Lock(),
+                        runs={"r": object()}, lines={"r": {}}, at={"r": 0}, procid="p",
+                        chunk=lambda raw: given.append(json.loads(raw)), _save=lambda: saved.append(x.offset))
+    x.held_line = lambda raw: kept.KeptProcess.held_line(x, raw)
+    kept.KeptProcess.take_from_held(x)
+    assert x.offset == 0
+    assert kept.KeptProcess.take(x)
+    assert given == [before[2], before[3], {"sensor": "s", "reading": 2}], given
+    assert saved == [out.stat().st_size]
 
 
 def test_an_inbox_its_relay_has_not_delivered_counts_as_input_not_read(tmp_path):
