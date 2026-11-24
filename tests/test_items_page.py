@@ -1161,8 +1161,10 @@ OBSERVE = """() => {
   window.__mo?.disconnect();
   window.__muts = [];
   window.__mo = new MutationObserver((rs) => {
-    for (const r of rs) window.__muts.push({ target: r.target.nodeName, attr: r.attributeName }); });
-  window.__mo.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+    for (const r of rs) window.__muts.push({ target: r.target.nodeName, attr: r.attributeName,
+                                             cls: String(r.target.className?.baseVal ?? r.target.className) }); });
+  // the page (#main), not the header: its held-up line counts the waiting up with the clock
+  window.__mo.observe(document.getElementById('main'), { subtree: true, childList: true, attributes: true, characterData: true });
 }"""
 
 
@@ -1855,8 +1857,33 @@ def test_the_timeline_shows_the_simulated_schedule_in_order(browser, backlog):
     pg.close()
 
 
+def between_rebuilds(url: str, kind: str, span: float = 15.0) -> None:
+    """Waits, if need be, until neither answer the Graph and the Timeline draw is worked out again by age alone in the
+    next ``span`` seconds: the relations (relations_api, kept KEPT s while the record is quiet, its ``now`` the moment
+    it was built) and the estimates (eta_api, kept KEPT s). Either, made again, has moved with the clock: the finished
+    items whose last move left the window are gone (the roadmap's are seeded 50 minutes back), and the levelled finish
+    is later. The page is right to draw that; a test that nothing changes watches only between two rebuilds."""
+    from ergostat.web import eta_api, relations_api
+    for _ in range(400):
+        with urllib.request.urlopen(f"{url}/api/items-graph?kinds={kind}", timeout=30) as r:
+            a = json.load(r)
+        if a.get("eta_pending"):                       # (the first estimate still being worked out)
+            time.sleep(0.5)
+            continue
+        left = relations_api.KEPT - (time.time() - a["now"])
+        if a.get("eta"):
+            left = min(left, eta_api.KEPT - (time.time() - a["eta"]["at"]))
+        if left > span:
+            return
+        time.sleep(max(0.5, left + 0.5))               # (past it: the next ask makes it again)
+    pytest.fail("the Graph's answers were never between two rebuilds")
+
+
 @pytest.mark.parametrize("view", ["graph", "timeline"])
 def test_the_graph_and_the_timeline_left_open_change_nothing(browser, roadmap, view):
+    # opened between two rebuilds by age (each moves the legend with the clock), and watched within 25 s of it: before
+    # the next, and before the kind's chart asks for its flow again (every 30 s, its points moved with the clock)
+    between_rebuilds(roadmap, "ticket", 25)
     pg, errors = open_view(browser, roadmap, f"items/ticket?view={view}", f".rg-{view} [data-drawn], .rg-{view}[data-drawn]")
     asked: list[str] = []
     pg.on("requestfinished", lambda r: asked.append(r.url) if "/api/items-graph" in r.url else None)
@@ -3498,12 +3525,14 @@ def test_a_search_on_a_kinds_own_page_keeps_its_one_count_and_its_section(browse
     says(pg, f"1-25 of {PAGED}")
     pg.fill("input[type=search]", "ticket/n11")                                 # 111 matches, more than a page
     pg.wait_for_function("() => document.querySelector('.search-said')?.textContent.startsWith('111 matches')")
-    heads = pg.locator(".sys-head").all_inner_texts()
+    # (the-kind-page: a kind's page has no system headings; its headings are the bar's h1 and its sections' h2s, and
+    # its items are the one section .kind-items)
+    heads = pg.locator(".kind-bar .kind-title, .kind-sect h2, h2.kind-sect").all_inner_texts()
     assert heads and not any("match" in t for t in heads), heads                # no "25 items match" from one page
     assert pg.locator(".search-hits").inner_text() == ""                        # one count beside the box, not two
     pg.fill("input[type=search]", "zzqx")
     pg.wait_for_function("() => document.querySelector('.search-said')?.textContent.startsWith('0 matches')")
-    assert pg.locator(".sys-head").count() >= 1                                 # the kind's section stays
+    assert pg.locator(".kind-items").count() == 1                               # the kind's section stays
     assert not errors, errors
     pg.close()
 
