@@ -352,6 +352,50 @@ def test_a_run_taken_up_has_its_start_time_read_at_most_once_a_second(tmp_path, 
         other.wait()
 
 
+def test_a_journal_of_an_unknown_format_is_refused_named_and_its_lease_released_uncounted(tmp_path, keepers):
+    """switch-without-draining done 3: a run whose record states a journal format this ergostat cannot read (one a
+    newer version wrote, say) is not taken up: none of its lines read, ``run.refused`` names the run, its journal and
+    the format, once however often it is found; its keeper is told to stop it, and its lease is released uncounted."""
+    p = project(tmp_path)
+    keepers(p)
+    _, run = left_by_a_stop(p, tmp_path)
+    rec = runs_dir(p) / f"{run}.json"
+    was = json.loads(rec.read_text())
+    assert was["journal"] == runrecord.JOURNAL == 1, "the record states its journal's format"
+    rec.write_text(json.dumps({**was, "journal": 2}))
+    said: list[str] = []
+    e = Engine(p, say=said.append)
+    go(tmp_path, 1)                                      # (a line it prints now is never read)
+    assert adopt.scan(e) == [] and run not in e.live and "worker" not in e.procs, "an unreadable run taken up"
+    got = p.events.query(n=None, type="run.refused", item="worker")
+    assert len(got) == 1 and got[0]["causedby"] == run and got[0]["data"]["format"] == 2
+    assert got[0]["data"]["journal"] == str(runs_dir(p) / f"{run}.jsonl") and f"{run}.jsonl" in got[0]["data"]["why"]
+    assert any(run[:8] in s and "format 2" in s for s in said), said
+    it = item(p)
+    assert [x["data"]["how"] for x in lease_ends(p)] == ["nack"] and lease_ends(p)[0]["data"]["count"] is False
+    assert it.state == "ready" and it.fields["lease"]["holder"] is None and it.fields["lease"]["attempts"] == 0
+    assert wait_for(lambda: keeper.ended(str(runs_dir(p) / run)) is not None, 30), "its keeper never stopped it"
+    assert noted(p) == [1] and not ends(p), "a line of an unreadable journal read"
+    e2 = Engine(p, say=lambda s: None)
+    assert adopt.scan(e2) == [] and len(p.events.query(n=None, type="run.refused")) == 1, "refused twice"
+    assert len(lease_ends(p)) == 1
+
+
+def test_a_run_record_that_states_no_format_is_read_as_the_first(tmp_path, keepers):
+    """A record written before the format was stated (the version before) is format 1: taken up and ended as ever."""
+    p = project(tmp_path)
+    keepers(p)
+    _, run = left_by_a_stop(p, tmp_path)
+    rec = runs_dir(p) / f"{run}.json"
+    rec.write_text(json.dumps({k: v for k, v in json.loads(rec.read_text()).items() if k != "journal"}))
+    e, threads = take_up(p)
+    assert len(threads) == 1 and run in e.live
+    go(tmp_path, 1, 2)
+    joined(threads)
+    ended_once(p, run)
+    assert not p.events.query(n=None, type="run.refused")
+
+
 def test_a_run_whose_lease_was_taken_over_cannot_move_the_item(tmp_path, keepers):
     """Done 5: while no engine was up its lease ended and the item was leased again (a newer fence): taken up, the
     run's lines about it are refused (fencing), its lease is not renewed nor ended by it, and the item stays."""

@@ -62,6 +62,7 @@ class Template:
     body: dict = field(default_factory=dict)
     trust: str = "untrusted"            # ergostat, owner or untrusted (SPEC §2a): anything not known counts as untrusted
     exports: list[str] | None = None    # the refs readable from outside an instance; None: every part
+    library: str | None = None          # the fetched library it came from (libraries:), its NAME
 
     @property
     def untrusted(self) -> bool:
@@ -70,6 +71,7 @@ class Template:
 
     def summary(self) -> dict:
         return {"template": self.name, "description": self.description, **({"once": True} if self.once else {}),
+                **({"library": self.library} if self.library else {}),
                 "from": "ergostat" if self.builtin else str(self.path), "trust": self.trust,
                 **({"exports": list(self.exports)} if self.exports is not None else {}),
                 "params": {n: {k: v for k, v in (("type", p.type), ("description", p.description),
@@ -95,9 +97,10 @@ def trusted(t: Template) -> bool:
     return getattr(t, "trust", None) in ("ergostat", "owner")
 
 
-def read(path: Path, builtin: bool, trust: str = "untrusted") -> Template:
+def read(path: Path, builtin: bool, trust: str = "untrusted", text: str | None = None) -> Template:
+    """The template at ``path``; ``text``: its text already read (a fetched library's, the bytes its hash covered)."""
     try:
-        data = yaml.load(files.read_text(path), Loader=_Loader)  # noqa: S506 (a SafeLoader subclass)
+        data = yaml.load(files.read_text(path) if text is None else text, Loader=_Loader)  # noqa: S506 (SafeLoader)
     except (OSError, yaml.YAMLError) as e:
         raise TemplateError(f"template {path}: {e}") from e
     if not isinstance(data, dict) or not isinstance(data.get("template"), str):
@@ -178,17 +181,21 @@ def within(f: Path, bad: set[Path]) -> Path | None:
     return None
 
 
-def find_all(extra: list[Path] | None = None, untrusted: set[Path] | None = None) -> tuple[dict[str, Template], list[str]]:
+def find_all(extra: list[Path] | None = None, untrusted: set[Path] | None = None,
+             fetched: list[Template] = ()) -> tuple[dict[str, Template], list[str]]:
     """Every template, by name: an owner's template shadows ergostat's own of the same name (said in the notes),
     and the first folder wins between the owner's own. A folder in ``untrusted`` is read after every trusted one, so its
     templates never shadow a trusted one, whatever the order (said, marked). Also what could not be read, and what was
     shadowed; a note from an untrusted folder has its library text marked. A file under any untrusted folder is
-    untrusted, even when a trusted folder (its parent) also reaches it."""
+    untrusted, even when a trusted folder (its parent) also reaches it. ``fetched``: the fetched libraries' templates,
+    already read, after the owner's folders and before ergostat's own."""
     got: dict[str, Template] = {}
     notes: list[str] = []
     bad = {d for d in untrusted or () if d != HERE}
     order = folders(extra)
     for d in [x for x in order if x not in bad] + [x for x in order if x in bad]:
+        for t in fetched if d == HERE else ():
+            _put(got, notes, t, bad)
         if not files.is_dir(d):
             if d != HERE:
                 notes.append(f"{'untrusted ' if d in bad else ''}library folder {ut.escape(d) if d in bad else d} does not exist")
@@ -204,17 +211,21 @@ def find_all(extra: list[Path] | None = None, untrusted: set[Path] | None = None
             except TemplateError as e:
                 notes.append(ut.note(owner, str(e)) if owner is not None else str(e))
                 continue
-            was = got.get(t.name)
-            if was is not None and trusted(was) != trusted(t):          # the trusted one, whichever came first
-                kept, skipped = (was, t) if trusted(was) else (t, was)
-                said = (f"template {t.name}: {skipped.path} (from a folder not marked trusted) is not used; "
-                        f"{"ergostat's own" if kept.builtin else kept.path} is")
-                notes.append(ut.note(within(skipped.path, bad) or "", said))
-                got[t.name] = kept
-                continue
-            if t.name in got:
-                if t.builtin and not got[t.name].builtin:
-                    notes.append(f"template {t.name}: {got[t.name].path} is used in place of ergostat's own")
-                continue
-            got[t.name] = t
+            _put(got, notes, t, bad)
     return got, notes
+
+
+def _put(got: dict, notes: list, t: Template, bad: set) -> None:
+    was = got.get(t.name)
+    if was is not None and trusted(was) != trusted(t):          # the trusted one, whichever came first
+        kept, skipped = (was, t) if trusted(was) else (t, was)
+        said = (f"template {t.name}: {skipped.path} (from a folder not marked trusted) is not used; "
+                f"{"ergostat's own" if kept.builtin else kept.path} is")
+        notes.append(ut.note(within(skipped.path, bad) or "", said))
+        got[t.name] = kept
+        return
+    if t.name in got:
+        if t.builtin and not got[t.name].builtin:
+            notes.append(f"template {t.name}: {got[t.name].path} is used in place of ergostat's own")
+        return
+    got[t.name] = t

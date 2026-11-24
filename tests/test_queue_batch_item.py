@@ -220,7 +220,7 @@ def test_the_root_model_has_the_batch_kind_and_its_finished_states():
     spec, problems = read(ROOT / "ergostat.yaml")
     assert [p for p in problems if p.level == "error"] == []
     k = spec.items["batch"]
-    assert k.states == ["testing", "isolating", "pushing", "landed", "partial", "failed", "given-back"]
+    assert k.states == ["new", "testing", "isolating", "pushing", "landed", "partial", "failed", "given-back"]
     assert spec.messages.done["batch"] == ["landed", "partial", "failed", "given-back"] == list(k.final)
     assert {"batch-run-percent", "batch-run-failures"} <= set(spec.auxiliaries)
 
@@ -308,8 +308,7 @@ def test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run(browser, tm
     assert listed == [bid], listed                                               # the kind's list
     pg.goto(f"file://{page}#/items?kind=batch&view=timeline")
     pg.wait_for_selector(".rg-timeline[data-drawn]", timeout=60000)
-    pg.locator(".rg-check", has_text="Collapse done").locator("input").uncheck()  # (it ended: a finished row, and
-    pg.locator(".rg-check", has_text="Frontier").locator("input").uncheck()       # no unfinished one waits on it)
+    pg.locator(".fin-seg button", has_text="Shown").click()   # (it ended: a finished row no unfinished one waits on)
     pg.wait_for_selector(f".rg-timeline[data-drawn] .rg-row[data-id='{bid}'] .rg-seg", timeout=20000)
     bars = pg.locator(f".rg-row[data-id='{bid}'] .rg-seg title").all_text_contents()
     assert [t.split(",")[0] for t in bars] == [f"{bid}: {s}" for s in

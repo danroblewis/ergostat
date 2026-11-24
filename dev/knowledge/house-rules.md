@@ -30,8 +30,9 @@ use: every implementor and reviewer brief
 ## Code
 - Modules small and single-purpose; the disciplines' own terms (system dynamics, control, queueing, process mining).
 - No new pages or panels in the UI: show things through the diagrams, the system boxes and the Items tab.
-- `docs/` is for human readers; agent material goes in the agent guide and skills. Keep SPEC, the agent guide and GAPS
-  current with the change.
+- `docs/` is for human readers; agent material goes in the agent guide and skills. Keep SPEC, the agent guide and the
+  gap's entry current with the change: the entry is written as the `## Entry` of its record (dev/records/<branch>.md),
+  never in docs/GAPS.md, which the merge queue writes from the records as it lands (a branch editing it is refused).
 - AI inside ergostat runs on haiku by default, with its cost recorded.
 - Commits end with the trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
