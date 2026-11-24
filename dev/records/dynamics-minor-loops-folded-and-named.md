@@ -148,3 +148,25 @@ Run after the merge, passing: tests/test_dynamics_view.py (27). Browser: this ga
 redraw test, the SD-symbols test (3 examples), the frame test (open system framed by its corners) and the exported
 Blocks legend's frame glyph test. Ruff clean. Not run: the whole unit suite, the four browser files, and demo_check.
 The failures named in rounds 1 and 2 that are not this gap's were not run again.
+
+### Round 5: the list holds only loops drawable here
+
+The one finding (blocking): `sdLoopList` listed every counted loop (a part in the focused system, or every loop from
+the top), so loops inside a closed system had rows (named and minor) but no marker, and choosing one drew nothing.
+Now the count stays over the loops with a part in the system (Q22, unchanged), but rows are made only for the loops
+`sdLoopGroups` would mark here (two parts drawn as themselves), the same set the markers are built from. The rest of
+the count is said in one note, "K of those counted are not drawn here (they run inside a closed system, or outside this
+one), so not listed"; a closed system's "N feedback loops inside" line still gives the ones inside it, now not listed
+twice. "Dominant now" is chosen from the rows, so its link always draws. dynamics.js +8/-3; SPEC §12a says it.
+Choice made alone (reversible): the drawable set is the markers' own (`sdLoopGroups(g, null, true)`), not a second rule.
+From the top with every system closed, software-factory has no drawable minor loop, so that view lists none.
+New browser test `test_every_minor_row_draws_its_marker_from_the_top_and_in_a_system` (tests/test_diagram_rendering.py):
+in the top view, with `open=product` and at `?system=product`, it chooses every minor row, asserts its marker shows and,
+after Escape, is gone; and asserts the rows plus the note's K equal the summary's "N named, M minor". With the old
+list put back (`rows = mine`) it failed at once in the top view (`all-live via regressions and churn` chosen, no
+marker shown). With the fix it passes.
+Run, passing: the new test; this gap's acceptance test; the dominant-line redraw test; goal↔loop links; module counts;
+the Goals page's words; the keyboard test; "a goal is called a goal"; R/B only when signed; loops say loading; the side
+panel opens on the legend; a loop chosen in both panes (browser); tests/test_dynamics_view.py (27). Ruff clean. Local
+`main` merge: already up to date. Not run: the whole unit suite, the four browser files, and demo_check (no example
+touched this round). The failures named in rounds 1 and 2 that are not this gap's were not run again.

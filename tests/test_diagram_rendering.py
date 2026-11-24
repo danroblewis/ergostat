@@ -4099,6 +4099,40 @@ def test_dynamics_marks_the_named_loops_and_one_per_goal_and_a_minor_loop_only_w
         pg.close()
 
 
+def test_every_minor_row_draws_its_marker_from_the_top_and_in_a_system(browser, tmp_path):
+    """dynamics-minor-loops-folded-and-named (2), round 5: in the top view (systems closed: no minor loop is drawable
+    there, so none is listed), with product open, and drawing product alone, each row of 'minor loops (N)' chosen
+    shows its marker; the list holds only loops drawable here, and those counted but not drawable are said in a note,
+    so rows plus the note add up to the summary's count."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        unfold = ("() => { for (const d of document.querySelectorAll("
+                  "'.side details.loops, .side details.sd-minor, .side details.sd-unknown')) d.open = true; }")
+        for i, v in enumerate(["", "open=product", "system=product"]):    # (from the top, every system closed: none)
+            drawn(pg, url, v, i)
+            pg.evaluate(unfold)
+            minor = pg.evaluate("() => [...document.querySelectorAll('.side details.sd-minor .looprow')].map((r) => r.dataset.loop)")
+            assert minor or not v, v
+            for name in minor:
+                pg.evaluate(unfold)
+                pg.locator(f'.side details.sd-minor .looprow[data-loop="{name}"]').click()
+                pg.mouse.move(5, 500)
+                assert name in [m["loop"] for m in pg.evaluate(SD_SHOWN)], (v, name)
+                pg.keyboard.press("Escape")
+                pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)
+                assert name not in [m["loop"] for m in pg.evaluate(SD_SHOWN)], (v, name)
+            said = pg.locator(".side details.loops > summary .sd-count").inner_text().strip()
+            total = sum(int(x) for x in re.findall(r"\d+", said))
+            rows = pg.evaluate("() => new Set([...document.querySelectorAll('.side details.loops .looprow[data-loop]')]"
+                               ".map((r) => r.dataset.loop)).size")
+            note = pg.evaluate("() => document.querySelector('.side .sd-elsewhere')?.textContent || ''")
+            assert rows + (int(note.split()[0]) if note else 0) == total, (v, said, rows, note)
+        assert not errors, errors
+        pg.close()
+
+
 def test_the_dominant_loop_heads_the_list_after_the_side_is_redrawn(browser, tmp_path):
     """dynamics-minor-loops-folded-and-named (4): 'Dominant now' (from a faked /api/dominance) heads the loop list,
     and still does after the list is redrawn (a chart chosen, a poll), asked once for the address."""

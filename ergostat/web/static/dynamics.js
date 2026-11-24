@@ -678,8 +678,11 @@ function sdLoopList(panel, g) {
   const sort = (xs) => xs.sort((a, b) => (order[a.polarity] ?? 2) - (order[b.polarity] ?? 2) || num(a) - num(b));
   // the loops with a part in the system drawn alone (every loop, drawn from the top): the count its box gives (Q22)
   const mine = (g.causalLoops || []).filter((c) => !g.focus || (c.systems || []).includes(g.focus));
-  const known = sort(mine.filter((c) => c.polarity && !c.minor)), minor = sort(mine.filter((c) => c.polarity && c.minor));
-  const unknown = sort(mine.filter((c) => !c.polarity));
+  // a row for each loop drawable here (as its marker: sdLoopGroups); the rest are counted, not listed (a closed
+  // system's line below gives those inside it)
+  const here = new Set(sdLoopGroups(g, null, true).flatMap((x) => x.loops)), rows = mine.filter((c) => here.has(c));
+  const known = sort(rows.filter((c) => c.polarity && !c.minor)), minor = sort(rows.filter((c) => c.polarity && c.minor));
+  const unknown = sort(rows.filter((c) => !c.polarity));
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
   const closing = mine.filter((c) => c.goal).length;      // the reconciliation with the goals: those it closes
   // folded, its count in the summary (the legend comes first)
@@ -693,7 +696,9 @@ function sdLoopList(panel, g) {
       ((gs) => gs.length ? `, serves goal${gs.length > 1 ? "s" : ""} ${gs.join(", ")}` : "")(      // (the goals it closes)
         [...new Set(c.nodes.filter((x) => x.startsWith("gap:")).map((x) => x.slice(4)))])));
   if (!mine.length && !modules.length) side.append(h("div", { class: "muted" }, "No feedback loops drawn here."));
-  side.append(sdDominant(mine));
+  side.append(sdDominant(rows));
+  if (mine.length > rows.length) side.append(h("div", { class: "note sd-elsewhere" },
+    `${mine.length - rows.length} of those counted are not drawn here (they run inside a closed system, or outside this one), so not listed.`));
   const counts = ["R", "B"].map((p) => [p, [...known, ...minor].filter((c) => sdPol(c) === p).length]).filter(([, n]) => n);
   if (counts.length) side.append(h("div", { class: "note" }, counts.map(([p, n], i) => `${n} ${{ R: i ? "reinforcing" : "Reinforcing", B: i ? "balancing" : "Balancing" }[p]}`).join(", ")));
   for (const c of known) side.append(row(c));

@@ -5638,7 +5638,10 @@ first) under its name. Only loops of known polarity are marked on the diagram, e
 drawn; the others are one entry beside it, "N of unknown polarity", that opens to list them. A
 system's loop count is the loops with a part in it, said "N named, M minor" (named: drawn): its panel
 (the box, closed) and the side list of the view drawing that system alone give the same two numbers;
-drawn from the top, the list counts every loop. At the head of the list, the loop of the list's that
+drawn from the top, the list counts every loop. The list's rows are only the loops drawable in the view
+(two of their parts drawn as themselves); the rest of the count (inside a closed system, or outside the
+one drawn) is said in one note, "K of those counted are not drawn here", and a closed system's own line
+gives the loops inside it. At the head of the list, the loop of the list's that
 dominates now (`/api/dominance`: the one dominant in the last bucket at a stock, scoring most of
 those), when one does. A loop's panel lists
 every link around it (through closed systems too) by plain names, each with the one sign its connector is
