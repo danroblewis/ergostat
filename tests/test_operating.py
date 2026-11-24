@@ -149,6 +149,29 @@ def test_compile_refuses_bad_states(tmp_path, ops, code):
     assert [x.code for x in got] == [code], got
 
 
+@pytest.mark.parametrize("ops, ok", [
+    ("operating: {away-after: 2h}\n", True),                                  # main's presence key alone (§12k)
+    ("operating:\n  away-after: 30m\n" + textwrap.dedent(EXAMPLE).split("\n", 2)[2], True),   # beside the states
+    ("operating:\n  freeze: {rank: 1, trips: {room: {unknown-after: 1m}}}\n", True),
+    ("operating:\n  freeze: {rank: 1, trips: {room: {unknown-after: soon}}}\n", False),
+    ("operating:\n  freeze: {pool: 0}\n", False),
+    ("operating:\n  away-after: {rank: 1}\n", False),
+    ("operating:\n  Freeze: {rank: 1}\n", False),
+])
+def test_schema_agrees_with_the_compiler_on_operating(tmp_path, ops, ok):
+    """One `operating` entry in the published schema holds both §12k's away-after and §9.5's states: a model the
+    compiler accepts is valid against the schema, and one it refuses is not (lesson-7/8)."""
+    jsonschema, yaml = pytest.importorskip("jsonschema"), pytest.importorskip("yaml")
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "schema/ergostat.schema.json").read_text()
+    schema = json.loads(text, object_pairs_hook=lambda kv: dict(kv) if len({k for k, _ in kv}) == len(kv)
+                        else pytest.fail(f"a duplicate key in the schema: {[k for k, _ in kv]}"))
+    write(tmp_path, ops)
+    doc = yaml.safe_load((tmp_path / "ergostat.yaml").read_text())
+    valid = not list(jsonschema.Draft202012Validator(schema).iter_errors({"operating": doc["operating"]}))
+    assert (valid, not problems(tmp_path, ops)) == (ok, ok)
+
+
 def test_compile_refuses_unknown_after_on_an_unmeasured_goal(tmp_path):
     base = BASE.replace("    sensors:\n      a: {run: \"echo SENSE\", every: 1h}\n      b: {run: \"echo SENSE\", every: 1h}\n", "")
     base = base.replace("goals:\n", "auxiliaries:\n  x: {unit: n}\ngoals:\n  bare: {auxiliary: x, hold: '<= 1'}\n")

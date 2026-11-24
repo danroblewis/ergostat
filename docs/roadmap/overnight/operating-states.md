@@ -630,3 +630,27 @@ test that calls `ergostat.cli.main` builds the parser and passes (below). Tests 
 suite and the four browser files. No demo is touched, so `demo_check` is not needed.
 
 Overrun reason: 469 net lines, 19 over the 450 budget: the 5 given in round 14 (the try/except in `Dispatcher.trip` asked by review operating-states-4, `operating` refused in `library/trust.py` for main's allowlist test, `take()`'s re-check inside the `try` asked by review operating-states-9), and 14 this round to share the `operating` topic, section and event prefix with main's §12k operating state, which landed on main with the same names and broke the CLI at merge; nothing else could go without dropping a part of the definition.
+
+Round 18 (the fix round for the queue's schema finding). There was one finding, and it was blocking:
+
+1. **`schema/ergostat.schema.json` had two top-level `operating` keys.** The branch's key came last, so it replaced
+   main's `{away-after: duration}` entry. As a result the published schema refused `operating: {away-after: 2h}`,
+   which the compiler accepts. Fixed: there is now one `operating` entry. `away-after` is a duration property
+   (main's), and every other key is a state under `additionalProperties`, named by `propertyNames`'s pattern.
+   `unknown-after` now uses the `duration` `$ref` (it was a bare string before). `away-after: {rank: 1}` is now
+   refused by both the schema and the compiler. New test `test_schema_agrees_with_the_compiler_on_operating`, with
+   seven cases. It checks that schema validity and the compiler's verdict agree on: `away-after` alone, `away-after`
+   beside the SPEC example's states, a trip with `unknown-after: 1m`, a bad `unknown-after`, a state without `rank`,
+   `away-after` given as a state, and a bad name. It also loads the schema with a hook that fails on any duplicate
+   key. I broke the code two ways, and both failed the test. With the `away-after` property removed (what the
+   duplicate key did in effect), three cases failed. With a second `operating` key planted, all seven failed on the
+   duplicate-key check. With the fix restored, they all pass.
+
+Size: the schema is now 2 lines over main's, where the branch had 3. So the gap's code is 468 net lines, 18 over
+the budget, for the reasons given in the line above (now one fewer). Tests run: `tests/test_operating.py` with
+`tests/test_spec_schema.py` and `tests/test_operating_state.py` (90 passed), and `tests/test_cli_fallback.py`,
+`tests/test_dashboards.py` and `tests/test_spec_structure.py` (61 passed). Ruff is clean. The final compacted schema
+was run again with `test_operating.py` and `test_spec_schema.py` (83 passed). Not run by the implementor: the full
+unit suite and the four browser files. No demo is touched, so `demo_check` is not needed.
+
+Overrun reason: 468 net lines, 18 over the 450 budget: the 5 given in round 14 (the try/except in `Dispatcher.trip` asked by review operating-states-4, `operating` refused in `library/trust.py` for main's allowlist test, `take()`'s re-check inside the `try` asked by review operating-states-9), and 13 to share the `operating` topic, section and event prefix with main's §12k operating state (round 17, one line fewer since round 18 made the schema a single entry), which landed on main with the same names and broke the CLI at merge; nothing else could go without dropping a part of the definition.
