@@ -166,11 +166,12 @@ blocks:
     out: auxiliary.vm-open-files
   cleanup-when:
     type: expr
-    description: clean up while the factory's folders are past their size or the disk is short
+    description: clean up while the factory's folders are past their size, or the disk is short or under 30 GB free - a margin above disk-free-enough's gate, so cleanup starts while new sessions still do
     in:
       folders: goal.factory-disk-within.off
       disk: goal.disk-free-enough.off
-    expr: max(folders, disk)
+      free: auxiliary.disk-free
+    expr: max(folders, disk, free < 30)   # 30: the cleanup margin in GB, set here (a goal of its own split resources' clusters)
     out: block.disk-cleanup
   disk-cleanup:
     type: program

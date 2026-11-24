@@ -3,6 +3,7 @@ dev/bin/cleanup.py, dev/model/resources.yaml)."""
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import json
 import os
@@ -189,9 +190,33 @@ def env_of(spec, block: str, given: dict) -> float:
     return eval_expr(compile_expr(b.params["expr"]), {k: given[k] for k in b.inputs})
 
 
+@functools.cache
+def factory_model():
+    return read(ROOT / "ergostat.yaml")
+
+
+@pytest.mark.slow                                                       # (the model's checks: about 20 s)
+def test_cleanup_fires_at_29_gb_with_the_gate_still_held():
+    """dev/records/cleanup-starts-before-the-gate.md, 1: at 29 GB free the 25 GB gate holds (builders start), and
+    cleanup-when is on, through the 30 GB margin its expression reads from disk-free (the model's, set there)."""
+    spec, _ = factory_model()
+    gate = spec.goals["disk-free-enough"]
+    assert gate.of.name == "disk-free" and gate.hold.value < 30
+    assert not gate.hold.outside(29.0)                                     # the gate held at 29 GB
+    b = spec.blocks["cleanup-when"]
+    assert {k: (r.kind, r.name, r.port) for k, r in b.inputs.items()} == {
+        "folders": ("goal", "factory-disk-within", "off"), "disk": ("goal", "disk-free-enough", "off"),
+        "free": ("auxiliary", "disk-free", None)}
+    at = lambda free, folders=0: env_of(spec, "cleanup-when", {   # noqa: E731
+        "folders": folders, "disk": int(gate.hold.outside(free)), "free": free})
+    assert at(29.0) == 1 and env_of(spec, "machine-full", dict(fit=0, cpu=0, memory=0, vm=0, threads=0, disk=0)) == 0
+    assert at(30.0) == 0 and at(31.0) == 0 and at(31.0, folders=1) == 1 and at(20.0) == 1
+    assert [r.name for r in b.outputs["out"]] == ["disk-cleanup"]
+
+
 @pytest.mark.slow                                                       # (the model's checks: about 20 s)
 def test_gates_respect_headroom(res):
-    spec, problems = read(ROOT / "ergostat.yaml")
+    spec, problems = factory_model()
     assert not [p for p in problems if p.level == "error"]
     sp = res.setpoints()                                                # the program reads the model's own setpoints
     assert {k: spec.goals[g].hold.value for k, g in res.GOALS.items()} == sp
