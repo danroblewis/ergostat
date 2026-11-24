@@ -1662,7 +1662,7 @@ def test_a_capped_graph_with_stubs_counts_only_its_items_as_drawn(browser, roadm
     from ergostat.web import graph_parts
     from tests.test_graph_parts import drawn as rule
     from tests.test_graph_parts import factory_answer
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=graph", ".rg-graph[data-drawn] .rg-node")
     big = graph_parts.mark(factory_answer(n_open=1200, seed=11))
     scope, keep, _ = rule(big)
     on = sorted(keep)[:50]
@@ -2093,8 +2093,8 @@ def test_a_snapshot_draws_the_graph_and_timeline(browser, tmp_path):
     pg.locator(".rg-viewbar button", has_text="Timeline").first.click()
     pg.wait_for_selector(".rg-timeline[data-drawn] .rg-row", timeout=20000)
     rows = {r["id"] for r in drawn(pg, '.rg-timeline .rg-row')}
-    assert {"ticket/a", "ticket/b"} <= rows, rows
-    assert pg.locator(".rg-timeline .rg-seg").count() >= 4                         # what happened, state by state
+    assert {"ticket/a", "ticket/b"} <= rows and "epic/e1" not in rows, rows      # planning's epic: a stub, no row
+    assert pg.locator(".rg-timeline .rg-seg").count() >= 3                         # what happened, state by state
     assert "not in a snapshot" not in pg.locator(".page").inner_text()
     assert not errors, errors
     pg.close()
@@ -2112,34 +2112,38 @@ def test_a_systems_graph_draws_its_own_network_and_says_when_there_is_none(brows
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f.as_uri() + "#/items?view=graph&frontier=0&collapse=0")
-    sec = lambda s: f'section.sys-group[data-system="{s}"]'                        # noqa: E731
-    pg.wait_for_selector(f"{sec('support')} .rg-graph[data-drawn] .rg-stub", timeout=20000)
-    pg.wait_for_selector(f"{sec('building')} .rg-graph[data-drawn] .rg-node", timeout=20000)
-    know = pg.locator(sec("knowledge"))
-    assert know.locator(".rg-graph").count() == 0                                   # no canvas
-    said = know.locator(".rg-none").inner_text()
+    # (each on its kind's page, the-kind-page: /items draws no Graph)
+    at = lambda k: pg.goto(f.as_uri() + f"#/items/{k}?view=graph&finished=show")  # noqa: E731
+    at("review")
+    pg.wait_for_selector(".rg-none", timeout=20000)
+    assert pg.locator(".rg-graph").count() == 0                                     # no canvas
+    said = pg.locator(".rg-none").inner_text()
     assert said.count("These items do not wait on one another, so there is no dependency graph.") == 1, said
     assert "reviews are about gaps: see building" in said, said
-    assert know.locator("a.rg-where", has_text="building").count() == 1
-    stubs = drawn(pg, f"{sec('support')} .rg-stub")
-    assert [(n["id"], "waits on gap/c" in n["text"], "building" in n["text"]) for n in stubs] == [("gap/c", True, True)]
-    cards = {n["id"]: n["cls"] for n in drawn(pg, f"{sec('support')} .rg-node")}
-    assert list(cards) == ["ticket/1"] and "rg-blocked" in cards["ticket/1"]        # waiting on another system's gap
-    ids = {n["id"] for n in drawn(pg, f"{sec('building')} .rg-node")}
+    assert pg.locator("a.rg-where", has_text="building").count() == 1
+    pg.locator("a.rg-where").click()                                                # to the gaps' own page
+    pg.wait_for_function("() => decodeURIComponent(location.href).includes('items/gap')")
+    pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
+    ids = {n["id"] for n in drawn(pg, ".rg-node")}
     assert {"gap/a", "gap/b", "gap/c"} <= ids and not ids & {"ticket/1", "review/1"}, ids
-    assert pg.locator(f"{sec('building')} .rg-stub").count() == 0
-    pg.locator(f"{sec('support')} .rg-stub").click()                                # a stub links to its item
+    assert pg.locator(".rg-stub").count() == 0
+    at("ticket")
+    pg.wait_for_selector(".rg-graph[data-drawn] .rg-stub", timeout=20000)
+    stubs = drawn(pg, ".rg-stub")
+    assert [(n["id"], "waits on gap/c" in n["text"], "building" in n["text"]) for n in stubs] == [("gap/c", True, True)]
+    cards = {n["id"]: n["cls"] for n in drawn(pg, ".rg-node")}
+    assert list(cards) == ["ticket/1"] and "rg-blocked" in cards["ticket/1"]        # waiting on another system's gap
+    pg.locator(".rg-stub").click()                                                  # a stub links to its item
     pg.wait_for_function("() => decodeURIComponent(location.href).includes('item/gap/c')")
     assert not errors, errors
     pg.close()
 
 
 def test_the_roadmaps_delivery_graph_is_asked_by_its_system_and_draws_every_card(browser, roadmap):
-    pg, errors = open_view(browser, roadmap, "items?view=graph&frontier=0&collapse=0&group=kind", ".rg-graph[data-drawn] .rg-node")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=graph&frontier=0&collapse=0&group=kind", ".rg-graph[data-drawn] .rg-node")
     asked = pg.evaluate("() => performance.getEntriesByType('resource').map((e) => e.name).filter((u) => u.includes('/api/items-graph'))")
     assert asked and all("system=delivery" in u for u in asked), asked
-    plain = json.loads(urllib.request.urlopen(f"{roadmap}/api/items-graph?kinds=epic,ticket", timeout=10).read())
+    plain = json.loads(urllib.request.urlopen(f"{roadmap}/api/items-graph?kinds=ticket", timeout=10).read())
     assert pg.locator(".rg-graph .rg-node").count() == len(plain["items"]) and pg.locator(".rg-stub").count() == 0
     assert not errors, errors
     pg.close()

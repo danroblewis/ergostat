@@ -1007,9 +1007,9 @@ async function pageItems(main, q, only = false) {
       if (!want.length) return kind || view !== "graph" ? [] : none;
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
       if (view === "graph" && rd.waits === false) {      // nothing to draw: said once, and where what they name is
-        const seen = new Set(), go2 = (sys) => (ev) => { ev.preventDefault(); document.querySelector(`.sys-group[data-system="${CSS.escape(sys)}"]`)?.scrollIntoView(); };
+        const seen = new Set();                         // (each a link to the named kind's page, its Graph)
         const where = (rd.about || []).filter((a) => a.system && a.system !== g.name && !seen.has(`${a.kind}>${a.to}`) && seen.add(`${a.kind}>${a.to}`))
-          .flatMap((a, i) => [i ? "; " : "", `${a.kind}s are about ${a.to}s: see `, h("a", { href: "#", class: "rg-where", onclick: go2(a.system) }, a.system)]);
+          .flatMap((a, i) => [i ? "; " : "", `${a.kind}s are about ${a.to}s: see `, h("a", { href: kindHref(a.to, "view=graph"), class: "rg-where" }, a.system)]);
         return [h("p", { class: "muted rg-none", key: `rel-flat:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.", ...(where.length ? [" ", ...where, "."] : []))];
       }
       const o = { finished: fin(), group: ro.group, q: needle, status: ro.status,

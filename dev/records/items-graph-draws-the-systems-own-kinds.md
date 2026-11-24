@@ -67,12 +67,30 @@ so it is left alone (lesson 13). In queue runs it is skipped (no Playwright in t
 step taken out, its Timeline part (which reads this branch's `system=` answer) passed; the step was then put back as
 main has it. Not run on main here.
 
+Round 5: main (d0f95413) merged in. Main's the-kind-page had moved the Graph and the Timeline from `/items` to a kind's
+page (`/items/K`, asking `kinds=K`); pages.js merged on its own, so a kind's page asks `kinds=K&system=<its system>`.
+SPEC §5a's paragraph is resolved as main's kind-page wording carrying the branch's rule. The "see building" link
+scrolled to a system's section, which a kind's page has none of: it is now a link to the named kind's page, its Graph
+(`kindHref(a.to, "view=graph")`), the more reversible choice. The branch's three browser tests that opened
+`/items?view=graph` (the factory-shaped one, the roadmap's card count, now against `kinds=ticket`, and the capped
+graph's stubs) open a kind's page instead; the factory-shaped test now clicks the link and finds the gaps' Graph. In
+main's snapshot test the ticket's page draws planning's epic/e1 as a stub, not a card, so its Timeline has no epic row
+(3 segments, not main's 4): the test says so. tests/test_items_page.py: 104 of 108 pass in the file's run; the capped
+graph's test then passed alone, with the valves-panel test (also failed in round 3's file run, passed alone again);
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` and
+`test_every_surface_prints_the_servers_one_count_of_goals_off` fail on the header and project switcher ("Loops" vs
+"Goals"), untouched here. tests/test_queue_batch_item.py's page test fails at the list step as in round 4. Unit files
+test_relations, test_precedence_cap, test_item_graph_queries, test_graph_cli_web, test_queue_batch_item pass; ruff
+clean. A walk of the roadmap's ticket Graph loaded with no console error, but no screenshot was kept: `--shots /shots`
+gave "Permission denied", and `mkdir -p /tmp/shots` was refused.
+
 ## Entry
 
 section: Interface
 
-- **A system's Graph draws its own kinds** (done, on `items-graph-draws-the-systems-own-kinds`; SPEC §5a): the Items
-  page asks `items-graph` with `system=`, so a system's Graph follows only precedence and parent relations to its own
-  kinds; another system's item it waits on is a stub at the edge, its status still counted; an *about* relation is in
-  the card's hover text, and a system with no dependency says so and where its items point ("reviews are about gaps:
-  see building"). Left: the owner's question whether "of any kind" should come back.
+- **A system's Graph draws its own kinds** (done, on `items-graph-draws-the-systems-own-kinds`; SPEC §5a): a kind's
+  page asks `items-graph` with its `system=`, so its Graph follows only precedence and parent relations to its
+  system's own kinds; another system's item it waits on is a stub at the edge, its status still counted; an *about*
+  relation is in the card's hover text, and a kind with no dependency says so and where its items point ("reviews are
+  about gaps: see building", a link to the gaps' page). Left: the owner's question whether "of any kind" should come
+  back.
