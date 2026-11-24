@@ -180,3 +180,30 @@ Run here:
 
 Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
 walk.
+
+## Where it stopped (round 3)
+
+Built, round 3: the one finding, the forward merge of main (197d03ee, which carries the base
+`result-frames-and-verdicts`), conflicted in two places. Both are resolved, keeping both sides:
+- `ergostat/query/engine.py` `answer`: main's reader rule (a data source query from a reader is refused unless it is the
+  model's own source, `datasources.own`, and `_from_source` gets `reader`) is kept, and the branch's `_graph` line follows it.
+- `tests/test_result_shapes_page.py` `TAKES`: the branch's `graph` row (table and heatmap) is kept beside main's new
+  `loop` row.
+No other code changed. Sizes, outside tests, docs and dev: against `main`, 977 added and 71 removed (906 net). Of that,
+the merged base is 400 added and 62 removed (338 net, `git diff --shortstat main 197d03ee`). This gap's own change is
+587 added and 19 removed (568 net, `git diff --shortstat 197d03ee`).
+Overrun reason: measured against main, the diff includes the merged base gap result-frames-and-verdicts (338 net lines, not yet on main); this gap's own change is 568 net lines, under the 600.
+
+`model-data-source` is now on main. The round 1 choice stands: the graph query stays a source of ergostat's own query
+language. Calling `graphs.answer` from the model source is not done here.
+
+Run here, after the merge:
+- Unit, all passed: test_graph_result_and_panel, test_result_shapes and test_query_engine (89); test_data_sources,
+  test_model_data_source and test_result_frames_and_verdicts (90); test_precedence, test_graph_cli_web and
+  test_dashboards (104).
+- Browser, under the watchdog, all passed with rc 0: test_graph_result_page, test_result_shapes_page and
+  test_result_frames_page (16); test_panels, test_data_source_panels and test_dashboard_page (78).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
+walk.
