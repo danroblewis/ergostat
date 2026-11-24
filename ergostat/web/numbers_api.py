@@ -4,6 +4,7 @@ the page may change: a proposal the owner accepts or dismisses (``POST``)."""
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -746,10 +747,27 @@ def redesign_asked(live, p, system: str) -> tuple[int, dict]:
     return 200, {"asked": got["asked"], **rd.settings(p.model.spec)}
 
 
+def keep(live, body: bytes) -> tuple[int, dict]:
+    """``POST /api/propose?keep=dashboard`` with the draft as its JSON body: the owner's Keep, one display change
+    (``numbers/display.py``) the server works out from the draft; it writes nothing (Accept does)."""
+    p = live.get()
+    if spec_of(p) is None:
+        return 400, {"error": "the model is an ergostat.toml: dashboards are declared in ergostat.yaml"}
+    from ..numbers import display
+    try:
+        draft = json.loads(body or b"null")
+    except (ValueError, RecursionError):
+        return 400, {"error": "keep: the draft is not JSON"}
+    try:
+        return 200, display.keep(p, draft)
+    except pr.ProposalError as e:
+        return 409, {"error": str(e)}
+
+
 def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, dict]:
     """``POST /api/estimate?calibrate=parts|systems|whole`` (calibrate, and make the proposals),
     ``/api/propose?whatif=NAME:V,NAME:V`` (the owner's what-if, every value tried made one proposal; or
-    ``parameter=NAME&value=V``),
+    ``parameter=NAME&value=V``), ``/api/propose?keep=dashboard`` (``keep`` above),
     ``/api/proposals/ID/accept`` and ``/api/proposals/ID/dismiss``: the page's only writes, each the
     owner's own act, and none of them changes the model but Accept."""
     q = q or {}
