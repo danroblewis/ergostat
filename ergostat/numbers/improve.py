@@ -30,16 +30,18 @@ from pathlib import Path
 
 from ..durations import human as dur
 from ..spec.ir import Spec
+from . import display as dp
 from . import gate as gt
 from . import memory as mem
 from . import observe as ob
 from . import proposals as pr
+from . import requests as rq
 from . import trial as tr
 from . import version as ver
 from . import yamledit as ye
 
-KINDS = ("parameter", "equation", "structure", "measurement", "control", "description", "unit", "rename")
-WORDING = ("description", "unit", "rename")   # what a reader is told, not what moves: judged without the record
+KINDS = ("parameter", "equation", "structure", "measurement", "control", "description", "unit", "rename", "display")
+WORDING = ("description", "unit", "rename", "display")   # what a reader is told or shown, not what moves: never replayed
 WORSE = gt.WORSE            # a proposal whose scaled error rises past this share (and not by a trifle) clearly worsens the fit
 TRIFLE = gt.TRIFLE
 CITED = "cited, not checked"   # a rule, a line or a URL: it says where a reason comes from, not that it holds here
@@ -260,7 +262,7 @@ def _found(path: Path, files) -> tuple[dict[str, str], set[str]]:
     if got is None:
         _, problems = read(path)
         got = ({finding_id(x.code, x.about): x.message for x in problems if x.level != "error"},
-               {finding_id(x.code, x.about) for x in problems if x.level == "note"})
+               {finding_id(x.code, x.about) for x in problems if rq.as_note(x)})
         with _FOUND_LOCK:
             if len(_FOUND) > 8:
                 _FOUND.clear()
@@ -486,7 +488,9 @@ def kind_of(before: Spec, after: Spec, said: str) -> str:
     same model under new names (each says ``formerly:`` its old one) a **rename**; else values only is a parameter
     change, units alone a **unit** change, descriptions alone a **description** change, and the rest an equation or the
     structure. The parameter, equation and structure are the dynamics model's to judge on the record; a description,
-    a unit and a rename change what a reader is told, not what moves."""
+    a unit and a rename change what a reader is told, not what moves; ``dashboards:`` alone is a **display** change."""
+    if dp.display_only(before, after):
+        return "display"
     if ver.renamed_parts(before, after):
         return "rename"
     if ver.control(before) != ver.control(after):
@@ -595,9 +599,15 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
         after, problems = tr.compiled(p.model.path, texts, findings=True)
     before_f = set(ev.findings())
     after_f = {finding_id(x.code, x.about) for x in problems if x.level != "error"}
-    notes = {finding_id(x.code, x.about) for x in problems if x.level == "note"} | ev.notes()   # the craft: not findings
+    notes = {finding_id(x.code, x.about) for x in problems if rq.as_note(x)} | ev.notes()   # the craft: not findings
     kind = kind_of(spec, after, said_kind)
-    if kind == "rename":                                   # the same findings under the new names are not new
+    if "display" in (said_kind, kind):                    # dashboards: alone, said so, and nothing beside them
+        bad = dp.beside(texts)
+        if bad or said_kind != kind:
+            raise ProposeError(f"not a display change: it changes {', '.join(bad)}" if bad else
+                               f"not a display change: it is a {kind} change" if said_kind == "display" else
+                               "it changes dashboards: alone: a display change, proposed as kind: display")
+    if kind == "rename":                                  # the same findings under the new names are not new
         before_f = {_renamed_id(f, ver.renamed_parts(spec, after) or {}) for f in before_f}
     if kind in WORDING:                                   # what a reader is told: the replay reads the same record alike
         fit_a, again, best_fit = fit_b, None, fit_b
@@ -634,7 +644,7 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
         r["supports"] = [ev.supports(e, near, answered, best_fit) for e in r["evidence"]]
         r["supported"] = any(x is None for x in r["supports"])
         supported += r["supported"]
-    if not supported:
+    if not supported and kind != "display":            # a display change moves nothing a fit or a finding could support
         raise ProposeError("no reason with evidence that supports it: " +
                            "; ".join(w for r in kept for w in r["supports"] if w)[:600])
     j = joined(es_)
@@ -673,7 +683,8 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
                        "control": "a change to what decides (a goal, a block or the judge)",
                        "measurement": "a change to how the world is read (a sensor)",
                        "description": "a part's description: what the diagrams say of it",
-                       "unit": "a part's unit", "rename": "a part renamed, every reference with it, its history kept"}[kind]
+                       "unit": "a part's unit", "display": "a dashboard declared: what the Dashboard page shows",
+                       "rename": "a part renamed, every reference with it, its history kept"}[kind]
         from . import structural as stc
         if stc.rewired(spec, after):                     # whoever made it: a chain rewired is the owner's to write
             x["rewires"] = True

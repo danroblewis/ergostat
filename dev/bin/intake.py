@@ -120,7 +120,8 @@ def definition(cfg: dict, gap: dict) -> str | None:
     on = (cfg["git"]["base"], fac.git_branch(branch))
     refs = [f"{ref}:{d}/{branch}.md" for d in (fac.DEFS, fac.OLD_DEFS) for ref in on]     # the new path first
     for where in (str(gap["fields"].get("definition") or ""), f"run/defs/{branch}.md", *refs):
-        if where and brief.definition_text(cfg, where, branch).strip():
+        text = brief.definition_text(cfg, where, branch) if where else ""
+        if text.strip() and not fac.entry_only(text):                 # (a record holding only its GAPS.md entry)
             return where
     return None
 
@@ -171,9 +172,10 @@ def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
 
 
 def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, str]) -> int:
-    """Each gap's dependencies from GAPS.md, its definition's `depends-on:` line and what was asked, and an entry
-    GAPS.md lists twice (``dups``, twice()) as a problem: said as gap.dependencies where they changed (deps.py)."""
-    parsed, own = deps.from_gaps(text)
+    """Each gap's dependencies from main's records (deps.from_main(); ``text`` before the split), its definition's
+    `depends-on:` line and what was asked, and an entry GAPS.md lists twice (``dups``, twice()) as a problem: said as
+    gap.dependencies where they changed (deps.py)."""
+    parsed, own, unreadable = deps.from_main(fac.path(cfg, "checkout"), cfg["git"]["base"], text)
     for gid, g in known.items():
         where = str(g["fields"].get("definition") or "")
         if where:
@@ -188,7 +190,7 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, s
                          check=False).split())
     tree = fac.git(repo, "ls-tree", "--name-only", cfg["git"]["base"], "docs/roadmap/overnight/", check=False)
     landed = {f.rsplit("/", 1)[-1][:-3] for f in tree.split() if f.endswith(".md")}   # unread: none, never 'landed'
-    want = deps.plan(known, parsed, own, merged, landed)
+    want = deps.plan(known, parsed, own, merged, landed, unreadable)
     for gid, why in dups.items():
         if gid in want:
             want[gid]["problems"].append(why)

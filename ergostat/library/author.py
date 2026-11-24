@@ -41,7 +41,7 @@ def library(root: Path | None, name: str | None = None) -> dict:
     system dynamics, its example, its parameters)."""
     doc = _doc(root) if root is not None and (root / FILE).is_file() else None
     extra = doc.library if doc else []
-    got, notes = tp.find_all(extra, doc.untrusted if doc else ())
+    got, notes = tp.find_all(extra, doc.untrusted if doc else (), doc.fetched if doc else ())
     if name:
         t = got.get(name)
         if t is None:
@@ -55,7 +55,7 @@ def library(root: Path | None, name: str | None = None) -> dict:
     return {**out, "markers": ut.SAYS} if shown else out
 
 
-TEXT = ("description", "reading", "example", "from")               # an untrusted template's text, marked (SPEC §2a)
+TEXT = ("description", "reading", "example", "from", "exports")    # an untrusted template's text, marked (SPEC §2a)
 PARAM_TEXT = ("description", "stand-in", "default", "choices")
 
 

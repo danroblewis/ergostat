@@ -14,6 +14,7 @@ import re
 import secrets
 import threading
 import time
+from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -30,14 +31,35 @@ STATIC = Path(__file__).parent / "static"
 GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)    # the client went away mid-answer
 EVENTS_MOST = 1000                   # the most events one answer carries (``n``); page through with ``after``
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
+KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
 # names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
+UI_PAGES = ("diagram", "dashboard", "goals", "loops", "agents", "items", "item", "record", "model", "check", "guide",
+            "fit", "residuals")
 
 
 _VERSIONS: dict = {}                 # a static file's version, by name: (mtime, size, hash of its content)
 _STATIC_REF = re.compile(r'((?:src|href)=")/static/([\w./-]+)(")')
 FOREVER = "public, max-age=31536000, immutable"
+
+
+def _item_cost(p, m, fields: dict, until: float) -> dict | None:
+    """What the runs that took an item cost (its lease's history names every take, a rolled-up one too, SPEC §9.5):
+    their totals, how many took it, and ``ai``, whether any of them is an AI block (an ai, narrow-ai or decision rung,
+    or a block the model no longer has: the worst case). ``unknown`` counts only those blocks' runs: a program's failed
+    run had no session to spend. A run not ended yet is counted in ``taken``, never as $0. None when no run took it."""
+    from ..costs import record as costs
+    lease = fields.get("lease") if isinstance(fields.get("lease"), dict) else {}
+    taken = {h["run"]: (h.get("block"), float(h.get("taken") or 0)) for h in lease.get("history") or []
+             if isinstance(h, dict) and h.get("run")}
+    if not taken:
+        return None
+    since = min(t for _, t in taken.values())
+    ends = {b: [costs.numbers(e) for e in costs.ended(p, since, until, b) if e.get("causedby") in taken]
+            for b in {b for b, _ in taken.values() if b}}
+    ai = [b for b in ends if b not in m.agents or m.agents[b].rung in (1, 2, 3)]
+    return {**costs.totals([r for rs in ends.values() for r in rs]), "taken": len(taken), "ai": bool(ai),
+            "unknown": costs.totals([r for b in ai for r in ends[b]])["unknown"]}
 
 
 def asset_version(name: str) -> str | None:
@@ -84,6 +106,56 @@ def went_away(path: str, size: int, e: BaseException) -> None:
           f"({size // 1024} KB, {type(e).__name__})", file=sys.stderr, flush=True)
 
 
+SLOW_S = 2.0                         # an answer longer than this (queue wait and work) is a line in the runner's log
+WAITED_MOST = 60.0                   # a GET queued longer than this is dropped: whoever asked has given up
+
+
+class WebLog:
+    """The page server's slow answers and dropped requests: one line each on stderr (the runner's log), and the
+    last ten minutes' counts by path for ``/api/status`` (``web``), kept for the newest 2,000 at most."""
+
+    def __init__(self):
+        import collections
+        self._seen: collections.deque = collections.deque(maxlen=2000)     # (monotonic time, "slow" or "dropped", path)
+        self._lock = threading.Lock()
+
+    def note(self, kind: str, path: str, said: str) -> None:
+        import sys
+        print(f"{time.strftime('%H:%M:%S')} web: {kind} GET {path.split('?')[0]}: {said}", file=sys.stderr, flush=True)
+        with self._lock:
+            self._seen.append((time.monotonic(), kind, path.split("?")[0]))
+
+    def recent(self, span: float = 600.0) -> dict | None:
+        """``{"slow": {path: n}, "dropped": {path: n}}`` over ``span`` seconds, or None when nothing was slow."""
+        cut, out = time.monotonic() - span, {"slow": {}, "dropped": {}}
+        with self._lock:
+            for at, kind, path in self._seen:
+                if at >= cut:
+                    out[kind][path] = out[kind].get(path, 0) + 1
+        return out if out["slow"] else None
+
+
+def left(conn) -> bool:
+    """The client sent its request and then closed (FIN): a peek that does not wait finds the end, not bytes (a
+    pipelined request's bytes are no end; nothing yet is BlockingIOError). Read before the answer is made, so nothing
+    is built for nobody. No select(): it refuses sockets numbered 1024 and up. The timeout is 0 for the peek (with one
+    set, Python waits for it before any recv, MSG_DONTWAIT or not). A check that cannot run serves the GET."""
+    import socket
+    try:
+        was = conn.gettimeout()
+        conn.settimeout(0)
+        try:
+            return conn.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b""
+        finally:
+            conn.settimeout(was)
+    except BlockingIOError:
+        return False
+    except ConnectionError:                           # reset: gone
+        return True
+    except Exception:                                 # (cannot tell: answer it)
+        return False
+
+
 def md_page(name: str, text: str) -> bytes:
     """A Markdown file opened in the browser, rendered with the page's own Markdown and styles: raw HTML in
     it is shown as text, never run; its relative links stay relative, so they open the files beside it."""
@@ -112,24 +184,32 @@ class Live:
 
         from ..reload import Settled
         self.p = project
+        self.web = WebLog()
         self.mtime = self._mtime()
         self.watch = Settled(project.model)            # the files followed: taken once they settle (reload.py)
         self.errors: list[str] = []                    # the edited model's errors, while the last good one is shown
         self._loading = threading.Lock()               # one thread reads a changed model; the others answer meanwhile
         self._lock = threading.Lock()
         self._snaps: dict = {}
+        self._seq = 0                      # the number of the last snapshot made (moment)
         self._making: dict = {}            # snapshots being made: one at a time for each moment, however many ask
-        self._kept: dict = {}
+        self._kept: OrderedDict = OrderedDict()   # the answers worked out, the least recently used first
+        from .goal_work import GoalWork
+        self.work = GoalWork()                    # per-goal work, in the background (goal_work.py)
 
     def cached(self, key):
         with self._lock:
-            return self._kept.get(key)
+            got = self._kept.get(key)
+            if got is not None:
+                self._kept.move_to_end(key)
+            return got
 
     def keep(self, key, value) -> None:
         with self._lock:
-            if len(self._kept) > 16:
-                self._kept.clear()
             self._kept[key] = value
+            self._kept.move_to_end(key)
+            while len(self._kept) > KEPT_MOST:
+                self._kept.popitem(last=False)
 
     def reloaded(self) -> None:
         """The model was changed here (a proposal accepted): take it as the one loaded."""
@@ -154,13 +234,18 @@ class Live:
         moment (``at``) is kept until the model changes. Made once however many ask at once: on a
         long record, requests that each made their own (and kept making it after their clients gave
         up) were what left every later answer waiting."""
+        return self.moment(p, window, at)[0]
+
+    def moment(self, p, window: float, at: float | None):
+        """The snapshot, and its number: each snapshot made is numbered in turn, so two of one window are told apart
+        by equality of their number, never by their times (a dashboard's panels and its later polls, dashboard_api)."""
         key = (window, at, self.mtime)
         import threading
         while True:
             with self._lock:
                 got = self._snaps.get(key)
                 if got and (at is not None or time.time() - got[0] < 1.5):
-                    return got[1]
+                    return got[1], got[2]
                 busy = self._making.get(key)
                 if busy is None:                       # this request makes it; the others asking meanwhile wait for it
                     busy = self._making[key] = threading.Event()
@@ -171,8 +256,9 @@ class Live:
             with self._lock:
                 if len(self._snaps) > 32:
                     self._snaps.clear()
-                self._snaps[key] = (time.time(), snap)
-            return snap
+                self._seq += 1
+                self._snaps[key] = (time.time(), snap, self._seq)
+                return snap, self._seq
         finally:
             with self._lock:
                 self._making.pop(key, None)
@@ -202,6 +288,14 @@ class Live:
             finally:
                 self._loading.release()
         return self.p
+
+
+def _compute(p, spec, running: bool) -> dict:
+    """Each of the model's pools' status as the running engine's last heartbeat gives it (SPEC §12s.4); None for a
+    pool it does not give (no engine running, none written yet, or not connected), never a guess."""
+    from ..watcher import beats
+    got = next((b["compute"] for b in beats(p.dir) if isinstance(b.get("compute"), dict)), {}) if running else {}
+    return {name: got[name] if isinstance(got.get(name), dict) else None for name in spec.compute}
 
 
 def _edited(live: Live, p, running: bool) -> dict | None:
@@ -312,6 +406,18 @@ def _window(q) -> float:
         return st.WINDOW
 
 
+def _set_alone(p, spec, q, one, at: float) -> dict:
+    """A set of items and nothing of the page (the side panel's list, a chart's "still waiting"): from the index, as of
+    ``at``, without the whole state, whose first estimate on a long record takes many seconds."""
+    from ..spec import item_sets
+    from ..spec import items as its
+    want = item_sets.parse(q, at)
+    n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
+    got = item_sets.select(p.events, spec, want, until=at, n=n, offset=offset)
+    k = spec.items[want.kind]
+    return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))), "kinds": []}
+
+
 def _tail(path, n: int) -> list[str]:
     """The last ``n`` lines of a file, read from its end."""
     try:
@@ -361,6 +467,39 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
     return {**got, "items": kept, "matched": matched, "listed": len(got["items"])}
 
 
+def _with_hidden(kinds: list) -> list:
+    """Each kind with its ``hidden``: its count in each state the list leaves out (SPEC §5a, *Finished items*)."""
+    from ..spec.items import hidden_states
+    return [{**k, "hidden": {s: k["counts"][s] for s in hidden_states(k) if k["counts"].get(s)}} for k in kinds]
+
+
+def _unfinished(p, spec, got: dict, kind: str | None, until: float, n: int, offset: int, pk: int,
+                folded: set = frozenset()) -> dict:
+    """The plain list without each kind's finished and dead items (SPEC §5a, *Finished items*): each kind's
+    ``hidden`` (its count in each state left out), and its items paged by the index in its other states, never
+    cut first and filtered after. The counts stay whole."""
+    from ..spec import items as its
+    hid = {k["name"]: its.hidden_states(k) for k in got["kinds"]}
+    kinds = _with_hidden(got["kinds"])
+    got = {**got, "kinds": kinds, "total": got["total"] - sum(sum(k["hidden"].values()) for k in kinds
+                                                             if not kind or k["name"] == kind)}
+    if not any(k["hidden"] for k in kinds if not kind or k["name"] == kind):
+        return got
+    vis = lambda k: [s for s in dict.fromkeys([*k["states"], *k["counts"]]) if s not in hid[k["name"]]]   # noqa: E731
+    page = lambda name, states, n_, at: its.listing(p.events, spec, kind=name, until=until, n=n_, offset=at,   # noqa: E731
+                                                    states=states)["items"]
+    if kind:                                          # the chosen kind: its page in its other states
+        k = next(k for k in kinds if k["name"] == kind)
+        return {**got, "items": page(kind, vis(k), n, offset)}
+    if pk:                                            # each kind's newest: those hiding something asked again (not folded)
+        again = {k["name"] for k in kinds if k["hidden"] and k.get("system") not in folded}
+        items = [i for i in got["items"] if not any(k["hidden"] and k["name"] == i.get("kind") for k in kinds)]
+        return {**got, "items": items + [i for k in kinds if k["name"] in again for i in page(k["name"], vis(k), pk, 0)]}
+    each = [i for k in kinds for i in page(k["name"], vis(k) if k["hidden"] else None, offset + n, 0)]
+    each += page("", None, offset + n, 0) if got.get("unkinded") else []                  # the items of no kind
+    return {**got, "items": sorted(each, key=lambda i: -i["last"])[offset:offset + n]}
+
+
 def inferred_of(spec, kind: str, name: str | None) -> dict | None:
     """Whether a model change added this part (``inferred:``, SPEC §12e), and which: ``{"from": item or None}``, or None
     for a part the YAML declares. What the side panel says, subtly: "added by ergostat, from model change X"."""
@@ -400,6 +539,80 @@ def _items_of(p, m, kind: str, name: str, snap: dict) -> dict | None:
     return got
 
 
+def _sizes(p, fields: dict, most: int = 200) -> dict:
+    """How big each file the fields name (``file:PATH``) is, found where ``/file/`` finds it but never in the state
+    folder: the page names a closed file by it without asking for the file. One not found is left out."""
+    found: list[str] = []
+
+    def walk(v):
+        if isinstance(v, str) and v.startswith("file:") and len(found) < most:
+            found.append(v[5:])
+        elif isinstance(v, dict | list):
+            for x in v.values() if isinstance(v, dict) else v:
+                walk(x)
+    walk(fields)
+    roots = [Path(r).resolve() for r in (p.model.path.parent if p.model.path else None, p.dir) if r]
+    state, out = Path(p.dir).resolve(), {}
+    for rel in found:
+        for root in roots:
+            try:                                      # unreadable (no permission, a loop of links): left out, unsized
+                f = (root / rel).resolve()
+                if (root == f or root in f.parents) and f != state and state not in f.parents and f.is_file():
+                    out[rel] = f.stat().st_size
+                    break
+            except (OSError, RuntimeError, ValueError):
+                continue
+    return out
+
+
+def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
+    """A kind's footprint (``footprint.py``, the model's alone) with what is so now: its count per state, how many each
+    block has taken now (a lease holder, whatever state the run has moved it to), and each goal's word."""
+    from ..leases.fold import held
+    from ..spec import items as its
+    from ..spec.footprint import kind_footprint
+    fp = kind_footprint(spec, kind)
+    if fp is None:
+        return None
+    page = its.listing(p.events, spec, kind=kind, state="\0", until=snap["at"], n=1)     # counted by the index
+    fp["now"] = next((k["counts"] for k in page["kinds"] if k["name"] == kind), {})
+    if fp["definition"]["finished_by"] == "inferred":     # as the listing infers it, from the states left by now
+        f = its.finishes(p.events, spec, kind)
+        fp["definition"]["finished_by"] = f["finished_from"]
+        for s in fp["definition"]["states"]:
+            s["finished"] = s["state"] in f["finished"]
+    for t in fp["taken_by"]:
+        _, _, got = its.in_states(p.events, spec, kind, None, {"lease.block": t["block"]}, until=snap["at"], items=True)
+        t["taken"] = sum(1 for i in got if held(i.fields))
+    for g in fp["goals"]:
+        g["status"] = (snap["loops"].get(g["goal"]) or {}).get("status")
+    return fp
+
+
+def _subset(p, spec, snap: dict, item: str | None, kind: str | None) -> dict:
+    """The parts the Dynamics and Blocks views draw alone for ``item=`` (what it passed through, as of the moment) or
+    ``kind=`` (what it touches): ``graph.touched``, with ``about`` for the page's chip; no parts when nothing counts it."""
+    from types import SimpleNamespace
+
+    from ..spec import items as its
+    from ..spec.footprint import item_path, kind_footprint
+    d = None
+    if item:
+        d = its.detail(p.events, spec, item, until=snap["at"], history=0) if spec is not None else None
+        kind = (d or {}).get("kind")
+        fp = kind_footprint(spec, kind or "")
+        steps = item_path(spec, SimpleNamespace(kind=kind, moves=d["moves"], fields=d["fields"])) if d and fp else []
+        got = graph.touched(fp or {"counted_in": [], "taken_by": []}, steps)
+        says = f"what {item} passed through" if d else f"nothing is recorded about {item}"
+    else:
+        fp = kind_footprint(spec, kind)
+        got = graph.touched(fp or {"counted_in": [], "taken_by": []})
+        says = f"what kind {kind} touches" if fp else f"no kind {kind} in the model"
+    if (d or fp) and not got["parts"]:
+        says += ": not counted anywhere in the model"
+    return {**got, "about": {"item": item, "kind": kind, "says": says}}
+
+
 def _estimates(p, m, snap: dict, whatif: str | None) -> dict | None:
     """The completion estimates (``eta_api``), of now only: a moment travelled to has none."""
     if abs(time.time() - snap["at"]) >= 5:
@@ -433,6 +646,13 @@ def _process(p, m, snap: dict, q: dict, system: str | None) -> dict:
     got["offered"] = [{"name": k, "system": where.get(k, {}).get("system"), "states": bool(spec.items[k].states)}
                       for k in spec.items]
     got["default"] = offered
+    if got.get("by") == "states":                  # each state's node: how many are in it now, as Items counts them
+        from ..spec.items import listing
+        now = {k["name"]: k["counts"] for k in listing(p.events, spec, state="\0", until=snap["at"], n=1)["kinds"]}
+        states = {k["name"]: k["states"] for k in got["kinds"] if k.get("by") == "states" and not k.get("remote")}
+        for x in got["nodes"]:
+            if x["kind"] == "activity" and x["activity"] in states.get(x["itemKind"], ()):
+                x["now"] = now.get(x["itemKind"], {}).get(x["activity"], 0)
     return got
 
 
@@ -485,14 +705,18 @@ def _record_rows(p, m, snap, about, match, n, skip, span, scope=None) -> list[di
     return sorted(got.values(), key=lambda e: e["seq"])[-n:]
 
 
-def api(live: Live, path: str, q: dict):
+def api(live: Live, path: str, q: dict, reader: bool = False):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
-    shape is, and which shapes stand for each part, so one selection is lit in every view."""
-    got = _answer(live, path, q)
+    shape is, and which shapes stand for each part, so one selection is lit in every view. ``reader``: asked by
+    anyone under a public name (``open: read``), who may not ask a data source (SPEC §4d, §4e)."""
+    parts = path.strip("/").split("/")                  # a reader's query answered here: _answer's signature kept
+    got = _query(live, live.get(), parts, q, True) if reader and parts[0] == "query" else _answer(live, path, q)
     if path.strip("/") == "graph" and isinstance(got, dict):
         from ..correspond import table
         shown = got.pop("_model", None) or live.get().model       # a proposal drawn: its model's parts
         got["corr"] = table(got, shown)
+        from .snapshot import untrusted
+        untrusted(got, shown)                         # what an untrusted template made, said on its box (SPEC §2a)
         if q.get("have"):                             # a page polling: only the values, when it holds this structure
             from .graph_poll import answer
             return answer(got, q["have"][0])
@@ -508,7 +732,41 @@ def _answer_with(live: Live, path: str, q: dict, model):
     return _answer(live, path, q2, p)
 
 
-def _answer(live: Live, path: str, q: dict, project=None):
+def _held_up(p) -> dict:
+    from ..why.held import headline
+    return headline(p)
+
+
+def _query(live: Live, p, parts: list, q: dict, reader: bool = False):
+    """Every chart's numbers, read-only, without a snapshot (ergostat/query); a reader is refused a data source."""
+    from ..query import answer, fields
+    name = unquote(parts[1]) if len(parts) > 1 else None
+    if name == "fields":
+        return fields(live, p, reader)
+    if name == "suggest":
+        return _suggest(p, q, reader)
+    return answer(live, p, (q.get("q") or [None])[0], reader) if name is None else None
+
+
+def _suggest(p, q: dict, reader: bool) -> dict:
+    """``GET /api/query/suggest?source=&what=metrics|labels|values&prefix=&metric=&label=``: the names a query editor
+    completes, from the data source's own metadata (ergostat/datasources), bounded; a reader is refused, nothing sent."""
+    from .. import datasources
+    from ..query.engine import READER_REFUSED
+    one = lambda k: (q.get(k) or [""])[0]                                   # noqa: E731
+    if reader:
+        return {"suggestions": [], "error": f"{one('source')}: {READER_REFUSED}", "error_kind": "refused"}
+    try:
+        return datasources.suggest(getattr(p.model, "spec", None), one("source"), one("what"), one("prefix"),
+                                   one("metric"), one("label"), project=p)
+    except datasources.SourceError as e:
+        return {"suggestions": [], "error": f"{one('source')}: {e}", "error_kind": e.kind}
+    except Exception as e:                            # (its type only: the words may hold the source's address)
+        return {"suggestions": [], "error": f"{one('source')}: could not be read ({type(e).__name__})"}
+
+
+def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
+    """``pinned``: the snapshot to answer from (a dashboard's panels, all of one moment), else the moment's own."""
     if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
         got = _LISTED
         return dict(got, age=None if got["at"] is None else max(0.0, time.time() - got["at"]))
@@ -521,6 +779,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
+    if head == "query":                           # every chart's numbers, read-only, without a snapshot (ergostat/query)
+        return _query(live, p, parts, q)
     if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
         from ..spec import itemgraph as ig
         asked = [k for k in ("near", "path", "about") if one(k) is not None]
@@ -534,13 +794,34 @@ def _answer(live: Live, path: str, q: dict, project=None):
             return None
         except ig.Bad as e:
             raise BadSet(str(e)) from e
+    if head in ("dashboards", "dashboard"):         # the declared dashboards; one's every panel in one answer (SPEC §4f)
+        from . import dashboard_api
+        return dashboard_api.listing(p) if head == "dashboards" else dashboard_api.answer(live, p, name, q)
+    if head == "why":                             # why an item is not done (SPEC §5a), as the record is now
+        if not one("item") or one("at"):
+            raise BadSet("why: item=ID, as the record is now (never at=)")
+        from ..why import answer
+        return answer(p, one("item"))
+    if head == "held-up":                         # what holds the work up, ranked (SPEC §5a), as the record is now
+        if one("at"):
+            raise BadSet("held-up: as the record is now (never at=)")
+        from ..why import held
+        return held.answer(p)
     at = None
     if one("at"):
         try:
             at = float(one("at"))
         except ValueError:
             at = None
-    snap = live.snapshot(p, _window(q), at)
+    if head == "items" and name is None and one("alone") and one("kind") and "search" not in q:
+        return _set_alone(p, getattr(m, "spec", None), q, one, time.time() if at is None else at)
+    if head == "items-overview":                  # the Items page's overview: from the item index, with no snapshot
+        from .items_overview import overview
+        return overview(p, at if at is not None else time.time(), _window(q))
+    if head == "series" and one("measured"):     # the module boxes' sparklines: the measurement store alone, no snapshot
+        refs = [r for r in (one("refs") or "").split(",") if r]
+        return series.measured(p, at if at is not None else time.time(), _window(q), refs, int(one("points") or 48))
+    snap = pinned if pinned is not None else live.snapshot(p, _window(q), at)
     if head == "status":
         from .. import rates
         from ..runner import running_pid
@@ -549,17 +830,23 @@ def _answer(live: Live, path: str, q: dict, project=None):
         spec = getattr(m, "spec", None)              # the diagram's caption: what the model is for, its loops
         said = {"purpose": spec.purpose, "top": len(spec.subsystems(None)),
                 "controlled": sorted(g for g in spec.goals if spec.loop(g).controllers)} if spec else {}
+        if spec:                                     # the Blocks caption's counts: the one function's, of the controlled goals
+            held = {g: lp for g, lp in snap["loops"].items() if g in said["controlled"]}
+            said["controlled_off"] = st.goals_off({"loops": held})
         return {"name": m.name, **said, "running": running, "live": snap["live"], "first": p.events.first_time(),
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
                 + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 **({"edited": edited} if edited else {}),
+                **({"held_up": _held_up(p)} if at is None and spec is not None else {}),   # the header's first line
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],
                 "at": snap["at"], "window": snap["window"], "recorded": snap.get("recorded"),   # the window's span on record
                 "rate_units": rates.overrides(getattr(m, "spec", None)),
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
-                            for e in history.changes(p, snap["at"] - snap["window"])][-5:]}
+                            for e in history.changes(p, snap["at"] - snap["window"])][-5:],
+                **({"web": w} if (w := live.web.recent()) else {}),
+                **({"compute": _compute(p, spec, running)} if getattr(spec, "compute", None) else {})}
     if head == "coherence":                          # the three views held against each other (the Check page)
         from .numbers_api import coherence
         return coherence(live, p, snap, _window(q) if one("since") else None)
@@ -597,12 +884,19 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 got = _process(p, m, snap, q, system)
                 live.keep(key, got)
             return {**got, "attention": att}
+        sub = _subset(p, getattr(m, "spec", None), snap, one("item"), one("kind")) \
+            if one("item") or one("kind") else None   # what an item passed through, or what a kind touches (SPEC §5a)
+        if sub is not None and not sub["parts"]:
+            return {"kind": one("view") or "dynamics", "nodes": [], "edges": [], "subset": sub["about"], "attention": att}
         if one("view") == "blocks":                 # the control view: the whole control system as a block diagram
             from ..blockdiagram import diagram
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
             laws = _laws(p, getattr(m, "spec", None))   # external blocks' identified laws, once fitted (SPEC §12d)
-            return {**diagram(m, {**snap, "laws": laws or {}}, want, system), "attention": att}
+            g = diagram(m, {**snap, "laws": laws or {}}, want, system, sub and sub["parts"])
+            if sub and not g["nodes"]:
+                sub["about"]["says"] += ": in no control loop"
+            return {**g, "attention": att, **({"subset": sub["about"]} if sub else {})}
         from ..dynamics import attention as sd_attention
         from ..dynamics import dynamics, finish
         from ..fold import fold
@@ -610,7 +904,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
         if sd:
             att = sd_attention(att, snap)       # (in its own words)
         tree = getattr(getattr(m, "spec", None), "systems", None)
-        if tree and not around:              # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)
+        if tree and not around and sub is None:      # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)
             g = graph.control(m, snap, graph.select(m), graph.readings(p, at))
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
@@ -618,16 +912,25 @@ def _answer(live: Live, path: str, q: dict, project=None):
             if getattr(m.spec, "remotes", None):     # when what remotes' boxes show last read (SPEC §4c)
                 from ..remote.measures import read_times
                 reads = read_times(p, m.spec, snap["at"])
-            if sd:
-                return {**finish(fold(dynamics(g, m), m, want, system, reads)), "attention": att}
-            return {**fold(g, m, want, system, reads), "attention": att}
-        sel = graph.select(m, system, around, int(one("depth") or 1))
+            g = finish(fold(dynamics(g, m), m, want, system, reads)) if sd else fold(g, m, want, system, reads)
+            for n in g.get("nodes", []):             # a closed system's sentence when every goal of it holds (state.quiet)
+                if n.get("kind") == "system":
+                    n["quiet"] = st.quiet(p, snap, n["label"])
+            return {**g, "attention": att}
+        drawn = sub and {x.split(".", 1)[1] for x in sub["parts"] if x.split(".", 1)[0] in ("stock", "auxiliary", "flow")}
+        sel = graph.select(m, system, around, int(one("depth") or 1), drawn)
         g = graph.control(m, snap, sel, graph.readings(p, at))
-        return {**(dynamics(g, m) if sd else g), "attention": att}
+        for n in g["nodes"] if sub else ():          # an item's marks: its steps' numbers on each stock, runs on each valve
+            what = n["id"].split(":", 1)[1]
+            if n["kind"] in ("stock", "auxiliary") and what in sub["numbers"]:
+                n["path"] = sub["numbers"][what]
+            elif n["kind"] == "valve" and what in sub["attempts"]:
+                n["attempts"] = sub["attempts"][what]
+        return {**(dynamics(g, m) if sd else g), "attention": att, **({"subset": sub["about"]} if sub else {})}
     if head == "systems":
         return [{"name": s, "description": m.systems[s].description if s in m.systems else "",
-                 "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)]}
-                for s in m.system_names()]
+                 "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)],
+                 "quiet": st.quiet(p, snap, s)} for s in m.system_names()]
     if head == "loops":
         if name:
             lp = snap["loops"].get(name)
@@ -658,7 +961,25 @@ def _answer(live: Live, path: str, q: dict, project=None):
             for v in lp["valves"]:
                 parts.append({"kind": "valve", "name": v, "agent": agent(m.valves[v].agent), "mode": m.valves[v].mode,
                               "max": m.valves[v].max, "last": p.events.last_opening(v, snap["at"])})
-            return {**lp, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
+            # who acts for it, counted as Agents and the Record count them: commanded, ran, and what its valves moved
+            from ..runner import log_path
+            blocks = getattr(getattr(m, "spec", None), "blocks", {})
+            actors = []
+            for a in dict.fromkeys([m.valves[v].agent for v in c.drives if v in m.valves] + [
+                    b.name for b in blocks.values() if b.goal == name and b.machine and not b.implied]):
+                if a not in snap["agents"]:
+                    continue
+                mine = [x for x in m.valves.values() if x.agent == a]
+                opened = [e["data"].get("amount") or 0 for x in mine
+                          for e in p.events.query(n=None, type="valve.opened", item=x.name, since=since, until=snap["at"])]
+                got = [st.moved(p, x.flow, since, snap["at"]) for x in mine]     # else what its flows measured (None: unknown)
+                moved = sum(opened) if opened else (sum(got) if got and None not in got else None)
+                tail = _tail(log_path(p, a), 20)             # its last run's entry in its log: its last line
+                said = [x for x in tail[max((i for i, x in enumerate(tail) if x.startswith("--- ")), default=-1) + 1:] if x.strip()]
+                actors.append({"name": a, "ran": snap["agents"][a]["runs"], "moved": moved, "log": said[-1] if said else None,
+                               "commanded": len(p.events.query(n=None, type="block.commanded", item=a, since=since,
+                                                               until=snap["at"]))})
+            return {**lp, "actors": actors, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
                     "since": since, "until": snap["at"], "off_stretches": stretches,
                     "crossings": [{**e, "off_by_words": st.off_by_words(e["data"].get("setpoint") or c.setpoint, e["data"].get(
                         "error"), c.tolerance, getattr(m.stocks.get(c.holds), "unit", ""),
@@ -666,14 +987,23 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     "crossings_total": len(in_window),
                     "description": c.description, "parts": parts,
                     "rates": {f: snap["flows"].get(f, {}).get("rate") for f in lp["flows"]},
+                    "moves": {m.valves[v].flow: snap["flows"].get(m.valves[v].flow, {}).get("rate")     # its own valves'
+                              for v in (lp["valves"] or (c.drives if c.through else [])) if v in m.valves},
                     "decisions": st.decisions(p, name, since, snap["at"]),
                     "hints": [h for h in snap["hints"] if h["controller"] == name]}
-        return snap["loops"]
+        # each loop with its stock's trend (the snapshot's), and with perf=1 how it is doing, from the background
+        from .control_api import performances
+        perf = performances(live, p, snap, list(snap["loops"])) if one("perf") else None
+        return {n: {**lp, "points": snap["stocks"].get(lp["stock"], {}).get("points") or [],
+                    **({"perf": perf[n]} if perf is not None else {})} for n, lp in snap["loops"].items()}
     if head == "agents":
         if name:
             a = m.agents.get(name)
             if a is None:
                 return None
+            from . import agent_spec
+            if len(parts) > 2:                    # its files' text, each from inside the project only
+                return agent_spec.files(p, name) if parts[2] == "files" and len(parts) == 3 else None
             runs = [e for e in p.events.query(n=400, item=name, type="agent.*", until=snap["at"])
                     if e["type"] in ("agent.ran", "agent.failed")]
             from ..runner import log_path
@@ -697,13 +1027,18 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
                     "log": _tail(log, 40), "log_path": str(log),
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
+                    "spec": agent_spec.spec(p, snap, name),          # what it is: its block as written, law, files
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
         from ..costs import record as costs
         use = costs.per_block(p, snap["at"] - snap["window"], snap["at"])
-        return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n], **({"use": use[n]} if n in use else {})}
+        span = min(snap["window"], snap["recorded"])     # the runs its interval asks for over the window's record
+        return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n], **({"use": use[n]} if n in use else {}),
+                    "expected": int(span // a["every"]) if a.get("every") else None, "span": span}
                 for n, a in snap["agents"].items()}
     if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
         return snap.get("daemons", {})
+    if head == "kinds":                           # what a kind touches (SPEC §5a, *What a kind touches*); None: 404
+        return _kind_now(p, getattr(m, "spec", None), name, snap) if name and len(parts) == 2 else None
     if head == "events" and "remote" in q:        # a remote's, from its cache (remote/events.py): never the local record
         if name is not None:
             from ..remote.items import RemoteRefused
@@ -743,15 +1078,26 @@ def _answer(live: Live, path: str, q: dict, project=None):
             from ..rollup import archived
             return archived(p, name, offset=int(one("offset") or 0), n=min(int(one("n") or 200), EVENTS_MOST))
         if name:
-            d = its.detail(p.events, spec, name, until=snap["at"], history=None if one("history") == "all" else its.HISTORY_SHOWN)
+            hist = one("history")                 # FIELD, or all, or none at all: the counts always (SPEC §5a, History)
+            d = its.detail(p.events, spec, name, until=snap["at"], history=None if hist else its.HISTORY_SHOWN)
+            if d:
+                if hist != "all":
+                    d = {**d, "history": {hist: d["history"].get(hist, [])}} if hist else \
+                        {k: v for k, v in d.items() if k != "history"}
+                d["file_sizes"] = _sizes(p, d["fields"])
             est = _estimates(p, m, snap, one("whatif"))
             if d and est and name in est.get("items", {}):
                 d["eta"] = {**est["items"][name], "at": est["at"], "runs": est["runs"]}
+            if d and spec is not None:                # its moves as steps through the model (SPEC §5a, *What a kind touches*)
+                from types import SimpleNamespace
+
+                from ..spec.footprint import item_path
+                d["path"] = item_path(spec, SimpleNamespace(kind=d["kind"], moves=d["moves"], fields=d["fields"]))
             if d and d.get("kind_of") and spec and d["kind_of"]["name"] in spec.items:   # its endings, as the process map counts them
                 from ..process import _done
                 ends = _done(spec, p.events, spec.items[d["kind_of"]["name"]])
                 d["kind_of"]["final"] = [s for s in d["kind_of"]["states"] if s in ends]
-            return d
+            return {**d, "cost": _item_cost(p, m, d["fields"], snap["at"])} if d else d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
         if "search" in q:                         # the items whose fields hold every word, as now (SPEC §5a, Search)
@@ -764,15 +1110,29 @@ def _answer(live: Live, path: str, q: dict, project=None):
                               search=one("search"))
             return _as_listed(got, None, 0, bool(one("shown")))
         want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
-        if want is not None and (item_sets.asked(q) or one("alone")):   # a set the listing does not serve (SPEC §5a)
+        if want is not None and item_sets.asked(q):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
-            if one("alone"):                              # the side panel's list: the set, and nothing of the page
-                k = spec.items[want.kind]
-                return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))),
-                        "kinds": []}
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
-        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
+        fin = one("finished") or "hide"
+        if fin not in ("hide", "waits", "show"):
+            raise BadSet(f"finished={fin}: hide, waits or show")
+        hide = fin != "show" and not one("state") and not one("q") and spec is not None   # never a searched or chosen state
+        paged = bool(one("kind")) and one("kind") in its.kinds_of(spec)   # a kind's page (SPEC §5a): searched, sorted
+        if paged:
+            from ..spec.item_systems import kind_systems
+            frame = its.listing(p.events, spec, kind=one("kind"), state="\0", until=snap["at"], n=1)
+            vis = None
+            if hide:                                  # its page in its other states, paged by the index
+                frame = {**frame, "kinds": _with_hidden(frame["kinds"])}
+                k = next((k for k in frame["kinds"] if k["name"] == one("kind")), None)
+                if k and k["hidden"]:
+                    vis = [s for s in dict.fromkeys([*k["states"], *k["counts"]]) if s not in its.hidden_states(k)]
+            page = its.kind_page(p.events, spec, one("kind"), one("state"), snap["at"], n, max(0, offset),
+                                 (one("q") or "").strip() or None, one("sort") or None, states=vis)
+            got = {**frame, **page, "items": [its._listed(i, its.kinds_of(spec), kind_systems(spec)) for i in page["items"]]}
+        else:
+            got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
         pk = int(one("per_kind") or 0)
         if pk and not one("kind") and not one("state") and spec is not None:   # each kind's newest, however busy the rest
             have = {}
@@ -782,9 +1142,16 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 if have.get(k["name"], 0) < min(pk, sum(k["counts"].values())):
                     more = its.listing(p.events, spec, kind=k["name"], until=snap["at"], n=pk)["items"]
                     got["items"] = [i for i in got["items"] if i.get("kind") != k["name"]] + more
+        if hide and not paged:
+            got = _unfinished(p, spec, got, one("kind"), snap["at"], n, offset, pk, set((one("hide") or "").split(",")))
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
-        out = _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+        out = _as_listed(got, None if paged else one("q"), 0 if paged else int(one("per_kind") or 0), bool(one("shown")),
+                         one("hide"))
+        if one("q") and not paged:                    # a finished match is listed, and counted apart (a kind's: its finished)
+            hid = {k["name"]: set(its.hidden_states(k)) for k in out["kinds"]}
+            out["finished_matched"] = {k: n_ for k in hid if (n_ := sum(i.get("kind") == k and i.get("state") in hid[k]
+                                                                      for i in out["items"]))}
         if getattr(spec, "remotes", None):            # each remote's own section, asked by the page on its own
             out["remotes"] = [{"name": k, "url": r["url"]} for k, r in spec.remotes.items()]
         est = _estimates(p, m, snap, one("whatif"))
@@ -828,7 +1195,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return report(p, "/".join(unquote(x) for x in parts[1:]))
     if head == "actions":                         # gated actions sessions asked for, about one item or all (SPEC §12k)
         from .actions_api import listing as actions
-        return actions(p, one("item") or None)
+        return actions(p, one("item") or None, bool(one("classes")))
     if head == "inbox":                           # everything waiting on a person (SPEC §12o)
         from .actions_api import inbox
         return inbox(p)
@@ -843,6 +1210,12 @@ def _answer(live: Live, path: str, q: dict, project=None):
         from .relations_api import graph as items_graph
         est = _estimates(p, m, snap, one("whatif"))   # None while the first is worked out: the legend says so
         return {**merge(items_graph(p, m, snap, q), est), "eta_pending": est is None and abs(time.time() - snap["at"]) < 5}
+    if head == "items-groups":                    # how far along each group is (SPEC §5a, Progress per group)
+        from ..spec.grouptally import progress
+        if abs(time.time() - snap["at"]) >= 5:
+            raise BadSet("items-groups: answers as the record is now (never at=)")
+        return progress(p.events, getattr(m, "spec", None), one("kind") or "", one("by") or "", snap["at"],
+                        snap["at"] - snap["window"], one("points") or 60)
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":
@@ -946,6 +1319,7 @@ def handler(project):
             time (``no-cache``), so an answer that did not change since is a 304 with no body: the page
             refreshes every few seconds, and an item's images and files are drawn again each time. A static
             file asked for with its current version is kept for good instead (``cache``)."""
+            self.sent = len(body)
             try:
                 tag = f'"{hashlib.blake2b(body, digest_size=12).hexdigest()}"' if tagged and code == 200 else None
                 same = tag is not None and tag in (self.headers.get("If-None-Match") or "")
@@ -1064,6 +1438,9 @@ def handler(project):
                 elif u.path.startswith("/api/intent/"):    # a proposed decision or correction: the owner's answer
                     from .intent_api import post as intent
                     code, data = intent(live, u.path.removeprefix("/api/"), q)
+                elif u.path == "/api/propose" and q.get("keep") == ["dashboard"]:   # the Dashboard's Keep
+                    from .numbers_api import keep
+                    code, data = keep(live, body)
                 else:
                     code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down
@@ -1128,6 +1505,25 @@ def handler(project):
             return None
 
         def do_GET(self):
+            """A GET, read: dropped unanswered when its client has left or it waited past WAITED_MOST in the queue
+            (the pooled server's; web/__init__.py), and one line in the log when it took longer than SLOW_S."""
+            job = getattr(self.server, "local", None)
+            taken = getattr(job, "taken", None) or time.monotonic()
+            waited = taken - (getattr(job, "queued", None) or taken)
+            if job is not None and (waited > WAITED_MOST or left(self.connection)):
+                self.close_connection = True
+                return live.web.note("dropped", self.path, f"{'the client left' if waited <= WAITED_MOST else 'too old'}"
+                                     f" after {waited:.1f}s in the queue")
+            self.sent = 0
+            try:
+                return self._get()
+            finally:
+                worked = time.monotonic() - taken
+                if waited + worked > SLOW_S:
+                    live.web.note("slow", self.path, f"waited {waited:.1f}s in the queue, {worked:.1f}s working, "
+                                                     f"{self.sent // 1024} KB")
+
+        def _get(self):
             u = urlsplit(self.path)
             if u.path.startswith("/remote/"):                # read only, behind its token: from any machine (SPEC §4c)
                 return self._remote(u)
@@ -1140,7 +1536,7 @@ def handler(project):
                 try:
                     q = parse_qs(u.query)                   # (a blank search kept, to be refused: never "list all")
                     q.update({"search": [""]} if "search" not in q and "search" in parse_qs(u.query, True) else {})
-                    data = api(live, u.path.removeprefix("/api/"), q)
+                    data = api(live, u.path.removeprefix("/api/"), q, reader=who == self.READER)
                 except BadSet as e:                     # an Items filter that is not one: said, as the asker's
                     return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except RemoteRefused as e:              # a remote not named, not answering, or asked enough (SPEC §4c)

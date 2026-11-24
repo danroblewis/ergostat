@@ -45,6 +45,41 @@ def _wait_for_a_model_that_runs(args) -> None:
         time.sleep(0.5)
 
 
+def _stop(p, pid) -> int:
+    from .. import runner
+    if not pid:
+        print("not running")
+        return 0
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(100):
+        if not runner.running_pid(p):
+            print(f"stopped ({pid})")
+            return 0
+        time.sleep(0.1)
+    print(f"{pid} did not stop within 10s; it still holds {runner.pid_file(p)}", file=sys.stderr)
+    return 1
+
+
+def _stop_runs(p, rc: int) -> int:
+    """``--stop --runs``: the runs left going by their keepers (``runs: outlive_engine``, SPEC §9.1) stopped too, each
+    whole process group (SIGTERM, SIGKILL past the grace), engine or none; waited for, a grace and 5 s at most."""
+    from ..compute.worker import keeper
+    from ..leases.kill import grace
+    root, g = str(p.dir.resolve()), grace()
+    asked = keeper.stop_all(root, g)
+    end = time.monotonic() + g + 5
+    left = asked
+    while left and time.monotonic() < end:
+        time.sleep(0.1)
+        left = [r for r in left if keeper.ended(os.path.join(root, "runs", r)) is None]
+    if asked:
+        print(f"stopped {len(asked) - len(left)} of {len(asked)} runs left going")
+    if left:
+        print(f"still going: {', '.join(r[:8] for r in left)}", file=sys.stderr)
+        return 1
+    return rc
+
+
 def cmd_run(args) -> int:
     from .. import runner
     if args.foreground and os.environ.get("ERGOSTAT_LOCK_FD") and not args.stop:
@@ -54,17 +89,8 @@ def cmd_run(args) -> int:
     if args.stop:
         from ..watcher import STOPPED
         (p.dir / STOPPED).touch()                       # on purpose: the outer watcher leaves it stopped
-        if not pid:
-            print("not running")
-            return 0
-        os.kill(pid, signal.SIGTERM)
-        for _ in range(100):
-            if not runner.running_pid(p):
-                print(f"stopped ({pid})")
-                return 0
-            time.sleep(0.1)
-        print(f"{pid} did not stop within 10s; it still holds {runner.pid_file(p)}", file=sys.stderr)
-        return 1
+        rc = _stop(p, pid)
+        return _stop_runs(p, rc) if getattr(args, "runs", False) else rc
     if (args.install or args.uninstall) and not args.service:
         print("--install and --uninstall go with --service: ergostat run --service --install", file=sys.stderr)
         return 2
@@ -345,6 +371,7 @@ def cmd_chat(args) -> int:
 
 def cmd_projects(args) -> int:
     """``ergostat projects``: every project on this machine ergostat has seen."""
+    from .. import state as st
     from ..projects import known
     found = known()
     if args.json:
@@ -355,13 +382,9 @@ def cmd_projects(args) -> int:
             rows.append([x["name"], c("cannot load", "bad"), "", "", x["error"][:60]])
             continue
         state = c("running", "ok") if x["running"] else c("stopped", "dim")
-        names = ", ".join(x["off"][:3]) + (f" +{len(x['off']) - 3}" if len(x["off"]) > 3 else "")
-        unknown = f", {len(x.get('unknown', []))} unknown" if x.get("unknown") else ""
-        held = x["loops"] - len(x["off"]) - len(x.get("unknown", []))
-        held = c(f"{held} holding", "ok") if held > 0 else ""
-        off = held + (", " if held and x["off"] else "") + (c(f"{len(x['off'])} off: {names}", "bad") if x["off"] else "")
-        n = x["loops"]                                   # '3 goals: 2 holding, 1 off: x'
-        off = f"{n} goal{'' if n == 1 else 's'}: {off}{unknown if off else unknown.lstrip(', ')}" if n else "no goals"
+        g, sys_off = x["goals"], x["goals_off"]           # the one count (state.goals_off), as `ergostat` says it
+        names = ", ".join(sys_off[:3]) + (f" +{len(sys_off) - 3}" if len(sys_off) > 3 else "")
+        off = c(st.goals_said(g) + (f": {names}" if names else ""), "bad" if g["system"] else "ok") if x["loops"] else "no goals"
         rows.append([x["name"], state, off, x["web"] or "", x["repo"]])
     print(table(["PROJECT", "STATE", "GOALS", "PAGE", "REPOSITORY"], rows, "no projects yet: ergostat run in a repository"))
     return 0

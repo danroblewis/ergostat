@@ -110,13 +110,14 @@ def status(args) -> int:
         for n, says in off_about(p, spec, loops).items():
             loops[n]["about"] = says
             for a in att:
-                if a.get("goal") == n and a["level"] != "hint":
+                if a.get("goal") == n and a["level"] != "hint":   # its attention line, not its suggestion
                     a["says"] += f" · items about it: {says}"
     if args.system:                                      # only what is in that system
         parts = parts_of(args, m)
         agents = {x.agent for t in (m.sensors, m.controllers, m.valves) for x in t.values() if x.name in parts}
         loops = {n: lp for n, lp in loops.items() if n in parts}
         att = [a for a in att if a["what"].split(" ", 1)[-1] in parts | agents or a["what"] == "the record"]
+    g = st.goals_off({"loops": loops})                   # the one count, of the goals shown (--system narrows them)
     trouble = any(a["level"] in ("bad", "warn") for a in att)
     code = 1 if (getattr(args, "exit_code", False) and trouble) else 0
     said = None
@@ -129,7 +130,8 @@ def status(args) -> int:
     if args.json:
         out_json({"running": bool(pid), "web": web_url(p) if pid else None, "attention": att,
                   **({} if pid else {"last_seen": last_seen(p, snap)}),
-                  "loops": loops, "counts": counts(p), "ok": not trouble, **({"modelling": said} if said else {})})
+                  "loops": loops, "goals_off": g,
+                  "counts": counts(p), "ok": not trouble, **({"modelling": said} if said else {})})
         return code
     seen = last_seen(p, snap) if not pid else None
     run = c("running", "ok") + (f" · {web_url(p)}" if web_url(p) else "") if pid else \
@@ -138,6 +140,7 @@ def status(args) -> int:
     if not m.stocks and not m.agents:
         print("the model is empty. describe your system with `ergostat chat`.")
         return 0
+    print(c(st.goals_said(g), "bad" if g["system"] else "dim"))
     print()
     problems = [a for a in att if a["level"] != "hint"]
     hints = [a for a in att if a["level"] == "hint"]
@@ -171,7 +174,7 @@ def status(args) -> int:
     if loops and dead:
         print(c(f"engine not running: these are the loops as last seen, {ago(seen)}; nothing is measuring now", "warn"))
     if loops:
-        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "TIME OFF"],
+        print(table(["GOAL", "STATUS", "HOLDS", "NOW", "SETPOINT", "TIME OFF"],
                     [[n + (c(" ⏲", "dim") if lp.get("open_loop") else ""),
                       (c(f"was {lp['status']}", "dim") if dead else show.status_word(lp["status"]))
                       + (c(f" ({lp['about']})", "dim") if lp.get("about") else ""), lp["stock"],

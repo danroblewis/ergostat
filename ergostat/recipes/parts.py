@@ -99,7 +99,9 @@ def findings(ctx: For, parts: list[str]) -> list[str]:
     if parts:
         want = set(parts) | ({f"block.{ctx.block}"} if ctx.block else set())
         found = [f for f in found if f.about in want]
-    out = [f"- {f.code}: {f.message}" for f in found[:12]]
+    from ..library.untrusted import Shown
+    sh = Shown(ctx.spec)                                        # a finding at or about an untrusted part: marked (§2a)
+    out = [f"- {f.code}: {sh.problem(f)}" for f in found[:12]]
     from ..claims import record
     week = ctx.now - 7 * 86400
     for c in record.stored(ctx.p, since=week).values():

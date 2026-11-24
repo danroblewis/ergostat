@@ -19,6 +19,7 @@ import agents  # noqa: E402
 import brief  # noqa: E402
 import fac  # noqa: E402
 import knowledge  # noqa: E402
+import landing  # noqa: E402
 import live  # noqa: E402
 import load  # noqa: E402
 import manage  # noqa: E402
@@ -122,6 +123,20 @@ def queue_holder(cfg: dict, gaps: list[dict], now: float) -> str:
                    rows or ["no lease held by merge-queue"]) + "\n\n#" + listed("queue-when's inputs, read now", inputs))
 
 
+def merge_queue(gaps: list[dict]) -> str:
+    """The merge queue as its batch items say it (never run/queue.json): the goal main-moving's reason, and the
+    current batch's fields (landing.py)."""
+    try:
+        batches = fac.items("batch")
+        b, _ = landing.current(batches)
+        why = landing.reason(batches, gaps, time.time())
+    except Exception as e:  # noqa: BLE001 - said as unreadable, never as nothing to say
+        return f"## The merge queue\n\nIts batch items cannot be read: {type(e).__name__}: {e}"
+    fields = json.dumps({"id": b["id"], "state": b["state"], **b["fields"]}, indent=1, default=str)[:2000] if b else ""
+    return (f"## The merge queue\n\nThe goal main-moving's reason (`measure.py main-stalled-why`): {why}"
+            + (f"\n\n### Its current batch\n\n```json\n{fields}\n```" if b else ""))
+
+
 def brief_text(cfg: dict, sit: dict, record: dict) -> str:
     f = sit["fields"]
     trig = list(f.get("triggers") or [])
@@ -136,8 +151,7 @@ def brief_text(cfg: dict, sit: dict, record: dict) -> str:
     parts += [about_gap(cfg, g) for g in subjects[:DETAILED]]
     parts += [f"## {i}\n\n```json\n{json.dumps(watch.detail(i)['fields'], indent=1, default=str)[:2000]}\n```"
               for i in dict.fromkeys(t["subject"] for t in trig if t["subject"].startswith("intervention/"))][:DETAILED]
-    parts += [f"## The merge queue\n\n```json\n{json.dumps(watch.queue_state(cfg), indent=1, default=str)[:2000]}\n```"
-              + tail(fac.run_dir(cfg, "queue"), "*.txt", 1000), queue_holder(cfg, gaps, time.time()),
+    parts += [merge_queue(gaps) + tail(fac.run_dir(cfg, "queue"), "*.txt", 1000), queue_holder(cfg, gaps, time.time()),
               "## Main's recent commits\n\n```\n" + fac.git(repo, "log", "--oneline", "-12", cfg["git"]["base"],
                                                                 check=False) + "\n```",
               listed("Open interventions", (f"{i['id']} ({i['fields'].get('class')}, by {i['fields'].get('by')}): "
@@ -243,6 +257,7 @@ def handle(cfg: dict, sit: dict) -> int:
                for t in trig]
     told = [x["print"] for x in answers if x["print"] in a["answers"]]      # (a trigger left unanswered comes back)
     fac.say("situation.handled", handled_at=time.time(), summary=a["summary"][:2000], actions=done, answers=answers,
+            finding=a["summary"][:2000],                   # (the attention list's: ergostat.yaml `attention: finding`)
             prints=told + [x for x in sit["fields"].get("prints") or [] if x.startswith("broken-")],
             actions_n=sum(d["ok"] for d in done), velocity=record, context=context,
             ai_cost_usd=round(float(got.get("total_cost_usd") or 0), 4))
@@ -253,7 +268,7 @@ def main() -> int:
     fac.stop_on_term()
     cfg = fac.config()
     given = fac.read_input()
-    if fac.drain_holds(cfg):
+    if fac.ai_holds(cfg):
         return 0
     try:
         return handle(cfg, given["item"])
