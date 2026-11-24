@@ -1,0 +1,60 @@
+template: alert-rule
+description: A threshold alert ergostat observes and never runs, firing once a signal is past its threshold for a while; its law declared, and identified from the record.
+reading: |
+  Control: an observed controller (an external block), an on-off law with levels 0 and 1: it fires once the signal
+  is past `threshold` (on `side`) for `for`, and resolves as soon as it is back. u is whether it fires, y the signal.
+  It holds no goal of its own: what it pages is what holds one, a person or a block answering the pages.
+  System dynamics: a stock of alerts firing, its two-way flow their firing and resolving; the signal an auxiliary
+  nothing here controls (a disturbance). The stock is always measured (`firing`, `firing-query` or the stand-in):
+  ergostat never runs the rule, so nothing here makes its pages. `pages` declares their item kind, whose events
+  KIND.fired and KIND.resolved the alerting system must post (`ergostat event --add KIND.fired --item KIND/ID`).
+example: |
+  sources:
+    prom: {type: prometheus, url: http://prometheus:9090}
+  uses:
+    slow-checkout:
+      use: alert-rule
+      with:
+        threshold: 0.3
+        for: 5m
+        signal-query: {source: prom, promql: 'histogram_quantile(0.99, sum(rate(checkout_seconds_bucket[5m])) by (le))'}
+        pages: checkout-page
+params:
+  threshold: {type: number, default: 100, description: the level the signal is judged against}
+  side: {default: above, choices: [above, below], description: which side of the threshold fires}
+  for: {type: duration, default: 5m, description: how long past the threshold before it fires}
+  every: {type: duration, default: 15s, description: how often it is evaluated, and the sensors read}
+  unit: {default: units, description: the signal's unit}
+  signal: {type: command, default: "${lib} standin signal --threshold ${threshold}", stand-in: a made-up signal swelling past the threshold and back, description: the sensor of the signal, a command printing it}
+  signal-query: {type: map, stand-in: a made-up signal swelling past the threshold and back, description: "the sensor of the signal as a query ({source: prom, promql: ...}), in place of the command"}
+  firing: {type: command, default: "${lib} standin firing --threshold ${threshold} --side ${side}", stand-in: firing while the made-up signal is past, description: "the sensor of the alerts firing, a command printing how many"}
+  firing-query: {type: map, stand-in: firing while the made-up signal is past, description: "the sensor of the alerts firing as a query (ALERTS{alertname=...})"}
+  pages: {type: name, description: "the item kind of its pages, firing then resolved; ergostat makes none: the alerting system posts KIND.fired and KIND.resolved"}
+  description: {default: "the alert rule, observed: ergostat never runs it", description: what the external block says it is}
+items:
+  ${pages}:
+    if: ${pages}
+    id: ${pages}/*
+    description: an alert firing, then resolved
+    states: [firing, resolved]
+    on: {"${pages}.fired": firing, "${pages}.resolved": resolved}
+auxiliaries:
+  signal:
+    unit: ${unit}
+    description: the signal the rule watches
+    sensor: {if: "${signal-query}", value: {query: "${signal-query}", every: "${every}"}, else: {run: "${signal}", every: "${every}"}}
+stocks:
+  firing:
+    unit: alerts
+    description: the alerts firing now
+    sensor: {if: "${firing-query}", value: {query: "${firing-query}", every: "${every}"}, else: {run: "${firing}", every: "${every}"}}
+flows:
+  fired: {to: firing, two-way: true, description: alerts firing (in) and resolving (out)}
+blocks:
+  rule:
+    type: external
+    description: ${description}
+    in: auxiliary.signal
+    out: flow.fired
+    law: {kind: alert-rule, threshold: "${threshold}", side: "${side}", for: "${for}"}
+    identify: {input: auxiliary.signal, output: stock.firing}

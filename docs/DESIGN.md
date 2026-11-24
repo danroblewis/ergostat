@@ -150,16 +150,22 @@ The control diagram is the product's main view. Conventions:
   Colour (§8): the material path in full ink, information in the ink's second tone.
 - **Layout** (ELK layered, vendored): the plant runs left to right along the pipes (pipes carry the
   highest straightness and direction priority), the feedback path above it; each loop a row.
-  Systems are drawn as thin outlines named in muted type (one ink: no colour per system), overlapping where they
-  share parts, labels never stacked. A chain of loops in series folds into rows at the pipes that
+  An open system is framed by its corners, the same in Dynamics, Blocks and Process: no fill, a hairline
+  (`--frame`, square-cornered) joining L marks at its corners (`--frame-mark`, 13 px arms, 8 px when nested),
+  its name in muted type on the top edge with the line broken behind it (one ink: no colour per system), labels
+  never stacked. Modelling's hairline is dashed (its corners solid), a cascade's inner loop in Blocks dotted, a
+  remote's kind in Process dashed. A closed system's outline is `--frame-mark` at 1.2 px, so the top level is not
+  ruled by its boxes; with a goal in it off it is full ink at 2 px. A chain of loops in series folds into rows at the pipes that
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
   would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
   all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or
-  more) and says when more lies beyond the edge, and which way (arrows); "Fit" shows everything (the Process
-  view's map at no less than full size: its nodes' text never under 11px). At phone
-  width (700px or less) each view opens fitted to the canvas down to 7.7px text (the Process
-  view's map still at no less than 11px), and a drawing still too big
-  is centred on its first part (a system box, else a stock).
+  more) and says which way more lies beyond the edge ("More to the right → and below ↓", clicked to pan
+  there); "Fit" shows everything drawn, every part, line and label, clear of the toolbars (the Process
+  view's map at no less than full size: its nodes' text never under 11px). A system
+  opened (Open) stays where its box was unless part of it would lie beyond the edge: then it is
+  panned, and zoomed out to no less than legible, until all of it is in view. At phone width (700px or
+  less) each view opens fitted to the canvas down to 7.7px text (the Process view's map still at no
+  less than 11px), and a drawing still too big is centred on its first part (a system box, else a stock).
 - **The process view** (`process.py`, `process.js`; SPEC §5b) is process mining's process map: a
   directly-follows graph per item kind, from the record in the window (the states items entered, or
   the event types about them), each kind's map laid out left to right in time order in a frame of its
@@ -227,6 +233,15 @@ The control diagram is the product's main view. Conventions:
   dynamics) · NAME: PURPOSE · 2 systems · 25 goals, 0 off" (every goal), "Block diagram (control) · … ·
   16 control loops, 2 off" (the goals a controller holds). The Process view gives its type, the model and
   its systems, and no goal count: a process map holds no goals.
+- **Spoken names.** Every part Tab reaches is a button (keys.js) whose name says what a sighted reader
+  sees on it, in that view's words only. Dynamics (sdSpoken): "stock users, 152 users of desired 180,
+  off, in product, in balancing loop word of mouth and 2 others", "flow signups, 3.1 per hour, from cloud
+  to users", "connector from churn to support load, positive", "goal gap users-at-180, off, off by 28";
+  a closed system: "module NAME, its description, 2 goals holding, 1 goal off". Blocks (bdSpoken):
+  "controller C keep-located-worked, on-off, control loop located-worked, off", "summing junction of
+  located-worked, reference minus measurement", "signal e located-worked, error, minus 36, off". A goal's
+  state is always the server's word (goalWord). Each name is worked out again at every draw, so it follows
+  the values on the poll; the focus is kept on the part by keys.js, as it was before the names. The Process view keeps keys.js's own names.
 - **Two views at once.** A grip on each edge of the canvas, dragged inward, reveals a second pane
   behind a separator (left or right: side by side; top or bottom: stacked); the separator resizes it,
   a double-click halves it, dragged back to the edge it closes; the edge and size are remembered in the
@@ -281,7 +296,8 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded):
-`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
+`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/agent/NAME` (what an agent is by its rung, its
+definition as written, its place, what it did; a row on `/agents` goes there), `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
 `%2F`), `/record?type=T`, `/model`, `/check`, `/guide?frame=N`. The server answers each with the page
 (`UI_PAGES` in `web/server.py` and `util.js`, one list); `/api/*`, `/static/*` and `/file/PATH` are never
 shadowed. The page routes with the History API: a plain click on one of its links draws the page in

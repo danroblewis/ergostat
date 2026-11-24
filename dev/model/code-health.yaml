@@ -130,7 +130,7 @@ goals:
 
 flows:
   simplifications-requested:
-    system: intake
+    system: open-gaps
     to: gaps-open
     description: a gap asked for by the simplifier - one module, its evidence and the rules of a simplification
     sensor: {items: gap, entering: open, where: {source: simplifier}, over: 1d}

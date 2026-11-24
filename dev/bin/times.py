@@ -2,12 +2,14 @@
 each state*): its moves (the fold's, in the record's order, the lease's own among them: leased, dead) and its events.
 
   times.py            each gap whose record grew since it was last read (run/times.json; at most MOST a run):
-                      `gap.timed`, with time_in, loop_rounds, loop_hours, loop_ended and gates, when they changed
+                      `gap.timed`, with time_in, loop_rounds, loop_hours, loop_ended, gates and catches (with
+                      catch_times, when each was), when they changed
   times.py setpoints  each goal in dev/model/times.yaml set to today's reading of its measure (the last 14 days); a
                       measure with nothing in the window keeps its setpoint
 
 The measures (measure.py NAME, over the gaps that left the state, ended the loop or passed the gate in the window,
-whatever their end): in-STATE-hours, loop-hours, loop-rounds, gate-GATE-minutes; the median, and the p90 with -p90."""
+whatever their end): in-STATE-hours, loop-hours, loop-rounds, gate-GATE-minutes; the median, and the p90 with -p90.
+gate-catches-GATE: the gate's catches (CATCHING) in the window, by each catch's own time, summed over the gaps."""
 
 from __future__ import annotations
 
@@ -32,6 +34,9 @@ WAITING = ("open", "replan", "planned", "split", "ready", "fix", "built", "appro
 WORKING = ("leased", "building", "in-review", "queued")
 GATES = ("implementor", "fast", "review", "unit", "browser", "demo", "push-wait")
 EXITS = ("approved", "parked", "dead", "closed")
+# The gates that send a gap back, by the sender the record names (an allowlist: any other is counted as unlisted): the
+# queue (queue.py), triage, review, the plan lint (plan.py), measure-runs (manage.py), the implementor's stray refusals
+CATCHING = ("queue", "triage", "review", "lint", "measure-runs", "strays")
 SNAPSHOT = "ergostat.item.snapshot"            # a gap's older events rolled up into one (ergostat/rollup.py)
 MOST = 50                                      # gaps timed in one run, at most (each is one read of its record)
 LONGEST = 100_000                              # a gap's events read whole, at most; a longer one is unreadable
@@ -99,6 +104,26 @@ def gates(events: list[dict], base: dict | None = None, merged: float | None = N
     return out
 
 
+def catches(events: list[dict], base: dict | None, gid: str) -> dict:
+    """{gate: [time, ...]}: each time a gate sent the gap back (`gap.sent-back` by its sent_back_by, the plan review's
+    `gap.plan-sent-back` by its plan_sent_back_by) or the implementor refused its strays (a `gap.measured` naming
+    them), added to ``base``. A sender not in CATCHING is counted under `unlisted` and named on stderr."""
+    out: dict = {g: list(v) for g, v in (base or {}).items()}
+    for e in events:
+        d = e.get("data") or {}
+        by = (d.get("sent_back_by") if e["type"] == "gap.sent-back" else d.get("plan_sent_back_by")
+              if e["type"] == "gap.plan-sent-back" else "strays"
+              if e["type"] == "gap.measured" and isinstance(d.get("suites_fast"), dict) and d["suites_fast"].get("stray")
+              else None)
+        if by is None and e["type"] not in ("gap.sent-back", "gap.plan-sent-back"):
+            continue
+        if by not in CATCHING:
+            print(f"times.py: {gid}: {e['type']} by an unlisted sender {by!r}, counted under unlisted", file=sys.stderr)
+            by = "unlisted"
+        out.setdefault(by, []).append(float(e["time"]))
+    return out
+
+
 def timing(d: dict) -> dict:
     """What `gap.timed` says of an item's detail (`ergostat item ID --json`: its moves and its record). A record rolled
     up (ergostat/rollup.py) starts with a snapshot: the moves are in it, and the gates as its last `gap.timed` said them
@@ -117,16 +142,19 @@ def timing(d: dict) -> dict:
             raise ValueError(f"{d['id']}: its events grew past {n} while read")
     evs = [e for e in evs if e["type"].startswith("gap.") or e["type"] == SNAPSHOT]
     snap = max((i for i, e in enumerate(evs) if e["type"] == SNAPSHOT), default=None)
-    base, merged = None, None
+    base, merged, caught = None, None, None
     if snap is not None:
         s = evs[snap]
         if not isinstance((s.get("set") or {}).get("gates"), dict):
-            return {"time_in": visits(moves), **loop(moves), "gates": None}
+            return {"time_in": visits(moves), **loop(moves), "gates": None, "catches": None, "catch_times": None}
         base, r = s["set"]["gates"], (s.get("data") or {}).get("rollup") or {}
         if r.get("state") == "merged" and float((base.get("push-wait") or {}).get("at") or 0) < float(r.get("entered") or 0):
             merged = float(r["entered"])                       # merged inside the snapshot, its push not yet seen
+        caught = s["set"].get("catch_times")
         evs = evs[snap + 1:]
-    return {"time_in": visits(moves), **loop(moves), "gates": gates(evs, base, merged)}
+    got = catches(evs, caught, d.get("id", "?")) if snap is None or isinstance(caught, dict) else None
+    return {"time_in": visits(moves), **loop(moves), "gates": gates(evs, base, merged),     # (catches unknown: None,
+            "catches": got and {g: len(ts) for g, ts in got.items()}, "catch_times": got}   # timed before they were)
 
 
 def write(gaps: list[dict], marks: Path) -> int:
@@ -183,14 +211,37 @@ def values(name: str, gaps: list[dict], since: float) -> list[float]:
     raise SystemExit(f"measure.py: no measure {name!r}")
 
 
+def caught(gate: str, gaps: list[dict], since: float) -> float:
+    """gate-catches-GATE: the gate's catches with their time in the window, over every gap; a gap whose catches are
+    unknown (rolled up, or not timed, before they were counted) is left out and counted on stderr."""
+    if gate not in (*CATCHING, "unlisted"):
+        raise SystemExit(f"measure.py: no gate {gate!r} catches (one of {', '.join(CATCHING)}, unlisted)")
+    known = [f["catch_times"] for g in gaps if isinstance((f := g["fields"]).get("catch_times"), dict)]
+    if len(known) < len(gaps):
+        print(f"gate-catches-{gate}: left out, {len(gaps) - len(known)} gap(s) whose catches are unknown", file=sys.stderr)
+    return float(sum(float(t) >= since for c in known for t in c.get(gate) or []))
+
+
 def reading(name: str, gaps: list[dict], since: float) -> float:
+    if m := re.fullmatch(r"gate-catches-([a-z-]+)", name):
+        return caught(m[1], gaps, since)
     base = name.removesuffix("-p90")
     return pct(values(base, gaps, since), 0.9 if base != name else 0.5)
 
 
 def measures() -> list[str]:
     return ([f"in-{s}-hours" for s in WAITING + WORKING] + ["loop-hours", "loop-rounds"]
-            + [f"gate-{g}-minutes" for g in GATES])
+            + [f"gate-{g}-minutes" for g in GATES] + [f"gate-catches-{g}" for g in (*CATCHING, "unlisted")])
+
+
+def quiet(gaps: list[dict], now: float, days: int = 30) -> tuple[list[str], int, int] | None:
+    """The gates in CATCHING with no catch in the last ``days`` over the gaps whose catches are known, with how many
+    gaps are known and how many unknown (left out: a gate named may have caught there); None (unknown, never all
+    quiet) when no gap's are."""
+    known = sum(isinstance(g["fields"].get("catch_times"), dict) for g in gaps)
+    if not known:
+        return None
+    return [g for g in CATCHING if not caught(g, gaps, now - days * 86400)], known, len(gaps) - known
 
 
 def goals() -> dict:

@@ -135,12 +135,15 @@ flows:
   comment-drafting:
     from: alerts-to-draft
     to: alerts-drafted
+    description: alerts' usefulness comments drafted, the more preparers at once the faster (the drafting capacity)
+    driven-by: +stock.drafting-capacity
     sensor:
       items: alert
       entering: drafted
       over: 10m
   comments-posted:
     from: alerts-drafted
+    description: a usefulness comment posted on its alert ticket, by me (mine)
     sensor:
       items: alert
       entering: commented
@@ -159,12 +162,14 @@ flows:
   outages-declared:
     from: outages-suspected
     to: outages-to-review
+    description: an outage declared an incident, and its command taken, by me (mine)
     sensor:
       items: outage
       entering: declared
       over: 10m
   outages-dismissed:
     from: outages-suspected
+    description: a suspected outage dismissed, by me (mine)
     sensor:
       items: outage
       entering: dismissed
@@ -222,7 +227,7 @@ blocks:
     prompt: prompts/alert-companion.md
     run: python3 bin/prepare.py alert-comment
     takes: {kind: alert, at: fired}
-    pool: 2
+    pool: {now: stock.drafting-capacity, most: 3}   # the setting the capacity law steps (rhythm.yaml), never above 3
     max: 1
     out: flow.comment-drafting
   post-alert-comments:
