@@ -268,6 +268,12 @@ lesson 13). If every failing test fails on main, the failure is not counted and 
 is given back with `waits_on_main`, the implementor skips it, and the intake releases it once main is another commit.
 At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
 failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
+Only a test main has can be main's: before that run each test is looked for at main (`onmain.present`: its file, and
+each `class` and its `def` in it; a file or ref that cannot be read is not there). One main lacks is never run on main
+and stays the gap's, or a stacked gap's first base's that has it (`not_on_main` on `suites_fast`); it is counted and
+goes back through the fix path, the fix session and the nack naming whose it is. The run on main is on main itself,
+never on the stack of main and the bases. A gap held (`waits_on_main`) on a test its main commit lacks, recorded
+before this, is released by the intake at once, `not_on_main` saying which.
 
 Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) goes through `dev/bin/flakes.py`, which
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
@@ -993,6 +999,11 @@ A `stacked_on` that cannot be read, or that names a gap not in the record, count
 moved. The pass says what it did with each gap on stderr, in the block's log.
 
 ## Time in each state
+
+(The measure sensors, `dev/bin/measure.py`, share one listing of each kind: run by the engine, the first reading of a
+kind lists it, under that kind's lock in `<state>/listings/`, and the readings within the next 120 s, `listing.SHARE`,
+read that listing, so readings due together make one listing of the gaps, not one each. A listing that fails is not kept. The
+15-second load sensors, `dev/model/interlock.yaml`, read on the engine's fast lane, never behind them.)
 
 Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of each gap whose events grew since it was
 last read (at most 50 a run, those never read first) and writes `gap.timed` on it when its timing changed, for any gap
