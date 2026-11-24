@@ -103,3 +103,17 @@ Round 3:
 - Run: the acceptance test and tests/test_forecast_panel.py (pass), ruff (clean). tests/test_agents_page.py: 13 pass,
   test_each_row_says_how_it_is_engaged_and_which_goal_it_serves fails as in rounds 1-2 (the Agent panel reads
   "Loading…"; openAgentNow is not touched by the branch). Not run: the unit suite and the four browser files whole.
+
+Round 4:
+
+- Merged main (e8669794): the one conflict in details.js was main adding `goalLoopsLine` (goals-and-loops-cross-referenced)
+  next to the per-actor `p.actor-line`s that main still drew under the dl. Kept main's goal-loops line where main put it
+  (after the dl, among the parts and prose) and dropped the second copy of the actor lines, which the branch already
+  draws in the runbook's third line (as `span.actor-line`, same text).
+- No review finding was given for this round beyond the conflict.
+- Run: the acceptance test, test_a_goal_and_its_feedback_loops_link_each_other_across_the_views (main's, reads
+  `.goal-loops`) and test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction (4 pass);
+  tests/test_forecast_panel.py and tests/test_agents_page.py: 14 pass, and
+  test_each_row_says_how_it_is_engaged_and_which_goal_it_serves fails as in rounds 1-3 (the Agent panel reads
+  "Loading…" when read; openAgentNow is not touched by the branch). ruff clean. Not run: the unit suite and the four
+  browser files whole.
