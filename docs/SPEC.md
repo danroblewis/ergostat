@@ -7378,8 +7378,8 @@ remote), and the same push through `git-push` after the owner's approval.
 ### The operating state and the owner's presence
 
 The model is in one **operating state** at a time: `normal`, `maintenance`, `freeze` or `incident`. The owner is
-**present** or **away**. Both are read from the record, never kept anywhere else. Nothing is gated on them yet: what
-each state lets through comes with thresholds scheduled by regime.
+**present** or **away**. Both are read from the record, never kept anywhere else. Together they choose each action's
+gate and act-risk threshold (*Gates and thresholds by operating state*, below).
 
 ```
 ergostat operating                                   # the state now, the owner's presence, and why
@@ -7411,6 +7411,42 @@ what that act said (`note`; for maintenance `until`, its end, and `actions`, eac
   showing the state included.
 - **Not covered.** The events are kept as the record's other loose events are. A state entered longer ago than the
   model's `keep:` (30 days by default) is forgotten when its event is pruned, and then reads as `normal`.
+
+### Gates and thresholds by operating state
+
+An action's `gate:` and its `risk.threshold` may each be one value, as before (the `normal` column), or a map by
+**column**: `normal`, `away`, `maintenance`, `freeze`, `incident`.
+
+```yaml
+actions:
+  deploy:
+    run: ./deploy.sh {branch}
+    gate: {normal: auto, away: approve, maintenance: auto, freeze: deny}
+    risk: {severity: 3, threshold: {normal: 8, away: 4}}
+```
+
+- **Each cell** is `auto`, `approve` or `deny`, and each threshold 1 < T ≤ 50. Any other column or value is
+  `bad-value` at its line, and that cell is read as unwritten.
+- **Unwritten cells never loosen.** `away` and `maintenance` take `normal`'s gate, `freeze` takes `normal`'s one step
+  stricter (`auto` → `approve` → `deny`), `incident` is `deny`. Every unwritten threshold takes `normal`'s. A written
+  cell is used as written: it is the owner's file, so a written cell may be looser than `normal`.
+- **The column in force.** Under `incident` or `freeze`: that column. Under `maintenance`: the `maintenance` column for
+  the actions the lease names (`--actions`), and for every other action what it would take under `normal`. Under
+  `normal`: `normal` while the owner is present, `away` while they are away.
+- **Unsure is `deny`.** A state that cannot be read, or that the record holds as no known state, reads as incident
+  (above) but no written cell applies to it: the gate is `deny`, whatever `incident:` says. Only an incident the
+  owner entered uses the `incident` column.
+- **At the request** the column's gate and threshold are taken, then act-risk steps that gate as before. The request
+  records the column's gate as its `gate`, and `operating: {state, presence, seq, why, column}`.
+- **At the act**, inside the run lock, the state is read again and the action's column taken again. The gate in effect
+  is the stricter of the request's and the act's, so a freeze entered after the owner's approval denies the act
+  (an `approve` action's `freeze` column is `deny` by default), and an `auto` action approved by the gate is held again for the owner.
+  `risk_at_act` records the state read (`operating`) and the column's gate (`cell`).
+- **Only `actions:` are scheduled.** A notify channel's `notify.CHANNEL` (section 12o) keeps its one `gate:` whatever
+  the state, and even when the state cannot be read (column `unscheduled`), so what waits during an incident is
+  still sent, and an unreadable record never turns a channel's messages into denials counted as told.
+- `gate.in_force` (`ergostat/actions/gate.py`) reads the state; `risk.cell` and `risk.schedule`
+  (`ergostat/actions/risk.py`) pick the column and fill the defaults.
 
 ### Compute pools
 
