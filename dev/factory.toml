@@ -110,7 +110,15 @@ batch_minutes = 120                  # a queue run's time allowance from its sta
                                      # proven lands, the rest back to approved uncounted); over 150 refused, so one suite
                                      # run after it stays inside the block's 3 h timeout
 
-[manager]                            # the pipeline manager's sessions (dev/bin/watch.py, manager.py)
+[verify]                             # merge first, verify after (dev/bin/verify.py; dev/README.md)
+after = false                        # the switch, the coordinator's: true, the queue lands a batch on the quick check
+                                     # ([suites] imports, the changed test files and smoke) and the block verifier runs
+                                     # the full suites on main by verify-lines / verify-hours (dev/model/landing.yaml)
+smoke = ["tests/test_model.py", "tests/test_spec_compile.py"]   # the quick check's smoke set (meant under 2 minutes,
+                                     # not yet timed in the queue's container; at most 50 entries)
+quick_minutes = 3                    # a quick check's minutes, assumed by `verify.py replay` (an estimate)
+
+[manager]                           # the pipeline manager's sessions (dev/bin/watch.py, manager.py)
 open = 1                             # the switch managing-open: 0 pauses it
 every = "2h"                         # a scheduled session (the routine review), when something changed since the last
 broken_minutes = 30                  # a session at once when the merge pipeline has been broken this long
@@ -204,6 +212,7 @@ alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p n
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
 rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rfEs -p no:randomly {tests}"
                                      # (-rfEs, as browser: the FAILED and ERROR lines fac.failed_tests reads)
+imports = "uv run python -c 'import ergostat.cli, ergostat.web.server'"   # the quick check's first step ([verify])
 measure = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"  # one run of
                                      # a definition's named measurement (manage.py measure-runs, dev/bin/runs.py)
 load = '''python3 scripts/suite_watch.py -- python3 -c '

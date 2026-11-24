@@ -34,7 +34,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    `[suites] host` (the sandbox's tests, which skip in the container) runs on the Mac, never boxed, as a suite like
    the others (its log `<tag>-host.txt`; red bisects); empty, the step is off. The outer shell's exit 126 or 127
    is a step that did not start (NotStarted; a pytest missing behind uv exits 1: red), and a test it skips that the
-   unit run skipped too fails it (nowhere());
+   unit run skipped too fails it (nowhere()). With `[verify] after`, verify.quick() stands in for all of this step
+   (imports, the changed test files and the smoke set), and main's full suites run later in verify.py's own lane;
+   a gap whose merge that lane reverted has the reverts undone before its dry merge (verify.reapplied());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    when its 1 to 3 named tests each pass alone on the red tree twice and the suites it did not finish pass, it lands as
@@ -93,6 +95,7 @@ import gapsdoc  # noqa: E402
 import halves  # noqa: E402
 import pools  # noqa: E402
 import review  # noqa: E402
+import verify  # noqa: E402
 
 
 def clean_main(cfg: dict, repo) -> str | None:
@@ -165,7 +168,7 @@ def browser_wanted(cfg: dict, repo, pre: str) -> bool:
 
 
 def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | None = None, cover: bool = True,
-           browser: bool | None = None) -> dict:
+           browser: bool | None = None, box: str = "queue") -> dict:
     """ruff; then unit and browser at once; then host (when set); then demo (under the other two's load its pages drew
     nothing). The first to fail is the one reported; it stops its sibling (killed, `stopped_by` it, its own failure
     unsaid) and the later steps. With `[suites] queue_coverage`, the
@@ -174,7 +177,8 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
     ``only``: just those suites (the rest of a run whose failures were excused, excused()). ``cover`` False: no coverage
     (a half's run, beside another: coverage_kept prunes one shared folder). A failure stops this call's suites only
     (``mine``), never another half's. ``browser``: whether the browser step runs (None: browser_wanted()); not run,
-    it is said as `not_run` and counts as finished (rest())."""
+    it is said as `not_run` and counts as finished (rest()). ``box``: the containers' name ("verify": the verification
+    lane's, verify.py, which the queue's sweep of its own never kills)."""
     held, mine = fac.quarantine(repo, pre), set()
 
     def one(name: str) -> dict:
@@ -185,7 +189,7 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
             if cov else None
         with HOST if name == "host" else nullcontext():
             rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd, quarantined=held, group=mine,
-                                 box="host" if name == "host" else "queue")  # (lock: slot; host: limited, on the Mac)
+                                 box="host" if name == "host" else box)  # (lock: slot; host: limited, on the Mac)
         text = log.read_text()
         if name == "host" and rc in (126, 127):      # (lesson-3: a step that could not start is never its result)
             raise agents.NotStarted(f"the host suite did not start (exit {rc}): {text[-400:].strip()}")
@@ -238,7 +242,7 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
         return {n: got[n] for n in names}
 
     def quarantined(tests: list[str]) -> None:
-        fac.suite(cfg, "alone", repo, logs / f"{tag}-quarantined.txt", slot=False, box="queue", tests=tests)
+        fac.suite(cfg, "alone", repo, logs / f"{tag}-quarantined.txt", slot=False, box=box, tests=tests)
 
     out = {} if (browser_wanted(cfg, repo, pre) if browser is None else browser) else \
         {"browser": {"not_run": "no browser path changed", "counts": "not_run"}}
@@ -272,14 +276,14 @@ def present(repo, head: str, tests: list[str]) -> list[str]:
     return keep
 
 
-def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
+def named(cfg: dict, repo, tag: str, logs, failed: dict, box: str = "queue") -> dict | None:
     """Only the tests a red run named, on the checkout as it is (`[suites] rerun`, serial, `-rA`). Red when one of them
     fails (said as the suite that named them); green only when the run passed and said PASSED for every one asked; else
     (a test not found, a run that could not start or crashed) None. It never counts as the green run anything lands on (land())."""
     tests = failed["tests"]
     log = logs / f"{tag}-named.txt"
     with batches.stage("named", cfg) as st:
-        rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, box="queue", tests=[*tests, "-rA"])
+        rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, box=box, tests=[*tests, "-rA"])
         st["outcome"] = "failed" if rc else "passed"
     text = log.read_text()
     if crashed(rc, text):                                # (what it reports failed is whatever was running)
@@ -452,8 +456,10 @@ def action_state(aid: str) -> str:
 
 
 def pushed(p: dict | None) -> list[str]:
-    """The gaps a pending push carries: a batch's, or one (a pending record from before batches)."""
-    return list(p.get("gaps") or [p["gap"]]) if p else []
+    """The gaps a pending push carries: a batch's, or one (a pending record from before batches); none for the
+    verification lane's reverts (`reverts`: their gaps' outcomes are its `then`, said once it runs or fails; denied,
+    none is said and the lane is held, verify.denied())."""
+    return [] if not p or p.get("reverts") else list(p.get("gaps") or [p["gap"]])
 
 
 HELD: dict = {"own": None, "said": []}    # the run's own gap's outcome, kept back while its push waits (tell())
@@ -550,6 +556,9 @@ def settle(cfg: dict, repo) -> str | None:
                                   f"(main at {head[:12]})")
         st.pop("pending")
         save(cfg, st)
+        if p.get("reverts"):                           # the verification lane's: its merges back, no gap told
+            verify.denied(cfg, p)
+            return None
         for gid in pushed(p):                          # one approval for the batch: a denial sends back all of it
             fac.say("gap.sent-back", gid, sent_back_by="queue", push="denied",
                     findings=[f"the push of its merge ({p['sha'][:12]}) was denied: the merge is undone"])
@@ -684,12 +693,15 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
                         why[0] = f"{SENT}: not merged: {no}" if x is gap else why[0]
                 if not shas[x["id"]]:
                     break
-                made, files = dry(repo, top, shas[x["id"]], message(x))
+                on = verify.reapplied(repo, top, x)      # (its work reverted by verification: the revert undone first)
+                made, files = dry(repo, on, shas[x["id"]], message(x)) if on else (None, [verify.REAPPLY_CONFLICT])
                 if made:
                     got.append((x, shas[x["id"]]))
                     top = made
                     continue
-                onmain = files if top == pre else dry(repo, pre, shas[x["id"]], message(x))[1]
+                again = verify.reapplied(repo, pre, x) if top != pre else None
+                onmain = files if top == pre else dry(repo, again, shas[x["id"]], message(x))[1] if again \
+                    else [verify.REAPPLY_CONFLICT]
                 if onmain:
                     refuse(cfg, x, onmain, time.time())
                     shas[x["id"]] = None
@@ -723,14 +735,16 @@ def bases(g: dict) -> list[tuple[str, str]] | None:
 
 
 def stack(repo, g: dict, pool: dict, pre: str, most: int, seen: tuple = ()) -> list[dict] | str:
-    """``g``'s bases not merged on main (a `stacked_on` sha not an ancestor of ``pre``, or not a commit id), each from
+    """``g``'s bases not merged on main (a `stacked_on` sha not an ancestor of ``pre``, or not a commit id, or one the
+    verification lane reverted and that has not come back, verify.taken_out()), each from
     ``pool`` (the approved gaps no run holds), bottom-up, then ``g``; or why they cannot come along: a base not in
     ``pool``, a stack that loops or is deeper than ``most``, a `stacked_on` that cannot be read (lesson-3)."""
     if (on := bases(g)) is None:
         return f"{g['id']}'s stacked_on cannot be read"
     unit: list[dict] = []
     for bid, sha in on:
-        if re.fullmatch(r"[0-9a-f]{40}", sha) and fac.git_ok(repo, "merge-base", "--is-ancestor", sha, pre):
+        if re.fullmatch(r"[0-9a-f]{40}", sha) and fac.git_ok(repo, "merge-base", "--is-ancestor", sha, pre) \
+                and not verify.taken_out(repo, sha, pre):   # (merged, and not reverted since by verification)
             continue
         if bid == g["id"] or bid in seen or len(seen) >= most:
             return f"{g['id']}'s stack loops through {bid} or is deeper than a batch of {most}"
@@ -891,7 +905,8 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
         counted()
         with counting:                                   # (the batch's decision, made on its first, whole, run)
             wants[:] = wants or [browser_wanted(cfg, work, pre)]
-        red = suites(conf, work, t, logs, pre, cover=cover, browser=wants[0])
+        check = verify.quick if verify.on(cfg) else suites  # ([verify] after: the quick check, main verified later)
+        red = check(conf, work, t, logs, pre, cover=cover, browser=wants[0])
         tests = red.get("tests") or []
         if red.get("crashed") or not tests or len(tests) > NAMED_MOST or (len(ids) == 1 and not excusable(red)):
             return red
@@ -900,7 +915,7 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             alone = ask(red, work, f"{t}-again", conf)
             if passed(alone):
                 counted()
-                return excused(red, suites(conf, work, t, logs, pre, only=rest(red), cover=cover, browser=wants[0]),
+                return excused(red, check(conf, work, t, logs, pre, only=rest(red), cover=cover, browser=wants[0]),
                                t, ids)
         return red | ({"reproduced": alone["tests"]} if alone and alone.get("failed") else {})
 
@@ -921,7 +936,8 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             if lost := next((x for x in gone if reaches(g, x, batch)), None):
                 lose(g, f"its base {lost} {gone[lost]}", "could not be merged in the queue")
                 continue
-            made, files = dry(repo, top, sha, message(g))
+            on = verify.reapplied(repo, top, g)          # (its work reverted by verification: the revert undone first)
+            made, files = dry(repo, on, sha, message(g)) if on else (None, [verify.REAPPLY_CONFLICT])
             if not made:
                 lose(g, f"it conflicts with what landed before it: {' '.join(files)}", "could not be merged in the queue")
                 continue
