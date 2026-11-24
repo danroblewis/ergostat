@@ -281,7 +281,8 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded):
-`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
+`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/agent/NAME` (what an agent is by its rung, its
+definition as written, its place, what it did; a row on `/agents` goes there), `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
 `%2F`), `/record?type=T`, `/model`, `/check`, `/guide?frame=N`. The server answers each with the page
 (`UI_PAGES` in `web/server.py` and `util.js`, one list); `/api/*`, `/static/*` and `/file/PATH` are never
 shadowed. The page routes with the History API: a plain click on one of its links draws the page in
