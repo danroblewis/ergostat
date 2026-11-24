@@ -98,6 +98,6 @@ All five blocking findings of round 1's review are answered. The review listed n
 
 Every new test was seen to fail with its fix broken, as listed above. Docs: dev/README.md and SPEC (*Merge first, verify after*), the verify.py and escapes.py docstrings, and the verifier block's description.
 
-Tests run in round 2: `tests/test_verify_after.py` 21 passed; `tests/test_factory.py` (see the report); ruff clean on ergostat, tests and scripts and on the changed dev/bin files. Not run here: the full unit suite and the four browser files, which the merge queue runs. main (d0f95413) was already merged into the branch and has not moved since.
+Tests run in round 2: `tests/test_verify_after.py` 21 passed; `tests/test_factory.py` 251 passed, 2 skipped (Docker absent); `tests/test_queue.py` 19 passed; `tests/test_queue_halves.py` 63 passed; `tests/test_landing_goal.py` 13 passed; ruff clean on ergostat, tests and scripts and on the changed dev/bin files. Not run here: the full unit suite and the four browser files, which the merge queue runs. main (d0f95413) was already merged into the branch and has not moved since.
 
 Size: still 0 net lines outside tests/, docs/ and dev/.
