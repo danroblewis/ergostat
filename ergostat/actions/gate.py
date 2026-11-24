@@ -62,7 +62,7 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
     aid = rec.new_id(name)
     from ..workspaces.leases import fence_of
     g0, t, opr = in_force(p, a)                          # (read before the writes: the act reads both again, below)
-    risk = rk.assess(p, a, ctx.get("block"), aid, g0, t)
+    risk = rk.assess(p, a, ctx.get("block"), aid, g0, t, ctx.get("run"), ctx.get("item"))
     g = risk["gate"] if risk else g0
     data = {"action": name, "class": a.cls or name, "gate": g0, "operating": opr, "args": args,
             "command": render(a, args, ctx),
@@ -208,7 +208,7 @@ def at_act(p, spec, a: dict) -> tuple[Action | None, dict]:
     if act is None:
         return None, {"effective": "deny", "note": f"{a.get('action')} is no longer in the model: not run"}
     g0, t, opr = in_force(p, act)                     # the operating state read again, inside the run lock
-    risk = rk.assess(p, act, a.get("block"), a["id"], g0, t)
+    risk = rk.assess(p, act, a.get("block"), a["id"], g0, t, a.get("run"), a.get("item"))   # s worked out again
     mine = risk["gate"] if risk else g0
     asked = (a.get("risk") or {}).get("gate") or a.get("gate")
     return act, {**(risk or {}), "gate": mine, "cell": g0, "operating": opr, "asked": asked,

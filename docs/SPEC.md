@@ -7068,12 +7068,19 @@ where, and the block, run, session and work item), and then by its gate:
 **Act-risk.** An action may declare `risk: {severity: S, threshold: T}` (`ergostat/actions/risk.py`, plain
 arithmetic). Each request for it is then scored, and its gate moves one step stricter when the score reaches T:
 
-    act_risk = S × (1 + 4c) × (1 + n)        step  ⇔  act_risk ≥ T
+    act_risk = S × (1 + s) × (1 + 4c) × (1 + n)        step  ⇔  act_risk ≥ T
 
 A step goes from `auto` to `approve` (held for the owner) or from `approve` to `deny`, never the other way; `deny`
 stays `deny`. An action without `risk:` is gated by its `gate:` alone. `S` is a whole number from 1 to 5 (not `true`);
-`T` a number above 1 and at most 50 (not NaN or infinite), default 8. Anything else is `bad-value`, said where it was
-written. Scores run from 1 to 50, and T is absolute, not a multiple of S, so severity alone can change the outcome.
+`T` a number above 1 and at most 100 (not NaN or infinite), default 8. Anything else is `bad-value`, said where it was
+written. Scores run from 1 to 100, and T is absolute, not a multiple of S, so severity alone can change the outcome.
+
+- `s` is the staleness of the state the act was planned on: 1 when the action's work item (`item`) has an event, from
+  a writer other than the asking run (one not `causedby` it), whose `seq` is greater than that run's start (its
+  `agent.started` event, whose id is the run's). Order is by `seq`, never by time, so two events in the same second
+  are still ordered. Events the asking run wrote itself do not count. Each case where it cannot be told counts as
+  s = 1, its reason recorded: `no asking run`, `no work item`, `the run's start not found`, `record unreadable`.
+  Otherwise s = 0 (`not moved since the run started`). An owner's own request, naming no run, always has s = 1.
 
 - `c` is the asking block's contradicted share of its checked claims over the last week (as
   `ergostat.trust.contradicted` counts them). Each case where it cannot be read counts as the worst, c = 1, its reason
@@ -7085,10 +7092,9 @@ written. Scores run from 1 to 50, and T is absolute, not a multiple of S, so sev
   last 90 days, else 1. One that only `failed` does not count; neither does an unreadable record (`action record
   unreadable`, n = 1). It is keyed by the action's name: an action whose command was changed under the same name
   counts as known, so "novel" never means "this command never ran".
-- The staleness of the state the act was planned on is **not** part of the score.
 
-The score is worked out before `requested` is written and recorded on it, `risk: {score, severity, threshold, c,
-c_why, n, n_why, gate}`, `gate` being the stepped gate, which then decides as `gate:` does. A stepped gate says so in
+The score is worked out before `requested` is written and recorded on it, `risk: {score, severity, threshold, s,
+s_why, c, c_why, n, n_why, gate}`, `gate` being the stepped gate, which then decides as `gate:` does. A stepped gate says so in
 its denied or held note ("act-risk 12 ≥ 8: its gate auto stepped to approve"), and the session is told it.
 
 **At the act**, for every action, inside its run lock, after the fence check and before the command starts, the
@@ -7100,8 +7106,9 @@ record as it is now, and the **effective gate** is the stricter of that and the 
 `requested`'s `risk.gate`, which a re-hold never replaces; its `gate` without `risk:`): `deny` is denied, even when
 the owner approved it; `approve` runs if a person approved it and is held again if only `gate` did; `auto` runs. The
 act's reading is recorded on the event that ends it (`ran`, `failed`, `denied` or the re-held `requested`) as
-`risk_at_act`. So a gate is never looser than its `gate:`, at the request and at the act. A claim verdict, or the
-owner's edit, recorded between the request and the act is seen at the act; one recorded after the act's re-check, in
+`risk_at_act` (with its own `s` and `s_why`, worked out again on the record as it is at the act). So a gate is never
+looser than its `gate:`, at the request and at the act. A claim verdict, a move of the work item by another writer,
+or the owner's edit, recorded between the request and the act is seen at the act; one recorded after the act's re-check, in
 the moment before the command starts, is not.
 
 Actions are counted by class: `ergostat actions` lists them and, per class, how many were held, approved by the
@@ -7288,7 +7295,7 @@ actions:
     risk: {severity: 3, threshold: {normal: 8, away: 4}}
 ```
 
-- **Each cell** is `auto`, `approve` or `deny`, and each threshold 1 < T ≤ 50. Any other column or value is
+- **Each cell** is `auto`, `approve` or `deny`, and each threshold 1 < T ≤ 100. Any other column or value is
   `bad-value` at its line, and that cell is read as unwritten.
 - **Unwritten cells never loosen.** `away` and `maintenance` take `normal`'s gate, `freeze` takes `normal`'s one step
   stricter (`auto` → `approve` → `deny`), `incident` is `deny`. Every unwritten threshold takes `normal`'s. A written
