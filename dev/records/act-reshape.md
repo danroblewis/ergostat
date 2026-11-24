@@ -46,3 +46,80 @@ size: M (confidence: low)
 - test_full_act_never_auto_approved should also give the full act an act-risk that would step it to auto/allow (or no risk at all with gate auto), and should run gate.sweep after an at_act pass. Break the hold, by letting the full act's own gate through, and show the test fails.
 - The order of writes: take the target's id with rec.new_id before writing the full act's `requested` (reshaped_to), and write the target with reshaped_from in its first `requested` event, so neither record is ever seen without its link. Say which is written first and why a crash between them leaves no auto-run.
 - regime-scheduled-gates also changes gate.py, compile.py and SPEC §12k. Rebase onto it after it lands, and add the reshape cell to its validation of cell kinds rather than adding a second parse of cells.
+
+## Where it stopped
+
+Built, round 1. Every item of the definition is done. That is 61 net lines outside tests and docs (budget 110). The
+four acceptance tests pass, with six more: `test_owner_approves_full_while_away`, `test_denying_full_leaves_target`,
+`test_reshape_followed_once`, `test_session_answered_by_target_at_once`, `test_program_answered_by_target_keyless`,
+and the second parameter of `test_full_act_never_auto_approved`. regime-scheduled-gates is on main and under this
+branch. Main had nothing new to merge (`HEAD..main` is empty).
+
+How it is built: a reshape cell compiles to `approve` in `Action.gates`, and its target goes into a new
+`Action.reshapes` (column → action; `ergostat/spec/ir.py`, one line, not in the files to touch). Every existing
+reader (`risk.cell`, `at_act`, `rk.stricter`, `server.tools`, the pages) therefore sees the plain `approve` it
+already handles. Only `gate.request` reads `reshapes`.
+
+Answers to the plan review:
+- The act check. At the act a reshape cell reads as `approve`, because that is its compiled cell, so `at_act` needs
+  no new branch. The full act's `requested` records gate `approve` (`gate.request` also raises the cell to at least
+  `approve` when `reshapes` names the column, for an `Action` built in memory), so `asked` is never `auto`. Under
+  away, an owner-approved full act runs through `at_act` with `risk_at_act` recorded (cell, asked and effective are
+  all `approve`): `test_owner_approves_full_while_away`. That test holds presence at away, because the owner's
+  approval is itself an owner event and would make them present. A full act approved by the gate is held again
+  (`held_by: act-risk`): the second half of `test_full_act_never_auto_approved`.
+- The server and a program's ask. `server.call` does not wait on the full act. It answers with the target's result
+  (state, exit, output), waited for up to the target's own `wait:`, plus `reshaped_from` and `full` (the full act's id,
+  its state and a note), all in one answer. `program.ask` settles and delivers the target. The target takes no `key`:
+  a second keyed ask finds the held full act through `known()`, follows its `reshaped_to`, and gets the same target
+  back with no new record (`test_program_answered_by_target_keyless`). `program.py` changed by 2 lines.
+- The chain check covers every reachable combination. For each reshape cell, `compile.reshapes` takes every state in
+  `operating.STATES`, both presences, and each set of named maintenance actions among {full, target}. It resolves
+  both actions' columns with `risk.column`, the resolver the request uses, and refuses the cell when the full act's
+  column is that cell and the target's column is a reshape. The test's `combo` case is a chain that exists only in a
+  combination: full reshapes under `normal`, target under `maintenance`, during maintenance naming only the target.
+  At runtime a reshape is followed once. A target whose own column is a reshape anyway is held as `approve` and never
+  reshaped: `test_reshape_followed_once` puts such a cell into the in-memory spec by hand.
+- Denying the full act leaves the target alone: `test_denying_full_leaves_target`. The target either ran or is held;
+  its record and `result()` are unchanged after the owner denies the full act, and a held target is still the owner's
+  to approve on its own.
+- Never auto-approved. The test is parametrized: no risk, and a risk that never steps (severity 1, T 50). It asserts
+  that the full act's only move is `requested` (never approved, not even to be held again), and that `gate.sweep`
+  after the target's `at_act` pass runs nothing.
+- Order of writes. The target's id is taken with `rec.new_id` first. The full act's `requested` (with `reshaped_to`)
+  is written next, and then the target's first `requested` (with `reshaped_from`). `test_reshape_runs_target_and_holds_full`
+  checks this order. A crash between the two leaves the full act held as `approve` and no target recorded, so nothing
+  runs. The full act is written first so that nothing can run before the held act exists. The cost is that a crash
+  can leave a `reshaped_to` naming an id never written (`server.call` and `program.ask` then fall back to the full
+  act).
+- Cell kinds are parsed once. The reshape cell is one more kind accepted by the regime map's own `columns()`
+  validation (`cell_of`). A malformed reshape (an extra key, a name that is not a name) is `bad-value` there, as any
+  other bad cell is.
+
+Each guard was broken by hand, and a test failed each time:
+- the full act's request gate set to its own `auto`: `test_full_act_never_auto_approved` failed. Before I added the
+  moves assertion it passed, because `at_act` held the act again; that is why the assertion is there;
+- the reshape cell compiled without `approve`: four tests failed;
+- the reshape followed more than once: `test_reshape_followed_once` failed;
+- the chain check on the same column only: `test_reshape_refused_at_compile` failed (`combo`);
+- the server's switch to the target removed: the session test failed after its 30 s wait;
+- the program's switch to the target removed: the program test failed.
+
+Choices taken where nobody could be asked (each reversible):
+- A reshape applies only where it is written. An unwritten `away` or `maintenance` takes `normal`'s plain gate, never
+  its reshape (a reshape `normal` gives them `approve`; freeze's default from it is `deny`).
+- The full act's own act-risk still applies at the request. It can step `approve` to `deny`, and the target is then
+  asked for anyway: the two are answered apart.
+- `schema/ergostat.schema.json`'s gate map now takes `{reshape: NAME}` cells (6 lines, not in the files to touch), so
+  the schema does not refuse what compile takes.
+- `docs/GAPS.md` is not edited (the house rule: the queue writes it from the records). The entry is below.
+
+Run: `tests/test_act_reshape.py` (10 passed); `tests/test_regime_gates.py`, `tests/test_gated_actions.py`,
+`tests/test_act_risk.py`, `tests/test_program_actions.py`, `tests/test_operating_state.py`,
+`tests/test_spec_schema.py` and `tests/test_spec_structure.py` all passed. ruff is clean. Not run here: the unit suite
+and the four browser files (the factory runs them). No page changed.
+
+## Entry
+
+entry-of: operating-modes-regime
+done: 2026-11-24 Reshaping an act, on `act-reshape` (SPEC §12k): a gate cell `{reshape: ACTION}` holds the full act for the owner and asks for the smaller declared action at once under its own gate and act-risk, each linked to the other (`reshaped_to` / `reshaped_from`), the session answered by the smaller one; unknown targets, extra args and chains refused at compile as `bad-reshape`.
