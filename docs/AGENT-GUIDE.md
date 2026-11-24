@@ -884,6 +884,9 @@ What you set:
   plain, nor is a generator or iterator held by a variable, and a `break` or `return` that leaves a `for` early must
   leave one over a plain value, read by nothing after it); the rest, and whatever the AI does not approve, waits for
   the owner.
+  `program` (with `approve-with:`, the owner's command: exit 0 and `{"approve": true}` approve) and `rule` (the
+  block's last 10 answered fixes approved, run and none regressed) answer behind the same guard and call no AI; they
+  are no better than the guard and the owner's program.
   Propose `ai` only once the owner has approved this loop's fixes for a while, and say what the guard does not see
   (docs/SECURITY.md: among it, the program's own unchanged code can rebind a builtin or `json` the guard relies on, or fill a list it names only as a string).
 - **`verify:`** how many good runs after a fix verify it (default 3; 1 to 50, `check` refuses others). A block that
