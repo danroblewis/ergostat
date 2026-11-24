@@ -8132,8 +8132,8 @@ What it protects against and what it does not, for people: `docs/SECURITY.md`.
 
 Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
 and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
-is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet
-(promoting a fix's approver down the ladder on its own) is in `docs/GAPS.md`.
+is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet is in
+`docs/GAPS.md`.
 
 ```yaml
 uses:
@@ -8142,6 +8142,7 @@ uses:
     with:
       approver: person        # (default), or ai, program or rule: the rungs below, behind the guard below
       # approve-with: ./approve-fix.sh   # required with approver: program (below)
+      promote: false          # (default); true: a block's fixes move down the ladder as they earn it (below)
       model: haiku            # the fixer's (default)
       budget: 0.25            # dollars, one AI call at most
       daily: 2                # dollars, every AI call of the loop in a day
@@ -8437,6 +8438,22 @@ guard (its residuals, below) and the owner's program; the rule says only that th
 not that this one is right; and a program given the diff can be wrong in any way its owner wrote it. The inbox counts
 their answers as an agent's too (`by_agent`), never as a person's approvals, so they are never evidence for promoting
 `apply-fix`.
+
+**Promotion down the ladder** (`promote: true`, `ergostat/repair/promote.py`; false by default, and then nothing
+above changes). The rung a block's fix is answered at is worked out from the record each time a fix has passed its
+test, and is never stored. It starts at the owner's `approver` and moves down one rung at a time: person, ai,
+program (only when `approve-with` is set; otherwise skipped), rule; never below the rule, never above the owner's
+rung. A block moves down a rung when the last 10 of its `apply-fix` answers (each action's first `approved` or
+`denied`, ordered by seq, never by time) given **at the current rung** (read from `approved_by`: `ai approver`,
+`program approver`, `rule approver`, else the person) were all approved and `ran`. Any `regressed` or `reverted`
+failure of the block, or any denial of one of its fixes, sends it back to the owner's rung, and only answers with a
+later seq count again, so a failure made again under the same id never counts its earlier answers. A fix the rung
+escalates is held for the person as above; the person's approval of it counts toward no rung but theirs. A record
+that cannot be read is the owner's rung. The `reviewed` approval carries `rung` (the one used) and `rung_earned` (the
+seqs of the 10 answers that earned its last step down; null at the owner's rung). Under the failure's lock, before
+an approval is written, the rung is worked out again; if it differs, or the seq of the block's newest answer, run,
+regression or revert has moved, nothing is approved (`stale`) and the fix is held for the person. Its limit: a rung
+reached this way judges no better than that rung chosen by the owner, and the rule rung still asks its own 10.
 
 **Applying** (`python -m ergostat.repair apply`, the approved action, in the model's folder): the failure must be
 awaiting approval with a tested fix; the approved action's `key` must name that fix; the clone's metadata must be what ergostat made and its `HEAD` the tested commit;

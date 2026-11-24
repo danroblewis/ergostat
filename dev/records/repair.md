@@ -13,8 +13,8 @@ section: Running code ergostat does not trust
   own file, its last 64,000 characters (`repair-traces-more`). Done since (`repair-verify`): an applied fix verified
   by `verify` runs of its block begun after it, or regressed by a failed one, and a regressed fix's gated
   `revert-fix` (one `git revert`, aborted and checked when git fails). Done since
-  (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). *Left*: promoting a class
-  automatically; a daemon's standard error is one stream for all its runs, so
+  (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). *Left*: a daemon's standard
+  error is one stream for all its runs, so
   what a daemon swallows is still not seen; a program with uncommitted changes stays refused and is left to a person;
   a Python traceback that begins more than 64,000 characters before the end of the run's own file, and the traces of
   languages not read, still leave a failed run signed by how it ended.

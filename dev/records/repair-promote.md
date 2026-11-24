@@ -44,3 +44,40 @@ depends-on: [repair-lower-rungs]
 ## Size budget
 130 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+Built, round 1: 98 net lines outside tests, docs and dev (`promote.py` 87, `approve.py` +3, `fix.py` +6, the
+template +2). Every acceptance test exists and passes (9 runs with the parametrized cases, plus
+`test_a_denial_resets_too`). Each was seen to fail with the code it guards broken: the lock's re-check dropped
+(`test_denial_in_the_gap_holds[another-fix]`), the reset cut ignored (`test_regressed_resets_to_owner_rung`), an
+unreadable record read as the rule (`test_unreadable_record_owner_rung`), promotion always on (`test_off_by_default`),
+`EARN` 9 (`test_ten_clean_moves_one_rung[9]`). Nobody could be asked, so these readings were taken, each the stricter
+or more reversible one:
+- **"answered at the current rung"** is read from the answer's `approved_by` (`ai approver`, `program approver`,
+  `rule approver`, else the person). A fix the promoted rung escalated and the person then approved counts toward the
+  person's rung only, so it neither resets nor advances the promoted rung.
+- **"a person's denial"**: any `denied` of one of the block's `apply-fix` actions resets (only people and the gate's
+  own `deny` write one; with `approve: deny` nothing is ever approved anyway).
+- **"its last 10 ... at the current rung"**: after each step down the count starts again from the next answer at the
+  new rung; an approved fix not yet `ran` (or whose run `failed`) is in the window and not clean, so it holds.
+- **A regression or revert** is any `ergostat.failure.regressed` or `.reverted` event about a failure of the block
+  (the kind is sealed, so only ergostat writes them), by seq; answers at or before its seq never count again, which is
+  also what keeps a failure remade under the same id from counting its earlier answers (lesson-5).
+- **"newest answered seq"** is the newest seq of any `approved`, `denied`, `ran` or `failed` of the block's
+  `apply-fix` actions and any of its regressions or reverts. Under the lock the rung is worked out again whenever
+  `promote` is on (also when the rung is the owner's), and the fix is held if the rung or that seq differs: stricter
+  than asked, as the rule's own re-check is.
+- **The record**: the `reviewed` approval carries `rung` and `rung_earned` (the 10 seqs of the last step down; null
+  at the owner's rung). `rung_earned` is a new key so it never collides with the rule's own `earned`.
+- `docs/GAPS.md` is not edited (the queue writes it): "promoting a class automatically" is dropped from the Repair
+  umbrella's *Left* in `dev/records/repair.md`, and the gap's line is the `## Entry` below. The agent guide got one
+  sentence on `promote`, as the house rules ask, although it is not in "Files to touch".
+- Not run here: the sandbox-backed tests (31 in `test_repair2.py`, one in `test_repair_approver.py`) skipped because
+  bwrap cannot make namespaces in this container, as on main. The unit suite and the four browser files were not run
+  (no page changed), as the factory's instructions say. Run: `test_repair_promote.py`, `test_repair_rungs.py`,
+  `test_repair_approver.py`, `test_repair_verify.py`, `test_repair2.py`; ruff clean.
+
+## Entry
+
+entry-of: repair
+done: 2026-11-24 Promotion down the ladder (`repair-promote`, SPEC §12r): with `promote: true` the rung a block's fix is answered at is worked out from the record each time (never stored), from the owner's `approver` down one rung (person, ai, program only with `approve-with`, rule) per 10 clean answers at the rung by seq, and back to the owner's rung on a regressed or reverted fix or a denial; an unreadable record is the owner's rung, the `reviewed` record shows the rung and the seqs that earned it, and the rung is read again under the failure's lock before any approval.
