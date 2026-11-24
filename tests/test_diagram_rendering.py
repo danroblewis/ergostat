@@ -7593,6 +7593,44 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+SAYS ="""(id) => { const g = document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(id)}"]`);
+  const said = () => [...g.querySelectorAll("text")].map((t) => t.childNodes[0]?.textContent || "").join("|");
+  if (!g) return null;
+  const now = said();
+  g.dispatchEvent(new PointerEvent("pointerenter"));
+  const pointed = said();
+  g.dispatchEvent(new PointerEvent("pointerleave"));
+  return { text: now, pointed, left: said(), label: S.graph.nodes.find((n) => n.id === id)?.label }; }"""
+
+ROWS = """() => [...document.querySelectorAll('svg.canvas g.node[data-id^="system:"]')].flatMap((g) => {
+  const said = (t) => [...t.childNodes].filter((c) => c.nodeType === 3).map((c) => c.textContent).join("").replace("\\u21c4 ", "");
+  return [...g.querySelectorAll("text.t-sub, text[data-part]")].map((t) => {
+    const text = said(t); t.dispatchEvent(new PointerEvent("pointerenter")); const pointed = said(t);
+    t.dispatchEvent(new PointerEvent("pointerleave"));
+    return { box: g.dataset.id.slice(7), text, pointed, left: said(t) }; }); })"""
+
+
+def test_inside_its_own_systems_box_a_part_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
+    """Drilled into the use help-queue, its stock reads ``waiting``; pointed at, ``help-queue-waiting`` (in its own
+    text: a part has no tooltip), its full name kept in the graph (links, lookups); drawn where no system is around
+    it, it reads ``help-queue-waiting`` (SPEC §2a, *A part's system*)."""
+    with served("small-requests", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for n, view in enumerate(("system=help-queue&open=", "view=dynamics&system=help-queue&open=")):
+            drawn(pg, url, view, n)
+            got = pg.evaluate(SAYS, "stock:help-queue-waiting")
+            assert got and "waiting" in got["text"].split("|") and "help-queue-waiting" not in got["text"], (view, got)
+            assert "help-queue-waiting" in got["pointed"].split("|") and got["left"] == got["text"], (view, got)
+            assert got["label"] == "help-queue-waiting" and not pg.evaluate(NO_TOOLTIPS), (view, got)
+        drawn(pg, url, "around=stock/help-queue-waiting", 3)        # no system drawn around it: its full name
+        got = pg.evaluate(SAYS, "stock:help-queue-waiting")
+        assert got and "help-queue-waiting" in got["text"].split("|") and got["pointed"] == got["text"], got
+        pg.close()
+        assert not errors, errors
+
+
 def test_a_suggestion_about_a_goal_has_an_evidence_link_to_its_panel(browser, tmp_path):
     """Dynamics and Blocks: a hint about a goal (its name in the ``goal`` field, its text 'goal NAME was off...')
     has an Evidence link, and the link opens that goal's panel. The hint is put into the page's answers here,
@@ -7670,7 +7708,6 @@ def test_the_blocks_legend_defines_the_subsystem_letter_and_its_size_and_a_name_
         assert {x["letter"] for _, x in seen if x["frame"]} & {x["letter"] for v, x in seen if v == "view=blocks"}, seen
         pg.close()
         assert not errors, errors
-
 
 
 MAY_DO ="You can look at everything. Approving or denying these is the only thing that changes the system."
@@ -8278,6 +8315,65 @@ def test_open_all_on_a_model_that_will_not_fit_opens_the_first_level_and_says_in
                 pg.wait_for_function(OPENED, arg=",".join(first), timeout=DRAWN_S * 1000)
         pg.close()
         assert not errors, errors
+
+
+def _reads_the_queue(d: Path) -> None:
+    with (d / "ergostat.yaml").open("a") as f:
+        f.write("flows:\n  queue-moved-on: {from: help-queue-waiting, system: work}\n")
+
+
+def test_a_closed_boxs_port_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
+    """A hand-written part in work reads help-queue's stock: the closed help-queue box's port for it reads ``waiting``,
+    pointed at ``help-queue-waiting`` (SPEC §2a, *A part's system*)."""
+    with served("small-requests", tmp_path, edit=_reads_the_queue) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics&system=work&open=", 0)          # (the page's one systems view)
+        rows = [r for r in pg.evaluate(ROWS) if r["box"] == "help-queue"]
+        assert {"box": "help-queue", "text": "waiting", "pointed": "help-queue-waiting", "left": "waiting"} in rows, rows
+        assert not [r for r in rows if "help-queue-waiting" in r["text"]], rows
+        pg.close()
+        assert not errors, errors
+
+
+# every closed box's sparkline: its box, its name as drawn, pointed at, and left again
+SPARK_NAMES = """() => [...document.querySelectorAll('svg.canvas g.node[data-id^="system:"] .sd-spark')].map((r) => {
+  const t = r.querySelector(".sd-spark-name"), said = () => t.textContent;
+  const text = said(); r.dispatchEvent(new PointerEvent("pointerenter")); const pointed = said();
+  r.dispatchEvent(new PointerEvent("pointerleave"));
+  return { box: r.closest("g.node").dataset.id.slice(7), text, pointed, left: said() }; })"""
+SPARKED_HQ = """() => document.querySelectorAll('svg.canvas g.node[data-id="system:help-queue"] .sd-spark').length > 0"""
+
+
+def _no_review_reminders(d: Path) -> None:              # (re-ping's measure is ``oldest`` too)
+    f = d / "ergostat.yaml"
+    f.write_text(re.sub(r"  review-reminders:.*?(?=\n  morning:)", "", f.read_text(), flags=re.S))
+
+
+def test_a_closed_boxs_sparkline_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
+    """The closed help-queue box's headline measure (a sparkline, drawn once its answer comes) reads ``oldest``, pointed
+    at ``help-queue-oldest``. Beside review-reminders, whose own measure is also ``oldest``, both read by their full
+    names, so two never read alike (SPEC §2a, *A part's system*)."""
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    with served("small-requests", tmp_path / "both") as url:
+        drawn(pg, url, "view=dynamics&system=work&open=", 0)
+        pg.wait_for_function(SPARKED_HQ, timeout=30000)
+        rows = pg.evaluate(SPARK_NAMES)
+        full = "help-queue-oldest"
+        assert {"box": "help-queue", "text": full, "pointed": full, "left": full} in rows, rows
+        other = pg.evaluate("""() => { const n = S.graph.nodes.find((x) => x.id === "system:review-reminders");
+          return [...n.charted, ...n.ports].filter((x) => x.label === "review-reminders-oldest").map((x) => x.shown || x.label); }""")
+        assert other and set(other) == {"review-reminders-oldest"}, other    # (its measure, drawn by its full name too)
+    with served("small-requests", tmp_path / "one", edit=_no_review_reminders) as url:
+        drawn(pg, url, "view=dynamics&system=work&open=", 1)
+        pg.wait_for_function(SPARKED_HQ, timeout=30000)
+        rows = [r for r in pg.evaluate(SPARK_NAMES) if r["box"] == "help-queue"]
+        assert rows == [{"box": "help-queue", "text": "oldest", "pointed": "help-queue-oldest", "left": "oldest"}], rows
+    pg.close()
+    assert not errors, errors
 
 
 @pytest.mark.serial

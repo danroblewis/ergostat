@@ -40,16 +40,16 @@ function sdRateSaid(now, rate, unit, flow) {
 }
 /* the lines written beside a part (under a valve or a converter): its name, then its value */
 function sdLabelLines(n) {
-  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "not measured" : n.rateText,
+  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [nameOf(n)] : [nameOf(n), n.rate == null ? "not measured" : n.rateText,
     ...(n.attempts ? [`${n.attempts} attempt${n.attempts === 1 ? "" : "s"}`] : [])];      // an item's: the runs that took it
   if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
   if (n.kind === "cloud" && n.from) return [`from ${n.from}`];        // an inflow from outside: where it comes from, where the model knows it
   return [];
 }
 function sdAuxLines(n) {
-  if (n.role === "decision") return [n.label];
+  if (n.role === "decision") return [nameOf(n)];
   const w = sdGapWord(n)?.text;                         // (on the value's own line: a word coming or going lays nothing out again)
-  return [n.label, sdValue(n) + (w ? ` · ${w}` : ""), n.exogenous ? "(exogenous)" : null, n.noFeedback ? SD_NO_FEEDBACK : null].filter(Boolean);
+  return [nameOf(n), sdValue(n) + (w ? ` · ${w}` : ""), n.exogenous ? "(exogenous)" : null, n.noFeedback ? SD_NO_FEEDBACK : null].filter(Boolean);
 }
 const SD_NO_FEEDBACK = "→ no feedback";                // a gap nothing in the model acts on (dynamics.py: noFeedback)
 /* a goal's state on its gap: the server's word (goalWord, over the status poll's loops: /api/loops') and, off, how far
@@ -74,7 +74,7 @@ function sdStock(n, w, hgt) {
   // its name and its value now, small and muted; its history is in its panel (no gauge, no sparkline)
   g.append(s("rect", { class: "hit sd-stock", width: w, height: hgt, "stroke-dasharray": n.outside ? "5 4" : null }));
   const v = sdValue(n);
-  g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
+  g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, nameOf(n)));
   if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v,
     sdNoUnit(n) ? s("tspan", { class: "sd-nounit" }, " unit ?") : null));
   if (n.path?.length) g.append(s("text", { x: 4, y: 11, class: "t-sub sd-path", "data-path": n.path.join(",") },   // an item's steps here, in move order
@@ -111,7 +111,7 @@ function sdCloud(n, w, hgt) {                           // (a cloud a flow leave
 function sdSystem(n, w, hgt) {
   const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
   g.append(s("rect", { class: "hit sd-module" + (systemOff(n) ? " sys-off" : ""), width: w, height: hgt, rx: 8, ...(n.remote || n.upkeep ? { "stroke-dasharray": n.upkeep ? "6 4" : "9 5" } : {}) }));
-  g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
+  g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, nameOf(n)));
   // under its name, what it is (its description, in at most two lines; its loops are counted on its panel)
   const said = n.remote ? [n.remote.says] : sdWrap(n.description || "a module: open it to see its structure", Math.floor((w - 32) / CH), 2);
   said.forEach((t, i) => g.append(s("text", { x: 16, y: 42 + i * 14, class: "t-sub sys-desc" + (n.remote ? " live" : "") }, t)));
@@ -133,8 +133,8 @@ function sdSystem(n, w, hgt) {
     const left = side === "west";
     // a named connection point (as Stella's module connectors): no square, the line meets the edge at its name
     const cls = "t-sub sd-port-name" + (flowing.has(p.id) || (twin && flowing.has(twin.id)) ? " flow-port" : "");
-    g.append(s("text", { x: left ? 8 : w - 8, y: y + 4, class: cls, "text-anchor": left ? "start" : "end", "data-part": p.part, "data-side": side },
-      p.both ? "⇄ " : "", p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
+    g.append(fullOnHover(s("text", { x: left ? 8 : w - 8, y: y + 4, class: cls, "text-anchor": left ? "start" : "end", "data-part": p.part, "data-side": side },
+      p.both ? "⇄ " : "", nameOf(p), p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null), p));
   }
   return g;
 }
@@ -233,10 +233,10 @@ function sdSparkRow(sg, m, ser, [y, from, to]) {
   const full = ser?.unit && ser.kind !== "flow" && v !== "–" ? `${v} ${ser.unit}` : v;
   const span = !d ? "no readings" : `${fmt(lo)}–${fmt(hi)}`;
   for (const said of [...new Set([full, bare])]) {
-    const row = s("g", { class: "sd-spark", "data-ref": ser?.ref || m.part, role: "img",
-                         "aria-label": `${m.label}: ${said} now; ${d ? `from ${fmt(lo)} to ${fmt(hi)}` : "nothing read"} over the window, on its own scale` });
+    const row = fullOnHover(s("g", { class: "sd-spark", "data-ref": ser?.ref || m.part, role: "img",
+                         "aria-label": `${m.label}: ${said} now; ${d ? `from ${fmt(lo)} to ${fmt(hi)}` : "nothing read"} over the window, on its own scale` }), m);
     sg.append(row);
-    const name = s("text", { y: y + 4, class: "t-sub sd-spark-name" }, m.label);
+    const name = s("text", { y: y + 4, class: "t-sub sd-spark-name" }, nameOf(m));
     const now = s("text", { y: y + 4, class: "t-sub sd-spark-value live" + (m.stale ? " sd-spark-stale" : "") }, said);
     const scale = s("text", { y: y + 4, class: "t-sub sd-spark-scale live" }, span);
     row.append(name, now, scale);

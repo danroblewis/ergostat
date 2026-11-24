@@ -949,7 +949,8 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             for n in g.get("nodes", []):             # a closed system's sentence when every goal of it holds (state.quiet)
                 if n.get("kind") == "system":
                     n["quiet"] = st.quiet(p, snap, n["label"])
-            return {**g, "attention": att}
+            from ..shown import shorten  # a part inside its own system's box: its short name (SPEC §2a)
+            return {**shorten(g, m.spec), "attention": att}
         drawn = sub and {x.split(".", 1)[1] for x in sub["parts"] if x.split(".", 1)[0] in ("stock", "auxiliary", "flow")}
         sel = graph.select(m, system, around, int(one("depth") or 1), drawn)
         g = graph.control(m, snap, sel, graph.readings(p, at))
