@@ -244,3 +244,25 @@ it against `migrate.py:63`, not by running it. The step left for the coordinator
 
 Run here: test_metrics_store_labels gave 12 passed and 5 skipped (the real-server tests). ruff is clean. `main` is an
 ancestor of HEAD. Not run: the whole unit suite, the browser files and `demo_check` (nothing they cover changed).
+
+## Where it stopped
+
+Round 6: the merge of main (b9341591), 2026-11-24. The one finding was the three conflicted files. All three
+conflicts were the same thing: main added a `project=` argument (the project asking, for its new `sql` source, through
+`ASKING`), and the branch added `store=` (the project's measurements, for the built-in `ergostat` source). Each was
+resolved by keeping both:
+- `datasources.query(..., store=None, project=None)` and `datasources.suggest(..., store=None, project=None)`;
+- `query/engine.py` `_from_source` passes `store=p.measurements, project=p`;
+- `web/server.py` `_suggest` passes `store=p.measurements, project=p`.
+No other code changed this round.
+
+Run here after the merge:
+- test_metrics_store_labels, test_data_sources and test_sql_source: 39 passed, 5 skipped (the real-server tests).
+- test_query_engine, test_storage and test_web_access: 85 passed.
+- test_data_source_panels and test_sql_editor (browser, under the watchdog): 5 passed, rc 0, none skipped.
+- ruff is clean.
+
+Still not proven: no VictoriaMetrics binary is in this container (`which victoria-metrics victoria-metrics-prod
+vmsingle` finds none), so the five real-server tests skipped again, and done items 1 and 2 have no passing run. The
+coordinator should run `tests/test_metrics_store_labels.py` with `ERGOSTAT_TEST_VM_BIN` set before landing. Not run:
+the whole unit suite, the four browser files and `demo_check` (no example touched).
