@@ -16,10 +16,10 @@ TITLE = "Searching items and querying their graph"
 LIMITS = "Not the Items page's own box, not MCP, not `--at`."
 
 
-def intake(fn: str):
-    """intake.<fn> over GAPS.md, run in a subprocess as tests/test_gaps_doc.py does."""
+def intake(fn: str, args: str = ""):
+    """intake.<fn> over GAPS.md (then ``args``), run in a subprocess as tests/test_gaps_doc.py does."""
     code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import intake; "
-            f"print(json.dumps(intake.{fn}(open(sys.argv[2], encoding='utf-8').read())))")
+            f"print(json.dumps(intake.{fn}(open(sys.argv[2], encoding='utf-8').read(){args})))")
     r = subprocess.run([sys.executable, "-c", code, str(ROOT / "dev" / "bin"), str(GAPS)], cwd=ROOT,
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
@@ -94,5 +94,6 @@ def test_item_search_entry_keeps_its_limits():
 def test_item_search_entry_listed_once():
     gid = [e["id"] for e in intake("gaps_md") if e["title"] == TITLE]
     assert gid, "intake finds no entry titled " + TITLE
-    assert gid[0] not in intake("twice")
+    every = [e["id"] for e in intake("gaps_md", ", done=True")]     # as intake.read() counts: every section
+    assert every.count(gid[0]) == 1, every.count(gid[0])
     assert sum(line.startswith(f"- **{TITLE}**") for line in GAPS.read_text(encoding="utf-8").splitlines()) == 1
