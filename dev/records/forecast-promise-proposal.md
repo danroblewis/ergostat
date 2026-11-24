@@ -62,3 +62,14 @@ control-aware-estimates.md §1–§9. Five corrections, no change of design:
   scratch file inside the repository would break the rule against them, so no machine check was run.
   `test_extra_matches_binomial` in the quote gap remains the check.
 - Still 0 net lines of code. Only ruff was run.
+
+Round 3 (no review findings to answer): checked again after the merge of main (feb19045). The merge changed none of
+`numbers/eta*.py`, `etacheck.py`, `leases/ready.py`, `closedloop.py`, `remote/` or control-aware-estimates.md. One
+thing it added touches §1: SPEC §5a's why answer now has `place` (`why/within.py`), which tells where an item is held
+as one of many, through a relation that is neither precedence, a group nor a remote's. The proposal now names it in
+the table of what exists, and §1 says `waits_on` does not repeat it, since the simulation does not model such a hold.
+The other SPEC additions (template `exports:`, untrusted marks on diagrams, the Blocks loop drawing, dashboard
+diagram panels, the `display` change kind) do not affect this design. No change of design.
+- The binomial table was worked by hand a third time and agrees (0.4344, 0.7819, 0.9348, 0.9838). The scratch
+  script `/tmp/binom.py` (Write tool) was refused again: `/tmp` is outside /work for the file tools.
+- Still 0 net lines of code. Only ruff was run.

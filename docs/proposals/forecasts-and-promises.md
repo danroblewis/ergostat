@@ -29,6 +29,7 @@ exactly, the binomial table of §9.2, is said as a check the build's test must r
 | the levelled schedule the Timeline draws | `eta.simulate` `schedule`, `eta_api.merge` | the Timeline reads the forecast and not the simulation's raw answer (§1) |
 | what-if: `block.NAME.pool`, `block.NAME.failure` | `closedloop.parse_whatif`, the eta worker's cache | hypothetical items, run as a quote (§4) |
 | a block's gate worked out once at now; pools read from stocks | CAE §1–§3 (its build: control-aware-completion-estimates) | nothing: used as CAE settles it |
+| where an item is held as one of many (a batch naming it; how many are ahead of it), read from the record's relations, never a precedence, group or remote's | `why/within.place`, in the why answer (SPEC §5a, *Why it is not done*) | nothing: kept apart from `waits_on` (§1) |
 | take order (`takes:` order, `unblocked`, `order:`) shared by the dispatcher and the simulation | `leases/ready.take_key` | a frozen term at the front of the key (§5) |
 | backtest at past cuts: p50 MAE, p90 coverage, bias | `numbers/etacheck.score`, `tests/eta_backtest.py` | promises scored, and the forecasts as said recorded and scored (§6) |
 | the Timeline's calibration line ("8 in 10 tickets finished by their p90") | `etacheck.calibration`, `relations.js` | a second clause for the recorded forecasts, and promises kept against their level (§6) |
@@ -78,7 +79,10 @@ the estimates. It is worked out in the eta worker, never on a request, as now (S
   come from `eta.reasons`. The unfinished items it names come with `binding`: the share of runs in which that item was
   the last thing released before it moved (counted in `_Run.done`). Also listed: a gate closed now (CAE §7), a frozen
   window ahead of it (§5) and a remote item (§7). The words in `why` are made from this list, so the two cannot
-  disagree.
+  disagree. It does not repeat the why answer's `place` (`why/within.py`): that one reads which unfinished items
+  hold this one through a relation that is neither precedence, a group nor a remote's (a batch naming it), from the
+  record now. The simulation does not model such a hold, so it is not a forecast wait and is not listed here; the
+  why answer keeps saying it beside the forecast's words.
 - **Basis and sample size.** `runs` is the Monte Carlo's run count. `basis.curves` gives, for each state or block the
   item passes, how many recorded stays or runs its curve is drawn from and whose curve it is (own, the kind's, every
   kind's: `KindIn.said`). `visits` is the fundamental matrix's row (the rework). The top `basis` names the record's
