@@ -15,6 +15,7 @@ import yaml
 from ergostat import model as mdl
 from ergostat.daemons import config
 from tests.test_daemon_docs import ROOT, blocks
+from tests.test_gaps_doc import gaps_text
 
 DOC = ROOT / "docs" / "proposals" / "daemon-yaml.md"
 QUESTIONS = ["A modifier instead of a kind", "Per-sensor arguments", "Where shared daemons are declared",
@@ -176,7 +177,7 @@ def test_the_with_section_says_the_read_line_gains_a_field():
 
 
 def test_the_gaps_entry_points_at_the_review_and_stays_open():
-    text = (ROOT / "docs" / "GAPS.md").read_text()
+    text = gaps_text()                              # (the entry as dev/records/ render it, not docs/GAPS.md)
     m = re.search(r"^- \*\*Daemon YAML schema review\*\*.*?(?=^- \*\*|^#|\Z)", text, flags=re.M | re.S)
     assert m, "no GAPS entry"
     entry = m[0]

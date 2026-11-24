@@ -23,8 +23,10 @@ import bisect
 import heapq
 import random
 import time
+from array import array
 from dataclasses import dataclass, replace
 
+from ..leases.frozen import arrange, urgent
 from ..leases.ready import take_key
 from ..leases.terms import grace
 from ..spec.ir import DEAD, LEASED
@@ -64,7 +66,7 @@ class _Run:
         self.heap: list = []
         self.seq = 0
         self.items: dict[str, list] = {}               # id → [kind, state, entered, attempts, version]
-        self.finish, self.start, self.dead = {}, {}, set()
+        self.finish, self.start, self.dead, self.lost = {}, {}, set(), set()   # (lost: dead, or a ``lost:`` state)
         self.segs: dict[str, list] = {}                # (record) id → [state, from, to, block, lane]
         self.blocks = inp.blocks if flags.queue else []
         self.by_state: dict[tuple, list[int]] = {}
@@ -74,6 +76,7 @@ class _Run:
         self.queue = [[] for _ in self.blocks]
         self.busy = [0] * len(self.blocks)
         self.lanes = [[] for _ in self.blocks]
+        self.held = [list(b.held) for b in self.blocks]   # each frozen block's window (``pick``)
         self.used: dict[str, int] = {}
         self.cap = [max(1, b.capacity(pools)) for b in self.blocks]
         self.pool = [[rnd.choice(b.attempts) for _ in b.attempts] for b in self.blocks]   # bootstrapped for this run
@@ -107,6 +110,8 @@ class _Run:
         k = self.inp.kinds[it[0]]
         it[1], it[2], it[4] = state, t, it[4] + 1
         if state in k.finished or state == DEAD:
+            if state == DEAD or state in k.lost:
+                self.lost.add(i)
             self.done(i, t, state == DEAD)
             return
         if state in k.paused:
@@ -236,7 +241,9 @@ class _Run:
             q = self.queue[b]
             w = self.blocks[b].workspace
             while q and self.room(b):
-                e = heapq.heappop(q)
+                e = self.pick(b) if self.blocks[b].frozen else heapq.heappop(q)
+                if e is None:
+                    break
                 _, i, v = e
                 it = self.items[i]
                 if it[4] != v or it[1] not in self.blocks[b].at:
@@ -246,7 +253,21 @@ class _Run:
                     continue
                 if self.record and t > max(it[2], self.inp.at):
                     self.segs.setdefault(i, []).append([it[1], max(it[2], self.inp.at), t, None, "wait"])
+                if self.blocks[b].frozen:                  # taken: it leaves the window (``leases.frozen.settle``)
+                    self.held[b] = [x for x in self.held[b] if x != i]
                 self.hold(b, i, t, self.attempt(b))
+
+    def pick(self, b: int):
+        """The next a frozen block takes of those waiting at it, by the dispatcher's rule (``leases.frozen.arrange``:
+        the urgent, then its window, then the rest), its window kept for the next; None when none waits."""
+        bl, q = self.blocks[b], self.queue[b]
+        q[:] = sorted(e for e in q if self.items[e[1]][4] == e[2] and self.items[e[1]][1] in bl.at)   # (a heap still)
+        if not q:
+            return None
+        first, field = bl.frozen
+        hurry = {e[1] for e in q if e[1] in self.inp.items and urgent(self.inp.items[e[1]].fields, field)}
+        ids, self.held[b] = arrange([e[1] for e in q], self.held[b], first, hurry)
+        return q.pop(next(j for j, e in enumerate(q) if e[1] == ids[0]))
 
     def end(self, i: str, t: float, b: int, a: Attempt, lane: int) -> None:
         self.busy[b] -= 1
@@ -324,13 +345,22 @@ class _Run:
 
 
 def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 1, budget: float = BUDGET,
-             horizon: float = HORIZON, pools: dict | None = None, failures: dict | None = None) -> dict:
+             horizon: float = HORIZON, pools: dict | None = None, failures: dict | None = None,
+             sets: dict[str, list[str]] | None = None, counted: dict[str, list[str]] | None = None) -> dict:
     """Each open item's p50 and p90 finish and its expected start, per kind when its last open item finishes, and a
-    levelled schedule (the run whose last finish is the median's) for the Timeline."""
+    levelled schedule (the run whose last finish is the median's) for the Timeline. ``sets``: named sets of items
+    (a group, a stage), each said as a kind is: when its last item that can move finishes (``sets`` in the answer).
+    ``counted``: named sets whose runs are kept for their counts (``counts``: ``{members, draws}``, a draw a run's
+    sorted times its members came out and were lost; numbers/yields.py reads them)."""
     t_end = time.monotonic() + budget                   # (the runs within ``budget``, the levelled one within as much again)
     live = {i: x for i, x in inp.items.items() if not x.unscheduled}   # (the rest: not scheduled, said why)
     fins, starts, deads, lasts = {i: [] for i in live}, {i: [] for i in live}, {i: 0 for i in live}, []
-    outs, n = {i: 0 for i in live}, 0
+    outs, n, in_sets, set_lasts = {i: 0 for i in live}, 0, {}, []
+    for name, ids in (sets or {}).items():
+        for i in ids:
+            if i in live:
+                in_sets.setdefault(i, []).append(name)
+    counts = {s: {"members": sum(i in live for i in ids), "draws": []} for s, ids in (counted or {}).items()}
     for r in range(runs):
         if n and time.monotonic() > t_end:
             break
@@ -338,7 +368,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         if not run.go(horizon, t_end):
             break
         n += 1
-        last = {}
+        last, set_last = {}, {}
         for i, x in live.items():
             if i in run.gone:                         # counted out: no finish, and not in its kind's last
                 outs[i] += 1
@@ -348,7 +378,14 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
             starts[i].append(run.start.get(i, f))
             deads[i] += i in run.dead
             last[x.kind] = max(last.get(x.kind, 0.0), f)
+            for s in in_sets.get(i, ()):
+                set_last[s] = max(set_last.get(s, 0.0), f)
         lasts.append(last)
+        set_lasts.append(set_last)
+        for s, ids in (counted or {}).items():
+            ends = [(i in run.lost, run.finish[i]) for i in ids if i in live and i in run.finish]
+            counts[s]["draws"].append((array("d", sorted(t for lo, t in ends if not lo)),
+                                       array("d", sorted(t for lo, t in ends if lo))))
     few = n < FEW                                       # (too few runs for a p90: none said)
     mean = lambda xs: sum(xs) / len(xs) if xs and max(xs) < float("inf") else None   # noqa: E731
     items = {i: {"p50": _q(fins[i], 0.5), "p90": None if few else _q(fins[i], 0.9), "mean": mean(fins[i]),
@@ -368,6 +405,11 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         kinds[k] = {"p50": _q(xs, 0.5), "p90": None if few else _q(xs, 0.9), "visits": inp.kinds[k].visits,
                     "open": sum(1 for x in live.values() if x.kind == k),
                     "unscheduled": sum(1 for x in inp.items.values() if x.kind == k and x.unscheduled)}
+    said_sets = {}
+    for s, ids in (sets or {}).items() if n else ():
+        xs = [la[s] for la in set_lasts if s in la]
+        said_sets[s] = {"p50": _q(xs, 0.5), "p90": None if few else _q(xs, 0.9), "open": sum(i in live for i in ids),
+                        "unscheduled": sum(1 for i in ids if i in inp.items and i not in live), "runs": len(xs)}
     # the levelled schedule: the run whose last finish is nearest the median's, drawn again with its segments kept
     rep = None
     if n and time.monotonic() < t_end + budget:
@@ -381,7 +423,8 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     for x in inp.items.values():
         if x.lease and x.lease[0]:
             held[x.lease[0]] = held.get(x.lease[0], 0) + 1
-    return {"at": inp.at, "runs": n, "flags": flags.__dict__, "items": items, "kinds": kinds, "schedule": rep or {},
+    return {"at": inp.at, "runs": n, "flags": flags.__dict__, "items": items, "kinds": kinds, "sets": said_sets,
+            "counts": counts if n else {}, "schedule": rep or {},
             "capacity": {b.name: max(1, b.capacity(pools), held.get(b.name, 0)) for b in inp.blocks},
             "limit": {b.name: max(1, b.capacity(pools)) for b in inp.blocks}}
 
@@ -396,12 +439,23 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
         if x.lease and x.lease[0]:
             held[x.lease[0]] = held.get(x.lease[0], 0) + 1
     place: dict[str, dict[str, int]] = {}                # block → item → how many are ahead of it
+    frz: dict[str, str] = {}                             # item → its place in a frozen window, or ahead of it
     for b in inp.blocks:
         q = [x for x in inp.items.values() if x.kind == b.kind and x.state in b.at and not x.lease
              and not (b.unblocked and x.preds)]
         q.sort(key=lambda x: (*take_key(b.order, b.at, x.state, x.fields, -(x.level if b.unblocked else 0)), x.queued,
                               x.id))
-        place[b.name] = {x.id: n for n, x in enumerate(q)}
+        ids = [x.id for x in q]
+        if b.frozen:                                    # (its frozen window: the dispatcher's order, said why)
+            hurry = {x.id for x in q if urgent(x.fields, b.frozen[1])}
+            ids, window = arrange(ids, b.held, b.frozen[0], hurry)
+            for n, i in enumerate(window):
+                frz[i] = f"; held at {n + 1} of its frozen window of {b.frozen[0]} in {b.name}"
+            for x in q:
+                if x.id in hurry:
+                    u = urgent(x.fields, b.frozen[1])
+                    frz[x.id] = f"; urgent, ahead of its frozen window in {b.name} ({u['by']}: {u['why']})"
+        place[b.name] = {i: n for n, i in enumerate(ids)}
     for x in inp.items.values():
         k = inp.kinds[x.kind]
         waits = f"waits on {', '.join(x.preds)}; " if x.preds else ""
@@ -435,7 +489,7 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
                 continue
             out[x.id] = {"waits_in": b.name, "position": None if pos is None else pos + 1, "capacity": cap,
                          "why": waits + f"{held.get(b.name, 0)} of {cap} busy in {b.name}{bind}"
-                         + (f"; {pos} ahead of it" if pos is not None else "") + put
+                         + (f"; {pos} ahead of it" if pos is not None else "") + frz.get(x.id, "") + put
                          + (f"; {b.pool_said}" if b.pool_said and b.name not in (pools or {}) else "")
                          + (f"; a run takes {human(med)} (median)" if med else "") + (f"; assumed: {b.assumed}" if b.assumed else "")}
             continue

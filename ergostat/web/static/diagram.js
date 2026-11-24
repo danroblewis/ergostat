@@ -590,6 +590,19 @@ function edgePoints(e) {
   return [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
 }
 
+/* an open system's frame, in every view, as technical drawings draw one: no fill, a hairline (rect.frame, which
+   the rings and the cross-pane mark read) joining its corners, each an L mark (8 px arms for one nested in another) */
+function frameMarks(x, y, w, hgt, nested) {
+  const a = Math.min(nested ? 8 : 13, w / 3, hgt / 3), X = x + w, Y = y + hgt;
+  return [s("rect", { class: "frame", x, y, width: w, height: hgt }),
+          s("path", { class: "frame-corners", d: `M${x},${y + a}V${y}H${x + a}M${X - a},${y}H${X}V${y + a}M${X},${Y - a}V${Y}H${X - a}M${x + a},${Y}H${x}V${Y - a}` })];
+}
+/* a closed system with a goal in it off (its box drawn heavier): a box's loops by state (dynamics) or by name (blocks) */
+function systemOff(n) {
+  const l = n.loops;
+  return Array.isArray(l) ? l.some((k) => goalRank(S.status?.loops?.[k]) === 0) : (l?.off || 0) > 0;   // (off: the server's word, goalWord)
+}
+
 /* the pin on a part (or a system) put by hand: clicked, it is let go, and the layout places it again */
 function pinMark(pid, x, y, title = "pinned here: click to let the layout place it again", kind = "system") {
   return s("g", { class: `pin k-${kind}`,"data-act": "unpin", "data-id": pid, transform: `translate(${x},${y})`,
@@ -656,22 +669,21 @@ function drawGraph(svg, g, lay) {
   // systems as hulls behind everything (overlapping freely)
   const hullPins = [];                                     // (drawn on top, with the parts' pins)
   const sd = g.kind === "dynamics";                         // the system dynamics view: monochrome (dynamics.js)
-  const hueOf = () => (sd ? "fill:var(--sd-hull);stroke:none" : "fill:none;stroke:var(--system-line)");
   const inkOf = () => (sd ? "fill:var(--sd-ink)" : "fill:var(--muted)");
   if ((g.kind === "control" || sd) && lay.containers?.length) {      // open systems: laid out as containers, drawn as outlines
     const hulls = s("g", { class: "sys-hull" });
     const names = Object.keys(g.tree || {}).sort();
     for (const c of lay.containers) {
       const hue = (210 + names.indexOf(c.name) * 137.5) % 360;
-      const hg = s("g", { class: "hull", "data-hull": c.name });
+      const hg = s("g", { class: "hull" + (g.tree?.[c.name]?.modelling ? " frame-modelling" : ""), "data-hull": c.name });
       hulls.append(hg);
       // its top is a handle: dragged, the system moves with everything in it, and stays there (places.js)
-      const grip = s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: c.width, height: 32, rx: 16,
+      const grip = s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: c.width, height: 32,
                                onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, cx: c.x, cy: c.y, moved: false }; } });
-      hg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: hueOf(hue, 0.45) }), grip,
-        s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", "data-act": "close", style: inkOf(hue), onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
+      hg.append(...frameMarks(c.x, c.y, c.width, c.height, c.depth > 0), grip,          // (its name on the top edge)
+        s("text", { x: c.x + 14, y: c.y + 4, class: "sys-hull-label", "data-act": "close", style: inkOf(hue), onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
           "▾ " + c.name + (g.tree?.[c.name]?.remote ? " (remote)" : "")),
-        s("text", { x: c.x + 14 + textWidth("▾ " + c.name + (g.tree?.[c.name]?.remote ? " (remote)" : "")) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: inkOf(hue),
+        s("text", { x: c.x + 14 + textWidth("▾ " + c.name + (g.tree?.[c.name]?.remote ? " (remote)" : "")) * 1.15 + 10, y: c.y + 4, class: "sys-hull-label", "data-act": "into", style: inkOf(hue),
                     onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, "⤓"));
       if (S.pins?.["hull:" + c.name]) hullPins.push(pinMark("hull:" + c.name, c.x + c.width - 14, c.y + 4, "moved here: click to let the layout place it again"));
     }
@@ -724,8 +736,8 @@ function drawGraph(svg, g, lay) {
         }
         taken.push({ x: lx, y: y0, w: lw });
         ext.x0 = Math.min(ext.x0, x0); ext.y0 = Math.min(ext.y0, y0); ext.x1 = Math.max(ext.x1, x1); ext.y1 = Math.max(ext.y1, y1);
-        hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16, style: hueOf(hue, 0.45) }),
-                     s("text", { x: lx, y: y0 + 18, class: "sys-hull-label", style: inkOf(hue),
+        hulls.append(s("g", { class: "hull" }, ...frameMarks(x0, y0, x1 - x0, y1 - y0, false)),    // (a g.hull: the frame rules)
+                     s("text", { x: lx, y: y0 + 4, class: "sys-hull-label", style: inkOf(hue),
                                  onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(name); } },
                        name + (S.graph?.tree ? " ▾" : "")));
       });
@@ -864,15 +876,34 @@ function applyView(svg) {
   const vp = svg.querySelector("#viewport");
   if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
   if (typeof sdSparksZoomed === "function") sdSparksZoomed(svg);   // a sparkline too small to read is not drawn
-  // whether some of the diagram lies beyond the edge, after a drag or a zoom too
-  const hint = document.getElementById("panhint"), lay = S.layout, r = svg.getBoundingClientRect();
-  if (hint && lay && r.width) {
-    const k = S.view.k, x0 = S.view.x + (lay.ox || 0) * k, y0 = S.view.y + (lay.oy || 0) * k;
-    // which way the rest lies, as arrows
-    const ways = [[x0 < -2, "←"], [y0 < -2, "↑"], [x0 + lay.width * k > r.width + 2, "→"], [y0 + lay.height * k > r.height + 2, "↓"]];
-    hint.hidden = !ways.some(([off]) => off);
-    hint.textContent = "More beyond the edge " + ways.filter(([off]) => off).map(([, a]) => a).join("");
+  // whether some of the diagram lies beyond the edge, and which way (in words and arrows), after a drag or a zoom too
+  const hint = document.getElementById("panhint"), r = svg.getBoundingClientRect();
+  if (hint && S.layout && r.width) {
+    const b = drawnBox(svg, S.layout), k = S.view.k, x0 = S.view.x + b.x * k, y0 = S.view.y + b.y * k;
+    const way = { left: -x0, right: x0 + b.width * k - r.width, above: -y0, below: y0 + b.height * k - r.height };
+    const ways = Object.keys(way).filter((w) => way[w] > 2), arrow = { left: "←", right: "→", above: "↑", below: "↓" };
+    hint.hidden = !ways.length;
+    hint.textContent = "More " + ways.map((w) => (w === "left" || w === "right" ? "to the " + w : w) + " " + arrow[w]).join(" and ");
+    hint.onclick = () => {                            // on each axis, a pan most of a screen the way more lies, no further than the edge
+      const by = (a, b, room) => { const w = way[a] > way[b] ? a : b, s = w === a ? 1 : -1;
+        return way[w] > 2 ? s * Math.min(way[w] + 60, room * 0.8) : 0; };
+      S.view.x += by("left", "right", r.width); S.view.y += by("above", "below", r.height);
+      applyView(svg);
+    };
   }
+}
+
+/* what is drawn, every part, line and label, in the layout's units (the layout's own box until it is drawn) */
+function drawnBox(svg, lay) {
+  const vp = svg.querySelector("#viewport");
+  try { const b = vp && (vp._bb || vp.getBBox()); if (b?.width && b.height) return (vp._bb = b); } catch (e) { /* not drawn */ }
+  return { x: lay.ox || 0, y: lay.oy || 0, width: lay.width, height: lay.height };
+}
+
+/* the floating toolbars' room above and below the drawing, as drawn (none where they sit outside the canvas) */
+function bars(svg, r) {
+  const at = (sel, f) => { const b = document.querySelector(sel)?.getBoundingClientRect(); return b?.height ? Math.max(0, f(b) + 6) : 60; };
+  return [at(".diagram .toolbar", (b) => b.bottom - r.top), at(".diagram .zoom", (b) => r.bottom - b.top)];
 }
 
 const NARROW = "(max-width: 700px)", NARROW_K = 0.7;   // a phone (style.css's narrowest layout): fitted down to 11px text at 7.7px (the zoom a laptop still shows whole)
@@ -883,14 +914,28 @@ function fit(svg, lay, legible = false) {
   if (EMBED) return embedFit(svg, lay, r);
   // on a phone the toolbars sit above and below the canvas, not over it: the canvas is all the drawing's
   if (matchMedia(NARROW).matches) return fitNarrow(svg, lay, Math.min(1.25, (r.width - 20) / lay.width, (r.height - 20) / lay.height), legible, r);
+  const [TOP, BOTTOM] = bars(svg, r), b = drawnBox(svg, lay), room = r.height - TOP - BOTTOM;
   // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
-  const whole = Math.min(1.25, (r.width - 40) / lay.width, (r.height - 90) / lay.height);
+  const whole = Math.min(1.25, (r.width - 40) / b.width, room / b.height);
   // the first view keeps 11px text at 9px or more on screen; a wider system is panned from its left
   // nearly whole at 0.7: show it whole. The process map: its nodes' 11px text never under 11px (the hint says where more is)
   const k = Math.max(S.graph?.kind === "process" ? 1 : 0, legible ? (whole >= 0.7 ? whole : 0.8) : Math.max(0.08, whole));
-  const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 120;   // the toolbars: 56 above, 50 below
-  const ox = (lay.ox || 0) * k, oy = (lay.oy || 0) * k;
-  S.view = { k, x: (fitsW ? (r.width - lay.width * k) / 2 : 20) - ox, y: (fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60) - oy };
+  const fitsW = b.width * k <= r.width - 39, fitsH = b.height * k <= room + 1;
+  S.view = { k, x: (fitsW ? (r.width - b.width * k) / 2 : 20) - b.x * k, y: TOP + (fitsH ? (room - b.height * k) / 2 : 0) - b.y * k };
+  applyView(svg);
+}
+
+/* a system just opened, or drawn alone: panned (and zoomed out, to no less than legible) until all of it is in view */
+function showSystem(svg, name) {
+  const c = name != null && S.layout && S.graph && anchorOf(S.layout, S.graph, name), r = svg.getBoundingClientRect();
+  if (!c || !r.width) return;
+  const [TOP, BOTTOM] = bars(svg, r), room = r.height - TOP - BOTTOM, k = Math.max(Math.min(S.view.k, (r.width - 40) / c.width, room / c.height), Math.min(S.view.k, 0.8));
+  const into = (v, lo, size, span) => {               // the least move that brings [v, v + size] within [lo, lo + span]
+    const a = v * k / S.view.k;                       // (zoomed about the drawing's origin first)
+    return size > span ? lo - a : Math.min(Math.max(a, lo), lo + span - size) - a;
+  };
+  const sx = S.view.x + c.x * S.view.k, sy = S.view.y + c.y * S.view.k;
+  S.view = { k, x: S.view.x * k / S.view.k + into(sx, 20, c.width * k, r.width - 40), y: S.view.y * k / S.view.k + into(sy, TOP, c.height * k, room) };
   applyView(svg);
 }
 
@@ -1123,7 +1168,54 @@ function captionText(st, view) {
   return parts.join(" · ");
 }
 
+/* a diagram drawn once, in place, by its view's own renderer (the Guide's frames, an item's path on its page): no
+   pins, no pan, no panel, framed to what is drawn. The renderers keep their state in S, so one drawing at a time,
+   and the S fields it sets are put back after (but toggleSystem, while a drawing's own toggle lives); nothing is
+   set once its svg has left the page (a new page's own stand). Resolves to its size, or null when it left first */
+let STATIC_QUEUE = Promise.resolve();
+const STATIC_KEYS = ["graph", "graphSig", "showHulls", "pins", "portAt", "portRank", "anchor", "redraw", "toggleSystem", "layout", "bdNoWrap", "edgeById"];
+function drawStatic(svg, g, view, opts = {}) {
+  const job = STATIC_QUEUE.then(() => drawStaticNow(svg, JSON.parse(JSON.stringify(g)), view, opts));
+  STATIC_QUEUE = job.catch(() => {});
+  return job;
+}
+async function drawStaticNow(svg, g, view, { aspect = 3, toggle = null } = {}) {
+  if (!svg.isConnected) return null;                     // left before its turn came
+  const was = Object.fromEntries(STATIC_KEYS.filter((k) => !(toggle && k === "toggleSystem")).map((k) => [k, S[k]]));
+  Object.assign(S, { graph: g, graphSig: "", showHulls: false, pins: {}, portAt: {}, portRank: {}, anchor: null, redraw: null,
+                     toggleSystem: () => toggle?.() });
+  const wait = (lay) => { let t; return Promise.race([lay.whenRouted || Promise.resolve(), new Promise((r) => { t = setTimeout(r, 5000); })]).finally(() => clearTimeout(t)); };
+  let lay;
+  try {
+    if (view === "blocks") {
+      S.bdNoWrap = true;
+      try { lay = await bdLayout(g); } finally { S.bdNoWrap = false; }
+      if (!svg.isConnected) return null;
+      S.layout = lay;
+      bdRoute(lay, g);
+      await wait(lay);
+      if (!svg.isConnected) return null;
+      bdDraw(svg, g, lay);
+    } else {
+      lay = await layoutGraph(g, aspect);
+      if (!svg.isConnected) return null;
+      S.layout = lay;
+      await wait(lay);
+      if (!svg.isConnected) return null;
+      drawGraph(svg, g, lay);
+    }
+  } finally { if (svg.isConnected) Object.assign(S, was); }
+  const vp = svg.querySelector("#viewport");
+  vp?.removeAttribute("transform");
+  let bb = { x: lay.ox || 0, y: lay.oy || 0, width: lay.width, height: lay.height };
+  try { const b = vp.getBBox(); if (b.width && b.height) bb = b; } catch (e) { /* not drawn: the layout's size */ }
+  const pad = 14, w = bb.width + 2 * pad, hgt = bb.height + 2 * pad;     // framed to what is drawn, labels and all
+  svg.setAttribute("viewBox", `${bb.x - pad} ${bb.y - pad} ${w} ${hgt}`);
+  return { w, h: hgt };
+}
+
 async function pageDiagram(main, q) {
+  elkReady().catch(() => {});                                    // (fetched while the graph is asked for)
   // the system dynamics view is the first; "control", its old name, still reaches it
   if (q.get("view") === "wiring") {                             // the wiring the process map replaced: its address reaches it
     q.set("view", "process");
@@ -1242,7 +1334,7 @@ async function pageDiagram(main, q) {
       h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ item: "", kind: "" }) }, "\u00d7")) : null,
     more, caption);
   const zoom = h("div", { class: "zoom" },
-    h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
+    h("button", { id: "panhint", class: "panhint", hidden: true, title: "Click to pan that way (or drag), or Fit to see it whole" }, "More beyond the edge"),
     h("button", { class: "z", title: "Zoom out", "aria-label": "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
     h("button", { title: "Show it whole", onclick: () => fit(svg, S.layout) }, "Fit"),
     h("button", { class: "z", title: "Zoom in", "aria-label": "Zoom in", onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
@@ -1351,9 +1443,11 @@ async function pageDiagram(main, q) {
         wrap.append(h("div", { class: "empty" }, g.subset ? `${g.subset.says}.` : "No control system here: no goal, and no block that acts."));
       } else if (!S.pressed) {
         await drawBlocksView(svg, g);
-        if (S.anchor && S.anchored) S.fitted = true;  // a system just opened or closed: the view stays as it was
+        const opened = S.anchor && S.anchored ? S.anchor.name : null;
+        if (opened != null) S.fitted = true;          // a system just opened or closed: the view stays as it was, then all of it shown
         S.anchor = null; S.anchored = false;
         if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
+        showSystem(svg, opened);
       }
       renderSide(side, g, "blocks");
       carriedPanel();                                  // a panel open before a switch of view (interact.js)
@@ -1387,11 +1481,13 @@ async function pageDiagram(main, q) {
     } else {
       // same structure: keep positions, redraw with new values (label texts may change length slightly)
     }
-    if (S.anchor && S.anchored) S.fitted = true;      // a system just opened or closed: the view stays as it was
+    const opened = S.anchor && S.anchored ? S.anchor.name : null;
+    if (opened != null) S.fitted = true;              // a system just opened or closed: the view stays as it was, then all of it shown
     S.anchor = null; S.anchored = false;
     if (S.pressed) return;                             // mid-click: a redraw now would swallow it; the next tick draws
     drawGraph(svg, g, S.layout);
     if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
+    showSystem(svg, opened);
     renderSide(side, g, view);
     carriedPanel();
     if (typeof toolArrived === "function") toolArrived();
@@ -1620,7 +1716,7 @@ function renderSide(side, g, view) {
   const row = (a) => {
     const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^(?:loop|goal) (\S+)$/.exec(a.what)?.[1];
+    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = a.goal;   // (a field, not its words)
     const said = h("span", { class: "att-word" }, `${word} · `);
     const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
     if (a.answer && a.first) return h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a));
@@ -1665,7 +1761,7 @@ function renderSide(side, g, view) {
     const d = h("details", { class: "suggest", key: "suggest", open: S.suggestOpen ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
-      const loop = /^(?:loop|goal) (\S+)/.exec(a.what)?.[1];      // (Dynamics calls a controlled goal a goal)
+      const loop = a.goal;                                // the goal it is about, a field (never read from its words)
       d.append(h("div", { class: "hint" }, loop ? goalButton(loop, h("b", {}, a.what)) : h("b", {}, a.what), " ", op(a.says), " ",
         loop ? h("a", { href: "#", class: "hit24", "aria-label": `Evidence for loop ${loop}`, onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
     }

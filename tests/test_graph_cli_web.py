@@ -451,6 +451,32 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_the_served_diagram_script_frames_what_is_drawn_and_its_edge_hint_names_the_way(project):
+    """A text check the build can run without a browser: the diagram script the server sends measures the drawing
+    itself (every part, wire and label) for Fit and the edge hint, frames a system after Open, and its hint is a
+    button that names a direction. The browser half: test_fit_shows_every_line_and_label_and_no_edge_hint and
+    test_open_frames_the_system_opened_or_says_which_way_the_rest_lies in tests/test_diagram_rendering.py."""
+    import re
+
+    from ergostat.web import serve
+    server, url = serve(project, free_port())
+    try:
+        with urllib.request.urlopen(url + "/static/diagram.js", timeout=10) as r:
+            js = r.read().decode()
+    finally:
+        server.shutdown()
+        server.server_close()
+    body = lambda name: re.search(r"\nfunction " + name + r"\(.*?\n}\n", js, re.S).group(0)   # noqa: E731
+    assert "getBBox()" in body("drawnBox")
+    wide = "\n".join(x for x in body("fit").splitlines() if "NARROW" not in x)        # (a phone's fit is fitNarrow's)
+    assert "drawnBox(svg, lay)" in wide and "lay.width" not in wide                   # the drawn box, not the layout's
+    hint = body("applyView")
+    assert "drawnBox(svg" in hint and all(w in hint for w in ("left", "right", "above", "below", '"to the "', "onclick"))
+    assert all(a in hint for a in "←→↑↓")                                             # and an arrow each way
+    assert 'h("button", { id: "panhint"' in js
+    assert js.count("showSystem(svg, opened)") == 2                                   # after Open in Blocks and Dynamics
+
+
 def test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_counted_whole():
     """What the Items page's count beside its search box and the Record's 'Nothing matches' are read from (the browser
     half is tests/test_items_page.py): a search's ``matched`` counts every match of a kind, past the newest per_kind
@@ -711,6 +737,7 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
             return e.code, e.headers["Content-Type"], e.read()
     try:
         for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/goals", "/loops", "/agents", "/items?kind=ticket&state=open",
+                     "/items/ticket", "/items/ticket?state=in-review&view=timeline",   # a kind's page
                      "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
                      "/record?type=x.y", "/model", "/check", "/guide?frame=3", "/fit", "/residuals"):
             code, ctype, body = get(path)
@@ -744,7 +771,7 @@ def test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock(projec
     data = _json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1).replace("<\\/", "</"))["data"]
     st = data["status"]
     assert st["loops"]["disk-under-80"]["status"] == "off" and st["loops"]["disk-under-80"]["stock"]
-    off = [a for a in st["attention"] if a["what"] == "loop disk-under-80" and a["level"] == "bad"]
+    off = [a for a in st["attention"] if a["what"] == "goal disk-under-80" and a["level"] == "bad"]
     assert off, st["attention"]
     assert "function showGoal(" in html and "goalButton(goal, what)" in html
 
@@ -778,6 +805,8 @@ def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_pat
         refs = re.findall(rb'(?:src|href)="(/static/[^"]+)"', page)
         assert refs and all(b"?v=" in r for r in refs), refs                          # every script and stylesheet
         assert re.search(rb'name="ergostat-assets" content="[^"]*libavoid/libavoid\.wasm', page)   # the worker's files
+        assert re.search(rb'name="ergostat-assets" content="[^"]*elk\.bundled\.js', page)   # ELK, loaded late
+        assert not any(r.startswith(b"/static/elk.bundled.js") for r in refs), refs     # (not by the page itself)
         util = next(r.decode() for r in refs if r.startswith(b"/static/util.js"))
         code, headers, _ = get(util)
         assert code == 200 and "immutable" in headers["Cache-Control"] and "max-age=31536000" in headers["Cache-Control"]
@@ -859,6 +888,35 @@ def test_at_looks_at_a_past_moment(project):
     past = state.snapshot(project, now=now - 300)
     assert past["loops"]["disk-under-80"]["status"] == "holding" and past["stocks"]["disk-used"]["value"] == 70
     assert not past["live"]
+
+
+def test_the_projects_summary_counts_goals(monkeypatch, capsys):
+    import types
+
+    from ergostat import projects
+    from ergostat.cli import running
+    g = {"system": 1, "open": 0, "unknown": 0, "own": {}}
+    row = {"name": "p", "running": False, "web": None, "repo": "/r", "loops": 3, "goals": g, "goals_off": ["x"]}
+    monkeypatch.setattr(projects, "known", lambda: [row, {**row, "name": "q", "loops": 0, "goals_off": []}])
+    running.cmd_projects(types.SimpleNamespace(json=False))
+    out = capsys.readouterr().out
+    assert "GOALS" in out and "1 goal off: x" in out and "no goals" in out and "loop" not in out, out
+
+
+def test_an_attention_entry_about_a_goal_names_it_as_a_field(project):
+    """/api/status: an off goal's entry, and a hint about it, read 'goal NAME' and carry goal: NAME; none says 'loop '."""
+    from ergostat.web import server
+    project.measurements.add("sensor/disk-usage", 90)
+    live = server.Live(project)
+    att = server.api(live, "status", {})["attention"]
+    mine = [a for a in att if a.get("goal") == "disk-under-80"]
+    assert mine and all(a["what"] == "goal disk-under-80" for a in mine) and mine[0]["level"] == "bad", att
+    assert not [a for a in att if a["what"].startswith("loop ")], att
+    snap = {**server.st.snapshot(project), "hints": [{"controller": "disk-under-80", "goal": "disk-under-80",
+                                                       "says": "goal disk-under-80 was off 60% of the time"}]}
+    hint = [a for a in server.st.attention(snap) if a["level"] == "hint"]
+    assert hint == [{"level": "hint", "what": "goal disk-under-80", "goal": "disk-under-80",   # (named once: its heading)
+                     "says": "was off 60% of the time"}], hint
 
 
 def test_agent_now_runs_it_once_and_says_what_it_said(repo, project, capsys):
@@ -996,7 +1054,10 @@ def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
     project.events.add("note.made", item="note/fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
     html = build(project)
     assert "<!--<script" not in html and "alert(1)</script>" not in html
-    assert '"items/note%2Ffix(1)"' in html                     # the key the page's encodeURIComponent asks for
+    from ergostat.web.snapshot import STATIC
+    lib = html.find((STATIC / "elk.bundled.js").read_text()[:300])                  # ELK inlined (a file cannot fetch it),
+    assert -1 < html.find("window.SNAPSHOT") < lib < html.find("const elk = {")      # before util.js asks for it
+    assert '"items/note%2Ffix(1)"' in html                    # the key the page's encodeURIComponent asks for
     assert html.count("</script>") == html.lower().count("<script")
 
 

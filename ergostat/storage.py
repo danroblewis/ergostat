@@ -37,6 +37,7 @@ from .durations import DurationError, parse_duration
 EVENT_BACKENDS = ("sqlite", "segments")
 MEASUREMENT_BACKENDS = ("sqlite", "victoriametrics")
 DEFAULT_EVENTS = "segments"
+VM_URL = "http://127.0.0.1:8428"                  # VictoriaMetrics' own default address
 RAW = 2 * 86400.0
 TIERS = ((60.0, 14 * 86400.0), (600.0, 90 * 86400.0), (3600.0, 730 * 86400.0))
 ROLLUP_AFTER = 7 * 86400.0
@@ -52,7 +53,9 @@ class Storage:
     events: str = DEFAULT_EVENTS
     events_set: bool = False                       # the YAML named the events backend (else: an existing record decides)
     measurements: str = "sqlite"
+    measurements_set: bool = False                 # the YAML named it (else: a new record's default, measurements_backend)
     url: str | None = None                         # victoriametrics
+    run: str | None = None                         # victoriametrics: the command ergostat supervises (daemon victoriametrics)
     raw: float | None = RAW
     tiers: tuple[tuple[float, float], ...] = TIERS
     rollup_after: float | None = ROLLUP_AFTER      # None: never rolled up
@@ -105,15 +108,20 @@ def parse(raw, problems: list[str]) -> Storage:
             problems.append("storage.measurements: a backend's name, or a map (backend:, url:, raw:, tiers:)")
             me = {}
         for k in me:
-            if k not in ("backend", "url", "raw", "tiers"):
-                problems.append(f"storage.measurements: unknown key {k!r} (known: backend, url, raw, tiers)")
+            if k not in ("backend", "url", "raw", "tiers", "run"):
+                problems.append(f"storage.measurements: unknown key {k!r} (known: backend, url, raw, tiers, run)")
         b = me.get("backend", "sqlite")
         if b not in MEASUREMENT_BACKENDS:
             problems.append(f"storage.measurements.backend: {b!r} is not a backend ({', '.join(MEASUREMENT_BACKENDS)})")
         else:
-            s.measurements = b
+            s.measurements, s.measurements_set = b, True
         if b == "victoriametrics":
-            s.url = str(me.get("url") or "http://127.0.0.1:8428")
+            s.url = str(me.get("url") or VM_URL)
+        if "run" in me:
+            if b != "victoriametrics" or not isinstance(me["run"], str) or not me["run"].strip():
+                problems.append("storage.measurements.run: the command that runs VictoriaMetrics (backend: victoriametrics)")
+            else:
+                s.run = me["run"]
         if "raw" in me:
             s.raw = _dur(me["raw"], "storage.measurements.raw", problems)
         if "tiers" in me:
@@ -216,9 +224,58 @@ def open_events(cfg: Storage, directory: Path):
     return Events(directory)
 
 
+def _answers(url: str) -> bool:
+    """A VictoriaMetrics answering at ``url`` now (``/health``, within half a second)."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url.rstrip("/") + "/health", timeout=0.5) as r:
+            return r.status == 200 and r.read(16).strip() == b"OK"
+    except (OSError, ValueError):
+        return False
+
+
+def in_default_home(directory: Path) -> bool:
+    """A record under the default home, ``~/.ergostat``: an install's own. A record under any other home (a script's,
+    a demo's, a benchmark's, a trial's throwaway ``ERGOSTAT_HOME``) is not, whatever answers at VM_URL."""
+    try:
+        return Path(directory).resolve().parent == (Path.home() / ".ergostat").resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
+def measurements_backend(cfg: Storage, directory: Path) -> str:
+    """The measurements backend: the one the YAML names; else a record that has one keeps it (``measurements.db``,
+    an existing SQLite install, until it migrates; or the mark a new record's choice left, or ``reset`` kept); else,
+    for a new record under the default home, VictoriaMetrics when one answers at VM_URL (the default for new installs,
+    so a fresh dashboard's PromQL has data), and SQLite when none does or the record is under another home (so a
+    throwaway home never writes into a live server). ``ERGOSTAT_DEFAULT_MEASUREMENTS`` (sqlite or victoriametrics)
+    decides instead, for any home."""
+    d = Path(directory)
+    if cfg.measurements_set:
+        return cfg.measurements
+    if (d / "measurements.db").exists():
+        return "sqlite"
+    mark = d / "measurements.backend"
+    if mark.exists():                              # (unreadable: read as the default it chose, never as sqlite)
+        try:
+            got = mark.read_text().strip()
+        except OSError:
+            got = ""
+        return got if got in MEASUREMENT_BACKENDS else "victoriametrics"
+    env = os.environ.get("ERGOSTAT_DEFAULT_MEASUREMENTS")
+    got = (env if env in MEASUREMENT_BACKENDS else
+           "victoriametrics" if in_default_home(d) and _answers(VM_URL) else "sqlite")
+    if got == "victoriametrics":
+        try:
+            mark.write_text(got + "\n")
+        except OSError:
+            pass
+    return got
+
+
 def open_measurements(cfg: Storage, directory: Path):
-    if cfg.measurements == "victoriametrics":
+    if measurements_backend(cfg, directory) == "victoriametrics":
         from .victoria import Victoria
-        return Victoria(cfg.url or "http://127.0.0.1:8428", directory, raw=cfg.raw, tiers=list(cfg.tiers))
+        return Victoria(cfg.url or VM_URL, directory, raw=cfg.raw, tiers=list(cfg.tiers))
     from .store import Measurements
     return Measurements(directory, raw=cfg.raw, tiers=list(cfg.tiers))

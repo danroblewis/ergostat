@@ -34,8 +34,8 @@ FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this 
 KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
 # names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "dashboard", "goals", "loops", "agents", "items", "item", "record", "model", "check", "guide",
-            "fit", "residuals")
+UI_PAGES = ("diagram", "dashboard", "goals", "loops", "agents", "agent", "items", "item", "record", "model", "check",
+            "guide", "fit", "residuals")
 
 
 _VERSIONS: dict = {}                 # a static file's version, by name: (mtime, size, hash of its content)
@@ -60,6 +60,25 @@ def _item_cost(p, m, fields: dict, until: float) -> dict | None:
     ai = [b for b in ends if b not in m.agents or m.agents[b].rung in (1, 2, 3)]
     return {**costs.totals([r for rs in ends.values() for r in rs]), "taken": len(taken), "ai": bool(ai),
             "unknown": costs.totals([r for b in ai for r in ends[b]])["unknown"]}
+
+
+def _agent_place(p, spec, b, at: float) -> dict:
+    """An agent's block in the model, for its page: its system and mode, the blocks it commands and those that command
+    it, and the items it is working now (their lease held by one of its runs), with the Items page's set of them. A
+    count that cannot be read is None, said as not known, never 0."""
+    from ..spec.item_sets import ItemSet, taken_by
+    to_it = {o.name for o in spec.blocks.values() for rs in o.outputs.values() for r in rs if r.kind == "block" and r.name == b.name}
+    out = {"system": b.system, "mode": b.mode, "goal": b.goal,
+           "commands": sorted({r.name for rs in b.outputs.values() for r in rs if r.kind == "block"}),
+           "commanded_by": sorted(to_it | {r.name for r in b.inputs.values() if r.kind == "block"})}
+    if b.takes:
+        x = ItemSet(b.takes.kind, taken=b.name)
+        try:
+            n = len(taken_by(p.events, spec, x, at))
+        except Exception:                                # said as not known on the page
+            n = None
+        out["working"] = {"n": n, "kind": x.kind, "set": x.params()}
+    return out
 
 
 def asset_version(name: str) -> str | None:
@@ -87,9 +106,10 @@ def versioned(name: str) -> str:
 
 def with_versions(page: str) -> str:
     """A page with every ``/static/`` file it loads given its version, and the versions of the files the
-    scripts load themselves (libavoid's module and WebAssembly, in its worker) as a meta tag they read."""
+    scripts load themselves (ELK, on the first layout; libavoid's module and WebAssembly, in its worker) as a meta
+    tag they read."""
     page = _STATIC_REF.sub(lambda m: m.group(1) + versioned(m.group(2)) + m.group(3), page)
-    late = {n: asset_version(n) for n in ("libavoid/libavoid.js", "libavoid/libavoid.wasm")}
+    late = {n: asset_version(n) for n in ("elk.bundled.js", "libavoid/libavoid.js", "libavoid/libavoid.wasm")}
     meta = f'<meta name="ergostat-assets" content="{html.escape(json.dumps(late))}">'
     return page.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n' + meta, 1)
 
@@ -570,14 +590,19 @@ def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
     block has taken now (a lease holder, whatever state the run has moved it to), and each goal's word."""
     from ..leases.fold import held
     from ..spec import items as its
+    from ..spec.finished import finish_of
     from ..spec.footprint import kind_footprint
+    from .items_overview import GROUPS, state_groups
     fp = kind_footprint(spec, kind)
     if fp is None:
         return None
     page = its.listing(p.events, spec, kind=kind, state="\0", until=snap["at"], n=1)     # counted by the index
     fp["now"] = next((k["counts"] for k in page["kinds"] if k["name"] == kind), {})
+    f = its.finishes(p.events, spec, kind)
+    states = [s["state"] for s in fp["definition"]["states"]]
+    queue = finish_of(spec, kind, set())["queue"]                       # (where it waits: not read from the record)
+    fp["group"], fp["groups"] = state_groups(states, {**f, "queue": queue}), list(GROUPS)   # the overview's state groups
     if fp["definition"]["finished_by"] == "inferred":     # as the listing infers it, from the states left by now
-        f = its.finishes(p.events, spec, kind)
         fp["definition"]["finished_by"] = f["finished_from"]
         for s in fp["definition"]["states"]:
             s["finished"] = s["state"] in f["finished"]
@@ -585,7 +610,8 @@ def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
         _, _, got = its.in_states(p.events, spec, kind, None, {"lease.block": t["block"]}, until=snap["at"], items=True)
         t["taken"] = sum(1 for i in got if held(i.fields))
     for g in fp["goals"]:
-        g["status"] = (snap["loops"].get(g["goal"]) or {}).get("status")
+        lp = snap["loops"].get(g["goal"]) or {}
+        g["status"], g["word"] = lp.get("status"), lp.get("word")
     return fp
 
 
@@ -743,6 +769,9 @@ def _query(live: Live, p, parts: list, q: dict, reader: bool = False):
     name = unquote(parts[1]) if len(parts) > 1 else None
     if name == "fields":
         return fields(live, p, reader)
+    if name == "values":                           # a dashboard variable's values (query/variables.py)
+        from ..query.variables import values
+        return values(p, (q.get("q") or [None])[0], reader)
     if name == "suggest":
         return _suggest(p, q, reader)
     return answer(live, p, (q.get("q") or [None])[0], reader) if name is None else None
@@ -758,7 +787,7 @@ def _suggest(p, q: dict, reader: bool) -> dict:
         return {"suggestions": [], "error": f"{one('source')}: {READER_REFUSED}", "error_kind": "refused"}
     try:
         return datasources.suggest(getattr(p.model, "spec", None), one("source"), one("what"), one("prefix"),
-                                   one("metric"), one("label"), project=p)
+                                   one("metric"), one("label"), store=p.measurements, project=p)
     except datasources.SourceError as e:
         return {"suggestions": [], "error": f"{one('source')}: {e}", "error_kind": e.kind}
     except Exception as e:                            # (its type only: the words may hold the source's address)
@@ -845,6 +874,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],
                 "at": snap["at"], "window": snap["window"], "recorded": snap.get("recorded"),   # the window's span on record
+                "as_of": st.age(snap),                     # the record's seq it read, when it was made, its age
                 "rate_units": rates.overrides(getattr(m, "spec", None)),
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
                             for e in history.changes(p, snap["at"] - snap["window"])][-5:],
@@ -1028,7 +1058,8 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:], "asked": asked,
                     "ended": ended,
                     **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
-                    "log": _tail(log, 40), "log_path": str(log),
+                    "log": agent_spec.plain(p, _tail(log, 40)), "log_path": str(log),
+                    "place": _agent_place(p, m.spec, b, snap["at"]) if b is not None else None,
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
                     "spec": agent_spec.spec(p, snap, name),          # what it is: its block as written, law, files
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
@@ -1214,6 +1245,25 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         from .relations_api import graph as items_graph
         est = _estimates(p, m, snap, one("whatif"))   # None while the first is worked out: the legend says so
         return {**merge(items_graph(p, m, snap, q), est), "eta_pending": est is None and abs(time.time() - snap["at"]) < 5}
+    if head == "forecast":      # the forecast as last worked out (SPEC §5a, The forecast): a remote's (asked there
+        from ..numbers.forecast import served  # within its budget, remote/items.py), or this one's
+        from ..numbers.yields import parse as group_ask
+        from ..remote import items as remote_items
+        from .eta_api import current
+        ids, kinds = list(dict.fromkeys(q.get("item") or [])), [k for k in (one("kinds") or "").split(",") if k]
+        try:                                          # a group's counts asked (SPEC §5a, Group counts)
+            ask = group_ask({k: one(k) for k in ("group", "by", "at_least", "confidence") if k in q})
+        except ValueError as e:
+            raise BadSet(f"forecast: {e}") from None
+        if "remote" in q:
+            return remote_items.forecast(getattr(m, "spec", None), one("remote"), ids, kinds, ask)
+        if len(ids) > remote_items.FORECAST_IDS:
+            raise BadSet(f"at most {remote_items.FORECAST_IDS} items a call (item=)")
+        if abs(time.time() - snap["at"]) >= 5:
+            raise BadSet("forecast: answers as the record is now (never at=)")
+        est = current(p, m)
+        return served(est, ids if "item" in q else None, kinds or None, ask=ask) if est is not None else \
+            {"schema": "forecast/v1", "pending": True, "items": {}, "none": "the forecast is being worked out; ask again"}
     if head == "items-groups":                    # how far along each group is (SPEC §5a, Progress per group)
         from ..spec.grouptally import progress
         if abs(time.time() - snap["at"]) >= 5:

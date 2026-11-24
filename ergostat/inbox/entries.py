@@ -45,13 +45,15 @@ def sentence(a: dict) -> str:
             + (f", for {a['item']}" if a.get("item") else "") + (f", asked by {a['block']}" if a.get("block") else ""))
 
 
-def _why(p, spec, item: str | None) -> str:
-    """The work item's impact sentence and its tests' result (the repair loop's failure, SPEC §12n), when it has them."""
-    from ..spec import items as its
-    try:
-        it = its.one(p.events, spec, item) if item else None
-    except Exception:
+WHY = ("impact", "tests", "test")              # the fields an action's why reads of its work item
+
+
+def _why(item: str | None, got: dict | None) -> str:
+    """The work item's impact sentence and its tests' result (the repair loop's failure, SPEC §12n), when it has them,
+    from ``got`` (the items as they are now, by id: None when they could not be read)."""
+    if got is None:
         return ""
+    it = got.get(item) if item else None
     f = it.fields if it else {}
     imp = f.get("impact")
     imp = imp.get("said") if isinstance(imp, dict) else imp
@@ -62,31 +64,28 @@ def _why(p, spec, item: str | None) -> str:
 
 def _actions(p, spec, now: float) -> list[dict]:
     from ..actions import record
+    from ..spec import items as its
     if not spec.actions:
         return []
+    held = list(record.stored(p, until=now, states=["requested"]).values())
+    try:
+        got = its.current(p.events, spec, [a.get("item") for a in held if a.get("action") != "revert-fix"], WHY)
+    except Exception:
+        got = None
     return [{"id": f"action/{record.short(a['id'])}", "kind": "action", "time": a["time"], "link": f"/item/{a['id']}",
              "verbs": ["approve", "deny"], "class": a.get("class") or a.get("action"), "action": a.get("action"),
              **({"warn": w} if (w := warning(p, spec, a)) else {}), "run": a.get("command"),
-             "summary": sentence(a), "why": w if a.get("action") == "revert-fix" else _why(p, spec, a.get("item"))}
-            for a in record.stored(p, until=now).values() if a["state"] == "requested"]
+             "summary": sentence(a), "why": w if a.get("action") == "revert-fix" else _why(a.get("item"), got)}
+            for a in held]
 
 
 def asks(p, b, since: float | None = None, until: float | None = None) -> list[dict]:
     """Each time a person block was asked (``person.asked``) or an advised block advised (``block.advised``): its
     ``seq``, time and data, and when and how it was answered (a person's report; an approval or a denial), by whom. An
-    ask a newer one replaced before any answer is ``superseded``: one waits at a time, the newest."""
-    person = b.type == "person"
-    out: list[dict] = []
-    for e in p.events.query(n=None, item=b.name, since=since, until=until,
-                            type="person.asked,agent.ran" if person else "block.advised,block.approved,block.denied"):
-        if e["type"] in ("person.asked", "block.advised"):
-            if out and out[-1]["answered"] is None:
-                out[-1].update(answered=e["time"], verdict="superseded", by=None)
-            out.append({"seq": e["seq"], "time": e["time"], "data": e["data"], "answered": None, "verdict": None})
-        elif out and out[-1]["answered"] is None:
-            out[-1].update(answered=e["time"], by=e.get("source"), note=(e.get("data") or {}).get("note") or None,
-                           verdict="denied" if e["type"] == "block.denied" else "approved")
-    return out
+    ask a newer one replaced before any answer is ``superseded``: one waits at a time, the newest. Read from the item
+    index's ``asks`` (``projections.asks``)."""
+    from ..spec import projections
+    return projections.asks(p, b.name, b.type == "person", since, until)
 
 
 def _blocks(p, spec, now: float) -> list[dict]:
@@ -119,9 +118,10 @@ def _done_in(spec, b) -> dict:
 
 def _breakers(p, spec, now: float) -> list[dict]:
     """Blocks started by events whose breaker tripped (SPEC §9.3), each waiting for the owner to reset it."""
+    from ..spec.projections import query
     out = []
     for b in spec.blocks.values():
-        last = p.events.query(n=1, item=b.name, type="trigger.tripped,trigger.reset") if b.on is not None else []
+        last = query(p, "trigger.tripped,trigger.reset", n=1, item=b.name) if b.on is not None else []
         if last and last[0]["type"] == "trigger.tripped":
             x = last[0]
             out.append({"id": f"breaker/{b.name}@{x['seq']}", "kind": "breaker", "block": b.name, "seq": x["seq"],
@@ -134,8 +134,9 @@ def _breakers(p, spec, now: float) -> list[dict]:
 
 def offers(p, now: float | None = None) -> dict[str, dict]:
     """Step tests offered (``steptest.offered``), by id: the proposal as the loop's analysis made it."""
-    return {e["data"]["id"]: {**e["data"], "time": e["time"]} for e in p.events.query(n=50, type="steptest.offered",
-                                                                                         until=now) if e["data"].get("id")}
+    from ..spec.projections import query
+    return {e["data"]["id"]: {**e["data"], "time": e["time"]} for e in query(p, "steptest.offered", n=50, until=now)
+            if e["data"].get("id")}
 
 
 def _steptests(p, spec, now: float) -> list[dict]:

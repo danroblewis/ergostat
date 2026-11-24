@@ -45,7 +45,7 @@ def test_the_states_loop_words_its_distance_from_its_own_status(project):
     lp = state.snapshot(project)["loops"]["disk-under-80"]
     assert (lp["status"], lp["off_by_words"]) == ("off", "off by 1%")
     assert "(off by 1%)" in [a["says"] for a in state.attention(state.snapshot(project), running=False)
-                              if a["what"] == "loop disk-under-80"][0]
+                              if a["what"] == "goal disk-under-80"][0]
     project.measurements.add("sensor/disk-usage", 80)
     lp = state.snapshot(project)["loops"]["disk-under-80"]
     assert (lp["status"], lp["off_by_words"]) == ("holding", "within its bound")
@@ -64,6 +64,6 @@ def test_attention_and_the_dynamics_cards_print_the_states_phrase():
     lp = {"status": "off", "stock": "backlog", "value": 12.0, "setpoint": "<= 5", "error": -7.0, "band": " (+1)",
           "off_by_words": "off by 7 tickets", "gaps": []}
     att = state.attention({"loops": {"short-backlog": lp}, "inbox": [], "hints": [], "agents": {}, "residuals": {}}, running=False)
-    says = [a["says"] for a in att if a["what"] == "loop short-backlog"]
+    says = [a["says"] for a in att if a["what"] == "goal short-backlog"]
     assert says == ["backlog is 12, setpoint <= 5 (+1) (off by 7 tickets)"], att
     assert sd(att, {"loops": {"short-backlog": lp}})[0]["says"] == "backlog is 12, desired backlog = 5: off by 7 tickets"

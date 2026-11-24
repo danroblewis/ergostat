@@ -432,6 +432,9 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     def finished(d: str, rel) -> bool:          # (or in a state its relation's ``starts_at`` names: start-to-start)
         i = got.get(d) or beyond.get(d)
         return i is not None and (status(i, info[i.kind], []) == "done" or starts(i, rel))
+    for e in out["edges"]:                      # (each wait says whether it is met, as the status reads it)
+        if e["kind"] == "precedence":
+            e["met"] = finished(e["from"], rels[got[e["to"]].kind or ""][e["rel"]])
     durs = {kk: info.expected(kk) for kk in {i.kind for i in got.values()}}
     known = [d for d in durs.values() if d]
     fallback = median(known) if known else ASSUMED
