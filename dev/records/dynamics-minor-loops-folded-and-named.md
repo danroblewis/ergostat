@@ -138,3 +138,13 @@ Run, passing: the new test, this gap's acceptance test, the R/B-only-when-signed
 tests/test_dynamics_view.py (27). Ruff clean. Local `main` (b20756c7) is already merged. Not run: the whole unit
 suite, the four browser files, and demo_check. The round-1/2 failures listed above that are not this gap's were not
 run again.
+
+### Round 4: main (d0f95413) merged
+
+The only finding was the conflict with main in dynamics.js. It sat at one place: the branch's `sdCount` and
+`sdDominant` and main's new `FRAME_GLYPH` (the open-system frame legend glyph) were added in the same spot. Both are
+kept, unchanged. Neither side's code changed.
+Run after the merge, passing: tests/test_dynamics_view.py (27). Browser: this gap's acceptance test, the dominant-line
+redraw test, the SD-symbols test (3 examples), the frame test (open system framed by its corners) and the exported
+Blocks legend's frame glyph test. Ruff clean. Not run: the whole unit suite, the four browser files, and demo_check.
+The failures named in rounds 1 and 2 that are not this gap's were not run again.
