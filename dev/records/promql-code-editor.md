@@ -48,3 +48,9 @@ What is left once the bundle is in the tree (all in this gap, within the 600-lin
   not addressed to the test server and checks the page still loads and the editor mounts, for done 3.
 
 Done item 4 is kept: the live instance was not touched.
+
+## Where it stopped
+
+Parked by the factory (review/promql-code-editor-1, 2026-11-23 23:27).
+
+Nothing is built. The branch holds only the definition of done and a 'Where it stopped' section. All the editor work (CodeMirror-based promql.js and sql.js behind the existing window.queryEditors contract, PromQL highlighting, completion from /api/query/suggest, line numbers, bracket matching, Mod-Enter to run, a lint mark at error_at, a theme that reads the page's CSS variables) and the browser tests for done 1-3 are left. It stops because the definition requires a vendored CodeMirror 6, which is not in the tree and could not be fetched in a session without network. The server side (/api/query/suggest) is already built.
