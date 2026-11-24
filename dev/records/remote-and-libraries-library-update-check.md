@@ -60,6 +60,23 @@ docs and dev (the budget).
   changed). Run: tests/test_library_update.py (9 passed), tests/test_library_fetch.py (22), test_spec_mcp_explain.py,
   test_gated_actions.py; ruff clean. Local main had nothing past this branch's base to merge.
 
+Round 2, answering the one review finding (blocking; there were no others):
+
+- 'Values moved' took the model parameters a use makes by the prefix `inst + "-"`, so `t` was given `t-x`'s, and a
+  `once` template's unprefixed ones were never compared. Fixed by recording what the use made: the use record in
+  `library/uses.py` now carries `parameters` (the names from the expansion's `parameters:` section, as it already
+  records `parts`), and `compare` compares only the names that use made in both compiles. SPEC §2a *Before an update*
+  says so instead of `parameter.INSTANCE-NAME`. New test test_moved_values_are_the_uses_own: uses `t` and `t-x` of
+  one template and `h` of a `once` template, values moved in all three. With the old prefix rule it fails on both
+  counts (`t` lists `parameter.t-x-rate`, `h` lists nothing); with the fix it passes.
+- `library/uses.py` is outside the Files list: one key added to the record the use already writes, the smallest way
+  to know what a use made (the finding's own fix).
+- Run: tests/test_library_update.py (10 passed); test_library_fetch.py, test_templates.py, test_library_trust.py
+  (109 passed); test_library_untrusted.py, test_library_fetch_load.py, test_library_sandbox_sensors.py (38 passed,
+  4 skipped: bwrap cannot make its namespaces in this container, unrelated); ruff clean. Not run here: the whole unit
+  suite and the four browser files (no page changed). Local main has nothing past this branch's base.
+Overrun reason: 261 net lines against a budget of 260; the one line over is the round-2 fix recording which parameters each use made, which the review asked for.
+
 ## Entry
 
 - **An update to a library reviewed before it is taken** (SPEC §2a, *Before an update*): `ergostat library fetch NAME

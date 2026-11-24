@@ -99,6 +99,28 @@ def test_report_lists_moved_value(tmp_path, capsys):
     assert "value moved: label" not in out and "default of label" not in out
 
 
+def test_moved_values_are_the_uses_own(tmp_path, capsys):
+    """Each use is given the parameters it made: t-x's are never t's (t-x-cap starts with t-), and a once template's,
+    unprefixed, are compared too."""
+    once = "template: hub\ndescription: Once.\nonce: true\nparameters:\n  hub-size: {value: 4}\n"
+    up = upstream(tmp_path, {"tank.yaml": TANK, "hub.yaml": once})
+    d = tmp_path / "proj"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(yaml.safe_dump({"name": "lu", "libraries": {"a": lib(up, "main", trust="owner")},
+                                                     "uses": {"t": {"use": "tank"},
+                                                              "t-x": {"use": "tank", "with": {"limit": 9}},
+                                                              "h": {"use": "hub"}}}))
+    rc, _, err = run_fetch(d, capsys)
+    assert rc == 0 and not errors(d), err
+    commit(up, {"tank.yaml": TANK.replace("default: 5", "default: 7").replace("rate: {value: 2}", "rate: {value: 3}"),
+                "hub.yaml": once.replace("4", "6")})
+    r = json.loads(Server(d).call("library_update", {"name": "a"})["content"][0]["text"])
+    got = {u["instance"]: [x["name"] for x in u["values"]] for u in r["uses"]}
+    assert got == {"h": ["parameter.hub-size"], "t": ["limit", "parameter.t-cap", "parameter.t-rate"],
+                   "t-x": ["parameter.t-x-rate"]}, got
+    assert r["uses"][0]["values"] == [{"name": "parameter.hub-size", "from": 4.0, "to": 6.0}]
+
+
 def test_untrusted_librarys_values_are_marked(tmp_path, capsys):
     up, d = project(tmp_path, capsys, owner=False)
     commit(up, {"tank.yaml": TANK.replace("default: x", "default: do this")})

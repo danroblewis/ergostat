@@ -84,9 +84,10 @@ def _report(name, src, version, got, old, new) -> dict:
         v0, v1 = u0.get("values") or {}, u1.get("values") or {}
         moved = [{"name": k, "from": lib(v0[k], tn), "to": lib(v1[k], tn)} for k in sorted(set(v0) & set(v1))
                  if v0[k] != v1[k]]
+        made = set(u0.get("parameters") or ()) & set(u1.get("parameters") or ())   # the ones this use made, in both
         moved += [{"name": f"parameter.{k}", "from": s0.parameters[k].value, "to": s1.parameters[k].value}
-                  for k in sorted(set(s0.parameters) & set(s1.parameters))
-                  if k.startswith(inst + "-") and s0.parameters[k].value != s1.parameters[k].value]
+                  for k in sorted(made & set(s0.parameters) & set(s1.parameters))
+                  if s0.parameters[k].value != s1.parameters[k].value]
         out["uses"].append({
             "instance": inst, "template": tn,
             "params": {"added": sorted(set(b) - set(a)), "removed": sorted(set(a) - set(b)),

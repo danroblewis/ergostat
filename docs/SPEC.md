@@ -553,8 +553,9 @@ told (a git failure or limit, the pinned commit gone, more than 1,000 tags); the
 removed; for each use of one of its templates (an instance in either compile), its `params` added, removed and newly
 required, `defaults` changed (name, from, to), `exports_removed` (as exported, every part when the template has no
 `exports:`), `parts` added and removed (the refs `uses` records: stocks, flows, auxiliaries, goals and blocks, by full
-name), and `values` moved: its parameters' values as expanded, and the model `parameters:` it makes
-(`parameter.INSTANCE-NAME`, their `value`); and `problems`, every error and finding of the candidate's model that the
+name), and `values` moved: its parameters' values as expanded, and the model `parameters:` that use itself made in
+both compiles (recorded in the use as `parameters`, so `t` is never given `t-x`'s, and a `once` template's unprefixed
+names count; their `value`); and `problems`, every error and finding of the candidate's model that the
 current one lacks (compared by level, code, `about` and message), errors first and among them a broken reference
 (`unknown-ref`, `bad-ref`) first. `ok` is true when none of them is an error: the command exits 0, else 1 (2 for an
 unreadable lock or a linked folder, as fetch). For a library without `trust: owner`, the defaults and values are marked
