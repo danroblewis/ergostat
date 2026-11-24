@@ -2044,8 +2044,15 @@ first state, a state a block takes from, `leased`, `dead`, or a state `messages:
 no finished state (a pool is held, never done). `/api/items` gives each kind `finished`, `paused`, `dead` (a dead
 letter ends its items), `finished_from` (`declared`, `inferred` or `none`) and `lives_on`, and the Items page says it
 in the tooltip of each kind's legend: `finished: merged, closed (declared)`, `finished: answered (inferred: no item
-has left it yet)`, or `lives on`, with `paused: …` after it. The process map, the cumulative flow and message routing
-keep their own older rule for now (a kind's last state when every state has been left).
+has left it yet)`, or `lives on`, with `paused: …` after it. The same rule gives the cumulative flow's finished states
+and cycle times (a dead letter is not finished work, so none ends there), and, with `dead` added for a taken kind
+(where an item's life ends, the states the Items list hides: `finished.ends_of`), the process map's end and the final states `/api/items/<id>` gives (`kind_of.final`). Message
+routing keeps its own rule on purpose (`route_done_states`, §12h: where a message about an item goes, the `finished:`
+policy or the work): declared, else a kind's last state and each state no item has left *while some item reached a
+state after it*, because a state items rest in while none has gone on is waiting, not finished (a review briefed,
+waiting for its reviewer, still takes a message). Two uses keep the older rule (`itemindex.done_states`: declared,
+else a kind's last state when every state has been left), not on purpose but not yet moved: the open items listed
+about a part (`spec/about.py`) and which items the item index keeps folded in memory.
 
 **Finished items, left out of the list.** The Items list shows the unfinished by default: each kind's finished states
 and `dead` are left out, its paused states (`parked`) stay listed, and a kind that lives on leaves out nothing. One
