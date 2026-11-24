@@ -192,7 +192,8 @@ MACHINE_TYPES = {
                 "run": (RUN, "the owner's own command, or ergostat's program")},
     "ai": {**MACHINE_NO, **GOAL_UNTIL, "prompt": (T, "what the AI session is asked (R3)")},
     "person": {**MACHINE_NO, **GOAL_UNTIL, "ask": (T, "what the person is asked (R3)")}}
-REFUSED_TYPES = {"external": "stands for something acting outside", "judge": "judges and applies changes to the model"}
+REFUSED_TYPES = {"external": "stands for something acting outside", "judge": "judges and applies changes to the model",
+                 "budget": "sets how much checking a change gets (an error budget), the owner's to declare"}
 SOURCE = {k: (T, why) for k, why in (("type", "the kind of source"), ("url", "where it is read from"),
                                      ("token-file", "the file its token is read from"), ("tls", "its certificates"))}
 

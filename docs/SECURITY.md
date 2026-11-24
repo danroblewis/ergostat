@@ -134,7 +134,7 @@ expanded, with every parameter's value put in. If any part is not on it, the who
   your shell only as below and otherwise sandboxed; and `query`, `every`, `cron`, `timeout`, `averages`, only as below.
 
 Each section's keys are listed in trust.py, each with its reason; any other section, key, block type or shape of value
-is refused, including daemons on sensors (`library-unsandboxed`), `external` and `judge` blocks, `on-stale`, an item kind's `lease`, a goal's
+is refused, including daemons on sensors (`library-unsandboxed`), `external`, `judge` and `budget` blocks, `on-stale`, an item kind's `lease`, a goal's
 `owner`, and `inferred` or `formerly` anywhere. A test holds this list to trust.py's tables
 (`tests/test_library_trust.py`).
 

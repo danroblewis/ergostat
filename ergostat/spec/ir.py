@@ -10,7 +10,7 @@ from pathlib import Path
 from .load import Where
 
 BUILTIN = ("onoff", "compare", "proportional", "limit", "delay", "schedule", "lookup", "select", "expr", "timer",
-           "counter", "alarm", "judge")   # judge: ergostat's judge of changes to the model (SPEC §12e), on the program rung
+           "counter", "alarm", "budget", "judge")   # judge: ergostat's judge of changes to the model (SPEC §12e), on the program rung
 MACHINE = ("program", "ai", "person", "external")
 FORMATS = ("image", "markdown", "code", "text", "json", "claude-session")   # how a file an item names is shown
 SETPOINT = re.compile(r"^\s*(<=|>=|==|<|>)\s*(-?\d+(?:\.\d+)?)\s*$")
@@ -238,6 +238,11 @@ BUDGET_MEASURES = {                # the day's AI budget (SPEC §9.9): what runs
                             "runs in flight reserved; an error, never a number, when it cannot be worked out",
 }
 BUDGET_MOST = 10000.0             # the ceiling on budget.daily, in dollars
+ERRORS = re.compile(r"^ergostat\.errors\.(level|left)@([a-z0-9][a-z0-9-]{0,63})$")   # an error budget block's (SPEC §9.2)
+ERRORS_MEASURES = {
+    "ergostat.errors.level@BLOCK": "the check level an error budget block (type: budget) set, 0 the lightest",
+    "ergostat.errors.left@BLOCK": "the regressions its budget still allows over its window (below 0: overspent)",
+}
 
 
 @dataclass
@@ -302,8 +307,10 @@ def is_measure(name: str) -> bool:
     ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
     optional ``@class``), the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``) or what the runs
     cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), ergostat's upkeep (``ergostat.upkeep.*``), or
-    the day's budget left (``ergostat.budget.left``)."""
+    the day's budget left (``ergostat.budget.left``), or an error budget block's level and budget left
+    (``ergostat.errors.level@BLOCK``, ``ergostat.errors.left@BLOCK``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES or bool(UPKEEP.match(name))
+            or bool(ERRORS.match(name))
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
             or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES
             or name in BUDGET_MEASURES)

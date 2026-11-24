@@ -94,7 +94,7 @@ def every_pass(b: Block) -> bool:
     ``until`` other than its goal). The others are functions of their inputs and of their own last output, which a
     step with the same inputs keeps: stepped when what they read changed."""
     p = b.params
-    return b.type in ("delay", "timer", "schedule") or \
+    return b.type in ("delay", "timer", "schedule", "budget") or \
         (b.type == "onoff" and bool(p.get("min-on") or p.get("min-off") or p.get("until"))) or \
         (b.type == "alarm" and bool(p.get("for"))) or (b.type == "counter" and bool(p.get("reset"))) or \
         (b.type == "limit" and p.get("rate") is not None)
@@ -498,6 +498,10 @@ class Engine:
             except Exception as e:                          # one block failing never stops the others
                 self.say(f"block {name}: {type(e).__name__}: {e}")
                 v = None
+            for k, x in getattr(blk, "more", {}).items():   # a block's other series (an error budget's left), as they move
+                if self.signals.get(f"{key}/{k}") != x:
+                    self.signals[f"{key}/{k}"] = x
+                    rows.append((f"block/{name}/{k}", now, x))
             if v is None:
                 if before and self.spec.blocks[name].type == "alarm":
                     rows.append((f"block/{name}", now, 0.0))   # failing, or its input unknown: no longer said raised
@@ -515,8 +519,9 @@ class Engine:
                 rows.append((f"block/{name}", now, v))
                 changed.add(key)
                 self._downstream(key, i, heap, late)
-                if bool(before) != bool(v):
-                    self.decided(self.spec.blocks[name], v, now, crossed, out)
+                said = getattr(blk, "why", None)          # (a block that says why it moved: an error budget's level)
+                if bool(before) != bool(v) or said:
+                    self.decided(self.spec.blocks[name], v, now, crossed, out, said)
         return changed, set_goals, late
 
     def _downstream(self, key: str, i: int, heap: list, late: set) -> None:
@@ -598,17 +603,19 @@ class Engine:
         kept["engine.wiring"] = w
         return w
 
-    def decided(self, b: Block, v: float, now: float, crossed: dict | None = None, out: list | None = None) -> None:
+    def decided(self, b: Block, v: float, now: float, crossed: dict | None = None, out: list | None = None,
+                said: tuple[str, str] | None = None) -> None:
         """A built-in's output turning on or off, said as a decision of the goal it serves: caused by that
-        goal's crossing, when it crossed in this same pass."""
+        goal's crossing, when it crossed in this same pass. ``said``: the decision and its reason, when the block
+        gives them (an error budget's level moving)."""
         served = [r.name for r in b.reads() if r.kind == "goal"] or [b.name]
         cmd = [t.name for t in b.targets() if t.kind == "block"]
         verb = "act" if v else "stop"
         for g in served:
             ev = self._event(out, "controller.decided", item=g if g in self.spec.goals else b.name, source=b.name,
                              causedby=(crossed or {}).get(g),
-                             data={"decision": f"{verb}{(': ' + ', '.join(cmd)) if cmd else ''}",
-                                   "why": f"{b.type} {b.name} → {v:g}", "block": b.name, "value": v})
+                             data={"decision": said[0] if said else f"{verb}{(': ' + ', '.join(cmd)) if cmd else ''}",
+                                   "why": said[1] if said else f"{b.type} {b.name} → {v:g}", "block": b.name, "value": v})
             self.cause[b.name] = ev["id"]
 
     # ---- the observer (observer.py, SPEC §9.6)
@@ -2031,6 +2038,7 @@ class Engine:
                 kept.b, kept.spec, kept.p = b, new, b.params
             for n in set(self.builtins) - set(builtins):
                 self.signals.pop(f"block.{n}", None)
+                self.signals.pop(f"block.{n}/left", None)        # (an error budget's other series)
             self.builtins = builtins
             for g in set(self.status) - goals:                   # (a goal removed, or moved to another shard)
                 self.status.pop(g, None)
