@@ -98,7 +98,7 @@ def _frame(cols: list[str], rows: list[tuple]) -> dict:
 def _forecast(p, text: str) -> dict | None:
     """The forecast, when the text names a ``forecast_*`` view: as last worked out, never worked out on this query;
     with none (being worked out, failed, no run finished) the query is refused with why, never answered empty."""
-    if not {x.lower() for x in _WORD.findall(text)} & set(_itemviews.FORECAST):
+    if not {x.lower() for x in _WORD.findall(text)} & {*_itemviews.FORECAST, *_itemviews.GROUP_FUNCTIONS}:
         return None
     from ..web.eta_api import current
     fc = current(p, p.model)

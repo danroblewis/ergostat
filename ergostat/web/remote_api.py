@@ -189,8 +189,13 @@ def answer(live, path: str, q: dict):
         ids = list(dict.fromkeys(q.get("item") or []))      # each id whole, as given
         if len(ids) > AT_MOST:
             return 400, {"error": f"at most {AT_MOST} items a call (item=)"}
+        from ..numbers.yields import parse as group_ask
+        try:                                                # a group's counts asked (SPEC §5a, Group counts)
+            ask = group_ask({k: q[k][0] for k in ("group", "by", "at_least", "confidence") if q.get(k)})
+        except ValueError as e:
+            return 400, {"error": str(e)}
         est = current(p, m)
         if est is None:
             return 503, {"error": "the forecast is being worked out; ask again shortly"}
-        return 200, shaped(est, ids if "item" in q else None, _list(q, "kinds") or None, ITEMS_MOST)
+        return 200, shaped(est, ids if "item" in q else None, _list(q, "kinds") or None, ITEMS_MOST, ask)
     return 404, {"error": f"no {head} here (status, model, events, items, counts, readings, series, process, forecast)"}

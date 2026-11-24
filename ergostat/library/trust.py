@@ -121,6 +121,7 @@ SYSTEM = {"description": (S, "words shown with it"), "within": (S, "the system i
           "show": (L, "parts shown on its box")}
 ITEM = {**COMMON, "id": (S, "which ids are this kind"), "states": (L, "its states"),
         "final": (L, "its states no event moves it out of"), "finished": (L, "its states that count as finished"),
+        "lost": (L, "its finished states that are a loss"),
         "moves-from": (M, "the only states an event moves it out of"),
         "if-unchanged": (L, "events applied only to it as read"),
         "on": (M, "which event moves it to which state"), "show": (L, "fields shown"), "formats": (M, "how fields are shown"),

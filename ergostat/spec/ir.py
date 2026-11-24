@@ -940,6 +940,7 @@ class ItemKind:
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
     finished: list[str] = field(default_factory=list)   # its finished states, when messages: done: does not name it
+    lost: list[str] = field(default_factory=list)       # its finished states that are a loss (scrapped), for yields
     about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
     moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
     if_unchanged: tuple = ()   # event types applied only to the item as read: their data's `read` is its event count then

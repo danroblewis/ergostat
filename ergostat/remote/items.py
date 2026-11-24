@@ -161,18 +161,23 @@ def detail(spec, name: str, item_id: str) -> dict:
             "item": {**got["body"], "remote": name}}
 
 
-def forecast(spec, name: str, ids: list[str] | None = None, kinds: list[str] | None = None) -> dict:
+def forecast(spec, name: str, ids: list[str] | None = None, kinds: list[str] | None = None,
+             ask: dict | None = None) -> dict:
     """The remote's forecast (``forecast/v1``, numbers/forecast.py), as it last worked it out: of the items ``ids``
-    (at most ``FORECAST_IDS``, each checked as ``detail`` checks one) and ``kinds``, or all it serves. An answer of
+    (at most ``FORECAST_IDS``, each checked as ``detail`` checks one) and ``kinds``, or all it serves; with ``ask``
+    (numbers/yields.py ``parse``, checked here), a group's counts asked of it there (``asked``). An answer of
     another schema is a failure, never read as no estimate. One still being worked out there (its 503) refuses this
     ask alone (503, or the last one kept, not ok), and the remote's counts, listings and details are asked as before."""
+    ask = ask or {}
+    if ask and not openable(ask.get("group", "")):
+        raise RemoteRefused(400, f"group: /-separated segments matching {ID.pattern}, {ID_MOST} characters at most")
     r = remote(spec, name)
     ids, kinds = list(dict.fromkeys(ids or [])), sorted(set(kinds or []))
     if len(ids) > FORECAST_IDS or not all(openable(i) for i in ids):
         raise RemoteRefused(400, f"at most {FORECAST_IDS} item ids, each /-separated segments matching {ID.pattern}")
     with held(name):
-        got = _ask(spec, name, r, "forecasts", (tuple(ids), tuple(kinds)), "forecast",
-                   {"item": ids or None, "kinds": ",".join(kinds) or None},
+        got = _ask(spec, name, r, "forecasts", (tuple(ids), tuple(kinds), tuple(sorted(ask.items()))), "forecast",
+                   {"item": ids or None, "kinds": ",".join(kinds) or None, **{k: str(v) for k, v in ask.items()}},
                    lambda b: isinstance(b, dict) and b.get("schema") == "forecast/v1" and isinstance(b.get("items"), dict))
     return {"remote": name, "ok": got["ok"], "why": got["why"], "read": got["read"], "age": got["age"],
             "forecast": got["body"]}

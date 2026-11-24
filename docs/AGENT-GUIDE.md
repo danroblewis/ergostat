@@ -807,6 +807,13 @@ source's `forecast_items`, `forecast_kinds`, `forecast_stages` and `forecast_gro
 max(p90) from forecast_items group by state`); `GET /api/forecast` gives it as JSON; and a model reading this one as a
 remote gets it from `/remote/v1/forecast` (`/api/forecast?remote=NAME` there). Nothing has to be declared for it.
 
+A group's **counts** (SPEC §5a *Group counts*) come from the same runs: how many of its open members come out by a
+date, the chance at least N do, the expected loss, and how many to start for N out at a confidence. When the person's
+work loses items (scrap, rejects, cancelled orders), declare those finished states on the kind, `lost: [scrapped]`;
+without it only dead letters count as lost. A panel asks `select forecast_chance('lot/A', 40, :until)` or
+`forecast_start('lot/A', 40, 0.9, null)` (`forecast_out`, `forecast_lost` too), or reads `forecast_group_by`;
+`/api/forecast?group=lot/A&by=…&at_least=40&confidence=0.9` answers in `asked`.
+
 ## 3i. Programs fail hard, and are repaired
 
 The scripts the model's blocks run (collectors, steps, actuators) will fail: an API changes shape, a field goes

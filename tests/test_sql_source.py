@@ -271,7 +271,7 @@ def test_an_answer_with_a_time_column_is_series_and_the_editor_is_offered_views_
     r = ask(p, "select id, state from ticket")
     assert r.get("error_kind") == "refused" and "column of numbers" in r["error"], r
     got = datasources.suggest(p.model.spec, "record", "metrics", project=p)
-    assert got == {"suggestions": ["forecast_groups", "forecast_items", "forecast_kinds", "forecast_stages",
+    assert got == {"suggestions": ["forecast_group_by", "forecast_groups", "forecast_items", "forecast_kinds", "forecast_stages",
                                    "item_fields", "item_progress", "item_spans", "item_stages", "stage_estimates",
                                    "ticket", "transitions"], "more": False}
     got = datasources.suggest(p.model.spec, "record", "labels", "", "item_spans", project=p)
