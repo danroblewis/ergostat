@@ -67,6 +67,36 @@ def cmd_event(args) -> int:
     except KeyboardInterrupt:
         return 0
 
+def cmd_why(args) -> int:
+    """``ergostat why ITEM``: why it is not done (SPEC §5a, *Why it is not done*)."""
+    if not args.name:
+        print("name the item: ergostat why ITEM (ergostat item lists them)", file=sys.stderr)
+        return 1
+    if getattr(args, "at", None):
+        print("ergostat why answers as of now: leave out --at", file=sys.stderr)
+        return 2
+    from ..why import answer
+    from ..why.words import lines
+    got = answer(open_project(args), args.name)
+    if args.json:
+        return out_json(got)
+    print("\n".join(lines(got)))
+    return 0 if got["known"] else 2
+
+
+def cmd_held_up(args) -> int:
+    """``ergostat held-up``: what holds the work up, ranked (SPEC §5a, *What holds the work up*)."""
+    if getattr(args, "at", None):
+        print("ergostat held-up answers as of now: leave out --at", file=sys.stderr)
+        return 2
+    from ..why.held import answer, lines
+    got = answer(open_project(args))
+    if args.json:
+        return out_json(got)
+    print("\n".join(lines(got)))
+    return 0
+
+
 def cmd_item(args) -> int:
     from ..spec import items as its
     from ..spec.item_sets import BadSet
@@ -76,6 +106,8 @@ def cmd_item(args) -> int:
         return 2
     if args.near is not None or args.path_to is not None or args.about_item:
         return _item_graph(args)
+    if getattr(args, "groups", None) is not None:
+        return _item_groups(args)
     if args.name and args.json and not getattr(args, "at", None) and getattr(args, "history", None) is None:
         from ..calls.client import Refused
         from . import fast
@@ -170,6 +202,32 @@ def _item_graph(args) -> int:
         print("  " + "  ".join(" ".join(map(str, v.values())) if isinstance(v, dict) else str(v) for v in x.values()))
     print(c(got.get("says") or f"{len(got['items'])} items" + (f", capped at {got['cap']}" if got["capped"] else ""),
             "warn" if got["capped"] else "dim"))
+    return 0
+
+
+def _item_groups(args) -> int:
+    """``item --kind K --groups REL`` (``spec/grouptally.py``): each group's progress, as the record is now; over the
+    last day for its completion over time (``--json``)."""
+    from ..spec.grouptally import progress
+    from ..spec.item_sets import BadSet
+    if args.name or not args.kind or getattr(args, "at", None):
+        print("--groups: with --kind, of no one item, as the record is now (never with --at)", file=sys.stderr)
+        return 2
+    p, now = open_project(args), time.time()
+    try:
+        got = progress(p.events, getattr(p.model, "spec", None), args.kind, args.groups, now, now - 86400.0)
+    except BadSet as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if args.json:
+        return out_json(got)
+    rows = [[r["id"] or f"(no {args.groups})", r["state"] or ("-" if r["id"] is None else "(no such item)"),
+             *[str(r["counts"][s]) for s in got["stacks"]], str(r["total"]), str(r["left"]), str(r["summaries"]),
+             ", ".join(r["waits_on"])] for r in got["rows"]]
+    print(table(["GROUP", "STATE", *[s.upper() for s in got["stacks"]], "OF", "LEFT", "SPLIT", "WAITS ON"], rows,
+                f"no {args.kind} names a {args.groups}"))
+    if got["odd_n"]:
+        print(c(f"{got['odd_n']} whose {args.groups} is not one id, counted in none: {', '.join(got['odd'])}", "warn"))
     return 0
 
 
@@ -336,7 +394,12 @@ def cmd_compact(args) -> int:
     if args.dry_run:
         got = {"rollup": compact(p, cap=p.model.keep, dry=True)}
     else:
-        got = upkeep(p)
+        got = upkeep(p)                                 # (under the compaction lock: busy when another holds it)
+        if got.get("busy"):
+            if args.json:
+                return out_json(got)
+            print(f"busy: another process holds {p.dir / 'compact.lock'} (rolling up now); nothing done")
+            return 0
         got["vacuumed"] = vacuum(p)
     got["archive_bytes"] = Archive(p.dir).size()
     if args.json:

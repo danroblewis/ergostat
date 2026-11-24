@@ -49,7 +49,7 @@ def coverage(cfg: dict, gap: dict) -> str:
 
 def review_one(cfg: dict) -> int:
     marked = [g for g in fac.items("gap") if g["fields"].get("plan_review") == "wanted"]
-    if not marked or fac.draining(cfg):                 # (a switch drains the runs under way: next turn)
+    if not marked or fac.ai_held(cfg):                  # (the AI held: next turn)
         return 0
     gap = sorted(marked, key=lambda g: (g["state"] != "ready", float(g["fields"].get("ready_at") or 0)))[0]
     if why := fac.may_spend(cfg, float(cfg["ai"]["plan_reviewer_session_usd"])):
@@ -63,27 +63,33 @@ def review_one(cfg: dict) -> int:
                                    graph=brief.graph(cfg, gap), coverage=coverage(cfg, gap))
     context["brief"] = brief.save(cfg, "plan_reviewer", gap, text)
     import review
+    got = None
     try:
         got = fac.session(cfg, "plan_reviewer", text, work, item=gid)
         v = review.verdict(str(got.get("result", "")))
     except fac.OverBudget as e:                         # (the cap reached meanwhile: it waits again)
         fac.say("gap.measured", gid, plan_review="wanted", last_error=f"budget: {e}"[:500])
         return 0
-    except Exception as e:
-        fac.say("gap.measured", gid, plan_review="failed", last_error=f"{type(e).__name__}: {e}"[:500])
+    except BaseException as e:                          # a timeout, an error, a cancel: the whole reservation
+        usd = float(cfg["ai"]["plan_reviewer_session_usd"])     # (unless the session ended and told its cost)
+        usd = round(float(got["total_cost_usd"]) if got and got.get("total_cost_usd") is not None else usd, 4)
+        fac.say("gap.measured", gid, plan_review="failed", last_error=f"{type(e).__name__}: {e}"[:500],
+                ai_cost_usd=usd, planning_cost_usd=usd, sessions=1)
         raise
     found = classed(v["blocking"]) + classed(v["non_blocking"])
     if found and gap["state"] in ("ready", "open", "replan", "planned"):
         with target.open("a") as fh:
             fh.write("\n## Notes from the plan review (answer each)\n\n" + "".join(f"- {x['text']}\n" for x in found))
-    cost = round(float(got.get("total_cost_usd") or 0), 4)
+    cost = got.get("total_cost_usd")                    # (no cost told: the reservation was kept)
+    cost = round(float(cfg["ai"]["plan_reviewer_session_usd"]) if cost is None else float(cost), 4)
     rid = f"review/{branch}-plan"
     fac.say("review.written", rid, gap=gid, stage="plan", round=0, written_at=time.time(), **v, context=context,
             classes=sorted({x["class"] for x in found} - {"none"}), findings=found, ai_cost_usd=cost)
     fac.say("gap.measured", gid, plan_review="done", plan_flagged=bool(v["blocking"]), plan_findings_n=len(found),
             plan_reviews=[{"verdict": v["verdict"], "blocking": len(v["blocking"]), "at": time.time()}],
             plan_notes_late=bool(found) and gap["state"] not in ("ready", "open", "replan", "planned"),
-            contexts=[context], ai_cost_usd=cost, sessions=1, plan_review_hours=round((time.time() - began) / 3600, 3))
+            contexts=[context], ai_cost_usd=cost, planning_cost_usd=cost, sessions=1,
+            plan_review_hours=round((time.time() - began) / 3600, 3))
     if v["verdict"] == "park":
         fac.act("park-gap", key=gid, gap=gid, why=(v["where_it_stopped"] or "; ".join(v["blocking"]))[:1500])
     return 0

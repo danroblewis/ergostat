@@ -147,6 +147,20 @@ def test_knowledge_files_parse():
         assert knowledge.decision_id(odd) == item_id(DECISION, odd)
 
 
+def test_the_no_remote_shapes_of_lesson_8_are_not_carried():
+    """gap/implementor-clone-has-no-remote: the two applied lesson-8 shapes that failed a true report of the
+    implementor's remote-less clone are withdrawn, with why; lesson-8 and its other applied shapes stay."""
+    knowledge = knowledge_module()
+    gone = {"lesson/seen-lesson-8-4aac4cae", "lesson/seen-lesson-8-52caf205"}
+    assert set(knowledge.WITHDRAWN) == gone and all("no remote" in why for why in knowledge.WITHDRAWN.values())
+    seen = lambda iid, text: {"id": iid, "state": "applied", "fields": {"kind": "seen", "lesson": "lesson-8",  # noqa: E731
+                                                                        "entry": text}}
+    lessons = [seen(iid, f"shape of {iid}") for iid in sorted(gone)] + [seen("lesson/seen-lesson-8-kept", "a kept shape")]
+    eight = next(e for e in knowledge.applied(knowledge.entries(), lessons) if e["id"] == "lesson-8")
+    assert "Seen as: a kept shape." in eight["text"] and "**Check:**" in eight["text"]
+    assert not [iid for iid in gone if iid in eight["text"]] and not gone & set(eight["items"])
+
+
 def decide(f: Instance, text: str, scope: list[str], *then: str) -> str:
     """A decision item in the fake record, proposed and then moved by the owner's acts (confirmed, ...)."""
     from ergostat.decisions.kinds import DECISION, item_id
@@ -447,11 +461,99 @@ def test_researcher_answers(tmp_path):
     r = f.item(rid)
     assert r["state"] == "answered" and r["fields"]["summary"] == "The stand-in's answer."
     assert (f.model / r["fields"]["report"]).read_text().startswith("# The stand-in's answer")
-    assert r["fields"]["contexts"][0]["role"] == "researcher" and r["fields"]["sources"] == ["none"]
+    assert r["fields"]["contexts"][0]["role"] == "researcher" and r["fields"]["sources"] == ["`docs/GAPS.md:1`: the gaps"]
+    assert r["fields"]["sources_checked"] == r["fields"]["sources"] and r["fields"]["sources_unchecked"] == []
     said, _ = f.run("plan.py", gid)
     assert said == ["gap.defined"]
     brief = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
     assert "Nothing was read." in brief                        # the report went into the planner's brief
+
+
+def answer(*sources: str) -> str:
+    """A researcher's answer citing these sources."""
+    return ("<report>\n# Q\n\nA.\n\n## Sources\n\n" + "".join(f"- {s}\n" for s in sources) +
+            "</report>\n<summary>A.</summary>")
+
+
+def asked(f: Instance) -> tuple[str, str]:
+    """(a gap, the research question its planner asked)."""
+    gid = f.opened()
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER="<research>How does the queue decide?</research>")
+    return gid, f.item(gid)["fields"]["research"][0]
+
+
+def test_research_source_file_and_line_checked(tmp_path):
+    f = Instance(tmp_path)
+    _, rid = asked(f)
+    said, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("`app.py:1`: it prints", "`app.py:1-9`: all"))
+    r = f.item(rid)["fields"]
+    assert said == ["research.answered"] and r["sources_checked"] == ["`app.py:1`: it prints"]
+    assert r["sources_unchecked"] == [{"source": "`app.py:1-9`: all", "why": "app.py: line 9 past the end (1 lines)"}]
+
+
+def test_research_missing_source_is_unsourced_and_asked_again(tmp_path):
+    f = Instance(tmp_path)
+    _, rid = asked(f)
+    said, lines = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("`nowhere.py:3`: it", "app.py:2: past"))
+    r = f.item(rid)
+    assert said == ["research.unsourced"] and r["state"] == "unsourced" and "report" not in r["fields"]
+    why = r["fields"]["unsourced_why"]
+    assert "nowhere.py: no such file at" in why and "app.py: line 2 past the end (1 lines)" in why
+    assert [x["source"] for x in r["fields"]["sources_unchecked"]] == ["`nowhere.py:3`: it", "app.py:2: past"]
+    assert any(x.get("nack", {}).get("count") is True for x in lines)          # given back, to be asked again
+    said, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("`app.py`: the app"))
+    r = f.item(rid)
+    assert said == ["research.answered"] and r["state"] == "answered"
+    brief = (f.model / r["fields"]["contexts"][-1]["brief"][5:]).read_text()
+    assert "Asked again: the last answer had no source that could be checked (nowhere.py: no such file" in brief
+
+
+def test_research_url_checked_against_tool_calls(tmp_path):
+    f = Instance(tmp_path)
+    _, rid = asked(f)
+    said, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("https://example.org/a: never opened"))
+    assert said == ["research.unsourced"]
+    assert f.item(rid)["fields"]["unsourced_why"] == "https://example.org/a: the session never opened it"
+    use = lambda i, name, inp: {"type": "assistant", "message": {"content": [  # noqa: E731
+        {"type": "tool_use", "id": i, "name": name, "input": inp}]}}
+    back = lambda i, content, err=False: {"type": "user", "message": {"content": [  # noqa: E731
+        {"type": "tool_result", "tool_use_id": i, "content": content, "is_error": err}]}}
+    rows = [use("a", "WebFetch", {"url": "https://example.org/fetched/"}), back("a", "the page"),
+            use("b", "WebSearch", {"query": "q"}), back("b", [{"type": "text", "text": 'Links: [{"url": "https://ex.org/s"}]'}]),
+            use("c", "WebFetch", {"url": "https://example.org/failed"}), back("c", "404", err=True),
+            use("d", "mcp__walker__goto", {"url": "https://example.org/walked"}), back("d", "ok"),
+            use("e", "WebFetch", {"url": "https://example.org/no-result"}), "not json"]
+    t = tmp_path / "t.jsonl"
+    t.write_text("\n".join(x if isinstance(x, str) else json.dumps(x) for x in rows) + "\n")
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import research; from pathlib import Path; "
+            "urls = research.opened(Path(sys.argv[2])); print(json.dumps([sorted(urls)] + "
+            "[research.check(Path('.'), 'x', s, urls) for s in sys.argv[3:]]))")
+    srcs = ["https://example.org/fetched: read", "<https://ex.org/s>.", "https://example.org/failed",
+            "https://example.org/walked", "https://example.org/no-result", "https://example.org/a"]
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(t), *srcs], capture_output=True, text=True,
+                       cwd=f.model, env=f.env, timeout=60)
+    got = json.loads(r.stdout or r.stderr)
+    assert got[0] == ["https://ex.org/s", "https://example.org/fetched", "https://example.org/walked"]
+    assert got[1:4] == [None, None, "https://example.org/failed: the session never opened it"]
+    assert got[4] is None and got[5:] == ["https://example.org/no-result: the session never opened it",
+                                          "https://example.org/a: the session never opened it"]
+
+
+def test_research_second_unsourced_is_dead_and_planner_goes_on(tmp_path):
+    f = Instance(tmp_path)
+    gid, rid = asked(f)
+    bad = answer("none")
+    assert f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=bad)[0] == ["research.unsourced"]
+    said, _ = f.run("plan.py", gid)
+    assert said == ["gap.measured"]                                      # an unsourced question is still waited on
+    said, lines = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=bad)
+    r = f.item(rid)
+    assert said == ["research.dead-lettered"] and r["state"] == "dead" and r["fields"]["unsourced"] == 2
+    assert any(x.get("nack", {}).get("count") is True for x in lines)          # its lease's last attempt: a dead letter
+    said, _ = f.run("plan.py", gid)
+    assert said == ["gap.defined"]                                       # planned without it
+    brief = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
+    assert f"### {rid}\n\n(no answer: the question is a dead letter" in brief
 
 
 LIB = "```json\n{}\n```"
@@ -624,7 +726,8 @@ def test_split_measures(tmp_path):
     defs = f.model / "run" / "defs"
     defs.mkdir(parents=True, exist_ok=True)
     for b, budget, lines in (("s-at", "100 net lines", 100), ("s-over", "100 net lines", 101),
-                             ("s-unbudgeted", None, 50), ("s-uncounted", "100 net lines", None), ("s-undefined", "", 5)):
+                             ("s-unbudgeted", None, 50), ("s-uncounted", "100 net lines", None), ("s-undefined", "", 5),
+                             ("s-unnumbered", "about a hundred", 50), ("s-fractional", "100 net lines", 99.5)):
         if budget is not None:
             text = "# x\n\n## Definition of done\n\nIt works.\n" + (f"\n## Size budget\n\n{budget}\n" if budget else "")
             if b != "s-undefined":
@@ -634,17 +737,19 @@ def test_split_measures(tmp_path):
     merged_gap(f, "gap/unsplit", now - DAY, net_lines=900)                              # not a sub-gap
     (defs / "s-old.md").write_text("## Size budget\n\n100 net lines\n")
     r = size_measure(f, "split-budgets-held")
-    assert r.returncode == 0 and r.stdout.strip() == "0.2", r.stderr                  # only s-at, of five
-    g = Instance(tmp_path / "b")
+    assert r.returncode == 0 and r.stdout.strip() == "0.143", r.stderr                # only s-at, of seven
+    g = Instance(tmp_path / "b")                                     # judged and merged only before the window
     merged_gap(g, "gap/s-old", now - 20 * DAY, parent=["gap/p"], net_lines=1)
     merged_gap(g, "gap/unsplit", now - DAY, net_lines=1)
-    r = size_measure(g, "split-budgets-held")
-    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
+    g.fold([{"event": "gap.split", "item": "gap/p-old", "data": {"children": ["gap/p-old-1"]}},
+            {"event": "gap.measured", "item": "gap/p-old", "data": {"join_verdicts": [
+                {"verdict": "covered", "missing": [], "at": now - 20 * DAY}]}}], None)
+    for r in (size_measure(g, "splits-covered"), size_measure(g, "split-budgets-held")):
+        assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
     spec, _ = read(ROOT / "ergostat.yaml")
     for name in ("splits-covered", "split-budgets-held"):
         aux = spec.auxiliaries[name]
-        assert [s.run for s in aux.sensors.values()] == [f"python3 dev/bin/measure.py {name}"]
-        assert "split-quality" not in spec.auxiliaries
+        assert aux.system == "intake" and [s.run for s in aux.sensors.values()] == [f"python3 dev/bin/measure.py {name}"]
 
 
 def deny(f: Instance, aid: str, lid: str, by: str = "coordinator", note: str = "too narrow") -> None:
@@ -775,10 +880,11 @@ def test_the_knowledge_model_loads():
 
 def test_the_planner_never_takes_a_continued_gap(tmp_path):
     from ergostat.spec import items as its
-    from ergostat.spec import read
+    from ergostat.spec.compile import compile_doc
+    from ergostat.spec.load import load as load_doc
     from tests.test_factory import ROOT, behind_main, continues
-    where = read(ROOT / "ergostat.yaml")[0].blocks["planner"].takes.where
-    assert where == {"continues": None}
+    where = compile_doc(load_doc(ROOT / "ergostat.yaml"))[0].blocks["planner"].takes.where   # (no findings: a minute)
+    assert where == {"continues": None, "waits_on_milestone": None}       # (and its milestone: test_milestones.py)
     f = Factory(tmp_path)
     f.fold([{"event": "gap.requested", "item": "gap/plain", "data": {"title": "Plain", "source": "request"}}], None)
     gid = continues(f, name="no-such")                                  # a branch the checkout does not have
@@ -990,7 +1096,7 @@ def test_knowledge_entries_counts_the_items():
     spec, _ = read(ROOT / "ergostat.yaml")
     sensor = spec.stocks["knowledge-entries"].sensors["main"]
     assert sensor.run is None and (sensor.items["kind"], sensor.items["state"]) == ("knowledge", ["active"])
-    assert spec.items["knowledge"].states == ["active", "retired"] and spec.blocks["knowledge-sync"].type == "program"
+    assert spec.items["knowledge"].states == ["new", "active", "retired"] and spec.blocks["knowledge-sync"].type == "program"
 
 
 def test_entry_kind_from_front_matter(tmp_path):
@@ -1354,6 +1460,11 @@ def test_an_approved_lesson_is_applied_with_no_gap(tmp_path):
     set_db(f, lessons_fail=False)
     assert f.run("lesson.py", "lesson/add-shared-stash", argv=("apply",))[0] == ["lesson.applied"]
     assert f.item("lesson/add-shared-stash")["fields"]["lesson"] == "lesson-15"
+    db = f.db()                                     # spans of exactly an hour, an hour and 0, not the test's own seconds
+    for lid, span in (("lesson/seen-lesson-1-aaa", 3600), ("lesson/new-stale-cache", 3600), ("lesson/add-shared-stash", 0)):
+        fl = db["items"][lid]["fields"]
+        fl["proposed_at" if fl.get("proposed_at") else "approved_at"] = float(fl["applied_at"]) - span
+    f.record.write_text(json.dumps(db))
     assert f.tool("lesson.py", "hours").stdout.strip() == "0.667"   # proposed to applied: an hour, an hour, ~0 (add)
     assert "knowledge_unread" not in block_in(f, BIN, "pipeline_manager", "lesson/add-shared-stash")
     proposed(f, "lesson/seen-lesson-2-held", {**SEEN, "lesson": "lesson-2"})               # as the lease holds it:
@@ -1550,3 +1661,442 @@ def test_a_merged_lesson_is_not_carried_twice(tmp_path):
     assert "lesson/seen-lesson-1-aaa" in got["knowledge"]                     # its gap closed: carried from the record
     assert section(got["text"], "lesson-1").count("an approval written over a fresh denial") == 1
     assert got["text"].count("an approval written over a fresh denial") == 2   # lesson-1 and lesson-2, each once
+
+
+# ---- planning by size (docs/roadmap/overnight/plan-by-size.md)
+
+def by_size(f: Instance, m_usd: float = 0.4, share: float = 0.0, bar: float = 0.5) -> None:
+    """The size settings: the M cap (the planner's is 1.0), [planning] l_review_share and min_size_confidence."""
+    f.config.write_text(f.config.read_text().replace("[ai]\n", f"[ai]\nplanner_m_session_usd = {m_usd}\n")
+                        + f"[planning]\nl_review_share = {share}\nmin_size_confidence = {bar}\n")
+
+
+def size_as(f: Instance, gid: str, cls, conf="high") -> None:
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"planned_size": cls, "size_confidence": conf}}], None)
+
+
+def reserved(f: Instance) -> list[float]:
+    """The planner sessions started: each reserved its most in the ledger first."""
+    p = f.model / "run" / "costs.jsonl"
+    rows = [json.loads(x) for x in p.read_text().splitlines()] if p.exists() else []
+    return [r["usd"] for r in rows if r.get("kind") == "reserved" and r.get("role") == "planner"]
+
+
+INPROC = """import contextlib, io, fac, intake, plan, planreview
+what, gid, answer = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+def session(*a, **k):
+    if answer is None:
+        raise TimeoutError("the session timed out")
+    return {"result": answer[0], "total_cost_usd": answer[1]}
+fac.session = session
+if what == "race":                               # the check finds nothing; the coordinator's file lands before the write
+    def late(cfg, gap):
+        (fac.run_dir(cfg, "defs") / f"{fac.branch_of(gap)}.md").write_bytes(answer.encode())
+        return None
+    intake.definition = late
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    try:
+        cfg = fac.config()
+        if what == "review":
+            planreview.review_one(cfg)
+        else:
+            plan.planner(cfg, json.loads(fac.ergostat("item", gid, "--json").stdout))
+    except TimeoutError:
+        pass
+print(json.dumps([json.loads(x) for x in out.getvalue().splitlines() if x.startswith('{"event"')]))"""
+
+
+def inproc(f: Instance, what: str, gid: str, answer) -> list[str]:
+    """plan.py's planner (or the plan review) in one process, its session answering ``answer`` ([text, cost]; None:
+    a timeout); its events folded."""
+    return f.fold(f.py(INPROC, what, gid, json.dumps(answer)), gid)
+
+
+def test_a_small_gap_is_ready_without_a_planner_session(tmp_path):
+    f = Instance(tmp_path)
+    by_size(f)
+    gid = f.opened()
+    size_as(f, gid, "S")
+    said, _ = f.run("plan.py", gid)
+    g = f.item(gid)
+    assert said == ["gap.defined"] and g["state"] == "ready" and reserved(f) == []          # no session
+    assert g["fields"]["defined_by"] == "size-s" and g["fields"]["planning_cost_usd"] == 0
+    assert g["fields"]["plan_review"] is None
+    text = (f.model / "run" / "defs" / "alpha-thing.md").read_text()
+    assert text.startswith("# alpha-thing: Alpha thing") and "size: S (confidence: high)" in text
+    assert "no planner session, no review" in text
+    assert "what it lacks." in text and "More of it." in text                # its GAPS.md entry's body, not only the title
+    # a definition appearing between the check and the write is left byte-for-byte
+    g2 = "gap/delta"
+    f.fold([{"event": "gap.requested", "item": g2, "data": {"branch": "delta", "entry": "Delta's own text."}}], None)
+    size_as(f, g2, "S")
+    mine = "# mine\n\nthe coordinator's, written meanwhile\n"
+    assert inproc(f, "race", g2, mine) == ["gap.defined"]
+    assert (f.model / "run" / "defs" / "delta.md").read_bytes() == mine.encode()
+    assert f.item(g2)["fields"]["defined_by"] == "coordinator" and reserved(f) == []
+    # an S gap with no text of its own (not in GAPS.md, no entry): never a title-only definition, the full path
+    g3 = "gap/epsilon"
+    f.fold([{"event": "gap.requested", "item": g3, "data": {"branch": "epsilon", "title": "Not listed"}}], None)
+    size_as(f, g3, "S")
+    said, _ = f.run("plan.py", g3, FACTORY_STANDIN_PLANNER=PLAN.format(b="epsilon"))
+    s = f.item(g3)["fields"]
+    assert said == ["gap.defined"] and reserved(f) == [1.0]                   # a planner session, at the planner's cap
+    assert (s["defined_by"], s["plan_review"]) == ("plan", "wanted")
+
+
+def test_a_medium_plan_skips_review_under_its_own_cap(tmp_path):
+    f = Instance(tmp_path)
+    by_size(f, m_usd=0.4)
+    gid = f.opened()
+    size_as(f, gid, "M", "medium")
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    g = f.item(gid)["fields"]
+    assert said == ["gap.defined"] and f.item(gid)["state"] == "ready" and "gap.planned" not in said
+    assert reserved(f) == [0.4]                                        # its own cap, not planner_session_usd (1.0)
+    assert g["defined_by"] == "plan-unreviewed" and g["plan_review"] is None and g["planning_cost_usd"] == 0
+    assert (f.model / "run" / "defs" / "alpha-thing.md").read_text().startswith("# alpha-thing: a plan")
+    # an M gap that splits: the sub-gaps have no class, so they take main's path (here review = all: marked)
+    f.fold([{"event": "gap.requested", "item": "gap/delta", "data": {"branch": "delta"}}], None)
+    size_as(f, "gap/delta", "M", "high")
+    split = PLAN.format(b="d-one") + PLAN.format(b="d-two") + covered("d-one", "d-two")
+    assert f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=split)[0][-1] == "gap.split"
+    assert reserved(f) == [0.4, 0.4]
+    for sub in ("gap/d-one", "gap/d-two"):
+        s = f.item(sub)["fields"]
+        assert (s["defined_by"], s["plan_review"], s["planning_cost_usd"]) == ("plan-split", "wanted", 0)
+
+
+def pick(gid: str) -> float:
+    import hashlib
+    return int(hashlib.sha1(f"l-review:{gid}".encode()).hexdigest(), 16) / 16 ** 40
+
+
+def test_large_plans_are_reviewed_on_a_stable_sample(tmp_path):
+    a, b = sorted(["gap/alpha-thing", "gap/delta"], key=pick)            # a falls under the share, b over it
+    share = (pick(a) + pick(b)) / 2
+    assert 0 < share < 1
+    for s, reviewed in [(0, {a: False, b: False}), (1, {a: True, b: True}), (share, {a: True, b: False})]:
+        (tmp_path / str(s)).mkdir()
+        f = Instance(tmp_path / str(s))
+        by_size(f, share=s)
+        f.opened()
+        f.fold([{"event": "gap.requested", "item": "gap/delta", "data": {"branch": "delta"}}], None)
+        for gid in (a, b):
+            br = gid[4:]
+            for _ in range(3):                                           # again, as a lease retry would
+                size_as(f, gid, "L")
+                said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b=br))
+                g = f.item(gid)["fields"]
+                assert said == ["gap.defined"], (s, gid)
+                assert (g["plan_review"] == "wanted", g["defined_by"]) == (
+                    reviewed[gid], "plan" if reviewed[gid] else "plan-unreviewed"), (s, gid)
+                (f.model / "run" / "defs" / f"{br}.md").unlink()
+                f.fold([{"event": "gap.requested", "item": gid, "data": {}}], None)   # open again
+    # a replan (the fold's state, from the send-back) is reviewed even at share 0, and defined_by is written anew
+    (tmp_path / "replan").mkdir()
+    f = Instance(tmp_path / "replan")
+    by_size(f, share=0)
+    gid = f.opened()
+    size_as(f, gid, "L")
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    assert f.item(gid)["fields"]["defined_by"] == "plan-unreviewed"
+    (f.model / "run" / "defs" / "alpha-thing.md").unlink()
+    f.fold([{"event": "gap.plan-sent-back", "item": gid, "data": {"plan_findings": ["again"]}}], None)
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    g = f.item(gid)["fields"]
+    assert said == ["gap.defined"] and (g["defined_by"], g["plan_review"], g["replanned"]) == ("plan", "wanted", True)
+
+
+def test_an_xl_gap_planned_whole_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    by_size(f)
+    gid = f.opened()
+    size_as(f, gid, "XL")
+    for n in (1, 2):                                                      # each time toward the lint's park
+        said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+        g = f.item(gid)
+        assert said == ["gap.plan-sent-back"] and g["state"] == "replan"
+        assert any("must split" in x for x in g["fields"]["plan_findings"]) and g["fields"]["plan_lint_failures"] == n
+    assert not (f.model / "run" / "defs" / "alpha-thing.md").exists()
+    split = PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two") + covered("alpha-one", "alpha-two")
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=split)
+    assert said[-1] == "gap.split" and f.item(gid)["state"] == "split"
+    assert f.item("gap/alpha-one")["state"] == f.item("gap/alpha-two")["state"] == "ready"
+
+
+def mains_pick(gid: str) -> bool:
+    """main's plan review sample (plan.review_wanted at sample_every = 3)."""
+    import hashlib
+    return int(hashlib.sha1(gid.encode()).hexdigest(), 16) % 3 == 0
+
+
+def sampling(f: Instance) -> tuple[list[str], list[str]]:
+    """[plan] review = sample, 1 in 3, and gap names main's sample picks and does not pick."""
+    f.config.write_text(f.config.read_text().replace('review = "all"', 'review = "sample"\nsample_every = 3'))
+    names = [f"g{i}" for i in range(40)]
+    return [n for n in names if mains_pick(f"gap/{n}")], [n for n in names if not mains_pick(f"gap/{n}")]
+
+
+@pytest.mark.parametrize("fields", [{"planned_size": "s ", "size_confidence": "high"},
+                                    {"planned_size": "S", "size_confidence": "low"}, {"planned_size": "S"},
+                                    {"size_confidence": "high"}, {"planned_size": "S", "size_confidence": 0.9},
+                                    {"planned_size": "M", "size_confidence": "sure"}])
+def test_an_unsized_or_unsure_gap_takes_the_full_path(fields, tmp_path):
+    # a class present but not trusted: the full planner, reviewed even where main's sample would not pick it
+    f = Instance(tmp_path)
+    by_size(f, share=0, bar=0.5)
+    _, unpicked = sampling(f)
+    gid = f"gap/{unpicked[0]}"
+    f.fold([{"event": "gap.requested", "item": gid, "data": {"branch": unpicked[0], "entry": "Its text."} | fields}],
+           None)
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b=unpicked[0]))
+    g = f.item(gid)["fields"]
+    assert said == ["gap.defined"] and reserved(f) == [1.0]               # the full planner, under its own cap
+    assert (g["defined_by"], g["plan_review"]) == ("plan", "wanted")      # reviewed, never the S or M path
+
+
+def test_an_unsized_plan_keeps_mains_review_sample(tmp_path):
+    # no class at all (every gap on main today, and every split's sub-gap): main's path and main's 1-in-3 sample,
+    # never every plan reviewed (review/plan-by-size-3)
+    f = Instance(tmp_path)
+    by_size(f, share=1)
+    picked, unpicked = sampling(f)
+    for n, want in ((picked[0], "wanted"), (unpicked[0], None)):
+        f.fold([{"event": "gap.requested", "item": f"gap/{n}", "data": {"branch": n}}], None)
+        said, _ = f.run("plan.py", f"gap/{n}", FACTORY_STANDIN_PLANNER=PLAN.format(b=n))
+        g = f.item(f"gap/{n}")["fields"]
+        assert said == ["gap.defined"] and (g["defined_by"], g["plan_review"]) == ("plan", want), n
+    assert reserved(f) == [1.0, 1.0]                                      # the full planner each time
+    f.fold([{"event": "gap.requested", "item": "gap/parent", "data": {"branch": "parent"}}], None)
+    a, b = picked[1], unpicked[1]
+    said, _ = f.run("plan.py", "gap/parent", FACTORY_STANDIN_PLANNER=PLAN.format(b=a) + PLAN.format(b=b) + covered(a, b))
+    assert said[-1] == "gap.split"
+    for n, want in ((a, "wanted"), (b, None)):
+        s = f.item(f"gap/{n}")["fields"]
+        assert (s["defined_by"], s["plan_review"], s["planning_cost_usd"]) == ("plan-split", want, 0), n
+
+
+def test_a_class_recorded_on_request_routes_the_plan(tmp_path):
+    # where a class comes from before planning: the gap.requested event's data (`ergostat event --add gap.requested
+    # --item gap/NAME --data '{...}'`), its text in `entry`
+    f = Instance(tmp_path)
+    by_size(f)
+    f.fold([{"event": "gap.requested", "item": "gap/small-one", "data": {
+        "branch": "small-one", "title": "Small one", "entry": "Only this.", "planned_size": "S",
+        "size_confidence": "high"}}], None)
+    said, _ = f.run("plan.py", "gap/small-one")
+    g = f.item("gap/small-one")
+    assert said == ["gap.defined"] and g["state"] == "ready" and reserved(f) == []
+    assert g["fields"]["defined_by"] == "size-s" and "Only this." in (f.model / "run" / "defs" / "small-one.md").read_text()
+
+
+@pytest.mark.parametrize("setting, key", [(dict(m_usd=2.0), "planner_m_session_usd"),
+                                          (dict(share=1.5), "l_review_share"),
+                                          (dict(bar=-0.1), "min_size_confidence")])
+def test_size_settings_out_of_bounds_stop_before_a_session(setting, key, tmp_path):
+    f = Instance(tmp_path)
+    by_size(f, **setting)
+    gid = f.opened()
+    said, _ = f.run("plan.py", gid, fails=True)
+    assert said == [] and key in f.stderr and reserved(f) == []
+    assert f.item(gid)["state"] == "open"
+
+
+def test_planning_cost_is_summed_and_a_failed_session_charges_its_reservation(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    assert inproc(f, "plan", gid, [PLAN.format(b="alpha-thing"), 0.25]) == ["gap.defined"]
+    assert inproc(f, "review", gid, None) == ["gap.measured", "gap.measured"]     # timed out: its 1.0 reserved
+    (f.model / "run" / "defs" / "alpha-thing.md").unlink()
+    f.fold([{"event": "gap.plan-sent-back", "item": gid, "data": {"plan_findings": ["again"]}}], None)
+    assert inproc(f, "plan", gid, None) == ["gap.measured"]                     # the replan timed out: 1.0
+    g = f.item(gid)["fields"]
+    assert g["planning_cost_usd"] == g["ai_cost_usd"] == 2.25
+
+
+def test_planning_cost_share_leaves_out_unrecorded_gaps(tmp_path):
+    f = Instance(tmp_path)
+    now = time.time()
+    merged_gap(f, "gap/none", now - DAY, ai_cost_usd=50.0)                       # no field: left out, never 0
+    r = size_measure(f, "planning-cost-share")
+    assert r.returncode == 1 and "no value yet" in r.stderr
+    merged_gap(f, "gap/a", now - DAY, planning_cost_usd=1.0, ai_cost_usd=4.0)
+    merged_gap(f, "gap/b", now - DAY, planning_cost_usd=0, ai_cost_usd=6.0)
+    merged_gap(f, "gap/over", now - DAY, planning_cost_usd=5.0, ai_cost_usd=2.0)  # above its total: left out
+    merged_gap(f, "gap/neg", now - DAY, planning_cost_usd=-1.0, ai_cost_usd=2.0)  # negative: left out
+    merged_gap(f, "gap/old", now - 20 * DAY, planning_cost_usd=9.0, ai_cost_usd=9.0)   # outside the window
+    r = size_measure(f, "planning-cost-share")
+    assert r.returncode == 0 and r.stdout.strip() == "0.1", r.stderr
+    assert "gap/over" in r.stderr and "gap/neg" in r.stderr and "gap/a" not in r.stderr
+
+
+def test_the_size_paths_are_in_the_model():
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    spec, _ = read(ROOT / "ergostat.yaml")
+    for flow, by in [("small-gaps-defined", "size-s"), ("plans-unreviewed", "plan-unreviewed")]:
+        fl = spec.flows[flow]
+        assert (fl.source, fl.target) == ("gaps-open", "gaps-ready")
+        items = [s.items for s in fl.sensors.values()]
+        assert items and all(i.get("entering") == "ready" and i.get("where") == {"defined_by": by} for i in items)
+        assert any(flow in str(r) for refs in spec.blocks["planner"].outputs.values() for r in refs)
+    aux = spec.auxiliaries["planning-cost-share"]
+    assert [s.run for s in aux.sensors.values()] == ["python3 dev/bin/measure.py planning-cost-share"]
+
+
+def researched(f: Instance, rid: str, report: str | None = "# Found\n\nThe queue reruns a failure twice.\n",
+               state: str = "answered", **asked) -> None:
+    """A research item asked (with ``asked``'s fields) and, unless still asked, answered with ``report`` in
+    run/research/ (None: a report path that is not there); its state then set to ``state``."""
+    f.fold([{"event": "research.asked", "item": rid, "data": {"question": f"What of {rid}?", **asked}}], None)
+    if state != "asked":
+        name = rid.split("/", 1)[1]
+        if report is not None:
+            (f.model / "run" / "research").mkdir(parents=True, exist_ok=True)
+            (f.model / "run" / "research" / f"{name}.md").write_text(report)
+        f.fold([{"event": "research.answered", "item": rid, "data": {
+            "report": f"run/research/{name}.md", "summary": f"The summary of {name}."}}], None)
+    db = f.db()
+    db["items"][rid]["state"] = state
+    f.record.write_text(json.dumps(db))
+
+
+def test_implementor_and_reviewer_briefs_carry_the_gaps_research(tmp_path):
+    f = Instance(tmp_path)
+    f.define()
+    researched(f, "research/by-field-1")                                     # the gap's own research field
+    researched(f, "research/by-gap-2", gap="gap/alpha-thing", report="# Second\n\nThe lease is renewed.\n")
+    researched(f, "research/of-parent-3", report="# Third\n\nThe parent's answer.\n")
+    researched(f, "research/elsewhere-4", gap="gap/other", report="# Fourth\n\nNot this gap's.\n")
+    f.fold([{"event": "gap.measured", "item": "gap/alpha-thing", "data": {"research": ["research/by-field-1"],
+                                                                         "parent": ["gap/p"]}},
+            {"event": "gap.requested", "item": "gap/p", "data": {"title": "Parent", "research": ["research/of-parent-3"]}}],
+           None)
+    assert f.run("implement.py", "gap/alpha-thing")[0] == ["gap.started", "gap.built"]
+    assert f.run("review.py", "gap/alpha-thing")[0][-1] == "gap.approved"
+    gap = f.item("gap/alpha-thing")["fields"]
+    briefs = [(c, (f.model / c["brief"][5:]).read_text())
+              for c in (gap["contexts"][0], f.item("review/alpha-thing-1")["fields"]["context"])]
+    for ctx, text in briefs:
+        assert ctx["role"] in ("implementor", "reviewer")
+        assert {"research/by-field-1", "research/by-gap-2", "research/of-parent-3"} <= set(ctx["knowledge"])
+        assert "research/elsewhere-4" not in ctx["knowledge"] and "Not this gap's." not in text
+        head = text.index("## Research for this gap")
+        assert head < text.index("The queue reruns a failure twice.") and head < text.index("The lease is renewed.")
+        assert "### research/by-field-1: What of research/by-field-1?" in text
+        assert "**Summary:** The summary of by-gap-2." in text and "The parent's answer." in text
+        assert head < text.index("## The module map")                      # first of what is carried as it fits
+
+
+def test_asked_unsourced_or_dead_research_is_not_carried(tmp_path):
+    f = Instance(tmp_path)
+    f.define()
+    researched(f, "research/asked-1", state="asked", gap="gap/alpha-thing")
+    researched(f, "research/dead-2", state="dead", gap="gap/alpha-thing", report="# Dead\n\nA dead answer.\n")
+    researched(f, "research/gone-3", report=None, gap="gap/alpha-thing")    # its report is not in run/research/
+    researched(f, "research/out-4", gap="gap/alpha-thing")
+    db = f.db()
+    db["items"]["research/out-4"]["fields"]["report"] = "ergostat.yaml"     # a path outside run/research/: refused
+    f.record.write_text(json.dumps(db))
+    researched(f, "research/kept-5", gap="gap/alpha-thing", report="# Kept\n\nThe one answer.\n")
+    for role in ("implementor", "reviewer", "planner"):
+        got = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", role, "x")
+        assert [k for k in got["knowledge"] if k.startswith("research/")] == ["research/kept-5"]
+        assert "The one answer." in got["text"] and "A dead answer." not in got["text"]
+        assert not [k for k in got["knowledge_dropped"] if k.startswith("research/")]
+    got = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "researcher", "x")
+    assert "## Research for this gap" not in got["text"]                    # only the three roles carry it
+
+
+def test_research_over_its_budget_is_cut_at_a_line_and_over_the_roles_dropped_whole(tmp_path):
+    f = Instance(tmp_path)
+    f.define()
+    long = "# Long\n\n" + "".join(f"line {n} of the report, <b>tagged</b>\n" for n in range(400))
+    researched(f, "research/long-1", gap="gap/alpha-thing", report=long)
+    got = f.py(BLOCK, json.dumps({"research_chars": 500}), "gap/alpha-thing", "implementor", "x")
+    part = got["text"].split("<report>\n", 1)[1].split("\n</report>", 1)[0]
+    assert "research/long-1" in got["knowledge"] and len(part) <= 500 + 40
+    assert part.endswith("</b>\n(cut to research_chars)") and "line 13 of the report" not in part   # cut at a line
+    assert f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "implementor", "x")["text"].count("<b>") == \
+        long[:6000].rsplit("\n", 1)[0].count("<b>")                          # the default: 6000
+    must = f.py(BLOCK, json.dumps({"chars": 1}), "gap/alpha-thing", "implementor", "x")["knowledge_chars"]
+    lean = f.py(BLOCK, json.dumps({"chars": must + 300, "research_chars": 500}), "gap/alpha-thing", "implementor", "x")
+    assert lean["knowledge_chars"] <= must + 300 and "research/long-1" in lean["knowledge_dropped"]
+    assert "research/long-1" not in lean["knowledge"] and "<report>" not in lean["text"] and "<b>" not in lean["text"]
+
+
+def test_ask_ties_a_question_to_a_known_gap(tmp_path):
+    f = Instance(tmp_path)
+    f.opened()
+    rid = f.tool("ask.py", "How", "does the queue decide?").stdout.strip()            # no option: as before
+    assert f.drain() == ["research.asked"]
+    assert f.item(rid)["fields"]["question"] == "How does the queue decide?" and "gap" not in f.item(rid)["fields"]
+    for name in ("alpha-thing", "gap/alpha-thing"):
+        rid = f.tool("ask.py", "--gap", name, "Why", "the lease?").stdout.strip()
+        assert f.drain() == ["research.asked"]
+        assert f.item(rid)["fields"] == {**f.item(rid)["fields"], "question": "Why the lease?", "gap": "gap/alpha-thing"}
+    r = f.tool("ask.py", "--gap", "nothing-here", "Why?", ok=False)
+    assert "no such gap: gap/nothing-here" in r.stderr and f.drain() == []
+    f.tool("ask.py", ok=False)                                                          # no question: refused
+    researched(f, "research/tied-1", gap="gap/alpha-thing", report="# Tied\n\nThe tied answer.\n")
+    assert "The tied answer." in f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "reviewer", "x")["text"]
+
+
+def briefed(f: Instance, gid: str, *carried: str) -> None:
+    """A gap whose first implementor brief carried these knowledge ids (a later brief carried more: never read)."""
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"contexts": [
+        {"role": "planner", "knowledge": ["lesson-9"]}, {"role": "implementor", "knowledge": list(carried)},
+        {"role": "implementor", "knowledge": ["lesson-1", "lesson-2", "lesson-3", "lesson-4"]}]}}], None)
+
+
+def reviewed(f: Instance, rid: str, gid: str, at: float, classes: list[str] | None) -> None:
+    f.fold([{"event": "review.written", "item": rid, "data": {"gap": gid, "round": 2, "written_at": at}}], None)
+    if classes is not None:
+        f.fold([{"event": "review.measured", "item": rid, "data": {"classes": classes}}], None)
+
+
+def test_a_carried_class_found_again_counts(tmp_path):
+    f, now = Instance(tmp_path), time.time()
+    briefed(f, "gap/a", "lesson-3", "lesson-8", "house-rules")
+    reviewed(f, "review/a-1", "gap/a", now - DAY, ["lesson-3", "lesson-8", "new-odd-thing"])
+    reviewed(f, "review/a-2", "gap/a", now - 20 * DAY, ["lesson-3"])                  # before the window
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 0 and r.stdout.strip() == "2.0", r.stderr
+    reviewed(f, "review/a-3", "gap/a", now - DAY, None)                              # the librarian has not measured it
+    briefed(f, "gap/b", "lesson-3")
+    reviewed(f, "review/b-1", "gap/b", now - DAY, ["lesson-3"])
+    reviewed(f, "review/c-1", "gap/c", now - DAY, ["lesson-3"])                      # no brief recorded for gap/c
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 0 and r.stdout.strip() == "3.0", r.stderr
+    assert "left out, 2 review(s)" in r.stderr
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    assert [p.code for p in problems if p.about in ("goal.lessons-hold", "auxiliary.lessons-recurring",
+                                                     "block.lessons-relearn", "block.librarian")] == []
+    assert spec.loop("lessons-hold").closes
+    goal, aux = spec.goals["lessons-hold"], spec.auxiliaries["lessons-recurring"]
+    assert str(goal.of) == "auxiliary.lessons-recurring" and str(goal.hold) == "<= 2" and goal.on_stale == "off"
+    assert aux.system == "guarantees" and [s.run for s in aux.sensors.values()] == [
+        "python3 dev/bin/measure.py lessons-recurring"]
+
+
+def test_a_class_not_carried_does_not_count(tmp_path):
+    f, now = Instance(tmp_path), time.time()
+    briefed(f, "gap/a", "lesson-3")
+    reviewed(f, "review/a-1", "gap/a", now - DAY, ["lesson-1", "lesson-9", "new-lesson-3"])   # lesson-1: a later brief's
+    reviewed(f, "review/a-2", "gap/a", now - DAY, [])                                # measured, found none: counted
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 0 and r.stdout.strip() == "0.0" and "left out" not in r.stderr, r.stderr
+
+
+def test_no_reviews_has_no_value(tmp_path):
+    f, now = Instance(tmp_path), time.time()
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
+    briefed(f, "gap/a", "lesson-3")
+    reviewed(f, "review/a-1", "gap/a", now - DAY, None)                              # only a review left out
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr and "left out, 1 review(s)" in r.stderr

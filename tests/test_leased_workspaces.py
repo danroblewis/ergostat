@@ -187,6 +187,14 @@ def test_a_leased_item_keeps_its_workspace_through_a_retry_and_review_and_it_is_
     assert late["state"] == "denied" and "fenced" in late["note"]
 
 
+def going_on(p, run: str) -> None:
+    """The run's record, naming a process that lives (this one): its lease is not released as gone (leases/gone.py)."""
+    import os
+
+    from ergostat.spec import runrecord
+    runrecord.write(runrecord.files(p.dir, run), os.getpid(), run, "dev", "ticket/2", 1)
+
+
 def test_a_lease_that_expires_while_its_run_goes_on_fences_its_workspace(tmp_path):
     make_repo(tmp_path / "product")
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
@@ -200,6 +208,7 @@ def test_a_lease_that_expires_while_its_run_goes_on_fences_its_workspace(tmp_pat
     ev = p.events.add(TAKEN, item="ticket/2", source="ergostat",
                       data={"item": "ticket/2", "run": run, "block": "dev", "fence": 1, "ttl": 1, "max": 3, "back": "open"})
     p.events.add("agent.started", item="dev", source="ergostat", id=run, causedby=ev["id"], data={"item": "ticket/2"})
+    going_on(p, run)
     got = pl.acquire(p, spec, "code", it.id, {"title": "Slow"}, run=run, lease=1)
     assert slot(p)["state"] == "in-use"
     asked = gate.request(p, spec, "push", {}, {"block": "dev", "run": run, "item": "ticket/2", "workdir": got["dir"],
@@ -239,6 +248,7 @@ def test_an_expiry_refused_in_the_moment_before_its_write_releases_nothing_and_c
     ev = p.events.add(TAKEN, item="ticket/2", source="ergostat", at=time.time() - 5,
                       data={"item": "ticket/2", "run": run, "block": "dev", "fence": 1, "ttl": 1, "max": 3, "back": "open"})
     p.events.add("agent.started", item="dev", source="ergostat", id=run, causedby=ev["id"], data={"item": "ticket/2"})
+    going_on(p, run)
     pl.acquire(p, spec, "code", "ticket/2", {"title": "Slow"}, run=run, lease=1)
     killed = []
     monkeypatch.setattr("ergostat.leases.dispatch.kill", lambda eng, r, *a: killed.append(r) or True)

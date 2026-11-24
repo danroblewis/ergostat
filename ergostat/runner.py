@@ -17,6 +17,7 @@ a loop that crosses its setpoint (holding to off, or back) is recorded as ``loop
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import json
 import os
@@ -26,13 +27,15 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 from . import state as st
 from .reports import crash as reports_crash
 
 RUN_TIMEOUT = 300.0
-# no agent may publish these
+# no agent may publish these (budget.: a forged budget.closed would release a reserve, SPEC §9.9)
 OWN_TYPES = ("agent.", "loop.", "valve.", "controller.", "model.", "ergostat.", "auxiliary.", "variable.", "trigger.",
              "budget.")
 LIVE: set = set()          # the runs in progress, so stopping ergostat stops them too
@@ -277,16 +280,89 @@ def _edges(project, causedby, sensor) -> list[dict]:
     return out
 
 
+def _first_words(cmd: str) -> list[tuple[int, int]]:
+    """The spans of the shell words of ``cmd``'s first simple command: up to its first unquoted ``|``, ``&``, ``;``,
+    ``(``, ``)``, backquote or line end (a quote, a backslash and ``$(…)`` keep what they hold inside the word). Blank
+    lines before it are skipped, as the shell skips them."""
+    words, i, n = [], len(cmd) - len(cmd.lstrip()), len(cmd)
+    while i < n and cmd[i] not in "|&;()`\n":
+        if cmd[i].isspace():
+            i += 1
+            continue
+        start, quote, depth = i, None, 0
+        while i < n and (quote or depth or not (cmd[i].isspace() or cmd[i] in "|&;()`\n")):
+            c = cmd[i]
+            if c == "\\" and quote != "'":
+                i += 1
+            elif quote:
+                quote = None if c == quote else quote
+            elif c in "'\"":
+                quote = c
+            elif c == "$" and cmd[i + 1:i + 2] == "(":
+                depth, i = depth + 1, i + 1
+            elif c == ")":
+                depth -= 1
+            i += 1
+        words.append((start, min(i, n)))
+    return words
+
+
+def capped(cmd: str, usd) -> str:
+    """``cmd``, whose first word is ``claude``, with ``--max-budget-usd usd`` right after that word and the flag's own
+    words in that claude call removed, so the cap reaches the claude call however the shell line goes on (``| jq``,
+    ``&& git``, ``;``, more lines) and nothing after it is given the flag."""
+    words, drops, skip = _first_words(cmd), [], False
+    if not words:
+        return cmd
+    for k, (s, e) in enumerate(words[1:], 1):
+        word = cmd[s:e]
+        flag = not skip and (word == "--max-budget-usd" or word.startswith("--max-budget-usd="))
+        if skip or flag:
+            drops.append((words[k - 1][1], e))          # the word with the space before it
+        skip = flag and word == "--max-budget-usd"      # its value is the next word
+    out, at = cmd[:words[0][1]] + f" --max-budget-usd {usd}", words[0][1]
+    for a, b in drops:
+        out, at = out + cmd[at:a], b
+    return out + cmd[at:]
+
+
 def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule", version: str | None = None) -> dict:
     """One run: start the command, feed it its context, record its lines, and record the run. ``version``: the
     model it starts under (recorded on the run; it finishes under that agent's definition whatever changes)."""
     if version is None:
         from .history import version as model_version
         version = model_version(project.model)
-    started = time.time()
-    begun = project.events.add("agent.started", item=agent.name, source=SOURCE,
-                               causedby=trigger.get("id") if trigger else None,
-                               data={"trigger": trigger["type"] if trigger else why, "model": version})
+    from .costs import budget
+    started, run_id, spec, cmd = time.time(), uuid.uuid4().hex, budget.of(project.model), agent.command
+
+    def write(more: dict | None = None) -> dict:
+        return project.events.add("agent.started", item=agent.name, source=SOURCE, id=run_id,
+                                  causedby=trigger.get("id") if trigger else None,
+                                  data={"trigger": trigger["type"] if trigger else why, "model": version, **(more or {})})
+    if spec is None or spec.budget is None:
+        begun = write()
+    else:                                       # the permissive (SPEC §9.9): the agent's declared kind, none charged
+        blk = SimpleNamespace(name=agent.name, agent=agent.name, type=None)
+        begun, no = budget.permit(project, spec, blk, write, run_id)
+        if begun is None:
+            return {"budget": no, "note": f"refused: budget: {no}"}
+    try:                                        # from the reserving start on, a raise is closed at its reserve
+        if spec is not None and spec.budget is not None:
+            from .costs import ai as costs_ai
+            if costs_ai.is_claude(cmd):         # T1: its reserve as its cap, ours replacing any in the command
+                cmd = capped(cmd, budget.reserve_of(spec, blk))
+        return _ran(project, agent, trigger, why, version, started, begun, cmd)
+    except BaseException:
+        if begun["id"] in budget.OPEN:          # raised before its end: its reserve stays charged
+            with contextlib.suppress(Exception):
+                budget.close(project, agent.name, begun["id"], None, "the run raised before its end")
+        raise
+    finally:
+        budget.OPEN.discard(begun["id"])
+
+
+def _ran(project, agent, trigger, why, version, started, begun, cmd) -> dict:
+    """The run, once its ``agent.started`` is written: to its end."""
     rec = Recorder(project, agent, begun["id"])
     log = log_path(project, agent.name)
     from .storage import trim
@@ -299,7 +375,7 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                  f"({trigger['type'] if trigger else why})\n")
         lf.flush()
         try:
-            p = subprocess.Popen(agent.command, shell=True, cwd=project.repo, env=env, stdin=subprocess.PIPE,
+            p = subprocess.Popen(cmd, shell=True, cwd=project.repo, env=env, stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
             LIVE.add(p)
         except OSError as e:
@@ -453,7 +529,18 @@ class Runner:
                         self.say(f"{n}: its cron no longer matches ({e}); it will not run again")
                         next_cron[n] = None
                     self._due(n)
+            self._recover()
             self.stop.wait(TICK)
+
+    def _recover(self, every: float | None = None) -> None:
+        """The reserves of runs whose process is gone closed (SPEC §9.9): at most once a minute, or ``every``."""
+        from .costs import budget
+        spec = budget.of(self.p.model)
+        try:
+            if spec is not None and spec.budget is not None:
+                budget.recover(self.p, spec, budget.RECOVER_EVERY if every is None else every)
+        except Exception as e:
+            self.say(f"budget: recovery: {type(e).__name__}: {e}")
 
     def _due(self, name: str) -> None:
         q = self.queues.get(name)
@@ -464,21 +551,10 @@ class Runner:
     def _prune(self) -> None:
         """Every ``storage: rollup: every`` (an hour): roll items' old events up into snapshots, forget
         what is older than the model's ``keep`` (default 30 days), and roll the measurements into their
-        tiers (``rollup.upkeep``)."""
-        from .rollup import upkeep
-        from .storage import rotate, trim
+        tiers (``rollup.upkeep``, under the compaction lock). Under ``use: upkeep`` only the logs: the template's
+        record-compactor and measurement-retainer do the rest (SPEC §4b)."""
         while not self.stop.wait(60):                      # not at once: a start is busy enough
-            rotate(self.p.dir / "run.log", self.p.storage.logs["run"])         # (storage: logs:)
-            trim(self.p.dir / "threads.txt", self.p.storage.logs["threads"])
-            try:
-                got = upkeep(self.p)
-                ro, me = got["rollup"], got.get("measurements") or {}
-                if ro["items"] or got["pruned"] or me.get("forgot"):
-                    self.say(f"rolled up {ro['events']} events of {ro['items']} items; kept {self.p.model.keep / 86400:g} days: "
-                             f"forgot {got['pruned']} events; measurements: {me.get('rolled', 0)} buckets made, "
-                             f"{me.get('forgot', 0)} rows forgotten")
-            except Exception as e:
-                self.say(f"rolling up: {type(e).__name__}: {e}")
+            prune_once(self.p, self.say)          # (a module function: the spec engine runs _prune as its own)
             if self.stop.wait(getattr(self.p, "storage", None).every if getattr(self.p, "storage", None) else 3600):
                 return
 
@@ -511,6 +587,7 @@ class Runner:
         seq = self.p.events.last_seq()
         if not RELOADED.is_set():
             self._still_off()
+        self._recover(every=0)
         for name in list(self.queues):
             self._worker(name)
         threading.Thread(target=self._schedule, daemon=True).start()
@@ -569,6 +646,30 @@ class Runner:
 
 
 # ---- in the background
+
+def prune_once(p, say) -> None:
+    """One pass of ``Runner._prune``: the logs; then ``rollup.upkeep`` (or ``busy``), unless ``use: upkeep``'s blocks do it."""
+    from .rollup import upkeep
+    from .spec.itemindex import upkept
+    from .storage import rotate, trim
+    rotate(p.dir / "run.log", p.storage.logs["run"])         # (storage: logs:)
+    trim(p.dir / "threads.txt", p.storage.logs["threads"])
+    if upkept(getattr(p.model, "spec", None)):
+        return
+    try:
+        got = upkeep(p)
+    except Exception as e:
+        say(f"rolling up: {type(e).__name__}: {e}")
+        return
+    if got.get("busy"):
+        say("rolling up: busy (another process holds the compaction lock); nothing done")
+        return
+    ro, me = got["rollup"], got.get("measurements") or {}
+    if ro["items"] or got["pruned"] or me.get("forgot"):
+        say(f"rolled up {ro['events']} events of {ro['items']} items; kept {p.model.keep / 86400:g} days: "
+            f"forgot {got['pruned']} events; measurements: {me.get('rolled', 0)} buckets made, "
+            f"{me.get('forgot', 0)} rows forgotten")
+
 
 def pid_file(project) -> Path:
     return project.dir / "run.pid"

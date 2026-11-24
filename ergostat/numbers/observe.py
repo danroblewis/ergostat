@@ -193,6 +193,14 @@ def _others(spec: Spec, d: Data, name: str, ch: dict) -> list[tuple[float, float
     return out
 
 
+def unread_start(spec: Spec, d: Data, name: str) -> None:
+    """A stock with no sensor and an ``initial:`` starts at the window's start from it (SPEC §5: a starting value,
+    for simulation only), so the replay integrates it from there instead of holding it at 0."""
+    st = spec.stocks[name]
+    if not st.sensors and st.initial is not None:
+        d.started[f"stock.{name}"] = (d.grid.since, float(st.initial))
+
+
 def measured(p, grid: Grid, spec: Spec | None = None) -> Data:
     """The record on ``grid``, for the model as it is (or ``spec``: a change being tried)."""
     spec = spec or p.model.spec
@@ -214,6 +222,8 @@ def measured(p, grid: Grid, spec: Spec | None = None) -> Data:
         d.values[ref], d.at[ref], d.how[ref] = vals, when, "measured"
         if first:
             d.started[ref] = first
+        elif kind == "stock":
+            unread_start(spec, d, name)
     valves = {}
     for v in getattr(p.model, "valves", {}).values():
         valves.setdefault(v.flow, []).append(v.name)

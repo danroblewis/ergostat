@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 
+from .. import datasources
 from ..durations import DurationError, parse_duration
 from . import files
 from .equation import FUNCS as FUNCTIONS
@@ -64,11 +65,12 @@ from .ir import (
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
-SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "every", "cron", "timeout", "parse", "unit",
-               "description", "averages"}
+SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "journal", "push", "every", "cron", "timeout", "parse",
+               "unit", "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
+                      "finished", "moves-from", "if-unchanged", "attention", "pipeline"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -79,11 +81,13 @@ AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous"
 PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table", "range", "inferred"}
 DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 INFERRED = re.compile(r"^ergostat\.model-change/[0-9a-z-]+$")   # inferred: the model change that added a part
+WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")       # a field a SQL view names as a column
+STAGES_MOST = 32                                     # stage names a pipeline declares (its histograms' labels)
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file", "tls"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
-MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on"}
+MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on", "runs-on"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
     "program": MACHINE_COMMON | LAW_KEYS | {"run", "daemon", "parse", "goal", "until", "review", "workspace", "actions",
@@ -91,7 +95,7 @@ TYPE_KEYS = {
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review",
                                        "workdir", "workspace", "read", "tools", "actions", "read-only", "network"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
-    "external": {"agent", "identify"},
+    "external": {"agent", "identify", "law"},
     "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up", "reviewed",              # judge: model (SPEC §12e)
               "judge", "kinds", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
     "onoff": {"goal", "until", "min-on", "min-off"},
@@ -134,6 +138,7 @@ class Compiler:
         self.doc = doc
         self.problems: list[Problem] = list(doc.problems)
         self.old: dict[tuple, list] = {}                 # (what was renamed, file) → [first place, how many]
+        self.endless: list[tuple] = []                   # flows with neither from: nor to: (an error unless a delay takes them)
 
     def err(self, msg: str, where: Where | None, code: str = "", about: str = "") -> None:
         self.problems.append(Problem("error", msg, where, code, about))
@@ -467,7 +472,7 @@ class Compiler:
     # ---- sections
 
     def sensors(self, owner: Map, of: Ref, what: str) -> dict[str, Sensor]:
-        from ..library import bounds
+        from ..library import bounds, runs
         out = {}
         raw = {}
         if "sensor" in owner and "sensors" in owner:
@@ -492,10 +497,22 @@ class Compiler:
             changes = s.get("changes")
             self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()) | ({"changes", "over"} if changes is not None
                                                                                   else {"changes"}), sw)
-            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon") if s.get(k) not in (None, False)]
+            if "runs-on" in s:                                # a sensor runs here, beside what reads it (§12k)
+                self.err(f"{sw}.runs-on: a sensor runs here; only a program block runs on a pool", s.at("runs-on"),
+                         "runs-on-sensor")
+            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon", "journal")
+                     if s.get(k) not in (None, False)]
             if len(kinds) != 1:
-                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin: or daemon: (it has "
-                         f"{', '.join(kinds) or 'none'})", s.where, "sensor-kind")
+                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin:, daemon: or journal: "
+                         f"(it has {', '.join(kinds) or 'none'})", s.where, "sensor-kind")
+            journal = s.get("journal")
+            if journal is not None:                    # a folder inside the model's root (SPEC §6)
+                root = Path(self.doc.root).resolve()
+                if not isinstance(journal, str) or not journal.strip() or Path(journal).is_absolute() or \
+                        not (root / journal).resolve().is_relative_to(root):
+                    self.err(f"{sw}.journal: a folder inside the model's folder, written relative to it (journals/), "
+                             f"not {str(journal)[:80]!r}", s.at("journal"), "bad-journal")
+                    journal = None
             measure = None
             if s.get("builtin") is not None:
                 measure = str(s["builtin"])
@@ -512,7 +529,7 @@ class Compiler:
                              f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
                              f"oldest, asked), or ergostat.interventions.waiting (or per-day, trend, standing, chattering, "
                              f"blocked-hours, top-share), or ergostat.upkeep.index-files (or retired-index-files, "
-                             f"heartbeat-age, stalls, restarts)",
+                             f"heartbeat-age, stalls, restarts, rollup-due, events-past-keep, measurements-due)",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -556,7 +573,8 @@ class Compiler:
                                     timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
                                     description=self.text(s, "description"), where=s.where,
-                                    daemon=s.get("daemon"), push=s.get("push") is True)
+                                    daemon=s.get("daemon"), push=s.get("push") is True, journal=journal,
+                                    run_in=runs.OWNER if measure else runs.verdict(self.doc.uses, s.where, of, str(name)))
         return out
 
     def item_sensor(self, s: Map, of: Ref, sw: str) -> dict | None:
@@ -571,8 +589,8 @@ class Compiler:
         for k in ("entering", "leaving"):
             if s.get(k) is not None:
                 q[k] = str(s[k])
-        if of.kind != "flow":
-            for k in ("entering", "leaving", "over", "sum"):
+        if of.kind != "flow" and not (of.kind == "auxiliary" and ("entering" in q or "leaving" in q)):
+            for k in ("entering", "leaving", "over", "sum"):   # (an auxiliary may count the moves over a window)
                 if s.get(k) is not None:
                     self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving:, over: and "
                              f"sum: measure a flow", s.at(k), "items-on-stock")
@@ -620,6 +638,31 @@ class Compiler:
                     f"{' (1 and 1.0 alike)' if kind == 'a number' else ''}, and no longer a field holding the text "
                     f"{shown!r}; write \"{shown}\" (quoted) if the field holds text", w.at(k) if hasattr(w, "at") else None,
                     "where-typed", about))
+
+    def pipeline(self, m: Map, what: str, rules: dict) -> dict | None:
+        """``pipeline:`` (SPEC §5a, *Stages*): its items record stages, folded into ``stages`` by merge; ``title``,
+        the stage names its histograms label (at most STAGES_MOST), and ``waiting``: the line of work it takes from
+        (a kind, a state, the fields it is taken in order of)."""
+        p = m.get("pipeline")
+        if p is None:
+            return None
+        w = p.get("waiting") if isinstance(p, dict) else None
+        names = p.get("stages") if isinstance(p, dict) else None
+        ok = (isinstance(p, dict) and set(p) <= {"title", "stages", "waiting"} and isinstance(p.get("title", ""), str)
+              and isinstance(names, list) and 0 < len(names) <= STAGES_MOST
+              and all(isinstance(s, str) and NAME.match(s) for s in names)
+              and rules.get("stages", "merge") == "merge"
+              and (w is None or (isinstance(w, dict) and set(w) <= {"kind", "state", "order"}
+                                 and all(isinstance(w.get(k), str) and NAME.match(w[k]) for k in ("kind", "state"))
+                                 and all(isinstance(f, str) and WORD.match(f) for f in w.get("order") or []))))
+        if not ok:
+            self.err(f"{what}.pipeline: {{title: TEXT, stages: [its stage names, at most {STAGES_MOST}], waiting: "
+                     f"{{kind: KIND, state: STATE, order: [FIELD, ...]}}}}; its items' stages field folds by merge",
+                     m.at("pipeline") or m.where, "bad-pipeline")
+            return None
+        rules["stages"] = "merge"
+        return {"title": p.get("title") or "", "stages": list(names),
+                "waiting": {"kind": w["kind"], "state": w["state"], "order": list(w.get("order") or [])} if w else None}
 
     def item_kind(self, name: str, m: Map, what: str) -> ItemKind:
         self.keys(m, ITEM_KEYS, what)
@@ -691,10 +734,42 @@ class Compiler:
                      f"(goal.x, stock.y), folded by replace: an event that sets it replaces the list", m.at("about"),
                      "bad-about")
             about = None
-        return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
+        final = m.get("final") or []                 # states no event moves an item out of (SPEC §5a)
+        final = [final] if isinstance(final, str) else final
+        if not isinstance(final, list) or not all(isinstance(s, str) and s in states for s in final):
+            self.err(f"{what}.final: a list of its states that no event moves an item out of ([completed])",
+                     m.at("final") or m.where, "bad-final")
+            final = []
+        done = m.get("finished") or []               # its own finished states (SPEC §5a, *Which states are finished*)
+        done = [done] if isinstance(done, str) else done
+        if not isinstance(done, list) or not all(isinstance(s, str) and s in states[1:] for s in done):
+            self.err(f"{what}.finished: a list of its states, not its first, that count as finished ([done, dropped])",
+                     m.at("finished") or m.where, "bad-finished")
+            done = []
+        only = m.get("moves-from") or {}             # event type → the only states it moves an item out of
+        if not isinstance(only, dict) or not all(e in moves and isinstance(s, list) and s and set(s) <= set(states)
+                                                 for e, s in only.items()):
+            self.err(f"{what}.moves-from: a map of one of its on: events to the list of its states it alone moves an "
+                     f"item out of ({{ticket.reopened: [done]}})", m.at("moves-from") or m.where, "bad-moves-from")
+            only = {}
+        fenced = m.get("if-unchanged") or []         # events applied only to the item as read (SPEC §5a)
+        if not isinstance(fenced, list) or not all(isinstance(t, str) and t for t in fenced):
+            self.err(f"{what}.if-unchanged: a list of event types, each applied only when its data's read is the "
+                     f"item's count of events as it stands ([ticket.freed])", m.at("if-unchanged") or m.where,
+                     "bad-if-unchanged")
+            fenced = []
+        attention = m.get("attention")               # the field whose latest item's words need the owner (SPEC §5a)
+        if attention is not None and (not isinstance(attention, str) or not attention or attention in relations):
+            self.err(f"{what}.attention: the name of a field (not a relation) whose words, on the latest item that has "
+                     f"them, are shown on the attention list", m.at("attention"), "bad-attention")
+            attention = None
+        pipeline = self.pipeline(m, what, rules)
+        return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
-                        join=joins.compile_join(self, m, what), about=about)
+                        join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
+                        finished=list(done), moves_from={e: tuple(s) for e, s in only.items()},
+                        if_unchanged=tuple(fenced), attention=attention)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""
@@ -822,6 +897,16 @@ class Compiler:
                 getattr(got, attr)[str(kind)] = vals[0] if key == "reopen-to" else vals
         spec.messages = got
 
+    def runs(self, spec: Spec) -> None:
+        """``runs:``: ``outlive_engine``, whether a block's run is kept going by its keeper past the engine (§9.1)."""
+        if (r := self.doc.runs) is None:
+            return
+        if isinstance(r, Map):
+            self.keys(r, {"outlive_engine"}, "runs")
+            spec.outlive_engine = self.flag(r, "outlive_engine", "runs")
+        else:
+            self.err("runs: a map (outlive_engine: true or false)", None, "not-a-map")
+
     def budget(self, spec: Spec) -> None:
         """``budget:``: the day's AI budget, ``daily`` and ``max-cost``, both required and bounded (SPEC §9.9)."""
         m, w = self.doc.budget, self.doc.budget_at
@@ -920,18 +1005,21 @@ class Compiler:
                 self.err(f"system {name}.within: {parent} is within {name}: systems nest, they do not go round", w,
                          "system-cycle")
                 del spec.within[name]
+        panel_types = datasources.types()                    # the types a panel can query (ergostat/datasources)
         for name, m, what in self.named("sources"):
             t = m.get("type")
-            if t not in SOURCE_TYPES:
-                self.err(f"{what}.type: one of {', '.join(SOURCE_TYPES)}", m.at("type"), "bad-type")
+            if not isinstance(t, str) or (t not in SOURCE_TYPES and t not in panel_types):
+                self.err(f"{what}.type: one of {', '.join(sorted({*SOURCE_TYPES, *panel_types}))}", m.at("type"), "bad-type")
                 continue
-            self.keys(m, SOURCE_TYPES[t], what)
+            keys = {"type", *(panel_types[t].KEYS if t in panel_types else ())}
+            self.keys(m, SOURCE_TYPES.get(t, set()) | keys, what)
             if t in ("prometheus", "ergostat") and not m.get("url"):
                 self.err(f"{what}: a {t} source needs url:", m.where, "missing-key")
             if m.get("tls") is not None and not isinstance(m["tls"], dict):
                 self.err(f"{what}.tls: a map of cert:, key: and (optional) ca:", m.at("tls"), "bad-remote")
             spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"),
-                                        dict(m["tls"]) if isinstance(m.get("tls"), dict) else None)
+                                        dict(m["tls"]) if isinstance(m.get("tls"), dict) else None,
+                                        {k: m[k] for k in sorted(keys - {"type"}) if m.get(k) is not None})
         for name, m, _ in self.named("items"):
             k = self.item_kind(name, m, f"item kind {name}")
             if k.id.startswith("ergostat."):
@@ -947,9 +1035,6 @@ class Compiler:
         from ..repair import BLOCKS, FAILURE, VERIFY_MAX, VERIFY_MIN, failure_kind
         if BLOCKS[0] in self.doc.sections.get("blocks", {}):
             spec.items[FAILURE] = failure_kind()             # built in, under use: repair: failing runs (SPEC §12r)
-            if "--approver ai" in str(self.doc.sections["blocks"][BLOCKS[0]].get("run")):
-                self.err("use: repair: approver: ai: not yet: a sound allowlist guard is needed (GAPS)",
-                         self.doc.defined[("blocks", BLOCKS[0])], "not-yet")
             settle = str((self.doc.sections["blocks"].get(BLOCKS[1]) or {}).get("run") or "").split()
             n = settle[settle.index("--verify") + 1] if "--verify" in settle[:-1] else None
             if "--verify" in settle and not (n and re.fullmatch(r"\d{1,3}", n) and VERIFY_MIN <= int(n) <= VERIFY_MAX):
@@ -979,8 +1064,7 @@ class Compiler:
         for name, m, what in self.named("flows"):
             self.keys(m, FLOW_KEYS, what)
             if m.get("from") is None and m.get("to") is None:
-                self.err(f"{what}: give it from:, to:, or both (the stocks it drains and fills; leaving one out means "
-                         f"outside the system)", m.where, "flow-without-ends")
+                self.endless.append((name, what, m.where))
             f = Flow(name, m.get("from") and str(m["from"]), m.get("to") and str(m["to"]), self.text(m, "unit"),
                      self.number(m, "rate", what), self.system("flows", name, m), self.text(m, "description"),
                      two_way=self.flag(m, "two-way", what), inferred=self.inferred(m, what), where=m.where)
@@ -1068,10 +1152,14 @@ class Compiler:
         from ..actions import compile as gated
         from ..workspaces import compile as pools
         pools.workspaces(self, spec)                         # workspaces: the pools AI blocks' runs work in (SPEC §12k)
+        from ..compute import compile as compute
+        compute.compute(self, spec)                          # compute: the pools of nodes runs may execute on (§12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
+        gated.operating(self, spec)                          # operating: when the owner reads as away (SPEC §12k)
         from ..inbox import config as notify
         notify.parse(self, spec)                             # notify: each channel a gated action notify.NAME (SPEC §12o)
+        self.runs(spec)                                      # runs: whether a run outlives the engine (SPEC §9.1)
         if spec.actions:
             spec.items[ACTION] = action_kind()               # built in, when there are any: gated actions asked for
         if spec.workspaces:
@@ -1142,7 +1230,10 @@ class Compiler:
         check_relations(self, spec)
         check_joins(self, spec)
         self.references(spec)
+        compute.pools_used(self, spec)                       # runs-on: a pool there is, its blocks in one shard (§9.8)
         self.equations(spec)
+        self.internal(spec)
+        self.ends(spec)
         self.watched(spec)
         self.renamed()
         for x in (*spec.stocks.values(), *spec.flows.values(), *spec.goals.values(), *spec.blocks.values()):
@@ -1231,6 +1322,16 @@ class Compiler:
             self.err(bad, m.at(key), "bad-range")
             return None
         return out[0], out[1]
+
+    def ends(self, spec: Spec) -> None:
+        """A flow with neither from: nor to: is an error, unless another flow's material delay (DELAY1, DELAY3) takes it
+        in: what it moves goes into the delay's own stages, which are its end."""
+        from .equation import delayed_refs
+        fed = {r for f in spec.flows.values() if f.equation for r in delayed_refs(f.equation.tree, material=True)}
+        for name, what, where in self.endless:
+            if f"flow.{name}" not in fed:
+                self.err(f"{what}: give it from:, to:, or both (the stocks it drains and fills; leaving one out means "
+                         f"outside the system)", where, "flow-without-ends")
 
     def equations(self, spec: Spec) -> None:
         """Each ``equation:`` read, its names resolved (a bare name a parameter, a reference a part),
@@ -1465,6 +1566,15 @@ class Compiler:
             else:
                 got = {k: self.ref(idf[k], w, f"{what}.identify.{k}", ("stock", "flow", "auxiliary")) for k in idf}
                 params["identify"] = got if all(got.values()) else None
+        known, raw = None, params.pop("law", None)
+        if t == "external" and raw is not None:   # a known law, declared (control/laws.py, SPEC §12d)
+            from ..control import laws
+            known, bad = laws.check(raw)
+            if m.get("identify") is None:
+                known, bad = None, [*bad, (None, "a law is declared of what it reads and sets: write identify: with it")]
+            for key, why in bad:
+                at = raw.at(key) if key is not None and isinstance(raw, Map) else m.at("law")
+                self.err(f"{what}.law{'' if key is None else f'.{key}'}: {why}", at, "bad-law")
         if m.get("until") is not None:
             sp = Setpoint.parse(m["until"])
             if sp is None:
@@ -1535,13 +1645,16 @@ class Compiler:
         lease_keys = {"takes": leases.takes(self, m, what), **dict(zip(("pool", "pool_now"), leases.pool(self, m, what), strict=True)),
                       "lease": leases.terms(self, m, "lease", what), "on": triggers.compile_on(self, m, what)} \
             if t in MACHINE else {}
+        from ..compute import compile as compute
+        if t in MACHINE and (on := compute.runs_on(self, name, m, what, t)) is not None:
+            lease_keys["runs_on"] = on                       # set only when a pool is named: local is no field set
         return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,
                      **lease_keys,
                      system=self.system("blocks", name, m), description=self.text(m, "description"),
                      every=self.duration(m, "every", what), cron=self.cron(m, "cron", what),
                      timeout=self.duration(m, "timeout", what, 300.0), max=self.number(m, "max", what) if t in MACHINE else None,
                      min=self.number(m, "min", what) if t in MACHINE else None, mode=mode, where=m.where,
-                     on_stale=self.on_stale(m, what))
+                     on_stale=self.on_stale(m, what), law=known)
 
     def references(self, spec: Spec) -> None:
         """Every reference resolves, to the right kind of thing; one actuator per flow; no algebraic
@@ -1580,6 +1693,8 @@ class Compiler:
             for r in refs:
                 if (why := exists(r)) is not None:
                     self.err(f"system {name}.show: {why}", self.doc.defined.get(("systems", name)), "unknown-ref", str(r))
+        from .dashboards import check as dashboards
+        dashboards(self, spec, exists)                       # dashboards:, checked as show: is (SPEC §4f)
         for lp in spec.named_loops.values():
             for r in lp.through:
                 if (why := exists(r)) is not None:
@@ -1671,6 +1786,47 @@ class Compiler:
                 if why:
                     self.err(f"sensor {s.of.name}.{s.name}: {why}", s.where, "bad-query")
         self.algebraic(spec)
+
+    def internal(self, spec: Spec) -> None:
+        """A reference from outside an instance to a part its template does not export (SPEC §2a): a finding at the
+        referring part. An instance holds its own parts and every inner instance's; a part it holds refers freely.
+        A part named by a parameter (``named``) is held, so it refers freely, but is the owner's, so never internal."""
+        uses = spec.uses
+        holds = {u: set(r.get("parts") or ()) for u, r in uses.items()}
+        inside = {u: holds[u] | set(r.get("named") or ()) for u, r in uses.items()}
+        for u, r in uses.items():
+            seen, at = {u}, r
+            while at.get("outer") in uses and at["outer"] not in seen:    # the instance it was planned under, not
+                seen.add(at["outer"])                                        # its system placement (within:)
+                holds[at["outer"]] |= set(r.get("parts") or ())
+                inside[at["outer"]] |= set(r.get("parts") or ()) | set(r.get("named") or ())
+                at = uses[at["outer"]]
+        closed = [(u, r) for u, r in uses.items() if r.get("exports") is not None]
+        if not closed:
+            return
+
+        def reads(kind: str, x) -> list:
+            if kind == "goal":
+                return [x.of]
+            if kind == "block":
+                return [*x.inputs.values(), *x.targets(), *([Ref("goal", x.goal)] if x.goal else [])]
+            eq = [Ref.parse(s) for s in (x.equation.refs if x.equation else ())]
+            ends = [Ref("stock", s) for s in (getattr(x, "source", None), getattr(x, "target", None)) if s]
+            return [*ends, *x.driven_by, *eq]
+        said = set()
+        for kind, table in (("flow", spec.flows), ("auxiliary", spec.auxiliaries), ("goal", spec.goals),
+                            ("block", spec.blocks)):
+            for x in table.values():
+                me = f"{kind}.{x.name}"
+                for ref in reads(kind, x) if not getattr(x, "implied", False) else ():   # (keep-GOAL: its block's)
+                    key = f"{ref.kind}.{ref.name}" if ref else ""
+                    for u, r in closed:
+                        if key in holds[u] and me not in inside[u] and key not in r["exported"] and (me, key, u) not in said:
+                            said.add((me, key, u))
+                            self.problems.append(Problem(
+                                "finding", f"{me}: {key} is internal to instance {u} (template {r['template']} exports: "
+                                f"{', '.join(r['exports']) or 'nothing'}); name one of its exports instead",
+                                x.where, "template-internal-reference", key))
 
     def algebraic(self, spec: Spec) -> None:
         """A cycle of built-in blocks with no delay in it has no order to compute in."""

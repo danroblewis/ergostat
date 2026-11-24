@@ -6,6 +6,10 @@ answer questions: take the most reversible option and say so in the definition f
 - Item: {gap}, round {round}
 - Title: {title}
 - Branch: `{branch}`, in `{worktree}`: a clone of your own, in a container (made from `{base}`)
+- The clone has no remote, by design (it is removed before your session so no host path is in the container):
+  `origin/*` does not exist here, local `{base}` is the base as of the clone (merge and compare with it where a rule
+  says `origin/{base}`), and other gaps' branches are absent. Neither is a fault to report. To use another gap's
+  landed work, it is on `{base}`, or this gap waits for it (say so in "Where it stopped").
 
 ## Its definition of done (committed first, at `{definition_path}`; never change it except to add a "Where it stopped" section)
 
@@ -57,5 +61,5 @@ answer questions: take the most reversible option and say so in the definition f
    around it.
 7. If you cannot finish, add a "Where it stopped" section to the definition file (what is done, what is left, why),
    commit it, and say so.
-
+{shell}
 End with three lines: what you built, what is left, and the tests you ran.

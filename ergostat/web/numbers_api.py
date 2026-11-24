@@ -4,6 +4,7 @@ the page may change: a proposal the owner accepts or dismisses (``POST``)."""
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -13,6 +14,7 @@ from ..numbers import closedloop as cl
 from ..numbers import dominance as dm
 from ..numbers import estimate as es
 from ..numbers import fit as ft
+from ..numbers import forecast_words as fw
 from ..numbers import observe as ob
 from ..numbers import proposals as pr
 from ..numbers import review as rv
@@ -21,6 +23,7 @@ from ..numbers import simulate as sim
 from ..numbers import version as ver
 from ..numbers.simulate import horizon_of  # noqa: F401  (the page's and the command line's horizon)
 from ..spec import equation as eq
+from ..spec.ir import MODELLING_REQUEST
 from ..webaccess import who
 
 ESTIMATING = threading.Lock()     # one estimate at a time: each is a few hundred replays
@@ -226,7 +229,11 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
     loops = loops_of(spec, loops)
     mr = model_run(live, p, snap, out["points"], inputs, loops=loops)
     if mr is None:
+        out["no_estimate"] = fw.said(None, "", 0.0, "the model cannot be read, so nothing is run forward")["sentence"]
         return out
+    if loops != "closed":
+        out["no_estimate"] = fw.said(None, "", 0.0, "the loops are held (open loop)" if cl.has_controllers(spec) else
+                                     "no controller in the model runs its goals forward")["sentence"]
     run, proj = mr["run"], mr["projection"]
     try:
         tried, other = split_whatif(spec, whatif)
@@ -285,8 +292,10 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
                              for r, x in sorted(mr["models"].items()) if r in near or f"stock.{x.source}" in mine]
             out["models_assumed"] = sorted({x.block for x in mr["models"].values() if x.assumed})
             if rk is not None:
-                out["risk"] = [{"goal": g.name, "said": cl.risk_said(rk, g.name), "p_off_end": rk["goals"][g.name]["p_off_end"]}
-                               for g in spec.goals.values() if str(g.of) in mine and g.name in rk["goals"]]
+                out["risk"] = [{"goal": g.name, "said": cl.risk_said(rk, g.name),
+                                "p_off_end": (rk["goals"].get(g.name) or {}).get("p_off_end"),
+                                **fw.said(rk, g.name, mr["data"].grid.until, "no run of the model could be made")}
+                               for g in spec.goals.values() if str(g.of) in mine]
         if tried or other:
             out["whatif"] = [{"name": k, "value": v, "was": spec.parameters[k].value, "unit": spec.parameters[k].unit,
                               "duration": spec.parameters[k].duration} for k, v in tried.items()]
@@ -310,6 +319,8 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
                 out["replay_fan"] = {"samples": rf["samples"], "invalid": rf["invalid"], "tails": rf["samples"] >= sens.TAILS}
             out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"], "tails": fn["samples"] >= sens.TAILS,
                           "parameters": [{k: v for k, v in u.items() if k != "corr"} for u in sampled], "joint": sens.joint_said(sampled)}
+    elif "no_estimate" not in out:              # none of these parts is worked out by the model: say why
+        out["no_estimate"] = fw.said(None, "", 0.0, "nothing here is worked out by the model")["sentence"]
     return out
 
 
@@ -445,10 +456,13 @@ def exercised(live, p, snap: dict) -> list[dict]:
             _, q = ex.of_project(p, spec, snap["at"])
         except Exception:                            # a record that cannot be read says nothing here
             q = {}
-        got = [{"level": "warn", "code": ex.CODE, "about": ref, "message": ex.said(x)} for ref, x in sorted(q.items())]
+        got = [{"level": "warn", "code": ex.CODE, "about": ref, "message": ex.said(x),         # (and its numbers: a row)
+                **{k: x[k] for k in ("why", "says", "span", "readings")}} for ref, x in sorted(q.items())]
         try:                                         # and each equation that fits worse than its mean (calibration per part)
-            got += [{"level": "warn", "code": "calibration-worse-than-mean", "about": ref, "message": msg}
-                    for ref, msg in ft.worse_than_mean(spec, reference(live, p, snap)["fit"])]
+            fit = reference(live, p, snap)["fit"]
+            got += [{"level": "warn", "code": "calibration-worse-than-mean", "about": ref, "message": msg,
+                     **{k: (fit["partial"].get(ref) or fit["equations"].get(ref)).get(k) for k in ("r2", "nmse", "n")}}
+                    for ref, msg in ft.worse_than_mean(spec, fit)]
         except Exception:
             pass
         live.keep(key, got)
@@ -639,7 +653,9 @@ def queue(live, p, snap: dict) -> dict:
                   "code": "turned-away", "by": x["by"], "item": x["item"]}
                  for x in mem.turned(p, spec) if x["by"] == "ergostat"][:12]
     from ..numbers import redesign as rd
-    return {"queue": rv.entries(p, spec, control), "not_made": not_made,
+    from ..numbers import requests as rq
+    return {"queue": rv.entries(p, spec, control), "not_made": not_made,      # and the modelling requests held (the inbox's)
+            "held": sum(r["state"] == "held" for r in rq.stored(p).values()) if MODELLING_REQUEST in spec.items else 0,
             "redesigns": {"systems": ["model", *sorted(spec.systems)], "asked": rd.asked(p), "last": rd.last(p),
                           "settings": rd.settings(spec), "on": "redesigner" in spec.blocks},
             "loops_analysed": sum(1 for g in goals if (LOOPS_SEEN.get(g) or (None,))[0] == live.mtime), "loops": len(goals),
@@ -734,10 +750,27 @@ def redesign_asked(live, p, system: str) -> tuple[int, dict]:
     return 200, {"asked": got["asked"], **rd.settings(p.model.spec)}
 
 
+def keep(live, body: bytes) -> tuple[int, dict]:
+    """``POST /api/propose?keep=dashboard`` with the draft as its JSON body: the owner's Keep, one display change
+    (``numbers/display.py``) the server works out from the draft; it writes nothing (Accept does)."""
+    p = live.get()
+    if spec_of(p) is None:
+        return 400, {"error": "the model is an ergostat.toml: dashboards are declared in ergostat.yaml"}
+    from ..numbers import display
+    try:
+        draft = json.loads(body or b"null")
+    except (ValueError, RecursionError):
+        return 400, {"error": "keep: the draft is not JSON"}
+    try:
+        return 200, display.keep(p, draft)
+    except pr.ProposalError as e:
+        return 409, {"error": str(e)}
+
+
 def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, dict]:
     """``POST /api/estimate?calibrate=parts|systems|whole`` (calibrate, and make the proposals),
     ``/api/propose?whatif=NAME:V,NAME:V`` (the owner's what-if, every value tried made one proposal; or
-    ``parameter=NAME&value=V``),
+    ``parameter=NAME&value=V``), ``/api/propose?keep=dashboard`` (``keep`` above),
     ``/api/proposals/ID/accept`` and ``/api/proposals/ID/dismiss``: the page's only writes, each the
     owner's own act, and none of them changes the model but Accept."""
     q = q or {}

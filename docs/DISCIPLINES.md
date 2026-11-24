@@ -9,10 +9,10 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 
 | Discipline | Diagram | |
 |---|---|---|
-| System dynamics | Stock-and-flow diagram: stocks, valves, clouds, connectors with polarity, R/B loop markers, goal-seeking structure | ✅ Dynamics view |
+| System dynamics | Stock-and-flow diagram: stocks, valves, clouds, connectors with polarity, R/B loop markers, goal-seeking structure; bundled connectors between modules proposed ([dynamics-bundled-connectors](proposals/dynamics-bundled-connectors.md)) | ✅ Dynamics view |
 | System dynamics | Causal loop diagram: causes and signs without the stock/flow plumbing | ◻ |
 | System dynamics | Loop list with polarity (reinforcing, balancing) | ✅ side panel |
-| Control engineering | Block diagram: controllers, actuators, processes, sensors, summing junctions, samplers and holds, MIMO processes, nested cascades | ✅ Blocks view |
+| Control engineering | Block diagram: controllers, actuators, processes, sensors, summing junctions, samplers and holds, MIMO processes, nested cascades | ✅ Blocks view · ⏳ above the leaf ([proposals/blocks-levels.md](proposals/blocks-levels.md)) |
 | Control engineering | Signal-flow graph (Mason's rule form) | ◻ |
 | Systems engineering | Hierarchy and decomposition: systems within systems, modules with ports | ✅ both views |
 | Systems engineering | SysML-style block definition and internal block diagrams | ◻ |
@@ -27,7 +27,7 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 | System dynamics | Behaviour over time: stocks and flow rates with desired levels | ✅ causes strip |
 | System dynamics | Causes strip: a part and what drives it, one time axis | ✅ |
 | Control engineering | Scope: setpoint and measurement, control output, error, time off marked | ✅ |
-| Control engineering | Loop performance table: time off, recovery, saturation | ✅ Loops page |
+| Control engineering | Loop performance table: time off, recovery, saturation | ✅ Goals page |
 | Workflow / lean / Kanban | Cumulative flow diagram per item kind | ✅ Items page |
 | Workflow / lean / Kanban | Cycle-time scatter / lead-time distribution | ✅ scatter · ◻ histogram |
 | Queueing theory | Little's law check per stock (level = throughput × time in stock) | ◻ |

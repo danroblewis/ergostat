@@ -12,7 +12,8 @@
   the gap's branch; nothing else is read;
 - a gap waiting for main to move (`waits_on_main`: its fast suites failed only on tests that fail on main too,
   onmain.py) released once the checkout's main is another commit (what the drop gives the implementor, and what the
-  queue pushes to origin), so the implementor takes it again;
+  queue pushes to origin), so the implementor takes it again, or at once when a test it waits on is not on that
+  main commit at all (onmain.present: not main's failure);
 - a gap that `continues` an existing branch (`"continues": "NAME"`, e.g. a parked one): that branch fetched into the
   factory's drop as factory/<branch> first, so its own definition file is found there; one that cannot be fetched
   (the checkout lacks it, or the fetch fails) says so on the gap (`unfetched`), which the pipeline watch raises.
@@ -31,6 +32,7 @@ import agents  # noqa: E402
 import brief  # noqa: E402
 import deps  # noqa: E402
 import fac  # noqa: E402
+import onmain  # noqa: E402
 
 ENTRY = re.compile(r"^- \*\*(.+?)\*\*(.*)$")
 BACKLOG = ("open", "replan", "planned", "ready")      # not started: a gap GAPS.md marks done is closed from these
@@ -120,7 +122,8 @@ def definition(cfg: dict, gap: dict) -> str | None:
     on = (cfg["git"]["base"], fac.git_branch(branch))
     refs = [f"{ref}:{d}/{branch}.md" for d in (fac.DEFS, fac.OLD_DEFS) for ref in on]     # the new path first
     for where in (str(gap["fields"].get("definition") or ""), f"run/defs/{branch}.md", *refs):
-        if where and brief.definition_text(cfg, where, branch).strip():
+        text = brief.definition_text(cfg, where, branch) if where else ""
+        if text.strip() and not fac.entry_only(text):                 # (a record holding only its GAPS.md entry)
             return where
     return None
 
@@ -171,9 +174,10 @@ def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
 
 
 def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, str]) -> int:
-    """Each gap's dependencies from GAPS.md, its definition's `depends-on:` line and what was asked, and an entry
-    GAPS.md lists twice (``dups``, twice()) as a problem: said as gap.dependencies where they changed (deps.py)."""
-    parsed, own = deps.from_gaps(text)
+    """Each gap's dependencies from main's records (deps.from_main(); ``text`` before the split), its definition's
+    `depends-on:` line and what was asked, and an entry GAPS.md lists twice (``dups``, twice()) as a problem: said as
+    gap.dependencies where they changed (deps.py)."""
+    parsed, own, unreadable = deps.from_main(fac.path(cfg, "checkout"), cfg["git"]["base"], text)
     for gid, g in known.items():
         where = str(g["fields"].get("definition") or "")
         if where:
@@ -188,7 +192,7 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, s
                          check=False).split())
     tree = fac.git(repo, "ls-tree", "--name-only", cfg["git"]["base"], "docs/roadmap/overnight/", check=False)
     landed = {f.rsplit("/", 1)[-1][:-3] for f in tree.split() if f.endswith(".md")}   # unread: none, never 'landed'
-    want = deps.plan(known, parsed, own, merged, landed)
+    want = deps.plan(known, parsed, own, merged, landed, unreadable)
     for gid, why in dups.items():
         if gid in want:
             want[gid]["problems"].append(why)
@@ -201,12 +205,22 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, s
 
 
 def main_moved(cfg: dict, known: dict[str, dict]) -> int:
-    """Each gap waiting on a main commit that is no longer the checkout's main, released (`waits_on_main` cleared)."""
-    now = fac.git(fac.path(cfg, "checkout"), "rev-parse", cfg["git"]["base"])
-    moved = [g for g in known.values() if g["fields"].get("waits_on_main") not in (None, "", now)]
-    for g in moved:
-        fac.say("gap.measured", g["id"], waits_on_main=None, main_moved_to=now)
-    return len(moved)
+    """Each gap waiting on a main commit that is no longer the checkout's main, released (`waits_on_main` cleared);
+    and one held there by a main-broken test that main commit does not have (onmain.present; recorded before only main's
+    own tests could be main's), released saying which (`not_on_main`), so its failure counts as the gap's."""
+    repo = fac.path(cfg, "checkout")
+    now = fac.git(repo, "rev-parse", cfg["git"]["base"])
+    n = 0
+    for g in known.values():
+        at = g["fields"].get("waits_on_main")
+        if at in (None, ""):
+            continue
+        off = [t for t in g["fields"].get("main_broken_tests") or [] if not onmain.present(repo, str(at), str(t))]
+        if at != now or off:
+            fac.say("gap.measured", g["id"], waits_on_main=None, **({"main_moved_to": now} if at != now else {}),
+                    **({"not_on_main": {t: g["id"] for t in off}} if off else {}))
+            n += 1
+    return n
 
 
 def main() -> int:

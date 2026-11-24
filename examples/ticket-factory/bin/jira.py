@@ -3,6 +3,9 @@ here and in factory.conf, nowhere else.
 
     waiting()                 issues labelled JIRA_LABEL in JIRA_PROJECT, in status JIRA_PICK_FROM
     counts()                  the labelled issues by status (for Prometheus)
+    linked()                  links() of each labelled issue, by key: one search, paged, at most LINKS_MOST (500)
+    links(fields)             one issue's raw fields as {blocked_by, duplicates, relates_to, parent} (ticket/KEY ids),
+                              or None when any part can't be read
     get(key)                  one issue: key, summary, status, labels, description (plain text), url
     transitions(key)          the transitions the issue has now: [{id, name, to}]
     transition(key, status)   move it to a status, by the transition that leads there (looked up, never assumed)
@@ -27,13 +30,14 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
 import fakes
-from tf import OFFLINE, conf
+from tf import OFFLINE, conf, ticket_id
 
 
 class JiraError(RuntimeError):
@@ -133,6 +137,67 @@ def counts() -> dict[str, int]:
     for i in _search(_scope(), ["status"], 500):
         s = i["fields"]["status"]["name"]
         out[s] = out.get(s, 0) + 1
+    return out
+
+
+LINKS_MOST = 500                                   # a constant, like counts()'s 500: never read from config
+KEY = re.compile(r"^[A-Z][A-Z0-9_]*-[0-9]+$")
+RELATIONS = ("blocked_by", "duplicates", "relates_to", "parent")
+OWN = {"Blocks": "inwardIssue", "Duplicate": "outwardIssue"}   # the other side of these is the inverse ergostat derives
+
+
+def _key(issue) -> str | None:
+    k = issue.get("key") if isinstance(issue, dict) else None
+    return k if isinstance(k, str) and KEY.match(k) else None
+
+
+def links(fields) -> dict[str, list[str]] | None:
+    """One issue's links as the ticket's relations, matched by the link type's name: Blocks inward is blocked_by,
+    Duplicate outward is duplicates, any other type either way is relates_to, and fields.parent is parent. None for
+    the whole issue when any part can't be read (lesson-3): a full set written from the rest would clear a real link."""
+    ls = fields.get("issuelinks") if isinstance(fields, dict) else None
+    if not isinstance(ls, list):
+        return None
+    got: dict[str, set[str]] = {r: set() for r in RELATIONS}
+    for e in ls:
+        name = e.get("type", {}).get("name") if isinstance(e, dict) and isinstance(e.get("type"), dict) else None
+        side = next((s for s in ("inwardIssue", "outwardIssue") if s in e), None) if isinstance(e, dict) else None
+        key = _key(e[side]) if side else None
+        if not isinstance(name, str) or key is None:
+            return None
+        if name not in OWN:
+            got["relates_to"].add(ticket_id(key))
+        elif OWN[name] == side:
+            got["blocked_by" if name == "Blocks" else "duplicates"].add(ticket_id(key))
+    if fields.get("parent") is not None:
+        if (key := _key(fields["parent"])) is None:
+            return None
+        got["parent"].add(ticket_id(key))
+    return {r: sorted(v) for r, v in got.items()}
+
+
+def linked() -> dict[str, dict | None]:
+    """links() of each labelled issue, by Jira key: one search over _scope(), paged (Jira answers fewer than asked on a
+    page), up to LINKS_MOST issues. An issue past that is not looked at, so it keeps what it has."""
+    if OFFLINE:
+        return {k: links(f) for k, f in fakes.jira_linked().items()}
+    fields, out, token = ["issuelinks", "parent"], {}, None
+    while len(out) < LINKS_MOST:
+        most = LINKS_MOST - len(out)
+        if _cloud():                                                        # Cloud: by nextPageToken
+            got = _call("POST", "/search/jql", {"jql": _scope(), "fields": fields, "maxResults": most,
+                                                **({"nextPageToken": token} if token else {})})
+            token = got.get("nextPageToken")
+        else:                                                               # DC: GET /rest/api/2/search, by startAt
+            got = _call("GET", "/search", query={"jql": _scope(), "fields": ",".join(fields), "maxResults": most,
+                                                 "startAt": len(out)})
+            token = len(out) + len(got.get("issues") or []) < got.get("total", 0) or None
+        page = (got.get("issues") or [])[:most]
+        if not all(isinstance(i, dict) and isinstance(i.get("key"), str) for i in page):
+            raise JiraError("Jira's search answered an issue with no key")
+        out.update({i["key"]: links(i.get("fields")) for i in page})
+        if not page or not token:
+            break
     return out
 
 

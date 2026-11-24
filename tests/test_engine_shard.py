@@ -3,6 +3,10 @@ puts in its shard, and the shards of one plan split the whole engine's work betw
 
 from __future__ import annotations
 
+import json
+import os
+import pathlib
+import subprocess
 import textwrap
 import time
 
@@ -10,7 +14,7 @@ import pytest
 
 from ergostat import model as mdl
 from ergostat import runner
-from ergostat.daemons.supervise import Supervisor
+from ergostat.daemons.supervise import Supervisor, read_status
 from ergostat.spec import shards
 from ergostat.spec.engine import Engine
 from ergostat.spec.joins import JOINED
@@ -88,6 +92,7 @@ def _quiet(monkeypatch):
 
 
 def project(tmp_path, text: str = MODEL) -> Project:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text))
     return Project(mdl.load(tmp_path))
 
@@ -241,3 +246,369 @@ def test_unknown_shard_refused(tmp_path):
     with pytest.raises(ValueError, match="no shard 'a'"):
         e.swap(new)
     assert e.spec is old and e.version == version and set(e.builtins) == {"a-on", "a-est"}
+
+
+# ---- each shard engine its own files, events and stop (engine-runs-its-shard-join-1)
+
+RUNS = """
+name: runs
+systems:
+  a: {description: one}
+  b: {description: two}
+daemons:
+  da: {run: "sleep 60"}
+  db: {run: "sleep 60"}
+stocks:
+  a-q: {unit: things, system: a, sensor: {daemon: da, every: 1h}}
+  b-q: {unit: things, system: b, sensor: {daemon: db, every: 1h}}
+flows:
+  a-made: {to: a-q, system: a}
+  b-made: {to: b-q, system: b}
+blocks:
+  a-work: {type: program, run: "echo $ERGOSTAT_SOCKET > sock-$ERGOSTAT_BLOCK.txt; sleep 60", out: flow.a-made, system: a}
+  b-work: {type: program, run: "echo $ERGOSTAT_SOCKET > sock-$ERGOSTAT_BLOCK.txt; sleep 60", out: flow.b-made, system: b}
+"""
+SPAWN = Supervisor._spawn_claimed
+
+
+def until(cond, seconds: float = 10.0):
+    end = time.monotonic() + seconds
+    while not (got := cond()) and time.monotonic() < end:
+        time.sleep(0.02)
+    return got
+
+
+@pytest.fixture
+def two(tmp_path):
+    """Shard engines a and b, started in one state directory; closed after."""
+    p = project(tmp_path, RUNS)
+    by = {n: Engine(p, say=lambda s: None, shard=n) for n in ("a", "b")}
+    try:
+        for e in by.values():
+            e.start_all()
+        yield p, by
+    finally:
+        for e in by.values():
+            e.close()
+
+
+def going(p, by) -> dict:
+    """Each engine's block run started, and seen going: its process, by shard."""
+    for n, e in by.items():
+        assert e.start(p.model.spec.blocks[f"{n}-work"], "approved")
+    assert until(lambda: all(f"{n}-work" in e.procs and (p.model.spec.root / f"sock-{n}-work.txt").exists()
+                             for n, e in by.items())), "both runs going"
+    return {n: e.procs[f"{n}-work"] for n, e in by.items()}
+
+
+def ran(p, block: str) -> dict | None:
+    got = p.events.query(n=None, item=block, type="agent.ran,agent.failed")
+    return got[-1] if got else None
+
+
+def test_shard_socket_paths(tmp_path, monkeypatch):
+    import hashlib
+    import tempfile
+    from pathlib import Path
+
+    from ergostat.calls import client
+    from ergostat.calls.server import LIMIT, path_for, short
+    near = Path(tempfile.mkdtemp(prefix="sh-", dir="/tmp"))
+    deep = tmp_path / ("d" * 120)
+    try:
+        assert path_for(near, None) == path_for(near) == near / "engine.sock"          # today's, both ways
+        assert path_for(deep) == short() / f"{hashlib.sha256(str(deep).encode()).hexdigest()[:16]}.sock"
+        for state in (near, deep):
+            got = [path_for(state), path_for(state, "a"), path_for(state, "b")]
+            assert len(set(got)) == 3 and all(len(str(x)) <= LIMIT for x in got), got
+            assert all(x.parent == (state if state == near else short()) for x in got), got
+            monkeypatch.setenv("ERGOSTAT_STATE_DIR", str(state))
+            assert [client.owner(str(x)) for x in got] == [state] * 3
+    finally:
+        near.rmdir()
+
+
+def test_two_shard_engines_answer_calls(two):
+    from ergostat.calls import client
+    from ergostat.calls.server import path_for
+    p, by = two
+    assert [by[n].socket for n in "ab"] == [str(path_for(p.dir, n)) for n in "ab"] and by["a"].socket != by["b"].socket
+    for e in by.values():
+        assert client.call("ping", path=e.socket, retry=0) is not None
+    going(p, by)
+    for n in "ab":
+        assert (p.model.spec.root / f"sock-{n}-work.txt").read_text().strip() == by[n].socket
+
+
+def test_shard_heartbeat_and_events(tmp_path):
+    from ergostat.spec.watchdog import Watchdog
+    p = project(tmp_path / "shards", RUNS)
+    by = {n: Engine(p, say=lambda s: None, shard=n) for n in shards.plan(p.model.spec).shards}
+    assert set(by) == {"lead", "a", "b"}
+    try:
+        for e in by.values():
+            e.start_all()
+        Watchdog(by["a"]).beat()
+    finally:
+        for e in by.values():
+            e.close()
+    assert (p.dir / "heartbeat.a.json").exists() and not (p.dir / "heartbeat.json").exists()
+    assert [x["data"]["shard"] for x in p.events.query(n=None, type="ergostat.started")] == ["lead"]
+    assert sorted(x["data"]["shard"] for x in p.events.query(n=None, type="ergostat.stopped")) == ["a", "b", "lead"]
+    w = project(tmp_path / "whole", RUNS)
+    e = Engine(w, say=lambda s: None)
+    try:
+        e.start_all()
+        Watchdog(e).beat()
+    finally:
+        e.close()
+    assert (w.dir / "heartbeat.json").exists() and not list(w.dir.glob("heartbeat.*.json"))
+    for t in ("ergostat.started", "ergostat.stopped"):
+        got = w.events.query(n=None, type=t)
+        assert len(got) == 1 and "shard" in got[0]["data"] and got[0]["data"]["shard"] is None
+
+
+def test_close_one_shard_leaves_other(tmp_path, monkeypatch):
+    monkeypatch.setattr(Supervisor, "_spawn_claimed", SPAWN)          # (real daemons here)
+    p = project(tmp_path, RUNS)
+    by = {n: Engine(p, say=lambda s: None, shard=n) for n in ("a", "b")}
+    try:
+        runner.STOPPING.set()                                          # (another engine of this process stopping)
+        for e in by.values():
+            e.start_all()
+        assert runner.STOPPING.is_set(), "a shard's start never clears it for the whole process"
+        runner.STOPPING.clear()
+        procs = going(p, by)
+        daemon = {n: until(lambda e=e, n=n: getattr(e.daemons.slots.get(f"d{n}"), "proc", None)) for n, e in by.items()}
+        assert all(daemon.values()), "each shard's daemon up"
+        by["a"].close()
+        assert procs["a"].wait(timeout=5) is not None and daemon["a"].ended.wait(5)
+        assert until(lambda: ran(p, "a-work"))["data"].get("note") == runner.STOPPED_WITH_US
+        assert ran(p, "a-work")["type"] == "agent.ran"                  # stopped by ergostat: not its failure
+        time.sleep(0.3)
+        assert procs["b"].poll() is None and not daemon["b"].ended.is_set() and ran(p, "b-work") is None
+        assert not runner.STOPPING.is_set() and by["b"].daemons.slots["db"].state == "running"
+    finally:
+        for e in by.values():
+            e.close()
+    assert procs["b"].wait(timeout=5) is not None                         # (b's own close stops b's)
+
+
+def test_stop_asked_reaches_owning_shard(two):
+    from ergostat.spec.engine import STOP_ASKED, STOPPED_BY_OWNER
+    p, by = two
+    procs = going(p, by)
+    p.events.add(STOP_ASKED, item="b-work", source="person")
+    assert procs["b"].wait(timeout=10) is not None
+    assert until(lambda: ran(p, "b-work"))["data"].get("note") == STOPPED_BY_OWNER
+    time.sleep(0.3)
+    assert procs["a"].poll() is None and ran(p, "a-work") is None
+
+
+def test_unknown_shard_is_shard_error(tmp_path):
+    from ergostat.spec.engine import ShardError
+    assert issubclass(ShardError, ValueError)
+    p = project(tmp_path)
+    with pytest.raises(ShardError, match="no shard 'nope'") as got:
+        Engine(p, say=lambda s: None, shard="nope")
+    assert all(s in str(got.value) for s in ("lead", "a", "b"))
+    e = Engine(p, say=lambda s: None, shard="a")
+    gone = MODEL.replace("  a: {description: one}\n", "").replace("system: a", "system: b")
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(gone))
+    new = mdl.load(tmp_path)
+    with pytest.raises(ShardError, match="no shard 'a'") as got:
+        e.swap(new)
+    assert all(s in str(got.value) for s in shards.plan(new.spec).shards)
+
+
+def test_shard_close_past_a_held_lock(two):
+    """A lock held for good (a wedged thread): a shard's close waits at most lock_wait, still kills its run, returns."""
+    import threading
+    p, by = two
+    procs = going(p, by)
+    a = by["a"]
+    a.lock_wait = 0.2
+    held, done = threading.Event(), threading.Event()
+
+    def hold():
+        with a.lock:
+            held.set()
+            done.wait(30)
+    threading.Thread(target=hold, daemon=True).start()
+    assert held.wait(5)
+    try:
+        t = threading.Thread(target=a.close, daemon=True)
+        t.start()
+        assert procs["a"].wait(timeout=5) is not None, "its run killed past the held lock"
+        t.join(15)
+        assert not t.is_alive(), "close returned"
+        assert procs["b"].poll() is None
+    finally:
+        done.set()
+
+
+def test_run_registered_after_close_copied_kills_itself(two, monkeypatch):
+    """The gap between a run's start and its registration in live: a close past it (stop set, live copied without
+    this run) is not missed, the run kills itself (lesson-1)."""
+    from ergostat.spec import engine as eng
+    p, by = two
+    a, write = by["a"], eng.runrecord.write
+
+    def late(*args, **kw):                                  # close comes here: stop set, live copied (empty)
+        a.stop.set()
+        return write(*args, **kw)
+    monkeypatch.setattr(eng.runrecord, "write", late)
+    assert a.start(p.model.spec.blocks["a-work"], "approved")
+    assert until(lambda: ran(p, "a-work"), 10)["data"].get("note") == runner.STOPPED_WITH_US
+
+
+# ---- a moved flow's stocks read at once by the shard that owns each (shard-moved-flow-read-by-owner)
+
+MOVE = """
+name: mv
+systems:
+  a: {description: one}
+  b: {description: two}
+stocks:
+  a-s: {unit: things, system: a, sensor: {run: echo 1, every: 1h}}
+  b-s: {unit: things, system: b, sensor: {run: echo 2, every: 1h}}
+flows:
+  carry: {from: a-s, to: b-s, system: a}
+blocks:
+  a-move:
+    type: program
+    run: >-
+      echo '{"out": "flow.carry", "moved": 3}'
+    out: flow.carry
+    system: a
+"""
+
+
+def moving(tmp_path, monkeypatch):
+    """The whole engine and shard engines a and b, each read_soon recorded as (engine, stock, its cause then)."""
+    p = project(tmp_path, MOVE)
+    plan = shards.plan(p.model.spec)
+    assert (plan.of("stock.a-s"), plan.of("stock.b-s"), plan.of("block.a-move")) == ("a", "b", "a")
+    by = {n: Engine(p, say=lambda s: None, shard=n) for n in ("a", "b")}
+    by["whole"] = Engine(p, say=lambda s: None)
+    reads: list[tuple[str, str, str | None]] = []
+    for n, e in by.items():
+        monkeypatch.setattr(e, "read_soon", lambda s, n=n, e=e: reads.append((n, s.of.name, e.read_cause.get(s.series))))
+    return p, by, reads
+
+
+def test_moved_flow_read_by_owner(tmp_path, monkeypatch):
+    p, by, reads = moving(tmp_path, monkeypatch)
+    seq = p.events.last_seq()
+    by["whole"]._run(p.model.spec.blocks["a-move"], "test")              # no shard: both stocks, at once, caused by it
+    run = by["whole"].last_run["a-move"]
+    assert sorted(reads) == [("whole", "a-s", run), ("whole", "b-s", run)]
+    assert by["whole"]._follow_once(seq) == p.events.last_seq() and len(reads) == 2, "the whole engine follows no run"
+    reads.clear()
+    seq = p.events.last_seq()
+    by["a"]._run(p.model.spec.blocks["a-move"], "test")
+    run = by["a"].last_run["a-move"]
+    assert reads == [("a", "a-s", run)], "a reads its own stock, never b's"
+    for n in ("a", "b"):
+        by[n]._follow_once(seq)
+    assert reads == [("a", "a-s", run), ("b", "b-s", run)], "b reads its stock at once, caused by a's run"
+
+
+def test_moved_flow_read_once_each(tmp_path, monkeypatch):
+    p, by, reads = moving(tmp_path, monkeypatch)
+    seq = p.events.last_seq()
+    by["a"]._run(p.model.spec.blocks["a-move"], "test")
+    run = by["a"].last_run["a-move"]
+    got = {n: by[n]._follow_once(seq) for n in ("a", "b")}
+    p.events.add("agent.failed", item="a-move", source="test", causedby="later", data={"moved": {"carry": -2}})
+    for n in ("a", "b"):                                                   # followed again: only the newer event
+        by[n]._follow_once(got[n])
+    assert reads == [("a", "a-s", run), ("b", "b-s", run), ("b", "b-s", "later")], reads
+
+
+def test_moved_flow_unknown_reads_nothing(tmp_path, monkeypatch):
+    p, by, reads = moving(tmp_path, monkeypatch)
+    b, asked = by["b"], []
+    monkeypatch.setattr(b, "_ask", lambda e: asked.append(e["type"]))
+    seq = p.events.last_seq()
+    for data in ({"moved": {"nope": 3}}, {"moved": {"carry": 0}}, {"moved": {"carry": "3"}}, {"moved": {"carry": True}},
+                 {"moved": {"carry": float("nan")}}, {"moved": ["carry"]}, {"moved": "carry"}, {"exit": 0}, None):
+        p.events.add("agent.ran", item="a-move", source="test", causedby="r", data=data)
+    p.events.add("block.stop.requested", item="a-move", source="test")
+    assert b._follow_once(seq) == p.events.last_seq()
+    assert reads == [] and asked == ["block.stop.requested"], "nothing read, the owner's ask still answered"
+
+
+# ---- each shard engine's own daemons file (SPEC §9.8)
+
+def daemon_files(d) -> set[str]:
+    return {f.name for f in d.iterdir() if f.name.startswith("daemons")}
+
+
+def test_shard_engine_writes_its_own_daemons_file(tmp_path, _quiet):
+    p = project(tmp_path / "shards")
+    _, by = engines(p)
+    for n in ("a", "b"):
+        by[n].daemons.sync(p.model.spec)
+        by[n].daemons.write()
+    assert daemon_files(p.dir) == {"daemons.a.json", "daemons.b.json"}, "no daemons.json, no temporary file left"
+    got = {n: json.loads((p.dir / f"daemons.{n}.json").read_text()) for n in ("a", "b")}
+    assert set(got["a"]["daemons"]) == {"solo"} and set(got["b"]["daemons"]) == {"probe"}
+    assert set(read_status(p.dir)) == {"solo", "probe"}
+    by["a"].daemons.close()                                  # its final write: its own file, stopped
+    assert daemon_files(p.dir) == {"daemons.a.json", "daemons.b.json"}
+    assert json.loads((p.dir / "daemons.a.json").read_text())["daemons"]["solo"]["state"] == "stopped"
+    assert json.loads((p.dir / "daemons.b.json").read_text())["daemons"]["probe"]["state"] != "stopped"
+    w = project(tmp_path / "whole")
+    whole, _ = engines(w)
+    whole.daemons.sync(w.model.spec)
+    whole.daemons.write()
+    assert daemon_files(w.dir) == {"daemons.json"}
+    assert set(read_status(w.dir)) == {"solo", "probe"}
+
+
+def dead_pid() -> int:
+    child = subprocess.Popen(["true"])
+    child.wait()
+    return child.pid
+
+
+def put(d, name: str, pid, **daemons):
+    (d / name).write_text(json.dumps({"at": time.time(), "pid": pid, "daemons": {
+        n: {"state": s, "pid": 4242 if s == "running" else None, "why": name} for n, s in daemons.items()}}))
+
+
+def test_daemon_files_merged_dead_writer_stopped(tmp_path):
+    me = os.getpid()
+    put(tmp_path, "daemons.json", me, whole="running")
+    put(tmp_path, "daemons.a.json", me, solo="running")
+    put(tmp_path, "daemons.b.json", dead_pid(), probe="running")         # left by an earlier run, or a shard gone
+    put(tmp_path, "daemons.d.json", None, nopid="running")               # no writer named: not alive either
+    (tmp_path / "daemons.c.json").mkdir()                                # cannot be read
+    (tmp_path / "daemons.e.json").write_text("{not json")
+    (tmp_path / "daemons.f.json").write_text("[1, 2]")
+    for odd in ("daemons.x.tmp", "daemons.x.json.tmp", "daemons.X.json", "daemons.-x.json", "daemons..json",
+                "daemonsx.json", "daemons.z.daemons.a.json", f"daemons.{'x' * 65}.json"):
+        put(tmp_path, odd, me, **{odd: "running"})
+    got = read_status(tmp_path)
+    assert set(got) == {"whole", "solo", "probe", "nopid"}, got
+    assert got["whole"]["state"] == got["solo"]["state"] == "running" and got["solo"]["pid"] == 4242
+    for n in ("probe", "nopid"):
+        assert got[n]["state"] == "stopped" and got[n]["pid"] is None, got[n]
+    put(tmp_path, f"daemons.{'x' * 64}.json", me, longest="running")
+    assert "longest" in read_status(tmp_path)
+
+
+def test_daemon_in_two_files_given_once(tmp_path, monkeypatch):
+    me = os.getpid()
+    put(tmp_path, "daemons.a.json", me, moved="stopped", both="stopped", up="running")
+    put(tmp_path, "daemons.b.json", me, moved="running", both="stopped", up="running")
+    put(tmp_path, "daemons.json", me, both="stopped", up="running")
+    listed = pathlib.Path.glob
+    for order in (sorted, lambda fs: sorted(fs, reverse=True)):         # whatever order the directory lists them in
+        monkeypatch.setattr(pathlib.Path, "glob", lambda self, pat, order=order: iter(order(listed(self, pat))))
+        got = read_status(tmp_path)
+        assert set(got) == {"moved", "both", "up"}
+        assert got["moved"]["state"] == "running" and got["moved"]["why"] == "daemons.b.json"
+        assert got["both"]["state"] == "stopped" and got["both"]["why"] == "daemons.a.json", "first by name"
+        assert got["up"]["state"] == "running" and got["up"]["why"] == "daemons.a.json", "neither stopped: first"

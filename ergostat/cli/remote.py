@@ -32,14 +32,13 @@ def _proposals(p, spec, remotes: dict, args) -> int:
     """``ergostat remote proposals [NAME]``: the changes found for remotes' parts, written as text for their owners
     (open and dismissed), each with the version it was written against and whether it is current. Read only: no lock
     taken, nothing superseded, nothing sent."""
-    from ..numbers import remote_text as rt
     if args.revoke:
         print("--revoke is for ergostat remote token NAME", file=sys.stderr)
         return 2
     if args.name and args.name not in remotes:
-        print(f"no remote {args.name!r} (this model's: {', '.join(remotes) or 'none'})", file=sys.stderr)
+        print(unknown(args.name, remotes), file=sys.stderr)
         return 2
-    rows, unread = rt.listing(p, spec, args.name)
+    rows, unread = proposal_rows(p, spec, args.name)
     if args.json:
         return out_json(rows)
     for name in unread:
@@ -56,6 +55,27 @@ def _proposals(p, spec, remotes: dict, args) -> int:
         print(f"  {x['text']}")
     print(c("\nnever applied here, never sent by ergostat: sending it is the owner's act", "dim"))
     return 0
+
+
+def unknown(name, remotes: dict) -> str:
+    return f"no remote {name!r} (this model's: {', '.join(remotes) or 'none'})"
+
+
+def proposal_rows(p, spec, name: str | None) -> tuple[list[dict], list[str]]:
+    """The texts written for remotes' owners (open and dismissed, oldest first), as ``remote proposals --json`` lists
+    them, and the remotes whose version can't be read. Read only."""
+    from ..numbers import remote_text as rt
+    return rt.listing(p, spec, name)
+
+
+def status_row(name: str, r: dict) -> dict:
+    """One remote as ``ergostat remote`` lists it, from the model's ``remotes:`` and its cache's status: read only."""
+    from ..remote import cache
+    st = cache.status(Path(r["dir"])) if r.get("dir") else {}
+    return {"name": name, "url": r["url"], "version": r.get("version"), "read": r.get("fetched"),
+            "ok": st.get("ok"), "why": st.get("why"), "checked": st.get("checked"),
+            "readings": st.get("read"), "readings_ok": st.get("read_ok"), "readings_why": st.get("read_why"),
+            "parts": len(r.get("parts") or {}), "missing": r.get("missing") or []}
 
 
 def _ago(t) -> str:
@@ -102,10 +122,10 @@ def cmd_remote(args) -> int:
         return 0
     if args.what == "events":
         if args.name not in remotes:
-            print(f"no remote {args.name!r} (this model's: {', '.join(remotes) or 'none'})", file=sys.stderr)
+            print(unknown(args.name, remotes), file=sys.stderr)
             return 2
         from ..remote import events
-        got, why = events.newest(spec, args.name, max(1, min(args.n, 1000)))
+        got, why = events.newest(spec, args.name, max(1, min(args.n, 1000)), force=True)
         if got is None:
             print(f"{args.name}: {why}", file=sys.stderr)
             return 1
@@ -114,14 +134,7 @@ def cmd_remote(args) -> int:
         for e in got:
             print(f"{time.strftime('%H:%M:%S', time.localtime(e['time']))}  {e['type']:<28} {e.get('item') or ''}")
         return 0
-    from ..remote import cache
-    out = []
-    for name, r in remotes.items():
-        st = cache.status(Path(r["dir"]))
-        out.append({"name": name, "url": r["url"], "version": r.get("version"), "read": r.get("fetched"),
-                    "ok": st.get("ok"), "why": st.get("why"), "checked": st.get("checked"),
-                    "readings": st.get("read"), "readings_ok": st.get("read_ok"), "readings_why": st.get("read_why"),
-                    "parts": len(r.get("parts") or {}), "missing": r.get("missing") or []})
+    out = [status_row(name, r) for name, r in remotes.items()]
     if args.json:
         return out_json(out)
     if not out:

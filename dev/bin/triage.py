@@ -13,13 +13,16 @@ import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import flakes  # noqa: E402
 import review  # noqa: E402
 
 RETRIES = 2
 
 
-def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int) -> tuple[int, dict]:
-    """The failed tests again, alone, on ``pre`` with the reviewed commit merged; each test id shell-quoted."""
+def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int,
+          suite: str = "") -> tuple[int, dict]:
+    """The failed tests again, alone, on ``pre`` with the reviewed commit merged; each test id shell-quoted. Those
+    the ``suite`` host failed run on the Mac, as the queue ran them."""
     repo = fac.path(cfg, "checkout")
     wt = fac.path(cfg, "worktrees") / ".triage"
     if not (wt / ".git").exists():
@@ -36,7 +39,9 @@ def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int) 
         tests = [t for t in tests if t not in held]       # main's list, not the branch's: they never block
         if not tests:
             return 0, {"why": "only quarantined tests failed", "quarantined": held}
-        rc, secs = fac.suite(cfg, "rerun", wt, log, box="triage", tests=tests)
+        rc, secs = fac.suite(cfg, "rerun", wt, log, box="host" if suite == "host" else "triage", tests=tests)
+        if suite == "host" and rc in (126, 127):        # (the outer shell's: did not start, as a box that did not)
+            raise fac.agents_module().NotStarted(f"the host rerun did not start (exit {rc})")
         return rc, {"seconds": round(secs), "log": str(log), "tests": fac.failed_tests(log.read_text()),
                     "quarantined": held}
     finally:
@@ -57,7 +62,8 @@ def main() -> int:
     elif tests:
         fac.wait_quiet(cfg)                             # (a suite slot, in fac.suite: never the queue's lock)
         try:
-            rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n)
+            rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n,
+                             str(f.get("failed_suite") or ""))
         except fac.Stalled as e:                        # (stopped for a limit: not the branch's, tried again later,
             n = int(f.get("stalls") or 0) + 1           # until its fac.STALLS_MOST-th stall: then the branch's)
             fac.say("gap.measured", stalled=e.suite, stalled_why=e.why, stalled_test=e.test, stalled_tail=e.tail, stalls=1)
@@ -68,7 +74,7 @@ def main() -> int:
     if rc == 0:                                  # (only quarantined tests failed: no flake seen, no retry spent)
         tests = [t for t in tests if t not in got.get("quarantined", [])]
         for t in tests:
-            fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=[gap["id"]], times=1, seen_at=time.time())
+            flakes.say("flake.seen", t, gaps=[gap["id"]], times=1, seen_at=time.time())
         fac.say("gap.retried", approved_by="flake-retry", retries=1 if tests else 0, flakes=tests, triage=got)
         return 0
     again = f"failed again alone: {', '.join(got.get('tests') or tests)}" if "seconds" in got else got["why"]

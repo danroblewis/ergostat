@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 from ergostat.spec import read
 from tests.test_factory import ROOT, git, ready
@@ -148,6 +149,55 @@ def test_the_brief_carries_the_owners_decisions_on_continuing_and_deferring(tmp_
     text = (f.model / s["fields"]["context"]["brief"].removeprefix("file:")).read_text()
     for head in heads:
         assert f"**{head}**" in text, head
+
+
+def test_when_merges_stop_the_brief_names_what_holds_the_merge_queue(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    from ergostat.spec.runrecord import start_time
+    f = Pipe(tmp_path)
+    (tmp_path / "live" / "instance").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "live" / "instance" / "ergostat.yaml").write_text("name: factory\n")
+    f.env["ERGOSTAT_HOME"] = str(tmp_path / "home")
+    runs = Path(f.py("import live, fac\nprint(json.dumps(str(live.state_dir(fac.config()))))")) / "runs"
+    runs.mkdir(parents=True)
+    gone = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    was = start_time(gone.pid)
+    gone.kill()
+    gone.wait()
+    (runs / "stuck-run.json").write_text(json.dumps({"pid": gone.pid, "start": was, "run": "stuck-run"}))
+    (runs / "live-run.json").write_text(json.dumps({"pid": os.getpid(), "start": start_time(os.getpid())}))
+    held = lambda run, taken: {"holder": run, "block": "merge-queue", "fence": 1, "taken": taken,  # noqa: E731
+                               "renewed": f.now - 120, "expires": f.now + 1680}
+    f.put("gap/ui-done", "merged", branch="ui-done", merged_at=f.now - 3 * H, lease=held("stuck-run", f.now - 3.5 * H))
+    f.put("gap/other", "leased", branch="other", lease=held("live-run", f.now - 600))
+    f.put("gap/plan-only", "leased", branch="plan-only", lease={**held("planner-run", f.now), "block": "planner"})
+    f.put("gap/waits", "approved", branch="waits", approved_at=f.now - 2 * H)
+    sit = f.watch()
+    reply = {"calls": [], "answers": {t["print"]: "left" for t in sit["triggers"]}, "summary": "s"}
+    f.run("manager.py", sit["id"], FACTORY_STANDIN_PIPELINE_MANAGER="```json\n" + json.dumps(reply) + "\n```")
+    text = (f.model / f.item(sit["id"])["fields"]["context"]["brief"].removeprefix("file:")).read_text()
+    assert "## What holds the merge queue (no merge for 180 min while gaps wait)" in text
+    (stuck,) = [x for x in text.splitlines() if x.startswith("- gap/ui-done ")]
+    stamp = lambda t: time.strftime("%m-%d %H:%M", time.gmtime(t))  # noqa: E731
+    assert f"(state merged, merged {stamp(f.now - 3 * H)}): run stuck-run, taken {stamp(f.now - 3.5 * H)}" in stuck
+    assert f"last renewed {stamp(f.now - 120)} (2 min ago), expires {stamp(f.now + 1680)}" in stuck
+    assert stuck.endswith(f"its process: not running (pid {gone.pid} ended, or is another process now)")
+    assert any(x.startswith("- gap/other (state leased): run live-run") and x.endswith(f"alive (pid {os.getpid()})")
+               for x in text.splitlines())
+    assert "planner-run" not in text                                     # (another block's lease: not the queue's)
+    assert "### queue-when's inputs, read now" in text
+    assert "- approved-gaps-landed: 1 approved gaps wait (hold <= 0)" in text
+    for goal, w in (("machine-quiet", "suites"), ("suite-threads-within", "threads"), ("suite-memory-within", "memory")):
+        assert f"- {goal}: `load.py {w}` reads " in text, goal
+    assert "- push-waiting: `queue.py waiting` reads 0" in text
+    prompt = (ROOT / "dev" / "prompts" / "pipeline_manager.md").read_text()
+    assert "an item already merged is a stuck\n  lease, not starvation" in prompt
+    f.put("gap/fresh", "merged", branch="fresh", merged_at=f.now - 60)          # merged a minute ago: not stopped
+    assert f.py("import manager, fac, time\nprint(json.dumps(manager.queue_holder(fac.config(), fac.items('gap'), "
+                "time.time())))") == ""
 
 
 def test_a_trigger_left_unanswered_or_a_failed_session_comes_back(tmp_path):
@@ -307,6 +357,27 @@ def test_a_gap_stuck_in_its_state_from_its_moves_and_from_state_times(tmp_path):
     assert f.tool("watch.py", "stuck").stdout.strip() == "2"
     sit = f.watch()
     assert subjects(sit) == ["gap/slow", "gap/timed"] and "8.0h" in sit["triggers"][0]["why"]
+
+
+def rebuilt(now: float, ago: float) -> list[dict]:
+    """A gap back in building after a review round: fixed, leased, and building since ``ago`` seconds."""
+    return [{"time": now - 8 * H, "from": "building", "to": "built"}, {"time": now - 7 * H, "from": "built", "to": "fix"},
+            {"time": now - ago, "from": "fix", "to": "leased"}, {"time": now - ago + 30, "from": "leased", "to": "building"}]
+
+
+def test_a_gap_rebuilt_in_rounds_is_not_stuck_while_its_build_is_young(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/rounds", "building", ago=20 * H, entered=600 - 30, moves=rebuilt(f.now, 600), branch="rounds",
+          time_in={"building": {"hours": 6.0, "visits": 7}})
+    assert f.tool("watch.py", "stuck").stdout.strip() == "0"
+
+
+def test_a_build_past_its_threshold_is_stuck_by_that_build(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/long", "building", ago=20 * H, entered=6 * H - 30, moves=rebuilt(f.now, 6 * H), branch="long",
+          time_in={"building": {"hours": 3.0, "visits": 2}})                # summed it would read 9.0h
+    sit = f.watch()
+    assert subjects(sit) == ["gap/long"] and "building for 6.0h (its threshold 5h)" in sit["triggers"][0]["why"]
 
 
 def test_only_unremedied_defects_are_triggers_and_never_the_managers_own(tmp_path):

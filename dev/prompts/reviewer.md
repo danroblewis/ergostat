@@ -6,6 +6,9 @@ only the work: judge what is in the branch, not what anyone says about it.
 
 - Gap: {gap} ({title}), review round {round}
 - Branch `{branch}`, checked out read-only at `{worktree}`; compare with `origin/{base}` (`git diff origin/{base}...HEAD`)
+- Your clone is not the implementor's: theirs has no remote by design (no `origin/*`, no other gaps' branches; its
+  local `{base}` is the base as of its clone). A ref visible to you does not disprove what the implementor says of its
+  own clone (`origin/{base}` unknown there, a branch absent there), and such a statement is not a finding.
 - Net lines of core code changed: {net_lines} against a budget of {budget}
 - Mechanical gates already checked by the factory: {gates}
 
@@ -47,9 +50,8 @@ file (a probe, a profile, a tail of a log, a benchmark) committed to the branch 
 - a failure on main is reported, not fixed (lesson 13): a fix in the branch for a test that fails on main too, or for
   something the definition does not ask, is a finding; a test failing on main is never the branch's fault.
 
-Read the code; run single test files if you need to (`uv run python -m pytest -q tests/test_x.py`), never the whole
-suite. Change nothing.
-
+Read the code. You run no tests or programs (the gates above say what the factory ran), and change nothing.
+{shell}
 # The bar (operator, 2026-11-20)
 
 Block only for what would hurt main: a bug, a wrong behaviour, a missing test of the definition's risk, a security or

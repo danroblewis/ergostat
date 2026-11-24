@@ -10,8 +10,33 @@ has no tools at all and reads only the files ergostat gives it. Libraries do not
 as the program it replaced did, with your rights and outside any sandbox. The sandbox only makes testing it safe before
 you decide, and only within limits: a fix can tell it is in a sandbox (its home folder is unreadable, it has no DNS),
 so a fix that behaves only when sandboxed passes. Read the diff before you approve: every notification of a repair
-says so. No AI approves a repair yet: a guard that blocks a list of dangerous calls was tried and bypassed, and a sound
-one (an allowlist) is not built.
+says so.
+
+**What the AI approver does not stop** (`approver: ai`, SPEC §12r). An AI may approve a fix only when a guard in code
+lets it be asked: the guard reads the program before and after and accepts only changes that compute with plain values
+(strings, numbers, lists, dicts read from JSON) and print, and nothing those changes reach may open, run, import, write
+or call anything else. A list or dict counts as plain only if nothing in your program fills it in place, hands it to a
+call or keeps it where the guard cannot follow it, since that code could put anything in it. A generator or iterator
+counts only where it is used up at once, never kept in a variable, since a fix that reads it would empty it for the
+code after. A `break` or `return` the fix makes, removes or steers may end a loop early only over such a plain value,
+and nothing after the loop may use its variable unchecked. Everything else goes to you, and so does every fix the AI does not approve. The guard says only
+what the AI may be asked about; the AI can still approve a wrong fix within that. What the guard does not see:
+
+- **Implicit errors.** Any lookup or division may raise, so a fix can make the program stop earlier, or get further
+  than the failing program did (that is what a fix does). Only the old program's own statements then run, and a change
+  near a `try` or `with` goes to you; hooks the program installs (`sys.excepthook`, `atexit`) are not followed.
+- **Where output goes.** A fix's `print` writes to the program's standard output, or to a file the program opened by
+  a constant name. A program that stores any attribute (its own `sys.stdout`, a replaced `write`) goes to you, but a
+  module it imports can still point standard output at its own code, which then runs on what `print` is given.
+- **Other files.** The guard reads one file. What the modules the program imports do, when imported or when the
+  program calls them (say, `unittest.mock.patch` replacing `json.loads` or a builtin by name, or code loaded by
+  `pickle`), is not seen.
+- **Time and memory.** A fix may use a lot of either; the block's timeout bounds it.
+- **The program's own code.** The guard trusts that `len`, `print`, `json.loads` and the like mean what Python gives
+  them. It refuses a program that rebinds them in ways it can read, but your program's unchanged code could still
+  rebind one through a call the guard does not follow (`operator.setitem` on a module's namespace, code run from a
+  string), and the same kind of call could fill a list or dict it names only as a string. A fix cannot add such a
+  call; the trust is in your committed code, not in the fix.
 
 ## What it stops
 
@@ -99,26 +124,29 @@ including trusted and built-in templates it uses, is checked against an allowlis
 expanded, with every parameter's value put in. If any part is not on it, the whole use is refused at your `use:` line
 (`library-untrusted`), and nothing of it is in the model. What a held chain may make:
 
-- **Sections:** `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`, `blocks`, `uses`.
+- **Sections:** `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`, `blocks`, `uses`, and
+  `sources` only as below (a template cannot write `sources:` today; the gate would judge one if it could).
 - **Block types:** `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`,
-  `timer`, `counter`, `alarm`: computed by ergostat from their inputs.
+  `timer`, `counter`, `alarm`: computed by ergostat from their inputs. Also `program`, `ai` and `person` blocks, only
+  as below.
 - **Sensor keys:** `items`, `state`, `entering`, `leaving`, `where`, `over`, `measure`, `sum`, `changes`, `unit`,
-  `description`: sensors that count items or read a stock's changes from the record ergostat keeps; and `run`,
-  `every`, `cron`, `timeout`, `averages`, only as below.
+  `description`: sensors that count items or read a stock's changes from the record ergostat keeps; `run`, on
+  your shell only as below and otherwise sandboxed; and `query`, `every`, `cron`, `timeout`, `averages`, only as below.
 
 Each section's keys are listed in trust.py, each with its reason; any other section, key, block type or shape of value
-is refused, including queries and daemons on sensors, `ai`, `person`, `external` and `judge` blocks, `on-stale`, an
-item kind's `lease`, a goal's `owner`, and `inferred` or `formerly` anywhere. A test holds this list to trust.py's
-tables (`tests/test_library_trust.py`).
+is refused, including daemons on sensors (`library-unsandboxed`), `external` and `judge` blocks, `on-stale`, an item kind's `lease`, a goal's
+`owner`, and `inferred` or `formerly` anywhere. A test holds this list to trust.py's tables
+(`tests/test_library_trust.py`).
 
 **What runs.** Every value carries who wrote it: you (in your own file's `with:`), a trusted template (ergostat's or
-one from your folders), or the library. Only two kinds of `run` (a sensor's, or a `program` block's) are let through:
+one from your folders), or the library. Only two kinds of `run` (a sensor's, or a `program` block's) run on your
+shell:
 
 - **Your own commands.** A value you wrote for a `type: command` parameter, which reached the run whole (each nested
   use passing it wholly as `${p}`, to a `type: command` parameter again), as the whole `run`, or quoted (`:quote`,
   `:arg`) into one of ergostat's own templates' runs. Any library words around it (`${cmd} | sh`), a library default
   for a command, a library's literal that equals a command of yours, or your value for a parameter of another type
-  (a `string`) is refused.
+  (a `string`) is refused in a block's run, and makes a sensor's run sandboxed (below).
 - **Ergostat's programs with checked arguments.** In a built-in template's run that starts `${lib} ` (the programs
   `python -m ergostat.library.run` runs), a value the library wrote may stand only directly after a flag listed in
   trust.py's `LIB_DATA_FLAGS` (data such as `--kind`, `--state`, `--every`, `--limit`; never `--run`, `--render`,
@@ -131,12 +159,44 @@ one from your folders), or the library. Only two kinds of `run` (a sensor's, or 
   a template from your own folders (no test can vouch for `sh -c ${x:quote}`), nor a run holding an element's or a
   list's field (`${it.run}`, whose writer can't be told).
 
+**A library's own sensor run goes into the sandbox.** A sensor's `run` that is neither of these (the library's own
+script, a command with library words around it) is not refused but runs only through the sandbox above, never on your
+shell: no network, no environment (so it cannot call ergostat back or relay a message to you), nothing of yours
+readable, only its template's folder and a work folder of its own (`<state>/library-work/<instance>`, or a digest of a
+name too long to be a folder's; emptied when the templates above it change), at most 120 seconds and at most 4 such runs at once. Where no sandbox can start, it does
+not run and records nothing. A library sensor's `daemon` stays refused (`library-unsandboxed`): a process kept
+running is not sandboxed. Anything ergostat cannot prove is yours (an unknown origin, a check that fails) goes to the
+sandbox too. What ergostat's own tests prove here is what the sandbox is asked to enforce (the policy handed to it);
+that it enforces it is the attack suite's (`tests/test_sandbox_attacks.py`), with the limits in *What it does not
+stop* above.
+
 A sensor's or a program block's `every`, `cron`, `timeout` and `averages` stand only as you or a trusted template wrote
 them; a library's (its own `poll: 1m`) is refused. Whoever wrote it, the period of a part made under an untrusted
 template is still at least 5 minutes (SPEC §2a, *Untrusted libraries*). A program block may say nothing else but
 `goal`, `in`, `out`, `role` and its words: `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network`
-and the rest stay refused, and so do `prompt` and `ask` (no `ai` or `person` block). Marks are made only by ergostat
-as it expands a template; a template or a value that holds a mark's control characters is refused whole.
+and the rest stay refused. Marks are made only by ergostat as it expands a template; a template or a value that holds
+a mark's control characters is refused whole.
+
+A template from your own folders is trusted, but its run still takes no value the library wrote, even quoted: `sh -c
+${x:quote}` runs whatever lands in `x`, and nothing can vouch for that. An unquoted `${x}` of a `string` is refused
+too. Only your own command, passed wholly, reaches such a run. (This replaces the earlier plan to accept a quoted
+library literal in trusted text.)
+
+**What is read or asked (R3).** A person block's `ask`, an ai block's `prompt`, a sensor's `query` (its `source:` and
+every field, keys included) and every value of a `sources` entry stand only when no piece of them was written by the
+library: your own value, a trusted template's words, or both. A library's literal, its default or its words around
+your value (`"${q} and more"`) refuse the whole use as **`untrusted-text`**, whose message suggests no copy into
+`with:` and does not quote the text. A piece whose writer can't be told counts as the library's: a value without a
+mark, a whole value given with no writer, a field of a value (`${m.q}`), an `each:` element or a key made from a
+value in a trusted template's own text, or a part it names there (renamed with the instance's name). The instance's
+name holds the library's `uses:` key (`u-ignore-previous-instructions`), so a trusted template that uses `${name}`,
+`${here}` or `${folder}` may put only your own pieces in these keys, and what it passes to a template it uses counts
+as the library's. An `ai` or `person` block may say only its text, `goal`, `until`, and `every`
+or `cron` as written by you or a trusted template; `model`, `run`, `parse`, `context`, `review`, `agent`, `workspace`,
+`tools` and the rest stay refused by name (`library-untrusted`). R3 says who wrote the text, not what it says: a
+library's template still decides that a block asking your text exists, and what it reads (`in:`), within the limits
+above. Only these four keys are judged so; any other text of the chain that a session or a person is shown beside
+them (the names and descriptions of its parts) may still be the library's.
 
 A block's `out:` commands the block it names, and sets the goal it names. So a held chain's blocks may name in `out:`
 only parts the chain made itself: an `out:` to one of your blocks (a `program` block that deploys, run on the
@@ -151,9 +211,10 @@ What this does **not** stop:
   copies a library's command there makes it your command.
 
 - **Its words reaching agents.** An untrusted template's descriptions, `example:` and `reading:` are still shown to
-  the AI agents that use the authoring tools, and may try to steer them. In the `templates` tool and in three kinds
-  of `check` problem they are marked as the library's (SPEC §2a, *Untrusted libraries*), which tells an agent what
-  they are but does not stop it reading them; the text of the parts a template makes is not marked.
+  the AI agents that use the authoring tools, and may try to steer them. In the `templates` tool, in `check` and in
+  the MCP `check`, `explain`, `status` and `context` answers they, and the text of the parts a template makes, are
+  marked as the library's (SPEC §2a, *Untrusted libraries*), which tells an agent what they are but does not stop it
+  reading them; the diagrams do not mark the parts' text yet.
 - **What you trusted.** A path entry, or a map entry with `trust: owner`, is trusted wholesale: its templates may make
   anything, and may take the place of ergostat's own. Read a folder before you mark it so.
 - **An agent that can write the main file.** It can mark a folder trusted, as you can. The agent guide tells agents
@@ -163,6 +224,26 @@ What this does **not** stop:
   flow to your stock, and put its parts in your systems. If one of *your* machine blocks reads one of its blocks
   (`in: block.x`), that block commands yours, by your wiring. A raised `alarm` shows on the page and counts as an
   intervention, as any alarm does.
+
+**Fetching a library by git URL** (`libraries:`, SPEC §2a). The threat is a `libraries:` entry, a repository or a
+server that tries to make `ergostat library fetch` run a command, reach another host or protocol, fill the disk, hang,
+or write outside `.libraries/`, or a copy changed after it was locked. The URL, ref and path pass an allowlist matched
+whole before any git process starts (https and file only, no user, query or fragment, no ref starting `-`), and go
+after `--end-of-options`; git runs with no system or global config, no credential helper, no ssh, no redirects and
+`GIT_ALLOW_PROTOCOL=https:file`. Each git process runs in its own process group under a 100 MB cap on any file the
+kernel lets it write; the temporary folder (the clone, and the archive written to a file there) is summed every 0.05 s
+and the group killed past 100 MB or 120 s, so the total can overshoot by what arrives in one poll; an interrupted fetch
+kills the group it was waiting on. The archive is extracted with a positive list (folders, regular files, relative links whose target, walked step by step, never goes
+above the copy or onto another link, names compared case- and normalization-insensitively as APFS does, and which,
+once made, resolves inside the copy on disk; at most 2,000 entries and 20 MB) into a new folder, never over the old
+copy, through folder handles that do not follow links, and fetch refuses
+when `.libraries` or `.libraries/NAME` is a link. Every load checks the copy against `libraries.lock` (commit and tree
+hash, links hashed by their target, never followed, FIFOs and devices refused unopened) and parses the very bytes it
+hashed. What this does not cover: a library with `trust: owner` is trusted wholesale, as any folder you mark so; the
+lock pins what you fetched, not that it is safe; and a script a template runs from `${here}` is read again when it
+runs, so a change to it between load and run is not caught here. A library without `trust: owner` is untrusted exactly
+as an untrusted folder is: its uses are held, checked against the same allowlist and bounded, its text is marked (in
+`check`, the name of the file it came from too, with control characters written `\uXXXX`), and a use that makes more than that is refused (`library-untrusted`).
 
 ## The page from elsewhere
 

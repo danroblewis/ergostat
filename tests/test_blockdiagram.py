@@ -1,9 +1,10 @@
 """The control view as a block diagram (ergostat/blockdiagram.py): every controller, actuator, process
 and sensor once, a function in every block, signs at every summing junction, no placeholder, cascades
-nested, MIMO where outputs share their inputs, and systems as subsystem blocks Q(s)."""
+nested, MIMO where outputs share their inputs, and systems as subsystem blocks: C, P or named, p × m."""
 
 from __future__ import annotations
 
+import re
 import textwrap
 from pathlib import Path
 
@@ -110,9 +111,13 @@ def test_image_squeeze_the_service_is_one_mimo_process_and_the_tuner_integrates(
 def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
     g = drawn(spec)
-    assert {n["id"] for n in g["nodes"]} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling"}
-    for n in g["nodes"]:
-        assert n["fn"]["sym"] == "Q"
+    boxes = [n for n in g["nodes"] if n["role"] == "subsystem"]           # (and a C-P loop's r, Σ, H, y and d)
+    assert {n["id"] for n in boxes} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling",
+                                         "sys:regressions"}
+    rest = {n["id"] for n in g["nodes"]} - {n["id"] for n in boxes}
+    assert all(re.fullmatch(r"(ref|sum|h|out):top:[a-z-]+>service|dist:top:service", i) for i in rest), rest
+    for n in boxes:
+        assert n["fn"]["sym"] == (n["fn"]["letter"] or n["label"]) and n["fn"]["expr"] == f"{n['fn']['p']}×{n['fn']['m']}"
     assert any(e["signal"].get("n", 1) > 1 for e in g["edges"])
     one = drawn(spec, {"service"})
     ids = {n["id"] for n in one["nodes"]}
@@ -325,13 +330,20 @@ def test_a_reference_is_a_value_and_the_relay_says_its_threshold():
     g = drawn(spec, {"*"})
     n = {x["id"]: x for x in g["nodes"]}
     r = n["ref:backlog-clear"]
-    assert r["fn"]["value"] == "= 0" and "≤" not in r["fn"]["value"]
+    assert r["fn"]["value"] == "≤ 0" and "a limit" in r["says"] and "setpoint" not in r["says"]   # one-sided: a limit
+    assert dict(r["rows"])["limit"] == "y_backlog ≤ 0"
     relay = n["blk:keep-backlog-clear"]
     rows = dict(relay["rows"])
     assert rows["threshold"] == "backlog ≤ 0: on above it", rows
     assert "y_backlog > 0" in relay["says"]
+    assert relay["fn"]["sketch"] == "ideal-relay" and "ideal relay" in relay["says"]            # on and off at one threshold
+    assert "hysteresis" not in _text(relay) and "releases at" not in rows
+    fq = {x["id"]: x for x in drawn(load(ROOT / "examples" / "file-queue" / "ergostat.yaml"), {"*"})["nodes"]}
+    band = next(x for x in fq.values() if (x.get("fn") or {}).get("sketch") == "relay")      # until: "<= 10", a band
+    assert "with hysteresis" in band["says"] and "releases at" in dict(band["rows"])
     sq = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
-    assert {x["id"]: x for x in drawn(sq, {"*"})["nodes"]}["ref:quality-held"]["fn"]["value"] == "= 0.93"
+    held = {x["id"]: x for x in drawn(sq, {"*"})["nodes"]}["ref:quality-held"]
+    assert held["fn"]["value"] == "= 0.93" and "a setpoint" in held["says"] and "limit" not in held["says"]
     for ex in EXAMPLES:                                  # real ≤ ≥ everywhere: no ASCII comparison in a label or a panel
         spec = load(ROOT / "examples" / ex / "ergostat.yaml")
         for where, g in _all_views(spec):
@@ -432,7 +444,7 @@ def test_the_alerts_loop_reads_through_a_labelled_sensor_and_its_collector():
     g = drawn(spec, {"*"})
     n = {x["id"]: x for x in g["nodes"]}
     sen = n["sen:stock.alerts-to-draft"]
-    assert sen["role"] == "sensor" and sen["fn"]["expr"] == "1" and not sen["fn"].get("sampled")
+    assert sen["role"] == "sensor" and sen["fn"]["expr"] == "e^(−sT)" and sen["fn"]["sampled"]
     assert sen["fn"]["reads"] == "items: alert, fired, every 5 s"
     assert "every-alert-drafted" in sen["loops"]
     col = n["col:alerts-fired.main"]                     # watch.py alert: it records the alerts the count reads
@@ -473,8 +485,12 @@ def test_a_sensor_that_polls_slowly_against_its_loop_is_a_sampler_with_a_delay(t
     assert slow["reads"] == "Jira: FF tickets approved, every 5 min"
     assert (slow["expr"], slow["sampled"], slow["T"]) == ("e^(−sT)", True, "5 min")
     assert "5 min" in _text(n["sen:stock.approvals-waiting"]["math"]) and "up to T old" in n["sen:stock.approvals-waiting"]["says"]
-    quick = n["sen:stock.inbox"]["fn"]                     # 30 s against 10 min: H = 1
-    assert quick["reads"] == "prometheus: sum(inbox_depth), every 30 s" and quick["expr"] == "1"
+    assert not slow["slight"]
+    quick = n["sen:stock.inbox"]["fn"]                     # 30 s against 10 min: the same form, its sampler slight
+    assert quick["reads"] == "prometheus: sum(inbox_depth), every 30 s"
+    assert (quick["expr"], quick["sampled"], quick["T"], quick["slight"]) == ("e^(−sT)", True, "30 s", True)
+    assert ["T / loop", "30 s / 10 min = 0.05"] in n["sen:stock.inbox"]["rows"]
+    assert "drawn muted" in n["sen:stock.inbox"]["says"]
 
 
 def test_an_inflow_from_outside_names_its_source_in_the_dynamics_view(tmp_path):
@@ -595,3 +611,249 @@ def test_a_stock_with_no_flows_is_an_integrator_with_no_inputs_in_every_view(tmp
         assert "no inputs" in p["says"] and "seen only in its readings" in p["says"], where
         assert "∫" not in str(p["math"]) and "no flow modelled" in str(p["math"]), where
         assert not [e for e in g["edges"] if e["target"] == "proc:stock.backlog"], where
+
+
+# ---- subsystems classified C, P or named, the same letter and p × m closed and open (dev/records/blocks-subsystems-classified-c-p.md)
+
+CHAIN = """
+    systems:
+      a: {description: it controls}
+      b: {description: in the middle}
+      c: {description: it is controlled}
+    stocks:
+      work: {system: b, unit: x, sensor: {run: echo 1, every: 1m}}
+      load: {system: c, unit: x, sensor: {run: echo 1, every: 1m}}
+    flows:
+      fill: {system: b, to: work}
+      spill: {system: b, from: work}
+      fill-c: {system: c, to: load}
+    goals:
+      work-low: {system: b, stock: work, hold: "<= 5"}
+      load-low: {system: c, stock: load, hold: "<= 5"}
+    blocks:
+      pusher: {system: a, type: program, run: echo 1, every: 1m, in: stock.work, out: flow.fill}
+      relay: {system: b, type: program, run: echo 1, every: 1m, in: stock.load, out: flow.fill-c}
+    """
+
+
+def _letters(tmp_path, text: str) -> dict:
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text))
+    return {n["label"]: n["fn"]["letter"] for n in drawn(load(tmp_path / "ergostat.yaml"))["nodes"] if n["role"] == "subsystem"}
+
+
+def test_a_system_of_controllers_is_c_of_processes_p_and_mixed_or_neither_is_named(tmp_path):
+    two = CHAIN.replace("      relay:", "      #").replace("      c: {description: it is controlled}", "")
+    two = "\n".join(ln for ln in two.splitlines() if "load" not in ln and "fill-c" not in ln)
+    assert _letters(tmp_path, two) == {"a": "C", "b": "P"}            # only a controller; only a process acted on
+    assert _letters(tmp_path, CHAIN) == {"a": "C", "b": None, "c": "P"}  # b is acted on and acts: named
+    # a u wire that reaches no goal of its target is a y wire (bookkeeping): neither acts, both named
+    no_goal = two.replace('    goals:\n      work-low: {system: b, stock: work, hold: "<= 5"}\n', "")
+    assert _letters(tmp_path, no_goal) == {"a": None, "b": None}
+    n = {x["label"]: x for x in drawn(load(tmp_path / "ergostat.yaml"))["nodes"]}
+    assert (n["b"]["fn"]["sym"], n["b"]["fn"]["sub"], n["b"]["fn"]["named"]) == ("b", None, True)
+
+
+def _inside(g: dict, frame: str) -> set[str]:
+    up = {x["id"]: x.get("parent") for x in [*g["nodes"], *g["frames"]]}
+
+    def within(i):
+        while i:
+            if i == frame:
+                return True
+            i = up.get(i)
+        return False
+    return {n["id"] for n in g["nodes"] if within(n.get("parent"))}
+
+
+@pytest.mark.parametrize("example", EXAMPLES)
+def test_every_system_has_the_same_letter_and_p_by_m_closed_and_open(example):
+    spec = load(ROOT / "examples" / example / "ergostat.yaml")
+    roles = {}
+    for s in spec.systems:
+        above = set(spec.chain(s)[1:])
+        box = next((n for n in drawn(spec, above)["nodes"] if n["id"] == f"sys:{s}"), None)
+        if box is None:                                   # nothing of it in the control system (autoscaler's rescales)
+            continue
+        frame = next(f for f in drawn(spec, above | {s})["frames"] if f["id"] == f"frame:{s}")
+        keys = ("sym", "sub", "letter", "p", "m", "expr", "arg")
+        assert {k: box["fn"][k] for k in keys} == {k: frame["fn"][k] for k in keys}, (example, s)
+        assert frame["ports"] == box["ports"] and [p["as"] for p in box["ports"]] == sorted(
+            (p["as"] for p in box["ports"]), key=["in", "out", "d"].index), (example, s)
+        # counted again from what is drawn: closed, its ports; open with all inside it open, the lines crossing its frame
+        # and the disturbances arising inside it
+        keys_of = lambda ps: {k for p in ps for k in (p.get("keys") or [p["key"]])}          # noqa: E731
+        assert keys_of(box["outs"]) == {p["key"] for p in box["ports"] if p["as"] == "out"}, (example, s)
+        assert keys_of(box["ins"]) <= {p["key"] for p in box["ports"] if p["as"] != "out"}, (example, s)
+        g = drawn(spec, above | {s} | {x for x in spec.systems if s in spec.chain(x)})
+        ins, nodes = _inside(g, f"frame:{s}"), {n["id"]: n for n in g["nodes"]}
+        out = {e["key"] for e in g["edges"] if e["source"] in ins and e["target"] not in ins}
+        into = {e["key"] for e in g["edges"] if e["target"] in ins and (e["source"] not in ins or
+                                                                         nodes[e["source"]].get("role") == "disturbance")}
+        assert (box["fn"]["p"], box["fn"]["m"]) == (len(out), len(into)), (example, s, out, into)
+        roles[s] = box["fn"]["letter"]
+        for x in (box, frame):
+            assert x["fn"]["sym"] != "Q" and not re.search(r"\bQ\b", _text([x.get("math"), x.get("says")])), (example, s)
+    if example == "software-factory":
+        assert (roles["factory"], roles["product"]) == ("C", "P")
+    if example in ("big", "the-job", "ticket-factory"):
+        assert all(v is None for k, v in roles.items() if spec.within.get(k) is None), (example, roles)
+
+
+# ---- the top level as the textbook loop: r, Σ ahead of C, e, u, y, H on the return (dev/records/blocks-top-level-reference-and-sum.md)
+
+TWO = "\n".join(ln for ln in CHAIN.replace("      relay:", "      #").replace("      c: {description: it is controlled}", "")
+                .splitlines() if "load" not in ln and "fill-c" not in ln)
+
+
+def _two(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(TWO))
+    return load(tmp_path / "ergostat.yaml")
+
+
+def _keys(e: dict) -> set[str]:
+    return set(e.get("keys") or [e["key"]])
+
+
+def test_a_two_system_spec_draws_junction_r_e_u_y_and_h_on_the_return_at_the_top_level(tmp_path):
+    g = drawn(_two(tmp_path))
+    n = {x["id"]: x for x in g["nodes"]}
+    sym = lambda e: (e["signal"]["sym"], e["signal"].get("sub"))                       # noqa: E731
+    r = next(e for e in g["edges"] if n[e["source"]].get("role") == "reference")
+    assert n[r["target"]]["kind"] == "sum" and sym(r) == ("r", "b") and r["targetPort"].endswith("|in|r")
+    sid = r["target"]
+    e = next(x for x in g["edges"] if x["source"] == sid)
+    assert e["target"] == "sys:a" and sym(e) == ("e", None) and n["sys:a"]["fn"]["letter"] == "C"
+    assert sym(next(x for x in g["edges"] if x["source"] == "sys:a" and x["target"] == "sys:b"))[0] == "u"
+    outs = [x for x in g["edges"] if x["source"] == "sys:b"]
+    assert {n[x["target"]]["role"] for x in outs} == {"output", "sensor"} and all(sym(x) == ("y", "b") for x in outs)
+    h = next(x["target"] for x in outs if n[x["target"]]["role"] == "sensor")
+    assert n[h]["fn"]["name"].startswith("H_b") and n[h]["math"]
+    ret = next(x for x in g["edges"] if x["source"] == h)
+    assert ret["target"] == sid and ret["sign"] == "−" and ret["feedback"] and sym(ret) == ("y", "m")
+    assert {p["sign"] for p in n[sid]["ins"]} == {"+", "−"}
+    assert not [x for x in g["edges"] if x["source"] == "sys:b" and x["target"] == "sys:a"]   # it goes round through H and Σ
+    d = [x for x in g["edges"] if x["target"] == "sys:b" and n[x["source"]].get("role") == "disturbance"]
+    assert [sym(x) for x in d] == [("d", "b")]
+
+
+THREE = """
+    systems:
+      a: {description: it controls b and c}
+      a2: {description: it also controls b}
+      b: {description: controlled twice}
+      c: {description: controlled by a}
+    stocks:
+      work: {system: b, unit: x, sensor: {run: echo 1, every: 1m}}
+      work2: {system: b, unit: x, sensor: {run: echo 1, every: 1m}}
+      load: {system: c, unit: x, sensor: {run: echo 1, every: 1m}}
+    flows:
+      fill: {system: b, to: work}
+      spill: {system: b, from: work}
+      fill2: {system: b, to: work2}
+      fill-c: {system: c, to: load}
+    goals:
+      work-low: {system: b, stock: work, hold: "<= 5"}
+      work2-low: {system: b, stock: work2, hold: "<= 5"}
+      load-low: {system: c, stock: load, hold: "<= 5"}
+    blocks:
+      pusher: {system: a, type: program, run: echo 1, every: 1m, in: stock.work, out: flow.fill}
+      pusher-c: {system: a, type: program, run: echo 1, every: 1m, in: stock.load, out: flow.fill-c}
+      pusher2: {system: a2, type: program, run: echo 1, every: 1m, in: stock.work2, out: flow.fill2}
+    """
+
+
+def test_two_cs_on_one_p_and_one_c_on_two_ps_draw_one_loop_per_pair(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(THREE))
+    g = drawn(load(tmp_path / "ergostat.yaml"))
+    n = {x["id"]: x for x in g["nodes"]}
+    assert {s: n[f"sys:{s}"]["fn"]["letter"] for s in ("a", "a2", "b", "c")} == {"a": "C", "a2": "C", "b": "P", "c": "P"}
+    ids = [x["id"] for x in g["nodes"]]
+    assert len(ids) == len(set(ids))
+    for x in g["nodes"]:                                       # no port id twice on any node, nor on two nodes
+        ps = [p["id"] for p in x.get("ins", []) + x.get("outs", [])]
+        assert len(ps) == len(set(ps)), (x["id"], ps)
+    every = [p["id"] for x in g["nodes"] for p in x.get("ins", []) + x.get("outs", [])]
+    assert len(every) == len(set(every))
+    assert len({(e["sourcePort"], e["targetPort"]) for e in g["edges"]}) == len(g["edges"])   # no wire twice
+    sums = {x["id"]: x for x in n.values() if x["kind"] == "sum"}
+    assert set(sums) == {"sum:top:a>b", "sum:top:a2>b", "sum:top:a>c"}   # one junction per pair
+    for sid in sums:
+        c = "sys:" + sid.split(":")[2].split(">")[0]
+        into = [e for e in g["edges"] if e["target"] == sid]
+        assert sorted(e["sign"] for e in into) == ["+", "−"], sid                 # one r, one return
+        assert [e["target"] for e in g["edges"] if e["source"] == sid] == [c], sid
+    goals = lambda sid: next(e for e in g["edges"] if e["target"] == sid and e["sign"] == "+")["keys"]  # noqa: E731
+    assert (goals("sum:top:a>b"), goals("sum:top:a2>b"), goals("sum:top:a>c")) == (["work-low"], ["work2-low"], ["load-low"])
+    assert len([e for e in g["edges"] if e["target"] == "sys:a" and e["source"].startswith("sum:")]) == 2
+    d = [e for e in g["edges"] if e["target"] == "sys:b" and n[e["source"]].get("role") == "disturbance"]
+    assert len(d) == 1 and [x for x in n if x.startswith("dist:")] == ["dist:top:b"]
+
+
+def test_every_wire_at_the_top_level_has_a_label_and_software_factory_closes_its_loop():
+    g = drawn(load(ROOT / "examples" / "software-factory" / "ergostat.yaml"))
+    n = {x["id"]: x for x in g["nodes"]}
+    sums = [x for x in n.values() if x["kind"] == "sum"]
+    assert len(sums) == 1 and any(e["source"] == sums[0]["id"] and e["target"] == "sys:factory" for e in g["edges"])
+    r = next(x for x in n.values() if x.get("role") == "reference")
+    assert r["fn"]["bold"] and next(e for e in g["edges"] if e["source"] == r["id"])["signal"]["n"] == 3
+    on_loop = {e["source"] for e in g["edges"]} | {e["target"] for e in g["edges"]}
+    assert "sys:modelling" in n and "sys:modelling" not in on_loop
+    for ex in EXAMPLES:                                        # every wire, at every top level of systems
+        spec = load(ROOT / "examples" / ex / "ergostat.yaml")
+        if not spec.systems:                                   # (its top level is the leaf: not this gap's)
+            continue
+        es = [e for e in drawn(spec, set())["edges"]            # every system closed: the wires of the systems and their loops
+              if any(x.startswith("sys:") or ":top:" in x for x in (e["source"], e["target"]))]
+        assert all(e["signal"].get("sym") for e in es), (ex, [e["id"] for e in es if not e["signal"].get("sym")])
+
+
+def test_the_top_loop_stands_for_its_goals_and_signals_in_the_correspondence():
+    from ergostat.correspond import blocks_shapes
+    spec = load(ROOT / "examples" / "software-factory" / "ergostat.yaml")
+    sh = blocks_shapes(drawn(spec), spec)
+    assert {p for x in sh.values() for p in x["is"] if "top:" in p} == set()
+    assert "goal.no-live-bugs" in sh["sum:top:factory>product"]["is"] and "goal.no-live-bugs.r" in sh["ref:top:factory>product"]["is"]
+    assert "stock.bugs-live" in sh["h:top:factory>product"]["is"] and "stock.bugs-live" in sh["out:top:factory>product"]["is"]
+    assert sh["dist:top:product"]["is"] == ["auxiliary.ops-broken-per-ticket"]
+
+
+@pytest.mark.parametrize("which", ["two", "software-factory"])
+def test_opening_either_subsystem_shows_the_same_signals_at_its_frame_ports(tmp_path, which):
+    spec = _two(tmp_path) if which == "two" else load(ROOT / "examples" / which / "ergostat.yaml")
+    top = drawn(spec)
+    nodes = {x["id"]: x for x in top["nodes"]}
+    boxes = [x for x in nodes.values() if x.get("role") == "subsystem" and x["fn"]["letter"]]
+    assert sorted(x["fn"]["letter"] for x in boxes) == ["C", "P"]
+    for box in boxes:
+        s = box["system_name"]
+        dk = {p["key"] for p in box["ports"] if p["as"] == "d"}
+        into = set().union(*(_keys(e) for e in top["edges"] if e["target"] == box["id"])) - dk
+        out = set().union(*(_keys(e) for e in top["edges"] if e["source"] == box["id"]))
+        g = drawn(spec, {s})
+        ins = _inside(g, f"frame:{s}")
+        assert into == set().union(*(_keys(e) for e in g["edges"] if e["target"] in ins and e["source"] not in ins)), s
+        assert out == set().union(*(_keys(e) for e in g["edges"] if e["source"] in ins and e["target"] not in ins)), s
+        if dk:
+            d = [e for e in top["edges"] if e["target"] == box["id"] and nodes[e["source"]].get("role") == "disturbance"]
+            assert len(d) == 1 and set(d[0]["keys"]) == dk, s
+
+
+@pytest.mark.parametrize("example", EXAMPLES)
+def test_a_systems_letter_carries_its_name_once_closed_and_open(example):
+    """What blocks.js reads to print a system's name once: a C or P system's letter has the system's name as its
+    subscript (so the frame title drops the plain name after it), and a named one is its name alone, with no letter
+    and no subscript, on the closed block and on the open frame."""
+    spec = load(ROOT / "examples" / example / "ergostat.yaml")
+    for s in spec.systems:
+        above = set(spec.chain(s)[1:])
+        box = next((n for n in drawn(spec, above)["nodes"] if n["id"] == f"sys:{s}"), None)
+        if box is None:                                   # nothing of it in the control system
+            continue
+        frame = next(f for f in drawn(spec, above | {s})["frames"] if f["id"] == f"frame:{s}")
+        assert frame["label"] == box["label"] == s, (example, s)
+        for x in (box, frame):
+            fn = x["fn"]
+            if fn["letter"]:
+                assert (fn["sym"], fn["sub"], bool(fn.get("named"))) == (fn["letter"], s, False), (example, s, fn)
+            else:
+                assert (fn["sym"], fn["sub"], fn.get("named")) == (s, None, True), (example, s, fn)

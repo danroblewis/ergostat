@@ -18,8 +18,9 @@ What each part of the model becomes:
   where no path inside it leads from the input to the output.
 - A **sensor** read by a loop is a block on the feedback path, beneath it (Franklin, Powell & Emami-Naeini's
   standard loop), labelled with what it reads and how often (``sensing.py``): H(s) when the model gives it
-  dynamics (a rate over a window: a moving average), H = 1 when it gives none, and a delay e^(−sT) (a sampler
-  on the feedback path) when it polls at a period T that matters against the loop's (a tenth of it or more).
+  dynamics (a rate over a window: a moving average), a delay e^(−sT) (a sampler on the feedback path) when it
+  polls every T, drawn muted when T is under a tenth of the loop's period, and H = 1 when it neither polls nor
+  has dynamics.
   A collector, the command or query that turns an outside system into the items a count reads, is drawn
   in front of it, on the same path: the count is only as fresh as the collector.
 - A **discrete controller** C(z) takes one input, sampled (a sampler, T), and drives the continuous
@@ -31,13 +32,16 @@ What each part of the model becomes:
   model) enters at the process: at a stock's summing junction, or as an input of the process.
 - A block the model runs that reads nothing and is commanded by nothing (the world: customers,
   arrivals) is where a disturbance comes from, not a block of the control system.
-- A **system** is a subsystem block when closed: Q(s) when every part inside is continuous, else Q
-  (an operator); open, its parts are drawn inside its frame, with a port mark where a signal crosses it;
-  drawn alone, what crosses its edge are its In and Out ports."""
+- A **system** is a subsystem block when closed, classified by the signals crossing its edge: C (it acts on
+  another system's process), P (it is acted on) or its own name (both, or neither); P(s) when every part inside is
+  continuous, else P (an operator), with its p outputs by m inputs, disturbances counted, the same open; open, its
+  parts are drawn inside its frame, with a port mark where a signal crosses it; drawn alone, what crosses its edge
+  are its In and Out ports."""
 
 from __future__ import annotations
 
 from . import rates, sensing
+from .library.untrusted import Shown
 from .spec.ir import KIND_OF_TYPE, Ref, Spec
 
 WORLD_NOTE = "a block that reads nothing and is commanded by nothing: the world, from the control system's side"
@@ -118,6 +122,7 @@ class _Diagram:
         self.prod: dict[str, tuple[str, str]] = {}     # signal key -> (node, port) that produces it
         self.sig: dict[str, dict] = {}                 # signal key -> how it is written
         self.frames: list[dict] = []
+        self.shown = Shown(spec)                       # what an untrusted template made: its text marked (SPEC §2a)
         self._classify()
 
     # -- what each part of the model is to the control system
@@ -314,8 +319,25 @@ class _Diagram:
             said = self.inferred(kw.get("part"))
             if said and isinstance(kw.get("rows"), list):        # a part a model change added: said, quietly, last
                 kw["rows"] = [*kw["rows"], ["origin", said]]
+            self.untrusted(f"block.{id[4:]}" if id.startswith("blk:") else kw.get("part"), kw)
             n = self.nodes[id] = {"id": id, "ins": [], "outs": [], **kw}
         return n
+
+    def untrusted(self, ref, kw: dict) -> None:
+        """A part an untrusted template made: its words as the panel and the export write them marked (its description
+        whole, its name wherever it stands as a word), and its name, marked, first."""
+        got = self.shown.parts.get(str(ref))
+        if got is None:
+            return
+        sh, name, where = self.shown, str(ref).split(".", 1)[1], got[1].where
+        kw["says"] = sh.names(kw.get("says"))
+        kw["rows"] = [["untrusted library", sh.mark(name, where)]] + [
+            [k, sh.mark(v, where) if k == "description" else sh.names(v)] for k, v in kw.get("rows") or []]
+
+    def system_says(self, name: str) -> str:
+        """A system's description, marked when an untrusted template made it."""
+        t = self.s.systems.get(name) or ""
+        return self.shown.mark(t, name) if name in self.shown.systems else t
 
     def inferred(self, ref) -> str | None:
         """"added by ergostat, from model change X" for a part a model change added (``inferred:``, SPEC §12e)."""
@@ -347,15 +369,17 @@ class _Diagram:
             # it enters where it is compared: its summing junction, or the controller that reads the measurement itself
             readers = sorted(self.reads_y.get(g.name, ())) if g.name not in self.error_read else []
             where = self.s.blocks[readers[0]].system if readers else self.comparator_system(g)
-            one_sided = g.hold.op != "=="
+            one_sided = g.hold.op != "=="                # a limit (r ≤ 0), not a setpoint (r = 0.93): drawn and named so
             self.node(nid, kind="input", role="reference", system=where, label=f"r {g.name}",
-                      fn={"sym": "r", "sub": g.name, "value": f"= {_num(g.hold.value)}"}, loops=[g.name],
-                      math=[eq(sym("r", g.name), mn(g.hold.value))],
-                      says=f"the reference input of {g.name}: r = {_num(g.hold.value)}" +
+                      fn={"sym": "r", "sub": g.name, "value": _hold(g)}, loops=[g.name],
+                      math=[row(sym("r", g.name), mo(OPS.get(g.hold.op, "=")), mn(g.hold.value))],
+                      says=f"the reference input of {g.name}, {'a limit' if one_sided else 'a setpoint'}: r {_hold(g)}" +
                            (f", held within ±{_num(g.tolerance)}" if g.tolerance else "") +
-                           (f". The goal is one-sided ({g.of.name} {_hold(g)}): the error counts only past r, and an "
-                            "on-off controller serving it says in its own panel when it switches" if one_sided else "") + ".",
-                      rows=[["goal", g.name], ["holds", f"y_{g.of.name} {_hold(g)}"], ["description", g.description]])
+                           (f". {g.of.name} holds while it is within it, and the error e = r − y counts only past it: "
+                            "0 inside the limit. An on-off controller serving it says in its own panel when it switches"
+                            if one_sided else "") + ".",
+                      rows=[["goal", g.name], ["limit" if one_sided else "holds", f"y_{g.of.name} {_hold(g)}"],
+                            ["description", g.description]])
             self.produce(key, nid)
             return self.prod[key]
         if not key.startswith(("goal.", "meas.", "cmd.")) and self.disturbance(key):
@@ -609,7 +633,8 @@ class _Diagram:
     def need(self, key: str) -> None:
         """A measured signal's sensor, made when first read: a block on the feedback path, labelled with what it
         reads and how often (``sensing.reads``). H(s) when it has dynamics of its own (a rate over a window, a
-        moving average); a delay e^(−sT) when it polls at a period that matters against the loop's; else H = 1.
+        moving average); a delay e^(−sT), a sampler, when it polls (``slight``, drawn muted, when T is under a
+        tenth of the loop's period, which its rows give as a ratio); else H = 1.
         A collector that turns an outside system into the items it counts is drawn in front of it."""
         if not key.startswith("meas.") or key in self.prod:
             return
@@ -627,11 +652,14 @@ class _Diagram:
             period = 0.0 if ex.manual or ex.cron else float(ex.every or 0)
             period += max((float(c.every or 0) for c in cols), default=0.0)
             loop_T = self.loop_period(var)
-            sampled = not dyn and period > 0 and period >= loop_T / 10
+            sampled = not dyn and period > 0                 # it polls: a sampler, whatever its period
+            slight = sampled and period < loop_T / 10        # T small against the loop's: the sampler drawn muted
             Tw = sensing.every_words(period)
             rows = [["measures", name], ["reads", reads], ["command", sensing.command(self.s, ex)],
                     ["sensors", ", ".join(x.name for x in sensors)],
                     ["collected by", ", ".join(sensing.reads(self.s, c) for c in cols)], ["now", self.now(var)]]
+            if sampled:
+                rows.insert(2, ["T / loop", f"{Tw} / {sensing.every_words(loop_T)} = {period / loop_T:.2g}"])
             ym = eq(sym("y", f"m,{name}"), row(sym("H", name, "s" if dyn or sampled else None), sym("y", name)))
             if dyn:
                 tau = (ex.changes or ex.items or {}).get("over") or 3600.0
@@ -644,19 +672,21 @@ class _Diagram:
                 says = (f"the sensor on y_{name}: {how}. A window average lags what it measures by about τ/2 = "
                         f"{_dur(tau / 2)}.")
             elif sampled:
-                fn = {"sym": "H", "sub": name, "arg": "s", "expr": "e^(−sT)", "T": Tw, "sampled": True, "linear": True}
+                fn = {"sym": "H", "sub": name, "arg": "s", "expr": "e^(−sT)", "T": Tw, "sampled": True, "linear": True,
+                      "slight": slight}
                 math = [eq(sym("H", name, "s"), ["msup", mi("e"), row(mo("−"), mi("s"), mi("T"))]), eq(mi("T"), mt(Tw)), ym]
                 says = (f"the sensor on y_{name}: it reads {reads}. It polls every {Tw}"
-                        + (" (with its collector)" if cols else "") + f", a tenth or more of the loop's own period "
-                        f"({sensing.every_words(loop_T)}): a reading is up to T old, T/2 on average, so the feedback path is "
-                        "drawn as a sampler, a delay of up to T.")
+                        + (" (with its collector)" if cols else "") + (
+                            f", short against the loop's own period ({sensing.every_words(loop_T)}): its delay of up to T "
+                            "is slight, near H = 1, so its sampler is drawn muted." if slight else
+                            f", a tenth or more of the loop's own period ({sensing.every_words(loop_T)}): a reading is up "
+                            "to T old, T/2 on average, so the feedback path is drawn as a sampler, a delay of up to T."))
             else:
-                fn = {"sym": "H", "sub": name, "arg": None, "expr": "1", "linear": True}
+                fn = {"sym": "H", "sub": name, "arg": None, "expr": "1", "linear": True,
+                      **({"every": sensing.every_words(ex.every)} if ex.every and not (ex.manual or ex.cron) else {})}
                 math = [eq(sym("H", name), mn(1)), eq(sym("y", f"m,{name}"), sym("y", name))]
                 says = (f"the sensor on y_{name}: it reads {reads}. What it reads goes back to the loop as it is (H = 1): "
-                        "the model gives it no dynamics" + (f", and its period ({Tw}"
-                        + (", with its collector's" if cols else "") + f") is short against the loop's "
-                        f"({sensing.every_words(loop_T)})" if period else "") + ".")
+                        "the model gives it no dynamics.")
             fn["reads"] = reads
             self.node(nid, kind="block", role="sensor", system=self._system(var), label=name, fn=fn, math=math,
                       says=says, part=var, rows=rows)
@@ -1073,6 +1103,11 @@ class _Diagram:
                     "math": math, "rows": rows + ([["gain", f"{_num(g)} a step per unit of error"]] if g is not None else []) + extra,
                     **({"deadband": db} if db else {})}
         law = (self.snap.get("laws") or {}).get(n) if b.type == "external" else None
+        if b.type == "external" and b.law is not None:     # its law declared from the catalogue (§12d): an assumption
+            from .control.laws import law as known
+            from .spec.explain import law_words
+            words = f"{b.law.kind}: {law_words(b)}"
+            rows = rows + [["declared", f"{words} (an assumption until tested against the record)"]]
         if law:                                            # an existing controller, its law identified from the record (§12d)
             sk = {"onoff": "relay", "stepper": "zoh", "proportional": "saturation" if law["params"].get("hi") is not None
                   or law["params"].get("lo") is not None else None}.get(law["family"])
@@ -1081,6 +1116,12 @@ class _Diagram:
                                               "linear": law["family"] in ("proportional", "pi")},
                     "math": [eq(mi("u"), mt(law["short"])), mt(f"identified, external: {law['said']}")],
                     "rows": rows + [["identified", law["said"]]]}
+        if b.type == "external" and b.law is not None:     # drawn as an identified law is, marked declared, not identified
+            short, mark = known(b.law).short(), f"declared {b.law.kind}"
+            return {"role": role, "declared": mark, "says": f"an external controller, its law declared, an assumption "
+                    f"until tested against the record: {words}.", "fn": {"name": n, "kind": mark, "law": short,
+                    "sketch": "saturation" if b.law.kind == "kubernetes-hpa" else "ideal-relay", "linear": False},
+                    "math": [eq(mi("u"), mt(short)), mt(f"declared, external: {words}")], "rows": rows}
         if b.type == "proportional":
             k = b.params.get("gain")
             sat = [x for x in (b.params.get("min"), b.params.get("max")) if x is not None]
@@ -1108,15 +1149,18 @@ class _Diagram:
                 rows.insert(0, ["threshold", f"{g.of.name} {_hold(g)}: on above it" if g.hold.op in ("<=", "<") else
                                 f"{g.of.name} {_hold(g)}: on below it" if g.hold.op in (">=", ">") else
                                 f"{g.of.name} {_hold(g)}: on away from it"])
-                if until:
-                    rows.insert(1, ["releases at", f"{g.of.name} {back} (hysteresis)"])
-            return {"role": role, "fn": {"sym": None, "sub": None, "name": n, "sketch": "relay",
+            # on past its tolerance, or off only at its until: a band (hysteresis); on and off at one threshold: an ideal relay
+            band = bool(until) and (not g or back != _hold(g)) or bool(g and g.tolerance)
+            if g and band:
+                rows.insert(1, ["releases at", f"{g.of.name} {back} (hysteresis)"])
+            return {"role": role, "fn": {"sym": None, "sub": None, "name": n, "sketch": "relay" if band else "ideal-relay",
                     "kind": "relay" if b.type == "onoff" else b.type, "linear": False},
-                    "says": f"an on-off controller (a relay with hysteresis): u = 1 {on}, u = 0 {off}.",
+                    "says": f"an on-off controller ({'a relay with hysteresis' if band else 'an ideal relay'}): "
+                            f"u = 1 {on}, u = 0 {off}.",
                     "math": [eq(mi("u"), row(mo("{"), ["mtable", {"columnalign": "left"},
                                                          ["mtr", ["mtd", mn(1)], ["mtd", mt(on)]],
                                                          ["mtr", ["mtd", mn(0)], ["mtd", mt(off)]]])),
-                             mt("a static nonlinearity with memory: no transfer function")], "rows": rows}
+                             mt(f"a static nonlinearity{' with memory' if band else ''}: no transfer function")], "rows": rows}
         if b.type == "limit":
             return {"role": role, "fn": {"name": n, "sketch": "saturation", "kind": "limit", "linear": False},
                     "says": "a saturation: its input, clamped.", "math": [eq(mi("u"), row(mt("sat"), mo("("), mi("x"),
@@ -1221,14 +1265,84 @@ def _hold(g) -> str:
     return f"{OPS.get(g.hold.op, g.hold.op)} {_num(g.hold.value)}"
 
 
-# ---- folded by the systems: closed ones as subsystem blocks Q(s), open ones as frames, one drawn alone
+# ---- folded by the systems: closed ones as subsystem blocks (C, P or named), open ones as frames, one drawn alone
 
 def _chain(spec: Spec, system: str | None) -> list[str]:
     return list(reversed(spec.chain(system)))         # outermost first
 
 
-def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
-    from .fold import default_open
+def _effects(spec: Spec) -> dict[str, set[str]]:
+    """Each part's causal edges forward: a flow to the stocks it fills or drains, a part to what it drives."""
+    out: dict[str, set[str]] = {}
+    for f in spec.flows.values():
+        out.setdefault(f"flow.{f.name}", set()).update(f"stock.{x}" for x in (f.source, f.target) if x)
+    for k, t in (("flow", spec.flows), ("auxiliary", spec.auxiliaries)):
+        for x in t.values():
+            for r in x.driven_by:
+                out.setdefault(f"{r.kind}.{r.name}", set()).add(f"{k}.{x.name}")
+    return out
+
+
+def _classes(d: _Diagram) -> dict[str, dict]:
+    """Each system as one block, read from the wires crossing its border (docs/proposals/blocks-levels.md §1), the same
+    whether it is drawn closed or open: C when it sends u wires out and none in, P when it takes u wires in and sends
+    none out, else named by itself. A u wire is set by a controller inside its source and enters a part of its target
+    that reaches one of the target's goals; every other wire is a y wire. Its ports in order: inputs (references and
+    signals from other systems), outputs, disturbances (entering from outside or arising inside); p outputs by m inputs,
+    disturbances counted, at both levels."""
+    if getattr(d, "classes", None) is not None:
+        return d.classes
+    spec, nodes, fx = d.s, d.nodes, _effects(d.s)
+    within = lambda nid, s: s in spec.chain((nodes.get(nid) or {}).get("system"))          # noqa: E731
+    inside = lambda var, s: "." in var and spec.inside(Ref(*var.split(".", 1)), s)      # noqa: E731
+
+    def reaches(w: dict, t: str | None, outside: str) -> bool:      # rule (b): into t (None: anything not in outside)
+        part = lambda v: inside(v, t) if t else not inside(v, outside)                  # noqa: E731
+        b = w["target"][4:] if w["target"].startswith("blk:") else None
+        todo = [f"{x.kind}.{x.name}" for x in spec.blocks[b].targets()] if b in spec.blocks else [w["key"]]
+        todo = [y for v in todo for y in (v, *fx.get(v, ()))]       # a flow of the source may fill the target's stock
+        goals = {str(g.of) for g in spec.goals.values() if part(str(g.of))}
+        seen: set[str] = set()
+        while todo:
+            v = todo.pop()
+            if v in seen or not part(v):
+                continue
+            seen.add(v)
+            if v in goals:
+                return True
+            todo.extend(fx.get(v, ()))
+        return False
+
+    out: dict[str, dict] = {}
+    for s in spec.systems:
+        ports: dict[str, list[str]] = {"in": [], "out": [], "d": []}
+        u_in = u_out = False
+        for w in d.wires:
+            a, b, k = within(w["source"], s), within(w["target"], s), w["key"]
+            sg = d.sig.get(k) or d.signal(k)
+            if a and b and nodes[w["source"]].get("role") == "disturbance":
+                group = "d"
+            elif a == b:
+                continue
+            else:
+                group = "out" if a else "d" if sg.get("sym") == "d" else "in"
+                if sg.get("sym") == "u":
+                    tch = spec.chain(nodes[w["target"]].get("system"))
+                    t = next((x for x in tch if spec.within.get(x) in spec.chain(s)[1:] or not spec.within.get(x)), None)
+                    if reaches(w, s, s) if b else reaches(w, t, s):
+                        u_in, u_out = u_in or b, u_out or a
+            if k not in ports[group]:
+                ports[group].append(k)
+        letter = "C" if u_out and not u_in else "P" if u_in and not u_out else None
+        out[s] = {"letter": letter, "p": len(ports["out"]), "m": len(ports["in"]) + len(ports["d"]),
+                  "ports": [{"as": g, "key": k} for g in ("in", "out", "d") for k in ports[g]]}
+    d.classes = out
+    return out
+
+
+def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] | None = None) -> dict:
+    """``keep``: the only nodes drawn (the loops an item or a kind touches); a wire from any other ends at a port."""
+    from .fold import default_open, upkeep
     from .remote import box as remote_box
     spec = d.s
     if open_ is None:
@@ -1238,6 +1352,8 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
     nodes = d.nodes
 
     def rep(nid: str) -> str:
+        if keep is not None and nid not in keep:
+            return "ext"
         ch = _chain(spec, nodes[nid].get("system"))
         if focus:
             if focus not in ch:
@@ -1250,7 +1366,13 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
 
     reps = {nid: rep(nid) for nid in nodes}
     mixed = {name for nid, n in nodes.items() if not _continuous(n) for name in spec.chain(n.get("system"))}
-    arg = lambda name: None if name in mixed else "s"          # noqa: E731  Q_lab: an operator, not a transfer function
+    arg = lambda name: None if name in mixed else "s"          # noqa: E731  P_lab: an operator, not a transfer function
+    cls = _classes(d)
+
+    def sysfn(name: str) -> dict:                              # the same at both levels: closed, and its frame open
+        c = cls[name]
+        return {"sym": c["letter"] or name, "sub": name if c["letter"] else None, "named": not c["letter"],
+                "arg": arg(name), "expr": f"{c['p']}×{c['m']}", "letter": c["letter"], "p": c["p"], "m": c["m"]}
     out: dict[str, dict] = {}
     boxes: dict[str, dict] = {}
     for nid, n in nodes.items():
@@ -1262,10 +1384,10 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
             inner = spec.inner_loops(name)
             boxes[r] = {"id": r, "kind": "block", "role": "subsystem", "system": spec.within.get(name), "label": name,
                         "ins": [], "outs": [], "parts": 0, "loops": [],
-                        "fn": {"sym": "Q", "sub": name, "arg": arg(name), "expr": "", "linear": None},
-                        "says": (spec.systems.get(name) or "") and spec.systems.get(name) + ". ",
+                        "fn": {**sysfn(name), "linear": None}, "ports": cls[name]["ports"],
+                        "says": d.system_says(name) and d.system_says(name) + ". ",
                         "subsystems": spec.subsystems(name), "inner": inner, "system_name": name,
-                        "remote": remote_box(spec, name)}
+                        "remote": remote_box(spec, name), "upkeep": upkeep(spec, name)}
         if r.startswith("sys:"):
             boxes[r]["parts"] += 1
             boxes[r].setdefault("holds", []).append(nid)          # (correspond.py: what it holds, as drawn)
@@ -1293,7 +1415,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
                           "fn": {"sym": sg.get("sym"), "sub": sg.get("sub")}, "ins": [], "outs": [], "system": focus,
                           "in": ch[0] if ch else None,
                           "says": f"{'an input from' if io == 'in' else 'an output to'} {ch[0] if ch else 'the top level'}, "
-                                  f"outside {focus}: {sg.get('sym') or ''}{'_' + sg['sub'] if sg.get('sub') else ''}.",
+                                  f"outside {focus or 'the loops drawn'}: {sg.get('sym') or ''}{'_' + sg['sub'] if sg.get('sub') else ''}.",
                           "port_of": io}
             if io == "in":
                 terms[tid]["outs"].append({"id": tid + "|out", "side": "E"})
@@ -1336,27 +1458,34 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
                               any(e["sourcePort" if io == "outs" else "targetPort"] == p["id"] for e in edges)]
             boxes[box][io].append({"id": pid, "side": "W" if io == "ins" else "E", "key": "vec", "n": len(keys), "keys": keys})
         edges.append({"key": f"vec:{a}>{b}", "source": a, "sourcePort": sp, "target": b, "targetPort": tp, "keys": keys})
-        d.sig[f"vec:{a}>{b}"] = {"key": f"vec:{a}>{b}", "sym": "y",          # a subsystem's outputs: y_i = Q_i(s) u_i
+        u = cls[a.split(":", 1)[1]]["letter"] == "C"                          # a subsystem's outputs, one vector: u from a C
+        d.sig[f"vec:{a}>{b}"] = {"key": f"vec:{a}>{b}", "sym": "u" if u else "y",
                                  "sub": a.split(":", 1)[1], "what": "vector", "n": len(keys)}
+    _top_loops(d, cls, boxes, edges, out, _coupled(boxes, edges))
     for i, e in enumerate(edges):
         e["id"] = f"w{i}:{e['sourcePort']}>{e['targetPort']}"
         sg = d.sig.get(e["key"]) or d.signal(e["key"])
         e["signal"] = {k: sg[k] for k in ("sym", "sub", "what", "n") if k in sg}
+        if not sg.get("sym") and e["key"].startswith("rec:") and (e["source"] in boxes or e["target"] in boxes):
+            e["signal"] = {"sym": "y", "sub": e["key"][4:].split("~")[0].rsplit(".", 1)[0], "what": "record"}  # between systems
     # what each subsystem block computes, now that its inputs and outputs are known
     for b in boxes.values():
         name = b["system_name"]
-        nin, nout = len(b["ins"]), len(b["outs"])
-        width = lambda ps: sum(p.get("n", 1) for p in ps)          # noqa: E731
-        b["fn"]["expr"] = f"{width(b['outs'])}×{width(b['ins'])}" if nin and nout else ""
-        b["fn"]["bold"] = width(b["ins"]) > 1 or width(b["outs"]) > 1
-        q = sym("Q", name, b["fn"]["arg"], b["fn"]["bold"])
-        b["math"] = [eq(sym("y", name, None, b["fn"]["bold"]), row(q, sym("u", name, None, b["fn"]["bold"])) if b["fn"]["arg"]
-                        else row(q, mo("["), sym("u", name, None, b["fn"]["bold"]), mo("]"))),
-                     mt(f"the system {name} as one block: from its {width(b['ins'])} input{'s' if width(b['ins']) != 1 else ''} "
-                        f"to its {width(b['outs'])} output{'s' if width(b['outs']) != 1 else ''}, with the {len(b['loops'])} "
+        fn = b["fn"]
+        fn["bold"] = fn["m"] > 1 or fn["p"] > 1
+        q, L = (sym(fn["letter"], name, fn["arg"], fn["bold"]), fn["letter"]) if fn["letter"] else (mt(name), name)
+        ds = sum(p["as"] == "d" for p in b["ports"])
+        what = {"C": "a controller: it acts on another system's process, and nothing outside acts on it",
+                "P": "a process: another system acts on it, and it acts on none", None: "a named block: it acts on "
+                "another system and is acted on, or neither (it holds only its own loops)"}[fn["letter"]]
+        b["math"] = [eq(sym("y", name, None, fn["bold"]), row(q, sym("u", name, None, fn["bold"])) if fn["arg"]
+                        else row(q, mo("["), sym("u", name, None, fn["bold"]), mo("]"))),
+                     mt(f"the system {name} as one block, {what} (inferred from the signals crossing its edge): "
+                        f"{fn['p']} output{'s' if fn['p'] != 1 else ''} by {fn['m']} input{'s' if fn['m'] != 1 else ''} "
+                        f"({ds} of them disturbances), with the {len(b['loops'])} "
                         f"loop{'s' if len(b['loops']) != 1 else ''} inside closed. Not identified. " +
-                        ("Every part inside is continuous: a transfer function Q(s)." if b["fn"]["arg"] else
-                         "It holds sampled or nonlinear parts, so it is an operator Q[u], not a transfer function Q(s)."))]
+                        (f"Every part inside is continuous: a transfer function {L}(s)." if fn["arg"] else
+                         f"It holds sampled or nonlinear parts, so it is an operator {L}[u], not a transfer function {L}(s)."))]
         b["says"] = (b["says"] or "") + ("an inner loop: given a setpoint from outside, it holds it. " if b["inner"] else "")
         b["rows"] = [["system", name], ["loops inside", ", ".join(b["loops"])], ["inside", ", ".join(b["subsystems"])],
                      ["inputs", ", ".join(_portkey(p) for p in b["ins"])], ["outputs", ", ".join(_portkey(p) for p in b["outs"])]]
@@ -1378,7 +1507,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
             name = f.split(":", 1)[1]
             if f not in frames:
                 frames[f] = {"id": f, "kind": "frame", "frame": "system", "label": name, "parent": frame_of(spec.within.get(name)),
-                             "fn": {"sym": "Q", "sub": name, "arg": arg(name)}, "says": spec.systems.get(name, ""),
+                             "fn": sysfn(name), "ports": cls[name]["ports"], "says": d.system_says(name),
                              "inner": spec.inner_loops(name)}
             f = frames[f]["parent"]
     for c in d.frames:
@@ -1394,6 +1523,85 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
     return {"kind": "blocks", "nodes": node_list, "edges": edges, "frames": list(frames.values()),
             "open": sorted(open_), "focus": focus,
             "tree": {s: {"within": spec.within.get(s), "description": desc} for s, desc in spec.systems.items()}}
+
+
+def _coupled(boxes: dict, edges: list[dict]) -> list[tuple[str, str]]:
+    """The groups of closed systems drawn as one loop: each C box and the P box its u wires enter."""
+    return sorted({(e["source"], e["target"]) for e in edges if e["source"] in boxes and e["target"] in boxes and
+                   boxes[e["source"]]["fn"]["letter"] == "C" and boxes[e["target"]]["fn"]["letter"] == "P"})
+
+
+def _top_loops(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict, groups: list[tuple[str, str]]) -> None:
+    """Each group of closed systems drawn as its loop: here each coupled C and P (_top_loop)."""
+    for c, p in groups:
+        _top_loop(d, cls, boxes, edges, out, c, p)
+
+
+def _top_loop(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict, c: str, p: str) -> None:
+    """A C acting on a P drawn as the textbook loop (docs/proposals/blocks-levels.md §2): r, the goals of P that C
+    serves, into a summing junction ahead of C; e into C; u from C to P; y out of P, and back through H (the sensors
+    that read it) to the junction's minus input; d into P. Where C serves no goal of P, or reads nothing of P, the
+    wires stay as they are."""
+    spec = d.s
+    C, P = c[4:], p[4:]
+    back = next((e for e in edges if e["source"] == p and e["target"] == c), None)
+    by = lambda g: [spec.blocks[b].system for b in (lambda lp: lp.controllers + lp.actuators)(spec.loop(g))  # noqa: E731
+                    if b in spec.blocks]
+    goals = [g for g, x in spec.goals.items() if P in spec.chain(x.system) and
+             any(C in spec.chain(s) for s in by(g)) and not any(P in spec.chain(s) for s in by(g))]
+    if back is None or not goals:
+        return
+    keys, dk = back.get("keys") or [back["key"]], [x["key"] for x in cls[P]["ports"] if x["as"] == "d"]
+    n, m, at = len(goals), len(keys), boxes[p]["system"]
+    cp = f"{C}>{P}"                                 # one loop per pair: two Cs on a P, or a C on two Ps, draw two loops
+    rid, sid, hid, oid, did, ep = (*(f"{k}:top:{cp}" for k in ("ref", "sum", "h", "out")), f"dist:top:{P}", f"{c}|in|e<{P}")
+    hs = [(d.nodes.get((d.prod.get(k) or ("",))[0]) or {}).get("fn", {}).get("expr") or "1" for k in keys]
+    H = hs[0] if m == 1 else f"diag({', '.join(hs)})"
+    ys = ", ".join(_keyname(k).replace(" (measured)", "") for k in keys)
+    sig = {"r": ("r", P, "reference", n), "e": ("e", None, "error", n), "y": ("y", P, "output", m),   # (e and y_m bare, as
+           "ym": ("y", "m", "measured", m), "d": ("d", P, "disturbance", len(dk))}                    # the textbooks: by their Σ)
+    for k, (s_, sub, what, w) in sig.items():
+        d.sig[f"top:{k}:{P if k == 'd' else cp}"] = {"key": f"top:{k}:{P if k == 'd' else cp}", "sym": s_, "sub": sub,
+                                                     "what": what, "n": w}
+    node = lambda nid, ks=keys, **kw: out.setdefault(nid, {"id": nid, "system": at, "loops": list(goals),  # noqa: E731
+                                                           "signals": list(ks), **kw})          # (correspond.py: what it is)
+    node(rid, [f"goal.{g}.r" for g in goals], kind="input", role="reference", label=f"r {P}",
+         fn={"sym": "r", "sub": P, "bold": n > 1, "value": ", ".join(goals) if n > 1 else f"{goals[0]} {_hold(spec.goals[goals[0]])}"},
+         ins=[], outs=[{"id": f"{rid}|out|r", "side": "E"}], math=[sym("r", P, None, n > 1)],
+         says=f"the references of {P} that {C} serves, {n}: " + "; ".join(f"{g} {_hold(spec.goals[g])}" for g in goals) + ".",
+         rows=[["goals", ", ".join(goals)]])
+    node(sid, [f"goal.{g}{x}" for g in goals for x in ("", ".r")], kind="sum", role="comparator", label=f"Σ {P}",
+         ins=[{"id": f"{sid}|in|r", "side": "W", "sign": "+"}, {"id": f"{sid}|in|y", "side": "S", "sign": "−"}],
+         outs=[{"id": f"{sid}|out|e", "side": "E"}],
+         math=[eq(sym("e", P, None, n > 1), row(sym("r", P, None, n > 1), mo("−"), sym("y", f"m,{P}", None, m > 1)))],
+         says=f"compares {P}'s references with what is measured of it: e = r − y_m. {C} reads y_m itself ({ys}) "
+              "and compares inside: this junction is those comparisons, drawn ahead of it.")
+    node(oid, kind="output", role="output", label=f"y {P}", fn={"sym": "y", "sub": P, "bold": m > 1},
+         ins=[{"id": f"{oid}|in|y", "side": "W"}], outs=[], math=[sym("y", P, None, m > 1)],
+         says=f"what {P} puts out, {m}: {ys}.")
+    node(hid, kind="block", role="sensor", label=f"H {P}", fn={"name": f"H_{P} = " + (hs[0] if len(set(hs)) == 1 else f"diag(H_1 … H_{m})"),
+         "reads": ("each its own: " if m > 1 else "") + f"the readings of {ys}"},
+         ins=[{"id": f"{hid}|in|y", "side": "E"}], outs=[{"id": f"{hid}|out|ym", "side": "W"}],
+         math=[eq(sym("H", P, None, m > 1), mt(H))],
+         says=f"the sensing of {P}, on the return path: the sensors that read {ys}" +
+              (", diagonal: each reads its own output" if m > 1 else "") + ". H = 1 where a sensor adds no dynamics.")
+    edges.remove(back)
+    boxes[c]["ins"] = [x for x in boxes[c]["ins"] if x["id"] != back["targetPort"]] + [
+        {"id": ep, "side": "W", **({"key": "vec", "n": m, "keys": keys} if m > 1 else {"key": keys[0]})}]
+    wire = lambda k, a, ap, b, bp, **kw: edges.append({"key": f"top:{k}:{P if k == 'd' else cp}", "source": a,  # noqa: E731
+                                                       "sourcePort": ap, "target": b, "targetPort": bp, "keys": keys, **kw})
+    wire("r", rid, f"{rid}|out|r", sid, f"{sid}|in|r", sign="+", keys=goals)
+    wire("e", sid, f"{sid}|out|e", c, ep)
+    wire("y", p, back["sourcePort"], oid, f"{oid}|in|y")
+    wire("y", p, back["sourcePort"], hid, f"{hid}|in|y", feedback=True)
+    wire("ym", hid, f"{hid}|out|ym", sid, f"{sid}|in|y", sign="−", feedback=True)
+    if dk and did not in out:                         # P's disturbance once, however many Cs act on it
+        node(did, dk, kind="input", role="disturbance", label=f"d {P}", fn={"sym": "d", "sub": P, "bold": len(dk) > 1},
+             ins=[], outs=[{"id": f"{did}|out|d", "side": "E"}], math=[sym("d", P, None, len(dk) > 1)],
+             says=f"what enters {P} that no valve sets, {len(dk)}: {', '.join(_keyname(k) for k in dk)}.")
+        boxes[p]["ins"].append({"id": f"{p}|in|d", "side": "N", **({"key": "vec", "n": len(dk), "keys": dk}
+                                                                    if len(dk) > 1 else {"key": dk[0]})})
+        wire("d", did, f"{did}|out|d", p, f"{p}|in|d", keys=dk)
 
 
 def _continuous(n: dict) -> bool:
@@ -1420,21 +1628,38 @@ def _keyname(k: str) -> str:
     return k.split(".", 1)[-1]
 
 
-def diagram(model, snap: dict | None = None, open_: set[str] | None = None, focus: str | None = None) -> dict:
-    """The control system of a model as a block diagram, folded by its systems."""
+def loop_parts(spec: Spec, goal: str) -> set[str]:
+    """A goal's control loop as the model's parts (``kind.name``): what it holds, its controllers and actuators, its
+    valves and disturbances, the long way round, and what its sensors read."""
+    g, lp = spec.goals[goal], spec.loop(goal)
+    return {str(g.of), *(f"block.{b}" for b in [*lp.controllers, *lp.actuators]), *lp.through,
+            *(f"flow.{v}" for v in [*lp.valves, *lp.disturbances]), *(s.rsplit(".", 1)[0] for s in lp.sensors)}
+
+
+def diagram(model, snap: dict | None = None, open_: set[str] | None = None, focus: str | None = None,
+            parts: set[str] | None = None) -> dict:
+    """The control system of a model as a block diagram, folded by its systems; given ``parts`` (what an item passed
+    through, or what a kind touches), only the control loops those meet, each whole, in its systems' frames."""
     spec = spec_of(model)
     if spec is None:
         return {"kind": "blocks", "nodes": [], "edges": [], "frames": [], "open": [], "focus": focus, "tree": {}}
     d = _Diagram(spec, snap)
     d.build()
     identified(d)
-    g = fold(d, open_, focus)
+    keep = None
+    if parts is not None:              # chosen from the model alone: a goal never read yet is touched like any other
+        goals = {g for g in spec.goals if loop_parts(spec, g) & parts}
+        keep = {nid for nid, n in d.nodes.items() if goals & set(n.get("loops") or ())}
+        fed = {w["target"] for w in d.wires if w["source"] in keep}       # (a stock's sum: between its flows and it)
+        keep |= fed & {w["source"] for w in d.wires if w["target"] in keep}
+        open_, focus = {s for nid in keep for s in spec.chain(d.nodes[nid].get("system"))}, None
+    g = fold(d, open_, focus, keep)
     loops = {}
     for name, lp in (snap or {}).get("loops", {}).items():
         if name in spec.goals:
             gl = spec.goals[name]
-            loops[name] = {"status": lp.get("status"), "stock": gl.of.name, "setpoint": _hold(gl), "value": lp.get("value"),
-                           "error": lp.get("error"), "band": lp.get("band", ""),
+            loops[name] = {"status": lp.get("status"), "word": lp.get("word"), "stock": gl.of.name, "setpoint": _hold(gl),
+                           "value": lp.get("value"), "error": lp.get("error"), "band": lp.get("band", ""),
                            "nodes": sorted(n["id"] for n in g["nodes"] if name in n.get("loops", []))}
     g["loops"] = loops
     return g

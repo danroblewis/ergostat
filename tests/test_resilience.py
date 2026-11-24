@@ -191,6 +191,27 @@ def test_the_watcher_stops_and_starts_an_engine_whose_heartbeat_is_stale(tmp_pat
         frozen.kill()
 
 
+def test_watcher_stale_shard_heartbeat(tmp_path, monkeypatch):
+    import time
+
+    from ergostat import runner
+    watcher, d, p, started = _watched(tmp_path, monkeypatch)
+    pid = 2 ** 22 + 17                                                     # (never signalled: the restart waits)
+    monkeypatch.setattr(runner, "running_pid", lambda project, wait=True: pid)
+    monkeypatch.setattr(watcher.restarts, "wait", lambda d, now: (60.0, 1))
+    fresh, old = {"pass": time.time(), "pid": pid}, {"pass": time.time() - 300, "pid": pid}
+    (p.dir / "heartbeat.json").write_text(json.dumps(fresh))
+    (p.dir / "heartbeat.a.json").write_text(json.dumps(fresh))
+    assert watcher.look(d, p.dir, []) is None
+    (p.dir / "heartbeat.b.json").write_text(json.dumps(old))               # one shard frozen: the engine is stale
+    did = watcher.look(d, p.dir, [])
+    assert did["what"] == "stale" and did["pid"] == pid and did["seconds"] >= 300
+    (p.dir / "heartbeat.b.json").write_text(json.dumps({**old, "pid": pid + 1}))   # a past run's: not this engine's
+    assert watcher.look(d, p.dir, []) is None
+    (p.dir / "heartbeat.b.json").write_text("{not json")                   # unreadable: no beat, as heartbeat.json
+    assert watcher.look(d, p.dir, []) is None and not started
+
+
 def test_status_says_engine_not_running_last_seen(tmp_path, capsys):
     import time
     d = _repo(tmp_path)
@@ -576,9 +597,10 @@ def test_a_hard_restart_never_leaves_two_runs_of_one_item(tmp_path, hard, monkey
 
 def test_a_hard_restart_spends_no_attempt(tmp_path, hard):
     """A job held by a run when the engine restarts hard (wedged: its run's end never recorded), with one attempt
-    allowed: the next engine expires the lease uncounted and it waits to be taken again. Fails, a dead letter, when
-    an expiry of a previous engine's run is counted; the next engine's own run's expiry still counts."""
-    from ergostat.leases import EXPIRED
+    allowed: the next engine ends the lease uncounted on its first pass (its run no longer exists: leases/gone.py)
+    and it waits to be taken again. Fails, a dead letter, when the end of a previous engine's run is counted; the next
+    engine's own run's expiry still counts."""
+    from ergostat.leases import ENDED as EXPIRED
     from ergostat.leases.terms import grace
     from ergostat.spec.engine import Engine
 

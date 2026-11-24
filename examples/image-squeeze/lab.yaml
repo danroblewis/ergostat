@@ -47,6 +47,18 @@ claims:
     timeout: 3m
     description: squeeze's own tests, as lab.py submit runs them
 
+# Regression guarantees (SPEC §12r, "Regression guarantees"), asked for part by part: the tests above run every 5
+# minutes and their failing count held at 0 (tests-green), and the model changes the modelling loop wrote that the
+# prediction check flagged for revert held at 0 (changes-hold), each served by a person. The developer's escapes are
+# developer-honest below already, so `block:` is left out. Its system is declared in ergostat.yaml, at the top.
+uses:
+  regressions:
+    use: regressions
+    with:
+      every: 5m
+      timeout: 3m
+      changes: true
+
 auxiliaries:
   developer-contradicted:
     unit: share

@@ -5,6 +5,7 @@ person's reading of a manual sensor."""
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -80,17 +81,23 @@ def check_yaml(args, path: Path) -> int:
         problems += calibration(path) + order_unset(path, spec) + late(spec, wait=CHECK_WAIT)
         about(spec, problems)                     # last: every finding above carries the items about its part
     findings = [p for p in problems if p.level != "error"]
+    from ..library.untrusted import SAYS, Shown
+    sh = Shown(spec)                              # the model's text an untrusted library made, marked (SPEC §2a)
+
+    def said(p) -> str:
+        return f"{p.where}: {sh.problem(p)}" if p.where else sh.problem(p)
     if args.json:
-        coh = coherence_of(args, spec, findings) if not errors else None
+        coh = sh.values(coherence_of(args, spec, findings) if not errors else None)
         return out_json({"ok": not errors, "errors": len(errors), "findings": sum(1 for p in findings if p.level != "note"),
                          "notes": sum(1 for p in findings if p.level == "note"),
-                         "found": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
+                         "found": [{"level": p.level, "code": p.code, "message": sh.problem(p), "about": p.about,
                                     **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                     **({"items": p.items} if p.items else {}),
                                     "file": str(p.where.file) if p.where else None,
                                     "line": p.where.line if p.where else None} for p in problems],
                          "local": {k: str(w) for k, w in (getattr(spec, "local", None) or {}).items()},
-                         **({"coherence": coh} if coh is not None else {})}) or (1 if errors else 0)
+                         **({"coherence": coh} if coh is not None else {}),
+                         **({"untrusted": SAYS} if sh.marked else {})}) or (1 if errors else 0)   # after what marks
 
     def n(k, word):
         return f"{k} {word}" + ("" if k == 1 else "s")
@@ -105,13 +112,19 @@ def check_yaml(args, path: Path) -> int:
     for name, r in (getattr(spec, "remotes", None) or {}).items():     # each remote system (SPEC §4c)
         print(c(f"remote {name}: {r['url']}, " + (f"model version {r['version']}, {len(r['parts'])} parts read in"
                                                   if r.get("version") else "its model not read"), "dim"))
+    for inst, u in (getattr(spec, "uses", None) or {}).items():       # each use of a fetched library's template (§2a)
+        if u.get("library"):                  # an untrusted library chose the file's name: marked, nothing a terminal acts on
+            from ..library import untrusted as ut
+            path = u["path"] if u.get("untrusted") is False else ut.mark(ut.printable(u["path"]), ut.FILE)
+            print(c(f"use {inst}: template {u['template']} from library {u['library']} ({path})", "dim"))
     for p in errors:
-        print(f"{c('error', 'bad')}  {p}")
+        print(f"{c('error', 'bad')}  {said(p)}")
     if errors:
         for p in findings:                       # how YAML read a value often explains an error beside it
             if p.code == "yaml-1.1":
-                print(f"{c(p.code, 'warn')}  {p}")
+                print(f"{c(p.code, 'warn')}  {said(p)}")
         print(c(f"{n(len(errors), 'error')}: ergostat will not run this model until they are fixed", "dim"))
+        print(f"\n{SAYS}" if sh.marked else "", end="")
         return 1
     loops = spec.loops()
     closed = [lp for lp in loops if lp.closes]
@@ -119,7 +132,7 @@ def check_yaml(args, path: Path) -> int:
     notes = [p for p in findings if p.level == "note"]
     for p in findings:
         if p.level != "note":
-            print(f"{c(p.code or 'finding', 'warn')}  {p}")
+            print(f"{c(p.code or 'finding', 'warn')}  {said(p)}")
     if notes:                                   # the craft (docs/MODELLING-WELL.md): work for modelling, not wrong
         print(c(f"\n{n(len(notes), 'note')} on the craft (docs/MODELLING-WELL.md; ergostat check --json lists each, "
                 f"and the modelling loop takes them up)", "dim"))
@@ -127,15 +140,18 @@ def check_yaml(args, path: Path) -> int:
         for p in notes:
             by.setdefault(p.code, []).append(p)
         for code, ps in by.items():
-            names = ", ".join(x.about.split(".", 1)[-1] for x in ps[:8]) + (f" and {len(ps) - 8} more" if len(ps) > 8 else "")
-            print(f"{c(code, 'dim')}  {len(ps)}: {names}" if len(ps) > 1 else f"{c(code, 'dim')}  {ps[0]}")
+            names = ", ".join(sh.names(x.about.split(".", 1)[-1]) for x in ps[:8]) + (f" and {len(ps) - 8} more"
+                                                                                     if len(ps) > 8 else "")
+            print(f"{c(code, 'dim')}  {len(ps)}: {names}" if len(ps) > 1 else f"{c(code, 'dim')}  {said(ps[0])}")
     coh = coherence_of(args, spec, [p for p in findings if p.level != "note"])
     if coh is not None and coh["kinds"]:
         from ..coherence import lines
         print(c("\nCoherence: the Process, Dynamics and Blocks views held against each other, over the record", "dim"))
         for style, line in lines(coh):
+            line = sh.names(line)
             print(c(line, "bold") if style == "head" else c(line, style) if style != "warn" else
                   f"{c(line.split('  ', 1)[0], 'warn')}  {line.split('  ', 1)[1]}" if "  " in line else c(line, "warn"))
+    print(f"\n{SAYS}" if sh.marked else "", end="")
     return 0
 
 
@@ -290,14 +306,8 @@ def cmd_block(args) -> int:
 
 def read_manual(p, name: str, value: float) -> int:
     """``ergostat sensor STOCK.SENSOR --read V`` on a YAML model: a manual sensor's reading."""
-    from ..spec.ir import Ref
-    spec = p.model.spec
-    of, _, sensor = name.partition(".")
-    s = None
-    for kind in ("stock", "flow", "auxiliary"):
-        s = s or spec.sensor(Ref(kind, of, sensor or "main"))
+    s = _sensor(p, name)
     if s is None:
-        print(f"no sensor {name!r}: name it as its stock (or flow) and sensor, like inbox.eyes", file=sys.stderr)
         return 2
     if not s.manual:
         how = "run" if s.run else "items" if s.items else "query"
@@ -306,6 +316,96 @@ def read_manual(p, name: str, value: float) -> int:
         return 2
     p.measurements.add(s.series, float(value))
     print(f"recorded: {s.of.name}.{s.name} = {value:g}")
+    return 0
+
+
+def _sensor(p, name: str):
+    from ..spec.ir import Ref
+    spec = p.model.spec
+    of, _, sensor = name.partition(".")
+    s = None
+    for kind in ("stock", "flow", "auxiliary"):
+        s = s or spec.sensor(Ref(kind, of, sensor or "main"))
+    if s is None:
+        print(f"no sensor {name!r}: name it as its stock (or flow) and sensor, like inbox.eyes", file=sys.stderr)
+    return s
+
+
+def _num(x) -> float | None:
+    """A finite number from JSON (not a boolean, nor an integer too large for a float), else None."""
+    return float(x) if isinstance(x, float) and math.isfinite(x) or type(x) is int and abs(x) < 1e300 else None
+
+
+def backfill(args) -> int | None:
+    """``sensor PART.SENSOR --backfill FILE`` (readings at past times, written whole or not at all, each kept in the
+    measurements' ledger so it is never written twice) and ``--backfilled`` (that ledger's backfills of the series)."""
+    import time
+
+    from .common import open_project
+    if args.topic != "sensor" or (getattr(args, "backfill", None) is None and not getattr(args, "backfilled", False)):
+        return None
+    p = open_project(args)
+    if getattr(p.model, "spec", None) is None:
+        print("backfill is for a YAML model's sensors", file=sys.stderr)
+        return 2
+    s = _sensor(p, args.name or "")
+    if s is None:
+        return 2
+    name = f"{s.of.name}.{s.name}"
+    if args.backfilled:
+        got = p.measurements.backfills(s.series)
+        if args.json:
+            return out_json(got)
+        for b in got:
+            day = [time.strftime("%Y-%m-%d %H:%M", time.localtime(b[k])) if b[k] else "" for k in ("written_at", "first", "last")]
+            gone = time.strftime("%Y-%m-%d %H:%M", time.localtime(b["replaced"])) if b.get("replaced") else None
+            print(f"{day[0]}  {b['count']} readings{f', {day[1]} to {day[2]}' if b['count'] else ''}"
+                  f"  from {b['from'] or '(not said)'}" + (f"  (replaced {gone})" if gone else ""))
+        print(f"{len(got)} backfill{'' if len(got) == 1 else 's'} of {name}")
+        return 0
+    derived = "items" if s.items else "changes" if s.changes else "builtin" if s.builtin else None
+    if derived:
+        print(f"sensor {name} is derived by ergostat ({derived}): only a sensor that records a value (run, query, "
+              f"manual, daemon) takes backfilled readings", file=sys.stderr)
+        return 2
+    replace = getattr(args, "replace", False)
+    if replace and not args.from_:
+        print("refused, nothing written: --replace sets readings aside, and says why with --from TEXT", file=sys.stderr)
+        return 2
+    try:
+        text = sys.stdin.read() if args.backfill == "-" else Path(args.backfill).read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        print(f"cannot read {args.backfill}: {e}", file=sys.stderr)
+        return 2
+    rows, now = [], time.time()
+    for i, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+            at, value = _num(r["at"]), _num(r["value"])
+        except (ValueError, TypeError, KeyError, IndexError):
+            r = at = value = None
+        why = "not a JSON object with at and value" if r is None else "at and value must be finite numbers" \
+            if at is None or value is None else "at is in the future" if at > now else None
+        if why:
+            print(f"refused, nothing written: line {i}: {why}", file=sys.stderr)
+            return 2
+        rows.append((at, value))
+    try:
+        got = p.measurements.backfill(s.series, rows, args.from_, replace=replace)
+    except ValueError as e:                              # more than the store takes at once
+        print(f"refused, nothing written: {e}", file=sys.stderr)
+        return 2
+    p.events.add("sensor.backfilled", source="ergostat", data={
+        "sensor": name, "written": got["count"], "skipped": got["skipped"], "repeated": got["repeated"],
+        "first": got["first"], "last": got["last"], "from": args.from_, "backfill": got["id"],
+        **({"replaced": got["replaced"] or 0} if replace else {})})
+    if args.json:
+        return out_json({k: got[k] for k in ("id", "count", "skipped", "repeated", "first", "last", "from", "replaced")})
+    print(f"backfilled {name}: " + (f"{got['replaced'] or 0} set aside, " if replace else "")
+          + f"{got['count']} written, {got['skipped']} skipped (backfilled before)"
+          + (f", {got['repeated']} at a time another line had (the last kept)" if got["repeated"] else ""))
     return 0
 
 
