@@ -5305,9 +5305,10 @@ def test_off_in_the_scope_is_hatched_labelled_and_keyed_and_the_arrows_read_in_b
             errors: list[str] = []
             pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
             pg.goto(url + "/loops")
-            pg.evaluate("""() => { window.SAID = []; const f = CanvasRenderingContext2D.prototype.fillText;
+            # (window's, by a name the page's own scripts do not use: pages.js has a SAID of its own)
+            pg.evaluate("""() => { window.__canvasSaid = []; const f = CanvasRenderingContext2D.prototype.fillText;
                 CanvasRenderingContext2D.prototype.fillText = function (t, ...r) {
-                  SAID.push([String(t), this.canvas]); return f.call(this, t, ...r); }; }""")
+                  window.__canvasSaid.push([String(t), this.canvas]); return f.call(this, t, ...r); }; }""")
             pg.locator("td.spark-cell").first.click()
             pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3 && document.querySelector('#detail .scope .off-key')",
                                  timeout=20000)
@@ -5317,7 +5318,7 @@ def test_off_in_the_scope_is_hatched_labelled_and_keyed_and_the_arrows_read_in_b
                     return ({OFF_PIXELS})(u.ctx.canvas, [u.bbox.left, u.bbox.top + 2, u.bbox.width, 10]); }}""")
                 assert wash > 30 and ink > 10, (scheme, i, wash, ink)
             assert pg.evaluate("""() => { const c = document.querySelectorAll('#detail .scope .chart-plot')[2].plot.ctx.canvas;
-                return SAID.some(([t, k]) => t === 'off' && k === c); }"""), "the e chart, over the time axis, says 'off'"
+                return window.__canvasSaid.some(([t, k]) => t === 'off' && k === c); }"""), "the e chart, over the time axis, says 'off'"
             foot = pg.locator("#detail .scope .chart-foot")
             assert "Red: off" not in foot.inner_text() and foot.locator(".off-said").inner_text().strip() == "off"
             wash, ink = foot.locator("canvas.off-key").evaluate(f"(c) => ({OFF_PIXELS})(c, [0, 0, c.width, c.height])")
@@ -6199,7 +6200,9 @@ def test_the_exported_png_shows_every_loop_name_the_values_and_its_legend_on_whi
         got = pg.evaluate(EXPORTED_PNG)
         assert got["corner"] == [255, 255, 255, 255], got["corner"]
         said = " ".join(t for t, _, _ in got["texts"])
-        assert len(rows) > 10 and all(r in said for r in rows), [r for r in rows if r not in said]
+        # (product drawn alone: the process, its sensors, ports, take-offs, lighter lines, vectors and signal words; its
+        # goals' junctions and controllers are factory's, drawn at the top level, so their rows are not in its legend)
+        assert len(rows) >= 6 and all(r in said for r in rows), (len(rows), [r for r in rows if r not in said])
         assert all(t in said for t in pg.evaluate("() => exportTitle()"))
         assert all(n >= 5 for t, n, _ in got["texts"] if "summing junction" in t), got["texts"]
         assert all(t[2] for t in got["texts"]), [t for t in got["texts"] if not t[2]]   # no subscript cut at the edge
