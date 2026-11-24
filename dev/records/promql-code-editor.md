@@ -13,3 +13,38 @@ Definition of done.
 2. A browser test shows a refused query marked at the right place.
 3. The page loads with no network access beyond ergostat's own server.
 4. Do not measure or change the live instance in the session.
+
+## Where it stopped
+
+Round 1: not built. Nothing outside this record changed. The gap waits for CodeMirror 6 to be put into the tree.
+
+Why: this definition's core is "CodeMirror 6, vendored into the static files". This session has no network, and no
+copy of CodeMirror 6 (or any `@codemirror/*` / `@lezer/*` package) is anywhere in the repository (a search for
+`codemirror` finds only this record and `promql-editor.md`). Session tools cannot read anything outside `/work`. The
+earlier gap `promql-editor` hit the same wall and built ergostat's own textarea-plus-overlay editor instead
+(`promql.js`, `sql.js`). This gap was opened because the owner does not want that kind of editor any more. A second
+home-made editor would go against the definition, and CodeMirror written from memory would not be the real,
+pinned library. So the most reversible choice is to change nothing and say what is needed.
+
+What is needed first (a session with network, or the owner):
+- One pre-built ES-module or IIFE bundle of CodeMirror 6 at a pinned version, put under
+  `ergostat/web/static/codemirror/` with its LICENSE (MIT) and a README naming the version and the packages, the way
+  `uplot/` and `libavoid/` are vendored. Packages: `@codemirror/state`, `view`, `language`, `autocomplete`,
+  `commands`, `lint`, `lang-sql`, and optionally `@prometheus-io/codemirror-promql` or a small PromQL
+  `StreamLanguage` in ergostat's own code.
+
+What is left once the bundle is in the tree (all in this gap, within the 600-line budget):
+- Replace the bodies of `promql.js` and `sql.js` behind the same `window.queryEditors[language](...)` contract
+  (`{el, area, set, mark}`) that `panel-editor.js` already uses, so the panel editor does not change.
+- PromQL highlighting via a StreamLanguage tokenizer (metrics, labels, strings, functions, durations, operators); SQL
+  via `lang-sql`.
+- A completion source that calls the existing `/api/query/suggest` (metrics, labels in `{}` and `by()`, values after
+  `=`, `!=`, `=~`, plus functions). The server side is already built and bounded (`promql-editor`).
+- `lineNumbers`, `bracketMatching`, a Mod-Enter keymap calling `onRun`, and a lint diagnostic at `error_at`. The
+  UTF-8-byte column walk in `promql.js`'s `offsetOf` must be kept.
+- A theme that reads the page's existing CSS variables, so light and dark look the same.
+- Acceptance tests: carry `tests/test_promql_editor.py` over to CodeMirror's DOM (`.cm-content`,
+  `.cm-tooltip-autocomplete`, `.cm-lintRange-error`) for done 1 and 2. Add a browser test that blocks every request
+  not addressed to the test server and checks the page still loads and the editor mounts, for done 3.
+
+Done item 4 is kept: the live instance was not touched.
