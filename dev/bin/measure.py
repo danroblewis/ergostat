@@ -65,7 +65,7 @@ begun at most listing.SHARE (120) seconds before (listing.py): readings due toge
                       merge first, verify after (verify.py reading()): red verifications that found a merge, merges
                       reverted, the median hours from a merge to its verification, and the batches' and the
                       verifications' suite runs per gap merged (today's queue alone while the lane is off)
-  planning-cost-share planning dollars (planning_cost_usd: the planner's and the plan review's sessions, the whole
+  planning-cost-share planning dollars (planning_cost_usd: the planner's sessions, and the removed plan review's, the whole
                       reservation of one that failed; 0 for an S gap and a sub-gap) over all AI dollars (ai_cost_usd),
                       summed over the gaps merged in the window that carry planning_cost_usd. A gap without it is left
                       out, never counted as 0; one whose planning cost is negative, not a number or above its total is
