@@ -41,3 +41,10 @@ checked together with its declared parameters by laws.check, once, and refused w
 values tried together: max: at least min`). Test: test_whatif_values_tried_together_are_checked_as_one_law, seen to
 fail (DID NOT RAISE) with the check disabled. SPEC §12c says values are checked alone and together. 72 net lines of
 code (budget 90). main had not moved: nothing to merge.
+
+Round 3 (the queue's finding: conflicts with main in docs/SPEC.md, ergostat/numbers/external.py,
+tests/test_known_laws.py): main 666d65d6 merged in. Main added a declared law tested against the record
+(`external.declared`, external-law-disagrees); both kept. In SPEC §12d main's "it is not yet run in the projection"
+and the branch's "It is not yet tested against the record" are each dropped, since both are now true; the module
+docstring names both; the test imports keep both sides' (pytest, ergostat.model). test_known_laws, test_extlaw,
+test_closedloop and test_remote_analysis pass after the merge; ruff clean. Still 72 net lines of code against main.
