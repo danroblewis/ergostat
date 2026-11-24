@@ -309,8 +309,9 @@ def is_measure(name: str) -> bool:
             or name in BUDGET_MEASURES)
 
 
-CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign")   # what accept: names (SPEC §12e)
-NAMED_ONLY = ("rename", "redesign")   # promoted only by name (accept: {rename: auto}), never by accept: auto for every kind
+CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign",
+                  "display")   # what accept: names (SPEC §12e)
+NAMED_ONLY = ("rename", "redesign", "display")   # promoted only by name (accept: {rename: auto}), never by accept: auto for every kind
 
 
 @dataclass
@@ -493,7 +494,9 @@ class Action:
     ``args``: name → what it is; ``wait``: how long a session waits for the owner before going on without it;
     ``in_``: where it runs (else the session's working directory); ``fenced``: False for an action that runs once
     approved whatever became of the lease it was asked under (one whose command is safe whenever it runs);
-    ``severity`` (1 to 5; None: no ``risk:``) and ``threshold``: its act-risk (``actions/risk.py``)."""
+    ``severity`` (1 to 5; None: no ``risk:``) and ``threshold``: its act-risk (``actions/risk.py``). ``gate`` and
+    ``threshold`` are the ``normal`` column; ``gates`` and ``thresholds``: each operating column's, defaults filled
+    (``risk.schedule``; empty: from ``gate`` and ``threshold``)."""
     name: str
     run: str
     gate: str = "approve"
@@ -507,6 +510,8 @@ class Action:
     fenced: bool = True
     severity: int | None = None
     threshold: float = 8.0
+    gates: dict[str, str] = field(default_factory=dict)
+    thresholds: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -564,7 +569,10 @@ class Sensor:
     builtin: str | None = None  # a built-in measure (MODEL_MEASURES: ergostat.model.fit), read by ergostat (``run`` says how)
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
+    journal: str | None = None  # a folder of JSONL journals inside the model's root, followed while ergostat runs
     untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
+    run_in: str | None = None   # "owner" only when compile proved its run the owner's or ergostat's; else (None too)
+    #                             it runs in ergostat.sandbox (library/runs.py)
 
     @property
     def window(self) -> float:
@@ -723,6 +731,14 @@ class Goal:
 
 
 @dataclass
+class KnownLaw:
+    """An external block's declared law, from the catalogue of known laws (control/laws.py, SPEC §12d): its kind and
+    its parameters as checked (numbers as floats, durations in seconds), each one the catalogue names, defaults filled."""
+    kind: str
+    params: dict
+
+
+@dataclass
 class Block:
     name: str
     type: str
@@ -749,6 +765,10 @@ class Block:
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
     untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
+    law: KnownLaw | None = None  # an external block's declared law (``law: {kind: ...}``); None when it declares none
+    # ``runs-on: POOL``: the compute pool its runs are for (SPEC §12k); None: here. Left out of its plain form while None,
+    # so a model that names no pool hashes as it did before the key existed (numbers/version._plain).
+    runs_on: str | None = field(default=None, metadata={"unset": None})
 
     @property
     def builtin(self) -> bool:
@@ -862,6 +882,8 @@ class Takes:
     unblocked: bool = False         # only items whose predecessors are all finished, the critical first (SPEC §5a, relations)
     order: list[str] = field(default_factory=list)   # fields (-FIELD: highest first): taken by them first, those
                                                      # without one after those with it; the order above among equals
+    healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
+    hold_by: list[str] = field(default_factory=list)   # ``faults: {hold-by: [F]}``: a value failing together is held
 
 
 @dataclass
@@ -878,6 +900,9 @@ class Relation:
     there: str = ""                 # the kind's name at that remote (incident)
     # precedence: the target's states (not finished) in which it no longer blocks; the CPM stays finish-to-start
     starts_at: list[str] = field(default_factory=list)
+    # a group's: a finished state of the item's: the fields it counts as done work in, for each group's progress
+    # (spec/grouptally.py); an item in that state that does not match leaves its group's total
+    done_when: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -913,8 +938,12 @@ class ItemKind:
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
+    finished: list[str] = field(default_factory=list)   # its finished states, when messages: done: does not name it
     about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
     moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
+    if_unchanged: tuple = ()   # event types applied only to the item as read: their data's `read` is its event count then
+    attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
+    pipeline: dict | None = None   # its items record stages (ergostat/stages.py): {title, stages, waiting}
 
     def matches(self, id: str) -> bool:
         import fnmatch
@@ -929,6 +958,7 @@ class Source:
     where: Where | None = None
     token_file: str = ""       # an ergostat source (a remote, SPEC §4c): the file holding its token
     tls: dict | None = None    # and its mutual TLS (cert, key, ca), as its remotes: entry says
+    options: dict = field(default_factory=dict)   # a panel data source's own connection keys (ergostat/datasources)
 
 
 @dataclass
@@ -957,6 +987,33 @@ class NamedLoop:
     through: list[Ref] = field(default_factory=list)
     goal: str | None = None
     description: str = ""
+    where: Where | None = None
+
+
+@dataclass
+class Panel:
+    """One panel of a declared dashboard (SPEC §4f): its kind, its words, and exactly the parameters its endpoint and
+    page address take (``params``, plain data)."""
+
+    panel: str
+    title: str = ""
+    size: str = "m"
+    note: str = ""
+    params: dict = field(default_factory=dict)
+    where: Where | None = None
+
+
+@dataclass
+class Dashboard:
+    """A shared, named dashboard (``dashboards:``, SPEC §4f): one window for all its panels. Display only: it is in
+    no version hash, so declaring one changes no structure and no replay."""
+
+    name: str                      # in a system's file: SYSTEM.NAME
+    title: str = ""
+    description: str = ""
+    window: float | None = None    # seconds: the window it opens with (None: the page's)
+    panels: list[Panel] = field(default_factory=list)
+    system: str | None = None
     where: Where | None = None
 
 
@@ -1000,6 +1057,9 @@ class Spec:
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
     belongs: dict = field(default_factory=dict)                        # stock.NAME → its system and short name (belongs.py)
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
+    away_after: float = 7200.0       # operating.away-after: no event from the owner this long reads as away (SPEC §12k)
+    dashboards: dict[str, Dashboard] = field(default_factory=dict)     # the shared, named dashboards (SPEC §4f)
+    outlive_engine: bool = False            # runs: outlive_engine: a run kept by its keeper, never stopped with us (§9.1)
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept

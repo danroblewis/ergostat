@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import __version__
 from . import model as mdl
+from .library.untrusted import SAYS, Shown
 
 PROTOCOL = "2025-06-18"
 
@@ -107,6 +108,17 @@ TOOLS = [
      "refused, and its events.",
      "inputSchema": _obj({"kind": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
                           "n": {"type": "integer"}})},
+    {"name": "why", "description": "Why an item is not done: its state and for how long (unusual or not for its kind), "
+     "the cause followed to its root (what it waits on, what that waits on: unfinished work, a person, a full pool, a "
+     "gate or budget refusing runs, a dead or stale lease, a block failing or not running, a closed goal or intake, a "
+     "parked or dead item, nothing taking its state, a cycle, a missing item), who must act and the command, the evidence "
+     "with links, what the record cannot tell, and a one-paragraph summary. The same as `ergostat why ITEM --json`.",
+     "inputSchema": _obj({"item": {"type": "string"}}, ["item"])},
+    {"name": "held_up", "description": "What holds the work up: every unfinished item grouped by its root cause (as why "
+     "finds it), the roots ranked by what they hold (items, hours of waiting, the items its block takes first), each "
+     "a stall, held on purpose, queueing or unknown, with its next step; the goals off because of a root folded under "
+     "it; and line, the biggest constraint in words, or that nothing is stuck. The same as `ergostat held-up --json`.",
+     "inputSchema": _obj({})},
     {"name": "context", "description": "A starting context, as Markdown: a projection recipe the model names under "
      "contexts: (its parts in order, each within its budget: decisions, corrections, the owner's words, an item's history, "
      "the state now, a session's turns, documents, the model's parts), rendered for item when given; or the built-ins "
@@ -191,6 +203,14 @@ TOOLS = [
     {"name": "messages", "description": "The owner's messages and what became of each (routed, delivered, unrouted, "
      "answered, missed), with the counts; or one (id) with its routing and deliveries.",
      "inputSchema": _obj({"id": {"type": "string"}})},
+    {"name": "remotes", "description": "The systems other ergostats run that this model composes (remotes:, SPEC §4c): "
+     "per remote its url, the version of its model read and how long ago (read, seconds), state (ok, unreachable, "
+     "unknown, as its box says) and why, its parts here by kind, the references it no longer serves (missing) and what "
+     "its box shows. name: one remote, with its parts (local name, the remote's name, kind; at most 500); proposals: "
+     "true adds the open texts written for its owner (ergostat remote proposals NAME --json). Call it before "
+     "referencing a remote's part (its parts are its owner's, never edited here) and before proposing a change near "
+     "one (a change to them is text for its owner). Read only: no remote is asked, nothing is written.",
+     "inputSchema": _obj({"name": {"type": "string"}, "proposals": {"type": "boolean"}})},
 ]
 
 
@@ -222,15 +242,17 @@ class Server:
             if not any(p.level == "error" for p in problems):
                 from .spec.about import findings as about
                 about(spec, problems)                       # as the CLI's check: last, so every finding carries ids
+            sh = Shown(spec)
             return _text({"ok": not any(p.level == "error" for p in problems),
-                          "problems": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
+                          "problems": [{"level": p.level, "code": p.code, "message": sh.problem(p), "about": p.about,
                                         **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                         **({"items": p.items} if p.items else {}),
                                         "file": str(p.where.file) if p.where else None,
                                         "line": p.where.line if p.where else None} for p in problems],
                           "counts": {"stocks": len(spec.stocks), "flows": len(spec.flows), "auxiliaries": len(spec.auxiliaries),
                                      "goals": len(spec.goals),
-                                     "blocks": len(spec.blocks), "files": len(spec.files)}})
+                                     "blocks": len(spec.blocks), "files": len(spec.files)},
+                          **({"untrusted": SAYS} if sh.marked else {})})          # after the problems that mark
         if name == "spec":
             from . import helpdocs
             return _text(helpdocs.read("spec") or "the specification is docs/SPEC.md in the ergostat repository")
@@ -243,6 +265,8 @@ class Server:
             sp = Project(mdl.load(Path(a["project"]).expanduser()))
             got = co.of_project(sp, sp.model.spec, parse_duration(a["since"], "since") if a.get("since") else co.WINDOW)
             return _text({"scores": [co.score_line(k, x) for k, x in got["kinds"].items()], **got})
+        if name == "remotes":
+            return self.remotes(a)
         if name == "improve_model":
             from . import helpdocs
             skill, guide = helpdocs.read("improve-model"), helpdocs.read("modelling")
@@ -268,9 +292,16 @@ class Server:
             from .durations import parse_duration
             got = co.of_project(p, spec, parse_duration(a["since"], "since") if a.get("since") else co.WINDOW)
             return _text({"scores": [co.score_line(k, x) for k, x in got["kinds"].items()], **got})
+        if name == "why":
+            from .why import answer
+            return _text(answer(p, str(a.get("item") or "")))
+        if name == "held_up":
+            from .why import held
+            return _text(held.answer(p))
         if name == "explain":
             from .spec.explain import explain
-            return _text(explain(spec, a.get("part") or None, p))
+            sh = Shown(spec)
+            return _text(sh.says(sh.names(explain(sh.model(), a.get("part") or None, p))))
         if name == "status":
             from .spec.explain import Explainer
             e = Explainer(spec, p)
@@ -283,7 +314,10 @@ class Server:
                 if (stale := shown_stale(p, spec, g, goals[g]["status"], now)) is not None:   # (SPEC §9.6)
                     goals[g].update(status="stale", stale=round(stale, 1))
             from . import runner
-            return _text({"running": bool(runner.running_pid(p, wait=False)), "goals": goals})
+            sh = Shown(spec)
+            goals = sh.values(goals)
+            return _text({"running": bool(runner.running_pid(p, wait=False)), "goals": goals,
+                          **({"untrusted": SAYS} if sh.marked else {})})
         if name == "findings":
             from .durations import parse_duration
             from .spec import watch
@@ -352,12 +386,13 @@ class Server:
                 return _text(uses.table(p, spec))
             if recipe not in ("decisions", "corrections"):
                 from .recipes import render as rd
+                sh = Shown(spec)
                 try:
-                    r = rd.render(p, spec, str(recipe or ""), a.get("item") or None,
+                    r = rd.render(p, sh.model(), str(recipe or ""), a.get("item") or None,
                                   budget=cx.budget_of(a["budget"]) if a.get("budget") else None)
                 except (rd.RecipeError, ValueError) as e:
                     return {**_text(str(e)), "isError": True}
-                return _text(r.text)
+                return _text(sh.says(sh.names(r.text)))
             kind = DECISION if recipe == "decisions" else CORRECTION
             return _text(cx.render(p, kind, a.get("scope") if kind == DECISION else (a.get("kind") or a.get("scope")),
                                    cx.budget_of(a.get("budget"))))
@@ -423,6 +458,53 @@ class Server:
                 out["refused"] = why
             return _text(out)
         return {**_text(f"no tool {name!r}"), "isError": True}
+
+    def remotes(self, a: dict) -> dict:
+        """The model's remotes, from the rows ``ergostat remote`` and ``remote proposals --json`` read (cli/remote.py):
+        loaded from their caches only (no remote asked, no refresh), on the last good model while the YAML is broken
+        (as ``remote proposals``, goodmodel.READ_WHAT), and nothing written."""
+        from . import goodmodel
+        from .cli import remote as cr
+        from .durations import DurationError
+        from .numbers.proposals import OPEN
+        from .remote import box, compose
+        from .remote.measures import refs
+        from .store import Project
+        try:
+            with compose.offline():
+                p = Project(mdl.load(self.root))
+        except (mdl.ModelError, DurationError) as e:
+            if (p := goodmodel.fallback(self.root, e)) is None:
+                raise
+        spec = getattr(p.model, "spec", None)
+        remotes = getattr(spec, "remotes", None) or {}
+        want = a.get("name") or None
+        if want is not None and want not in remotes:
+            return {**_text(cr.unknown(want, remotes)), "isError": True}
+        now, out = time.time(), []
+        for n, r in remotes.items():
+            if want and n != want:
+                continue
+            row, b, kinds = cr.status_row(n, r), box(spec, n) or {}, {}
+            for k in r.get("parts") or {}:
+                kinds[k.partition(".")[0]] = kinds.get(k.partition(".")[0], 0) + 1
+            got = {"name": n, "url": row["url"], "version": row["version"],
+                   "read": round(now - float(row["read"]), 1) if row["read"] else None,
+                   "state": b.get("state", "unknown"), "parts": kinds, "missing": row["missing"], "show": refs(spec, n)}
+            if got["state"] == "unreachable":
+                got["why"] = row["why"] if row["ok"] is False else f"its readings fail: {row['readings_why']}"
+            if want:
+                names = r.get("names") or {}
+                got["part_list"] = [{"part": k, "remote": names.get(k), "kind": k.partition(".")[0]}
+                                    for k in list(r.get("parts") or {})[:500]]
+                got["part_list_cut"] = max(0, len(r.get("parts") or {}) - 500)
+            if a.get("proposals"):
+                rows, unread = cr.proposal_rows(p, spec, n)
+                got["proposals"] = [x for x in rows if x.get("state") in OPEN]
+                if n in unread:
+                    got["proposals_why"] = "its model's version can't be read, so nothing is written for it"
+            out.append(got)
+        return _text({"remotes": out})
 
     def author(self, name: str, a: dict) -> dict:
         """The authoring tools (ergostat/library/author.py): templates, add_use, scaffold, try_use, where_drawn."""

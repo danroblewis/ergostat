@@ -8,6 +8,9 @@ import json
 import shutil
 import sys
 import time
+from pathlib import Path
+
+import pytest
 
 from ergostat import model as mdl
 from ergostat import precedence as pr
@@ -92,6 +95,33 @@ def test_the_items_graph_draws_gap_dependencies(tmp_path):
     p.events.add("gap.groomed", item="gap/b", data={"depends_on": {"add": ["gap/a"]}}, at=now - 40)
     g = pr.build(p.events, m.spec, ["gap"], now, now - 3600)
     assert [(e["from"], e["to"], e["rel"], e["kind"]) for e in g["edges"]] == [("gap/a", "gap/b", "depends_on", "precedence")]
+
+
+def test_a_dependency_in_a_starts_at_state_is_said_stacked_on():
+    """merge-pipeline-stacks-turned-on: deps.py says a dependency in the relation's starts_at state (the gap is built on
+    it) as `stacked on X (approved)`, not as waiting; one parked or building still waits. blocked_reason is a column the
+    Items page shows already; the auxiliary gaps-stacked counts the gaps with stacked_on not merged or closed."""
+    from ergostat.spec import read
+    intake()                                                   # (dev/bin importable, as the factory runs it)
+    deps, fac = module("deps"), module("fac")
+    spec, _ = read(ROOT / "ergostat.yaml")
+    assert spec.items["gap"].relations["depends_on"].starts_at == list(fac.STACKABLE)    # the one list, both sides
+    assert "blocked_reason" in spec.items["gap"].show
+    for state in fac.STACKABLE:
+        gaps = {"gap/a": {"id": "gap/a", "state": state, "fields": {"branch": "a"}},
+                "gap/b": {"id": "gap/b", "state": "ready", "fields": {"branch": "b", "depends_on": ["gap/a"]}}}
+        got = deps.plan(gaps, {}, {})["gap/b"]
+        assert (got["blocked_reason"], got["waits_on_parked"]) == (f"stacked on gap/a ({state})", False)
+    for state, said in (("building", "waits on gap/a, which is building"), ("parked", "waits on gap/a, which is parked")):
+        gaps["gap/a"]["state"] = state
+        got = deps.plan(gaps, {}, {})["gap/b"]
+        assert got["blocked_reason"].startswith(said) and got["waits_on_parked"] == (state == "parked")
+    st = spec.auxiliaries["gaps-stacked"]
+    assert st.unit == "gaps" and "deps.py stacked" in str(next(iter(st.sensors.values())).run)
+    on = [{"gap": "gap/a", "sha": "0" * 40}]
+    assert deps.stacked([{"state": s, "fields": {"stacked_on": v}} for s, v in (
+        ("built", on), ("approved", on), ("fix", "unreadable"), ("merged", on), ("closed", on), ("ready", []),
+        ("building", None))]) == 3
 
 
 # ---- the intake's done rule
@@ -450,3 +480,172 @@ def test_a_split_of_an_unbuilt_gap_still_applies(tmp_path):
     assert f.item("gap/one-continued")["state"] == "open" and f.item("gap/four")["state"] == "split"
     assert f.item("gap/four-1")["fields"]["parent"] == ["gap/four"] and f.item("gap/four-2")["state"] == "open"
     assert f.item("gap/three")["fields"]["groomed_why"] == "the rest applies"
+
+
+def test_the_halves_of_a_split_never_share_a_branch():
+    """A long name cut to fit lost its -1 and -2, and both halves built on one branch from one definition."""
+    text = (Path(__file__).resolve().parent.parent / "dev" / "bin" / "backlog.py").read_text()
+    assert 'fac.slug(s["gap"].split("/", 1)[1], 29) + f"-{len(kids) + 1}"' in text
+
+
+# ---- a split keeps what its parent waited on (dev/records/split-children-keep-parent-deps.md)
+
+
+def split_four(f: Instance, *parts: dict):
+    """gap/four split in two (``parts``: more for each part), applied as the approved action."""
+    p = f.model / "run" / "backlog" / "split.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    into = [{"title": "A", "why": "x"}, {"title": "B", "why": "y"}]
+    more = [*parts, {}, {}][:2]
+    p.write_text(json.dumps({"splits": [{"gap": "gap/four", "into": [{**a, **b} for a, b in zip(into, more, strict=True)]}]}))
+    r = f.tool("backlog.py", "apply", str(p))
+    f.drain()
+    return r
+
+
+def waits(f: Instance, *gids: str) -> list[list[str]]:
+    return [f.item(g)["fields"].get("depends_on") for g in gids]
+
+
+def waiting_four(tmp_path) -> Instance:
+    f = seeded(tmp_path)
+    f.tool("backlog.py", "dep", "add", "four", "one")
+    f.drain()
+    return f
+
+
+def test_a_split_first_part_waits_on_the_parents_unfinished_dependency(tmp_path):
+    f = waiting_four(tmp_path)
+    split_four(f)
+    assert f.item("gap/four")["state"] == "split"
+    assert waits(f, "gap/four-1", "gap/four-2") == [["gap/one"], ["gap/four-1"]]
+
+
+def test_a_split_of_a_parent_whose_dependency_is_finished_gives_none(tmp_path):
+    f = waiting_four(tmp_path)
+    f.fold([{"event": "gap.merged", "item": "gap/one", "data": {}}], None)   # finished, still named by four
+    assert f.item("gap/one")["state"] == "merged" and waits(f, "gap/four") == [["gap/one"]]
+    split_four(f)
+    assert waits(f, "gap/four-1", "gap/four-2") == [[], ["gap/four-1"]]
+
+
+def test_a_split_parts_dependency_survives_intake_reading_its_definition(tmp_path):
+    f = waiting_four(tmp_path)
+    split_four(f)
+    d = f.model / "run" / "defs"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "four-1.md").write_text("# four-1: A\n\ndepends-on: [two]\n\n## Definition of done\n\nA.\n")
+    f.run("intake.py")
+    kid = f.item("gap/four-1")
+    assert kid["state"] == "ready" and kid["fields"]["definition"] == "run/defs/four-1.md"
+    assert kid["fields"]["depends_on"] == ["gap/one", "gap/two"]              # its definition's, and still the parent's
+    assert "gap/one" in kid["fields"]["blocked_reason"]
+
+
+def test_a_split_keeps_the_parts_named_dependencies_and_the_parents(tmp_path):
+    f = waiting_four(tmp_path)
+    split_four(f, {"depends_on": ["two"]}, {"depends_on": ["gap/three", "gap/four-1"]})
+    assert waits(f, "gap/four-1", "gap/four-2") == [["gap/one", "gap/two"], ["gap/four-1", "gap/three"]]
+
+
+def test_a_split_naming_a_dependency_it_cannot_keep_is_refused_whole(tmp_path):
+    f = waiting_four(tmp_path)
+    f.tool("backlog.py", "dep", "add", "three", "four")
+    f.drain()
+    for bad in ("nope", "four", "three", "gap/four-2"):           # no gap, the parent, one waiting on it, a later part
+        r = split_four(f, {"depends_on": [bad]})
+        assert f"refused: split gap/four: part 1 depends on {bad!r}" in r.stdout, r.stdout
+        assert f.item("gap/four")["state"] == "open" and "gap/four-1" not in f.db()["items"]
+
+
+# ---- deps reads the entries from main's dev/records/ (dev/records/merge-pipeline-gaps-deps-read-records.md)
+
+PINNED = ROOT / "tests" / "fixtures" / "gaps_md_pinned.md"          # docs/GAPS.md as of a named commit (test_gapsdoc)
+NOT_READ = "# Known gaps\n\n## Stale\n\n- **Stale** (open): after `nowhere`; never read where the records are.\n"
+GITLINK = f"160000,{'1' * 40},"                                       # an entry git lists but cannot show
+
+
+def bin_modules():
+    intake()                                                         # (dev/bin on the path, as the factory runs it)
+    import deps
+    import gapsdoc
+    return deps, gapsdoc
+
+
+def records_main(tmp_path, records: dict[str, str], head: str | None, unshown: str = "") -> Path:
+    """A repository whose main holds ``records`` (and ``head`` as GAPS-head.md) in dev/records/, an ``unshown``
+    record git cannot show, and a docs/GAPS.md that is not their render: what deps reads is the records, never that."""
+    from tests.test_factory import git
+    repo = tmp_path / "main"
+    (repo / "dev" / "records").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    for name, text in {**records, **({"GAPS-head": head} if head is not None else {})}.items():
+        (repo / "dev" / "records" / f"{name}.md").write_text(text)
+    (repo / "docs" / "GAPS.md").write_text(NOT_READ)
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "add", "-A")
+    if unshown:
+        git(repo, "update-index", "--add", "--cacheinfo", f"{GITLINK}dev/records/{unshown}.md")
+    git(repo, "commit", "-qm", "main")
+    return repo
+
+
+def pinned_gaps(text: str) -> dict[str, dict]:
+    """A gap for each entry of the rendered fixture, in the state its entry says (parked ones stopped, done ones
+    closed), so the dependencies resolve, block and cycle as they would on the live record."""
+    state = {"parked": "parked", "done": "closed", "superseded": "closed", "in progress": "building"}
+    return {e["id"]: {"id": e["id"], "state": state.get(e["gaps_says"], "open"),
+                      "fields": {"branch": e["id"].split("/", 1)[1][:32].rstrip("-"),
+                                 "where_it_stopped": "stopped on the fixture"}}
+            for e in intake().gaps_md(text)}
+
+
+def test_deps_reads_the_same_dependencies_closes_and_blocked_reasons_from_the_records(tmp_path):
+    deps, gapsdoc = bin_modules()
+    s = gapsdoc.split(PINNED.read_text(encoding="utf-8"))
+    rendered = gapsdoc.render(s["records"], s["head"])[0]
+    repo = records_main(tmp_path, s["records"], s["head"])
+    parsed, own, unreadable = deps.from_main(repo, "main", NOT_READ)
+    assert unreadable == {} and (parsed, own) == deps.from_gaps(rendered)          # links, where from, own names
+    assert "nowhere" not in str(parsed)                                             # docs/GAPS.md was not read
+    closes = [(e["id"], e["gaps_says"]) for e in intake().gaps_md(gapsdoc.entries(repo, "main")[0])]
+    assert closes == [(e["id"], e["gaps_says"]) for e in intake().gaps_md(rendered)]   # what the intake would close
+    gaps = pinned_gaps(rendered)                   # (the fixture's links are `after `redesign``: a parked gap here)
+    gaps["gap/redesign"] = {"id": "gap/redesign", "state": "parked", "fields": {"branch": "redesign"}}
+    want, got = deps.plan(gaps, *deps.from_gaps(rendered)), deps.plan(gaps, parsed, own, unreadable=unreadable)
+    assert got == want
+    blocked = [g for g, w in got.items() if w["depends_on"] == ["gap/redesign"] and w["waits_on_parked"]]
+    assert blocked and all("waits on gap/redesign, which is parked" in got[g]["blocked_reason"] for g in blocked)
+
+
+def test_an_unreadable_record_is_said_by_name_and_its_gap_is_held_never_free(tmp_path, capsys):
+    deps, gapsdoc = bin_modules()
+    s = gapsdoc.split(PINNED.read_text(encoding="utf-8"))
+    gaps = pinned_gaps(gapsdoc.render(s["records"], s["head"])[0])
+    by_branch = {g["fields"]["branch"]: gid for gid, g in gaps.items()}
+    free = deps.plan(gaps, *deps.from_main(records_main(tmp_path / "a", s["records"], s["head"]), "main", "")[:2])
+    name = next(n for n in s["records"] if n in by_branch and not free[by_branch[n]]["blocked_reason"]
+                and gaps[by_branch[n]]["state"] == "open")                          # a gap free while it can be read
+    assert free[by_branch[name]]["waits_on_parked"] is False
+    broken = {**s["records"], name: s["records"][name] + "a line that is not the bullet's\n"}
+    repo = records_main(tmp_path / "b", broken, s["head"], unshown="no-such-gap")
+    parsed, own, unreadable = deps.from_main(repo, "main", "")
+    assert sorted(unreadable) == sorted([name, "no-such-gap"]) and "not indented" in unreadable[name]
+    got = deps.plan(gaps, parsed, own, unreadable=unreadable)[by_branch[name]]
+    assert got["waits_on_parked"] is True                                           # held: never taken
+    assert f"dev/records/{name}.md cannot be read" in got["blocked_reason"] and got["problems"]
+    assert "dev/records/no-such-gap.md cannot be read" in capsys.readouterr().err   # no gap's: said, on stderr
+    said = dict(deps.changes(gaps, {by_branch[name]: got}))[by_branch[name]]
+    assert said["dependency_problem"] is True and said["waits_on_parked"] is True
+    gaps[by_branch[name]]["state"] = "merged"                                       # finished: nothing to hold
+    assert deps.plan(gaps, parsed, own, unreadable=unreadable)[by_branch[name]]["waits_on_parked"] is False
+
+
+def test_deps_reads_docs_gaps_md_only_before_the_split_and_never_past_an_unreadable_head(tmp_path, capsys):
+    deps, _ = bin_modules()
+    repo = records_main(tmp_path / "a", {}, None)                                   # no GAPS-head.md: before the split
+    assert deps.from_main(repo, "main", NOT_READ) == (*deps.from_gaps(NOT_READ), {})
+    assert "has no dev/records/GAPS-head.md" in capsys.readouterr().err
+    repo = records_main(tmp_path / "b", {}, None, unshown="GAPS-head")
+    with pytest.raises(ValueError, match="GAPS-head.md at main cannot be read"):
+        deps.from_main(repo, "main", NOT_READ)

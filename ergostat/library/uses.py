@@ -26,11 +26,26 @@ def as_map(x, where: Where):
 def library(doc) -> dict[str, tp.Template]:
     got = getattr(doc, "_templates", None)
     if got is None:
-        got, notes = tp.find_all(doc.library, getattr(doc, "untrusted", ()))
+        got, notes = tp.find_all(doc.library, getattr(doc, "untrusted", ()), getattr(doc, "fetched", ()))
         doc._templates, doc._template_notes = got, notes
         for n in notes:
             doc.problems.append(Problem("finding", n, None, "template-library"))
     return got
+
+
+def exports(t: tp.Template, inst: str, made) -> dict:
+    """What the compiler's exports check reads (SPEC §2a): the refs of the parts this instance made itself (a name
+    given wholly by a parameter is the owner's, never internal), and, when its template declares ``exports:``, the
+    refs it exports, as made."""
+    full = (lambda n: n) if t.once else (lambda n: f"{inst}-{n}")
+    every = {f"{k}.{n}": t.once or n.startswith(inst + "-") for k, s in tp.EXPORT_SECTIONS.items()
+             for n in made.sections.get(s) or {}}
+    parts = sorted(x for x, own in every.items() if own)
+    named = sorted(x for x, own in every.items() if not own)   # inside the instance (refers inward freely), never internal
+    if t.exports is None:
+        return {"parts": parts, "named": named, "exports": None}
+    return {"parts": parts, "named": named, "exports": list(t.exports),
+            "exported": sorted(f"{x.split('.', 1)[0]}.{full(x.split('.', 1)[1])}" for x in t.exports)}
 
 
 def take(doc, data: Map, defaults: dict, put, depth: int = 0, within: str | None = None) -> None:
@@ -68,13 +83,16 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
             doc.defined.pop(key, None)
         at = entry.at("use") if hasattr(entry, "at") else w
         text = isinstance(path, trust.Text)
+        said = f"{path}, under template {u.name} from {u.path.parent}"          # its key, name and folder: the library's
+        said = "".join(ch if ch.isprintable() else repr(ch)[1:-1] for ch in said)  # a newline written \n
         why = ("its ask, prompt, query and sources may hold only text the owner or a trusted template wrote, and this "
                "holds text the library wrote (R3)" if text else "a use of such a folder may make only structure, and "
                "run only the owner's own commands and ergostat's programs with checked arguments")
         doc.problems.append(Problem(
-            "error", f"use {inst}: refused, and nothing of it is in the model: it makes {path}, under template {u.name} "
-            f"from {u.path.parent}, a library folder not marked trusted, and {why} (SPEC §2a). Only the owner can "
-            f"mark a folder trusted, after reading it.", at, "untrusted-text" if text else "library-untrusted",
+            "error", f"use {inst}: refused, and nothing of it is in the model: it makes {mark(said, FILE)}, a library "
+            f"folder not marked trusted, and {why} "
+            f"(SPEC §2a). Only the owner can mark a folder trusted, after reading it.",
+            at, "untrusted-text" if text else "library-unsandboxed" if path.endswith(".daemon") else "library-untrusted",
             f"system.{inst}"))
         return
     for step in chain.steps:
@@ -89,10 +107,12 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
 
 
 def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, depth: int, within: str | None,
-         under: tp.Template | None, writers: dict | None = None, mine: tuple | None = None) -> None:
+         under: tp.Template | None, writers: dict | None = None, above: str | None = None,
+         mine: tuple | None = None) -> None:
     """One instance of the chain; ``under``: the first untrusted template above it (or it), from which all is untrusted.
-    ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a). ``mine``: a
-    nested use's (outer instance, its name there), the system its own system belongs to."""
+    ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a); ``above``: the
+    instance whose template uses this one. ``mine``: a nested use's (outer instance, its name there), the system its
+    own system belongs to."""
     def err(msg, where=None, code="bad-use"):
         chain.steps.append(("problem", Problem("error", f"use {inst}: {msg}", where or w, code, f"system.{inst}")))
 
@@ -113,8 +133,12 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
     t = lib.get(str(entry["use"]))
     if t is None:
         broken = [n for n in getattr(doc, "_template_notes", []) if f"{entry['use']}." in n or "/" + str(entry["use"]) in n]
+        broken += [f"library {n} refused: {code}, {why}" for n, (code, why) in getattr(doc, "refused", {}).items()]
         return err(f"no template {entry['use']!r} (there are: {', '.join(sorted(lib)) or 'none'}; the owner's own come "
-                   f"from library: in the main file)" + (f"; {broken[0]}" if broken else ""), at, "unknown-template")
+                   f"from library: in the main file)" + "".join(f"; {b}" for b in broken), at, "unknown-template")
+    if t.library and not tp.trusted(t):
+        return err(f"template {t.name} is from library {t.library}, not marked trust: owner: it is listed, never "
+                   f"expanded (SPEC §2a)", at, "library-untrusted")
     if t.once:
         uses = {**doc.uses, **{s[1]: s[2] for s in chain.steps if s[0] == "use"}}
         prior = next((n for n, u in uses.items() if u["template"] == t.name), None)
@@ -168,15 +192,36 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
             chain.steps.append(("put", section, name, as_map(got, pw), pw))
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
-                                      "depth": depth, "trust": t.trust, "untrusted": untrusted}))
+                                      "depth": depth, "trust": t.trust, "untrusted": untrusted, "outer": within,
+                                      "above": above,
+                                      "owner_runs": trust.owner_runs(made.marked or {}, author(t)) if untrusted else [],
+                                      "library": t.library, **exports(t, inst, made)}))
     if made.standins:
         chain.steps.append(("problem", Problem("finding", f"use {inst}: runs on free stand-ins "
                                                f"({said('; '.join(made.standins))}); give them under with: to run it for "
                                                f"real", via, "template-stand-in", f"system.{inst}")))
+    start = len(chain.steps)
     for sub, e in (made.sections.get("uses") or {}).items():
         short = (made.shorts or {}).get("uses", {}).get(sub)
         given_on = made.writers.get(sub, {})
         if under is not None and named:                     # what it gives may hold the name: only the owner's known
             given_on = {k: w if w in trust.fine(trust.NAMED) else LIBRARY for k, w in given_on.items()}
-        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on,
+        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on, inst,
              (inst, short) if short else None)
+    unmade(t, inst, chain, start, at, said)
+
+
+def unmade(t: tp.Template, inst: str, chain: Chain, start: int, at, said) -> None:
+    """An ``exports:`` entry naming an inner use's part the expansion did not make (a typo, a wrong kind) is
+    bad-template naming the entry (SPEC §2a); entries for its own sections' parts were checked when it was read."""
+    rec = next((s[2] for s in chain.steps[:start] if s[0] == "use" and s[1] == inst), None)
+    if rec is None or rec.get("exports") is None:
+        return
+    made = set(rec["parts"]).union(*(s[2].get("parts") or () for s in chain.steps[start:] if s[0] == "use"))
+    own = {f"{k}.{n}" for k, sec in tp.EXPORT_SECTIONS.items() for n in t.body.get(sec) or {}}
+    for x in rec["exports"]:
+        kind, name = x.split(".", 1)
+        if x not in own and (x if t.once else f"{kind}.{inst}-{name}") not in made:
+            chain.steps.append(("problem", Problem("error", f"use {inst}: " + said(
+                f"template {t.name} exports: {x}, which is not a part it or any of its uses makes"), at,
+                "bad-template", f"system.{inst}")))

@@ -1,5 +1,5 @@
 """The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
-when nothing in the window to measure, but for the nine named at the end, which have no value then
+when nothing in the window to measure, but for the twelve named at the end, which have no value then
 (they exit 1, as ergostat's own measures do).
 
   cycle-hours         median hours from ready to merged, over the gaps merged
@@ -12,15 +12,21 @@ when nothing in the window to measure, but for the nine named at the end, which 
   suite-minutes       median minutes of the queue's suites (unit, browser, demo) on the runs that passed
   first-pass-yield    the share of first reviews whose verdict was merge
   fix-rounds          mean rounds sent back to the implementor per merged gap
-  flake-rate          flaky retries per queue run
+  flake-rate          flakes per queue run: triage's retries plus the runs the queue excused as flakes (a landed gap's
+                      suites_queue.excused, each run once by batch_id), over the queue runs, as merges-per-hour counts them
   cost-per-merged     dollars of AI sessions per merged gap (every round, implementor and reviewer)
   tool-denials        tool calls refused to the AI sessions (sessions.py), over the sessions that said; one with no
                       result (a timeout, a crash) or a result silent on them is left out and counted on stderr, and
                       with none that said there is no value (exit 1)
   tool-denials-unknown  the sessions left out of tool-denials
+  refused-commands-per-session  the mean Bash calls refused per session (its `denied` list), over the sessions that
+                      said; the others left out and counted on stderr, and with none that said no value (exit 1)
   interventions-trend the coordinator's interventions over the last 7 days less the 7 before
   lessons-per-brief   review lessons carried per first implementor brief (knowledge.py)
   first-pass-with-lessons  first-pass-yield, of the gaps whose first brief carried review lessons
+  lessons-recurring   classes reviews found (the librarian's, every round) that the reviewed gap's first implementor
+                      brief carried: the lesson failing as a guarantee. A review with no classes recorded, or whose
+                      gap's first brief is not found, is left out and counted on stderr; none counted: no value
   plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
@@ -49,12 +55,15 @@ when nothing in the window to measure, but for the nine named at the end, which 
                       XL > 400. The window is on the latest merge (merged_at). A gap whose latest merge has no
                       merged_lines is left out of the share, never a hit, and named on stderr.
   size-accuracy-high  the same, of the gaps sized with high confidence only
+  main-still-minutes, main-stalled-minutes, batch-runs, batch-first-green, crash-lost-minutes, gaps-landed-per-hour
+                      the merge pipeline's, from its batch items (landing.py says each); main-stalled-why prints
+                      the goal main-moving's reason: the current batch, its run and the cause
   planning-cost-share planning dollars (planning_cost_usd: the planner's and the plan review's sessions, the whole
                       reservation of one that failed; 0 for an S gap and a sub-gap) over all AI dollars (ai_cost_usd),
                       summed over the gaps merged in the window that carry planning_cost_usd. A gap without it is left
                       out, never counted as 0; one whose planning cost is negative, not a number or above its total is
                       left out too, and named on stderr. It says where the money went, not that less planning is safe.
-First-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean, splits-covered, split-budgets-held,
+Flake-rate, first-pass-yield, first-pass-with-lessons, lessons-recurring, plan-risks-held, splits-clean, splits-covered, split-budgets-held,
 split-overhead, the two size measures and planning-cost-share have no value with nothing to measure.
 
   coverage-below-floor  the modules whose share of statements the unit suite on main ran is under [code_health]
@@ -87,6 +96,7 @@ import time
 sys.dont_write_bytecode = True
 import brief  # noqa: E402
 import fac  # noqa: E402
+import landing  # noqa: E402
 import parks  # noqa: E402
 import times  # noqa: E402
 
@@ -127,12 +137,19 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
             if len(unknown) == len(rows):
                 raise SystemExit("tool-denials: no value (no session in the window said what it was refused)")
         return float(sum(int(r["tool_denials"] or 0) for r in rows if "tool_denials" in r))
+    if name == "refused-commands-per-session":
+        return refused_commands([r["fields"] for r in recent(fac.items("session"), "started", since)])
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
     if name in ("size-accuracy", "size-accuracy-high"):
         return size_accuracy(name, since)
     if name == "planning-cost-share":
         return planning_cost_share(since)
+    if name in landing.MEASURES:                        # from the batch items (landing.py)
+        try:
+            return landing.reading(name, fac.items("batch"), fac.items("gap"), now, since)
+        except landing.NoValue as e:
+            raise SystemExit(str(e)) from None
     gaps = fac.items("gap")
     if name in SPLITS:
         return split_reading(name, gaps, since)
@@ -159,9 +176,9 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         return round(statistics.mean(f("fix_rounds")), 3) if merged else 0.0
     if name == "cost-per-merged":
         return round(sum(f("ai_cost_usd")) / len(merged), 2) if merged else 0.0
-    if name == "merges-per-hour":                       # every run that ended in the window, its whole length once
-        runs = {r["run"]: float(r.get("minutes") or 0) for g in gaps for r in g["fields"].get("queue_runs") or []
-                if float(r.get("at") or 0) >= since}
+    runs = {r["run"]: float(r.get("minutes") or 0) for g in gaps for r in g["fields"].get("queue_runs") or []
+            if float(r.get("at") or 0) >= since}        # every queue run that ended in the window, each once
+    if name == "merges-per-hour":                       # its whole length once
         hours = sum(runs.values()) / 60
         return round(len(merged) / hours, 3) if hours else 0.0
     queued = [g["fields"] for g in recent(gaps, "queued_at", since)]
@@ -171,13 +188,29 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         runs = [g.get("suites_queue") or {} for g in merged]
         return median([sum(float((r.get(s) or {}).get("seconds") or 0) for s in ("unit", "browser", "demo")) / 60
                        for r in runs if r])
-    if name == "flake-rate":
-        runs = sum(int(g.get("queue_attempts") or 0) for g in queued)
-        return round(sum(int(g.get("retries") or 0) for g in queued) / runs, 3) if runs else 0.0
+    if name == "flake-rate":                            # triage's retries and the queue's excused runs, per run
+        if not runs:
+            raise SystemExit("flake-rate: no value (no queue run in the window)")   # not 0: unknown
+        excused = {g.get("batch_id") or g.get("main_sha") or id(g) for g in merged
+                   if isinstance(g.get("suites_queue"), dict) and g["suites_queue"].get("excused")}
+        return round((sum(int(g.get("retries") or 0) for g in queued) + len(excused)) / len(runs), 3)
     raise SystemExit(f"measure.py: no measure {name!r}")
 
 
-KNOWLEDGE = ("lessons-per-brief", "first-pass-with-lessons", "plan-risks-held", "splits-clean")
+def refused_commands(rows: list[dict]) -> float:
+    """The mean Bash calls refused per session (its `denied` list, sessions.py), over the sessions that said; one whose
+    list is missing or not a list (a timeout, a crash, a result silent on them) is left out and counted on stderr, and
+    with none that said there is no value."""
+    said = [r["denied"] for r in rows if isinstance(r.get("denied"), list)]
+    if len(said) < len(rows):
+        print(f"refused-commands-per-session: left out, {len(rows) - len(said)} session(s) whose refusals are unknown",
+              file=sys.stderr)
+    if not said:
+        raise SystemExit("refused-commands-per-session: no value (no session in the window said what it was refused)")
+    return round(sum(sum(str(d).startswith("Bash:") for d in ds) for ds in said) / len(said), 3)
+
+
+KNOWLEDGE = ("lessons-per-brief", "first-pass-with-lessons", "lessons-recurring", "plan-risks-held", "splits-clean")
 
 
 def share(xs: list[bool], name: str) -> float:
@@ -300,11 +333,28 @@ def knowledge_reading(name: str, since: float) -> float:
     if name == "splits-clean":
         return share([bool(g["fields"].get("first_pass")) for g in recent(list(gaps.values()), "merged_at", since)
                       if g["fields"].get("parent")], name)
+    if name == "lessons-recurring":
+        return recurring(gaps, recent(fac.items("review"), "written_at", since))
     first = [r for r in recent(fac.items("review"), "written_at", since) if r["fields"].get("round") == 1]
     if name == "first-pass-with-lessons":
         return share([r["fields"].get("verdict") == "merge" for r in first if carried.get(review_gap(r))], name)
     risks = {r["id"]: set(gaps.get(review_gap(r), {}).get("fields", {}).get("risks") or []) for r in first}
     return share([not (risks[r["id"]] & set(r["fields"].get("classes") or [])) for r in first if risks[r["id"]]], name)
+
+
+def recurring(gaps: dict, reviews: list[dict]) -> float:
+    """lessons-recurring: each review's classes that its gap's first implementor brief carried. Classes not recorded
+    (no list: the librarian has not measured it) or no first brief: left out and said, never 0."""
+    brief = lambda g: next((c.get("knowledge") or [] for c in (g or {}).get("fields", {}).get("contexts") or []  # noqa: E731
+                            if c.get("role") == "implementor"), None)
+    got = [(set(r["fields"]["classes"]), set(brief(gaps.get(review_gap(r))))) for r in reviews
+           if isinstance(r["fields"].get("classes"), list) and brief(gaps.get(review_gap(r))) is not None]
+    if len(got) < len(reviews):
+        print(f"lessons-recurring: left out, {len(reviews) - len(got)} review(s) with no classes or no first brief",
+              file=sys.stderr)
+    if not got:
+        raise SystemExit("lessons-recurring: no value (no review in the window with its classes and brief)")
+    return float(sum(len({c for c in found & held if c.startswith("lesson-")}) for found, held in got))
 
 
 def review_gap(review: dict) -> str | None:
@@ -403,27 +453,34 @@ def code_reading(name: str) -> float:
     return value
 
 
-def code_change(name: str) -> float:
-    """A code measure's change over the last TREND of main's merges, by seq: each sha once (its last reading)."""
+def code_change(name: str, values: dict[str, tuple[int, float]] | None = None) -> float:
+    """A code measure's change over the last TREND of main's merges, by seq: each sha once (its last reading). ``values``
+    ({sha: (seq, value)}, passing.py's) in place of the code measures' history."""
     cfg, measure = fac.config(), name.removesuffix("-change")
-    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
     by_sha: dict[str, tuple[int, float]] = {}
     try:
-        for line in (fac.path(cfg, "run") / "code-measures.jsonl").read_text().splitlines():
+        for line in (fac.path(cfg, "run") / "code-measures.jsonl").read_text().splitlines() if values is None else ():
             r = json.loads(line)
             if r["measure"] == measure:
                 by_sha[str(r["sha"])] = (int(r["seq"]), float(r["value"]))
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise SystemExit(f"{name}: no value (the code measures' history cannot be read: {e!r})") from None
+    window = by_seq(cfg, by_sha if values is None else values)
+    if len({seq for seq, _ in window}) < 2:
+        raise SystemExit(f"{name}: no value (fewer than two of main's commits measured within {TREND} merges)")
+    return round(window[0][1] - window[-1][1], 4)
+
+
+def by_seq(cfg: dict, by_sha: dict[str, tuple[int, float]]) -> list[tuple[int, float]]:
+    """The (seq, value) of the shas on main within TREND merges of the latest of them, the latest first."""
+    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
     window: list[tuple[int, float]] = []
     for sha, (seq, value) in sorted(by_sha.items(), key=lambda kv: -kv[1][0]):    # the latest seq first
         if window and seq < window[0][0] - TREND:
             break
         if fac.git_ok(repo, "merge-base", "--is-ancestor", sha, base):           # (a merge undone measured nothing)
             window.append((seq, value))
-    if len({seq for seq, _ in window}) < 2:
-        raise SystemExit(f"{name}: no value (fewer than two of main's commits measured within {TREND} merges)")
-    return round(window[0][1] - window[-1][1], 4)
+    return window
 
 
 if __name__ == "__main__":
@@ -432,6 +489,8 @@ if __name__ == "__main__":
         print(code_reading(name))
     elif name.removesuffix("-change") in (*CODE, "code-coverage"):
         print(code_change(name))
+    elif name == "main-stalled-why":                    # the goal main-moving's reason (landing.py)
+        print(landing.reason(fac.items("batch"), fac.items("gap"), time.time()))
     elif name in ("coverage", "coverage-below-floor"):
         print(coverage_reading(name, sys.argv[2:]))
     else:

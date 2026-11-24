@@ -127,7 +127,7 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
     by its schedule) is named. For a job emptying a stock under an upper setpoint, the longest
     period that can hold it is said (the room under the setpoint over the load), and when cron
     cannot run that often.
-- **Attention**: problems first (loops off, loops open or unknown past two minutes of record,
+- **Attention**: problems first (goals off, goals open or unknown past two minutes of record,
   agents failing, lines refused or unreadable, missing readings while running, unexplained
   residuals), then the hints. What a run by hand refused is not kept as a problem.
 
@@ -144,8 +144,8 @@ The control diagram is the product's main view. Conventions:
   lettered (H person, A ai, N narrow-ai, D decision, P program, R rule), so colour is never the
   only cue; a disturbance may carry the badge of the agent whose doing it is.
 - **Lines**: pipes are double lines with moving dots while they flow; measurement is dashed
-  (stock to sensor), signal solid (sensor to controller), action purple (controller to valve).
-  A loop's lines take its status colour (green holding, red off, amber open).
+  (stock to sensor), signal solid (sensor to controller). Their colours follow the rules under
+  Colour (§8): the material path in full ink, information in the ink's second tone.
 - **Layout** (ELK layered, vendored): the plant runs left to right along the pipes (pipes carry the
   highest straightness and direction priority), the feedback path above it; each loop a row.
   Systems are drawn as thin outlines named in muted type (one ink: no colour per system), overlapping where they
@@ -153,7 +153,11 @@ The control diagram is the product's main view. Conventions:
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
   would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
   all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or
-  more) and says when more lies beyond the edge; "Fit" shows everything.
+  more) and says when more lies beyond the edge, and which way (arrows); "Fit" shows everything (the Process
+  view's map at no less than full size: its nodes' text never under 11px). At phone
+  width (700px or less) each view opens fitted to the canvas down to 7.7px text (the Process
+  view's map still at no less than 11px), and a drawing still too big
+  is centred on its first part (a system box, else a stock).
 - **The process view** (`process.py`, `process.js`; SPEC §5b) is process mining's process map: a
   directly-follows graph per item kind, from the record in the window (the states items entered, or
   the event types about them), each kind's map laid out left to right in time order in a frame of its
@@ -161,11 +165,18 @@ The control diagram is the product's main view. Conventions:
   caused one on another's. It replaced the wiring view (machines and what passed between them),
   which stays on the command line (`ergostat system --wiring`). Its nodes and its kinds' frames are put by
   hand as the other views' parts are (below).
+- **A goal's state in the dynamics view** is said on its gap: a goal not holding has the server's word after the gap's
+  value (`36 · off by 36`, the one phrase of how far; `no feedback` for an open goal; `stale`, `unknown` muted),
+  and a goal holding has none. Off, the word, the gap's outline and the marker of its balancing loop are red
+  (`--bad`), never the accent, so a traced loop and an off goal never share a colour; a marker chosen still takes the
+  accent. The word comes and goes with the values poll, on the value's own line, so nothing is laid out again.
 - **The block view** draws each loop as a classic negative-feedback block diagram, one row per
   loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
   output u into the actuator (the valve), a second junction where the disturbance d joins, the
   plant (the stock), its output y, and the sensor H on the feedback path carrying ym back to Σ.
-  Every block names the agent that fills it; the loop's lines take its status colour. An open
+  Every block names the agent that fills it. No status colour: each loop's error label, at its junction's
+  output, says e's value and, when its goal is not holding, the goal's word from the server (`e = −36 off`,
+  bold when off; a junction with no error line says its word beside it, `e open`). An open
   loop has `t: <schedule>` driving C with no Σ, and ym ends in "watched against r, not fed
   back". With several systems the rows are grouped by system and tagged. The command line prints
   the same in text (`ergostat system --blocks`).
@@ -184,6 +195,13 @@ The control diagram is the product's main view. Conventions:
   and titled in that discipline's words: a stock as "output y_quality of P_service", a flow a controller
   moves as "actuating signal u_tuner", a reference as "reference r = 0.93 and its summing junction". A
   part's panel opens at the click, its name first, and fills when its numbers come.
+- **By keyboard.** The diagram is one tab stop: the part last on in that view (else the first of the first
+  chain) takes it. The arrows follow the structure: in Dynamics Right and Left along the pipe (stock, valve,
+  stock), Down and Up through the connectors into and out of the part (each named with its other end and its
+  sign); in Blocks Right and Left along the signal (Σ, C, the actuator, P, through P's own summing point),
+  Down along the return path. Down enters a closed box's goal rows; Shift and an arrow steps through every
+  part in drawing order; Home goes to the first part. Enter opens the panel with the focus in it and Escape
+  gives it back; I goes Into a system, Escape or Backspace back out onto it. The ring is the accent.
 - **Parts put by hand.** In the Dynamics and the Blocks view alike, a part dragged (a block, a summing
   junction, a sensor, a stock, anything drawn) moves, with the others chosen if it is one of them; an open
   system dragged by its top (its outline, or its frame in the block diagram) moves with everything in it.
@@ -261,7 +279,7 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded):
-`/diagram?view=blocks`, `/loops`, `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
+`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
 `%2F`), `/record?type=T`, `/model`, `/check`, `/guide?frame=N`. The server answers each with the page
 (`UI_PAGES` in `web/server.py` and `util.js`, one list); `/api/*`, `/static/*` and `/file/PATH` are never
 shadowed. The page routes with the History API: a plain click on one of its links draws the page in
@@ -278,7 +296,7 @@ only when addressed to the server by its own name (the Host header is `127.0.0.1
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
 page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and process views; the side panel:
-attention, loops or the process map's kinds, model changes, legend), Loops, Agents (one list, by rung), Items (the
+attention, goals and their control loops, feedback loops or the process map's kinds, model changes, legend), Goals, Agents (one list, by rung), Items (the
 record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
 its old address `/fit` goes there; first **What's available**: each loop, whether its process is
 identified and what would identify it, or that it closes through queues; each parameter to estimate,
@@ -311,11 +329,11 @@ provenance, its calibrations side by side, and any proposal for it, with Accept 
 typed over: a what-if, drawn on every chart until put back, its fit shown beside it, saved only by
 Propose these and then Accept), a feedback loop's panel how much of the behaviour it drives over the
 window at each stock it runs through, beside the loops competing there (loop dominance), parts chosen with
-Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
-comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
-scope (y with r, u, e), and under it how the loop is doing (Harris index or, for a ceiling or a floor,
+Shift chart in the side panel (with none chosen, no chart); a goal's panel, its
+comparator, controller or output in the blocks view, and its sparkline on the Goals page open its
+scope (y with r, u, e), and under it how its control loop is doing (Harris index or, for a ceiling or a floor,
 how often and how far past it, oscillation, settling and overshoot, saturation, step tests and starts
-left out; the Loops page says it in a word, or what it lacks); in the blocks view, the process block a
+left out; the Goals page says it in a word, or what it lacks); in the blocks view, the process block a
 loop's y comes out of shows that loop's process identified (K, τ, θ, how sure, how tested, its step
 response and Bode plot, with Accept, or a step test to Approve, or why none is offered yet), and its
 controller's panel the closed loop with it (margins, at the worst the process could be too, its own
@@ -373,6 +391,25 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   in ten of its runs, and half. A projection too short to see on the window's axis gets the last
   quarter of the chart, on a time axis of its own past now (+20s, +40s). A loop's dominance draws it in
   ink and the loops competing at the same stock in the muted grey.
+
+  The diagrams' colour rules, written here once (every view, legend and later change keeps to them):
+
+  1. **The accent and its tone mean selection or trace, in both views, and nothing else.** A part
+     chosen or pointed at, a line traced, a loop lit from its marker: the accent (`--accent`). A lit
+     loop draws its pipes in the accent and its connectors in the accent's lighter tone (`--accent-2`).
+     No goal, status or kind of part is ever drawn in the accent.
+  2. **`--bad` together with the printed word means a goal is off**, in Dynamics and on lists only,
+     never the colour alone. Blocks carries status in text and weight, never colour: it stays
+     monochrome.
+  3. **Tone carries importance, never status.** Each ink has a second tone, the ink mixed toward
+     the paper (`--sd-ink-2`, about 55% in the light theme and 50% in the dark; `--ink-2-line` for
+     Blocks), 3.0 to 4.5:1 on the paper where the ink is 10:1 or more (`tests/test_style_tokens.py`).
+     It draws what carries information, not material: in Dynamics the connectors and their heads, the
+     loops' names, shadow variables and stubs (the stocks, pipes, valves, clouds, part names and
+     values, polarity signs and loop markers stay full ink, and so does the connector from a goal's
+     gap to the flow it drives, the line that closes its loop); in Blocks what a collector records
+     and its bus, a port's line and a disturbance's input (r, e, u, y and y_m stay ink). Each legend
+     says so: "a lighter line: information, not material". The saved SVG and PNG keep the tones.
 - **Themes.** Light first. The dark theme follows the system setting and is the same ramp read
   the other way, with the same hues, generated from the same OKLCH values (the hex values in the
   token block say which).
@@ -390,10 +427,14 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   Numbers right-aligned, headers too over numbers. A wide table scrolls inside its own box; the page
   never scrolls sideways.
 - **Numbers.** One formatter (`fmt` in `util.js`): integers as they are, with thousands separated;
-  others to three significant figures; a real minus (−). Raw data on the Record is rounded the same
-  way where it is summarised, and kept whole in the event's panel. Setpoints and conditions use the
+  others to three significant figures; a real minus (−). Raw data on the Record is shown whole,
+  never rounded. Setpoints and conditions use the
   real symbols: ≤, ≥, =, ≠, −, ×, and … for an ellipsis. Subscripts are subscripts (K<sub>p</sub>,
   not K_p).
+- **Times.** One formatter (`stamp` in `util.js`): `2026-11-22 04:03:55 PST`, the date, the time and
+  the browser's zone by its short name, on the Record, a goal's Crossings, the Items page and an item's
+  page. A field named `*_at`, `raised`, `since` or `started` holding epoch seconds or ISO text is
+  shown the same way.
 - **Copy.** No paragraph under a page's title: what a thing is belongs to the Guide. Labels are
   terse and specific; a panel opens with what the thing is now, not its definition. Sentence case
   everywhere. No " · " chains to fake structure: two lines, or a label and a value. No arrows on

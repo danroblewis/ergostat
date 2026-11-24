@@ -61,6 +61,23 @@ def _sensor(s) -> str:
     return f"{s.of.kind}.{s.of.name}.{s.name} {how}" + (f" {when}" if when else "")
 
 
+def law_words(b: Block) -> str:
+    """An external block's declared law (SPEC §12d) in words with its parameters, in the names of what it reads and
+    sets (its identify:); '' when it declares none."""
+    if b.law is None:
+        return ""
+    p, idf = b.law.params, b.params.get("identify") or {}
+    x = idf["input"].name if idf.get("input") else "its input"
+    after = lambda s: f"only after {human(s)}" if s else "at once"     # noqa: E731
+    if b.law.kind == "kubernetes-hpa":
+        y = idf["output"].name if idf.get("output") else "its output"
+        return (f"scales to ceil({y} x {x} / {p['target']:g}), within {p['min']:g}..{p['max']:g}, down "
+                f"{after(p['stabilize-down'])}, up {after(p['stabilize-up'])}; it holds while {x} is within "
+                f"{p['tolerance'] * 100:g}% of its target, and is evaluated every {human(p['every'])}")
+    return (f"fires {'once' if p['for'] else 'as soon as'} {x} is {p['side']} {p['threshold']:g}"
+            + (f" for {human(p['for'])}" if p["for"] else "") + ", resolves as soon as it is back")
+
+
 class Explainer:
     def __init__(self, spec: Spec, project=None):
         self.s, self.p = spec, project
@@ -281,11 +298,15 @@ class Explainer:
         if b.type == "program":
             lines.append(f"  Runs: `{b.params.get('run')}`")
         elif b.type == "ai":
-            lines.append(f"  Prompt: {str(b.params.get('prompt'))[:120]}")
+            from ..library.untrusted import close
+            lines.append(f"  Prompt: {close(str(b.params.get('prompt'))[:120])}")   # a marked prompt cut stays marked
         elif b.type == "person":
             lines.append(f"  Asks: {b.params.get('ask')}")
         elif b.type == "external":
             lines.append("  Performed by something ergostat does not run: it is judged by the sensors on what it moves.")
+            if b.law is not None:
+                lines.append(f"  Its law, declared {b.law.kind}: {law_words(b)} (an assumption until tested against the "
+                             "record).")
         cmd = s.commanders_of(name)
         if b.goal and b.machine:
             lines.append(f"  Runs while goal {b.goal} is off (through {', '.join(c.name for c in cmd)}).")

@@ -51,8 +51,10 @@ def test_no_sensor_controller_or_agent_is_drawn_and_every_connector_says_its_sig
     conn = {(e["from"], e["target"]): e["polarity"] for e in g["edges"] if e["kind"] == "connector"}
     # driven-by as written: people come when what they ask for works, and leave when it does not
     assert conn[("stock:bugs-live", "flow:signups")] == "-" and conn[("stock:bugs-live", "flow:churn")] == "+"
-    # support reads bugs-live, which a goal it serves (no-live-bugs ≤ 0) is about: it files more as bugs-live rises
-    assert conn[("stock:bugs-live", "flow:filed-bugs")] == "+"
+    # support reads bugs-live, which a goal it serves (no-live-bugs ≤ 0) is about: it files more as bugs-live rises,
+    # drawn through the goal's excess (Sterman §5.2: the decision acts on the discrepancy)
+    assert ("stock:bugs-live", "flow:filed-bugs") not in conn
+    assert conn[("stock:bugs-live", "gap:no-live-bugs")] == "+" and conn[("gap:no-live-bugs", "flow:filed-bugs")] == "+"
 
 
 def test_each_loop_gives_every_link_around_it_a_sign_and_a_plain_name(factory):
@@ -85,8 +87,8 @@ def test_a_goal_is_drawn_as_a_desired_level_and_a_gap_feeding_the_flow_that_clos
     assert conn[("desired:backlog-clear", "gap:backlog-clear")] == "-"
     sub = next(e for e in g["edges"] if e.get("from") == "gap:backlog-clear" and e["target"] == "flow:submitted")
     assert sub["polarity"] == "+"                                      # more backlog: more is worked off
-    # a goal with no gap drawn here is no structure: it is said on its stock, with what serves it anywhere in the model
-    assert "gap:no-live-bugs" not in ids
+    # every goal is drawn, and said on its stock too, with what serves it anywhere in the model
+    assert "gap:no-live-bugs" in ids and not ids["gap:no-live-bugs"].get("noFeedback")
     assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "≤ 0", "desired": "0",
                                                 "by": [{"block": "support", "system": "factory"}], "acted": True}]
     assert ids["stock:users"]["goals"][0]["by"] == [{"block": "product-manager", "system": "factory"}]
@@ -108,6 +110,124 @@ def test_a_goal_with_no_controller_anywhere_is_the_only_one_said_unacted(tmp_pat
     ids = {n["id"]: n for n in g["nodes"]}
     assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "≤ 0", "desired": "0", "by": [],
                                                 "acted": False}]
+    # an open loop: drawn all the same, its desired level and its gap, the gap marked 'no feedback', and no link out
+    assert ids["gap:no-live-bugs"]["noFeedback"] and "desired:no-live-bugs" in ids
+    assert not [e for e in g["edges"] if e.get("from", e["source"]) == "gap:no-live-bugs"]
+    assert [i for i, n in ids.items() if n.get("noFeedback")] == ["gap:no-live-bugs"]
+
+
+def test_an_open_loop_goal_is_drawn_with_the_no_feedback_mark_and_no_link(repo):
+    """An open loop (open_loop = true: it acts by the clock, whatever it would measure) closes no feedback: its gap is
+    drawn, marked, and drives nothing; the same model closed draws the gap's link to the flow it drives."""
+    from ergostat import graph, state
+    from ergostat.dynamics import dynamics
+    from ergostat.model import load
+
+    def drawn():
+        m = load(repo.path)
+        g = dynamics(graph.control(m, state.snapshot(Project(m)), graph.select(m)), m)
+        return {n["id"]: n for n in g["nodes"]}, [e for e in g["edges"] if e["source"] == "gap:disk-under-80"]
+    ids, out = drawn()
+    assert "desired:disk-under-80" in ids and not ids["gap:disk-under-80"].get("noFeedback") and out
+    text = repo.path.joinpath("ergostat.toml").read_text().replace('reads = ["disk-usage"]\n', 'open_loop = true\n')
+    repo.write("ergostat.toml", text)
+    ids, out = drawn()
+    assert "desired:disk-under-80" in ids and ids["gap:disk-under-80"]["noFeedback"] and not out
+
+
+PRODUCT_GOALS = {"no-live-bugs": ("bugs-live", "filed-bugs", "+"), "few-missing": ("missing-ops", "filed-features", "+"),
+                 "users-growing": ("users", "filed-features", "-")}
+
+
+def test_every_product_goal_is_a_desired_level_and_a_gap_driving_the_flow_its_actor_moves(factory):
+    """software-factory's product goals are served by intake's blocks reading their stocks: each is drawn in product,
+    its gap between the stock and the flow the block moves, and no loop is added or lost by the routing."""
+    g = factory(view="dynamics", open="*")
+    ids = {n["id"]: n for n in g["nodes"]}
+    gaps = sorted(i for i in ids if i.startswith("gap:"))
+    mine = {f"gap:{k}" for k in ["backlog-clear", "reviews-done", "all-live", *PRODUCT_GOALS]}   # (and the upkeep's two)
+    assert set(gaps) - mine == {"gap:model-fits", "gap:requests-handled"}, gaps
+    assert sorted(i for i in ids if i.startswith("desired:")) == [i.replace("gap:", "desired:") for i in gaps]
+    conn = {(e["from"], e["to"]): e["polarity"] for e in g["edges"] if e["kind"] == "connector"}
+    for goal, (stock, flow, into) in PRODUCT_GOALS.items():
+        assert ids[f"gap:{goal}"]["systems"] == ["product"] and ids[f"desired:{goal}"]["systems"] == ["product"]
+        assert (f"stock:{stock}", f"flow:{flow}") not in conn
+        assert [b for a, b in conn if a == f"gap:{goal}"] == [f"flow:{flow}"]
+        assert conn[(f"gap:{goal}", f"flow:{flow}")] == "+" and conn[(f"stock:{stock}", f"gap:{goal}")] == into
+    assert not [x for n in g["nodes"] for x in n.get("goals") or [] if not x["acted"]]
+    assert len(g["causalLoops"]) == len(factory(view="control", open="*")["causalLoops"])     # (the loops are the model's)
+    read = ("stock.users", "block.product-manager")              # the loops through that read run through the gap
+    users = [c for c in g["causalLoops"] if read in zip(c["parts"][-1:] + c["parts"], c["parts"], strict=False)]
+    assert users and all("gap:users-growing" in c["nodes"] for c in users)
+
+
+def test_a_goal_whose_actor_is_in_a_closed_system_links_through_its_port(factory):
+    """product open, factory closed: each gap's link ends at the stub naming the flow inside factory; all closed, it
+    leaves product's box at the gap's port and enters factory's at the flow's."""
+    g = factory(view="dynamics", open="product")
+    ids = {n["id"]: n for n in g["nodes"]}
+    for goal, (_, flow, _) in PRODUCT_GOALS.items():
+        assert f"desired:{goal}" in ids
+        (e,) = [e for e in g["edges"] if e["source"] == f"gap:{goal}"]
+        stub = ids[e["target"]]
+        assert (stub["role"], stub["label"], stub["in"]) == ("stub", flow, "factory"), stub
+    closed = factory(view="dynamics", open="-")
+    ports = {(e.get("sourcePort"), e.get("targetPort")) for e in closed["edges"] if e["kind"] == "connector"}
+    for goal, (_, flow, _) in PRODUCT_GOALS.items():
+        assert (f"system:product:out:gap:{goal}", f"system:factory:in:flow:{flow}") in ports, ports
+
+
+def test_a_block_that_only_reads_a_goals_stock_is_not_drawn_through_its_gap(tmp_path):
+    """remote-pair/support: 'customers' reads stock.incidents-open (a cause, not a controller of incidents-calm, which
+    is acted on in the other ergostat). It is drawn reading the stock, the gap closes nothing here ('no feedback'),
+    and the stock's panel names no block serving the goal."""
+    d = tmp_path / "support"
+    shutil.copytree(ROOT / "examples" / "remote-pair" / "support", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    g = api(Live(Project(mdl.load(d))), "graph", {"view": ["dynamics"], "open": ["*"]})
+    ids = {n["id"]: n for n in g["nodes"]}
+    conn = {(e["source"], e["target"]) for e in g["edges"] if e["kind"] == "connector"}
+    assert ids["gap:incidents-calm"].get("noFeedback") and not [b for a, b in conn if a == "gap:incidents-calm"]
+    assert not ids["gap:tickets-short"].get("noFeedback")
+    (calm,) = [x for n in g["nodes"] for x in n.get("goals") or [] if x["name"] == "incidents-calm"]
+    assert calm["by"] == [] and not calm["acted"]
+
+
+def test_a_block_naming_another_goal_still_serves_a_goal_whose_loop_it_closes(tmp_path):
+    """alert-triage: 'investigation' names facets-investigated and also works off alerts-investigating, closing
+    investigations-joined's loop (join-keeps-up): that goal's gap drives what it moves, with no 'no feedback' mark."""
+    d = tmp_path / "alert-triage"
+    shutil.copytree(ROOT / "examples" / "alert-triage", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    g = api(Live(Project(mdl.load(d))), "graph", {"view": ["dynamics"], "open": ["*"]})
+    gap = next(n for n in g["nodes"] if n["id"] == "gap:investigations-joined")
+    assert not gap.get("noFeedback")
+    assert [e for e in g["edges"] if e["kind"] == "connector" and e["source"] == gap["id"]]
+    assert ("stock:alerts-investigating", gap["id"]) in {(e["source"], e["target"]) for e in g["edges"]}
+
+
+EXAMPLES = sorted(str(p.parent.relative_to(ROOT / "examples")) for p in (ROOT / "examples").glob("**/ergostat.yaml")
+                  if ".ergostat" not in p.parts and "run" not in p.parts)
+
+
+@pytest.mark.slow
+def test_every_goal_of_every_demo_has_its_gap_drawn(tmp_path):
+    """Every goal /api/loops lists has a gap node in Dynamics with every system open, in every example."""
+    from ergostat.web.server import Live, api
+    missing = {}
+    for ex in EXAMPLES:
+        d = tmp_path / ex.replace("/", "--") / ex.rsplit("/", 1)[-1]
+        shutil.copytree(ROOT / "examples" / ex, d, ignore=shutil.ignore_patterns("run", "__pycache__", ".ergostat"))
+        os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+        live = Live(Project(mdl.load(d)))
+        ids = {n["id"] for n in api(live, "graph", {"view": ["dynamics"], "open": ["*"]})["nodes"]}
+        goals = api(live, "loops", {})
+        if lost := sorted(k for k in goals if f"gap:{k}" not in ids):
+            missing[ex] = lost
+    assert {"remote-pair/incidents", "remote-pair/support"} <= set(EXAMPLES) and len(EXAMPLES) > 10, EXAMPLES
+    assert not missing, missing
 
 
 def test_every_loop_is_labelled_and_runs_through_parts_drawn_and_lines_it_is_a_link_of(factory):
@@ -126,6 +246,114 @@ def test_every_loop_is_labelled_and_runs_through_parts_drawn_and_lines_it_is_a_l
         ns = c["nodes"]
         for a, b in zip(ns, ns[1:] + ns[:1], strict=False):             # each link of it is a line drawn here
             assert any(c["name"] in e["causal"] and {e["from"], e["to"]} == {a, b} for e in g["edges"]), (c["name"], a, b)
+
+
+SMALL = """\
+name: small
+parameters:
+  r: 2
+  k: 1
+stocks:
+  people:
+    unit: people
+    sensor:
+      manual: true
+flows:
+  births:
+    to: people
+    driven-by: +stock.people
+    equation: r * stock.people
+  deaths:
+    from: people
+    driven-by: +stock.people
+    equation: k * stock.people
+  leaving:
+    from: people
+goals:
+  few:
+    stock: people
+    hold: "<= 100"
+blocks:
+  thin:
+    type: program
+    run: "true"
+    in: [goal.few.error]
+    out: flow.leaving
+"""
+
+
+def test_each_loop_through_a_gap_names_its_goal_and_the_goal_names_its_loops(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(SMALL)
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    live = Live(Project(mdl.load(tmp_path)))
+    g = api(live, "graph", {"view": ["dynamics"], "open": ["*"]})
+    loops = {c["name"]: c for c in g["causalLoops"]}
+    closing = {n for n, c in loops.items() if c["goal"]}
+    # a loop through a gap carries its goal; one through none (births R, deaths B) carries none
+    assert closing and all(loops[n]["goal"] == "few" and "goal.few" in loops[n]["parts"] for n in closing)
+    assert all(c["goal"] is None and not any(p.startswith("goal.") for p in c["parts"])
+               for n, c in loops.items() if n not in closing)
+    assert {loops[n]["polarity"] for n in loops if n not in closing} == {"R", "B"}
+    assert [loops[n]["polarity"] for n in closing] == ["B"]                # thin drains people when it is over 100
+    lp = api(live, "loops/few", {})
+    assert [x["name"] for x in lp["feedback_loops"]] == sorted(closing)    # the same loops, from the goal's side
+    assert lp["feedback_loops"][0]["label"] == loops[next(iter(closing))]["label"]
+    assert lp["control_loop"]["controllers"] == ["thin"] and lp["control_loop"]["name"] == "few"
+
+
+TWO = """\
+name: two
+stocks:
+  a:
+    unit: people
+    sensor:
+      manual: true
+  b:
+    unit: people
+    sensor:
+      manual: true
+flows:
+  move:
+    from: a
+    to: b
+  back:
+    from: b
+    to: a
+goals:
+  calm:
+    stock: b
+    hold: "<= 50"
+  few:
+    stock: a
+    hold: "<= 100"
+blocks:
+  thin:
+    type: program
+    run: "true"
+    in: [goal.few.error]
+    out: flow.move
+  slow:
+    type: program
+    run: "true"
+    in: [goal.calm.error]
+    out: flow.back
+"""
+
+
+def test_a_loop_through_two_gaps_closes_both_goals(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(TWO)
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    live = Live(Project(mdl.load(tmp_path)))
+    loops = {c["name"]: c for c in api(live, "graph", {"view": ["dynamics"], "open": ["*"]})["causalLoops"]}
+    both = [n for n, c in loops.items() if {"goal.few", "goal.calm"} <= set(c["parts"])]
+    assert both, loops                                   # a -> few -> thin -> move -> b -> calm -> slow -> back -> a
+    assert all(loops[n]["goal"] == "calm" for n in both)  # its one goal, the first by name
+    for g in ("few", "calm"):                            # yet it closes each, so each goal's panel lists it
+        fl = [x["name"] for x in api(live, f"loops/{g}", {})["feedback_loops"]]
+        assert set(both) <= set(fl), (g, fl)
+        assert set(fl) == {n for n, c in loops.items() if f"goal.{g}" in c["parts"]}
 
 
 def test_closed_systems_fold_the_loops_into_their_boxes(factory):
@@ -195,16 +423,41 @@ def test_the_attention_cards_speak_system_dynamics():
     snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0,
                                        "off_by_words": "off by 4"}}}
     att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
-           {"level": "hint", "what": "controller backlog-clear", "says": "loop backlog-clear was off 60% of the time; why (a valve "
-            "too small, or acting too seldom) is said after 10m of record"},
-           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill controller x"},
-           {"level": "hint", "what": "controller a", "says": "loop a keeps feeding x: Hold a back (its controller can read x)"}]
+           {"level": "hint", "what": "loop backlog-clear", "says": "was off 60% of the time: saturated, moving its most "
+            "each run. Its valve moved 2/h out while 3/h came in"},
+           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill it"},
+           {"level": "hint", "what": "loop a", "says": "keeps feeding x: Hold it back (its controller can read x)"}]
     out = attention(att, snap)
     assert out[0]["says"] == "backlog is 4, desired backlog = 0: off by 4"
+    # a controlled goal is called a goal ('loop' is for R and B loops): never 'loop backlog-clear'
+    assert [a["what"] for a in out] == ["goal backlog-clear", "goal backlog-clear", "goal x", "goal a"]
+    assert out[1]["says"].startswith("was off 60% of the time: saturated, moving its most each run. Its flow moved")
+    assert "(what serves it can read x)" in out[3]["says"], out[3]["says"]
     import re
     for a in out:
-        text = a["what"] + " " + a["says"]
-        assert not re.search(r"controller|setpoint|\brule|\bgoal|valve|<=|>=", text), text
+        text = re.sub(r"\bgoal (backlog-clear|x|a)\b", "", a["what"] + " " + a["says"])
+        assert not re.search(r"controller|setpoint|\brule|\bgoal|\bloop |valve|<=|>=", text), text
+
+
+def test_a_goal_s_suggestion_says_what_serves_it():
+    from ergostat.dynamics import attention
+    att = [{"level": "hint", "what": "controller fixes", "says": "loop fixes was off 70% of the time though its valve keeps "
+            "up on average: it answers too late; its controller (fixer, every 1m) is the slowest stage"}]
+    out = attention(att, {"loops": {}})
+    assert out[0]["says"] == ("goal fixes was off 70% of the time though its flow keeps up on average: it answers too late; "
+                              "what serves it (fixer, every 1m) is the slowest stage"), out[0]["says"]
+    assert attention([{"level": "warn", "what": "stock q", "says": "a feedback loop q-x"}], {"loops": {"q": {}}})[0]["says"] \
+        == "a feedback loop q-x"                                                # (a name only where it is a goal's, whole)
+
+
+def test_the_dynamics_wording_keeps_codes_ids_and_tiers_as_they_are():
+    from ergostat.dynamics import words
+    said = words("modelling holds queue-goal-tolerance on goal.ci-upgrade-planned, waiting 3h (why: a goal's setpoint "
+                 "and tolerance are what decides: the owner's to change). ergostat inbox request/80fe1e93e1 --deny")
+    assert said == ("modelling holds queue-goal-tolerance on goal.ci-upgrade-planned, waiting 3h (why: a desired level "
+                    "and tolerance are what decides: the owner's to change). ergostat inbox request/80fe1e93e1 --deny")
+    assert words("the rule tier has no certain change for it: a rule reads goal.x") == \
+        "the rule tier has no certain change for it: a fixed decision reads goal.x"
 
 
 def test_each_valve_says_its_equation_or_what_is_not_known_yet(factory):

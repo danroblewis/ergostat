@@ -100,6 +100,10 @@ for i in range(1, 61):
 for i in range(1, 41):
     p.events.add("hypothesis.proposed", item=f"hypothesis/{{i}}", data={{"title": f"idea {{i}}", "why": "x" * 300}}, at=t + i * 60)
 """)
+    yield from serve(d, home)
+
+
+def serve(d: Path, home: Path):
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
                             env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -116,6 +120,70 @@ for i in range(1, 41):
     yield {"url": url, "dir": d, "home": home}
     proc.terminate()
     proc.wait(10)
+
+
+@pytest.fixture(scope="module")
+def quiet_site(tmp_path_factory):
+    """tests/test_quiet_system.py's model: shop's 14 goals and yard's one, every one read holding, 3 jobs leased in shop."""
+    from tests.test_quiet_system import MODEL, TAKEN
+    d = tmp_path_factory.mktemp("quiet") / "quiet"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(MODEL)
+    home = d.parent / "home"
+    add_events(d, home, f"""
+for lp in p.model.loops():
+    for s in lp.sensors:
+        p.measurements.add(f"sensor/{{s}}", 1.0)
+for n in (1, 2, 3):
+    p.events.add("job.queued", item=f"job/{{n}}")
+    p.events.add("ergostat.lease.taken", item=f"job/{{n}}", data={{**{TAKEN!r}, "run": f"run{{n}}aaaaaaaa", "fence": 1}})
+""")
+    yield from serve(d, home)
+
+
+def test_a_quiet_system_says_so_on_the_loops_page_and_in_its_panel_until_a_goal_goes_off(browser, quiet_site):
+    """Every goal of shop holding: the Loops page and shop's panel (the Control and Dynamics views, its box closed)
+    say 'all 14 goals holding, 3 items being worked', 14 being /api/loops filtered by system and 3 its leases; a
+    goal read off, and the open panel loses the sentence within one poll, and so does the Loops page."""
+    url = quiet_site["url"]
+    loops = json.loads(urllib.request.urlopen(f"{url}/api/loops", timeout=5).read())
+    n = sum(1 for lp in loops.values() if lp["system"] == "shop")
+    said = f"all {n} goals holding, 3 items being worked"
+    assert n == 14
+    pg, errors, _ = open_page(browser, quiet_site, "loops", "systems")
+    pg.locator('.quiet-line[data-system="shop"]').wait_for()
+    assert pg.locator('.quiet-line[data-system="shop"]').inner_text() == f"shop: {said}"
+    assert pg.locator('.quiet-line[data-system="yard"]').inner_text() == "yard: all 1 goal holding, nothing being worked"
+    pg.close()
+    for view in ("", "&view=dynamics"):
+        # at the page's own pace (a poll every 2.5s): the server keeps a snapshot 1.5s, so a sped-up page would be
+        # answered from one made before the reading
+        pg, more, asked = open_page(browser, quiet_site, f"diagram?open={view}", "graph", init="")
+        errors += more
+        pg.wait_for_function("() => S.graph && S.graph.nodes.some((n) => n.id === 'system:shop')", timeout=60000)
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'system:shop'))")
+        line = pg.locator('#detail .quiet-line[data-quiet="shop"]')
+        line.wait_for()
+        assert line.inner_text() == said
+        if view:
+            continue
+        pg.close()
+    add_events(quiet_site["dir"], quiet_site["home"], """
+for lp in p.model.loops():
+    if lp.controller.holds == "q2":
+        for s in lp.sensors:
+            p.measurements.add(f"sensor/{s}", 1e6)
+""")
+    n0 = len(asked)
+    pg.wait_for_function("() => document.querySelector('#detail [data-quiet=\"shop\"]').hidden", timeout=20000)
+    assert len(asked) - n0 <= 2, "more than one poll after the reading (and one already asked)"
+    assert pg.evaluate("() => S.graph.nodes.find((n) => n.id === 'system:shop').quiet") is None
+    pg.close()
+    pg, more, _ = open_page(browser, quiet_site, "loops", "systems")
+    pg.locator('.quiet-line[data-system="yard"]').wait_for()
+    assert pg.locator('.quiet-line[data-system="shop"]').count() == 0
+    pg.close()
+    assert not errors + more, errors + more
 
 
 @pytest.fixture(scope="module")
@@ -140,9 +208,10 @@ def settle(site, path: str) -> None:
         time.sleep(1)
 
 
-def open_page(browser, site, route: str, asks: str):
+def open_page(browser, site, route: str, asks: str, init: str = INIT):
     pg = browser.new_page(viewport={"width": 1280, "height": 800})
-    pg.add_init_script(INIT)
+    if init:
+        pg.add_init_script(init)
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     asked: list[str] = []
@@ -411,7 +480,7 @@ def test_the_header_menu_lists_running_projects_then_counts_the_stopped(browser,
               "stopped": 7, "at": 1.0, "age": 600.0}
     pg.route("**/api/projects?*", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(listed)))
     pg.route("http://elsewhere.test/**", lambda r: r.fulfill(status=200, content_type="text/html", body="<p>elsewhere</p>"))
-    pg.goto(f"{site['url']}/loops")
+    pg.goto(f"{site['url']}/goals")
     pg.wait_for_function("() => document.querySelectorAll('#project option').length > 3", timeout=10000)
     got = options(pg)
     assert got[1:] == [["elsewhere (2 off)", "http://elsewhere.test", False], ["no-page (no page)", "", True],
@@ -420,5 +489,5 @@ def test_the_header_menu_lists_running_projects_then_counts_the_stopped(browser,
     assert pg.get_attribute("#project option:nth-child(4)", "title") == "ValueError: bad"
     pg.select_option("#project", "http://elsewhere.test")
     pg.wait_for_url("http://elsewhere.test/**", timeout=10000)
-    assert pg.url == "http://elsewhere.test/loops", pg.url
+    assert pg.url == "http://elsewhere.test/goals", pg.url
     pg.close()
