@@ -3,7 +3,21 @@
 
 const $ = (s, el = document) => el.querySelector(s);
 const NS = "http://www.w3.org/2000/svg";
-const elk = new ELK();
+/* ELK, loaded when a layout is first asked for, so a page that draws nothing never fetches it: the page's own copy
+   when it has one (a snapshot's, a test page's), else its file at its version (the server's meta tag) */
+let ELK_LOADING = null;
+function elkReady() {
+  return ELK_LOADING ||= typeof ELK === "function" ? Promise.resolve(new ELK()) : new Promise((resolve, reject) => {
+    let v = {};
+    try { v = JSON.parse(document.querySelector('meta[name="ergostat-assets"]')?.content || "{}"); } catch (e) { /* none */ }
+    const el = document.createElement("script");
+    el.src = "/static/elk.bundled.js" + (v["elk.bundled.js"] ? `?v=${v["elk.bundled.js"]}` : "");
+    el.onload = () => resolve(new ELK());
+    el.onerror = () => { ELK_LOADING = null; el.remove(); reject(new Error("ELK did not load")); };   // (asked again next time)
+    document.head.append(el);
+  });
+}
+const elk = { layout: (g, o) => elkReady().then((e) => e.layout(g, o)) };
 const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y: 0, k: 1 }, fitted: false,
             timer: null, status: null, sel: null, hl: null };
 

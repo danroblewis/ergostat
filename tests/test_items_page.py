@@ -1320,6 +1320,141 @@ def test_an_item_page_shows_its_path(browser, roadmap):
     pg.close()
 
 
+COUNT_HOOKS = """(() => {                                      // listeners on the window and the document, intervals
+  window.__adds = 0; window.__intervals = 0;
+  const add = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function (...a) {
+    if (this === window || this === document) window.__adds++;
+    return add.apply(this, a); };
+  const iv = window.setInterval;
+  window.setInterval = (...a) => { window.__intervals++; return iv(...a); };
+})();"""
+DRAWN_PATH = """async (view) => {
+  const g = await (await fetch(`/api/graph?view=${view}&item=ticket%2Fe1-design`)).json();
+  const svg = document.querySelector('details.draw-path svg.path-canvas'), r = svg.getBoundingClientRect();
+  const ids = [...svg.querySelectorAll('.node[data-id]')].map((n) => n.dataset.id);
+  const of = (part) => Object.entries(g.corr?.shapes || {}).filter(([, x]) => x.is.includes(part)).map(([id]) => id);
+  const parts = ['stock.todo', 'stock.in-progress', 'flow.started', 'block.developer'];
+  return { ids, want: g.nodes.map((n) => n.id), loops: Object.fromEntries(g.nodes.map((n) => [n.id, n.loops || []])),
+    of: Object.fromEntries(parts.map((p) => [p, of(p)])), h: r.height, w: r.width,
+    main: document.querySelector('section.went').clientWidth,
+    box: svg.getAttribute('viewBox'), cans: document.querySelectorAll('svg.path-canvas').length,
+    extra: document.querySelectorAll('details.draw-path .toolbar, details.draw-path aside, details.draw-path .pins *').length };
+}"""
+
+
+def test_the_item_page_draws_its_path_on_demand(browser, roadmap):
+    """A done ticket's 'Draw its path' is closed, and while it is nothing loads ELK or libavoid. Opened, it draws the
+    Dynamics diagram of item=ID in its box (about 420 px high, full width, fitted, no toolbar, panel or pins): every
+    part the answer holds, with todo, in-progress and the valve started; Blocks draws the developer's block and each
+    of its loops whole. A refresh of the page lays nothing out again while the path is the same, switching and
+    closing add no window or document listener and no interval, and a click on a part opens the diagram with it
+    chosen. No console error."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 4;")
+    pg.add_init_script(COUNT_HOOKS)
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    asked: list[str] = []
+    pg.on("request", lambda r: asked.append(r.url))
+    pg.goto(f"{roadmap}/item/ticket%2Fe1-design")
+    pg.wait_for_selector(".went .wv-step.final", timeout=20000)
+    sec = pg.locator("section.went details.draw-path")
+    assert sec.count() == 1 and not sec.evaluate("d => d.open") and sec.locator("summary").inner_text() == "Draw its path"
+    pg.wait_for_timeout(1500)                                                  # (a few refreshes, closed)
+    assert not [u for u in asked if "elk.bundled" in u or "libavoid" in u or "/api/graph" in u], asked
+    where = pg.url
+    lays = """() => { window.__lays = 0; for (const f of ['layoutGraph', 'bdLayout']) { const was = window[f];
+        window[f] = (...a) => { window.__lays++; return was(...a); }; } }"""
+    pg.evaluate(lays)
+    sec.locator("summary").click()
+    pg.wait_for_selector('svg.path-canvas[data-drawn="dynamics"]', timeout=60000)
+    assert [u for u in asked if "elk.bundled" in u], asked                    # (loaded once opened)
+    got = pg.evaluate(DRAWN_PATH, "dynamics")
+    assert sorted(got["ids"]) == sorted(got["want"]) and got["cans"] == 1 and not got["extra"], got
+    for part in ("stock.todo", "stock.in-progress", "flow.started"):
+        assert got["of"][part] and set(got["of"][part]) <= set(got["ids"]), (part, got)
+    assert 400 <= got["h"] <= 440 and got["w"] >= got["main"] - 40 and got["box"], got
+    n = pg.evaluate("window.__lays")
+    assert pg.url == where and n >= 1
+    pg.locator("details.changes > summary").click()                           # a whole refresh of the page (forced)
+    pg.wait_for_timeout(1500)
+    assert pg.evaluate("window.__lays") == n, "laid out again with the path unchanged"
+    sec.locator(".seg button", has_text="Blocks").click()
+    pg.wait_for_selector('svg.path-canvas[data-drawn="blocks"]', timeout=60000)
+    got = pg.evaluate(DRAWN_PATH, "blocks")
+    assert sorted(got["ids"]) == sorted(got["want"]) and got["cans"] == 1 and not got["extra"], got
+    dev = got["of"]["block.developer"]
+    assert dev and set(dev) <= set(got["ids"]), got
+    goals = {g for d in dev for g in got["loops"][d]}
+    members = {n for n, ls in got["loops"].items() if goals & set(ls)}
+    assert goals and len(members) >= 4 and members <= set(got["ids"]), got           # its loops, whole: no part left out
+    before = None
+    for _ in range(3):                                                         # closed, opened, switched: nothing left behind
+        sec.locator("summary").click()
+        sec.locator("summary").click()
+        for view in ("dynamics", "blocks"):
+            sec.locator(".seg button", has_text=view.capitalize()).click()
+            pg.wait_for_selector(f'svg.path-canvas[data-drawn="{view}"]', timeout=60000)
+        now = pg.evaluate("[window.__adds, window.__intervals]")
+        assert before is None or now == before, (before, now)
+        before = now
+    assert pg.url == where and pg.locator("svg.path-canvas").count() == 1
+    node = pg.locator(f'svg.path-canvas .node[data-id="{dev[0]}"]')
+    at, pins = node.get_attribute("transform"), pg.evaluate("Object.keys(localStorage).filter((k) => k.includes('pins'))")
+    box = node.bounding_box()
+    pg.mouse.move(box["x"] + 20, box["y"] + 20)
+    pg.mouse.down()
+    pg.mouse.move(box["x"] + 90, box["y"] + 70, steps=6)                    # a drag: nothing moves, nothing is pinned
+    pg.mouse.up()
+    pg.wait_for_timeout(300)
+    assert node.get_attribute("transform") == at and pg.url == where, (at, node.get_attribute("transform"))
+    assert pg.evaluate("Object.keys(localStorage).filter((k) => k.includes('pins'))") == pins
+    node.click()
+    pg.wait_for_url("**/diagram?**", timeout=20000)
+    assert "view=blocks" in pg.url and "item=ticket%2Fe1-design" in pg.url and "select=block.developer" in pg.url, pg.url
+    pg.wait_for_function("() => S.graph?.subset?.item === 'ticket/e1-design' && S.sel.has('block.developer')", timeout=60000)
+    assert not errors, errors
+    pg.close()
+
+
+READY_STAMP = """new MutationObserver((_, o) => { if (document.querySelector('.went .wv-step.final')) {
+  window.__ready = performance.now(); o.disconnect(); } }).observe(document, { subtree: true, childList: true });"""
+
+
+def test_the_item_page_loads_no_slower_without_elk_at_its_start(browser, roadmap):
+    """The item page, its path section closed, measured before and after: main's page (ELK a script of the page,
+    fetched and run at its start: put back here by rewriting the page as it comes) and this one (ELK loaded only when
+    a drawing asks for it), alternately, each in a fresh context (nothing cached), from navigation to the path's last
+    step on the page. This one makes no ELK request, and its median is no slower (within 100 ms of noise)."""
+    def with_elk(route):
+        r = route.fetch()
+        route.fulfill(response=r, body=r.text().replace('<script src="/static/util.js',
+                                                        '<script src="/static/elk.bundled.js"></script><script src="/static/util.js', 1))
+
+    def once(before: bool) -> float:
+        ctx = browser.new_context()
+        pg = ctx.new_page()
+        if before:
+            pg.route("**/item/*", with_elk)
+        pg.add_init_script(READY_STAMP)
+        pg.goto(f"{roadmap}/item/ticket%2Fe1-design")
+        pg.wait_for_function("window.__ready", timeout=30000)
+        t, elk = pg.evaluate("[window.__ready, performance.getEntriesByType('resource').some((e) => e.name.includes('elk.bundled'))]")
+        ctx.close()
+        assert elk == before, (before, elk)
+        return t
+
+    got: dict[bool, list[float]] = {True: [], False: []}
+    for _ in range(5):
+        for before in (True, False):
+            got[before].append(once(before))
+    main, branch = (sorted(got[b])[2] for b in (True, False))
+    print(f"item page ready, median of 5 cold loads: main {main:.0f} ms, branch {branch:.0f} ms; {got}")
+    assert branch <= main + 100, got
+
+
 def test_the_graphs_status_counts_filter_it(browser, roadmap):
     """Each status's count in the legend is a filter: a click shows only that status, again shows them all."""
     pg, errors = open_view(browser, roadmap, "items?view=graph&frontier=0&collapse=0", ".rg-graph[data-drawn] .rg-node")

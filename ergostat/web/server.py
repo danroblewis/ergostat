@@ -87,9 +87,10 @@ def versioned(name: str) -> str:
 
 def with_versions(page: str) -> str:
     """A page with every ``/static/`` file it loads given its version, and the versions of the files the
-    scripts load themselves (libavoid's module and WebAssembly, in its worker) as a meta tag they read."""
+    scripts load themselves (ELK, on the first layout; libavoid's module and WebAssembly, in its worker) as a meta
+    tag they read."""
     page = _STATIC_REF.sub(lambda m: m.group(1) + versioned(m.group(2)) + m.group(3), page)
-    late = {n: asset_version(n) for n in ("libavoid/libavoid.js", "libavoid/libavoid.wasm")}
+    late = {n: asset_version(n) for n in ("elk.bundled.js", "libavoid/libavoid.js", "libavoid/libavoid.wasm")}
     meta = f'<meta name="ergostat-assets" content="{html.escape(json.dumps(late))}">'
     return page.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n' + meta, 1)
 

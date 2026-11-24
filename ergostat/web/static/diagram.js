@@ -1101,7 +1101,54 @@ function captionText(st, view) {
   return parts.join(" · ");
 }
 
+/* a diagram drawn once, in place, by its view's own renderer (the Guide's frames, an item's path on its page): no
+   pins, no pan, no panel, framed to what is drawn. The renderers keep their state in S, so one drawing at a time,
+   and the S fields it sets are put back after (but toggleSystem, while a drawing's own toggle lives); nothing is
+   set once its svg has left the page (a new page's own stand). Resolves to its size, or null when it left first */
+let STATIC_QUEUE = Promise.resolve();
+const STATIC_KEYS = ["graph", "graphSig", "showHulls", "pins", "portAt", "portRank", "anchor", "redraw", "toggleSystem", "layout", "bdNoWrap", "edgeById"];
+function drawStatic(svg, g, view, opts = {}) {
+  const job = STATIC_QUEUE.then(() => drawStaticNow(svg, JSON.parse(JSON.stringify(g)), view, opts));
+  STATIC_QUEUE = job.catch(() => {});
+  return job;
+}
+async function drawStaticNow(svg, g, view, { aspect = 3, toggle = null } = {}) {
+  if (!svg.isConnected) return null;                     // left before its turn came
+  const was = Object.fromEntries(STATIC_KEYS.filter((k) => !(toggle && k === "toggleSystem")).map((k) => [k, S[k]]));
+  Object.assign(S, { graph: g, graphSig: "", showHulls: false, pins: {}, portAt: {}, portRank: {}, anchor: null, redraw: null,
+                     toggleSystem: () => toggle?.() });
+  const wait = (lay) => { let t; return Promise.race([lay.whenRouted || Promise.resolve(), new Promise((r) => { t = setTimeout(r, 5000); })]).finally(() => clearTimeout(t)); };
+  let lay;
+  try {
+    if (view === "blocks") {
+      S.bdNoWrap = true;
+      try { lay = await bdLayout(g); } finally { S.bdNoWrap = false; }
+      if (!svg.isConnected) return null;
+      S.layout = lay;
+      bdRoute(lay, g);
+      await wait(lay);
+      if (!svg.isConnected) return null;
+      bdDraw(svg, g, lay);
+    } else {
+      lay = await layoutGraph(g, aspect);
+      if (!svg.isConnected) return null;
+      S.layout = lay;
+      await wait(lay);
+      if (!svg.isConnected) return null;
+      drawGraph(svg, g, lay);
+    }
+  } finally { if (svg.isConnected) Object.assign(S, was); }
+  const vp = svg.querySelector("#viewport");
+  vp?.removeAttribute("transform");
+  let bb = { x: lay.ox || 0, y: lay.oy || 0, width: lay.width, height: lay.height };
+  try { const b = vp.getBBox(); if (b.width && b.height) bb = b; } catch (e) { /* not drawn: the layout's size */ }
+  const pad = 14, w = bb.width + 2 * pad, hgt = bb.height + 2 * pad;     // framed to what is drawn, labels and all
+  svg.setAttribute("viewBox", `${bb.x - pad} ${bb.y - pad} ${w} ${hgt}`);
+  return { w, h: hgt };
+}
+
 async function pageDiagram(main, q) {
+  elkReady().catch(() => {});                                    // (fetched while the graph is asked for)
   // the system dynamics view is the first; "control", its old name, still reaches it
   if (q.get("view") === "wiring") {                             // the wiring the process map replaced: its address reaches it
     q.set("view", "process");
