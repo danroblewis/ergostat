@@ -118,6 +118,27 @@ Round 2, answering the review's one finding (blocking; it was the only one liste
   `test_repair_verify.py` 35 passed. `ruff check ergostat tests scripts` is clean. `HEAD..main` is empty, so there was
   nothing to merge. Not run here: the whole unit suite and the four browser files (no page changed).
 
+Round 3, answering the queue's one finding: "conflicts with main: docs/SPEC.md ergostat/actions/gate.py". That was
+the only finding listed.
+
+- **The merge.** Main (b20756c7) brought in act-reshape. In `gate.py`'s `request`, main's reshape lines (`to`, the
+  stricter `approve`, `tid`) are kept, and `rk.assess` keeps the branch's `run` and `item` arguments. In SPEC, main's
+  "Each cell" bullet, which adds reshapes, is kept with the branch's ceiling `1 < T ≤ 100`. No conflict marker is left,
+  and no other `≤ 50` or old formula is left in SPEC or `ergostat/actions/`. Committed as fba95247.
+- **The two branches together.** The two branches passed alone but failed once merged (lesson-7). That broke
+  `tests/test_act_reshape.py::test_program_full_denied_by_risk_asked_anew_once_owner_back`. It used `normal: 50`, the
+  old ceiling, as "a risk that passes". Its ask has no item and a run with no start, so it now reads s = 1 and the score
+  doubles past 50. It now uses `normal: 100`, the new ceiling, so it still means "a risk that passes". This file is
+  not in the Files list. I changed the threshold rather than set up a fresh plan, because it is the smaller change and
+  leaves the test's setup as act-reshape wrote it. The test's other parametrized threshold (`severity: 1,
+  threshold: 50`) still passes unchanged.
+- No code change in `ergostat/` this round beyond the merge. Net lines are still about +32 against a budget of 60.
+- Run here, one file at a time through `scripts/named_tests.py`, after the merge: `test_act_reshape.py`,
+  `test_act_risk.py` and `test_regime_gates.py` 63 passed; `test_gated_actions.py`, `test_inbox.py` and
+  `test_leased_workspaces.py` 53 passed; `test_repair_approver.py`, `test_repair_verify.py` and `test_interventions.py`
+  61 passed and 1 skipped (bwrap namespaces, not a page test). `ruff check ergostat tests scripts` is clean. Not run
+  here: the whole unit suite and the four browser files (no page changed).
+
 ## Entry
 
 entry-of: operating-modes-regime
