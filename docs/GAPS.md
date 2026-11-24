@@ -79,18 +79,23 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `ergostat library fetch` into `.libraries/NAME`, under one flock across read, clone, swap and lock write, pinned in
   `libraries.lock` by commit and tree hash (a missing or altered copy is fetched again at the locked commit); each
   load checks the copy against the lock, refusing a lock entry without a tree, hashing symlinks explicitly by their
-  target (never followed), and parses the bytes it hashed; a library without `trust: owner` is listed, its templates
-  never expanded (SPEC §2a, *Libraries fetched by git URL*; SECURITY *Libraries you did not write*).
+  target (never followed), and parses the bytes it hashed (SPEC §2a, *Libraries fetched by git URL*; SECURITY
+  *Libraries you did not write*). A fetched library without `trust: owner` is untrusted exactly as an untrusted
+  folder is: held, allowlisted, bounded and marked (`library-fetch-load`).
   *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
   descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
-  them, and the `library-untrusted` refusal's folder path); `fetch` by package; the provenance gate and the sandbox
-  for fetched libraries without `trust: owner` (today never expanded); then running untrusted library blocks' scripts
-  through `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
+  them, and the `library-untrusted` refusal's folder path); `fetch` by package; a test that a fetched untrusted
+  library's sensor run goes through the sandbox (it takes the same untrusted flag; not yet tested for a fetched copy);
+  then running untrusted library blocks' scripts through `ergostat.sandbox` (its sensors' runs are built, above) and
+  the rebase onto main.
   - *Done 2026-11-23* (`library-diagram-text-marked`): The Dynamics and Blocks diagrams mark what an untrusted library
     instance made: the graph answer (and a snapshot page) gives each such box its template's name, escaped, the page
     says "untrusted library, template NAME" in the box's title and accessible name (text only, never colour alone),
     and the Blocks view's own text marks such a part's name and description and the system's description, all through
     `untrusted.Shown` (`library-diagram-text-marked`).
+  - *Done 2026-11-23* (`library-fetch-load`): A fetched library without `trust: owner` goes through the same trust and
+    provenance gate as an untrusted folder (held, allowlisted, bounded, its notes marked), instead of being refused
+    outright; a refused library is named with its code in `unknown-template` (`library-fetch-load`).
   - *Done 2026-11-23* (`library-model-text-marked`): The text an untrusted instance makes (descriptions, prompts,
     asks, runs, equations, its system's description) is marked where the MCP `explain` and `context` answers write it,
     its parts' names and the findings about them are marked in `ergostat check` and the MCP `check`, `status`,
@@ -350,6 +355,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
     (SPEC §12k): `gate:` and `risk.threshold` as a map by column (normal, away, maintenance, freeze, incident),
     unwritten cells never looser than normal's, chosen at the request and again inside the run lock at the act, an
     unsure state read as `deny`.
+  - *Done 2026-11-24* (`act-reshape`): Reshaping an act, on `act-reshape` (SPEC §12k): a gate cell `{reshape: ACTION}`
+    holds the full act for the owner and asks for the smaller declared action at once under its own gate and act-risk,
+    each linked to the other (`reshaped_to` / `reshaped_from`), the session answered by the smaller one; unknown
+    targets, extra args and chains refused at compile as `bad-reshape`.
 - **Observer staleness and estimated stocks** (done, `observer`; SPEC §9.6, `coordinator/06-observer.md`): a reading's
   age, `stale` goals, `on-stale: act | hold | off` per goal or block; a scalar Kalman estimate per stock with an adaptive
   gain (`stock.X.estimate`, `.uncertainty`), its innovations as `observer/X/innovation`, and `model-disagrees`. All

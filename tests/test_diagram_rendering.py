@@ -2388,6 +2388,42 @@ def test_a_loops_table_is_drawn_again_when_a_proposal_below_it_is_accepted(brows
         pg.close()
 
 
+def test_a_loops_table_shows_a_declared_laws_fit_beside_the_identified(browser, tmp_path):
+    """The tuner's loop answer routed to carry an external controller's two laws (SPEC §12d): the table's held-out fit
+    row says the identified law's skill and R² and, beside it, the declared law's, with its points and that it fits its
+    record worse; a declared law too little record judges says why."""
+    import json
+    declared = [{"kind": "kubernetes-hpa", "short": "⌈u x / 0.8⌉", "skill": -37.5, "r2": -4.32, "points": 481, "worse": True},
+                {"kind": "kubernetes-hpa", "why": "21 points of record on a 15s grid (at least 40)"}]
+
+    def answer(route):
+        d = route.fetch().json()
+        if d and not d.get("why"):
+            d["controller"] = {**(d.get("controller") or {}), "block": "tuner", "declared": declared[0],
+                               "identified": {"short": "+1 > 0.55, −1 < 0.186", "skill": 0.5, "r2": -1.26}}
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(d))
+
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/loop-control?*", answer)
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="Fit", exact=True).click()
+        pg.locator('g.node[data-id="blk:tuner"] .hit').first.click()
+        pg.wait_for_function(SETTLED, timeout=60000)
+        fit = dict(pg.evaluate(LOOP_PANEL)["rows"])["held-out fit"]
+        assert "validation" in fit and "; tuner's law identified +1 > 0.55, −1 < 0.186: skill 0.5 one step ahead" in fit, fit
+        assert "declared kubernetes-hpa ⌈u x / 0.8⌉: skill −37.5 one step ahead, R² −4.32 run free of 481 points, fits its " \
+               "record worse" in fit, fit
+        row = pg.evaluate("""(c) => { const t = loopTable({ goal: 'g', controller: c });
+          return [...t.rows].find((r) => r.cells[0].textContent === 'held-out fit').cells[1].textContent; }""",
+                          {"block": "hpa", "declared": declared[1]})
+        assert row.endswith("; hpa's law declared kubernetes-hpa: not judged, 21 points of record on a 15s grid (at least 40)"), row
+        assert not errors, errors
+        pg.close()
+
+
 PROC_ORDER = """() => {
   // the process panel: its identification (the first .control) before the block's words and headings outside it
   const d = document.querySelector('#detail'), c = d.querySelector('.control');
@@ -4651,7 +4687,7 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
             drawn(pg, url, view, 1)
             if boxed:
                 assert not pg.evaluate(f"() => !!document.querySelector('svg.canvas [data-id=\"{ring}\"]')"), "drawn closed first"
-            pg.locator(".side .att button.name", has_text=f"{'loop' if view else 'goal'} short-backlog").click()
+            pg.locator(".side .att button.name", has_text="goal short-backlog").click()
             pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
             # (the closed box holding it is ringed until it is drawn open)
             pg.wait_for_function(f"(r) => JSON.stringify(({RINGED})()) === JSON.stringify([r])", arg=ring, timeout=60000)
@@ -4874,7 +4910,7 @@ def test_on_a_phone_each_goal_is_a_card_its_value_against_its_bound_and_how_long
 HINTS =("() => [...document.querySelectorAll('details.suggest .hint')].map((e) => [...e.childNodes]"   # (less its Evidence link)
          ".filter((n) => n.nodeName !== 'A').map((n) => n.textContent).join('').trim())")
 LOOP_ENTRY = ("() => [...document.querySelectorAll('.att > div')].map((e) => e.textContent)"
-              ".filter((t) => /^[a-z]+ · loop short-backlog/.test(t))")   # (after its state word)
+              ".filter((t) => /^[a-z]+ · goal short-backlog/.test(t))")   # (after its state word)
 CAUSE = re.compile(r"off \d+% of [^:]+: ([^.;]+)")
 
 
@@ -6380,7 +6416,11 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         avail = pg.locator(".available")
         pg.wait_for_function("() => !/analysing/.test(document.querySelector('.available').textContent)", timeout=120000)
         row = avail.locator("tr", has_text="quality-held").first.inner_text()
-        assert "quality-setting → quality" in row and "not identified" in row, row
+        said = row if "not identified" in row else pg.evaluate("""() => {
+          let r = [...document.querySelectorAll('.available tr')].find((x) => x.textContent.includes('quality-held'));
+          while (r && !r.classList.contains('group')) r = r.previousElementSibling;   // grouped with loops identified alike
+          return r ? r.textContent : ''; }""")
+        assert "quality-setting → quality" in row and "not identified" in said, (row, said)
         assert "small-images" in avail.locator("p", has_text="no one process").inner_text()
         assert "window-time" in avail.inner_text() and "quality-turnover" in avail.inner_text()
         avail.locator("tr", has_text="quality-held").first.get_by_role("link", name="quality-held process", exact=True).click()
@@ -6393,6 +6433,72 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         pg.locator(".available tr", has_text="window-time").first.get_by_role("link", name="quality-turnover").click()
         pg.wait_for_function("() => S.graph?.kind === 'dynamics' && document.querySelector('#detail input.whatif-in')", timeout=60000)
         assert pg.evaluate("() => [...S.sel]") == ["flow.quality-turnover"]
+        assert not errors, errors
+        pg.close()
+
+
+SENTENCES = """() => document.querySelector('main').innerText.split(/\\n|(?<=[.;:!?])\\s+/).map((x) => x.trim())
+  .filter((x) => x.length > 80)"""
+
+
+def check_findings(now: float) -> list[dict]:
+    """/api/exercised's answer as the server makes it (numbers_api.exercised): five parts not exercised and four
+    equations that fit worse than their mean, each with its own numbers."""
+    from ergostat.numbers import exercised as ex
+    from ergostat.numbers import fit as ft
+    quiet = [{"ref": f"flow.f{i}", "why": "never-moved" if i % 2 else "no-variation", "says": f"it never moved (at most {i} an hour)",
+              "since": now - 7200, "until": now, "span": 3600.0 + 600 * i, "readings": 200 + i} for i in range(5)]
+    got = [{"level": "warn", "code": ex.CODE, "about": x["ref"], "message": ex.said(x),
+            **{k: x[k] for k in ("why", "says", "span", "readings")}} for x in quiet]
+    fit = {"partial": {f"flow.g{i}": {"r2": -0.1 * i, "nmse": 1.0 + i, "skill": -0.5 - i, "n": 100 + i} for i in range(4)}, "equations": {}}
+    return got + [{"level": "warn", "code": "calibration-worse-than-mean", "about": ref, "message": msg,
+                   **{k: fit["partial"][ref][k] for k in ("r2", "nmse", "n")}} for ref, msg in ft.worse_than_mean(None, fit)]
+
+
+def test_check_and_the_model_page_say_each_thing_once_in_a_table(browser, tmp_path):
+    """Acceptance (ui-check-and-the-model-page-say-each-thing-once-in): on Check, no warning sentence longer than 80
+    characters occurs more than once: each kind of finding is one table (worst first) under its advice, said once,
+    and a table's header has R²; on Model, loops identified alike are one group under a heading that says how, and
+    a loop's 'process' link opens the block diagram with that loop's systems open (not every one) and the process's
+    panel open."""
+    with served("ticket-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        found = check_findings(time.time())
+        pg.route("**/api/exercised*", lambda r: r.fulfill(json=found))
+        pg.goto(url + "/check")
+        pg.wait_for_selector("table.findings")
+        long = pg.evaluate(SENTENCES)
+        assert len(long) == len(set(long)), [x for x in long if long.count(x) > 1]
+        heads = pg.locator("table.findings th").all_inner_texts()
+        assert "R²" in heads and "points" in heads, heads
+        errs = pg.locator("table.calibration-worse-than-mean tr td:nth-child(3)").all_inner_texts()
+        assert errs == ["4", "3", "2", "1"], errs                                      # the worst scaled error first
+        quiet = pg.locator("table.not-exercised tr td:first-child").all_inner_texts()
+        assert quiet == ["flow f3", "flow f1", "flow f4", "flow f2", "flow f0"], quiet  # never moved first, longest first
+        assert pg.locator("table.not-exercised a").first.get_attribute("href").startswith("/diagram?view=dynamics")
+        alike = pg.locator("table.alike tr td:first-child").all_inner_texts()               # the static check's, alike
+        assert len(alike) > 1 and len(alike) == len(set(alike)), alike
+        pg.goto(url + "/model")
+        pg.wait_for_function("() => document.querySelector('.available table.avail') && "
+                             "!/analysing/.test(document.querySelector('.available').textContent)", timeout=120000)
+        groups = pg.locator(".available tr.group").all_inner_texts()
+        assert groups and all(re.match(r"\d+ loops: ", t) for t in groups), groups
+        said = pg.locator(".available table.avail").first.locator("tr:not(.group) td:nth-child(3)").all_inner_texts()
+        long = [x for x in said if len(x) > 80]
+        assert len(long) == len(set(long)), long
+        link = pg.locator(".available tr", has_text="located-worked").first.get_by_role("link", name="located-worked process", exact=True)
+        assert link.get_attribute("href") != "#"
+        link.click()
+        pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden && S.bdSel?.node",
+                             timeout=60000)
+        opened = pg.evaluate("() => new URLSearchParams(location.search).get('open')").split(",")
+        assert "making" in opened and "*" not in opened and "review" not in opened, opened   # its systems, not every one
+        n = pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel.node)")
+        assert n["role"] == "process" and "located-worked" in n["y_of"], n
+        title = pg.locator("#detail h2").first.inner_text()
+        assert "located" in title, title
         assert not errors, errors
         pg.close()
 
@@ -6842,6 +6948,44 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     pg.evaluate("() => openProcessEdge(S.graph.edges.find((e) => e.remote && e.kind === 'related'))")
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
+    assert not errors, errors
+
+
+def test_a_suggestion_about_a_goal_has_an_evidence_link_to_its_panel(browser, tmp_path):
+    """Dynamics and Blocks: a hint about a goal (its name in the ``goal`` field, its text 'goal NAME was off...')
+    has an Evidence link, and the link opens that goal's panel. The hint is put into the page's answers here,
+    as the engine says it after 10 minutes of record off (state.ladder_hints, state.attention)."""
+    goal = "disk-under-80"
+    hint = {"level": "hint", "what": f"goal {goal}", "goal": goal, "says": f"goal {goal} was off 60% of the time"}
+
+    def add_hint(rt):
+        got = rt.fetch()
+        body = got.json()
+        if isinstance(body, dict) and "attention" in body:
+            body["attention"] = [*body["attention"], hint]
+        rt.fulfill(response=got, json=body)
+
+    with served("disk-space", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/graph*", add_hint)
+        for i, view in enumerate(("view=dynamics", "view=blocks")):
+            drawn(pg, url, view, i)
+            pg.wait_for_selector(".suggest .hint", state="attached", timeout=30000)
+            pg.evaluate("() => { document.querySelector('.suggest').open = true; }")
+            rows = pg.locator(".suggest .hint")
+            assert rows.count() == 1 and rows.first.inner_text().startswith(f"goal {goal} goal {goal} was off"), view
+            rows.first.locator("a", has_text="Evidence").click()
+            pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g)", arg=goal,
+                                 timeout=30000)
+            assert pg.locator("#detail .kind").first.inner_text() in ("Goal", "Loop", "Open loop"), view   # its panel
+        # the Model page's tool link to a goal's controller: its panel scrolled to the goal's section, found by data-goal
+        pg.evaluate("""(g) => { window.scrolled = []; const f = Element.prototype.scrollIntoView;
+          Element.prototype.scrollIntoView = function (o) { window.scrolled.push(this.dataset?.goal || ""); return f.call(this, o); };
+          openTool({ view: "blocks", find: isController(g), goal: g }); }""", goal)
+        pg.wait_for_function("(g) => window.scrolled.includes(g)", arg=goal, timeout=60000)
+        pg.close()
     assert not errors, errors
 
 
@@ -7758,10 +7902,9 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
                 and "request/" not in waiting["rows"][0], waiting                # only the person's ask
             held = [r for r in house["rows"] if r.startswith("request · ")]   # each read as its sentence
             assert len(held) == 2 and all("Modelling cannot decide it" in r for r in held), house
-            word = "loop" if view else "goal"                   # (Dynamics calls a controlled goal a goal)
-            assert off["rows"][0].startswith(f"off · {word} short-backlog"), off       # the system's first,
+            assert off["rows"][0].startswith("off · goal short-backlog"), off          # the system's first,
             assert off["rows"][1] == "---", off                                         # a rule,
-            assert off["rows"][2].startswith(f"off · {word} requests-handled"), off    # then modelling's
+            assert off["rows"][2].startswith("off · goal requests-handled"), off       # then modelling's
             assert not house["open"] or "fault · " in house["words"], house            # folded, unless a fault is in it
             for g in groups:                                    # a state or kind word first, never colour alone
                 assert all(re.fullmatch(r"[a-z]+ · ", w) for w in g["words"]), g
