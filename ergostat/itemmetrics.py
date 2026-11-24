@@ -11,7 +11,11 @@ minute to a store that keeps labels (VictoriaMetrics: ``Victoria.put``), so a pa
 - ``ergostat_item_time_in_state_seconds{kind,state}``: a histogram (``_bucket{le}``, ``_sum``, ``_count``) of how long
   items stayed in a state, observed when they leave it: work still in the state is not in it (``HELP``);
 - ``ergostat_item_field_total{kind,field}``: what items' numeric fields went up by, added (a fall is not counted);
-- ``ergostat_events_total{type,source}``: the events the index folded (those about items).
+- ``ergostat_events_total{type,source}``: the events the index folded (those about items);
+- ``ergostat_item_index_rebuilds_total``: times the index was made again (below): no balance is owed across one.
+
+Each pass checks that between the minute written last and its own last, each gauge's change is its net transitions
+(``balance``), keeps the verdict in the checkpoint and says where it is not: nothing is ever added to make it so.
 
 Each is a function of the index as of the minute: the moves, numeric changes and event counts at or before it, and
 what the index carried for items it forgot (``carry``: from when they were forgotten). A minute is written once: the
@@ -36,6 +40,7 @@ ITEMS, TRANS = "ergostat_items", "ergostat_item_transitions_total"
 LAST = "ergostat_item_last_transition_timestamp_seconds"
 STAY = "ergostat_item_time_in_state_seconds"
 FIELD, EVENTS = "ergostat_item_field_total", "ergostat_events_total"
+REBUILT = "ergostat_item_index_rebuilds_total"
 LE = (60, 300, 900, 3600, 4 * 3600, 86400, 3 * 86400, 7 * 86400, 30 * 86400)
 LABELS = frozenset({"kind", "state", "from", "to", "le", "field", "type", "source", "milestone"})
 MOST_VALUES = 100            # values of one label in one kind's metric: past it, the label is refused
@@ -54,6 +59,9 @@ HELP = {
           "counted, so this cannot see stuck work (ask the item views in SQL, open items censored, for that).",
     FIELD: "What a kind's items' numeric field went up by, added over its items (a fall is not counted).",
     EVENTS: "Events about items the index folded, by type and source.",
+    REBUILT: "Times the item index was made again (a kind edited, a new layout, a damaged file, a reindex): its gauge "
+             "is counted afresh while each counter is held, so across one a gauge's change need not equal its net "
+             "transitions.",
 }
 
 
@@ -73,8 +81,9 @@ class Tally:
         bad = set(labels) - LABELS
         if bad:
             raise Refused(f"{name}: {', '.join(sorted(bad))} is never a label")
-        k = labels.get("kind")
-        return name, tuple(sorted((a, str(b)) for a, b in labels.items() if b is not None and (k, a) not in self.refused))
+        k = labels.get("kind")                       # (a refused state keeps the system's two edges: it balances)
+        return name, tuple(sorted((a, str(b)) for a, b in labels.items()
+                                  if b is not None and ((k, a) not in self.refused or b in (NEW, GONE))))
 
     def add(self, name: str, labels: dict, x: float) -> None:
         k = self.key(name, labels)
@@ -182,6 +191,7 @@ def sweep(c, minutes: list[float], spec, most: int = MOST_SAMPLES, held: dict | 
     if base is not None:                  # another index: what it alone counts, and the hold worked out afresh from it
         minutes, held = [base[0], *minutes], {}
     t = Tally(out_refused, held)
+    t.v.setdefault(t.key(REBUILT, {}), 0.0)          # (from the first minute, so ``increase()`` sees the first)
     rel = next((i for i, n in names.items() if n == "milestone"), None)
     ms = {rid: dst for rid, dst, k in c.execute("select l.rid, l.dst, i.kind from links l join items i on i.rid = l.rid "
                                                  "where l.rel = ?", (rel,)) if names.get(k) in ms_kinds}
@@ -209,6 +219,8 @@ def sweep(c, minutes: list[float], spec, most: int = MOST_SAMPLES, held: dict | 
             row = next(rows, None)
         if base is not None and m == base[0]:
             held = hold(t.v, base[1])
+            k = t.key(REBUILT, {})                    # (marked, so no balance is owed across it: ``balance``)
+            t.v[k], held[k] = t.v.get(k, 0.0) + 1, held.get(k, 0.0) + 1
             continue
         if out and len(out) + len(t.v) > most:
             break
@@ -237,6 +249,44 @@ def hold(v: dict, written: dict) -> dict:
             v[k] = x
             held[k] = held.get(k, 0.0) + x - now
     return held
+
+
+def balance(before: dict, after: dict) -> dict:
+    """Whether each gauge's change from ``before`` to ``after`` (the values at two minutes, as written: ``{(name,
+    labels): value}``) is its net transitions: per kind and state, items there now less then is moves in less moves out
+    (milestones added together); per kind, arrivals (``from="(new)"``) less items forgotten (``to="(gone)"``). A kind
+    whose state label is refused, on either side, is balanced only as a whole. ``verdict``: ``balanced``,
+    ``unbalanced`` with each ``residual`` (never made up by a flow of its own), or ``unsure`` with ``why`` where no
+    balance is owed: nothing written before, or the index made again between (its gauge counted afresh, each counter
+    held: ``REBUILT``)."""
+    if not before or not after:
+        return {"verdict": "unsure", "why": "nothing written before to compare with", "residuals": []}
+    if before.get((REBUILT, ()), 0.0) != after.get((REBUILT, ()), 0.0):
+        return {"verdict": "unsure", "residuals": [],
+                "why": "the item index was made again between: its gauge is counted afresh and each counter held"}
+    d: dict[tuple, list[float]] = {}                  # (kind, state or None: the kind as a whole) -> [change, net]
+    stated: dict[str, bool] = {}
+    for sign, values in ((-1.0, before), (1.0, after)):
+        for (name, lb), x in values.items():
+            lb = dict(lb)
+            k = lb.get("kind")
+            if k is None or name not in (ITEMS, TRANS):
+                continue
+            if name == ITEMS:
+                stated[k] = stated.get(k, True) and "state" in lb
+                for s in {lb.get("state"), None}:
+                    d.setdefault((k, s), [0.0, 0.0])[0] += sign * x
+                continue
+            f, to = lb.get("from"), lb.get("to")
+            for s, way in ((to, 1.0), (f, -1.0)):
+                if s in (NEW, GONE):                  # (an edge: into the kind from (new), out of it to (gone))
+                    d.setdefault((k, None), [0.0, 0.0])[1] -= sign * x * way
+                elif s is not None:
+                    d.setdefault((k, s), [0.0, 0.0])[1] += sign * x * way
+    rows = [{"kind": k, "state": s, "change": c, "net": n} for (k, s), (c, n) in sorted(d.items(), key=str)
+            if s is None or stated.get(k, True)]
+    out = [r for r in rows if abs(r["change"] - r["net"]) > 1e-6]
+    return {"verdict": "unbalanced" if out else "balanced", "residuals": out, "rows": rows}
 
 
 def _keys(rows) -> dict:
@@ -289,6 +339,13 @@ def keep(p, spec, now: float | None = None, say=None) -> dict | None:
         new = {**st, "minute": max(r[1] for r in rows) if rows else start + MINUTE * (n - 1),
                "refused": sorted(f"{k or 'every kind'}: {a}" for k, a in out),
                "epoch": epoch, "written": _rows(final) if rows else st.get("written", []), "held": _rows(held)}
+        if rows and last is not None:                 # each gauge's change is its net transitions, or it is said
+            b = balance(_keys(st.get("written")), final)
+            new["balance"] = {"from": last, "to": new["minute"], "checked": len(b.pop("rows", [])), **b}
+            if say and new["balance"]["verdict"] == "unbalanced":
+                say(f"item metrics: from {last:.0f} to {new['minute']:.0f} a gauge's change is not its net transitions: "
+                    + "; ".join(f"{r['kind']} {r['state'] or '(all)'} {r['change']:+g} against {r['net']:+g}"
+                                for r in new["balance"]["residuals"][:5]))
         if last is None:
             new["backfill"] = {"from": start, "not recovered": _lost(p.events)}
             if say and new["backfill"]["not recovered"]:
