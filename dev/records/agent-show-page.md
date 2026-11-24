@@ -77,6 +77,29 @@ Run here: tests/test_agent_page.py (31 passed), tests/test_agents_page.py (14 pa
 tests/test_graph_cli_web.py (68 passed), test_diagram_rendering.py's readers test for ticket-factory (passed), ruff
 clean. Not run here: the whole unit suite and the four browser files. main has not moved since the branch was made.
 
+Round 2: both findings of the round-1 review answered (there were two, both blocking; no others).
+- The render sweep missed the nested demos: EXAMPLES now globs examples/**/ergostat.yaml, so it opens every agent of
+  alert-triage/poor, remote-pair/incidents and remote-pair/support too (26 demos). All three pass; support's remote
+  is not running in the test, and its pages open with no console error all the same.
+- `noSpec` took out more than the reference. It now takes out only the reference itself (`SPEC §N`, with an
+  'ergostat's' or 'see' before it and a ', §M' after it), never across a line (`[ \t]`, never `\s`), and then, at that
+  place only, the brackets it leaves empty or the comma or colon it leaves dangling; nothing else in the text is
+  touched (a code's `g()` stays). So the-job's prepare.py shows '($ERGOSTAT_ITEM), so no two runs…', modelling.yaml's
+  comment keeps 'the template `modelling`', and 'SPEC §9.3 limits only runs started by' keeps 'limits only runs
+  started by'. A file, prompt or definition shown with references taken out says so under it ('N references to
+  ergostat's specification left out.'), so the text shown is not taken for the file's own. Code and YAML get the same
+  narrow removal as prose: done item 3 forbids 'SPEC §' on the page, and the references live only in their comments
+  and docstrings; the note is what keeps the reader from mistaking the shown text for the file. Easy to undo: drop the
+  note, or show the references, if the owner prefers.
+- New tests: `test_only_the_spec_reference_is_taken_out_of_what_is_shown` (ten texts, the reviewer's cases among them,
+  each with what must be shown and how many references were counted) and
+  `test_a_file_shown_keeps_its_own_words_and_says_what_was_left_out` (the-job's mention-triager: bin/prepare.py keeps
+  '($ERGOSTAT_ITEM), so no two runs prepare one item', and says what was left out). Both seen to fail with round 1's
+  removal put back, and to pass with this one.
+Run here: tests/test_agent_page.py (36 passed: round 1's eight, the sweep now over 26 demos, and the two new), tests/test_agents_page.py
+(14 passed), ruff clean. Not run here: the whole unit suite and the four browser files. main (666d65d6) has not moved
+since round 1's merge of it.
+
 ## Entry
 
 **Agent show page** (done): /agent/NAME shows what an agent is by its rung (its ask, prompt and wrapper, specification,

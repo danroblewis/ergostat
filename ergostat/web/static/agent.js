@@ -8,8 +8,15 @@ const FILE_LANG = { python: "python", shell: "bash", yaml: "yaml", json: "json",
 const SLOT = /(\{[A-Za-z_][\w.-]*\})/;
 const agentHref = (n) => `/agent/${encodeURIComponent(n)}`;
 const agentA = (n) => h("a", { href: agentHref(n) }, n);
-/* a text for a reader: its references to SPEC's sections (in a docstring, a YAML comment) taken out */
-const noSpec = (t) => String(t).replace(/\s*\([^()]*SPEC §[^()]*\)/g, "").replace(/,?\s*SPEC §[\w.§, ]*/g, "");
+/* a text for a reader: each reference to a section of ergostat's SPEC (in a docstring, a YAML comment) taken out, the
+   reference only ('SPEC §9.5', 'ergostat's SPEC §12h, §12i'), within its line; then, at that place only, the brackets
+   or the comma it leaves empty. Everything else is the file's own text, kept as it is */
+const SPEC_REF = /[ \t]*(?:(?:see|ergostat's)[ \t]+)?SPEC §\d+[a-z]*(?:\.\d+[a-z]*)*(?:[ \t]*(?:,|and)[ \t]*§\d+[a-z]*(?:\.\d+[a-z]*)*)*/g;
+const specRefs = (t) => (String(t).match(SPEC_REF) || []).length;
+const noSpec = (t) => String(t).replace(SPEC_REF, "\0").replace(/[ \t]*\([ \t]*\0[ \t]*\)/g, "")
+  .replace(/\([ \t]*\0[ \t]*[,:;]?[ \t]*/g, "(").replace(/[ \t]*[,:;]?[ \t]*\0[ \t]*\)/g, ")").replaceAll("\0", "");
+/* said under a file or a definition shown with its references taken out, so the text shown is not taken for the file's */
+const refsNote = (t) => { const n = specRefs(t); return n ? h("p", { class: "muted refs-note" }, `${n} reference${n === 1 ? "" : "s"} to ergostat's specification left out.`) : null; };
 
 /* a prompt as Markdown, each {slot} outside its code marked: the engine fills it in per item */
 function promptView(text) {
@@ -22,14 +29,14 @@ function promptView(text) {
 /* one of its files: its name, then its text highlighted (or why it is not shown), in a disclosure open or closed */
 function fileBox(f, open, summary = f.name) {
   return h("details", { class: "agent-file", key: `${f.role}:${f.name}`, open: open ? "" : null }, h("summary", {}, summary),
-    f.text != null ? code(noSpec(f.text), FILE_LANG[f.format] || null) : h("p", { class: "muted" }, f.why || "not read"));
+    f.text != null ? [code(noSpec(f.text), FILE_LANG[f.format] || null), refsNote(f.text)] : h("p", { class: "muted" }, f.why || "not read"));
 }
 /* the keys written for it, as a definition list (a record or a list as the item page shows a field) */
 const keysList = (P, ks) => dl(ks.map((k) => [k, P[k] == null ? null : typeof P[k] === "object" ? fieldView(P[k]) : String(P[k])]));
 
 function promptPart(sp, files) {
   const f = files.find((x) => x.role === "prompt"), P = sp?.params || {};
-  if (f) return [h("p", { class: "muted file-name" }, f.name), f.text != null ? promptView(f.text) : h("p", { class: "muted" }, f.why || "not read")];
+  if (f) return [h("p", { class: "muted file-name" }, f.name), f.text != null ? [promptView(f.text), refsNote(f.text)] : h("p", { class: "muted" }, f.why || "not read")];
   const t = sp?.prompt_text ?? (typeof P.prompt === "string" ? P.prompt : null);
   return t ? promptView(t) : null;
 }
@@ -82,7 +89,7 @@ function definitionPart(sp) {
   if (!sp) return h("p", { class: "muted" }, "Its block is not in the model's YAML.");
   if (sp.implied) return h("p", { class: "implied" }, "not written: ergostat put it in", sp.implied_by ? [" front of ", agentA(sp.implied_by)] : "", ".");
   return [sp.where ? h("p", { class: "muted file-name" }, `${sp.where.file}:${sp.where.line}`) : null,
-    sp.source ? code(noSpec(sp.source), "yaml") : h("p", { class: "muted" }, "Its text could not be read.")];
+    sp.source ? [code(noSpec(sp.source), "yaml"), refsNote(sp.source)] : h("p", { class: "muted" }, "Its text could not be read.")];
 }
 function placePart(a, sp, loops, name) {
   const pl = a.place || {}, list = (xs) => xs.flatMap((x, i) => [i ? ", " : "", agentA(x)]);

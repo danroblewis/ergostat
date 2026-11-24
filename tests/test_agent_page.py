@@ -26,7 +26,8 @@ from tests.ports import free_port
 ROOT = Path(__file__).resolve().parent.parent
 SECTION = ["What they are asked", "Its prompt", "Its specification", "How it decides", "Its program", "Its law", "Its law"]
 NOT_SHOWN = r"/private/tmp|\.venv|SPEC §"
-EXAMPLES = sorted(p.parent.name for p in (ROOT / "examples").glob("*/ergostat.yaml"))
+EXAMPLES = sorted(p.parent.relative_to(ROOT / "examples").as_posix()          # the nested demos too (remote-pair/*)
+                  for p in (ROOT / "examples").glob("**/ergostat.yaml") if "run" not in p.parts)
 
 
 def serve(tmp: Path, example: str, edit=None):
@@ -195,6 +196,45 @@ def test_a_person_is_asked_and_a_decision_says_how_it_decides(browser, tf, df):
         "no decisions in the window" in said, said
     assert not pg.errors, pg.errors
     pg.close()
+
+
+NO_SPEC = [   # what is shown for a text, the reference to a SPEC section only taken out, never another word or a line
+    ("($ERGOSTAT_ITEM: ergostat's SPEC §9.5), so no two runs", "($ERGOSTAT_ITEM), so no two runs"),
+    ("# ergostat's built-in one (SPEC §12e, the template `modelling`), as", "# ergostat's built-in one (the template `modelling`), as"),
+    ("a sensor may record any event, SPEC §9.3 limits only runs started by", "a sensor may record any event, limits only runs started by"),
+    ("    use: modelling   # its work (SPEC §12e)\n    every: 1h", "    use: modelling   # its work\n    every: 1h"),
+    ("held to what the owner meant (ergostat's SPEC §12i). A", "held to what the owner meant. A"),
+    ("laws (SPEC §12b:\n  a rule", "laws (\n  a rule"),
+    ("my notes (SPEC §12h follow-ups)", "my notes (follow-ups)"),
+    ("(`intent.yaml`, SPEC §12i, §12g)", "(`intent.yaml`)"),
+    ("def f(x):\n    return g()  # (see SPEC §4f)\n", "def f(x):\n    return g()  #\n"),
+    ("no reference (SPEC), f()", "no reference (SPEC), f()"),
+]
+
+
+def test_only_the_spec_reference_is_taken_out_of_what_is_shown(browser, tf):
+    pg = opened(browser, tf, "work")
+    got = pg.evaluate("(cases) => cases.map(([t]) => [noSpec(t), specRefs(t)])", NO_SPEC)
+    assert [g for g, _ in got] == [want for _, want in NO_SPEC]
+    assert [n for _, n in got] == [1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+    pg.close()
+
+
+def test_a_file_shown_keeps_its_own_words_and_says_what_was_left_out(browser, tmp_path):
+    proc, url = serve(tmp_path, "the-job")
+    try:
+        name = next(n for n in agents(url) if n.endswith("mention-triager"))     # a program: python3 bin/prepare.py
+        pg = opened(browser, url, name)
+        pg.evaluate("() => document.querySelectorAll('.agent-page details').forEach((d) => { d.open = true; })")
+        box = pg.locator("details.agent-file:has(summary:text-is('bin/prepare.py'))")
+        shown = box.locator("pre").inner_text()
+        assert "($ERGOSTAT_ITEM), so no two runs prepare one item" in shown, shown
+        assert "SPEC §" not in shown
+        assert re.search(r"\d+ references? to ergostat's specification left out", box.inner_text())
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
 
 
 @pytest.mark.parametrize("name", ["work", "keep-located-worked", "approve"])
