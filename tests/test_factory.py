@@ -6845,6 +6845,39 @@ def test_an_unreadable_record_is_said_in_the_brief_by_name_never_read_as_no_entr
     assert briefs_of(pre, "gap/alpha-thing")["implementor"] == want    # its docs/GAPS.md, as deps.py reads it then
 
 
+JOIN = """import sys, json
+sys.path[:0] = [sys.argv[1]]
+import fac, plan
+cfg = fac.config()
+g = json.loads(fac.ergostat("item", sys.argv[2], "--json").stdout)
+g["fields"]["children"] = ["gap/ghost"]                                 # a sub-gap the record does not hold
+kid = {"id": "gap/alpha-thing-a", "state": "built", "fields": {"parent": [g["id"]], "branch": "alpha-thing-a"}}
+got = plan.join_brief(cfg, g, [g, kid])
+print(json.dumps({"entry": got["entry"], "unread": got["unread"], "short": plan.short_of(got["unread"])}))"""
+
+
+def test_the_join_brief_with_sub_gaps_keeps_its_unread_points_apart_from_the_entry_note(tmp_path):
+    """join_brief's `unread` is a list of points per sub-gap; the entry's unreadable-record note goes in the entry only
+    (round-1 finding: the note overwrote the list, so the first sub-gap raised and short_of split it per character)."""
+    f = Factory(tmp_path)
+    f.fold([{"event": "gap.requested", "item": "gap/alpha-thing", "data": {"branch": "alpha-thing",
+                                                                           "title": "Alpha thing"}}], None)
+    for records, unreadable in ((GAPS_RECORDS, False),
+                                ({**GAPS_RECORDS, f"{NEW}/alpha-thing.md": "## Entry\n\nsection: Modelling\n"}, True)):
+        commit_files(f, records)
+        r = subprocess.run([sys.executable, "-c", JOIN, str(BIN), "gap/alpha-thing"], cwd=f.model, env=f.env,
+                           capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0, r.stderr
+        got = json.loads(r.stdout.strip().splitlines()[-1])
+        assert isinstance(got["unread"], list) and got["unread"][0] == \
+            "gap/ghost: not in the record as a sub-gap of gap/alpha-thing", got
+        assert [u.split(":")[0] for u in got["unread"][1:]] == ["gap/alpha-thing-a"] * len(got["unread"][1:]) != []
+        assert not any("alpha-thing.md" in u for u in got["unread"])  # the entry's note is not a sub-gap's point
+        assert got["short"].count("\n- ") == len(got["unread"])       # a point per item, never per character
+        assert (f"`{NEW}/alpha-thing.md`" in got["entry"]) == unreadable, got["entry"]
+        assert unreadable or "what it lacks." in got["entry"]
+
+
 def test_no_test_reads_the_repositorys_own_docs_gaps_md():
     """The merge queue writes docs/GAPS.md from the records: a test pins a fixture or the records' render, never the
     file. Read as a path built from the repository's root, an open() of `docs/GAPS.md`, or a ref's `:docs/GAPS.md`

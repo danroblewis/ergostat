@@ -50,3 +50,17 @@ assert. Reading intake's `section` field in `related` failed it at the related c
 
 Not fixed: ruff over dev/bin (outside the required `ergostat tests scripts`) reports B023 at plan.py:441 and E501 at
 review.py:47. Both were there before this branch, and neither is in lines it changed.
+
+Round 2 (2026-11-24). Size: 35 net lines in dev/bin, as before (the fix renames one variable).
+
+The one finding of round 1 (blocking): `plan.join_brief` overwrote its `unread` list with `record_entry`'s note. The
+note now has its own name (`note`). It goes only into the parent's entry text, and `unread` stays the list of
+sub-gap points. Decision taken alone: when the parent's record cannot be read, that does not make the join short
+with no session. Not reading a sub-gap does. The judge's brief names the unreadable record in the entry, as the other
+briefs do. This is the more reversible choice: a later gap can add the note to `unread` with one line.
+
+New test, `test_the_join_brief_with_sub_gaps_keeps_its_unread_points_apart_from_the_entry_note` (tests/test_factory.py):
+the parent has a child missing from the record (`gap/ghost`) and a sub-gap that is there, with its records first
+readable and then not. `unread` is a list. Its points are the ghost's and the sub-gap's, never the record's note.
+`short_of` makes one point per item, and the entry names the unreadable record only when it is unreadable. With
+round 1's code restored, the test failed: an AttributeError at `unread.append` (plan.py:436).

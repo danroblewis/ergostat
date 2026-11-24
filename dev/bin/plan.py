@@ -420,8 +420,8 @@ def join_brief(cfg: dict, gap: dict, gaps: list[dict]) -> dict:
     per sub-gap whose definition or last review could not be read (plan.join judges those short, with no session)."""
     f, gid, unread = gap["fields"], gap["id"], []
     reviews = {r["id"]: r["fields"] for r in fac.items("review")}
-    entry, unread = brief.record_entry(cfg, f.get("title", ""))
-    entry = entry or f.get("entry") or unread or "(missing: not in main's records)"
+    entry, note = brief.record_entry(cfg, f.get("title", ""))  # note: the unreadable records, said in the entry
+    entry = entry or f.get("entry") or note or "(missing: not in main's records)"
     kids, by_id = {g["id"]: g for g in gaps if gid in fac.ids(g["fields"].get("parent"))}, {g["id"]: g for g in gaps}
     out = []
     for k in dict.fromkeys([*fac.ids(f.get("children")), *sorted(kids)]):
