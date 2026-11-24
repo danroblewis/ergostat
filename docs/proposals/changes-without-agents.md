@@ -10,25 +10,31 @@ universal AI agent (rung 1) to a narrow AI, a decision, a program, a rule, and f
 
 The answer in one line: **the ladder is already core for repair approvals and action gates; make it general (any
 block may have a cheaper candidate that runs in shadow, is replayed on the record, and is promoted on its agreement),
-let model changes travel as data, and start with the one program the record shows paying at once: a resolver for
-merge conflicts in files a model declares generated or union-merged.**
+let model changes travel as data, and start with the one program the record shows within reach: a resolver for
+merge conflicts where both sides only added lines, in files a model declares, run in shadow until its replayed
+agreement clears the promotion floor.** It does not clear it yet: replayed on the record it agrees with the agent's
+file in 131 of the 170 test-file conflicts it claims (77%), against a floor of 95% (§3a).
 
 ## What was measured, and how
 
 The record is this factory's git history as cloned for this session (a copy; the live instance was not read). The
-window is every commit dated from 2026-11-21 to the clone's last, the days the gap records (`dev/records/`) have
-existed:
+window is every commit dated from 2026-11-21 00:00 UTC to the clone's last, the days the gap records
+(`dev/records/`) have existed. (Round 1 wrote `--since=2026-11-21`, which git reads as that day at the current time
+of day, so its counts moved by the hour: 769, 768, 764 merges on three runs. The window is now pinned.)
 
-- **442 landed gaps**: the first-parent merges `Merge branch 'factory/NAME'` on main, each diffed against main before
-  it (`git log main --first-parent --merges --since=2026-11-21 --diff-merges=first-parent --numstat`);
-- **769 merges of main into a gap's branch** (`--grep=^Merge.main`), made by `dev/bin/implement.py` `merge_main`:
-  a clean one is committed by the program, a conflicted one is left for the session to finish;
-- **818 hand-written resolutions** in 395 of those merges: files whose combined diff (`git log --cc`) still shows a
-  hunk, i.e. where the result differs from both parents. Each was classed from its combined-diff lines: a line marked
-  ` +` came from the branch, `+ ` from main, `++` was written in the merge, and any `-` column dropped a parent's line.
+- **450 landed gaps**: the first-parent merges `Merge branch 'factory/NAME'` on main, each diffed against its first
+  parent;
+- **812 merges of main into a gap's branch** (`--grep=^Merge.main`), made by `dev/bin/implement.py` `merge_main`
+  with a plain `git merge --no-ff`: a clean one is committed by the program, a conflicted one is left for the
+  session to finish;
+- **408 of them conflicted, 823 conflicted files in all**: recomputed for each merge from its two parents with
+  `git merge-tree --write-tree --name-only` (git 2.47.3), the files git itself could not merge. The session's
+  resolution of each is that file in the merge commit.
 
-The counts were taken with git and a text search over its output, since this session runs no scripts of its own.
-Every figure below names its population; the commands are reproducible on any clone of main.
+Every figure from the replay of §3a was produced by running the rules, not inferred: a scratch program (run once
+through the test runner, then removed, as this session keeps no scratch code) gave each conflicted file's three
+versions (the branch, main, and their first merge base) to `git merge-file` and compared the output with the merge
+commit's file byte for byte. *How each count was taken*, at the end, gives each step.
 
 ## 1. The ladder as a general core idea
 
@@ -55,9 +61,11 @@ measures per candidate, each over a window and ordered by `seq`:
   block declares (`agree-on:` the item's next state, a field, the files written byte for byte, or a program that says
   same or not);
 - **outcome-checked agreement**: the same, compared with what survived the gates after the block (what landed, what
-  was not reverted), never with the acting agent's raw answer. The record shows why (§3): in 26 of the 39 hand
-  resolutions of `docs/GAPS.md`, a generated file, the agent kept both sides' text, the splice review-lessons §7
-  records; a candidate that agreed with the agent there would have agreed with a mistake.
+  was not reverted), never with the acting agent's raw answer. The record shows why (§3a): in 4 of the 39 test files
+  where the resolver and the agent disagree, they differ only in whitespace, and in merge `06b5257e`
+  (`tests/test_diagram_rendering.py`) the slip is the agent's (`MAY_DO ="You can look ...` where the side the line came from
+  had `MAY_DO = "`); judged against the agent alone, the better answer counts as a disagreement. This page's agreement figures are against the agent's merge commit, the raw answer: the
+  outcome-checked rate was not measured (§7 gap 2 does).
 
 **Bounds.** At most 3 candidates a block, refused above at `check`; each runs under its own block's `at-once`,
 `timeout` and budget, and a shadow run never takes a slot or a lease from the acting agent; a candidate over its
@@ -104,9 +112,10 @@ goals over the next window as its verification. It is applied through a valve th
 review and no test suite. Core has the parts (proposals, Accept, `model.changed` with its version); what is new is
 letting an edit that did not come from the estimator use them.
 
-**What the record says about the size of this lane.** Of the 442 landed gaps, 57 (13%) changed `dev/model/`, and 50
-(11%) changed no program code outside `tests/` (26 of them, 6%, changed only prose: `docs/` and `*.md`). None of the
-442 was a model edit alone: every gap that changed a model also changed a test or a program. So the data lane is
+**What the record says about the size of this lane.** Of the 450 landed gaps, 58 (13%) changed `dev/model/`, and 54
+(12%) changed no program file (`*.py`, `*.js`, `*.css`, `*.html`, `*.sh`) outside `tests/` (29 of them, 6%, changed
+only prose: `docs/` and `*.md`). None of the 450 was a model edit alone: every gap that changed `dev/model/` also
+changed a file outside `dev/model/`, `dev/records/`, `docs/` and `*.md`. So the data lane is
 small in the recent work as it was cut, and grows only as measures become queries and model edits stop being filed
 as gaps.
 
@@ -114,67 +123,90 @@ as gaps.
 
 ### 3a. Conflict resolution in generated and append-only files
 
-The finding the record makes loudest: **395 of the 769 merges of main into a branch (51%) needed a hand-written
-resolution**, 818 files in all, almost one conflicted merge per landed gap (395 for 442). By where they are:
+The finding the record makes loudest: **408 of the 812 merges of main into a branch (50%) conflicted**, 823 files
+in all, about one conflicted merge per landed gap (408 for 450). Each was left to the session.
 
-| Files | Hand resolutions | Both sides kept, nothing written or dropped | Share |
-|---|---|---|---|
-| `tests/` | 231 | 103 | 45% |
-| `docs/` (of which `docs/GAPS.md`) | 115 (39) | 33 (26) | 29% (67%) |
-| `dev/` | 102 | 19 | 19% |
-| `ergostat/` | 358 | 29 | 8% |
-| other | 12 | 1 | |
-| **all** | **818** | **185** | **23%** |
+**The rule, defined by what it keeps.** *Both sides whole, at git's unsplit conflict blocks; claimed only where both
+sides only added.* The resolver asks git for the conflict blocks at the `diff3` level (`git merge-file --diff3`,
+which git runs at its *eager* merge level, so a conflict is never split around lines the two sides share), and
+claims the file only if every block's base section is empty: both sides inserted at the same place and neither
+changed a line of the base. It then writes each block as the branch's lines, then main's, whole. A file with any
+block that changed base lines is not claimed: it is left conflicted for the session, with why.
 
-"Both sides kept" is a combined diff with only ` +` and `+ ` lines: the result is the branch's lines and main's lines
-at that place, nothing new, nothing dropped. That is exactly what a union merge (`git merge-file --union`) makes, up
-to order: a union puts the branch's lines first. In the 167 such resolutions the search could isolate with their
-order, 157 (94%) have the branch's lines first and 10 have main's first.
+This is **not** `git merge-file --union`. At git's default merge level a conflict is split around the lines both
+sides share, and `--union` joins the pieces; the worked example below shows the difference on the record, and the
+replay shows its size.
 
-**Two rules, each a file class a model declares:**
+**Replayed on every conflicted file** of the 408 merges (the three versions given to `git merge-file`, its output
+compared byte for byte with the file in the session's merge commit):
 
-1. **generated**: the file is the output of a program (here `docs/GAPS.md`, which the queue renders from
-   `dev/records/` on every landing, `dev/bin/gapsdoc.py`). Resolution: take main's side; the branch's intent lives in
-   the source (its record), and the landing renders again. In all 39 hand resolutions of `docs/GAPS.md` the agent's
-   result differs from main's (that is why they show); 26 of them kept both sides, which for a generated file is the
-   splice that review-lessons §7 records six times (two Left clauses, a duplicated line, a dangling fragment).
-2. **union**: both sides' added lines are kept, the branch's first; then the result must pass the same gates any
-   change does (ruff catches a test defined twice; the suites run in the queue). Declared for the files where the
-   record shows agents keep both: test files first (45% of their resolutions).
+| Files | Conflicted | Claimed (both sides only added) | Claimed and equal to the agent's file | `git merge-file --union` equal to the agent's |
+|---|---|---|---|---|
+| `tests/test_*.py` | 215 | 170 | 131 (77% of claimed) | 4 |
+| `ergostat/` | 367 | 39 | 26 (67%) | 21 |
+| `dev/` | 138 | 31 | 17 (55%) | 13 |
+| `docs/` (of which `docs/GAPS.md`) | 78 (0) | 14 | 7 (50%) | 2 |
+| `schema/` | 4 | 4 | 1 | 0 |
+| other (top-level files, `tests/` files not `test_*.py`) | 21 | 1 | 0 | 0 |
+| **all** | **823** | **259** | **182 (70%)** | **40 (5%)** |
 
-**Coverage, measured.** A resolver with these two rules, `docs/GAPS.md` generated and union declared for
-`tests/` only, run before the session (in `merge_main`), would have finished **55 of the 395 conflicted merges (14%)**
-entirely: in every test file its output is the agent's (up to the order counted above), and in `docs/GAPS.md` it is
-main's, where the agent's was a splice or a hand edit of a generated file. Declaring union for every file would
-finish 78 (20%), but outside `tests/` agents kept both sides in too few cases to declare it there (8% in
-`ergostat/`). The other merges still need the session, with fewer files left: 103 test-file resolutions and 39
-`docs/GAPS.md` ones of the 818 are the rules'. It removes a splice in `docs/GAPS.md` outright.
+Of the conflicts it does not claim, keeping both sides whole would have matched the agent in 1 (in `ergostat/`), so
+the claim test gives up almost nothing. All 170 claimed test files parse as Python (`ast.parse`); whether they pass
+ruff and the suites was not run.
+
+**Where it disagrees with the agent, in test files (39):** 4 differ only in whitespace, 7 hold the same lines in
+another order, and in 28 the agent changed the content: it adapted the branch's lines to main's renames (`c9f0496f`,
+`/loops` to `/goals`), dropped a test both sides had kept (`7854cf26`), or wrote new lines (`7fa7c386`). Those 28
+are judgments the rule cannot see from the three versions: nothing in the conflict blocks tells it to abstain.
+
+**Coverage of merges.** With the rule declared for `tests/test_*.py` only, it claims every conflicted file of **77
+of the 408 conflicted merges (19%)**, and agrees with the agent in every file of **67 (16%)**. Declared for every
+file it claims 106 (26%) and agrees in 89 (22%), but outside test files its agreement is 50 to 67%, too low to
+declare there. 186 of the 408 had at least one conflicted test file; in the other merges a claimed test file only
+leaves the session fewer files.
+
+**What that means for the ladder (§1).** 77% is below the floor of 95% the promotion rule asks, so the resolver
+does not act alone on this record: it runs in shadow, writing what it would have done beside the session's merge,
+and the measure that could promote it is outcome-checked agreement (against what survived to main), which this
+page did not measure. The 4 whitespace cases show why it may come out higher than 77%.
+
+**The generated-file class: nothing to do in this window.** `docs/GAPS.md` conflicted in **0** of the 408 merges.
+Round 1 counted 39 "hand resolutions" of it from combined diffs (`git log --cc`), but a combined diff also shows a
+clean merge of two nearby changes, so those were not conflicts. The splice it cited is git's own: in merge
+`7ef0407c` the file in the merge commit equals git's clean three-way merge of it (the replay's output), main's file
+plus 9 lines of the branch's older repair entry, a second, contradicting *Left* clause. A declared *generated* class
+(take main's side, render again) would have prevented it, but it would have to apply to **clean** merges too, and
+since the queue now refuses a branch that edits `docs/GAPS.md`, it has no work here today. It stays a core option
+(off unless declared) and is left out of the first build gap.
 
 ### Shown end to end: one recorded merge, the program's output against the agent's
 
-Merge `dc3f5c13` (`Merge main (b9341591cb70) into the branch`; parents `08aee01c` the branch, `b9341591` main; base
-`278f54a4`). `tests/test_graph_cli_web.py` conflicted: both sides had appended tests after line 453.
+Merge `dc3f5c13` (`Merge main (b9341591cb70) into the branch`; parents `08aee01c` the branch, `b9341591` main; merge
+base `278f54a4`). `tests/test_graph_cli_web.py` conflicted: both sides had appended tests after line 453. Each output
+below was produced by running `git merge-file -p` (git 2.47.3) on the three versions, not read from a diff.
 
-- the branch added 26 lines: `test_the_served_diagram_script_frames_what_is_drawn_and_its_edge_hint_names_the_way`;
-- main added 33 lines: `test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_counted_whole` and
-  `test_the_record_answers_a_type_that_matches_nothing_with_no_events`;
-- **the agent's resolution** (`git show --cc dc3f5c13`, hunk `@@@ -454,26 -454,33 +454,59 @@@`): 59 lines, the
-  branch's 26 (` +`) then main's 33 (`+ `), no line written, none dropped;
-- **the union rule's output**: the branch's lines then main's at the conflict, the same 59 lines in the same order.
-  This is read from git's own combined diff of the three versions; running the union itself here
-  (`git merge-file --union --object-id ...`) was refused in this session, so the first build gap repeats it as a test;
+- **the conflict as the session saw it** (git's default level): the branch's 24 lines against main's 31; the two
+  blank lines both sides end with are taken out of the conflict and put after it.
+- **the conflict blocks at the `diff3` level**: one block, the branch's 26 lines (one test,
+  `test_the_served_diagram_script_frames_what_is_drawn_and_its_edge_hint_names_the_way`), an empty base, and main's
+  33 (`test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_counted_whole` and
+  `test_the_record_answers_a_type_that_matches_nothing_with_no_events`): claimed.
+- **the rule's output**: 59 lines, the branch's 26 then main's 33. The whole file is **byte-equal to the agent's**
+  in the merge commit (`git show --cc dc3f5c13`, hunk `@@@ -454,26 -454,33 +454,59 @@@`: the branch's lines ` +`,
+  then main's `+ `, none written, none dropped).
+- **`git merge-file --union`, for comparison**: 57 lines. The branch's last line
+  (`assert js.count("showSystem(svg, opened)") == 2`) is followed directly by main's `def
+  test_a_search_or_filter_...`, with no blank lines between the two functions; the two shared blank lines come after
+  main's tests. It parses, but it breaks PEP 8's two blank lines between functions (ruff was not run on it), and it is
+  not the agent's file. (The review of round 1 expected
+  `--union` to interleave the shared `try:`/`finally:` lines; on this merge it did not: only the trailing blank lines
+  were taken out of the conflict.)
 - **what landed**: main today has the three tests at lines 454, 480 and 495 of `tests/test_graph_cli_web.py`, in that
-  order.
-
-And the counter-case the generated rule exists for: merge `7ef0407c` (main `b20756c7`). The agent kept both sides of
-`docs/GAPS.md`; its result is main's file plus 9 lines of the branch's older text for the repair entry, a second,
-contradicting *Left* clause (`git diff --stat b20756c7 7ef0407c -- docs/GAPS.md`: 9 insertions). The generated rule's
-output is main's file. Main's `docs/GAPS.md` today has none of those 9 lines (the landing rendered it again from the
-records), so the agent's work on that file was thrown away, and the program's output is what landed.
+  order, as in the rule's output.
 
 ### 3b. Codemods and templates for repeated shapes
 
-| Shape | Seen in the 442 | A program could make |
+| Shape | Seen in round 1's 442 landed gaps | A program could make |
 |---|---|---|
 | a gap's record and definition | 442 (every gap) | already does: `implement.py definition_first` commits it |
 | tests for the definition's named acceptance tests | 415 gaps (94%) touched `tests/test_*.py` | the scaffold: one failing test per name the definition gives, in the file it names; the body stays the agent's |
@@ -183,10 +215,10 @@ records), so the agent's work on that file was thrown away, and the program's ou
 
 ### 3c. Generation from declarations
 
-| Declared once | Written by hand today, in | Seen in the 442 |
+| Declared once | Written by hand today, in | Seen in round 1's 442 landed gaps |
 |---|---|---|
 | the model's keys (`schema/ergostat.schema.json`) | the compiler (`ergostat/spec/compile.py`, `ir.py`, `load.py`) and SPEC's key tables | 24 gaps changed `schema/`, 49 the compiler, 203 (46%) `docs/SPEC.md` |
-| the gap entries (`dev/records/`) | `docs/GAPS.md` | generated already on landing; still 39 hand resolutions in branch merges, which the generated rule of §3a ends |
+| the gap entries (`dev/records/`) | `docs/GAPS.md` | generated already on landing; never conflicted in the window, but git's clean merges spliced it (§3a, `7ef0407c`) until branches were refused it |
 | a factory measure's description and unit | `dev/README.md` (90 gaps changed it) | the README's measure lists, rendered from `dev/model/` |
 
 Each is a renderer with a check that the rendered text is current (as `gapsdoc.py render --check` is), never a second
@@ -201,26 +233,31 @@ copy written by hand. Which of them pays is measured first (§4), not assumed.
    signature that recurs at least N times in the window (N = 5 proposed). Its **coverage** is the share of gaps whose
    whole diff falls in shapes a program has been replayed against and agrees with (§1), and separately the share of
    changed lines.
-2. **Per merge into a branch**: each hand resolution classed by its combined diff (both kept, branch's kept, main's
-   kept, written, dropped) and by path. A resolution class a rule reproduces is covered.
+2. **Per merge into a branch**: each file git leaves conflicted (`git merge-tree` on the two parents, never the
+   combined diff, which also shows clean merges of nearby changes), replayed through each candidate rule, its output
+   compared byte for byte with the session's merge commit. A conflict a rule claims and agrees on is covered.
 
-**Measured on the copy (from 2026-11-21; path classes only, the hunk kinds are left to the miner, §7 gap 4):**
+**Measured on the copy (from 2026-11-21 00:00 UTC; path classes only, the hunk kinds are left to the miner, §7 gap
+4):**
 
 | What | Share |
 |---|---|
-| landed gaps that changed only prose | 26 of 442 (6%) |
-| landed gaps that changed no program code outside tests | 50 of 442 (11%) |
-| landed gaps that changed `ergostat/` Python / the interface's static files / factory tooling | 231 (52%) / 147 (33%) / 118 (27%) |
-| merges of main into a branch that needed a hand resolution | 395 of 769 (51%) |
-| of those, finished whole by the two declared rules of §3a (union on `tests/` only) | 55 of 395 (14%) |
-| the same with union declared for every file | 78 of 395 (20%) |
-| hand file resolutions a union reproduces (up to order) | 185 of 818 (23%) |
+| landed gaps that changed only prose | 29 of 450 (6%) |
+| landed gaps that changed no program file outside tests | 54 of 450 (12%) |
+| landed gaps that changed `ergostat/` Python / the interface's static files / factory tooling (round 1's listing, of 442, its window not pinned) | 231 (52%) / 147 (33%) / 118 (27%) |
+| merges of main into a branch that conflicted | 408 of 812 (50%) |
+| conflicted merges whose every file the §3a rule (declared for `tests/test_*.py`) claims / claims and agrees on | 77 (19%) / 67 (16%) of 408 |
+| the same with the rule declared for every file | 106 (26%) / 89 (22%) |
+| conflicted files the §3a rule claims / claims and agrees on | 259 (31%) / 182 (22%) of 823 |
+| conflicted files `git merge-file --union` reproduces | 40 of 823 (5%) |
 
 **The share, stated plainly.** Measured as whole changes, programs cover almost none of the recent work: no gap in
 the window was of a shape a program reproduces end to end. The parts that recur are inside gaps: the conflicted
-merge (51% of merges, a seventh of them finished by the two rules of §3a), the record (every gap, already a program's), the test file
-(94% of gaps), the SPEC section (46%), the factory measure (16 gaps). The first coverage gain is in merges (14% of
-conflicted merges finished, 142 of 818 hand file resolutions, 17%, taken over), which is why the build split starts there.
+merge (50% of merges), the record (every gap, already a program's), the test file (94% of gaps, round 1's count),
+the SPEC section (46%), the factory measure (16 gaps). The first coverage gain is in merges: 16% of conflicted
+merges, and 131 of 215 conflicted test files (61%), would have been resolved as the agent resolved them, which is
+why the build split starts there, in shadow, since the rule's 77% agreement on what it claims is below the
+promotion floor.
 
 ## 5. Routing: the cheapest agent able to do it, the AI agent as the fallback
 
@@ -239,9 +276,10 @@ The two additions core needs are small: an **abstain** outcome a block's run can
 failure), and the candidate comparison of §1, so a lane earns its place by the record. Routing by cost is then the
 order of the states, declared by the model, never inferred.
 
-In this factory the first lane sits inside the implementor: `merge_main` runs the resolver of §3a before the session;
-a merge it finishes is committed by the program as a clean merge is today, and one it cannot is left for the session
-with fewer files. Later lanes (a measure template, a test scaffold, a model edit) route at `ready` by the gap's
+In this factory the first lane sits inside the implementor: `merge_main` runs the resolver of §3a beside the
+session, in shadow, writing what it would have done for each file it claims; the session resolves every file as
+today. Once promoted (§1), a merge whose every conflict it claims is committed by the program as a clean merge is
+today, and one it cannot finish is left for the session with fewer files. Later lanes (a measure template, a test scaffold, a model edit) route at `ready` by the gap's
 definition: its *Files to touch* all inside one declared shape.
 
 ## 6. The minimum time from request to main, per lane
@@ -255,7 +293,7 @@ dev/model/times.yaml), which this session may not read, so they are not in these
 |---|---|---|---|
 | AI agent (today's lane) | a session's build, the reviewer, fix rounds, the queue | 43.5 min (`a-gap-rebuilt-in-round-after`, the fastest of the 30 gaps whose definitions were committed last, on 2026-11-23, all landed) | median 166 min over those 30 gaps (43.5 to 290 min) |
 | program or rule making code | the build step, then the next queue run | one queue run, at most the shortest spacing of two landed batches: 19 min (1,125 s) | the median spacing of landed batches, 38 min (2,302 s), over the 34 spacings between the last 35 batches (2026-11-22 and 23) |
-| program inside a branch (the resolver) | nothing: it runs before the session | 0 added; it takes the conflicted merge off the session | the session minutes it saves are in the live record (`gate-implementor-minutes`), not measured here |
+| program inside a branch (the resolver, once promoted) | nothing: it runs before the session | 0 added; it takes a claimed conflicted merge off the session | the session minutes it saves are in the live record (`gate-implementor-minutes`), not measured here |
 | model edit (data) | `ergostat check` and the owner's valve | seconds: 8 to 16 s of `check` on the image-squeeze example | the owner's answer; no queue. For comparison, `model-split-oversized-systems`, a model change sent as a gap, took 3.5 h from definition to main |
 
 A program-made change still lands only with the queue: the floor of every code lane is the queue's own run, and the
@@ -267,14 +305,19 @@ against 38 minutes; a difference of medians, not a measured saving). Only the da
 Each general piece is in core as an option a model declares, off unless declared, naming no gap, program or factory;
 this factory's choices are in its own model and `dev/` files.
 
-1. **merge-resolve-declared-files** (about 150 net lines). Core: a program that finishes a conflicted merge in a work
-   tree for the files a model declares, `files: {generated: {PATH: COMMAND}, union: [GLOB, ...]}`, leaving every
-   other file conflicted and saying which. The factory: declares `docs/GAPS.md` generated (by `gapsdoc.py render`)
-   and `tests/test_*.py` union, and `merge_main` calls it before leaving the merge to the session. Acceptance:
-   `test_union_matches_recorded_merge` (the three versions of `dc3f5c13`, as fixtures, give the 59 lines that landed),
-   `test_generated_takes_main_and_renders`, `test_undeclared_file_left_conflicted`, `test_nothing_declared_resolves_nothing`.
+1. **merge-resolve-declared-files** (about 150 net lines). Core: a program that, given a conflicted merge in a work
+   tree and the globs a model declares (`files: {both-added: [GLOB, ...]}`), writes for each declared conflicted
+   file the rule of §3a (git's `diff3` blocks, claimed only when every base section is empty, the branch's lines then
+   main's, whole) and answers which files it claimed and which it left, with why; it never runs `--union`. The
+   factory: declares `tests/test_*.py`, and `merge_main` runs it **in shadow** (its output kept beside the merge,
+   the session resolving every file as today), plus a replay command that gives this page's §3a table from git.
+   Acceptance: `test_both_added_matches_recorded_merge` (the three versions of `tests/test_graph_cli_web.py` in
+   `dc3f5c13`, as fixtures, give the agent's file byte for byte), `test_union_is_not_the_rule` (the same fixtures
+   through `--union` give the 57 lines, so a resolver that falls back to it fails), `test_changed_base_lines_left_conflicted`,
+   `test_undeclared_file_left_conflicted`, `test_nothing_declared_resolves_nothing`.
 2. **agent-candidates-in-shadow** (about 250). Core: a block's `candidates:` run without valves, `shadow.answered`
-   events, claims and agreement as measures on the block, and replay over recorded items. Acceptance includes the
+   events, claims and agreement as measures on the block, and replay over recorded items, with the agreement
+   checked against the outcome (what survived to main), not only the acting agent's answer. Acceptance includes the
    resolver of gap 1 replayed on recorded merges as its first candidate.
 3. **ladder-promotion-general** (about 150). Core: repair's promotion rule lifted to any block with a candidate:
    ready said by ergostat, promoted by the owner's edit or `promote: auto`, sent back on one disagreement.
@@ -289,33 +332,43 @@ this factory's choices are in its own model and `dev/` files.
 
 ## Decisions taken alone (each the reversible one)
 
-- The window is the three days the records exist; older history has no records to join, and is left out.
+- The window is the days the records exist, from 2026-11-21 00:00 UTC; older history has no records to join, and is
+  left out.
 - Promotion defaults to the owner's edit, as `gate: auto` does; automatic promotion only when declared.
-- The union rule is declared for test files only at first; agents kept both sides in too few resolutions elsewhere
-  to start there (`docs/` other than `docs/GAPS.md` 7 of 76, `ergostat/` 29 of 358).
-- The resolver runs before the session and never after it, so an agent's resolution is never overwritten.
+- The rule is the both-added, whole-block one, not `git merge-file --union`, which reproduced the agent's file in 4
+  of 215 conflicted test files against the rule's 131.
+- The rule is declared for test files only at first; elsewhere its agreement on what it claims is lower (`ergostat/`
+  26 of 39, `dev/` 17 of 31, `docs/` 7 of 14).
+- The resolver starts in shadow, since 77% is below the floor; once promoted it runs before the session and never
+  after it, so an agent's resolution is never overwritten.
+- The generated-file class is left out of the first gap: `docs/GAPS.md` never conflicted in the window, and branches
+  may no longer edit it.
 
 ## How each count was taken
 
-Three listings of the clone, each searched with a multi-line regular expression (ripgrep's), counting matches:
+Round 2 ran a scratch program (Python's `subprocess` around git 2.47.3, through the test runner, then removed) over
+the clone. With `W` = `--since="2026-11-21 00:00:00 +0000"`; it gave the same counts on two consecutive runs:
 
-- **L1**, landed gaps: `git log main --first-parent --merges --since=2026-11-21 --diff-merges=first-parent --numstat
-  --format="@@@ %h %ct %s"`. A gap with a file of a class: a match of its header, then lines not starting with `@`,
-  then a numstat line of that class (`ergostat/...py`, `ergostat/web/static/`, `dev/(bin|agent|conformance)/`,
-  `dev/model/`, `schema/`, `docs/SPEC.md`, `tests/test_*.py`). Prose only and no code outside tests: 442 less the gaps
-  with a line outside the class (416 and 392).
-- **L2**, merges of main into a branch: `git log --merges --since=2026-11-21 --grep=^Merge.main --cc --unified=0
-  --format="@@@ %h %ct %s"`. A resolution: a `diff --cc` line (818). One not "both kept": a `diff --cc` line, then
-  lines inside its block, then a line starting `- `, ` -`, `--` (not `---`) or `++` (not `+++`) (633; per class:
-  tests 128, docs 82 of which `docs/GAPS.md` 13, dev 83, ergostat 329). Merges with one (319); merges with one outside
-  `docs/GAPS.md` (317, so 78 finished by keep-both everywhere); merges with a block neither `docs/GAPS.md` nor a
-  both-kept `tests/` one (340, so 55). Order: of the both-kept blocks matched whole up to the next block or merge
-  (167, an undercount of the 185, since a match consumes the next header), those with a `+ ` line followed by a ` +`
-  line (10).
-- **L3**, definition commits: `git log --since=2026-11-21 --grep=": the definition of done" --format="%at %s"`,
-  paired by name with L1's landing times.
-- The measure shape: `git log main --first-parent --merges --since=2026-11-21 --diff-merges=first-parent
-  -G "run: python3 dev/bin/measure.py" -- dev/model` (16 merges).
+- **Landed gaps**: `git log main --first-parent --merges W`, the subjects `Merge branch 'factory/...'` (450); each's
+  files `git diff --name-only M^1 M`. Prose only: every file under `docs/` or ending `.md` (29). No program file
+  outside tests: none ending `.py .js .css .html .sh` outside `tests/` (54). Model: any under `dev/model/` (58); of
+  those, all files under `dev/model/`, `dev/records/`, `docs/` or `*.md` (0).
+- **Merges of main into a branch**: `git log --merges W --grep=^Merge.main --format="%H %P"` (812). Conflicted:
+  `git merge-tree --write-tree --name-only --no-messages -z P1 P2` exits 1 (408); its file names are the conflicted
+  files (823). The base: the first of `git merge-base --all P1 P2` (14 merges have more than one).
+- **Each conflicted file**: the three versions by `git show REV:PATH`, written to a temporary folder. The rule:
+  `git merge-file -p --diff3 --marker-size=31` (markers no file holds), claimed when every section between `|||`
+  and `===` markers is empty, then each block written as its ours-lines then its theirs-lines. The union:
+  `git merge-file -p --union`. Equal: the output's bytes against `git show MERGE:PATH`. Parses: `ast.parse`. The
+  disagreements were classed by comparing after removing all whitespace (4) and as sorted lists of lines (7).
+- **Coverage of merges**: a merge is claimed when every one of its conflicted files is in a declared class and
+  claimed, and agrees when, in addition, each of those files is equal.
+- Kept from round 1, not re-counted with the pinned window: the per-class counts of landed gaps (`ergostat/` Python,
+  static files, tooling: 231, 147, 118 of 442), the 415 gaps that touched tests, the 203 that changed SPEC, the 16
+  measure gaps (`git log main --first-parent --merges --since=2026-11-21 --diff-merges=first-parent -G "run: python3
+  dev/bin/measure.py" -- dev/model`), and the §6 times (`git log --since=2026-11-21 --grep=": the definition of done"
+  --format="%at %s"`, paired by name with the landing times; its population, the last 30 definitions, does not
+  depend on the window's start).
 
 ## Questions for the owner
 

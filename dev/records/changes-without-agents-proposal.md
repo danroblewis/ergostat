@@ -42,6 +42,34 @@ Round 1: written. `docs/proposals/changes-without-agents.md` settles the seven (
   output instead).
 - No test, page or example changed, so only ruff was run.
 
+Round 2: the review's blocking finding answered by running the rules, not inferring them. Round 1's figures above
+are superseded where they differ. No code changed (0 net lines).
+
+- The finding: §3a's union output was inferred, and probably wrong. **Fixed by running it.** A scratch program
+  (written as `tests/test_zz_scratch_union_replay.py`, run through `scripts/named_tests.py`, its output in an
+  untracked `.cwa-scratch/`, both removed before committing; this session's shell runs no other program) gave each
+  conflicted file's three versions to `git merge-file` (git 2.47.3) and compared the output byte for byte with the
+  session's merge commit. On `dc3f5c13`, `--union` gives 57 lines, the branch's test run straight into main's with no
+  blank lines between the functions (it did not interleave, as the review expected, but it is not the agent's file).
+  The rule is now defined as the finding suggested: git's `diff3` (eager, unsplit) blocks, each side kept whole, the
+  branch's first, and claimed only where every base section is empty. Its output is byte-equal to the agent's file.
+- The coverage claims are now that rule's, measured: of 823 files conflicted in 408 of 812 merges, it claims 259 and
+  agrees on 182; on `tests/test_*.py` it claims 170 of 215 and agrees on 131 (77%), against `--union`'s 4. Merges
+  claimed whole with it on test files: 77 of 408, agreeing in every file in 67 (16%). The 55/395, 103 and 185/818
+  figures are gone.
+- Found on the way, and corrected on the page: (a) round 1's `--since=2026-11-21` is read by git as that date at the
+  current time of day, so counts moved between runs (769, 768, 764); the window is now `2026-11-21 00:00:00 +0000`
+  (450 landed gaps, 812 merges, stable across two runs). (b) "Hand resolutions" counted from combined diffs included
+  clean merges of nearby changes: `docs/GAPS.md` conflicted in 0 merges, and `7ef0407c`'s splice was git's own clean
+  merge, not the agent's; the generated-file class has no work in the window and is out of the first build gap.
+  (c) 77% is below the page's own promotion floor (0.95), so the page now says the resolver starts in shadow.
+- Not re-counted with the pinned window (said on the page): round 1's per-class counts of landed gaps (231/147/118,
+  415 with tests, 203 with SPEC, 16 measure gaps) and the §6 times. A re-count of the measure gaps with `-G` under
+  `--diff-merges=first-parent` gave 14,554, an evident misuse, and was not used. Outcome-checked agreement (against
+  what survived to main) was not measured; §7 gap 2 does it.
+- Review findings answered: the one blocking finding above; there were no others.
+- Ruff run; no test, page or example is in the branch's diff.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)
@@ -50,8 +78,10 @@ section: The factory (ergostat on ergostat)
   `changes-without-agents-proposal`; `docs/proposals/changes-without-agents.md`): the ladder made general (a block's
   cheaper candidate run in shadow, replayed on the record and promoted on its outcome-checked agreement, reusing
   repair's promotion rule); which changes become data (dashboards, thresholds and workflows are already; measures as
-  queries and any model edit through Accept are not); conflict resolution by declared file classes (generated,
-  union), measured on the factory's history: 395 of 769 merges of main into a branch needed a hand resolution, and
-  the two rules finish 55 of them; one merge shown end to end; routing by states with an abstain outcome; the time
-  to main per lane. *Left*: the seven build gaps of its §7, not yet filed (the merge resolver first); two owner's
-  questions (promotion by the owner's edit or by itself; model edits as data instead of gaps).
+  queries and any model edit through Accept are not); conflict resolution where both sides only added, each side kept
+  whole (not `git merge-file --union`), replayed on the factory's history: 408 of 812 merges of main into a branch
+  conflicted; on test files the rule claims 170 of 215 conflicts and agrees with the agent's file in 131 (77%, below
+  the promotion floor, so it starts in shadow); one merge shown end to end, the rule's output byte-equal to the
+  agent's; routing by states with an abstain outcome; the time to main per lane. *Left*: the seven build gaps of its
+  §7, not yet filed (the merge resolver, in shadow, first); two owner's questions (promotion by the owner's edit or
+  by itself; model edits as data instead of gaps).
