@@ -133,6 +133,23 @@ counts the denied entries as told. Left for the next round: keep any action whos
 `actions:` (empty `gates`) out of scheduling, plus a test of an `auto` channel under an entered incident and under an
 unreadable state.
 
+Round 4. The one finding (blocking, raised in rounds 3 and 4) is fixed: the notify channels' actions are no longer
+scheduled. `risk.cell` (ergostat/actions/risk.py) now returns an action's own `gate` and `threshold`, column
+`unscheduled`, when its `gates` are empty, meaning its cells were not compiled from `actions:`. Today that is only
+`inbox/config.py`'s `notify.CHANNEL`. The fallback to `schedule(action.gate)` is gone for such actions, and so is the
+unsure → `deny` short-circuit (the guard comes before `column`). The request's denial note leaves out "under
+unscheduled". SPEC §12k says so (*Only `actions:` are scheduled*). This reverses round 1's choice ("when `gates` is
+empty, the defaults come from `gate`"). The tests that built an `Action` in memory now pass `gates=risk.schedule(...)`
+explicitly, as the compiler does.
+New test `test_an_auto_notify_channel_is_not_scheduled` (parametrized): an `auto` channel under an entered incident,
+and under an incident with `operating.read` raising, is sent. Its `ergostat.notify.sent` record is `ran`, not
+`denied`, and the entry's text is in the channel's output, so nothing is counted as told without being delivered. With
+the guard disabled by hand, both cases failed (`denied` == `ran`).
+No other findings were raised in round 4. Main had nothing new to merge (`HEAD..main` is empty).
+Net lines outside tests and docs: 87 (budget 140).
+Run: `tests/test_regime_gates.py` (12 passed), `tests/test_inbox.py` (37 passed), `tests/test_program_actions.py`
+(10 passed), and ruff is clean. Not run here: the unit suite and the four browser files. No page changed.
+
 ## Entry
 
 entry-of: operating-modes-regime

@@ -103,11 +103,15 @@ def column(action, o) -> str | None:
 
 
 def cell(action, o) -> tuple[str, float, str]:
-    """The gate and threshold in force for ``action`` under ``o``, and the column they came from."""
+    """The gate and threshold in force for ``action`` under ``o``, and the column they came from. An action whose
+    cells were not compiled from ``actions:`` (no ``gates``: a notify channel's) is not scheduled: its gate as written,
+    whatever the state, column ``unscheduled``."""
+    if not action.gates:
+        return action.gate if action.gate in ORDER else "deny", action.threshold, "unscheduled"
     col = column(action, o)
     if col is None:
         return "deny", action.threshold, "unsure"
-    g = (action.gates or schedule(action.gate)).get(col)
+    g = action.gates.get(col)
     return g if g in ORDER else "deny", float((action.thresholds or {}).get(col, action.threshold)), col
 
 

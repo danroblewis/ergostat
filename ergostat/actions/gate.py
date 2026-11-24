@@ -75,7 +75,7 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
     if why:
         rec.step(p, aid, "denied", {"denied_by": GATE, "note": why})
     elif g == "deny":
-        under = "" if opr["column"] in ("normal", "away") else f" under {opr['column']} ({opr['why']})"
+        under = "" if opr["column"] in ("normal", "away", "unscheduled") else f" under {opr['column']} ({opr['why']})"
         rec.step(p, aid, "denied", {"denied_by": GATE, "note": rk.note(risk, g0) or f"its gate is deny{under}: never run"})
     elif g == "auto":
         rec.step(p, aid, "approved", {"approved_by": GATE, "note": "its gate is auto: run at once"})

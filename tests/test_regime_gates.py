@@ -102,7 +102,8 @@ def test_unwritten_cells_never_looser():
         assert strict(cells["freeze"]) == min(strict(base) + 1, 2) and cells["incident"] == "deny"
     # and through the state read, every state and presence, named by the lease or not, for a plain gate and a plain T
     for base, st, pr, named in itertools.product(risk.ORDER, operating.STATES, ("present", "away"), (True, False)):
-        a = Action("a", "x", gate=base, severity=3, threshold=8.0)
+        a = Action("a", "x", gate=base, severity=3, threshold=8.0, gates=risk.schedule(base),
+                   thresholds=dict.fromkeys(risk.COLUMNS, 8.0))
         o = operating.Operating(st, pr, 1, "", actions=("a",) if named else ())
         g, t, _ = risk.cell(a, o)
         assert strict(g) >= strict(base) and t <= 8.0, (base, st, pr, named)
@@ -140,7 +141,8 @@ def test_unsure_state_is_deny_whatever_is_written(tmp_path, monkeypatch):
     assert b["state"] == "denied" and b["operating"]["state"] == "incident" and ran(tmp_path) == ["act"]
     for st in ("holiday", "normal"):                # a state name not known, or unsure: never normal's column
         o = operating.Operating(st, "present", 1, "", unsure=st == "normal")
-        assert risk.cell(Action("a", "x", gate="auto"), o)[0] == "deny"
+        written = {**risk.schedule("auto"), "incident": "auto"}
+        assert risk.cell(Action("a", "x", gate="auto", gates=written), o)[0] == "deny"
 
 
 def test_unreadable_state_at_the_act_denies(tmp_path, monkeypatch):
@@ -198,6 +200,32 @@ def test_bad_gate_map_refused(tmp_path):
     ok = compiled.actions["ok"]
     assert ok.gates["away"] == "approve" and ok.gates["freeze"] == "approve" and ok.thresholds["away"] == 3.0
     assert compiled.actions["v"].gates["freeze"] == "approve"     # the refused cell left unwritten: its default
+
+
+@pytest.mark.parametrize("how", ["an entered incident", "an unreadable record"])
+def test_an_auto_notify_channel_is_not_scheduled(tmp_path, monkeypatch, how):
+    """A notify channel's action (no cells compiled from ``actions:``) keeps its gate as written whatever the state,
+    so what arises during an incident or an unreadable record is sent, not denied and then counted as told."""
+    import time
+
+    from ergostat.inbox import deliver
+
+    from .test_inbox import project as inbox_project
+    from .test_inbox import sent
+    p, _ = inbox_project(tmp_path)
+    spec, now = p.model.spec, time.time()
+    assert not spec.actions["notify.log"].gates and spec.actions["notify.log"].gate == "auto"
+    operating.enter(p, "incident")
+    if how == "an unreadable record":
+        def broken(*a, **k):
+            raise OSError("record gone")
+        monkeypatch.setattr(operating, "read", broken)
+    p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 3}, at=now - 300)
+    assert deliver.sweep(p, spec, now) == 1
+    told = p.events.query(n=None, type=deliver.SENT)
+    assert len(told) == 1 and told[0]["data"]["state"] == "ran" and told[0]["data"]["entries"][0] in sent(tmp_path)
+    from ergostat.actions import record
+    assert record.get(p, told[0]["data"]["action"])["operating"]["column"] == "unscheduled"
 
 
 def test_keyed_program_ask_takes_the_looser_cell_once_in_force(tmp_path):

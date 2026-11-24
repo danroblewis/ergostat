@@ -7216,6 +7216,9 @@ actions:
   is the stricter of the request's and the act's, so a freeze entered after the owner's approval denies the act
   (an `approve` action's `freeze` column is `deny` by default), and an `auto` action approved by the gate is held again for the owner.
   `risk_at_act` records the state read (`operating`) and the column's gate (`cell`).
+- **Only `actions:` are scheduled.** A notify channel's `notify.CHANNEL` (section 12o) keeps its one `gate:` whatever
+  the state, and even when the state cannot be read (column `unscheduled`), so what waits during an incident is
+  still sent, and an unreadable record never turns a channel's messages into denials counted as told.
 - `gate.in_force` (`ergostat/actions/gate.py`) reads the state; `risk.cell` and `risk.schedule`
   (`ergostat/actions/risk.py`) pick the column and fill the defaults.
 
