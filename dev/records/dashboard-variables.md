@@ -355,3 +355,9 @@ Run here:
 - Not run: the whole unit suite and the four browser files (the factory's job). No Python or example was touched.
 
 Refused here: nothing.
+
+## Where it stopped
+
+Parked by the factory (merge-queue, 2026-11-23 16:12).
+
+Failed its gates 8 times (the kill rule); the last, in the merge queue: conflicts with main: docs/SPEC.md ergostat/datasources/__init__.py ergostat/query/engine.py
