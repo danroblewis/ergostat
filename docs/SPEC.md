@@ -5357,7 +5357,10 @@ model): an input's rate (`flow.NAME:20`, an hour; `flow.NAME:x2`, twice its mean
 typed in the panel of a flow from outside), a goal's setpoint (`goal.NAME:5`, in the goal's panel), a pool
 (`block.NAME.pool:4`) and a block's share of failed runs (`block.NAME.failure:20%`, its success the rest), both
 beside its identified model in the causes strip; the last two change the items' completion estimates too (§5a). A
-rate tried on a flow a block moves replaces its identified model. With the projection held they are refused and the strip says why.
+rate tried on a flow a block moves replaces its identified model. A parameter of an external block's declared law
+(§12d, *Known laws*) is a fifth (`block.NAME.target:0.5`, `block.NAME.stabilize-down:1m`): checked as `law:` is, an
+unknown one refused naming the law's parameters, and the projection runs the law with it, started from the record again
+(a block whose law is not run ahead says the value changes nothing). With the projection held they are refused and the strip says why.
 
 **Sensitivity** (`ergostat/numbers/sensitivity.py`; the causes strip with the projection held; with the loops running
 the strip's fan is the risk's, below): Monte Carlo over what the model
@@ -5381,7 +5384,8 @@ worked out in a thread of its own and drawn when it comes, no spread till then; 
 --risk`): the closed-loop projection run many times over what it does not know: the model's uncertain parameters as
 sensitivity samples them (an estimate whose standard error spans more than a factor of ten either way is held, and
 listed, since sampling it makes every run another model: `sensitivity.informative`), each identified model's numbers
-by their standard errors (a rate, a residence time, a run's time, its success), and each input from outside the
+by their standard errors (a rate, a residence time, a run's time, its success; none of a declared law's, which are
+stated, not estimated, and said so in the notes), and each input from outside the
 control about where the projection holds it, by its recent readings' spread over the square root of the horizon's
 effective number of buckets (the buckets it spans times (1 − ρ)/(1 + ρ), ρ the readings' lag-one autocorrelation:
 readings that drift together are fewer independent ones). That is how far the input's mean over the horizon could be
@@ -5748,8 +5752,14 @@ before). **bad-law**, at the key: an unknown kind or parameter, a value not its 
 `max` (at `max`); at `law:`: a required parameter missing, a law that is not a map, or a law without `identify:`. A law
 declared is drawn as its block's function in Blocks (the law in the block's notation, as an identified law's, marked
 *declared KIND* where an identified law is marked *identified*; a law the record identifies is drawn over it, the
-declared one kept in the block's rows) and said in words with its parameters by `explain` (and its MCP tool); it is not
-yet run in the projection or tested against the record.
+declared one kept in the block's rows) and said in words with its parameters by `explain` (and its MCP tool). In the
+closed-loop projection (§12b) a declared law is the block's model in place of an identified one (the owner's statement
+wins over the record's estimate, and is all there is when the record is too short to identify a law): form *declared*,
+basis *its declaration*, said "declared KIND, external", `Run.how` *declared law* for its flow and a note naming it. It
+starts from the record as an identified law does (`settle`, on the record's grid resampled at the law's own period),
+so it needs a reading of its input and output; without one it is not run. It is run as an identified law is (an output
+stock moved by its flow, an auxiliary not run ahead: **external-not-run**, saying the law is declared), the risk samples
+none of its numbers, and a what-if may change its parameters (§12c). It is not yet tested against the record.
 
 ## 12e. Improving the model, as a loop
 

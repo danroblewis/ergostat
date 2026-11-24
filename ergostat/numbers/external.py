@@ -1,6 +1,7 @@
 """An external block's law identified from its record (SPEC §12d, *Existing controllers*): ``identify: {input, output}``
 read from their sensors' record on one grid, fitted by ``extlaw``; the law the closed-loop projection runs in place of
-the generic stand-in (``ExternalModel``); and its findings, ``external-unidentified`` and ``external-not-run``."""
+the generic stand-in (``ExternalModel``), a law declared (``law:``, control/laws.py) run in its place; and its
+findings, ``external-unidentified`` and ``external-not-run``."""
 
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from statistics import median
 
-from ..spec.ir import Ref, Spec
+from ..spec.ir import KnownLaw, Ref, Spec
 from . import extlaw as el
 from .blockmodels import BlockModel
 
@@ -104,16 +105,27 @@ def moved_by(spec: Spec, name: str) -> str | None:
 
 @dataclass
 class ExternalModel(BlockModel):
-    """An external block run by its identified law: its input read from the projection's values at each step, its
-    output the law's, sampled every ``law.dt`` past its delay (``at`` is told the time). A stock output is moved by the
-    block's own flow by each change of the law's level, so the stock's other flows still move it."""
+    """An external block run by its declared law, else its identified one: its input read from the projection's values
+    at each step, its output the law's, sampled every ``law.dt`` past its delay (``at`` is told the time). A stock output
+    is moved by the block's own flow by each change of the law's level, so the stock's other flows still move it."""
 
     law: el.Law | None = None
     input: str = ""
     stock: str | None = None            # the output stock its flow moves by the law's changes (else the flow is the output)
     sign: int = 1
     begin: dict = field(default_factory=dict)
+    known: KnownLaw | None = None       # its declared law (form "declared")
+    record: tuple = ()                  # the record's grid (ts, xs, us) a declared law is started from again (``tried``)
     _t: float | None = None
+
+    def tried(self, values: dict) -> ExternalModel:
+        """A copy whose declared law has these parameters (a what-if), started from the record again."""
+        from ..control import laws
+        m = copy.copy(self)
+        m.known = KnownLaw(self.known.kind, {**self.known.params, **values})
+        m.law = laws.law(m.known)
+        m.begin = _begin(m.law, *_every(m.law.dt, *self.record))
+        return m
 
     def fresh(self) -> ExternalModel:
         """A copy at where the record left it, for one projection run (runs may go on in threads side by side)."""
@@ -146,28 +158,50 @@ class ExternalModel(BlockModel):
         return self.sign * moved / max(dt, 1e-9)
 
     def said(self) -> str:
-        return f"{self.block} identified, external: {self.law.said()}"
+        how = f"declared {self.known.kind}" if self.form == "declared" else "identified"
+        return f"{self.block} {how}, external: {self.law.said()}"
 
     def as_dict(self) -> dict:
         return {"block": self.block, "flow": self.flow, "form": self.form, "law": self.law.as_dict(), "said": self.said()}
 
 
+def _every(dt: float, ts: list, xs: list, us: list) -> tuple[list, list, list]:
+    """The record's grid at a declared law's own period, ending where it ends: each its last sample at or before."""
+    n = min(MAX_POINTS - 1, int((ts[-1] - ts[0]) / dt + 1e-9))
+    at = [ts[-1] - (n - i) * dt for i in range(n + 1)]
+    j, ix = 0, []
+    for t in at:
+        while j + 1 < len(ts) and ts[j + 1] <= t + 1e-6:
+            j += 1
+        ix.append(j)
+    return at, [xs[j] for j in ix], [us[j] for j in ix]
+
+
+def _begin(law: el.Law, ts: list, xs: list, us: list) -> dict:
+    """Where the record left the law: its state (``settle``), the input it will read past its delay, its next sample."""
+    hist = [(t, x) for t, x in zip(ts, xs, strict=True) if t >= ts[-1] - law.delay - law.dt]
+    return {"st": el.settle(law, xs, us), "hist": hist, "next": ts[-1] + law.dt}
+
+
 def models(p, spec: Spec, since: float, until: float) -> dict[str, ExternalModel]:
-    """Each identified block whose output the projection can move → its law as the block's model, keyed by that flow."""
+    """Each external block whose output the projection can move → its declared law (the owner's statement), else its
+    identified one, as the block's model, keyed by that flow; started from the record either way."""
+    from ..control import laws
     out = {}
     for name, io in blocks(spec).items():
-        ref = moved_by(spec, name)
+        ref, known = moved_by(spec, name), spec.blocks[name].law
         got = identify(p, spec, name, since, until)
-        law = got["law"]
-        if ref is None or law is None:
+        if ref is None or not got["ts"] or (known is None and got["law"] is None):
             continue
-        hist = [(t, x) for t, x in zip(got["ts"], got["xs"], strict=True) if t >= got["ts"][-1] - law.delay - law.dt]
+        law = laws.law(known) if known is not None else got["law"]
+        grid_ = (got["ts"], got["xs"], got["us"])
         f = spec.flows[ref[5:]]
         stock = io["output"].name if io["output"].kind == "stock" else None
-        out[ref] = ExternalModel(name, ref, form="identified", label=name, basis="its record", law=law, source=f.source,
+        out[ref] = ExternalModel(name, ref, form="declared" if known else "identified", label=name,
+                                 basis="its declaration" if known else "its record", law=law, source=f.source,
                                  target=f.target, input=f"{io['input'].kind}.{io['input'].name}", stock=stock,
-                                 sign=1 if stock is None or f.target == stock else -1,
-                                 begin={"st": el.settle(law, got["xs"], got["us"]), "hist": hist, "next": got["ts"][-1] + law.dt})
+                                 sign=1 if stock is None or f.target == stock else -1, known=known, record=grid_,
+                                 begin=_begin(law, *(_every(law.dt, *grid_) if known else grid_)))
     return out
 
 
@@ -184,6 +218,7 @@ def findings(p, spec: Spec, now: float, say) -> None:
         if got["law"] is None:
             say("external-unidentified", f"block {name} (external): its law from {io['input']} to {io['output']} is not "
                 f"identified: {got['why']}", b.where, f"block.{name}")
-        elif moved_by(spec, name) is None:
-            say("external-not-run", f"block {name} (external): its law is identified ({got['law'].short()}) but not run "
+        if (got["law"] is not None or b.law is not None) and moved_by(spec, name) is None:
+            how = f"declared ({b.law.kind})" if b.law is not None else f"identified ({got['law'].short()})"
+            say("external-not-run", f"block {name} (external): its law is {how} but not run "
                 f"ahead: {io['output']} is not a flow, nor a stock one of its out: flows moves", b.where, f"block.{name}")
