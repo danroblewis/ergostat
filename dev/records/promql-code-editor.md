@@ -54,3 +54,56 @@ Done item 4 is kept: the live instance was not touched.
 Parked by the factory (review/promql-code-editor-1, 2026-11-23 23:27).
 
 Nothing is built. The branch holds only the definition of done and a 'Where it stopped' section. All the editor work (CodeMirror-based promql.js and sql.js behind the existing window.queryEditors contract, PromQL highlighting, completion from /api/query/suggest, line numbers, bracket matching, Mod-Enter to run, a lint mark at error_at, a theme that reads the page's CSS variables) and the browser tests for done 1-3 are left. It stops because the definition requires a vendored CodeMirror 6, which is not in the tree and could not be fetched in a session without network. The server side (/api/query/suggest) is already built.
+
+## Where it stopped
+
+Round 2: built, with the definition as the review of round 1 amended it. About 81 net lines outside tests and docs
+(budget 600): 110 added, 29 removed.
+
+The amendment (review/promql-code-editor-1): no CodeMirror or any other library, since sessions have no network. Build on
+the existing `promql.js` and `sql.js`, which already highlight and complete. Add lists that open at an empty prefix
+(after FROM or JOIN the views, a view's columns, PromQL labels inside `{` and after `by(`, label values after `=`) and on
+Ctrl+Space, line numbers, bracket matching and the error mark. The text above the first "Where it stopped" is left as it
+was; where it says CodeMirror, read the amendment. The `.cm-*` selectors named in round 1's plan do not apply.
+
+What changed:
+- `static/codebox.js` (new, shared by both boxes): a gutter of line numbers kept scrolled with the text, and the bracket
+  beside the caret drawn with its match (`pq-match`) or as unmatched (`pq-nomatch`). Brackets inside strings and comments
+  are not counted. The text is no longer wrapped (`wrap="off"`, `white-space: pre`), so one text line is one gutter line.
+- `promql.js`: after `=`, `!=`, `=~` or `!~` in braces, with no quote typed yet, the label's values are listed and the
+  pick is put in quotes. Labels after `{`, `,` and `by(`, and values after `="`, already opened at an empty prefix.
+  Metrics at an empty prefix open on Ctrl+Space, as before, so a list does not open on every space. The error mark,
+  with its UTF-8 column walk, is unchanged.
+- `sql.js`: lists open with nothing typed after FROM and JOIN (the views), after `VIEW.` or `ALIAS.` (that view's columns
+  only, `ticket t` or `ticket as t`), and where a column comes next (after SELECT, WHERE, BY, ON, AND, OR, HAVING or a
+  comma: the named views' columns). SQL's own words are added once a word is begun or on Ctrl+Space.
+- The look: the colours are the page's CSS variables, as before, so light and dark follow the theme. No screenshot was
+  taken in this session, so that claim rests on the stylesheet and not on a picture.
+- SPEC §4e (*The query editor*) and the SQL source's editor paragraph say so.
+
+Acceptance tests (Playwright, each run on its own by test id, all pass):
+- done 1: `tests/test_promql_editor.py::test_code_editor_lists_open_before_anything_is_typed_and_the_panel_answers`.
+  It picks a metric, a label at an empty prefix after `{`, and a value after a bare `=`. Then the stub source is asked the
+  query typed, the preview is drawn with no message, and Ctrl+Space lists the metrics.
+- done 2: `tests/test_promql_editor.py::test_code_editor_numbers_lines_matches_brackets_and_marks_the_refusal`. A
+  two-line refused query is marked at the `$` (2:3), its lines are numbered 1 and 2, and the bracket at the caret matches
+  sum's and then rate's `(`. An unclosed `(` is drawn unmatched.
+- done 3: `tests/test_promql_editor.py::test_code_editor_page_loads_with_nothing_asked_beyond_ergostat`. Every request
+  not to the test server is aborted and recorded. The page loads, the box mounts, highlights and completes, and nothing
+  outside was asked.
+- SQL: `tests/test_sql_editor.py::test_code_editor_sql_lists_open_before_anything_is_typed`.
+- Seen to fail: with the bare-matcher branch removed (done 1 fails at the values list), with bracketClass returning
+  nothing (done 2 fails at the match), with an outside fetch added to codebox.js (done 3 fails on the recorded URL), with
+  SQL's views list not opening after FROM (the SQL test fails), and with the gutter not drawn (done 2 fails at the lines).
+- The existing tests of both files, run by id after the change, still pass: the 6 in `test_promql_editor.py`, which
+  are 7 test ids with the parametrized one, and the 2 in `test_sql_editor.py`.
+
+Left, and why:
+- The SQL source gives no place for its errors (`SourceError.at` is never set in `datasources/sql.py`, and SQLite's
+  message names a token, not an offset). So the SQL box marks no error. Deriving a place would be a server change outside
+  this gap.
+- Each box draws its own error mark, gutter and brackets over a textarea. It is not CodeMirror, which the amendment says
+  not to use.
+- No `## Entry` was written. This record had none, and its definition says it changes only by "Where it stopped".
+
+Done item 4 is kept: the live instance was not touched.
