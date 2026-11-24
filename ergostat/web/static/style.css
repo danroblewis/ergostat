@@ -1224,3 +1224,9 @@ svg.canvas .proposed-changed rect, svg.canvas .proposed-changed circle, svg.canv
 .redesign-edits { margin: var(--sp-1) 0 var(--sp-2) var(--sp-4); padding: 0; }
 .redesign-edits li { margin: var(--sp-0) 0; }
 .redesign-ask { display: inline-flex; gap: var(--sp-1); align-items: center; }
+
+/* the request timing overlay (app/timing.js: Shift+T, ?timing=1): each API call, slowest first */
+.timing { position: fixed; right: var(--sp-2); bottom: var(--sp-2); z-index: 100; max-height: 50vh; overflow: auto; background: var(--panel);
+  border: var(--hair) solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-menu); padding: var(--sp-1) var(--sp-2);
+  font-size: var(--text-sm); }
+.timing td.num { text-align: right; font-variant-numeric: tabular-nums; }

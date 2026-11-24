@@ -380,6 +380,27 @@ function pageSignal() {
 function leavePage() { if (PAGE.el && !PAGE.el.isConnected) PAGE.c?.abort(); }
 const pageLeft = (e) => e?.name === "AbortError";
 window.addEventListener("unhandledrejection", (ev) => { if (pageLeft(ev.reason)) ev.preventDefault(); });
+/* every API call's time, old pages' and new (app/core.js useApi), for the timing overlay (app/timing.js) and the
+   browser tests' budget (tests/budget.py): the last CALLS_KEPT, each its path, address, milliseconds (to the whole
+   body read) and status ("aborted", "failed": no answer) */
+const CALLS = window.ERGOSTAT_CALLS = [];
+const CALLS_KEPT = 500;
+async function timed(path, url, init = {}) {
+  const t0 = performance.now();
+  let status = "failed";
+  try {
+    const r = await fetch(url, init), text = await r.text();
+    status = r.status;
+    return { r, text };
+  } catch (e) {
+    if (e?.name === "AbortError") status = "aborted";
+    throw e;
+  } finally {
+    CALLS.push({ path, url, ms: Math.round(performance.now() - t0), status });
+    if (CALLS.length > CALLS_KEPT) CALLS.splice(0, CALLS.length - CALLS_KEPT);
+    window.dispatchEvent(new Event("ergostat:call"));
+  }
+}
 /* an answer as its text, and the address it came from */
 async function apiText(path, params = {}, kept = false) {   // ``kept``: true (the header's), or an AbortSignal of the page's own, to let it go sooner
   if (SNAP) {
@@ -393,9 +414,9 @@ async function apiText(path, params = {}, kept = false) {   // ``kept``: true (t
   const own = kept instanceof AbortSignal ? kept : null;
   const page = kept === true ? undefined : pageSignal();
   const signal = own && page ? AbortSignal.any([own, page]) : own || page;
-  const r = await fetch(url, { signal });
+  const { r, text } = await timed(path, url, { signal });
   if (!r.ok) throw Object.assign(new Error(`${path}: ${r.status}`), { status: r.status });   // (a 404 told apart)
-  return [url, await r.text()];
+  return [url, text];
 }
 async function api(path, params = {}, kept = false) { return JSON.parse((await apiText(path, params, kept))[1]); }
 /* a page's answers, remembered: ``changed`` says whether any asked since ``begin()`` differed from the last
@@ -415,11 +436,12 @@ function answers() {
   return a;
 }
 
+const jsonOr = (text, or) => { try { return JSON.parse(text); } catch (e) { return or; } };
 /* the page's one kind of write: the owner's answer to a proposal, or asking for estimates (never in a snapshot) */
 async function apiPost(path, params = {}) {
   if (SNAP) throw new Error("a snapshot changes nothing: ergostat accept, where the model is");
-  const r = await fetch(`/api/${path}?${new URLSearchParams({ since: S.since, ...params })}`, { method: "POST", headers: { "X-Ergostat-Token": document.querySelector('meta[name="ergostat-token"]')?.content || "" } });
-  const body = await r.json().catch(() => ({}));
+  const { r, text } = await timed(path, `/api/${path}?${new URLSearchParams({ since: S.since, ...params })}`, { method: "POST", headers: { "X-Ergostat-Token": document.querySelector('meta[name="ergostat-token"]')?.content || "" } });
+  const body = jsonOr(text, {});
   if (!r.ok) throw new Error(body.error || `${path}: ${r.status}`);
   return body;
 }
@@ -427,8 +449,8 @@ async function apiPost(path, params = {}) {
 /* the owner's words to the work in flight (SPEC §12h): the text in the body, as JSON */
 async function apiSend(path, body) {
   if (SNAP) throw new Error("a snapshot changes nothing: ergostat message, where the model is");
-  const r = await fetch(`/api/${path}`, { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json", "X-Ergostat-Token": document.querySelector('meta[name="ergostat-token"]')?.content || "" } });
-  const got = await r.json().catch(() => ({}));
+  const { r, text } = await timed(path, `/api/${path}`, { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json", "X-Ergostat-Token": document.querySelector('meta[name="ergostat-token"]')?.content || "" } });
+  const got = jsonOr(text, {});
   if (!r.ok) throw new Error(got.error || `${path}: ${r.status}`);
   return got;
 }
@@ -462,37 +484,46 @@ async function refreshHeader() {
       sel.addEventListener("focus", fresh);
       refreshProjects(sel);
     }
-    // at most two short counts, each a link, its full wording its title (the navigation keeps its room): the system's
-    // goals off, red, the server's one count (state.goals_off; an old snapshot without it "?", never counted here), the
-    // model's own upkeep and the goals it counts in its title; and "N for you". What holds the work up (held_up) is
-    // said on the Items page, not here
-    const { off, upkeep } = goalsOff(st);
-    const run = $("#running");
-    const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
-    const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
-    if (run.className !== cls) run.className = cls;
-    const open = document.querySelector('meta[name="ergostat-public"]') ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here" : "";   // web: open: read
-    const said = SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
-      : edited ? "Model errors" : off || upkeep ? `${off} off` : st.running ? "Running" : "Not running";
-    const names = !off ? ""
-      : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
-        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");   // (upkeep apart), each by its word
-    const tip = [edited ? `${st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)}:\n${st.edited.errors.join("\n")}`
-      : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running || SNAP ? "" : ", not running"}` : "",
-      upkeep ? `model upkeep ${upkeep}` : "", names, open].filter(Boolean).join("\n");
-    if (run.title !== tip) run.title = tip;
-    const to = appHref(edited ? "/check" : "/goals");
-    if (run.getAttribute("href") !== to) run.setAttribute("href", to);
-    setText(run, said + (open ? " · public" : ""));
-    const waits = $("#waits"), n = (st.attention || []).filter(waitsOnYou).length;   // the side list's "Waiting for you"
-    if (waits.hidden !== !n) waits.hidden = !n;          // (only when it changed: a refresh with nothing new writes nothing)
-    if (waits.title !== `${n} wait for you`) waits.title = `${n} wait for you`;   // the definition's words (Q43)
-    setText(waits, `${n} for you`);                      // written only when N changes, so its polite live region
-                                                         // (index.html) says only that
+    // the two counts: drawn by the shell (app/shell.js Status) from the store, or here when there is none (a snapshot)
+    if (window.ergostatApp) window.ergostatApp.sync();
+    else {
+      const c = headerCounts(st), run = $("#running");
+      if (run.className !== c.cls) run.className = c.cls;
+      if (run.title !== c.tip) run.title = c.tip;
+      if (run.getAttribute("href") !== c.href) run.setAttribute("href", c.href);
+      setText(run, c.said);
+      const waits = $("#waits"), n = c.n;
+      if (waits.hidden !== !n) waits.hidden = !n;        // (only when it changed: a refresh with nothing new writes nothing)
+      if (waits.title !== c.waitsTitle) waits.title = c.waitsTitle;
+      setText(waits, `${n} for you`);                    // written only when N changes, so its polite live region
+    }                                                    // (index.html) says only that
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
     if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
   } catch (e) { /* the server may be restarting */ }
+}
+
+/* the header's two counts, each a link, its full wording its title (the navigation keeps its room): the system's goals
+   off, red, the server's one count (state.goals_off; an old snapshot without it "?", never counted here), the model's
+   own upkeep and the goals it counts in its title; and "N for you". What holds the work up (held_up) is said on the
+   Items page, not here. No status yet: nothing said */
+function headerCounts(st) {
+  if (!st) return { cls: "runstate", said: "", tip: "", href: appHref("/goals"), n: 0, waitsTitle: "" };
+  const { off, upkeep } = goalsOff(st);
+  const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
+  const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
+  const open = document.querySelector('meta[name="ergostat-public"]') ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here" : "";   // web: open: read
+  const said = SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
+    : edited ? "Model errors" : off || upkeep ? `${off} off` : st.running ? "Running" : "Not running";
+  const names = !off ? ""
+    : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
+      .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");   // (upkeep apart), each by its word
+  const tip = [edited ? `${st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)}:\n${st.edited.errors.join("\n")}`
+    : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running || SNAP ? "" : ", not running"}` : "",
+    upkeep ? `model upkeep ${upkeep}` : "", names, open].filter(Boolean).join("\n");
+  const n = (st.attention || []).filter(waitsOnYou).length;   // the side list's "Waiting for you"
+  return { cls, said: said + (open ? " · public" : ""), tip, href: appHref(edited ? "/check" : "/goals"),
+           n, waitsTitle: `${n} wait for you` };   // the definition's words (Q43)
 }
 
 /* the goals off as the server counted them (state.goals_off, in the status answer), never counted here: the system's,
@@ -555,11 +586,12 @@ document.addEventListener("visibilitychange", () => {
 });
 
 /* the route: the page's path and query ("/item/a%2Fb", "/diagram?view=blocks"), from the address; in a
-   snapshot, from the hash. The second pane's own mark (?pane=1) is not part of it */
+   snapshot, from the hash. The second pane's own mark (?pane=1) and ?timing=1 are not part of it */
 function currentRoute() {
   if (HASHED) return location.hash.startsWith("#/") ? location.hash.slice(1) : "/diagram";
   const q = new URLSearchParams(location.search);
   q.delete("pane");
+  q.delete("timing");                            // (the timing overlay's ?timing=1, read once by app/timing.js)
   const path = location.pathname === "/" ? "/diagram" : location.pathname;
   return path + (q.toString() ? "?" + q : "");
 }
@@ -646,7 +678,9 @@ async function route(keep = false) {             // keep: the window changed; th
   const top = path.split("/").slice(0, 2).join("/").replace(/^\/agent$/, "/agents");   // an agent's page: under Agents
   const w = Object.hasOwn(WINDOWS, q.get("window") || "") ? q.get("window") : "1h";   // the address's window is the one shown
   if (!SNAP && !ownWindow(path, q) && w !== S.since) { S.since = w; S.graphSig = ""; showAt(); refreshHeader(); }   // (back, forward)
-  for (const a of document.querySelectorAll("#nav a")) {
+  const app = window.ergostatApp;                // the shell (app/shell.js): its nav, and the new pages; none in a snapshot
+  if (app) app.sync(top);
+  else for (const a of document.querySelectorAll("#nav a")) {
     const on = routeOfHref(a.getAttribute("href")) === top;
     a.classList.toggle("on", on);
     if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -656,22 +690,24 @@ async function route(keep = false) {             // keep: the window changed; th
   if (typeof splitLayout === "function" && !PANE) splitLayout();
   const main = $("#main");
   S.was = path === "/diagram" ? main.querySelector(":scope > .diagram") : null;   // the diagram left: shown, dimmed, until the next is drawn
+  app?.leave(main);                              // a new page shown: unmounted (its calls aborted, its polls stopped)
   main.replaceChildren();
   leavePage();
   const pages = { "/diagram": pageDiagram, "/dashboard": pageDashboard, "/goals": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
   if (path === "/loops") { replaceRoute(`/goals${q.toString() ? `?${q}` : ""}`); return route(); }   // the Goals page's old name
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
-  if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
-  if (path.startsWith("/agent/")) return pageAgent(main, decodeURIComponent(path.slice(7)));
-  // the Items page: bare, the overview of the kinds (kinds.js); a kind's own page at /items/KIND (?kind=KIND goes there);
-  // any other question (a search, a view of every kind) the list of every kind, as before
-  if (path === "/items" && q.get("kind")) {
+  if (path === "/items" && q.get("kind")) {      // ?kind=KIND: the kind's own page, /items/KIND
     const k = q.get("kind");
     q.delete("kind");
     replaceRoute(`/items/${encodeURIComponent(k)}${q.toString() ? `?${q}` : ""}`);
     return route();
   }
+  if (app?.mount(path, q, main)) return;         // a page moved to app/pages/<page>/index.js; else its old function
+  if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
+  if (path.startsWith("/agent/")) return pageAgent(main, decodeURIComponent(path.slice(7)));
+  // the Items page: bare, the overview of the kinds (kinds.js); a kind's own page at /items/KIND; any other question (a
+  // search, a view of every kind) the list of every kind, as before
   if (path === "/items" && [...q.keys()].every((x) => x === "states" || x === "window")) return pageKinds(main, q);
   if (path.startsWith("/items/")) { q.set("kind", decodeURIComponent(path.slice(7))); return pageItems(main, q, true); }
   return (pages[path] || pageDiagram)(main, q);

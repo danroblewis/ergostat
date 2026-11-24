@@ -173,6 +173,8 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
         return text.replace("<!--", "<\\!--")                          # nor open a comment that hides its end
 
     page = (STATIC / "index.html").read_text()
+    # a file loads no ES module: the app shell left out, main.js starts alone on the page's own header
+    page = re.sub(r'<script type="module" src="/static/app/[\w./-]+"></script>\n?', "", page)
     page = _STYLESHEET.sub(_style, page)
     # every < in the data as \u003c: no tag, comment or script end can form inside the script
     snapshot_js = "window.SNAPSHOT = " + json.dumps(snap, default=str).replace("<", "\\u003c") + ";"
