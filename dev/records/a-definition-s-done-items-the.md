@@ -80,3 +80,10 @@ put back alone. A backticked `sandbox-exec ...` span is still a measure need, as
 
 Size: unchanged, about 134 net lines in dev/bin (the pattern was rewritten in place). docs/SPEC.md is still left
 to the owner, as above.
+
+### Round 4
+
+The queue's one finding, a conflict with main in dev/bin/measure.py, is resolved. Both sides are kept: the
+branch's `env-parks` and main's `refused-commands-per-session` now sit one after the other in `reading`. Nothing
+else changed. tests/test_measure.py and tests/test_plan.py pass after the merge, and ruff is clean on ergostat,
+tests and scripts. Size: unchanged, 134 net lines in dev/bin against main (154 added, 20 removed).
