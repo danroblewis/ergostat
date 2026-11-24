@@ -376,8 +376,8 @@ def cmd_reset(args) -> int:
 
 
 def cmd_migrate(args) -> int:
-    """``ergostat migrate``: this project's readings copied into VictoriaMetrics (ergostat/migrate.py); run again, it
-    sends nothing."""
+    """``ergostat migrate``: this project's readings copied into VictoriaMetrics (ergostat/migrate.py), each series read
+    back; a reading the server did not keep fails it, named. Once all are held, run again, it sends nothing."""
     from ..migrate import migrate
     from ..storage import VM_URL
     from ..victoria import Victoria, VictoriaError
@@ -389,10 +389,19 @@ def cmd_migrate(args) -> int:
         print(f"ergostat migrate: {e}", file=sys.stderr)
         return 1
     if args.json:
-        return out_json({"url": url, **got, "dry_run": args.dry_run})
+        out_json({"url": url, **got, "dry_run": args.dry_run})
+        return 1 if got["missing"] else 0
     verb = "would send" if args.dry_run else "sent"
     print(f"{got['series']} series, {got['readings']} readings read from SQLite; {verb} {got['sent']} to {url}"
           + (f"; {got['renamed']} series renamed from ergostat_reading" if got["renamed"] else ""))
+    if got["missing"]:
+        day = lambda t: time.strftime("%Y-%m-%d", time.gmtime(t))   # noqa: E731
+        print(f"ergostat migrate: {got['missing']} readings sent were not kept by the server (older than its "
+              "-retentionPeriod, one month unless set, or too far ahead); keep SQLite, or raise -retentionPeriod and "
+              "run it again:", file=sys.stderr)
+        for s, x in sorted(got["lost"].items()):
+            print(f"  {s}: {x['n']} readings, {day(x['first'])} to {day(x['last'])}", file=sys.stderr)
+        return 1
     if not args.dry_run and p.storage.measurements != "victoriametrics":
         print("To read them from there, set storage: measurements: {backend: victoriametrics, url: " + url + "}")
     return 0

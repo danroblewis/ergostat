@@ -173,7 +173,49 @@ section: Runtime, scale and latency
 - **ergostat's own series in PromQL, with real labels** (done, on `metrics-store-with-labels`; SPEC §4b, §4e;
   docs/DASHBOARDS.md §6a). On VictoriaMetrics, each series is named with bounded labels (`ergostat_sensor{part,
   sensor}`, `ergostat_run_cost_usd{block}`, ...). The built-in `ergostat` data source answers PromQL for the project's
-  own series; over SQLite, a panel naming it says what it needs. `ergostat migrate` copies the readings idempotently.
+  own series; over SQLite, a panel naming it says what it needs. `ergostat migrate` copies the readings idempotently,
+  reads each series back, and fails naming any reading the server did not keep (its `-retentionPeriod`).
   `storage: measurements: run:` supervises the server, and a new record takes VictoriaMetrics when one answers. Left:
-  the four real-binary tests have not been seen to pass (no binary where it was built); labels declared per sensor;
+  the five real-binary tests have not been seen to pass (no binary where it was built); labels declared per sensor;
   the engine's reads through VictoriaMetrics were measured slow before and are not re-measured.
+
+## Where it stopped
+
+Round 4, the fix round: built, 2026-11-24. About 240 net lines outside tests, docs and dev in all (budget 600).
+
+The review's findings, both blocking, both answered (there were no others):
+- **Readings counted as sent without being kept** (migrate.py `_send`). Each series is now read back after it is
+  sent. A reading the server lacks after the send counts as `missing`, not as sent, and is named by series in `lost`
+  (`{n, first, last}`). `ergostat migrate` then exits 1 and prints each such series with its count and the days it
+  spans. It names `-retentionPeriod` and does not suggest switching the backend (the JSON form exits 1 too). A series
+  under the old name `ergostat_reading` is deleted only when every one of its readings is held under the new name, so
+  a lost reading is never deleted from the server. A rerun sends the lost readings again and says `missing` again,
+  never "sent nothing". The guide (§6a) now warns that `-retentionPeriod` is one month unless set, against SQLite's
+  up to 730 days, for `run:` and for a server run by hand. SPEC §4b, the CLI help and the docstrings now say "once
+  every reading is held, a rerun sends nothing".
+- **Values matched by `.12g` text** (`_key`). A reading is now held when a value at the same millisecond is within a
+  relative 1e-9 (`migrate.TOL`, `math.isclose`; NaN matches NaN). The in-memory stand-in now keeps values as a lossy
+  server would, cut (not rounded) to 12 significant digits. The record has a series of long floats (1/3, 2/3,
+  0.1+0.2, 1e-7, 123456.789012345, pi*1e9, 2/3*1e-12, -1/7, 0), and the real-server tests compare values to 1e-10
+  relative and run on the same record.
+
+New tests: `test_readings_the_server_does_not_keep_are_named_not_counted_as_sent` (in-memory, retention one day), an
+extension of `test_ergostat_migrate_says_what_it_sent_and_a_server_away_fails_it` (exit 1, the stderr names the
+series, no "To read them from there"), and `test_readings_a_real_server_drops_are_named_not_counted_as_sent`, a real
+binary started with `-retentionPeriod=1d` (needs `ERGOSTAT_TEST_VM_BIN` or PATH, skipped otherwise).
+
+Seen to fail when the code they guard was broken, each put back after:
+- going back to the `.12g` match failed the in-memory migration test: 17 readings were never counted as held,
+  including `0.01*7` costs.
+- skipping the read-back failed the retention test (missing 0, not 734) and the CLI test (exit 0, with "sent 1" and
+  the switch-over hint).
+- deleting the old name despite a loss failed the retention test (renamed 1, not 0).
+
+Not proven: **no VictoriaMetrics binary is in this container**, so the five real-server tests were skipped again and
+have never run. The tolerance assumes the server keeps at least 10 significant digits (its documentation says about
+12). That is a reading of the documentation, not a measurement.
+
+Run here, one file at a time: test_metrics_store_labels gave 12 passed and 5 skipped (the real-server tests). With
+test_storage and test_daemon_docs it gave 48 passed and 5 skipped. test_dashboards_doc, test_cli_fallback and
+test_spec_structure gave 63 passed. ruff is clean. `main` was already merged (it is an ancestor of HEAD). Not run: the
+whole unit suite, the browser files (no page changed) and `demo_check` (no example touched).

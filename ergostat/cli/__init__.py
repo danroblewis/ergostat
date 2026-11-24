@@ -349,7 +349,8 @@ def build() -> argparse.ArgumentParser:
     cp.add_argument("--reindex", action="store_true", help="fold the item index again from the record (it is rebuilt "
                                                           "whenever it is missing; the record is the truth)")
     mg = topic("migrate", cmd_migrate, "Copy this project's readings into VictoriaMetrics, under their names and labels "
-                                       "(PromQL reads them there); run again, it sends nothing", named=False)
+                                       "(PromQL reads them there); fails, naming them, on readings the server did not keep; "
+                                       "once all are held, run again, it sends nothing", named=False)
     mg.add_argument("--url", help="the VictoriaMetrics (default: storage: measurements: url:, else http://127.0.0.1:8428)")
     mg.add_argument("--dry-run", action="store_true", help="say what would be sent, and send nothing")
     rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs) and start from nothing",

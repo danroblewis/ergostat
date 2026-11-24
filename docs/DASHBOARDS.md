@@ -137,12 +137,18 @@ storage:
 
 `run:` makes it a daemon ergostat supervises (SPEC §9.7): started with `ergostat run`, restarted if it exits, stopped
 with ergostat, listed with the daemons on the Agents page. It runs through the shell, in the model's folder, so give
-`-storageDataPath` an absolute path (or `$HOME/...`) to keep its data out of the repository. If you already run VictoriaMetrics yourself, leave `run:` out. Several projects can share one server: each
+`-storageDataPath` an absolute path (or `$HOME/...`) to keep its data out of the repository. `-retentionPeriod` is how
+long the server keeps a reading: it is one month unless set, while SQLite keeps up to two years (730 days), so set it at
+least as long as the history you have. If you already run VictoriaMetrics yourself, leave `run:` out, and check its
+`-retentionPeriod` the same way. Several projects can share one server: each
 one's readings carry its own `project` label, and the built-in source only ever answers with this project's.
 
 **Move the readings already kept.** Once it is running, `ergostat migrate --dry-run` says how many readings it would
-send, and `ergostat migrate` sends them: every reading SQLite holds, under the names and labels below. Running it again
-sends nothing, so it is safe to repeat (after a crash, or to catch readings written before the switch). `measurements.db`
+send, and `ergostat migrate` sends them: every reading SQLite holds, under the names and labels below. It then reads
+each series back. If the server did not keep some readings (it drops, without saying so, any reading older than its
+`-retentionPeriod`), it fails, naming each such series with how many readings it lost and the days they span. Then
+stay on SQLite, or raise `-retentionPeriod` and run it again. Once every reading is held, running it again sends
+nothing, so it is safe to repeat (after a crash, or to catch readings written before the switch). `measurements.db`
 is only read, so going back is removing those lines: the project reads SQLite again.
 
 **A new install** (a project whose record has no readings yet, and whose YAML names no backend) uses VictoriaMetrics by

@@ -962,10 +962,14 @@ A record written before these names holds every series as `ergostat_reading{proj
 
 **Moving the readings to VictoriaMetrics** (`ergostat migrate [--url URL] [--dry-run]`, `ergostat/migrate.py`). Every
 reading the SQLite store answers (raw, and each old bucket's last reading) is copied to the server under its name and
-labels, and a series under the old single name is renamed (written under its labels, then the old name deleted). It
-is idempotent: for each series only the readings the server does not already hold under the new name, at the same
-millisecond with the same value, are sent, so a second run sends nothing and changes nothing, and a run after more
-readings were written sends only those. `measurements.db` is only read. The ledger of backfills is not copied: a file
+labels. A series under the old single name is renamed: written under its labels, then the old name deleted, but only
+once every one of its readings is held under the new one. For each series, only the readings the server does not
+already hold under the new name are sent: the same millisecond, and the same value to a relative 1e-9, since the
+server keeps a value's leading decimal digits, not its binary float. Each series is then read back. A reading sent
+that the server did not keep (older than its `-retentionPeriod`, one month by default, or too far ahead) is counted
+as `missing`, not as sent, and named by series in `lost` (`{n, first, last}`). The command then exits 1 and does not
+suggest switching the backend. Once every reading is held, a second run sends nothing and changes nothing, and a run
+after more readings were written sends only those. `measurements.db` is only read. The ledger of backfills is not copied: a file
 backfilled before is sent again by a later `--backfill`.
 
 **The default** when the YAML names no backend: a record that has one keeps it (`measurements.db`: an existing SQLite

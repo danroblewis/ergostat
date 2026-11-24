@@ -8,6 +8,7 @@ Prometheus's."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -18,6 +19,7 @@ import threading
 import time
 import urllib.request
 import uuid
+from decimal import ROUND_DOWN, Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -210,13 +212,24 @@ def test_storage_run_is_a_daemon_ergostat_supervises(tmp_path, monkeypatch):
 # ---- the migration's own logic, over an in-memory stand-in for the server (what runs without a binary)
 
 
+def _cut(v: float) -> float:
+    """A value as a lossy server keeps it: 12 significant digits, the rest cut (not rounded, unlike Python's .12g)."""
+    if v == 0 or not math.isfinite(v):
+        return v
+    d = Decimal(v)
+    return float(d.quantize(Decimal(1).scaleb(d.adjusted() - 11), rounding=ROUND_DOWN))
+
+
 class Mem(Victoria):
-    """A Victoria whose server is a dict: what is exported, imported and deleted, by the selectors migrate uses."""
+    """A Victoria whose server is a dict: what is exported, imported and deleted, by the selectors migrate uses. Its
+    values are kept as ``_cut`` keeps them, and with ``keep`` (seconds) a reading older than that is dropped unsaid,
+    as VictoriaMetrics drops one older than its -retentionPeriod."""
 
     def __init__(self, d):
         super().__init__("http://127.0.0.1:9", d, project="mem")
         self.new: dict[str, list] = {}
         self.old: dict[str, list] = {}
+        self.keep: float | None = None
 
     def _export(self, series, start=None, end=None, sel=None):
         if sel and f'__name__="{OLD_METRIC}"' in sel:
@@ -228,7 +241,8 @@ class Mem(Victoria):
 
     def add_many(self, rows):
         for s, t, v in rows:
-            self.new.setdefault(s, []).append((round(t * 1000) / 1000, v))
+            if self.keep is None or t >= time.time() - self.keep:
+                self.new.setdefault(s, []).append((round(t * 1000) / 1000, _cut(v)))
 
     def _req(self, path, params=None, body=None):
         assert path == "/api/v1/admin/tsdb/delete_series" and OLD_METRIC in params["match[]"]
@@ -241,19 +255,38 @@ def test_the_migration_sends_each_reading_once_and_renames_the_old_name(tmp_path
     src = _record(tmp_path, now)
     dst = Mem(tmp_path)
     dst.old = {"sensor/q.n": [(now - 60, 1.0), (now - 30, 2.0)], "plain": [(now - 600 + 1, 1.5)]}   # (one held already)
-    want = {s: [(round(t * 1000), v) for t, v in src.range(s, 0, UNTIL)]
-            for s in ("sensor/queue.depth", "run/builder/cost_usd", "valve/inflow", "plain", "sensor/old.many")}
+    want = {s: [(round(t * 1000), v) for t, v in src.range(s, 0, UNTIL)] for s in SERIES}
     assert 0 < len(want["sensor/old.many"]) < 2000                           # (rolled: each bucket's last reading stands)
+    assert any(_cut(v) != v for _, v in want["run/builder/cpu"])             # (values the server keeps cut)
     n = sum(map(len, want.values()))
     first = migrate(tmp_path, dst, src.tiers)
-    assert first == {"series": 5, "readings": n, "sent": n + 2, "renamed": 2} and dst.old == {}
+    assert first == {"series": 6, "readings": n, "sent": n + 2, "renamed": 2, "missing": 0, "lost": {}} and dst.old == {}
     held = _held(dst)
-    assert held == {**want, "sensor/q.n": [(round((now - 60) * 1000), 1.0), (round((now - 30) * 1000), 2.0)]}
+    _same(held, {**want, "sensor/q.n": [(round((now - 60) * 1000), 1.0), (round((now - 30) * 1000), 2.0)]})
     assert migrate(tmp_path, dst, src.tiers, dry=True)["sent"] == 0
     assert migrate(tmp_path, dst, src.tiers) == {**first, "sent": 0, "renamed": 0}
-    assert _held(dst) == held                                                # twice: nothing changed
+    assert _held(dst) == held                                                # twice: nothing changed, long floats too
     src.add("plain", 7.0, now)                                               # (written after: sent by the next run)
     assert migrate(tmp_path, dst, src.tiers)["sent"] == 1
+
+
+def test_readings_the_server_does_not_keep_are_named_not_counted_as_sent(tmp_path):
+    now = time.time()
+    src = _record(tmp_path, now)
+    dst = Mem(tmp_path)
+    dst.keep = 86400.0                                       # (as -retentionPeriod=1d: the record's day-old readings go)
+    dst.old = {"sensor/q.n": [(now - 3 * 86400, 1.0), (now - 30, 2.0)]}
+    want = {s: src.range(s, 0, UNTIL) for s in SERIES}
+    gone = {s: [t for t, _ in p if t < now - 86400] for s, p in want.items()}
+    gone = {s: ts for s, ts in gone.items() if ts} | {"sensor/q.n": [now - 3 * 86400]}
+    assert set(gone) == set(SERIES) - {"plain"} | {"sensor/q.n"}
+    n_gone = sum(map(len, gone.values()))
+    got = migrate(tmp_path, dst, src.tiers)
+    assert (got["missing"], got["sent"], got["renamed"]) == (n_gone, sum(map(len, want.values())) + 2 - n_gone, 0)
+    assert got["lost"] == {s: {"n": len(ts), "first": min(ts), "last": max(ts)} for s, ts in gone.items()}
+    assert dst.old["sensor/q.n"]                             # (not all held under the new name: the old one stays)
+    again = migrate(tmp_path, dst, src.tiers)
+    assert (again["sent"], again["missing"]) == (0, n_gone)  # (sent again, still not kept: never said to be held)
 
 
 def test_ergostat_migrate_says_what_it_sent_and_a_server_away_fails_it(tmp_path, monkeypatch, capsys):
@@ -270,6 +303,14 @@ def test_ergostat_migrate_says_what_it_sent_and_a_server_away_fails_it(tmp_path,
     assert (got["sent"], got["dry_run"], got["url"], mem.new) == (5, True, "http://127.0.0.1:8428", {})
     assert main(["-C", str(tmp_path), "migrate"]) == 0
     assert "5 readings read from SQLite; sent 5" in capsys.readouterr().out and len(mem.new["sensor/queue.depth"]) == 5
+    p.measurements.add_many([("sensor/queue.depth", time.time() - 3 * 86400, 9.0)])
+    mem.keep = 86400.0                                                # (the server drops it, unsaid)
+    assert main(["-C", str(tmp_path), "migrate"]) == 1
+    out, err = capsys.readouterr()
+    assert "sent 0" in out and "To read them from there" not in out  # (never told to switch over a loss)
+    assert "1 readings sent were not kept" in err and "sensor/queue.depth: 1 readings" in err and "-retentionPeriod" in err
+    assert main(["-C", str(tmp_path), "--json", "migrate"]) == 1
+    assert json.loads(capsys.readouterr().out)["lost"]["sensor/queue.depth"]["n"] == 1
 
 
 # ---- a real VictoriaMetrics
@@ -282,10 +323,18 @@ def vm(tmp_path_factory):
         return
     if not VM_BIN:
         pytest.skip(SKIP)
-    d, port = tmp_path_factory.mktemp("vm"), free_port()
+    with _server(tmp_path_factory.mktemp("vm"), "100y") as url:
+        yield url
+
+
+@contextlib.contextmanager
+def _server(d, retention: str):
+    """A VictoriaMetrics started here from VM_BIN, keeping ``retention``, stopped after."""
+    d.mkdir(exist_ok=True)
+    port = free_port()
     with open(d / "vm.log", "w") as log:
         proc = subprocess.Popen([VM_BIN, f"-storageDataPath={d / 'data'}", f"-httpListenAddr=127.0.0.1:{port}",
-                                 "-retentionPeriod=100y", "-search.disableCache", "-loggerLevel=ERROR"],
+                                 f"-retentionPeriod={retention}", "-search.disableCache", "-loggerLevel=ERROR"],
                                 stdout=subprocess.DEVNULL, stderr=log, start_new_session=True,
                                 env={**os.environ, "GOMAXPROCS": "2"})
     url = f"http://127.0.0.1:{port}"
@@ -315,8 +364,19 @@ def _held(dst: Victoria) -> dict:
     return {s: [(round(t * 1000), v) for t, v in pts] for s, pts in dst._export(None, 0, UNTIL).items()}
 
 
+def _same(got: dict, want: dict) -> None:
+    """The same series, times and number of readings; the values to the digits the server keeps."""
+    g, w = (sorted((s, t, v) for s, p in x.items() for t, v in p) for x in (got, want))
+    assert [x[:2] for x in g] == [x[:2] for x in w]
+    assert [x[2] for x in g] == pytest.approx([x[2] for x in w], rel=1e-10, abs=0)
+
+
+SERIES = ("sensor/queue.depth", "run/builder/cost_usd", "valve/inflow", "plain", "sensor/old.many", "run/builder/cpu")
+LONG = [1 / 3, 2 / 3, 0.1 + 0.2, 1e-7, 123456.789012345, math.pi * 1e9, 2 / 3 * 1e-12, -1 / 7, 0.0]
+
+
 def _record(d, now: float) -> Measurements:
-    """A SQLite record: raw readings of four series, and a day of one series rolled into 1-minute buckets."""
+    """A SQLite record: raw readings of five series (one of long floats), and a day of one rolled into 1-minute buckets."""
     src = Measurements(d, raw=3600.0, tiers=[(60.0, 30 * 86400.0)])
     t0 = math.floor((now - 2 * 86400) / 60) * 60
     rows = [("sensor/queue.depth", t0 + 60 * i + 0.5, float(i % 7)) for i in range(300)]
@@ -324,6 +384,7 @@ def _record(d, now: float) -> Measurements:
     rows += [("valve/inflow", t0 + 300 * i, float(i % 2)) for i in range(50)]
     rows += [("plain", now - 600 + i, 1.5 * i) for i in range(30)]            # (raw: inside the last hour)
     rows += [("sensor/old.many", t0 + 10 * i, float(i)) for i in range(2000)]  # (six to a minute: rolled to each one's last)
+    rows += [("run/builder/cpu", t0 + 900 * i + 0.125, v) for i, v in enumerate(LONG)]
     src.add_many(rows)
     src.roll(now)
     return src
@@ -335,11 +396,11 @@ def test_a_record_is_migrated_with_every_reading_and_answers_promql(tmp_path, vm
     dst = _vm(vm, tmp_path)
     try:
         got = migrate(tmp_path, dst, src.tiers)
-        want = {s: [(round(t * 1000), v) for t, v in src.range(s, 0, UNTIL)]
-                for s in ("sensor/queue.depth", "run/builder/cost_usd", "valve/inflow", "plain", "sensor/old.many")}
+        want = {s: [(round(t * 1000), v) for t, v in src.range(s, 0, UNTIL)] for s in SERIES}
         assert len(want["sensor/old.many"]) < 2000 and want["sensor/old.many"]   # (the buckets' last readings stand)
-        assert got == {"series": 5, "readings": sum(map(len, want.values())), "sent": sum(map(len, want.values())), "renamed": 0}
-        assert _held(dst) == want                                                 # every reading, its time and value
+        n = sum(map(len, want.values()))
+        assert got == {"series": 6, "readings": n, "sent": n, "renamed": 0, "missing": 0, "lost": {}}
+        _same(_held(dst), want)                                                   # every reading, its time and value
         g = grid(now - 3 * 86400, now, 3)
         ask = lambda text: datasources.query(None, "ergostat", text, g, store=dst)["series"]   # noqa: E731
         [s] = ask('count_over_time(ergostat_sensor{part="queue",sensor="depth"}[10d])')
@@ -366,11 +427,26 @@ def test_migrating_twice_changes_nothing(tmp_path, vm):
         first = migrate(tmp_path, dst, src.tiers)
         held = _held(dst)
         again = migrate(tmp_path, dst, src.tiers)
-        assert first["sent"] > 0 and again == {**first, "sent": 0}
-        assert _held(dst) == held
+        assert first["sent"] > 0 and first["missing"] == 0 and again == {**first, "sent": 0}
+        assert _held(dst) == held                                    # (the long floats too, as the server returns them)
         assert migrate(tmp_path, dst, src.tiers, dry=True)["sent"] == 0
     finally:
         dst.drop()
+
+
+def test_readings_a_real_server_drops_are_named_not_counted_as_sent(tmp_path):
+    """A server keeping one day (-retentionPeriod=1d): the record's two-day-old readings are sent, not kept, and named."""
+    if not VM_BIN:
+        pytest.skip(SKIP)
+    now = time.time()
+    src = _record(tmp_path, now)
+    with _server(tmp_path / "vm", "1d") as url:
+        dst = _vm(url, tmp_path)
+        got = migrate(tmp_path, dst, src.tiers)
+        n_plain = len(src.range("plain", 0, UNTIL))
+        assert got["sent"] == n_plain and set(got["lost"]) == set(SERIES) - {"plain"}
+        assert got["missing"] == got["readings"] - n_plain
+        assert migrate(tmp_path, dst, src.tiers)["missing"] == got["missing"]
 
 
 def test_a_record_under_the_old_single_name_is_renamed_once(tmp_path, vm):
