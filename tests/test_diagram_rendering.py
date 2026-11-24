@@ -2794,7 +2794,8 @@ def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, t
             paper: getComputedStyle(document.body).backgroundColor }; }""".replace("PROBE", PROBE).replace("PUT", put))
         drawn(pg, url, "view=blocks", 1)
         bd = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem'); PUT
-          const was = S.status.loops; S.status.loops = { ...was, 'fixture-goal': { status: 'off' }, 'calm-goal': { status: 'holding' } };
+          const was = S.status.loops;
+          S.status.loops = { ...was, 'fixture-goal': { status: 'off', word: 'off' }, 'calm-goal': { status: 'holding', word: 'holding' } };
           const draw = (loops) => put(bdNode({ ...n, loops }, { x: 0, y: 0, width: 120, height: 60 }), ':scope > rect.bd-line');
           const out = { calm: draw(['calm-goal']), off: draw(['calm-goal', 'fixture-goal']) }; S.status.loops = was; return out; }"""
                          .replace("PUT", put))
@@ -2816,7 +2817,7 @@ def test_a_closed_subsystems_outline_follows_its_goals_as_the_status_polls_chang
         resp = route.fetch()
         body = resp.json()
         for k in off:
-            body.setdefault("loops", {}).setdefault(k, {})["status"] = "off"
+            body.setdefault("loops", {}).setdefault(k, {}).update(status="off", word="off")   # (the server's word too)
         route.fulfill(response=resp, body=json.dumps(body))
 
     with served("software-factory", tmp_path) as url:
@@ -2824,7 +2825,7 @@ def test_a_closed_subsystems_outline_follows_its_goals_as_the_status_polls_chang
         pg.route("**/api/status*", status)
         drawn(pg, url, "view=blocks", 0)
         sub = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem' && (n.loops || []).length
-                                       && !n.loops.some((k) => S.status.loops?.[k]?.status === 'off'));
+                                       && !n.loops.some((k) => goalWord(S.status.loops?.[k]) === 'off'));
                                      return n && { id: n.id, loops: n.loops }; }""")
         assert sub, "no closed subsystem with a goal in it, none off"
         heavy = f"""() => document.querySelector(`g.bd-node[data-id="${{CSS.escape({json.dumps(sub['id'])})}}"]`)

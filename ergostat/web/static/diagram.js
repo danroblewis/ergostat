@@ -600,7 +600,7 @@ function frameMarks(x, y, w, hgt, nested) {
 /* a closed system with a goal in it off (its box drawn heavier): a box's loops by state (dynamics) or by name (blocks) */
 function systemOff(n) {
   const l = n.loops;
-  return Array.isArray(l) ? l.some((k) => S.status?.loops?.[k]?.status === "off") : (l?.off || 0) > 0;
+  return Array.isArray(l) ? l.some((k) => goalRank(S.status?.loops?.[k]) === 0) : (l?.off || 0) > 0;   // (off: the server's word, goalWord)
 }
 
 /* the pin on a part (or a system) put by hand: clicked, it is let go, and the layout places it again */

@@ -121,3 +121,22 @@ Round 5. main has no commits the branch lacks (HEAD..main is empty), so there wa
   (`t=$(grep -o ... | sed 's/def //'); ... named_tests.py ...::$t`), so the name was found with the search tool and the
   tests were run with it written out; and a `cat >> dev/records/... <<'EOF'` + `git commit`, so this section was written
   with the edit tool.
+
+Round 6. main (fa51005d) merged; the one conflict (blocks.js, the Blocks frame's title) resolved keeping both: the
+branch's corner frame and title on the top edge, main's rule that a C_name / P_name frame does not print its name twice.
+
+- Finding (the queue: `test_no_page_code_counts_goals_by_their_status` and
+  `test_no_page_script_words_a_goals_state_but_goalrow` failed alone): `systemOff` compared a goal's `status` with
+  "off" itself. It now asks the server's word, `goalRank(...) === 0` (goalWord, goalrow.js), so no page line maps a
+  status. Both tests failed before the change and pass after. The two browser tests that set a goal off now set the
+  server's `word` too (the server sends one with each loop, and goalWord reads it first), and pick their calm
+  subsystem by goalWord.
+- Ran (passed): the two tests above; `test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off`,
+  `test_a_closed_subsystems_outline_follows_its_goals_as_the_status_polls_change`,
+  `test_every_view_loads_with_no_console_error_or_warning` (25 with its parameters); `test_an_open_system_is_framed_...` (both examples),
+  `test_the_exported_blocks_legend_...`, `test_a_graph_with_no_tree_...` (4 passed); ruff clean. A first
+  run of the first two timed out on every page: my own edit had left a comment swallowing the rest of `systemOff`'s
+  line, a syntax error; fixed before the passing run. The whole file was not run; the round-4 failures judged to come
+  from main were not rerun.
+- Refused command: `node --check ergostat/web/static/blocks.js` (and the same for diagram.js); the console-error
+  test was run instead.
