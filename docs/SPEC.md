@@ -270,7 +270,8 @@ compiled. A sensor's `run:` goes through the reader pool, which is bounded alrea
 
 **Writing one.** A template file is YAML: `template:` (its name), `description:`, `reading:` (what it is in
 control theory and in system dynamics), `params:` (each with `type`, `description`, and `default`,
-`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; `min:` and `max:` on a
+`required: true` (or a condition on the parameters above it, `required: "${approver} == program"`) or nothing;
+`stand-in:` says what stands in when it is left out; `choices:`; `min:` and `max:` on a
 `number` or `integer`, a value outside them an error naming the bound; type `any` takes a value as given, checked
 where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
 (above), `exports:` (above), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
@@ -8131,15 +8132,16 @@ What it protects against and what it does not, for people: `docs/SECURITY.md`.
 
 Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
 and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
-is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (the
-ladder's lowest rung, a program as approver) is in `docs/GAPS.md`.
+is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet
+(promoting a fix's approver down the ladder on its own) is in `docs/GAPS.md`.
 
 ```yaml
 uses:
   repair:
     use: repair
     with:
-      approver: person        # (default) or ai: the ladder's second rung, behind the guard below
+      approver: person        # (default), or ai, program or rule: the rungs below, behind the guard below
+      # approve-with: ./approve-fix.sh   # required with approver: program (below)
       model: haiku            # the fixer's (default)
       budget: 0.25            # dollars, one AI call at most
       daily: 2                # dollars, every AI call of the loop in a day
@@ -8413,6 +8415,29 @@ lock: the action's fold makes it final whatever the order (before the write ther
 it, the action is denied and never run). The inbox counts the AI's answers as an agent's (`by_agent`), never as a
 person's approvals, and not among the approvals asked of a person in a day.
 
+**The lower rungs: a program and a rule** (`approver: program` and `approver: rule`, the same `approve.py`). Neither
+ever calls an AI, and each answers only a fix the guard gave no reason about (a fix that passed its test); anything
+else is held for the person as above. With **`approver: program`** the template takes **`approve-with:`**, a command
+of the owner's project (required: without it `check` refuses the `use:`). It is run in the model's folder with
+`/bin/sh -c`, given on stdin exactly what the AI is given (`{"program", "diff", "test": "passed"}`), with an
+environment of an allowlist only (`PATH`, `HOME`, `USER`, `LANG` and the like: no secrets) and a timeout of 60 s at
+most (and never more than the loop's `timeout`); on a timeout its whole process group is killed. It approves only when
+it exits 0 and its standard output is a JSON object with `"approve": true`; another exit, a timeout, a failure to
+start or output that is not such JSON (or longer than 64 KB) is escalate. With **`approver: rule`** the rule reads
+the block's `apply-fix` actions that have been answered (their first `approved` or `denied`), ordered by that
+answer's `seq` (never by time), and approves only when there are at least 10 and the last 10 were each approved and
+`ran`, and none of their failures ever reached `regressed` or `reverted`; fewer than 10, any denied (or approved but
+not yet run), or a record that cannot be read is escalate. Both are recorded as the AI's are, through the same stamp
+and the same re-check of `current` under the failure's lock, `by` (and `approved_by`) **`program approver (CMD)`**
+(the command's first word) or **`rule approver`**; the approval has no `model`, the program's carries its `exit`, and
+the rule's its `earned`: the 10 seqs that earned it. Under the lock the rule is read again, and it approves only if
+the same 10 still earn it and the seq of the newest answer to any of the block's fixes is the one it read, so a
+denial written after its read is never approved over. **Their limits**: a rung's judgement is no better than the
+guard (its residuals, below) and the owner's program; the rule says only that the block's recent fixes went well,
+not that this one is right; and a program given the diff can be wrong in any way its owner wrote it. The inbox counts
+their answers as an agent's too (`by_agent`), never as a person's approvals, so they are never evidence for promoting
+`apply-fix`.
+
 **Applying** (`python -m ergostat.repair apply`, the approved action, in the model's folder): the failure must be
 awaiting approval with a tested fix; the approved action's `key` must name that fix; the clone's metadata must be what ergostat made and its `HEAD` the tested commit;
 the owner's `HEAD` must still be the commit the fix was made on (else refused: fixed again on the new one). Then the
@@ -8477,7 +8502,7 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 | stocks | `open-failures`, `fixing` (leased), `awaiting-approval`, `applied-fixes`, `regressed-fixes` (waiting for their revert) |
 | auxiliaries | `repair-spend`, `fixes-regressed-recent` (the failures entering `regressed` over the last 14 days, a count) |
 | flows | `failures-found`, `fixes-started`, `fixes-proposed`, `fixes-failed` (rework), `fixes-applied`, `fixes-verified`, `fixes-regressed`, `fixes-reverted`, `fixes-dismissed` |
-| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver: the person, or the AI), `fixes-hold` (`fixes-regressed-recent` `<= 0`, `tolerance: 0`, `on-stale: off`; read by `repair-settle`, which asks each regressed fix's revert) |
+| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver: the person, the AI, the owner's program or the rule), `fixes-hold` (`fixes-regressed-recent` `<= 0`, `tolerance: 0`, `on-stale: off`; read by `repair-settle`, which asks each regressed fix's revert) |
 | actions | `apply-fix`, `revert-fix` (`gate: approve` or `deny`; `auto` is not offered: approval is the ladder's) |
 
 **`fixes-hold`: no fix regressed in the last 14 days.** It is on the window, not on the stock `regressed-fixes`: a
