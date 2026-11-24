@@ -15,6 +15,12 @@ one before you remove it.
 {evidence}
 ```
 
+## The quiet gates
+
+The gates with no catch in the last 30 days (`measure.py gate-catches-GATE`, dev/model/guarantees-gates.yaml):
+{quiet_gates}. Each is a candidate to question in your report, never to remove unasked: a gate that never fails is
+evidence, not a fault.
+
 ## The rules of a simplification
 
 - Remove and simplify only, without changing behaviour: no new feature, no new option, no renamed command or field.
