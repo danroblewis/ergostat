@@ -13,3 +13,54 @@ Acceptance tests: the browser checks above. If mounting needs more than the budg
 Budget: 180 net lines.
 
 Milestone: kind-and-item-pages. Owner items: 20 (the subset of the diagrams, on the item page). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. 76 net lines outside tests and docs (118 added, 42 removed), within the 180.
+
+**The embedding: the proposal's, not either of the two this definition names.** The definition says "by the
+embedding the proposal chose" and names a per-mount renderer or the `?pane=1` frame; the proposal (§2, §6.4)
+chose neither: it rejected both and chose `drawStatic`, the Guide's one-drawing-at-a-time renderer moved out of
+guide.js. That is what is built: `drawStatic(svg, g, view, {aspect, toggle})` in diagram.js (the Guide now calls
+it), which sets the renderers' S fields for one drawing, queued, and puts them back after (but `toggleSystem` while
+a drawing's own toggle lives, the Guide's open/close), and sets nothing once its svg has left the page. No
+state-scoping change in interact.js, dynamics.js or blocks.js was needed, so none was made. This is the more
+reversible choice: nothing in the main diagram's code path changed but one line (ELK asked for early, below).
+
+**ELK loaded on the first layout, app-wide (outside the Files list: util.js, index.html, server.py,
+snapshot.py).** Done item 2 asks that no request for elk.bundled.js be made with the section closed, but on main
+`<script src="/static/elk.bundled.js">` is in index.html, so every page, the item page included, fetched and ran
+it at its start. The only call into it is `elk.layout(...)`, so `elk` is now a small object whose `layout` awaits
+`elkReady()`: the page's own ELK when it has one (a snapshot's, a test page's), else the script loaded once, at
+its version (the server's `ergostat-assets` meta tag now lists elk.bundled.js, as it lists libavoid's files). The
+Diagram page calls `elkReady()` as it opens, so the fetch runs beside its first graph request. A snapshot inlines
+ELK before util.js (with the data, as before). The reversal is one line in index.html put back.
+
+**Measured (done item 2):** `test_the_item_page_loads_no_slower_without_elk_at_its_start` loads the item page
+alternately as main serves it (ELK's script put back into the page by a route rewrite: the only boot difference)
+and as this branch does, 5 cold loads each, navigation to the path's last step on the page. In this container:
+main 148 ms median (122-239), this branch 102 ms (75-113). The test asserts no ELK request on this branch and a
+median no slower than main's + 100 ms. "Unchanged" is therefore met as "not slower" (it is faster).
+
+**Tests (tests/test_items_page.py):** `test_the_item_page_draws_its_path_on_demand` (done items 1 and 3's console
+check; closed: no elk.bundled, libavoid or /api/graph request; open: every node of `/api/graph?view=V&item=ID`
+drawn, todo, in-progress and started among them, 400-440 px high and the section's width, a viewBox, no toolbar,
+aside or pins; a forced whole refresh lays nothing out again; Blocks: block.developer's shape and every node of
+its goals drawn; three rounds of close, open, Dynamics, Blocks add no window or document listener and no
+interval; a drag moves nothing and saves no pin; a click on the developer opens
+`/diagram?view=blocks&item=ticket%2Fe1-design&select=block.developer` with it chosen) and
+`test_the_item_page_loads_no_slower_without_elk_at_its_start`. Broken on purpose and seen to fail: the
+same-path check removed (laid out again: 4 layouts for 2), the click guard moved off capture (no navigation), a
+window listener added per drawing (listeners 40 then 42). Not seen to fail: the drag check with the pointerdown
+guard removed still passes, because S is put back after drawing and the renderers' drag then finds no layout;
+the guard stays as a second line (the Guide has the same one).
+
+**Not covered:** a path that changes while the section is open (a re-layout then) has no browser test: making
+one would add events to the roadmap fixture other tests count. Timers are checked as intervals only; drawStatic's
+one 5 s wait for the lines is cleared when they come.
+
+**Suites run here:** ruff clean; tests/test_graph_cli_web.py (59 passed: the page and snapshot tests);
+tests/test_items_page.py whole: 88 passed, 4 failed. Of the 4, `test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel`
+and `test_the_graph_and_the_timeline_left_open_change_nothing` (both params) passed when run again alone;
+`test_every_surface_prints_the_servers_one_count_of_goals_off` fails alone too, on the /loops page's heading
+('Goals · …' where the test wants 'Loops · …'), code this branch does not touch: a failure of main, left alone.

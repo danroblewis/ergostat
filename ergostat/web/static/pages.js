@@ -1113,9 +1113,13 @@ function pathDrawing(id) {
   let view = "dynamics", path = "", drawn = "";
   const stage = h("div", { class: "path-stage" }), seg = h("span", { class: "seg", role: "group", "aria-label": "View" });
   const el = h("details", { class: "draw-path", ontoggle: () => draw() }, h("summary", {}, "Draw its path"), seg, stage);
-  async function draw() {
+  const pick = (to) => {                                 // the switch, drawn again only when the view changes
+    view = to;
     seg.replaceChildren(...[["dynamics", "Dynamics"], ["blocks", "Blocks"]].map(([v, w]) => h("button", { class: v === view ? "on" : "",
-      "aria-pressed": String(v === view), onclick: () => { view = v; draw(); } }, w)));
+      "aria-pressed": String(v === view), onclick: () => { pick(v); draw(); } }, w)));
+  };
+  pick(view);
+  async function draw() {
     const want = JSON.stringify([view, path]);
     if (!el.open || want === drawn) return;
     drawn = want;
