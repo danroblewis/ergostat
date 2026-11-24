@@ -144,8 +144,8 @@ The control diagram is the product's main view. Conventions:
   lettered (H person, A ai, N narrow-ai, D decision, P program, R rule), so colour is never the
   only cue; a disturbance may carry the badge of the agent whose doing it is.
 - **Lines**: pipes are double lines with moving dots while they flow; measurement is dashed
-  (stock to sensor), signal solid (sensor to controller), action purple (controller to valve).
-  A loop's lines take its status colour (green holding, red off, amber open).
+  (stock to sensor), signal solid (sensor to controller). Their colours follow the rules under
+  Colour (§8): the material path in full ink, information in the ink's second tone.
 - **Layout** (ELK layered, vendored): the plant runs left to right along the pipes (pipes carry the
   highest straightness and direction priority), the feedback path above it; each loop a row.
   Systems are drawn as thin outlines named in muted type (one ink: no colour per system), overlapping where they
@@ -400,6 +400,25 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   in ten of its runs, and half. A projection too short to see on the window's axis gets the last
   quarter of the chart, on a time axis of its own past now (+20s, +40s). A loop's dominance draws it in
   ink and the loops competing at the same stock in the muted grey.
+
+  The diagrams' colour rules, written here once (every view, legend and later change keeps to them):
+
+  1. **The accent and its tone mean selection or trace, in both views, and nothing else.** A part
+     chosen or pointed at, a line traced, a loop lit from its marker: the accent (`--accent`). A lit
+     loop draws its pipes in the accent and its connectors in the accent's lighter tone (`--accent-2`).
+     No goal, status or kind of part is ever drawn in the accent.
+  2. **`--bad` together with the printed word means a goal is off**, in Dynamics and on lists only,
+     never the colour alone. Blocks carries status in text and weight, never colour: it stays
+     monochrome.
+  3. **Tone carries importance, never status.** Each ink has a second tone, the ink mixed toward
+     the paper (`--sd-ink-2`, about 55% in the light theme and 50% in the dark; `--ink-2-line` for
+     Blocks), 3.0 to 4.5:1 on the paper where the ink is 10:1 or more (`tests/test_style_tokens.py`).
+     It draws what carries information, not material: in Dynamics the connectors and their heads, the
+     loops' names, shadow variables and stubs (the stocks, pipes, valves, clouds, part names and
+     values, polarity signs and loop markers stay full ink, and so does the connector from a goal's
+     gap to the flow it drives, the line that closes its loop); in Blocks what a collector records
+     and its bus, a port's line and a disturbance's input (r, e, u, y and y_m stay ink). Each legend
+     says so: "a lighter line: information, not material". The saved SVG and PNG keep the tones.
 - **Themes.** Light first. The dark theme follows the system setting and is the same ramp read
   the other way, with the same hues, generated from the same OKLCH values (the hex values in the
   token block say which).

@@ -59,7 +59,9 @@
               text: mode === "hide-low" ? `${n} of ${pts.length} points hidden: coherence under ${floorText(r)}`
                 : `dashed, shaded: unreliable, coherence under ${floorText(r)} (${n} of ${pts.length})` }];
   };
-  const methodNote = (r) => ({ text: r.method === "model" ? `from the identified model${r.delay_seconds ? `, delay ${+r.delay_seconds.toPrecision(3)} s` : ""}` : `estimated from ${r.samples ?? "?"} samples (Welch)` });
+  const FROM = { declared: "from the goal's declared process", identified: "from the process its record identifies", written: "from the model the query writes" };
+  const fitText = (f) => (Number.isFinite(f?.follows_held_out) ? `, following ${f.follows_held_out.toFixed(0)}% of the record held out` : "");
+  const methodNote = (r) => ({ text: r.method === "model" ? `${FROM[r.process_from] || "from a model"}${fitText(r.fit)}${r.delay_seconds ? `, delay ${+r.delay_seconds.toPrecision(3)} s` : ""}` : `estimated from ${r.samples ?? "?"} samples (Welch)` });
   const readPoint = (p) => `${hzText(p.hz)}  ${p.db == null ? "–" : p.db.toFixed(1)} dB  ${p.deg == null ? "–" : p.deg.toFixed(1)}°${p.coh == null ? "" : `  coherence ${p.coh.toFixed(2)}`}${p.low ? " (unreliable)" : ""}`;
 
   function drawBode(target, first, config, opts) {
@@ -276,7 +278,7 @@
       };
       const notes = [{ mark: (m) => m.append(s("path", { d: "M4 1 L12 9 M4 9 L12 1", stroke: "currentColor", "stroke-width": 1.5 })), text: `pole (${poles.length})` },
                      { mark: F.svgDot({ fill: "none" }), text: `zero (${zeros.length})` },
-                     { text: discrete ? "stable inside the unit circle" : "shaded: right half-plane, unstable" }, methodNote(result)];
+                     { text: discrete ? `sampled every dt = ${Number.isFinite(result.dt) ? +result.dt.toPrecision(3) : "?"} s: stable inside the unit circle` : "shaded: right half-plane, unstable" }, methodNote(result)];
       return { paint, pick, notes, model };
     });
   }
@@ -296,6 +298,6 @@
       coherence,
     ] });
   registerPlotForm("pole-zero", { label: "Pole-zero map", group: "dynamics", needs: { source: "frequency", data: "poles", text: "poles and zeros, from an identified model" }, draw: drawPoleZero,
-    shapes: { response: { has: "system" } }, reshape: "ask for the response of a goal's model, which has its poles",
-    check: (r) => (r.poles?.length || r.zeros?.length ? "" : "Poles and zeros come only from an identified model's response."), options: [] });
+    shapes: { response: { has: "system" } }, reshape: "ask the model source (goal NAME), whose response has its poles",
+    check: (r) => (r.poles?.length || r.zeros?.length ? "" : "Poles and zeros come only from a model's response (the model source)."), options: [] });
 })();

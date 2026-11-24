@@ -54,6 +54,11 @@ class CausalLoop:
     def unknown(self) -> list[Link]:
         return [x for x in self.links if x.sign is None]
 
+    @property
+    def goal(self) -> str | None:
+        """The goal it closes: the one whose gap it runs through (the first by name, as it is named), else None."""
+        return self.goals[0] if self.goals else None
+
 
 def _part(r: Ref) -> str:
     return f"{r.kind}.{r.name}"

@@ -1231,7 +1231,7 @@ async function pageItem(main, id, q) {
     // what its kind touches in the model (unread: the lifecycle strip, saying nothing of the model)
     const fp = k && d.path?.length ? await ans.api(`kinds/${encodeURIComponent(k.name)}`).catch(() => null) : null;
     const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
-      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
+      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])]), w.place]);
     if (!p.isConnected || late()) return;
     const same = wsig === whySig;
     whySig = wsig;
