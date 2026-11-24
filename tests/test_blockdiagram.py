@@ -111,11 +111,12 @@ def test_image_squeeze_the_service_is_one_mimo_process_and_the_tuner_integrates(
 def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
     g = drawn(spec)
-    boxes = [n for n in g["nodes"] if n["role"] == "subsystem"]           # (and a C-P loop's r, Σ, H, y and d)
+    boxes = [n for n in g["nodes"] if n["role"] == "subsystem"]           # (and a C-P loop's r, Σ, H, y and d,
     assert {n["id"] for n in boxes} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling",
-                                         "sys:regressions"}
+                                         "sys:regressions"}                 # and an uncoupled row's r and y)
     rest = {n["id"] for n in g["nodes"]} - {n["id"] for n in boxes}
-    assert all(re.fullmatch(r"(ref|sum|h|out):top:[a-z-]+>service|dist:top:service", i) for i in rest), rest
+    rows = {f"{k}:top:{r['system']}" for r in g["rows"] for k in ("ref", "out") if len(r["nodes"]) == 3}
+    assert all(re.fullmatch(r"(ref|sum|h|out):top:[a-z-]+>service|dist:top:service", i) for i in rest - rows), rest
     for n in boxes:
         assert n["fn"]["sym"] == (n["fn"]["letter"] or n["label"]) and n["fn"]["expr"] == f"{n['fn']['p']}×{n['fn']['m']}"
     assert any(e["signal"].get("n", 1) > 1 for e in g["edges"])
@@ -681,7 +682,8 @@ def test_every_system_has_the_same_letter_and_p_by_m_closed_and_open(example):
             (p["as"] for p in box["ports"]), key=["in", "out", "d"].index), (example, s)
         # counted again from what is drawn: closed, its ports; open with all inside it open, the lines crossing its frame
         # and the disturbances arising inside it
-        keys_of = lambda ps: {k for p in ps for k in (p.get("keys") or [p["key"]])}          # noqa: E731
+        keys_of = lambda ps: {k for p in ps if not p.get("row") for k in (p.get("keys") or [p["key"]])}  # noqa: E731
+        # (an uncoupled row's r and y are its references and goals' outputs, not wires crossing its border)
         assert keys_of(box["outs"]) == {p["key"] for p in box["ports"] if p["as"] == "out"}, (example, s)
         assert keys_of(box["ins"]) <= {p["key"] for p in box["ports"] if p["as"] != "out"}, (example, s)
         g = drawn(spec, above | {s} | {x for x in spec.systems if s in spec.chain(x)})
@@ -815,6 +817,75 @@ def test_the_top_loop_stands_for_its_goals_and_signals_in_the_correspondence():
     assert "goal.no-live-bugs" in sh["sum:top:factory>product"]["is"] and "goal.no-live-bugs.r" in sh["ref:top:factory>product"]["is"]
     assert "stock.bugs-live" in sh["h:top:factory>product"]["is"] and "stock.bugs-live" in sh["out:top:factory>product"]["is"]
     assert sh["dist:top:product"]["is"] == ["auxiliary.ops-broken-per-ticket"]
+
+
+# ---- uncoupled systems as parallel rows, each its own r and y (dev/records/blocks-uncoupled-systems-parallel-rows.md)
+
+APART = """
+    systems:
+      b: {description: one}
+      a: {description: another that nothing joins to b}
+    stocks:
+      work: {system: b, unit: x, sensor: {run: echo 1, every: 1m}}
+      load: {system: a, unit: x, sensor: {run: echo 1, every: 1m}}
+      heat: {system: a, unit: x, sensor: {run: echo 1, every: 1m}}
+    flows:
+      fill: {system: b, to: work}
+      fill-a: {system: a, to: load}
+    goals:
+      work-low: {system: b, stock: work, hold: "<= 5"}
+      load-low: {system: a, stock: load, hold: "<= 5"}
+      heat-low: {system: a, stock: heat, hold: "<= 5"}
+    """
+
+
+def _rows_of(g: dict, spec) -> list[tuple]:
+    """Each row as (r, its system's block, y), checked to be wired r → block → y and nothing else; an open system's
+    as (its frame,), checked that no wire leaves it."""
+    n = {x["id"]: x for x in g["nodes"]}
+    out = []
+    for row in g["rows"]:
+        if not row["nodes"]:
+            f = row["frame"]
+            assert f == f"frame:{row['system']}" and f in {x["id"] for x in g["frames"]}
+            inside = {x["id"] for x in g["nodes"] if row["system"] in spec.chain(x.get("system_name") or x.get("system"))}
+            assert inside and not [e for e in g["edges"] if (e["source"] in inside) != (e["target"] in inside)], row
+            out.append((f,))
+            continue
+        r, b, y = row["nodes"]
+        assert b == f"sys:{row['system']}" and n[b]["role"] == "subsystem"
+        assert (n[r]["kind"], n[r]["role"], n[y]["kind"]) == ("input", "reference", "output"), row
+        touch = [(e["source"], e["target"], e["signal"]["sym"], e["signal"]["sub"]) for e in g["edges"] if b in (e["source"], e["target"])]
+        assert sorted(touch) == sorted([(r, b, "r", row["system"]), (b, y, "y", row["system"])]), (row, touch)
+        assert [p["id"] for p in n[b]["ins"]] == [f"{b}|in|r"] and [p["id"] for p in n[b]["outs"]] == [f"{b}|out|y"]
+        out.append((r, b, y))
+    return out
+
+
+def test_an_uncoupled_spec_yields_parallel_rows_each_with_its_r_in_and_y_out(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(APART))
+    spec = load(tmp_path / "ergostat.yaml")
+    g = drawn(spec)
+    assert _rows_of(g, spec) ==[("ref:top:b", "sys:b", "out:top:b"), ("ref:top:a", "sys:a", "out:top:a")]   # model order
+    assert g["caption"] == "no signals between these systems"
+    a = next(e for e in g["edges"] if e["source"] == "ref:top:a")
+    assert a["signal"]["n"] == 2 and a["keys"] == ["goal.load-low.r", "goal.heat-low.r"]
+    assert next(e for e in g["edges"] if e["target"] == "out:top:a")["keys"] == ["stock.load", "stock.heat"]
+    one = drawn(spec, {"a"})                       # a's frame open: still a row, its block's r and y inside it
+    assert _rows_of(one, spec) == [("ref:top:b", "sys:b", "out:top:b"), ("frame:a",)] and one["caption"]
+
+
+@pytest.mark.parametrize("ex,rows", [
+    ("big", [(f"ref:top:{s}", f"sys:{s}", f"out:top:{s}") for s in ("api", "billing", "build", "data", "support", "web",
+                                                                     "modelling")]),
+    ("the-job", [("frame:job",), ("ref:top:modelling", "sys:modelling", "out:top:modelling")]),
+    ("software-factory", [])])                      # (factory and product a loop, modelling alone: no group)
+def test_the_examples_uncoupled_top_systems_are_rows_in_model_order(ex, rows):
+    spec = load(ROOT / "examples" / ex / "ergostat.yaml")
+    g = drawn(spec)
+    assert _rows_of(g, spec) == rows and (g["caption"] is not None) == bool(rows)
+    model = [s for s in spec.systems if s != "modelling"] + ["modelling"]            # the model's order, its upkeep last
+    assert [r["system"] for r in g["rows"]] == [s for s in model if any(r["system"] == s for r in g["rows"])]
 
 
 @pytest.mark.parametrize("which", ["two", "software-factory"])

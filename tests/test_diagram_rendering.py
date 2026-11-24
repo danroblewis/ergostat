@@ -2136,6 +2136,52 @@ def test_the_top_of_blocks_is_a_loop_with_its_junction_ahead_of_the_controller_a
         assert not errors, errors
 
 
+ROWS = """() => {
+  const at = (id) => S.layout.children.find((c) => c.id === id);
+  const cap = [...document.querySelectorAll("svg.canvas text.bd-row-caption")];
+  return { rows: (S.graph.rows || []).map((r) => ({ system: r.system, parts: r.nodes.map(at), frame: r.frame &&
+                                                     S.layout.containers.find((c) => c.id === r.frame) })),
+           outlines: [...document.querySelectorAll("svg.canvas rect.bd-row")].map((r) => ({ system: r.dataset.system,
+             x: +r.getAttribute("x"), y: +r.getAttribute("y"), w: +r.getAttribute("width"), h: +r.getAttribute("height") })),
+           caption: cap.map((t) => ({ text: t.textContent, px: parseFloat(getComputedStyle(t).fontSize), y: +t.getAttribute("y") })) };
+}"""
+
+
+@pytest.mark.parametrize("example,systems", [
+    ("big", ["api", "billing", "build", "data", "support", "web", "modelling"]),
+    ("the-job", ["job", "modelling"]),
+    ("software-factory", [])])
+def test_uncoupled_systems_are_parallel_rows_each_with_r_left_and_y_right_and_a_caption(browser, tmp_path, example, systems):
+    """big's seven systems and the-job's two, joined by no signal, are rows top to bottom in the model's order, left
+    edges aligned, each in its outline, each closed one with its r on its left and its y on its right, and one caption
+    under them, at least 11 px; software-factory's systems are coupled: no rows and no caption."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks", 0)
+        r = pg.evaluate(ROWS)
+        pg.close()
+    assert not errors, errors
+    assert [x["system"] for x in r["rows"]] == systems == [o["system"] for o in r["outlines"]], r
+    if not systems:
+        assert not r["caption"] and not r["outlines"], r
+        return
+    out = r["outlines"]
+    assert len({o["x"] for o in out}) == 1 and all(a["y"] + a["h"] <= b["y"] for a, b in zip(out, out[1:], strict=False)), out
+    within = lambda b, o: o["x"] <= b["x"] and b["x"] + b["width"] <= o["x"] + o["w"] and \
+        o["y"] <= b["y"] and b["y"] + b["height"] <= o["y"] + o["h"]                      # noqa: E731
+    for row, o in zip(r["rows"], out, strict=True):
+        if row["frame"]:
+            assert within(row["frame"], o), (row, o)
+            continue
+        ref, box, y = row["parts"]
+        assert all(within(b, o) for b in (ref, box, y)), (row, o)
+        assert ref["x"] + ref["width"] <= box["x"] and box["x"] + box["width"] <= y["x"], row
+    assert [c["text"] for c in r["caption"]] == ["no signals between these systems"], r["caption"]
+    assert r["caption"][0]["px"] >= 11 and r["caption"][0]["y"] > out[-1]["y"] + out[-1]["h"], r["caption"]
+
+
 def test_sensors_polled_alike_are_drawn_alike_with_a_sampler(browser, tmp_path):
     """image-squeeze's service: any two sensors with the same period have the same main label and both a
     sampler; a sampler whose T is slight against its loop's is drawn in the muted stroke, and its panel gives

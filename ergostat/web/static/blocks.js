@@ -243,6 +243,7 @@ async function bdLayout(g) {
     }
   }
   const size = bdWrapRows(g, { children, containers, ports, edges }, lay.width, lay.height);
+  const rows = bdStackRows(g, { children, containers, ports, edges }, size);
   const up = bdUpkeep(g);
   let rule = null;
   if (up) {                                             // the model's own upkeep: read last, bottom right, below a thin rule
@@ -270,7 +271,7 @@ async function bdLayout(g) {
     }
     if (c) { p.dx = p.x - c.x; p.dy = p.y - c.y; }      // (each goes with its part when it is moved: places.js)
   }
-  const out = { children, containers, edges, ports, width: size[0], height: size[1], routing: false, rule };
+  const out = { children, containers, edges, ports, width: size[0], height: size[1], routing: false, rule, ...rows };
   for (const e of out.edges) {                         // until libavoid's lines come: ELK's, ending on the ports
     const ge = g.edges.find((x) => x.id === e.id);
     const a = ports[ge?.sourcePort], b = ports[ge?.targetPort];
@@ -356,6 +357,44 @@ function bdWrapRows(g, lay, W, H) {
     else e.sections = [];                       // between pieces: drawn port to port (bdLayout) until routed
   }
   return [best.width + 40, best.height + 40];
+}
+
+/* the systems no signal joins (blockdiagram.py _top_row): parallel rows below what is coupled, in the model's order,
+   left edges aligned, each in its own outline, one caption under them. A line within a row moves with it. */
+const BD_ROW_PAD = 10;
+function bdStackRows(g, lay, size) {
+  if (!(g.rows || []).length) return {};
+  const fr = Object.fromEntries((g.frames || []).map((f) => [f.id, f])), rowOf = {};
+  const top = (id) => { while (fr[id]?.parent) id = fr[id].parent; return id; };
+  g.rows.forEach((r, i) => { for (const id of [...r.nodes, r.frame]) if (id) rowOf[id] = i; });
+  const items = [...lay.children.map((c) => [c, rowOf[c.id] ?? rowOf[c.within?.[0]]]), ...lay.containers.map((c) => [c, rowOf[top(c.id)]])];
+  const ext = (cs) => ({ x0: Math.min(...cs.map((c) => c.x)), y0: Math.min(...cs.map((c) => c.y)),
+                         x1: Math.max(...cs.map((c) => c.x + c.width)), y1: Math.max(...cs.map((c) => c.y + c.height)) });
+  const rest = items.filter(([, i]) => i == null).map(([c]) => c), x = 20 + BD_ROW_PAD;
+  let y = (rest.length ? ext(rest).y1 + BD_ROW_GAP : 20) + BD_ROW_PAD;
+  const shift = {}, rects = [];
+  g.rows.forEach((r, i) => {
+    const cs = items.filter(([, j]) => j === i).map(([c]) => c);
+    if (!cs.length) return;
+    const b = ext(cs);
+    shift[i] = { dx: x - b.x0, dy: y - b.y0 };
+    rects.push({ system: r.system, x: x - BD_ROW_PAD, y: y - BD_ROW_PAD, width: b.x1 - b.x0 + 2 * BD_ROW_PAD, height: b.y1 - b.y0 + 2 * BD_ROW_PAD });
+    y += b.y1 - b.y0 + 2 * BD_ROW_PAD + 14;
+  });
+  const wide = Math.max(...rects.map((r) => r.width));
+  for (const r of rects) r.width = wide;                // (parallel: as wide as the widest)
+  const mv = (o, d) => { if (d) { o.x += d.dx; o.y += d.dy; } };
+  for (const [c, i] of items) mv(c, shift[i]);
+  const at = Object.fromEntries(items.filter(([c]) => !fr[c.id]).map(([c, i]) => [c.id, i])), ge = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  for (const p of Object.values(lay.ports)) mv(p, shift[at[p.node]]);
+  for (const e of lay.edges) {
+    const a = at[ge[e.id]?.source], b = at[ge[e.id]?.target];
+    if (a !== b) e.sections = [];                       // (between a row and the rest: drawn port to port until routed)
+    else for (const s of e.sections || []) for (const q of [s.startPoint, s.endPoint, ...(s.bendPoints || [])]) mv(q, shift[a]);
+  }
+  size[0] = Math.max(size[0], x + wide + 20);
+  size[1] = Math.max(size[1], y + 24);
+  return { rows: rects, caption: g.caption && { x: x - BD_ROW_PAD, y: y + 6, text: g.caption } };
 }
 
 /* ---- the lines, routed by libavoid around every part (avoid.js's router, in its worker) */
@@ -849,6 +888,8 @@ function bdDraw(svg, g, lay) {
     });
     vp.append(fg);
   }
+  for (const r of lay.rows || []) vp.append(s("rect", { class: "bd-row", "data-system": r.system, x: r.x, y: r.y, width: r.width, height: r.height, rx: 6 }));
+  if (lay.caption) vp.append(s("text", { class: "bd-row-caption", x: lay.caption.x, y: lay.caption.y }, lay.caption.text));
   if (lay.rule) vp.append(s("path", { class: "bd-upkeep-rule", d: `M${lay.rule.x0},${lay.rule.y} H${lay.rule.x1}` }));
   // the lines: each signal from its port, an arrowhead where it arrives, a dot where it is taken off
   const edgesG = s("g", { class: "bd-edges" }), labelsG = s("g", { class: "bd-labels" });

@@ -841,7 +841,11 @@ the model's control panel. In the Blocks view, where a closed C system's u enter
 drawn as the textbook loop (docs/proposals/blocks-levels.md §2): r, the goals of P that C serves (a vector, with its
 count, when several), into a summing junction ahead of C; e into C; u from C to P; y out of P and back through H (the
 sensors that read it) to the junction's minus input; d, what enters P that no valve sets, into P. Where C serves no
-goal of P the two keep their labelled wires alone. Every wire between systems is labelled. In the Dynamics view a closed system is a module: its name, what it is, its
+goal of P the two keep their labelled wires alone. Every wire between systems is labelled. Two or more top-level
+systems that no wire joins to anything outside them (§3 there) are drawn as parallel rows below the coupled ones, in
+the model's order with its upkeep last, left edges aligned, each in a dashed outline: a closed one as r (its goals'
+references, a vector with its count) into its box and y (what those goals hold) out of it, an open one as its frame;
+one caption under them, "no signals between these systems". A single such system is drawn as before. In the Dynamics view a closed system is a module: its name, what it is, its
 ports, and the first three of those measures (not a remote's, nor ergostat's own upkeep) each as its name, its value
 now and a sparkline of its behaviour over the page's window, on its own scale (its low–high written after it, so two
 never seem to share an axis). They sit in the free middle of the box's existing rows (its description's second line,
