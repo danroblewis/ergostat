@@ -6,8 +6,6 @@ const RUNG_SECTION = ["What they are asked", "Its prompt", "Its specification", 
 const FILE_LANG = { python: "python", shell: "bash", yaml: "yaml", json: "json", javascript: "javascript", toml: "ini",
                     markdown: "markdown", text: "plaintext" };
 const SLOT = /(\{[A-Za-z_][\w.-]*\})/;
-const agentHref = (n) => `/agent/${encodeURIComponent(n)}`;
-const agentA = (n) => h("a", { href: agentHref(n) }, n);
 /* a text for a reader: each reference to a section of ergostat's SPEC (in a docstring, a YAML comment) taken out, the
    reference only ('SPEC §9.5', 'ergostat's SPEC §12h, §12i'), within its line; then, at that place only, the brackets
    or the comma it leaves empty. Everything else is the file's own text, kept as it is */

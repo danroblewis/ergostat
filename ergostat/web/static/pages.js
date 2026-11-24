@@ -123,8 +123,8 @@ async function pageAgents(main) {
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
         h("tr", {}, h("th", { colspan: 6 + nums.length, scope: "colgroup", "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
           h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
-        xs.flatMap(([name, a]) => [h("tr", { class: "click", key: name, "data-row": name, ...rowLink(`/agent/${encodeURIComponent(name)}`) },
-          h("td", { class: "nowrap" }, h("a", { href: `/agent/${encodeURIComponent(name)}` }, h("b", {}, name)), exc(a) ? h("span", { class: "exception", title: exc(a)[1] }, ` ${exc(a)[0]}`) : null),
+        xs.flatMap(([name, a]) => [h("tr", { class: "click", key: name, "data-row": name, ...rowLink(agentHref(name)) },
+          h("td", { class: "nowrap" }, h("a", { href: agentHref(name), class: "agent-link" }, h("b", {}, name)), exc(a) ? h("span", { class: "exception", title: exc(a)[1] }, ` ${exc(a)[0]}`) : null),
           h("td", {}, rolesText(a.roles) || h("span", { class: "muted" }, "no roles"),
             (a.hints || []).length ? h("ul", { class: "hints" }, a.hints.map((hint) => h("li", { class: hint.about === "loop" ? "warn" : "", title: hint.says },
               hint.about === "loop" ? op(hint.says)
@@ -172,7 +172,7 @@ async function pageRecord(main, q) {
   const remote = q.get("remote") || "";                // a remote's events, read there (SPEC §4c): never the local record's
   const about = q.get("about") || "", from = q.get("from") || "", to = q.get("to") || "";   // a goal's, from its crossing
   const at = stamp;                                   // one time format (util.js)
-  const scope = machine || inWindow || item || remote || about || from || to ? h("span", { class: "muted" }, [item ? `about ${item}` : "", about ? `of goal ${about}` : "", machine ? `from ${machine}` : "", remote ? `of remote ${remote}` : "", inWindow ? "in the window" : "", from ? `from ${at(from)}` : "", to ? `to ${at(to)}` : ""].filter(Boolean).join(", "),
+  const scope = machine || inWindow || item || remote || about || from || to ? h("span", { class: "muted" }, [item ? `about ${item}` : "", about ? `of goal ${about}` : "", machine ? ["from ", agentA(machine)] : "", remote ? `of remote ${remote}` : "", inWindow ? "in the window" : "", from ? `from ${at(from)}` : "", to ? `to ${at(to)}` : ""].filter(Boolean).flatMap((x, i) => (i ? [", ", x] : [x])),
     " ", h("a", { href: "/record" + (filt.value ? "?match=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
   const kept = () => Object.fromEntries([["match", filt.value], ["runs", runs.checked ? "1" : ""], ["about", about], ["from", from], ["to", to],
     ["machine", machine], ["item", item], ["remote", remote], ["window", inWindow ? "1" : ""]].filter(([, v]) => v));
@@ -578,10 +578,11 @@ function actionsAbout(as, done) {
   // who answered is the record's own words (record.who: an approval a later denial overrode, the gate's own denial)
   const said = (a) => (a.state === "denied" ? `${a["approved by"]}${at(a, "denied")}`
     : `approved by ${a["approved by"]}${at(a, "approved")}` + (a.state === "approved" ? "" : `, ${a.state}${at(a, a.state)}`));
+  const by = (a) => (a.block ? agentA(a.block) : a.by);              // a block that asked: its agent's page
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
-    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), a.state === "requested" ? " " : `: asked by ${a.by}, `,
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), a.state === "requested" ? " " : [": asked by ", by(a), ", "],
       h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : said(a)),
-      a.state === "requested" ? h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}`) : null),
+      a.state === "requested" ? h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by `, by(a)) : null),
     commandBox(a.command),
     actionAnswer(a, done))));
 }
@@ -598,11 +599,11 @@ function actionView(d, refresh) {
   const f = d.fields;
   const by = f.approved_by ? `approved by ${f.approved_by}` : f.denied_by ? `denied by ${f.denied_by}` : "";
   return h("div", { class: "claim" },
-    h("p", { class: "action-says" }, h("b", {}, actionSays(f)), f.item ? `, for ${f.item}` : "", f.block ? `, asked by ${f.block}` : ""),
+    h("p", { class: "action-says" }, h("b", {}, actionSays(f)), f.item ? `, for ${f.item}` : "", f.block ? [", asked by ", agentA(f.block)] : ""),
     h("p", {}, h("span", { class: d.state === "requested" ? "s-open" : d.state === "denied" || d.state === "failed" ? "s-off" : "status" }, d.state === "requested" ? "waiting for approval" : d.state),
       h("span", { class: "muted" }, ` ${f.action}, class ${f.class}, gate ${f.gate}`), by ? `: ${by}` : "", f.note ? ` (${f.note})` : ""),
     commandBox(f.command),
-    h("p", { class: "muted" }, `in ${f.in || "?"}`, f.item ? [", for ", itemLink(f.item)] : null, f.session ? [", asked by ", itemLink(f.session)] : f.block ? `, asked by block ${f.block}` : ""),
+    h("p", { class: "muted" }, `in ${f.in || "?"}`, f.item ? [", for ", itemLink(f.item)] : null, f.session ? [", asked by ", itemLink(f.session)] : f.block ? [", asked by block ", agentA(f.block)] : ""),
     actionAnswer(d, refresh),
     d.state === "ran" || d.state === "failed" ? [h("h3", {}, `Output (exit ${f.exit ?? "none"})`), h("pre", { class: "mono small" }, f.output || "")] : null,
     (f.deliveries || []).length ? h("p", { class: "muted" }, "Given to ", f.deliveries.map((x, i) => [i ? ", " : "", x.session ? itemLink(x.session) : `block ${x.block}`, ` (${x.how})`])) : null);
@@ -1062,7 +1063,7 @@ function leaseView(l, state) {
       left < 0 ? h("b", { class: "bad" }, `overdue ${dur(-left)}`) : `expires in ${dur(left)}`, `; renewed ${ago(l.renewed)} (TTL ${dur(l.ttl)}).`]
     : state === "dead" ? [h("b", { class: "bad" }, "A dead letter"), `: given up on after ${l.attempts} attempts.`]
     : [l.not_before && l.not_before > nowS() ? `Not taken again for ${dur(l.not_before - nowS())}.` : ""];
-  const rows = (l.history || []).slice().reverse().map((x) => h("tr", { key: `${x.fence}|${x.run || ""}` }, h("td", { class: "num" }, String(x.fence)), h("td", {}, x.block || ""),
+  const rows = (l.history || []).slice().reverse().map((x) => h("tr", { key: `${x.fence}|${x.run || ""}` }, h("td", { class: "num" }, String(x.fence)), h("td", {}, x.block ? agentA(x.block) : ""),
     h("td", { class: "mono small" }, (x.run || "").slice(0, 8)), h("td", { class: "nowrap" }, when(x.taken)),
     h("td", { class: x.how === "ack" ? "" : "bad" }, x.how || "holding"), h("td", { class: "num nowrap" }, dur((x.ended || nowS()) - x.taken)),
     h("td", { class: "num" }, x.exit == null ? "" : String(x.exit)), h("td", {}, (x.why || "") + (x.silent ? ` (silent ${dur(x.silent)})` : "") + (x.counted === false ? " (not counted)" : ""))));

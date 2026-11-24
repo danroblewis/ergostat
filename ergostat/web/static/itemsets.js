@@ -91,7 +91,7 @@ function countsLines(d) {
                 c.kind && set ? [". ", h("a", { href: itemsHref(set), class: "counts-link" }, "Show them on the Items page")] : null) : null,
           ...(d?.leases || []).flatMap((l) => {
             const n = h("span", { class: "taken-n" }, String(l.taken));
-            return [h("p", { class: "leases-line" }, `${l.block}${l.agent ? ` (${l.agent})` : ""} works items of kind `, h("code", {}, l.kind), ": ", n,
+            return [h("p", { class: "leases-line" }, agentA(l.block), `${l.agent ? ` (${l.agent})` : ""} works items of kind `, h("code", {}, l.kind), ": ", n,
               " leased now; ", l.waiting ? `${l.waiting} waiting at ${l.at.join(" or ")}` : "none waiting", ". ",
               h("a", { href: itemsHref(l.set), class: "leased-link" }, "Show the leased items")), takenList(l, n)];
           })]
@@ -104,7 +104,7 @@ function countsLines(d) {
    that draws the same as the last leaves the page alone */
 function takenList(l, count) {
   const box = h("div", { class: "taken-list" });
-  const none = () => h("p", { class: "muted small" }, `${l.block} is working nothing now`);
+  const none = () => h("p", { class: "muted small" }, agentA(l.block), " is working nothing now");
   if (!l.taken) box.append(none());
   let sig = null;
   const draw = (d) => {
@@ -121,7 +121,7 @@ function takenList(l, count) {
     sig = s;
     count.textContent = String(d.total);
     if (!d.total) return patch(box, none());
-    patch(box, h("p", { class: "taken-head" }, h("b", {}, `being worked by ${l.block} (${d.total})`)),
+    patch(box, h("p", { class: "taken-head" }, h("b", {}, "being worked by ", agentA(l.block), ` (${d.total})`)),
       h("div", { class: "table-wrap" }, h("table", { class: "item-list taken" },
         h("tr", {}, ["item", "", "state", "run", "taken for", "expires in", ""].map((t) => h("th", {}, t))), rows)),
       d.total > rows.length ? h("p", { class: "small" }, h("a", { href: itemsHref(l.set), class: "all-taken" }, `all ${d.total} taken`)) : null);

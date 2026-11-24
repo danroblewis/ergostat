@@ -1150,7 +1150,9 @@ function openBlock(n) {
   }
   if (n.says) kids.push(h("p", { class: "what" }, rich(op(n.says))));
   if (defs.length) kids.push(h("h3", {}, fn.linear === false || fn.name ? "What it computes" : "Its function"), ...defs);
-  if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
+  const me = n.id?.startsWith("blk:") ? n.id.slice(4) : null;          // a machine block: its name, a link to its agent's page
+  if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, k === "block" && me && String(v).startsWith(me)
+    ? h("span", {}, agentA(me), v.slice(me.length)) : typeof v === "string" ? rich(op(v)) : v])));
   if (["output", "sensor", "process"].includes(n.role)) kids.push(partItemsSection(n.part));   // what goes through it (itemsets.js)
   if (n.role === "process" && !(n.y_of || []).length && !n.mimo)
     kids.push(h("p", { class: "muted small" }, "Not identified: no goal holds what comes out of it, so no loop's record or step test can tell its dynamics."));
