@@ -119,3 +119,22 @@ before it copied the seed's files into it, so a reading that landed in that wind
 - Not run, as in round 1: the unit suite whole, the four browser files whole, and the merge of main (main is this
   branch's base, unchanged since the clone).
 Overrun reason: counted as the factory counts (outside tests/, docs/ and dev/), it is now 25 net lines: 6 in the reader, which the wait for the demo's test folder needs, and 19 in examples/image-squeeze (the use, its system, the seed's summary line, and 2 for init filling the folder before renaming it into place, the round-2 fix). The definition's own budget leaves out examples/, and by it the branch is 6 lines.
+
+Round 3. The queue's batch failed on two tests, both failing again alone. Both are pins of image-squeeze's old shape
+that this gap's change makes stale, and they are fixed in tests only. Nothing outside tests/ and dev/ changed.
+- `test_blockdiagram.py::test_closed_systems_are_subsystem_blocks_and_vectors_join_them` listed image-squeeze's
+  closed systems exactly. `sys:regressions`, the system this gap declares, is now in the list.
+- `test_observer.py::test_models_that_use_none_of_it_record_what_they_did_without_it[image-squeeze]` asserted that
+  no example asks anything of the observer. The template's goals (tests-green, changes-hold) declare `on-stale: off`
+  (the regression-template gap's template.yaml, as SPEC says: off while stale), so image-squeeze now asks that of it.
+  The test now leaves out the examples named in `ASKS`, and a new test,
+  `test_an_example_that_asks_the_observer_asks_only_what_is_listed`, asserts that each one asks exactly the goals
+  listed (image-squeeze: those two, `off`) with no stocks and no blocks. So another example cannot slip out of the
+  first test without being listed, and image-squeeze cannot ask more than the template's goals. The template was not
+  changed (it is the regression-template gap's). The new test was not seen to fail: it compares the real opted value
+  with the listed one, and it passed on the first run.
+- Run here, passing: tests/test_blockdiagram.py and tests/test_observer.py whole (167). ruff is clean.
+- Refused again here: `uv run python scripts/demo_check.py image-squeeze`.
+- Not run: the unit suite whole and the four browser files whole (the queue runs them). Main is unchanged since
+  the clone (29cf698d already merges b9341591), so there was nothing new to merge.
+Overrun reason: as in round 2, 25 net lines outside tests/, docs/ and dev/: 6 in the reader for the wait on the demo's test folder, and 19 in examples/image-squeeze. Round 3 adds none. By the definition's own budget, which leaves out examples/, the branch is 6 lines.
