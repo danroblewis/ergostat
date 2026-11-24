@@ -62,20 +62,22 @@ def _stop(p, pid) -> int:
 
 def _stop_runs(p, rc: int) -> int:
     """``--stop --runs``: the runs left going by their keepers (``runs: outlive_engine``, SPEC §9.1) stopped too, each
-    whole process group (SIGTERM, SIGKILL past the grace), engine or none; waited for, a grace and 5 s at most."""
+    whole process group (SIGTERM, SIGKILL past the grace), engine or none; waited for, a grace and 5 s at most. So are
+    the daemons kept going by theirs (SPEC §9.7), each in ``daemons/KEY/runs``."""
     from ..compute.worker import keeper
     from ..leases.kill import grace
     root, g = str(p.dir.resolve()), grace()
-    asked = keeper.stop_all(root, g)
+    roots = [root] + sorted(str(d) for d in (p.dir.resolve() / "daemons").glob("*") if d.is_dir())
+    asked = [os.path.join(r, "runs", n) for r in roots for n in keeper.stop_all(r, g)]
     end = time.monotonic() + g + 5
     left = asked
     while left and time.monotonic() < end:
         time.sleep(0.1)
-        left = [r for r in left if keeper.ended(os.path.join(root, "runs", r)) is None]
+        left = [r for r in left if keeper.ended(r) is None]
     if asked:
         print(f"stopped {len(asked) - len(left)} of {len(asked)} runs left going")
     if left:
-        print(f"still going: {', '.join(r[:8] for r in left)}", file=sys.stderr)
+        print(f"still going: {', '.join(os.path.basename(r)[:8] for r in left)}", file=sys.stderr)
         return 1
     return rc
 

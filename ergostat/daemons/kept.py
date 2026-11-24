@@ -39,24 +39,34 @@ def folder(state_dir, name: str) -> Path:
     return Path(state_dir).resolve() / "daemons" / hashlib.sha256(name.encode()).hexdigest()[:32]
 
 
+MADE = ("in", "out", "pos", "json")             # a process's files, each named for its keeper's run id
+
+
 def files(base: Path, proc: str) -> dict[str, Path]:
     return {"in": base / f"{proc}.in", "out": base / f"{proc}.out", "pos": base / f"{proc}.pos",
-            "keeper": base / "runs" / proc, "state": base / "state.json"}
+            "keeper": base / "runs" / proc, "state": base / f"{proc}.json"}
 
 
-def read_state(base: Path, name: str) -> dict | None:
-    """Its saved state, checked whole; None when there is none, it cannot be read, or it is not one (of another
-    format, or another daemon's)."""
+def read_state(path: Path, name: str) -> dict | None:
+    """A process's saved state, checked whole; None when it cannot be read or is not one (of another format, or
+    another daemon's, or another process's)."""
     try:
-        st = json.loads((base / "state.json").read_text())
+        st = json.loads(path.read_text())
     except (OSError, ValueError, RecursionError):
         return None
     ok = (isinstance(st, dict) and st.get("journal") == JOURNAL and st.get("name") == name
-          and isinstance(st.get("proc"), str) and keeper.RUN.fullmatch(st["proc"])
+          and st.get("proc") == path.stem and keeper.RUN.fullmatch(path.stem) and isinstance(st.get("run"), str)
           and type(st.get("pid")) is int and st["pid"] > 0 and isinstance(st.get("start"), str | None)
+          and isinstance(st.get("since"), int | float) and not isinstance(st["since"], bool)
           and type(st.get("offset")) is int and st["offset"] >= 0 and isinstance(st.get("held"), dict)
           and all(isinstance(v, dict) and v.get("run") == k for k, v in st["held"].items()))
     return st if ok else None
+
+
+def states(base: Path, name: str) -> list[dict]:
+    """Each process an engine before left, by its state, the newest first."""
+    got = [read_state(f, name) for f in base.glob("*.json") if keeper.RUN.fullmatch(f.stem)] if base.is_dir() else []
+    return sorted((st for st in got if st), key=lambda st: -st["since"])
 
 
 class Waiting(keeper.Kept):
@@ -83,8 +93,10 @@ class KeptProcess(Process):
         super().__init__(d, cwd, env, log, on_push, on_observe)
 
     def _begin(self, cwd, env: dict) -> None:
+        self.done_with = False                   # (finished: its state never written again)
         if self.old:                             # (another engine's: known by its pid and start time)
-            self.procid, self.rec = self.old["proc"], {"pid": self.old["pid"], "start": self.old["start"]}
+            self.procid = self.old["proc"]
+            self.rec = {k: self.old[k] for k in ("pid", "start", "run", "since")}
             self.f = files(self.base, self.procid)
             self.proc = adopt.Adopted(str(self.f["keeper"]), self.rec)
         else:
@@ -96,7 +108,8 @@ class KeptProcess(Process):
             cmd = shlex.join([sys.executable, "-I", RELAY, str(self.f["in"]), str(self.f["pos"]), self.d.run])
             self.proc = keeper.launch(str(self.base), self.procid, "exec " + cmd, "", str(cwd), env, str(self.f["out"]),
                                       self.log.fileno())
-            self.rec = {"pid": self.proc.pid, "start": runrecord.start_time(self.proc.pid)}
+            self.rec = {"pid": self.proc.pid, "start": runrecord.start_time(self.proc.pid), "run": self.d.run,
+                        "since": time.time()}
             self._save()
         self.pid = self.proc.pid
         threading.Thread(target=self._write, name=f"daemon-{self.d.name}-in", daemon=True).start()
@@ -110,6 +123,8 @@ class KeptProcess(Process):
 
     def _save(self) -> None:
         with self.saving:
+            if self.done_with:
+                return
             st = {"journal": JOURNAL, "name": self.d.name, "proc": self.procid, **self.rec, "offset": self.offset,
                   "held": dict(self.lines)}
             keeper.put(str(self.f["state"]), json.dumps(st))
@@ -120,6 +135,7 @@ class KeptProcess(Process):
         with self.saving:
             self.lines[run] = line
             self._save()
+        h.kept = self                           # (its end acked here, wherever the supervisor has it then)
         return super().hold(run, h, line)
 
     def acked(self, run: str) -> bool:
@@ -139,6 +155,7 @@ class KeptProcess(Process):
 
     def _read(self) -> None:
         while not self.leaving.is_set():
+            self.behind()
             if self.take():
                 continue
             if self.proc.poll() is not None:
@@ -149,6 +166,20 @@ class KeptProcess(Process):
         else:
             return                               # (left going: never ended here)
         self.ended.set()
+
+    def behind(self) -> None:
+        """Whether its relay has delivered all of its inbox: since when it has not (``writing_since``, which the
+        supervisor holds against ``stdin-timeout``, as a write to a daemon's input waiting)."""
+        try:
+            size, pos = self.f["in"].stat().st_size, int(self.f["pos"].read_text() or 0)
+        except FileNotFoundError:
+            size, pos = self.f["in"].stat().st_size if self.f["in"].exists() else 0, 0
+        except (OSError, ValueError):
+            return                               # (half written: looked at again next time)
+        if size <= pos:
+            self.writing_since = None
+        elif self.writing_since is None:
+            self.writing_since = time.monotonic()
 
     def take(self, eof: bool = False) -> bool:
         """Its journal's next whole lines from the offset (at its end, a last line without a newline too), each taken
@@ -204,50 +235,76 @@ class KeptProcess(Process):
             pass
 
     def finish(self) -> None:
-        """Ended and read: its keeper let go (it removes its own folder)."""
+        """Ended by its supervisor, or found ended: never taken up again. Its keeper let go (it removes its own folder
+        once the process has ended) and its own files removed."""
+        with self.saving:
+            self.done_with = True
         if self.f["keeper"].is_dir():
             keeper.put(str(self.f["keeper"] / "done"), "")
+        for k in MADE:
+            (self.base / f"{self.procid}.{k}").unlink(missing_ok=True)
 
 
-def tidy(base: Path, keep: str) -> None:
-    """Its earlier processes' inbox, journal and position removed: only files named for a run id, never another's."""
+def tidy(base: Path, keep: set[str]) -> None:
+    """Its processes' files that no state names now removed (an engine killed as it wrote one): only those named
+    for a run id, never another's; and a keeper of one no state names, not ended, told to stop: none of it goes on
+    beside the processes this engine holds."""
     for f in base.iterdir() if base.is_dir() else ():
         stem, _, ext = f.name.partition(".")
-        if ext in ("in", "out", "pos") and keeper.RUN.fullmatch(stem) and stem != keep:
+        if ext in MADE and keeper.RUN.fullmatch(stem) and stem not in keep:
             f.unlink(missing_ok=True)
+    for d in (base / "runs").iterdir() if (base / "runs").is_dir() else ():
+        if keeper.RUN.fullmatch(d.name) and d.name not in keep and d.is_dir():
+            if keeper.ended(str(d)) is None:
+                keeper.put(str(d / "stop"), json.dumps({"grace": 0, "why": "a daemon's process no engine knows of"}))
+            keeper.put(str(d / "done"), "")      # (it removes its folder once the process has ended)
 
 
 def spawn(sup, slot, cwd, env: dict, log, push, observe) -> tuple[KeptProcess, str | None]:
     """The slot's process: on this engine's first start of it, the one an engine before left going, taken up; one
-    found ended is restarted, what it had not answered handed to the new one. Else a new one. Returns it, and why
-    it is a restart (None: not one)."""
+    found ended is restarted, what it had not answered handed to the one that goes on. One of another command (the
+    model changed meanwhile), or older than the one kept, is drained (sent ``stop``: it finishes what it holds).
+    Returns it, and why it is a restart (None: not one)."""
     eng, d = sup.e, slot.d
     base = folder(eng.p.dir, d.name)
-    carried, why = {}, None
-    if d.name not in sup.looked:
-        sup.looked.add(d.name)
-        st = read_state(base, d.name)
-        if st is not None:
-            old = KeptProcess(d, base, cwd, env, log, push, observe, old=st)
-            take_up(sup, old, st["held"])
-            gone = adopt.alive(old.rec) is False or keeper.ended(str(old.f["keeper"])) is not None
-            while old.take(eof=gone):            # (its journal read to its end now, before anything is sent again)
-                pass
-            if not gone:
-                for run in list(old.runs):       # (not answered: sent again, its id the same)
-                    old.send(old.lines[run])
-                old.start_reader()
-                eng.say(f"daemon {d.name}: taken up, still going ({len(old.runs)} run(s) held)")
-                return old, None
-            with old.lock:
-                carried = {r: h for r, h in old.runs.items()}
-                old.runs.clear()
-            carried = {r: (h, old.lines[r]) for r, h in carried.items()}
-            old.finish()
-            why = f"ended while no engine was up (exit {old.proc.poll()})"
-        keeper.stop_all(str(base), 0)            # (none left going beside the new one, its state unread or not)
-    p = KeptProcess(d, base, cwd, env, log, push, observe)
-    tidy(base, p.procid)
+    carried, why, live = {}, None, []
+    if d.name in sup.looked:
+        return KeptProcess(d, base, cwd, env, log, push, observe), None
+    sup.looked.add(d.name)
+    for st in states(base, d.name):
+        old = KeptProcess(d, base, cwd, env, open(log.name, "a", encoding="utf-8"), push, observe, old=st)
+        take_up(sup, old, st["held"])
+        gone = adopt.alive(old.rec) is False or keeper.ended(str(old.f["keeper"])) is not None
+        while old.take(eof=gone):                # (its journal read to its end now, before anything is sent again)
+            pass
+        if not gone:
+            for run in list(old.runs):           # (not answered: sent again, its id the same)
+                old.send(old.lines[run])
+            old.start_reader()
+            live.append(old)
+            continue
+        with old.lock:
+            mine = dict(old.runs)
+            old.runs.clear()
+        carried |= {r: (h, old.lines[r]) for r, h in mine.items()}
+        old.finish()
+        old.log.close()
+        why = f"ended while no engine was up (exit {old.proc.poll()})"
+    p = next((x for x in live if x.rec["run"] == d.run), None)
+    for x in live:
+        if x is not p:                           # (as a model swap's: its runs finish under it, SPEC §9.7)
+            s = type(slot)(x.d)
+            s.proc = x
+            with sup.lock:
+                sup._drain(s, "its command changed while no engine was up" if x.rec["run"] != d.run else
+                           "an older process of it, left going")
+    if p is None:
+        p = KeptProcess(d, base, cwd, env, log, push, observe)
+    else:
+        log.close()                              # (it writes to its own, of the same file)
+        why = None
+        eng.say(f"daemon {d.name}: taken up, still going ({len(p.runs)} run(s) held)")
+    tidy(base, {x.procid for x in live} | {p.procid})
     for run, (h, line) in carried.items():
         p.hold(run, h, line)
     return p, why
@@ -282,7 +339,7 @@ def take_up(sup, p: KeptProcess, held: dict) -> None:
             eng.live[run] = Waiting(h)
         with p.lock:
             p.runs[run] = h
-        p.lines[run] = line
+        p.lines[run], h.kept = line, p
         if item:
             eng.dispatch.adopt(b, item, fence, run, True)
         threading.Thread(target=_through, args=(sup, b, begun, h, said, usage, item, fence, key), daemon=True,
@@ -319,7 +376,7 @@ def _through(sup, b, begun: dict, h: Handle, said, usage, item, fence, key: str)
         failed = bool(note) and note != STOPPED_BY_OWNER
         ended = eng.p.events.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=run,
                                  data=data, id=adopt.end_id(run))
-        sup.acked(run)
+        h.kept.acked(run)
         costs_record.write_series(eng.p, b.name, data, ended["time"])
         eng.after_end(b, eng.spec, begun, data, said, failed, None, "", "", logged=False)
         if item:

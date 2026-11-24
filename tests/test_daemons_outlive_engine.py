@@ -3,6 +3,7 @@ that outlives its engine*): the engine SIGKILLed with the daemon mid-item, the i
 engine; a message not answered is sent again with its id, none lost; a daemon that died while no engine was up is
 restarted by the next; one declared to stop with the engine does."""
 
+import contextlib
 import json
 import os
 import shlex
@@ -106,11 +107,13 @@ def daemons():
             keeper.stop_all(str(base), 0)
             for d in (base / "runs").glob("*"):
                 wait_for(lambda d=d: keeper.ended(str(d)) is not None, 10)
-                keeper.put(str(d / "done"), "")
+                with contextlib.suppress(FileNotFoundError):      # (let go already: its folder gone)
+                    keeper.put(str(d / "done"), "")
 
 
-def state(p) -> dict:
-    return kept.read_state(kept.folder(p.dir, "block.worker"), "block.worker")
+def state(p) -> dict | None:
+    """The newest process's state the daemon's folder holds."""
+    return next(iter(kept.states(kept.folder(p.dir, "block.worker"), "block.worker")), None)
 
 
 def got(tmp_path) -> list[dict]:
@@ -174,6 +177,9 @@ def test_a_daemon_finishes_its_item_through_an_engine_kill_and_its_result_is_rec
     out = kept.files(kept.folder(p.dir, "block.worker"), state(p)["proc"])["out"]
     assert wait_for(lambda: f'"done": 0, "run": "{run}"' in out.read_text()), "it never finished while no engine was up"
     assert not ends(p), "an end recorded with no engine up"
+    st = state(p)                                    # (as if killed between a line's events and its offset saved:
+    f = kept.files(kept.folder(p.dir, "block.worker"), st["proc"])["state"]     # read again, adding none)
+    f.write_text(json.dumps({**st, "offset": 0}))
     e = taken_up(p)
     try:
         assert wait_for(lambda: ends(p)), "its result was never recorded after the restart"
@@ -258,6 +264,80 @@ def test_a_clean_stop_leaves_a_kept_daemon_going_with_its_run_and_lease(tmp_path
         ended_once(p, run)
     finally:
         e.daemons.close()
+
+
+@pytest.mark.slow
+def test_a_daemon_whose_command_changed_while_no_engine_was_up_is_drained_and_a_new_one_started(tmp_path, daemons):
+    """The model changed during the outage: the old process is taken up only to finish what it holds (sent ``stop``),
+    and the new command takes the new work; the old one's run is still recorded once."""
+    p = project(tmp_path)
+    daemons(p)
+    run = killed_mid_item(p, tmp_path)
+    old = state(p)
+    text = (tmp_path / "ergostat.yaml").read_text()
+    (tmp_path / "ergostat.yaml").write_text(text.replace("daemon.py", "./daemon.py"))
+    p = Project(mdl.load(tmp_path))
+    first = got(tmp_path)[0]["pid"]                  # (the daemon's own: its relay's is old["pid"])
+    e = taken_up(p)
+    try:
+        assert wait_for(lambda: "stop" in [x["op"] for x in got(tmp_path) if x["pid"] == first]), "not drained"
+        assert state(p)["proc"] != old["proc"] and "./daemon.py" in state(p)["run"], "no new process of the new command"
+        (tmp_path / "go").write_text("")
+        assert wait_for(lambda: ends(p)), "the old process's run was never recorded"
+        ended_once(p, run)
+        assert wait_for(lambda: adopt.alive({"pid": old["pid"]}, start=False) is False, 15), "the old one goes on"
+    finally:
+        e.daemons.close()
+
+
+@pytest.mark.slow
+def test_stop_runs_stops_a_daemon_left_going(tmp_path, daemons):
+    """``ergostat run --stop --runs`` with no engine up: a kept daemon's keeper stops its whole group."""
+    p = project(tmp_path)
+    daemons(p)
+    killed_mid_item(p, tmp_path)
+    st = state(p)
+    out = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "run", "--stop", "--runs"],
+                         capture_output=True, text=True, timeout=60)
+    assert "stopped 1 of 1 runs left going" in out.stdout, out
+    assert wait_for(lambda: adopt.alive({"pid": st["pid"]}, start=False) is False, 10), "the daemon goes on"
+
+
+def test_a_run_is_in_its_daemon_s_state_before_its_line_is_sent(tmp_path):
+    """An engine killed just after it sent a run's line leaves the run in the state the next engine reads: written
+    before the line, never after (else a run the daemon holds is one no engine knows of)."""
+    from ergostat.daemons.proc import Handle
+    from ergostat.spec.ir import Daemon
+    base = tmp_path / "d"
+    with open(tmp_path / "log", "a") as log:
+        p = kept.KeptProcess(Daemon("x", "cat > /dev/null", outlive=True), base, tmp_path, dict(os.environ), log,
+                             lambda *a: False, lambda *a: False)
+        try:
+            seen, send = [], p.send
+            p.send = lambda obj: (seen.append(obj["run"] in kept.read_state(p.f["state"], "x")["held"]), send(obj))[1]
+            assert p.hold("r1", Handle(), {"op": "item", "run": "r1"})
+            assert seen == [True], "its line sent before the run was in its state"
+            assert p.acked("r1") and kept.read_state(p.f["state"], "x")["held"] == {}, "its end recorded, still held"
+        finally:
+            keeper.stop_all(str(base), 0)
+            wait_for(lambda: p.proc.poll() is not None, 10)
+            p.finish()
+    assert wait_for(lambda: not any(base.glob("*.*")) and not any((base / "runs").glob("*")), 10), "its files stay"
+
+
+def test_an_inbox_its_relay_has_not_delivered_counts_as_input_not_read(tmp_path):
+    """What the supervisor holds against ``stdin-timeout``: since when its relay is behind its inbox; caught up, none."""
+    from types import SimpleNamespace
+    x = SimpleNamespace(f={"in": tmp_path / "a.in", "pos": tmp_path / "a.pos"}, writing_since=None)
+    x.f["in"].write_text('{"op": "item"}\n')
+    kept.KeptProcess.behind(x)
+    first = x.writing_since
+    assert first is not None, "an undelivered line not seen"
+    kept.KeptProcess.behind(x)
+    assert x.writing_since == first, "since when, kept while it stays behind"
+    x.f["pos"].write_text(str(x.f["in"].stat().st_size))
+    kept.KeptProcess.behind(x)
+    assert x.writing_since is None
 
 
 def test_a_daemon_declared_to_stop_with_the_engine_keeps_that(tmp_path):
