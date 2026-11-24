@@ -1574,10 +1574,12 @@ reads the event log.
     lag's pairs: 95% of lags of two independent white signals fall inside it. It holds for nothing else: two
     autocorrelated signals cross it often with no link between them.
   - Each refuses, as `unanalysable` and in words naming the cause, a record where the signals hold a value together at
-    fewer than 32 samples, one holding a NaN or ±inf, one that does not vary (or, for psd and spectrogram, a stretch that
-    is a straight line once detrended), and one with no unbroken stretch of 16 samples between its gaps (for psd, too
+    fewer than 32 samples, one holding a NaN or ±inf, one that does not vary (or, for psd and spectrogram, one whose every
+    stretch is a straight line once detrended), and one with no unbroken stretch of 16 samples between its gaps (for psd, too
     few for its `segments`). A refusal holds no curve, table or zeros. Each count above its maximum is refused, naming
-    the bound.
+    the bound. A single stretch that is a straight line once detrended, inside a signal that varies (a queue idle at 0,
+    then oscillating), holds a true zero power: psd averages it in and spectrogram answers its rows as 0, and each
+    counts such stretches in `flat_segments`.
 - **Sampling.** Every answer carries `meta.sampling`: `step_s`; `scrape_s`, the readings' median spacing where they are
   read (an ergostat `series`, from the newest 2,000 raw readings in the window, and `raw`, from all it reads; an answer
   built from series readings, such as candles, an X-paired or binned series or a frequency response, carries the

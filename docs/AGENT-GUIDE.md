@@ -893,7 +893,8 @@ on one grid, never the values the panel drew:
 | `ccf(A, B)` | `most_lag` (a duration: 1 to 256 samples) | `points` by lag (s); positive: B moves after A; ±1.96/√n band |
 
 Read the refusals as the answer, never as zero: a record too short, holding a NaN or ±inf, with no stretch of 16
-samples between its gaps, or flat is `unanalysable`; a spectrum of a data source's query with a range window (`rate(x[5m])`)
+samples between its gaps, or flat (for psd and spectrogram: every stretch a straight line once detrended) is
+`unanalysable`; one flat stretch in a varying signal is a true zero, counted in `flat_segments`; a spectrum of a data source's query with a range window (`rate(x[5m])`)
 is `windowed` (G1: ask an ergostat series, or the source without the window). A period under `not_observable_s` (twice
 the scrape or step) is never answered. The ccf band holds only for two independent white signals: a peak past it in
 autocorrelated signals is not evidence of a link. `pair` and `ccf` of signals read at different steps or windows warn

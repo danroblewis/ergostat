@@ -50,19 +50,24 @@ def _less(v: list[float], how: str) -> list[float]:
     return [x - bar for x in v]
 
 
-def _power(v: list, starts: list[int], length: int, how: str, dt: float) -> list[list[float]]:
-    """One-sided power density of each stretch (Hann-windowed, so the units are the signal's squared per Hz)."""
+def _power(v: list, starts: list[int], length: int, how: str, dt: float) -> tuple[list[list[float]], int]:
+    """One-sided power density of each stretch (Hann-windowed, so the units are the signal's squared per Hz), and how
+    many stretches are flat after detrending: their power is a true zero. Refused only when every stretch is flat."""
     hann = [0.5 - 0.5 * math.cos(2 * math.pi * i / length) for i in range(length)]
     scale, top = 2 * dt / sum(w * w for w in hann), (length + 1) // 2
     size = max(abs(x) for s in starts for x in v[s:s + length])
-    rows = []
+    rows, flat = [], 0
     for s in starts:
         seg = _less(v[s:s + length], how)
         if not statistics.pstdev(seg) > fq.FLAT * size:
-            raise Refused(f"after taking out its {how} trend a stretch is flat (a straight line), so it holds no power")
+            rows.append([0.0] * top)
+            flat += 1
+            continue
         z = fq.fft([complex(x * w) for x, w in zip(seg, hann, strict=True)])
         rows.append([abs(z[k]) ** 2 * scale for k in range(top)])
-    return rows
+    if flat == len(starts):
+        raise Refused(f"after taking out its {how} trend every stretch is flat (a straight line), so it holds no power")
+    return rows, flat
 
 
 def _chi2(p: float, nu: int) -> float:
@@ -99,8 +104,8 @@ def psd(name: str, v: list, dt: float, scrape: float | None, detrend: str = "lin
     if length is None:
         raise Refused(f"no {segments} stretches of at least {fq.MIN_LENGTH} unbroken samples lie between the gaps")
     starts = fq.windows(runs, length)
-    rows = _power(v, starts, length, detrend, dt)
-    p = [sum(r[k] for r in rows) / len(rows) for k in range(len(rows[0]))]
+    rows, flat = _power(v, starts, length, detrend, dt)
+    p =[sum(r[k] for r in rows) / len(rows) for k in range(len(rows[0]))]
     nu = max(2, 2 * round(len(starts) * 9 / 11))   # Hann, half-overlapping: each worth 9/11 of one (frequency.floor)
     lo, hi = nu / _chi2(0.975, nu), nu / _chi2(0.025, nu)
     shortest = _shortest(scrape, dt)
@@ -109,7 +114,7 @@ def psd(name: str, v: list, dt: float, scrape: float | None, detrend: str = "lin
         raise Refused(f"every period this record holds is under {shortest:g} s, twice its sampling: none is observable")
     return _points("period", "s", "power", [length * dt / k for k in keep], [p[k] for k in keep], "x",
                    lower=[lo * p[k] for k in keep], upper=[hi * p[k] for k in keep], segments=len(starts),
-                   segment_samples=length, sample_seconds=dt, dof=nu, not_observable_s=[0, shortest])
+                   flat_segments=flat, segment_samples=length, sample_seconds=dt, dof=nu, not_observable_s=[0, shortest])
 
 
 def spectrogram(name: str, v: list, dt: float, t0: float, scrape: float | None, length_s: float | None = None,
@@ -132,11 +137,11 @@ def spectrogram(name: str, v: list, dt: float, t0: float, scrape: float | None, 
         raise Refused(f"one stretch holds {len(ks)} frequencies, more than the {cells} cells asked: shorten length")
     every = math.ceil(len(starts) / (cells // len(ks)))     # so ceil(stretches / every) × frequencies <= cells
     starts = starts[::every]
-    rows = _power(v, starts, length, detrend, dt)
-    out = {"shape": "table", "dims": [{"name": "start", "type": "time"}, {"name": "frequency", "type": "number"}],
+    rows, flat = _power(v, starts, length, detrend, dt)
+    out ={"shape": "table", "dims": [{"name": "start", "type": "time"}, {"name": "frequency", "type": "number"}],
            "measures": [{"name": "power", "unit": ""}], "unit": "", "capped": 0, "read_log": False,
            "rows": [[t0 + s * dt, k / (length * dt), r[k]] for s, r in zip(starts, rows, strict=True) for k in ks],
-           "segment_samples": length, "sample_seconds": dt, "not_observable_s": [0, shortest]}
+           "segment_samples": length, "flat_segments": flat, "sample_seconds": dt, "not_observable_s": [0, shortest]}
     return {**out, "note": f"one stretch in {every} is shown, to stay within {cells} cells"} if every > 1 else out
 
 

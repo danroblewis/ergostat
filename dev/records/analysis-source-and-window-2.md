@@ -110,7 +110,19 @@ Tests run here: `tests/test_analysis_calls.py` (8 passed), `test_analysis_source
 changed, so no browser file was run. Main is already merged into the branch (`git merge main`: already up to date).
 The whole unit suite and the four browser files were not run here (the factory runs them).
 
-Overrun reason: 292 lines added and 19 removed outside tests, docs and dev against the branch's base, 273 net against 240. The four calls, each with its four refusals, its bounds and its words naming them, the G1, G2 and G4 guards, an exact chi-square quantile in the standard library for the psd band, the common grid for two signals, and the engine's re-read of each query are each asked for and cost a few lines; the rest is docstrings.
+Round 2 (the review's one finding, blocking): `spectra._power` refused a whole psd or spectrogram when any single
+stretch was a straight line after detrending, so a signal exactly constant for a while (a queue at 0, then
+oscillating) was refused. Now such a stretch's power is answered as a true zero (psd averages it in, spectrogram gives
+its rows 0), the count is answered as `flat_segments`, and the call is refused only when every stretch is flat (a
+pure ramp under `detrend=linear`, so a varying signal never reads as zero power). The flat-signal refusal in `checked`
+is unchanged. New test `test_a_flat_stretch_inside_a_varying_signal_is_answered_as_zero_power`: the spectrogram
+scenario with its quiet half exactly 0 (noise 0) through `/api/query`, its quiet rows exactly 0 and its sine rows
+above; psd of the same signal peaks at 300 s with `0 < flat_segments < segments`; a ramp is refused by both naming
+"every stretch is flat", and answered with `detrend=none`. Seen to fail with the old per-stretch refusal put back
+(`spectrogram: ...` refused), then restored. SPEC §4e's refusals and the agent guide say the same. No other finding
+was raised. Tests run in round 2: `tests/test_analysis_calls.py` (9 passed); ruff clean.
+
+Overrun reason: 297 lines added and 19 removed outside tests, docs and dev against the branch's base, 278 net against 240 (round 2 adds 5 for answering a flat stretch as zero power and counting it). The four calls, each with its four refusals, its bounds and its words naming them, the G1, G2 and G4 guards, an exact chi-square quantile in the standard library for the psd band, the common grid for two signals, and the engine's re-read of each query are each asked for and cost a few lines; the rest is docstrings.
 
 ## Entry
 
@@ -124,7 +136,8 @@ section: Done recently
   never the values the panel drew, and reuses `query/frequency.py`'s FFT, coarsening, detrending and stretches. A
   spectrum of a data source's query under a range window is refused (`windowed`, G1); a period under 2 × max(scrape,
   step) is never answered and is marked `not_observable_s` (G2); two signals of different steps or windows warn
-  `mixed-windows` (G4). A record too short, non-finite, with no stretch of 16 samples between gaps, or flat is refused
-  in words (`unanalysable`), never zeros. `segments` (64), `length` (1,024 samples), `most_lag` (256 samples) and
+  `mixed-windows` (G4). A record too short, non-finite, with no stretch of 16 samples between gaps, or flat (for psd
+  and spectrogram, every stretch a straight line once detrended) is refused in words (`unanalysable`), never zeros; one
+  flat stretch inside a varying signal is a true zero, counted in `flat_segments`. `segments` (64), `length` (1,024 samples), `most_lag` (256 samples) and
   `cells` (5,000) each have a ceiling, and a value past it is refused. Left: the page's batching still does not rewrite
   the ids inside an analysis text (from analysis-source-and-window-1).

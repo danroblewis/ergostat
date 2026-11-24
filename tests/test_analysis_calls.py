@@ -125,6 +125,26 @@ def test_spectrogram_shows_when_a_period_starts(tmp_path):
     assert 0 < len(r["rows"]) <= 100 and "partial" in codes(r), r                  # thinned to the cells asked
 
 
+def test_a_flat_stretch_inside_a_varying_signal_is_answered_as_zero_power(tmp_path):
+    p = store(tmp_path, s=sine(n=1440, noise=0.0, after=7200.0))                   # exactly 0, then the sine
+    _, g, f = ask(p, ("A", series("s")), ("G", call("spectrogram(A, length=20m)")), ("P", call("psd(A, segments=8)")),
+                  until=T + 4 * HOUR, since=4 * HOUR)
+    assert "error" not in g and g["flat_segments"] > 0, g
+    near = min({row[1] for row in g["rows"]}, key=lambda hz: abs(hz - 1 / 300))
+    span = g["segment_samples"] * g["sample_seconds"]
+    before = [row[2] for row in g["rows"] if row[1] == near and row[0] + span <= T + 7200]
+    after = [row[2] for row in g["rows"] if row[1] == near and row[0] >= T + 7200]
+    assert before and set(before) == {0.0} and min(after) > 0, (before, after)    # the quiet rows: a true zero
+    assert "error" not in f and 0 < f["flat_segments"] < f["segments"], f
+    s = f["series"][0]
+    assert abs(1 / s["xs"][peak(f)] - 1 / 300) <= 1 / (f["segment_samples"] * f["sample_seconds"])
+    ramp = [float(i) for i in range(400)]                         # every stretch a straight line: refused, never zeros
+    for run in (lambda: spectra.psd("A", ramp, 10.0, 10.0), lambda: spectra.spectrogram("A", ramp, 10.0, T, 10.0)):
+        with pytest.raises(Refused, match="every stretch is flat"):
+            run()
+    assert spectra.psd("A", ramp, 10.0, 10.0, detrend="none")["series"][0]["values"]   # not flat without detrending
+
+
 def test_ccf_names_the_lag_and_its_sign(tmp_path):
     rng = random.Random(3)
     a = [rng.gauss(0, 1) for _ in range(720)]
