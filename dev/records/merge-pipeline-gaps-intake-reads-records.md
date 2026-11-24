@@ -145,3 +145,13 @@ tests/test_gapsdoc.py and tests/test_backlog.py together (82 passed before the p
 tests/test_gapsdoc.py and that brief test together (73 passed), and tests/test_factory.py with tests/test_gaps_doc.py
 (261 passed, 2 skipped for Docker). `ruff check ergostat tests scripts` and the two changed dev/bin files are clean.
 Not run here: the whole unit suite and the four browser files (no page is changed).
+
+Round 6, the queue's finding: the batch of 26 failed, and alone
+`tests/test_item_search_gaps.py::test_item_search_entry_listed_once` failed, since it called `intake.twice()`, which
+this gap retires (the test came to main with `item-search-join-2` after this branch's grep for callers). It is a
+third caller outside the Files list, changed as the other two were: it now counts the entry's gap id over
+`intake.gaps_md(text, done=True)` (every section, Done recently too, as `intake.read()` counts) and asserts exactly
+one. The helper `intake(fn, args)` takes the extra argument. No other `intake.twice` caller is left in tests/, dev/
+or scripts (the mentions left are in other gaps' records, which say what they were). dev/bin is unchanged this round
+(+22 net lines against main, budget 50). Not seen to fail with the code broken: the pinned fixture cannot be edited,
+and the count is the same one the factory and backlog tests (seen to fail in rounds 1 and 2) use.
