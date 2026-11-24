@@ -218,3 +218,25 @@ Round 5, after the factory merged main (2f08c24e):
   - The rest are the same tests as round 4's, including `test_an_equation_…` (no "Nothing waiting." on /model, now at tests/test_diagram_rendering.py:5574).
   - I have not shown that they fail on clean main (lesson-13). Left: the factory should run them again on main and hold this gap until main passes them, or until they are shown to pass there.
 - Not run here: the other three browser files and the unit suite.
+
+## Where it stopped
+
+Round 6, after the factory merged main (278f54a4):
+- The only finding was the queue's "conflicts with main" in docs/DESIGN.md, ergostat/web/static/diagram.js and tests/test_graph_cli_web.py. I resolved them with the editor and kept both sides (87db36f6). A `python3 - <<'EOF'` heredoc was refused, and so was a `git add … && git commit … && git log …` chain. The plain `git add` and `git commit --no-edit` ran.
+  - `diagram.js` (`fit`): main gave the Process view's map a zoom of at least 1, so its 11px text is never drawn smaller. I put that floor on the branch's `k`. Fit still uses the drawn box and the toolbars as drawn. Main's side also had its own copy of the old layout-box framing, which the branch's framing replaces.
+  - `docs/DESIGN.md`: I kept the branch's sentences about the hint and framing, and added main's Process-map notes for Fit and for phones.
+  - `tests/test_graph_cli_web.py`: both sides had added a test at the same place, so I kept both.
+- Main's new `test_items_links_each_kind_to_its_process_map_…` looked for the old hint text, "More beyond the edge ", and failed after the merge (the hint read "More to the right →"). This branch replaces that wording by design, so the test now checks for "More to the (left|right|above|below)" (65df4b31). Its 11px and arrow checks are as main wrote them.
+- The code is 37 net lines in `diagram.js` against main (+52, -15), within the 60-line budget.
+- Ruff: clean. `tests/test_graph_cli_web.py`: 58 passed.
+- With Playwright, under the watchdog:
+  - The Fit cases, the Open cases and `test_the_edge_hint_pans_…`: 7 passed, rc 0.
+  - `test_opening_and_closing_…_keeps_the_pins` and `test_on_a_phone_…` (2 cases): passed.
+  - The process-map test: passed after the fix above. `tests/test_style_tokens.py` passed too (16 passed, rc 0).
+  - The three Process-view tests that go through Fit (`test_every_process_view_draws_its_workflows_cleanly`, `test_a_kinds_frame_dragged_…`, `test_process_view_with_no_kinds_…`): 25 passed, rc 0.
+- `tests/test_diagram_rendering.py` run whole, with Playwright, under the watchdog: 320 passed, 35 failed (rc 1, 65 min). The Fit, Open, hint, phone and Process cases all passed. The pytest cache lists the 35 failures, all tests that failed in earlier rounds:
+  - `test_sensors_…_no_part_has_a_tooltip` for 24 examples, from the same Dynamics-view `<title>`.
+  - `test_every_view_draws_cleanly_and_in_time` for autoscaler, coordinator, the-job and ticket-factory. These are the layout rules' counts and a timing bound.
+  - `…control_view…[autoscaler]`, `test_every_part_opens_its_panel_…`, `test_an_open_system_dragged_…`, `test_blocks_crossings_hop_dots_…`, `test_the_dynamics_view_speaks_system_dynamics_…`, `test_a_goal_name_opens_its_evidence_…[False]`, `test_a_suggestion_appears_…`, `test_the_exported_png_…`, `test_a_panel_open_on_what_is_chosen_…` and `test_an_equation_…`. The last fails at tests/test_diagram_rendering.py:5898: there is no "Nothing waiting." on /model, as in every round.
+  - Not shown to fail on clean main (lesson-13). Left: the factory should run them again on main and hold this gap until main passes them, or until they are shown to pass there.
+- Not run here: the other three browser files and the unit suite.
