@@ -170,7 +170,7 @@ recorded in its `uses` entry (`untrusted`, a bool).
 
 *Marked.* Library text is shown between ergostat's markers, `⟦untrusted: LABEL⟧` and `⟦end of untrusted⟧`, every
 `⟦` and `⟧` inside it written `[` and `]`, so no marker character inside a marked span is the library's. `LABEL` is
-never library text: `template NAME` (the name checked above) or the words `library file`. Three places are marked,
+never library text: `template NAME` (the name checked above) or the words `library file`. These places are marked,
 for an untrusted template only; a trusted template's output is unchanged:
 
 - the `templates` tool (MCP, `author.library`), listed and in full: `description`, `reading`, `example`, `from`, and
@@ -181,12 +181,37 @@ for an untrusted template only; a trusted template's output is unchanged:
   refused): `untrusted library folder FOLDER:` (the owner's path), then the rest, file name included, marked as
   `library file`;
 - the problems a use of an untrusted template gives: **bad-param** and **bad-template** messages after
-  `use INSTANCE:`, the stand-ins in **template-stand-in**, and a broken template's note in **unknown-template**.
+  `use INSTANCE:`, the stand-ins in **template-stand-in**, and a broken template's note in **unknown-template**;
+- the **library-untrusted** and **untrusted-text** refusals: `it makes ⟦untrusted: library file⟧PATH, under template
+  NAME from FOLDER⟦end of untrusted⟧`. PATH ends in the library's own key, so it sits inside the mark with the
+  folder, and any character in them that does not print (a newline) is written as its escape (`\n`): neither a
+  folder's name nor a key can close a mark or start a line of its own;
+- the text an untrusted instance makes in the model (`untrusted.Shown`, the one place that decides; a part is
+  untrusted as under *Bounded* below, and a part with no `where` counts as untrusted too), labelled `template NAME`
+  (`library file` when its instance is gone from `uses`). Each field is marked where a view writes it, never by
+  matching its words elsewhere: the MCP `explain` and `context` answers are written from a copy of the model whose
+  untrusted parts' `description`, `run`, `prompt`, `ask`, equation and sensors' `run` and `description`, and the
+  system's description, are marked. Where a view cuts such text short (`explain` keeps 120 characters of a prompt, a
+  `context` part its budget), the cut keeps the mark and closes it. A finding at an untrusted instance's `use:` line,
+  or about an untrusted part, is marked whole in `ergostat check`'s lines and its `--json` messages, in the MCP
+  `check` answer and in a `context` recipe's findings. The names of untrusted parts (identifiers, by NAME, each
+  `INSTANCE-NAME`) are marked as whole words where those answers, the notes' lines of `check` and the values (never
+  the keys) of the MCP `status` answer write them, but never inside a mark, nor inside an owner's own field (a
+  description, run, prompt, ask, equation, sensor's run or description, or system description) where the `explain`
+  and `context` answers write that field from the model's copy: there it is as written. The same words anywhere else
+  in an answer (a finding's message, a `status` value, another line of `explain`) have their names marked. An
+  answer that carries a mark, a refusal's or a bad-param's included, ends with what the markers mean once (`check`'s
+  last line; `"untrusted"` in a JSON answer). The owner's parts and those of trusted and built-in templates are not
+  marked, even where their text is the same as a library's, and an answer with no
+  untrusted part or mark in it is unchanged.
 
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
-known types), and everything an untrusted template makes in the model: its system's description, its parts'
-descriptions, prompts, commands, equations and names, however `check`, the diagrams and the MCP model views show
-them. A held chain's `ask`, `prompt`, `query` and `sources` are gated by who wrote them instead (R3, below).
+known types); a finding's `about` and `id` in JSON, and the keys of the MCP `status` answer (a goal by its name):
+references, kept as they are so the thing can be named back; a library's description or command quoted in a finding
+about an owner's part (only the untrusted names in it are marked); the diagrams; and the MCP `spec` answer, which is
+the format's document and holds none of the model's text; and an untrusted instance's own name, which the owner
+wrote under `uses:` (its system's description is marked). A held chain's `ask`, `prompt`, `query` and `sources` are gated by
+who wrote them instead (R3, below).
 
 *Bounded.* A part is untrusted when it was made by an instance whose `uses` entry does not say `untrusted: false`
 (an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After
@@ -792,6 +817,8 @@ together inside its outline, its own systems still boxed), or is drawn alone: it
 what it reaches outside as terminals at its edge, each naming the system it is in. A system alone
 at its level starts open; the others start as boxes. A `once` library template's system (`use: modelling`) is not
 counted beside it: a model's one system and `modelling` start with the system open and `modelling` a box.
+Its lines are drawn from a quick routing first and refined in the background, the careful lines taking their place
+only if nothing was dragged or laid out again meanwhile.
 
 ## 4b. Storage: where the record is kept
 
@@ -845,7 +872,11 @@ page, the command line); every 32,768 events sealed into a segment of gzip block
 block, read alone) with an index (each item's and each type's rows, the times and seqs as
 columns, a Bloom filter of the ids, and what its events add up to per valve, controller and block:
 openings, decisions, runs), so a query by item, type and time reads only the rows and
-blocks that match, and a month's tallies and crossings are read from headers and columns, not event by event. `sqlite` is `events.db`, as before. Both keep a transcript's lines
+blocks that match, and a month's tallies and crossings are read from headers and columns, not event by event. Beside
+each segment, an index of what caused each event and one of its source (`.cby`, `.src`: hashed keys and their rows),
+and the head keeps the same in memory, so what a run caused (`caused_by`) and a query by source read only the
+segments, blocks and rows that hold a match; a segment sealed before these were written has them built once, from
+its blocks, the first time it is asked, and kept. `sqlite` is `events.db`, as before. Both keep a transcript's lines
 (`claude.*`) out of item counts without reading them (SQLite by a partial index, the log by its
 type columns).
 
@@ -1394,6 +1425,59 @@ reads the event log.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
   is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
+- **The SQL source.** A `sql` source answers what PromQL cannot: which items, one item against another, exact medians,
+  cohorts. A query is one SQLite SELECT over these documented, stable views of the project's items, and nothing else
+  (`ergostat/datasources/_itemviews.py`). Times are Unix seconds, and `:since`, `:until` and `:step` are the panel's window.
+  - `transitions(id, kind, at, from_state, to_state, event, type)`: every move of every item. An arrival has no
+    `from_state`, and a lease's moves into and out of `leased` are moves like any other.
+  - `item_fields(id, kind, field, value)`: each item's top-level fields now, a list or a map as JSON.
+  - `item_spans(id, kind, state, entered, left, entry, reason)`: one row per move of an item into a state.
+    - `left` is null while the item is there, so an open item's current span is open.
+    - `entry` is 1 the first time the item is in that state, 2 when it came back, and so on.
+    - `reason` is the finished state the item ended in (the kind's finished states, as the Items listing reckons
+      them), and null while the item is open.
+    - Write `left` quoted (`"left"`) where SQL would read it as a join.
+  - One view per item kind, named for the kind with `-` read as `_`: `(id, state, first, last, entered, events, ...)`,
+    then the kind's `show:` fields that are plain words. A kind whose name is not then a plain word, or that is named
+    like a view above, has none.
+
+  The aggregates `median(x)`, `percentile(x, p)` (p from 0 to 100) and `percentile_cont(x, p)` (p from 0 to 1) are exact.
+  They interpolate linearly between the two nearest values, as PostgreSQL's `percentile_cont` does, and ignore nulls.
+  Text is refused.
+
+  How a query is kept read only:
+  - Each query gets a connection of its own to the item index's file, opened read only, under the file's shared lock.
+  - The views the text names are copied into the connection's own temporary tables.
+    - The copies, and the finished states that make `reason`, are read in one read transaction. So they all show one
+      state of the index: a query that joins two views sees each item the same in both, even if a catch-up is committed
+      while they are copied.
+  - Then SQLite's authorizer allows only SELECT, reading those copies and the query's own `WITH` names, and an
+    allowlist of functions (no `load_extension`, no internal helper).
+  - So a write, `ATTACH`, `PRAGMA`, a transaction or a read of any of the index's own tables (`items`, `moves`, `names`,
+    `sqlite_master`, a `pragma_` table) is refused with `error_kind: refused`, naming what it tried.
+  - A copy and not a SQLite view: SQLite does not say which view a read is for once a view is flattened into a query.
+
+  Bounds:
+  - Time: the data source's time bound (a progress handler stops it).
+  - Rows: 5,000.
+  - Bytes: 8 MB of text and blobs in the answer.
+  - Values: 16 MB for any value the query makes.
+  - Medians: 1,000,000 numbers in one median or percentile.
+  - Memory: SQLite's page cache is held to 8 MB each for the index and for the query's temporaries, which go to a
+    temporary file past that.
+
+  Past a bound the query is stopped, with `error_kind: limit`. Not bounded: catching the index up with the record before
+  the query, which every item panel does too.
+
+  The answer is typed by its columns. A first column named `time` makes series. Otherwise the leading columns that are
+  not all numbers are a table's dims, and the rest are its measures. An answer of numbers only is named by row (dim
+  `row`), and a number meant as a name is cast to text.
+
+  The views keep their names and columns whatever the index's layout: a column or a table added, columns reordered, or
+  the file built again under a new layout version (`tests/test_sql_source.py`). Its editor (`static/sql.js`,
+  `queryEditors.SQL`) highlights keywords, functions, the source's views and columns, strings, numbers and comments. It
+  completes the views after `FROM` or `JOIN`, and elsewhere the columns of the views the text names, with SQL's words.
+  Both come from `GET /api/query/suggest`: `what=metrics` for the views, `what=labels&metric=VIEW` for a view's columns.
 - **Result shapes.** Every answer says which of five shapes it is (`shape`), so a chart is chosen by what the data is and
   not by where it came from: `series` (values over time; `roles` `input` and `output` when it is two signals, one drawn
   against the other, as an X of another query gives; `open`, `high`, `low`, `close` for candles), `table` (`dims`,
@@ -1591,7 +1675,8 @@ keep their own older rule for now (a kind's last state when every state has been
 **Finished items, left out of the list.** The Items list shows the unfinished by default: each kind's finished states
 and `dead` are left out, its paused states (`parked`) stay listed, and a kind that lives on leaves out nothing. One
 choice for the whole page says it, the address's `finished=hide|waits|show` (`hide` when absent; the list reads
-`waits`, the Graph's, as `hide`): the toggle **Show finished** beside the search writes it, and under each kind that
+`waits`, the Graph's, as `hide`): the one control **Finished items: Hidden / Those waited on / Shown** beside the
+search writes it in all three views (the Timeline's default is `waits`: *Relations*), and under each kind that
 leaves any out a note says how many and which (`3 finished (merged, closed, dead) not shown · show`), its link
 flipping the same parameter. `GET /api/items` takes the same `finished=` (`hide` by default, `show`; anything else is
 refused) and gives each kind `hidden`, its count in each state left out; the counts per kind and state stay whole,
@@ -2163,9 +2248,9 @@ systems' order):
 
 | View | What it shows |
 |---|---|
-| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A group other than `parent`, of a kind not asked (a gap's `milestone`, with kind `gap` chosen), is a frame its members are drawn inside, titled with its id, title and state, and its members' tally: how many done of all, working (active or queued), ready (unblocked), and blocked and on what (each item they wait on, by its own frame when that is another; in full in the frame's tooltip); a frame that waits on another (a milestone's `depends_on`) has an arrow from it, and lines between members stay drawn across frames. The asked items in no such group are in a plain, dashed frame ("no milestone"). A frame with nothing drawn in it (a completed milestone under **Collapse done**, or one only waited on) is one card with the same title, and a line from a member collapsed in it is drawn from that card. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
-`status=` in the address) and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the levelled projection's end, rounded up to the minute; until the completion estimates are worked out, and at a moment travelled to, the levelled projection's end, the last levelled bar's ("done about 04:02, levelled by each block's capacity, median times"). Every time the Timeline and the legend print (the axis ticks aside) is a clock time with its date and zone when not today. A click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), each segment named by its state where it fits, and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection, its bars' titles saying so and the note "Working out the schedule: a simulation of N unfinished <kind>s at each block's capacity"), a parent's a bracket over its children's span. With the estimates, the finished rows come first (what happened, in the order they started), then the unfinished in the order the simulation starts them (the left edge of the row's first bar ahead, else its start's p50, then its finish's p50, then its id), so the bars ahead step down the rows; the items no run moves (not scheduled, above: paused, of a kind with no finished state, at blocks all switched off, or waiting on one of these) last, apart, under "Not scheduled (N)", each with its why ("paused in parked", "waits on gap/x, which is parked"; the estimate's `said`) and no bar ahead; they are left out of their kind's last finish, and the legend's finish sentence ends "; N not scheduled", its expected time always with its date. The note names each block's simulated capacity and where it comes from ("implementor 9 at once (pool stock.implementor-pool now)", an agent's seats or a daemon's runs at once when they bind, "what if"); an item's page says "not scheduled: <why>" for its estimate. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
+| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A group other than `parent`, of a kind not asked (a gap's `milestone`, with kind `gap` chosen), is a frame its members are drawn inside, titled with its id, title and state, and its members' tally: how many done of all, working (active or queued), ready (unblocked), and blocked and on what (each item they wait on, by its own frame when that is another; in full in the frame's tooltip); a frame that waits on another (a milestone's `depends_on`) has an arrow from it, and lines between members stay drawn across frames. The asked items in no such group are in a plain, dashed frame ("no milestone"). A frame with nothing drawn in it (a completed milestone with the finished hidden, or one only waited on) is one card with the same title, and a line from a member collapsed in it is drawn from that card. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. It reads the page's one **Finished items** choice (`finished=`, the list's too): **Hidden** (the default), only the unfinished and paused, and a chain through finished items is one dashed line, "via N finished"; **Those waited on** (`waits`), and each finished item an unfinished one waits on directly (one precedence link, never further back; the list reads it as Hidden); **Shown** (`show`), every item in the window, up to the bound. An old address's `frontier=0&collapse=0` is read as Shown, `collapse=0` alone as Those waited on, any other as Hidden. The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
+`status=` in the address), says how many finished items the choice leaves undrawn and what finished is for each kind ("968 finished not drawn: gap merged, closed", from the answer's `kinds[].finished`), and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the levelled projection's end, rounded up to the minute; until the completion estimates are worked out, and at a moment travelled to, the levelled projection's end, the last levelled bar's ("done about 04:02, levelled by each block's capacity, median times"). Every time the Timeline and the legend print (the axis ticks aside) is a clock time with its date and zone when not today. A click opens the item |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), each segment named by its state where it fits, and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection, its bars' titles saying so and the note "Working out the schedule: a simulation of N unfinished <kind>s at each block's capacity"), a parent's a bracket over its children's span. With the estimates, the finished rows come first (what happened, in the order they started), then the unfinished in the order the simulation starts them (the left edge of the row's first bar ahead, else its start's p50, then its finish's p50, then its id), so the bars ahead step down the rows; the items no run moves (not scheduled, above: paused, of a kind with no finished state, at blocks all switched off, or waiting on one of these) last, apart, under "Not scheduled (N)", each with its why ("paused in parked", "waits on gap/x, which is parked"; the estimate's `said`) and no bar ahead; they are left out of their kind's last finish, and the legend's finish sentence ends "; N not scheduled", its expected time always with its date. The note names each block's simulated capacity and where it comes from ("implementor 9 at once (pool stock.implementor-pool now)", an agent's seats or a daemon's runs at once when they bind, "what if"); an item's page says "not scheduled: <why>" for its estimate. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. It reads the same **Finished items** choice, but opens on **Those waited on** unless the address says otherwise (a default, not a second control), and at load the page scrolled to the first unfinished row, so the now line is in view |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
@@ -2360,6 +2445,22 @@ while it was there (`taken while here`), its run and that run's attempt (counted
 rework is a repeated step; a state nothing counts has `says`. The k-th move into `leased` is matched to the k-th
 lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
 answer.
+
+**Where it went, on the item's page.** Right after its header, an item of a kind the model counts or takes shows its
+`path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that
+counts it (its state beside it when the names differ, else the state alone, its `says` as the title) and how long it
+stayed; between steps the valve (the flow that counted it into the next) and the block that moved it: the step's
+block, its run and attempt, from the lease, else the block whose `out:` names that flow (`/api/kinds/K`'s
+`taken_by`). A nack or rework is a repeated step, said as *given back*, with its attempt. Each stock and flow links
+to `/diagram?view=dynamics&select=stock.S` (`flow.F`), each block to `/diagram?view=blocks&select=block.B` (no
+agent has a page of its own: its panel opens from there), each run to the Record narrowed to the item over that run (from its lease's `taken` to its `ended`, open while it
+runs; a run the lease history no longer keeps, from the step's start on).
+The final state is marked (a double border); the last step is where the item is counted now and, while a run has
+it, says *being worked by B for 4m*. This replaces the lifecycle strip. An item of a kind nothing counts or takes
+(the footprint's `why`) keeps the strip (the states it passed through, joined by arrows; its other endings apart)
+under the same heading and says *Its moves are not counted anywhere in the model.* Under the line (or the strip)
+are the links to its path drawn alone (below). Its leases follow, as a closed *Attempts (N)*: who has it now
+(taken, never "held"), the attempts counted of the most, and the table of every lease.
 
 **Drawn alone: what an item passed through, or what a kind touches.** `/diagram?view=dynamics&item=ID` (and
 `view=blocks`), or `&kind=K`, asks `GET /api/graph` with `item=` or `kind=`; the answer carries `subset`
@@ -3971,11 +4072,13 @@ goals:
 ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease on a second look at the same
 expiry, a grace after it first found it past its TTL (a tenth of the TTL, at least a second and at most 30 s; renewed
 meanwhile, the grace starts again: a renewal the run asked for in time may still be on its way into the record, the
-engine or the machine busy), and the item is taken again. Each dead letter, and each lease that expired in the
+engine or the machine busy), and the item is taken again. A watchdog pass looks at leases for at most 0.2 s, and the
+dispatcher takes work between passes, so many overdue leases never hold up a take for another block; the leases a
+pass did not reach are looked at in the passes after, each once a round, its first look kept. Each dead letter, and each lease that expired in the
 last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease ITEM --redrive` gives a
 dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every
-attempt.
+attempt, under *Where it went* (§5a).
 
 **A valve's panel lists what its block has taken.** A valve (or flow) moved by a block that takes items says, in its
 side panel (Dynamics, and the Blocks view's valve panel), one line per such block: the kind, how many items it has
@@ -4514,7 +4617,11 @@ A `prometheus` source is also a dashboard data source: a panel's query is PromQL
 (`GET /api/v1/query_range`) through the server (section 4e, *Data sources*); its editor's names come from GETs of its
 metadata API (section 4e, *The query editor*). It makes no other request.
 
-More types (Datadog, CloudWatch, SQL) can follow the same shape. A panel data source type is one module in
+A `sql` source (no keys: `record: {type: sql}`) is a dashboard data source only. Its connection is the asking project's
+own record: a panel's query is a SQLite SELECT over the item views (section 4e, *The SQL source*).
+
+More types (Datadog, CloudWatch) can follow the same shape. A type that reads the asking project's own record (`sql`)
+finds it in `datasources.ASKING` while it answers. A panel data source type is one module in
 `ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
 `sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points, and
 optionally `suggest(source, what, prefix, metric, label, seconds, most)`, the names its editor completes; a type offering
@@ -4867,7 +4974,12 @@ the goal) is drawn reading the gap (stock → gap → flow, its sign kept, no lo
 link crosses to another system as any line does (to a stub, or a closed module's port); a goal nothing
 in the model acts on (no block serves it, or an open loop) keeps its gap, marked *→ no feedback* with no
 link out, and the legend says what the mark means. The stock's panel names the same goals, each bound
-as the goal writes it (`desired users ≥ 180`). A line between two parts both drawn, in open systems or not, is drawn as itself; only
+as the goal writes it (`desired users ≥ 180`). A goal not holding says so on its gap, after the gap's value: the
+goal's word from `/api/loops` (goalWord; nothing in dynamics.js maps a status), `off` with the one phrase of how far
+(`7 · off by 7 tickets`), `no feedback` for an open goal not already so marked, `stale` or `unknown` muted; a goal
+holding says nothing. Off, the word, the gap's outline and the marker of each balancing loop through the gap are
+`--bad`, never the accent (a marker chosen still takes the accent); the gap → flow link stays ink. The word follows
+the status poll on the value's own line, so it comes and goes with no new layout. A line between two parts both drawn, in open systems or not, is drawn as itself; only
 where its other end is not on the canvas is it cut: a connector out of a closed module into an
 open system comes from a shadow variable `<x>` inside the receiving system, and a shadow is an
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a

@@ -149,7 +149,8 @@ outside the entries goes to `dev/records/GAPS-head.md`; one it cannot place, suc
 another title's record, goes to `dev/records/GAPS-unplaced.md` and is said as `gaps_md_unplaced`), then
 writes GAPS.md from the records and commits it as `docs/GAPS.md from the records` (a render that fails says
 `gaps_md: why` on the run and lands the batch without it), and the implementor refuses, uncounted, a branch whose own
-commits change GAPS.md. Every reader still reads GAPS.md. A gap that is not in GAPS.md is asked for as an
+commits change GAPS.md. The dependency reader reads the entries from main's records (`gapsdoc.entries`; GAPS.md
+only before the split); the other readers still read GAPS.md. A gap that is not in GAPS.md is asked for as an
 event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):
 
 ```sh
@@ -211,7 +212,9 @@ the suites again. Its reviews are numbered past the branch's earlier ones (`revi
 
 **Dependencies.** A gap waits on others named by `depends-on: [name, ...]` in its definition (the template is
 `dev/prompts/definition.md`), `"depends_on": ["gap/..."]` in its request, or `after `name``, `needs `name` first` and a
-"Depends on" table column in GAPS.md. It is built only once each is merged (a parked one holds it, with `blocked_reason`); the implementor takes the unblocked first,
+"Depends on" table column in GAPS.md, as main's records render it. It is built only once each is merged (a parked one
+holds it, with `blocked_reason`; so does its own record when main's cannot be read, said by name); the implementor
+takes the unblocked first,
 the critical first. A name that is no gap, or a link that would close a cycle, is refused and said (the goal
 `dependencies-sound`); a gap waiting on any unfinished one names it and its state (`blocked_reason`), and one whose
 branch is already merged into main and whose own definition file is in main's tree (so a branch made from main with no
@@ -328,6 +331,19 @@ programs already there.
   number of days since the oldest `when`. No goal is on it until the owner says how long a test may stay. A list, a
   line or a date held.py cannot read gives no value (exit 1), never 0. A listed test with no flake item marked
   `quarantined`, or such an item whose test is not listed, is named on stderr.
+- **flakes-few, main-repaired-fast** (dev/model/guarantees-flakes.yaml). The stock
+  `flakes-open` counts the flakes `seen`, filled by `flakes-seen` and drained by `flakes-fixed`, which counts every move
+  out of `seen`: fixed by green runs or by hand, or to `main-broken`. So the two flows add up to the stock. `flakes-few` holds each seen flake by its hours in `seen` (`per: item`, on the stock
+  `flakes-open-hours`, `measure: oldest` over the same items) at or under `flake-hours-most` (3). Off, it names the
+  oldest first. check refuses `per: item` on a count (goal-per), so the definition's "at most 3, the oldest named" is
+  one goal on the age, not on the count. Whether it should be the count instead is the owner's question.
+  `main-repaired-fast` holds `main-repair-hours` at or under `main-repair-hours-most` (24). The two
+  readings are `flakes.py main-repair-hours` and `flakes.py flake-fix-hours`. Each is the median, over the stays that
+  ended `fixed` in the last 14 days, from the move into `main-broken` (or `seen`) to the move to `fixed`. The moves are
+  read in the record's order, never by comparing stamps. A repeat break keeps the clock, and a flake made again from
+  `fixed` starts a new stay. A `seen` stay that went to `main-broken` ended unfixed. At most 500 flakes are read, by
+  id, and more is said on stderr. With no stay ended, or a flake that cannot be read, there is no value (exit 1). Both
+  goals are `on-stale: off`. Nothing reads either goal yet: they are unserved until regression-guarantees-wired.
 - **lessons-hold.** The auxiliary `lessons-recurring` (dev/model/guarantees-lessons.yaml, `measure.py
   lessons-recurring`) counts, over 14 days of reviews (every round), the librarian's classes found that the gap's
   first implementor brief carried. A review whose classes are not recorded, or whose gap has no first brief, is left

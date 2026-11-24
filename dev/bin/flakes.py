@@ -1,19 +1,29 @@
 """The one writer of a flake's state (flake.seen, flake.main-broken, flake.fixed): each write decided on the item as it
 stands, read again under one lock (run/flakes.lock), and recorded at once with `ergostat event --add`, so a test still
 failing on main stays main-broken, a second break keeps the first repair clock, a flake fixed then seen again starts
-anew, and a seen flake is fixed after `[gates] flake_fixed_after` green queue runs in a row that say it PASSED."""
+anew, and a seen flake is fixed after `[gates] flake_fixed_after` green queue runs in a row that say it PASSED.
+
+  flakes.py main-repair-hours   the median hours, over the stays in main-broken that ended fixed in the last 14 days,
+                                from the move into it to the move to fixed (stays())
+  flakes.py flake-fix-hours     the same, of the stays in seen
+Each read from the flakes' moves in the record's order (`ergostat item ID --json`), at most READ_MOST flakes (more:
+said on stderr); with no stay ended in the window, or a flake that cannot be read, there is no value (exit 1)."""
 
 from __future__ import annotations
 
 import fcntl
 import json
+import statistics
 import sys
+import time
 from contextlib import contextmanager
 
 import fac
 
 REMAKE_CLEARS = ("main_fixed_at", "fixed_by", "fixed_on", "green_passes", "passed_on")   # a fixed flake seen again
 GREEN_MOST = 50                                    # seen flakes read per green run, and flake_fixed_after's ceiling
+READ_MOST, WINDOW = 500, 14 * 86400                # the readings: flakes read, at most; the window, seconds
+STAYS = {"main-repair-hours": "main-broken", "flake-fix-hours": "seen"}
 
 
 @contextmanager
@@ -117,3 +127,43 @@ def green(suites: dict, on: str) -> list[str]:
                 ([{"op": "test", "path": "/green_passes", "value": was}] if "green_passes" in fields else [])
                 + [{"op": "add", "path": "/green_passes", "value": was + 1}]))
     return out
+
+
+def stays(moves: list[dict], into: str) -> list[tuple[float, float]]:
+    """(when it ended, its hours) of each stay in ``into`` that ended fixed, the moves taken in the record's order: a
+    stay starts at the first move into it while not in it (made, or made again from fixed: a new stay) and ends at the
+    next move to another state; a move into it while in it (a repeat break) keeps the clock. A stay that left for
+    another state than fixed (seen to main-broken) ended unfixed; the stay it is in now has not ended."""
+    out, start = [], None
+    for m in moves:
+        if m.get("to") == into:
+            start = float(m["time"]) if start is None else start
+        elif start is not None:
+            if m.get("to") == "fixed":
+                out.append((float(m["time"]), (float(m["time"]) - start) / 3600))
+            start = None
+    return out
+
+
+def reading(name: str, now: float) -> float:
+    """``name``'s median hours over the stays ended fixed in the WINDOW before ``now``; SystemExit (no value) with none,
+    or when a flake cannot be read (never counted as no stay)."""
+    its = sorted(fac.items("flake"), key=lambda x: x["id"])
+    if len(its) > READ_MOST:
+        print(f"{name}: {len(its)} flakes, the first {READ_MOST} by id read", file=sys.stderr)
+    hours = []
+    for it in its[:READ_MOST]:
+        d = read(it["id"])
+        if not d:
+            raise SystemExit(f"{name}: no value ({it['id']} could not be read)")
+        hours += [h for end, h in stays(d.get("moves") or [], STAYS[name]) if end >= now - WINDOW]
+    if not hours:
+        raise SystemExit(f"{name}: no value (no stay ended fixed in the last 14 days)")
+    return round(statistics.median(hours), 3)
+
+
+if __name__ == "__main__":
+    if sys.argv[1:2] and sys.argv[1] in STAYS:
+        print(reading(sys.argv[1], time.time()))
+    else:
+        sys.exit(f"flakes.py: a reading, one of {', '.join(STAYS)}")
