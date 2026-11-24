@@ -776,10 +776,10 @@ def test_each_loop_line_carries_its_state_and_whether_the_goal_is_modellings(tmp
     p.measurements.add("sensor/backlog.main", 9, at=now - 30)                    # the system's goal: off
     p.measurements.add("sensor/unanswered-requests.main", 3, at=now - 30)        # modelling's goal: off
     snap = st.snapshot(p, now=now)
-    loops = {a["what"]: a for a in st.attention(snap, False, p.model) if a["what"].startswith("loop ")}
-    assert loops["loop short-backlog"]["state"] == "off" and "modelling" not in loops["loop short-backlog"], loops
-    assert loops["loop requests-handled"]["state"] == "off" and loops["loop requests-handled"]["modelling"] is True
-    assert all(a["state"] == snap["loops"][w.split(" ", 1)[1]]["status"] for w, a in loops.items()), loops
+    loops = {a["goal"]: a for a in st.attention(snap, False, p.model) if a.get("goal")}
+    assert loops["short-backlog"]["state"] == "off" and "modelling" not in loops["short-backlog"], loops
+    assert loops["requests-handled"]["state"] == "off" and loops["requests-handled"]["modelling"] is True
+    assert all(a["state"] == snap["loops"][g]["status"] for g, a in loops.items()), loops
     snap["reports"] = [{"id": "report/1", "title": "a crash"}]
     said = [a for a in st.attention(snap, False, p.model) if a["what"] == "reports upstream"]
     assert said and said[0]["waiting"] is True, said

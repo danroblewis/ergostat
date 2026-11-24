@@ -744,7 +744,7 @@ def test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock(projec
     data = _json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1).replace("<\\/", "</"))["data"]
     st = data["status"]
     assert st["loops"]["disk-under-80"]["status"] == "off" and st["loops"]["disk-under-80"]["stock"]
-    off = [a for a in st["attention"] if a["what"] == "loop disk-under-80" and a["level"] == "bad"]
+    off = [a for a in st["attention"] if a["what"] == "goal disk-under-80" and a["level"] == "bad"]
     assert off, st["attention"]
     assert "function showGoal(" in html and "goalButton(goal, what)" in html
 
@@ -859,6 +859,35 @@ def test_at_looks_at_a_past_moment(project):
     past = state.snapshot(project, now=now - 300)
     assert past["loops"]["disk-under-80"]["status"] == "holding" and past["stocks"]["disk-used"]["value"] == 70
     assert not past["live"]
+
+
+def test_the_projects_summary_counts_goals(monkeypatch, capsys):
+    import types
+
+    from ergostat import projects
+    from ergostat.cli import running
+    g = {"system": 1, "open": 0, "unknown": 0, "own": {}}
+    row = {"name": "p", "running": False, "web": None, "repo": "/r", "loops": 3, "goals": g, "goals_off": ["x"]}
+    monkeypatch.setattr(projects, "known", lambda: [row, {**row, "name": "q", "loops": 0, "goals_off": []}])
+    running.cmd_projects(types.SimpleNamespace(json=False))
+    out = capsys.readouterr().out
+    assert "GOALS" in out and "1 goal off: x" in out and "no goals" in out and "loop" not in out, out
+
+
+def test_an_attention_entry_about_a_goal_names_it_as_a_field(project):
+    """/api/status: an off goal's entry, and a hint about it, read 'goal NAME' and carry goal: NAME; none says 'loop '."""
+    from ergostat.web import server
+    project.measurements.add("sensor/disk-usage", 90)
+    live = server.Live(project)
+    att = server.api(live, "status", {})["attention"]
+    mine = [a for a in att if a.get("goal") == "disk-under-80"]
+    assert mine and all(a["what"] == "goal disk-under-80" for a in mine) and mine[0]["level"] == "bad", att
+    assert not [a for a in att if a["what"].startswith("loop ")], att
+    snap = {**server.st.snapshot(project), "hints": [{"controller": "disk-under-80", "goal": "disk-under-80",
+                                                       "says": "goal disk-under-80 was off 60% of the time"}]}
+    hint = [a for a in server.st.attention(snap) if a["level"] == "hint"]
+    assert hint == [{"level": "hint", "what": "goal disk-under-80", "goal": "disk-under-80",   # (named once: its heading)
+                     "says": "was off 60% of the time"}], hint
 
 
 def test_agent_now_runs_it_once_and_says_what_it_said(repo, project, capsys):
