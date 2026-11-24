@@ -39,13 +39,16 @@ def test_grayscale_and_transparent_images_compress():
 
 
 if __name__ == "__main__":
-    failed = 0
+    import time
+    began, passed, failed = time.monotonic(), 0, 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
             try:
                 fn()
+                passed += 1
             except Exception as e:                      # noqa: BLE001
                 failed += 1
                 print(f"FAIL {name}: {type(e).__name__}: {e}")
-    print(f"{'ok' if not failed else 'FAILED'}: {failed} failed")
+    # the summary pytest ends with, which use: regressions reads (python -m ergostat.regressions counts)
+    print(f"{passed} passed, {failed} failed in {time.monotonic() - began:.2f}s")
     raise SystemExit(1 if failed else 0)

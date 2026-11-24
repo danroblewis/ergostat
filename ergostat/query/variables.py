@@ -28,7 +28,8 @@ def values(p, raw: str | None, reader: bool = False) -> dict:
     end = time.time() if until is None else float(until)
     try:
         return {"values": datasources.values(getattr(p.model, "spec", None), source, text, end - since, end,
-                                             datasources.MOST_SECONDS, given)}
+                                             datasources.MOST_SECONDS, given,
+                                             store=getattr(p, "measurements", None))}
     except datasources.SourceError as e:
         return {"error": f"{source}: {e}", "error_kind": e.kind}
     except Exception as e:                            # (its type only: the words may hold the source's address)

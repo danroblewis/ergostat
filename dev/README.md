@@ -149,8 +149,10 @@ outside the entries goes to `dev/records/GAPS-head.md`; one it cannot place, suc
 another title's record, goes to `dev/records/GAPS-unplaced.md` and is said as `gaps_md_unplaced`), then
 writes GAPS.md from the records and commits it as `docs/GAPS.md from the records` (a render that fails says
 `gaps_md: why` on the run and lands the batch without it), and the implementor refuses, uncounted, a branch whose own
-commits change GAPS.md. The dependency reader reads the entries from main's records (`gapsdoc.entries`; GAPS.md
-only before the split); the other readers still read GAPS.md. A gap that is not in GAPS.md is asked for as an
+commits change GAPS.md. The dependency reader, the briefs (an implementor's, a reviewer's, a planner's, the join
+judge's), the S definition and the knowledge block's related gaps read a gap's entry and its section from main's
+records (`gapsdoc.entries`, through `brief.records_at_main`; GAPS.md only before the split); a record that cannot be
+read is said in the brief by name where the entry would be, never as no entry. Intake still reads GAPS.md. A gap that is not in GAPS.md is asked for as an
 event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):
 
 ```sh
@@ -268,6 +270,12 @@ lesson 13). If every failing test fails on main, the failure is not counted and 
 is given back with `waits_on_main`, the implementor skips it, and the intake releases it once main is another commit.
 At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
 failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
+Only a test main has can be main's: before that run each test is looked for at main (`onmain.present`: its file, and
+each `class` and its `def` in it; a file or ref that cannot be read is not there). One main lacks is never run on main
+and stays the gap's, or a stacked gap's first base's that has it (`not_on_main` on `suites_fast`); it is counted and
+goes back through the fix path, the fix session and the nack naming whose it is. The run on main is on main itself,
+never on the stack of main and the bases. A gap held (`waits_on_main`) on a test its main commit lacks, recorded
+before this, is released by the intake at once, `not_on_main` saying which.
 
 Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) goes through `dev/bin/flakes.py`, which
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
@@ -538,8 +546,8 @@ class only when it is exactly S, M, L or XL and its confidence (low 0.25, medium
 `[planning] min_size_confidence`. A class or confidence that is present but not trusted (`"s "`, a missing or unknown
 confidence, one below the bar) takes the full planner and is always marked for review. So is every replan (the gap's
 state `replan`, which the fold sets from the send-back by seq), except an XL one.
-- **S**: no session. The definition is written from the gap's own title and text (its `docs/GAPS.md` entry on main,
-  else a join sub-gap's `entry`; with neither, the gap takes the full path) with the house rules' done
+- **S**: no session. The definition is written from the gap's own title and text (its entry in main's records,
+  else a join sub-gap's `entry`; with neither, or a record that cannot be read, the gap takes the full path) with the house rules' done
   criteria and a 50-line budget, created exclusively in `run/defs/` (one already there, or one that lands first, is
   kept byte for byte and the gap is the coordinator's). `defined_by: size-s`, `planning_cost_usd: 0`. **No AI and no
   reviewer has looked at this definition**; the implementor names the tests.
@@ -993,6 +1001,11 @@ A `stacked_on` that cannot be read, or that names a gap not in the record, count
 moved. The pass says what it did with each gap on stderr, in the block's log.
 
 ## Time in each state
+
+(The measure sensors, `dev/bin/measure.py`, share one listing of each kind: run by the engine, the first reading of a
+kind lists it, under that kind's lock in `<state>/listings/`, and the readings within the next 120 s, `listing.SHARE`,
+read that listing, so readings due together make one listing of the gaps, not one each. A listing that fails is not kept. The
+15-second load sensors, `dev/model/interlock.yaml`, read on the engine's fast lane, never behind them.)
 
 Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of each gap whose events grew since it was
 last read (at most 50 a run, those never read first) and writes `gap.timed` on it when its timing changed, for any gap

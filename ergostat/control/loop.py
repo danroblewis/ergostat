@@ -74,7 +74,12 @@ def external(p, spec: Spec, name: str, at: float | None) -> dict:
     g = ob.reference(p, at)
     got = ex.identify(p, spec, name, g.since, g.until)
     w = got["law"]
-    return {"block": name, "identified": w.as_dict() if w else None,
+    d = ex.declared(p, spec, name, g.since, g.until)
+    dw = (d or {}).get("law")
+    out = {"declared": {"kind": d["kind"], "short": dw.short(), "skill": dw.skill, "r2": dw.r2, "points": dw.points,
+                        "worse": ex.disagrees(d)} if dw else
+           {"kind": d["kind"], "why": d["why"]}} if d else {}
+    return {**out, "block": name, "identified": w.as_dict() if w else None,
             "says": f"{name} is external: its law identified from the record, {w.said()}" if w else
             f"{name} is external: its law is not identified: {got['why']}"}
 
@@ -316,7 +321,8 @@ def analyse(p, goal: str, at: float | None = None) -> dict | None:
     sig = record.signals(spec, goal)
     g = spec.goals[goal]
     out: dict = {"goal": goal, "y": f"{g.of.kind}.{g.of.name}", "key": key(spec, goal), "op": g.hold.op,
-                 "setpoint": g.hold.value, "tolerance": g.tolerance}
+                 "setpoint": g.hold.value, "tolerance": g.tolerance,         # (and the systems its goal and stock are in)
+                 "systems": sorted({s for x in (g.system, spec.owner(g.of)) for s in spec.chain(x)})}
     if sig is None:
         out["why"] = ("nothing its controller moves is one setting or one valve: it closes the long way, through queues "
                       "and the blocks that work them off, so it has no one process to identify")

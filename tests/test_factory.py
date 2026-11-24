@@ -2034,6 +2034,7 @@ def test_record_dependent_findings_are_not_counted(tmp_path):
 
 
 T ="tests/test_x.py::test_y"
+TEST_Y = "def test_y():\n    assert False\n"
 
 
 def suite_sh(tmp: Path, fails: str) -> Path:
@@ -2055,7 +2056,9 @@ def test_a_failure_on_main_too_waits_for_main(tmp_path):
     sh = suite_sh(tmp_path, "[ -e broken ]")
     f = Factory(tmp_path, unit=str(sh), alone=str(sh))
     (f.checkout / "broken").write_text("main's own failure\n")
-    git(f.checkout, "add", "broken")
+    (f.checkout / "tests").mkdir()
+    (f.checkout / "tests" / "test_x.py").write_text(TEST_Y)                  # (only a test main has can be main's)
+    git(f.checkout, "add", "broken", "tests")
     git(f.checkout, "commit", "-q", "-m", "main breaks a test")
     git(f.checkout, "push", "-q", "origin", "main")
     main = git(f.checkout, "rev-parse", "main")
@@ -2088,6 +2091,7 @@ def test_a_failure_on_main_too_waits_for_main(tmp_path):
 def test_a_failure_that_passes_on_main_is_counted(tmp_path):
     sh = suite_sh(tmp_path, "[ -d standin ]")                              # (the stand-in's work: on the branch only)
     f = Factory(tmp_path, unit=str(sh), alone=str(sh))
+    on_main_files(f, {"tests/test_x.py": TEST_Y})                         # (main has it: run there)
     gid = ready(f)
     said, lines = f.run("implement.py", gid)
     assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
@@ -2096,6 +2100,80 @@ def test_a_failure_that_passes_on_main_is_counted(tmp_path):
     for _ in range(f.gates["build_failures"] - 1):
         said, _ = f.run("implement.py", gid)
     assert said[-1] == "gap.parked"                                         # counted, as before
+
+
+def test_a_test_main_does_not_have_is_never_mains_failure(tmp_path):
+    """main-broken-needs-the-test-on-main: a test failing everywhere it runs, but whose file (or function) main does
+    not have, is the gap's: counted, never run on main, no main-broken item, and the gap told so."""
+    for case, files in (("no file", {}), ("renamed", {"tests/test_x.py": "def test_other():\n    assert False\n"})):
+        where = tmp_path / case.replace(" ", "-")
+        where.mkdir()
+        sh = suite_sh(where, "true")                                       # (it would fail on main too, if run)
+        f = Factory(where, unit=str(sh), alone=str(sh))
+        if files:
+            on_main_files(f, files)
+        main = git(f.checkout, "rev-parse", "main")
+        gid = ready(f)
+        said, lines = f.run("implement.py", gid)
+        assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1, case
+        gap = f.item(gid)["fields"]
+        assert not gap.get("waits_on_main") and gap["main_broken_tests"] == [] and not f.flakes_said(), case
+        assert gap["suites_fast"]["not_on_main"] == {T: gid} and gap["suites_fast"]["main_broken"] is False
+        assert not [r for r in runs(where) if "-main-" in r], case          # never run on main
+        why = next(x["nack"] for x in lines if "nack" in x)["why"]
+        assert f"not on main {main[:12]}, so not main's: {T} (this gap)" in why, why
+
+
+def test_a_stacked_gaps_failure_from_its_base_names_the_base(tmp_path):
+    sh = suite_sh(tmp_path, "true")
+    f = Factory(tmp_path, unit=str(sh), alone=str(sh))
+    base_gap(f, "beta-base", {"tests/test_x.py": TEST_Y}, rank=1)           # the test is the base's, not main's
+    gid = stacked(f, "gap/beta-base")
+    said, lines = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
+    gap = f.item(gid)["fields"]
+    assert gap["suites_fast"]["not_on_main"] == {T: "gap/beta-base"} and not gap.get("waits_on_main")
+    assert not f.flakes_said() and not [r for r in runs(tmp_path) if "-main-" in r]
+    assert f"{T} (its base gap/beta-base)" in next(x["nack"] for x in lines if "nack" in x)["why"]
+
+
+def test_a_gap_held_on_a_test_main_does_not_have_is_released(tmp_path):
+    """An existing main-broken hold (waits_on_main) on a test its main commit lacks stops holding the gap at once;
+    one on a test main has still waits for main to move."""
+    f = Factory(tmp_path)
+    on_main_files(f, {"tests/test_x.py": TEST_Y})
+    main = git(f.checkout, "rev-parse", "main")
+    gid = ready(f)
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"waits_on_main": main, "main_broken_tests": [T]}}], None)
+    said, _ = f.run("intake.py")
+    assert "gap.measured" not in said and f.item(gid)["fields"]["waits_on_main"] == main     # main's own: held
+    gone = "tests/test_control_spike.py::test_gate_cost_per_event"
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"main_broken_tests": [T, gone]}}], None)
+    said, _ = f.run("intake.py")
+    gap = f.item(gid)["fields"]
+    assert said == ["gap.measured"] and gap["waits_on_main"] is None and gap["not_on_main"] == {gone: gid}
+
+
+def test_present_reads_the_test_at_the_commit(tmp_path, monkeypatch):
+    f = Factory(tmp_path)
+    on_main_files(f, {"tests/test_x.py": "class TestA:\n    async def test_b(self):\n        pass\n\n"
+                                         "def test_y_more():\n    pass\n"})
+    monkeypatch.setattr(sys, "path", [*sys.path, str(BIN)])     # (appended: dev/bin/queue.py must not shadow queue)
+    onmain = module("onmain")
+    yes = ("tests/test_x.py::TestA::test_b", "tests/test_x.py::TestA::test_b[1-2]")
+    no = ("tests/test_x.py::test_y", "tests/test_x.py::TestB::test_b", "tests/test_gone.py::test_b", "tests/test_x.py")
+    assert all(onmain.present(f.checkout, "main", t) for t in yes)
+    assert not any(onmain.present(f.checkout, "main", t) for t in no)
+    assert not onmain.present(f.checkout, "0" * 40, yes[0]) and not onmain.present(f.checkout, "", yes[0])  # unreadable
+
+
+def on_main_files(f: Factory, files: dict[str, str]) -> None:
+    for p, text in files.items():
+        (f.checkout / p).parent.mkdir(parents=True, exist_ok=True)
+        (f.checkout / p).write_text(text)
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "main has tests")
+    git(f.checkout, "push", "-q", "origin", "main")
 
 
 def test_a_flake_in_the_fast_suites_is_retried(tmp_path):
@@ -6760,3 +6838,134 @@ def test_browser_daily_holds_the_queue_lock(tmp_path):
     assert daily_clean(f) and not (f.model / "run" / "browser-daily.json").exists()
     with open(lock, "a") as lk:                                        # and so did the lock
         fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+# ---- merge-pipeline-gaps-briefs-read-records: the briefs, the planner and the knowledge block read main's records
+
+HEADING = "## Its entry (the `## Entry` of its record, as main's dev/records/ render it into docs/GAPS.md)\n\n"
+BRIEFS = """import sys, json
+sys.path[:0] = [sys.argv[1]]
+import fac, brief, knowledge, plan
+cfg = fac.config()
+cfg["ai"].setdefault("planner_model", "opus")
+g = json.loads(fac.ergostat("item", sys.argv[2], "--json").stdout)
+out = {r: brief.assemble(cfg, r, g, fac.path(cfg, "checkout"))[0] for r in ("implementor", "reviewer", "planner")}
+out = {r: t.split(sys.argv[3], 1)[1].split("\\n\\n## ", 1)[0] for r, t in out.items()}
+print(json.dumps({**out, "join": plan.join_brief(cfg, g, [])["entry"], "own": plan.entry_of(cfg, g),
+                  "related": [i for i, _ in knowledge.related(cfg, g)]}))"""
+
+
+def briefs_of(f: Factory, gid: str) -> dict:
+    """The entry an implementor's, a reviewer's and a planner's brief carry (the text under HEADING), the join judge's
+    (`join`), the S definition's own text (`own`) and the knowledge block's related gaps, for ``gid``."""
+    r = subprocess.run([sys.executable, "-c", BRIEFS, str(BIN), gid, HEADING], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def gapsdoc_module():
+    sys.path.insert(0, str(BIN))                                      # (gapsdoc imports fac by name)
+    try:
+        return module("gapsdoc")
+    finally:
+        sys.path.remove(str(BIN))
+
+
+def block_of(text: str, title: str) -> str:
+    """The entry titled ``title`` in GAPS.md's text, read here apart from brief.py: its bullet and indented lines."""
+    lines = text.split("\n")
+    n = next(i for i, ln in enumerate(lines) if ln.startswith(f"- **{title}**"))
+    end = next(i for i in range(n + 1, len(lines) + 1) if i == len(lines) or not lines[i].startswith("  "))
+    return "\n".join(lines[n:end])
+
+
+def test_the_briefs_carry_the_entry_from_the_records_as_the_rendered_gaps_md_has_it(tmp_path):
+    gapsdoc = gapsdoc_module()
+    pinned = (ROOT / "tests" / "fixtures" / "gaps_md_pinned.md").read_text(encoding="utf-8")
+    s = gapsdoc.split(pinned)
+    assert gapsdoc.render(s["records"], s["head"])[0] == pinned       # the records render the pinned GAPS.md
+    f = Factory(tmp_path)                                             # (its docs/GAPS.md has none of these titles)
+    commit_files(f, {f"{NEW}/GAPS-head.md": s["head"], **{f"{NEW}/{n}.md": t for n, t in s["records"].items()}})
+    titles = ("Searching items and querying their graph", "Daemon YAML schema review")
+    for i, title in enumerate(titles):
+        gid = f"gap/pinned-{i}"
+        f.fold([{"event": "gap.requested", "item": gid, "data": {"branch": f"pinned-{i}", "title": title}}], None)
+        want = block_of(pinned, title)
+        assert want.count("\n") >= 1 and title not in (f.checkout / "docs" / "GAPS.md").read_text()
+        got = briefs_of(f, gid)
+        assert [got[r] for r in ("implementor", "reviewer", "planner")] == [want] * 3, got
+        assert got["join"] == f"{title}\n\n{want}" and got["own"] == want
+
+
+def test_an_unreadable_record_is_said_in_the_brief_by_name_never_read_as_no_entry(tmp_path):
+    f = Factory(tmp_path)
+    commit_files(f, {**GAPS_RECORDS, f"{NEW}/alpha-thing.md": "## Entry\n\nsection: Modelling\n"})   # no bullet
+    f.fold([{"event": "gap.requested", "item": g, "data": {"branch": g[4:], "title": t}}
+            for g, t in (("gap/alpha-thing", "Alpha thing"), ("gap/beta", "Beta"), ("gap/gamma", "Gamma"))], None)
+    got = briefs_of(f, "gap/alpha-thing")
+    for r in ("implementor", "reviewer", "planner", "join"):
+        assert f"`{NEW}/alpha-thing.md` (an entry needs 'section:'" in got[r] and "(unreadable:" in got[r], got[r]
+        assert "no entry: not in main's records" not in got[r] and "missing: not in main's records" not in got[r]
+    assert got["own"] == ""                                            # no S definition from it: the full path
+    commit_files(f, GAPS_RECORDS)                                      # readable again: the entry, from the records
+    got = briefs_of(f, "gap/alpha-thing")
+    want = "- **Alpha thing** (open; the first gap): what it lacks.\n  More of it."
+    assert [got[r] for r in ("implementor", "reviewer", "planner", "own")] == [want] * 4
+    assert got["related"] == ["gap/beta"]                              # its section (Modelling) from the records
+    commit_files(f, {f"{NEW}/gamma.md": "## Entry\n\nsection: Modelling\n\n- **Gamma**: done.\n",
+                     f"{NEW}/GAPS-head.md": GAPS_RECORDS[f"{NEW}/GAPS-head.md"].replace("@entry gamma\n", "")
+                     .replace("@entry delta\n", "@entry delta\n@entry gamma\n")})
+    assert briefs_of(f, "gap/alpha-thing")["related"] == ["gap/beta", "gap/gamma"]   # moved in the records: read there
+    pre = Factory(tmp_path / "pre")                                    # no GAPS-head.md on main (before the split):
+    pre.fold([{"event": "gap.requested", "item": "gap/alpha-thing", "data": {"branch": "alpha-thing",
+                                                                            "title": "Alpha thing"}}], None)
+    assert briefs_of(pre, "gap/alpha-thing")["implementor"] == want    # its docs/GAPS.md, as deps.py reads it then
+
+
+JOIN = """import sys, json
+sys.path[:0] = [sys.argv[1]]
+import fac, plan
+cfg = fac.config()
+g = json.loads(fac.ergostat("item", sys.argv[2], "--json").stdout)
+g["fields"]["children"] = ["gap/ghost"]                                 # a sub-gap the record does not hold
+kid = {"id": "gap/alpha-thing-a", "state": "built", "fields": {"parent": [g["id"]], "branch": "alpha-thing-a"}}
+got = plan.join_brief(cfg, g, [g, kid])
+print(json.dumps({"entry": got["entry"], "unread": got["unread"], "short": plan.short_of(got["unread"])}))"""
+
+
+def test_the_join_brief_with_sub_gaps_keeps_its_unread_points_apart_from_the_entry_note(tmp_path):
+    """join_brief's `unread` is a list of points per sub-gap; the entry's unreadable-record note goes in the entry only
+    (round-1 finding: the note overwrote the list, so the first sub-gap raised and short_of split it per character)."""
+    f = Factory(tmp_path)
+    f.fold([{"event": "gap.requested", "item": "gap/alpha-thing", "data": {"branch": "alpha-thing",
+                                                                           "title": "Alpha thing"}}], None)
+    for records, unreadable in ((GAPS_RECORDS, False),
+                                ({**GAPS_RECORDS, f"{NEW}/alpha-thing.md": "## Entry\n\nsection: Modelling\n"}, True)):
+        commit_files(f, records)
+        r = subprocess.run([sys.executable, "-c", JOIN, str(BIN), "gap/alpha-thing"], cwd=f.model, env=f.env,
+                           capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0, r.stderr
+        got = json.loads(r.stdout.strip().splitlines()[-1])
+        assert isinstance(got["unread"], list) and got["unread"][0] == \
+            "gap/ghost: not in the record as a sub-gap of gap/alpha-thing", got
+        assert [u.split(":")[0] for u in got["unread"][1:]] == ["gap/alpha-thing-a"] * len(got["unread"][1:]) != []
+        assert not any("alpha-thing.md" in u for u in got["unread"])  # the entry's note is not a sub-gap's point
+        assert got["short"].count("\n- ") == len(got["unread"])       # a point per item, never per character
+        assert (f"`{NEW}/alpha-thing.md`" in got["entry"]) == unreadable, got["entry"]
+        assert unreadable or "what it lacks." in got["entry"]
+
+
+def test_no_test_reads_the_repositorys_own_docs_gaps_md():
+    """The merge queue writes docs/GAPS.md from the records: a test pins a fixture or the records' render, never the
+    file. Read as a path built from the repository's root, an open() of `docs/GAPS.md`, or a ref's `:docs/GAPS.md`
+    other than a pinned commit's (a full sha)."""
+    live = re.compile(r"""(?:ROOT|parents\[\d\])\s*/\s*["']docs(?:["']\s*/\s*["']|/)GAPS\.md["']"""
+                      r"""|open\(\s*["'](?:\./)?docs/GAPS\.md|["'](?:HEAD|main|origin/main)\S*:docs/GAPS\.md""")
+    for bad in ('GAPS = ROOT / "docs" / "GAPS.MD"', "(ROOT / 'docs/GAPS.MD').read_text()", 'open("docs/GAPS.MD")',
+                'Path(__file__).parents[1] / "docs" / "GAPS.MD"', 'git("show", "main:docs/GAPS.MD")'):
+        assert live.search(bad.replace(".MD", ".md")), bad             # each way of reading it is seen (spelt .MD here
+    #                                                                    so that this file's own lines are not hits)
+    hits = [f"{p.relative_to(ROOT)}:{n}" for p in sorted((ROOT / "tests").rglob("*.py"))
+            for n, ln in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if live.search(ln)]
+    assert hits == []

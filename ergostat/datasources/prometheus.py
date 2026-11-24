@@ -89,6 +89,8 @@ def _ask(src, path: str, params: dict | list, seconds: float, most: int) -> tupl
             u.hostname, u.port, timeout=seconds)
     except ValueError as e:                         # (a port that is not a number)
         raise SourceError("unreachable", f"could not reach source {src.name!r} ({type(e).__name__})") from e
+    if extra := getattr(src, "options", {}).get("extra_label"):   # (the built-in source: VictoriaMetrics holds it to one project)
+        params = [*(params.items() if isinstance(params, dict) else params), ("extra_label", extra)]
     held: list = []
     conn._create_connection = _connect(deadline, held)
     late = threading.Event()
