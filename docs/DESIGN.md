@@ -144,8 +144,8 @@ The control diagram is the product's main view. Conventions:
   lettered (H person, A ai, N narrow-ai, D decision, P program, R rule), so colour is never the
   only cue; a disturbance may carry the badge of the agent whose doing it is.
 - **Lines**: pipes are double lines with moving dots while they flow; measurement is dashed
-  (stock to sensor), signal solid (sensor to controller), action purple (controller to valve).
-  A loop's lines take its status colour (green holding, red off, amber open).
+  (stock to sensor), signal solid (sensor to controller). Their colours follow the rules under
+  Colour (§8): the material path in full ink, information in the ink's second tone.
 - **Layout** (ELK layered, vendored): the plant runs left to right along the pipes (pipes carry the
   highest straightness and direction priority), the feedback path above it; each loop a row.
   Systems are drawn as thin outlines named in muted type (one ink: no colour per system), overlapping where they
@@ -299,9 +299,11 @@ page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and proc
 attention, goals and their control loops, feedback loops or the process map's kinds, model changes, legend), Goals, Agents (one list, by rung), Items (the
 record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
 its old address `/fit` goes there; first **What's available**: each loop, whether its process is
-identified and what would identify it, or that it closes through queues; each parameter to estimate,
+identified and what would identify it (loops identified alike said once, as a group: "12 loops: an
+integrator, from the model"), or that it closes through queues; each parameter to estimate,
 the parts it is in and whether the record is long enough yet; and where each model tool lives, every
-link choosing the part and opening its view and panel; `docs/MODEL-TOOLS.md` is the guide; then the
+link choosing the part and opening its view and panel (a loop's: with only the systems its goal and stock
+are in open); `docs/MODEL-TOOLS.md` is the guide; then the
 review queue: every change waiting, read like a pull request, each with what kind of change it is, where
 (Show on diagram chooses its parts and opens both views), why, how it was found, its benefit, its effect
 simulated in memory and the exact diff Accept writes; Simulate all pending; what ergostat can and cannot
@@ -313,7 +315,8 @@ little record"; the total led by its scaled error; the fit's history across vers
 each accepted change; Calibrate (each part alone, each system alone, or every stock integrated, with the
 loops a decision leaves open listed), the proposals waiting,
 and why the estimates not proposed were not; and the residuals),
-Check, and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
+Check (each finding once; a kind that comes about many parts, as one table under its advice, said once,
+worst first, each part a link to the diagram; the notes as a list), and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
 the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
 it (why: what we control and what we want; system dynamics; control; then the project's own model,
 both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which
@@ -391,6 +394,25 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   in ten of its runs, and half. A projection too short to see on the window's axis gets the last
   quarter of the chart, on a time axis of its own past now (+20s, +40s). A loop's dominance draws it in
   ink and the loops competing at the same stock in the muted grey.
+
+  The diagrams' colour rules, written here once (every view, legend and later change keeps to them):
+
+  1. **The accent and its tone mean selection or trace, in both views, and nothing else.** A part
+     chosen or pointed at, a line traced, a loop lit from its marker: the accent (`--accent`). A lit
+     loop draws its pipes in the accent and its connectors in the accent's lighter tone (`--accent-2`).
+     No goal, status or kind of part is ever drawn in the accent.
+  2. **`--bad` together with the printed word means a goal is off**, in Dynamics and on lists only,
+     never the colour alone. Blocks carries status in text and weight, never colour: it stays
+     monochrome.
+  3. **Tone carries importance, never status.** Each ink has a second tone, the ink mixed toward
+     the paper (`--sd-ink-2`, about 55% in the light theme and 50% in the dark; `--ink-2-line` for
+     Blocks), 3.0 to 4.5:1 on the paper where the ink is 10:1 or more (`tests/test_style_tokens.py`).
+     It draws what carries information, not material: in Dynamics the connectors and their heads, the
+     loops' names, shadow variables and stubs (the stocks, pipes, valves, clouds, part names and
+     values, polarity signs and loop markers stay full ink, and so does the connector from a goal's
+     gap to the flow it drives, the line that closes its loop); in Blocks what a collector records
+     and its bus, a port's line and a disturbance's input (r, e, u, y and y_m stay ink). Each legend
+     says so: "a lighter line: information, not material". The saved SVG and PNG keep the tones.
 - **Themes.** Light first. The dark theme follows the system setting and is the same ramp read
   the other way, with the same hues, generated from the same OKLCH values (the hex values in the
   token block say which).

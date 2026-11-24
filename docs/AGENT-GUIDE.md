@@ -162,11 +162,8 @@ Work through these steps in order. Ask the person only what you cannot infer.
    they say rather than proposing the same idea again. Do not hand-write these parts. When the person asks for an
    architecture review, `ergostat improve --architecture [SYSTEM]` (one haiku call a system, `--max-cost` $1 by
    default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
-   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. When the
-   person asks for regression guarantees, `use: regressions` with only the parts they ask for (`every: 1h` for their
-   `claims: tests` command's failing count, `block: NAME` for that block's contradicted claims, `changes: true`,
-   `repair: NAME` when they use repair): nothing is made without its parameter. The other built-in templates
-   used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
+   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other
+   built-in templates used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
    its item-index files held at `index-files` (6) by a rule-tier tidier, and the record's roll-up, forgetting past
    `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and
    `measurement-retainer` (`with: {rollup-every: 1h, retain-every: 1h}`, 1m to 1d), each taking over from the
@@ -175,6 +172,16 @@ Work through these steps in order. Ask the person only what you cannot infer.
    `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it
    when the files a model's changing kinds leave behind, the record's growth, or the engine's own health, should show
    on the diagram; with it, leave `storage: rollup: every` out (`check` says it is unused).
+
+   **Regression guarantees: offer them, never add them unasked.** When a model declares `claims: tests` or uses
+   `repair`, it can say something broke, but nothing holds it: offer the person `use: regressions` (SPEC §12r,
+   *Regression guarantees*), and add it only when they say yes, with only the parts they ask for. `every: 1h` runs their
+   `claims: tests` command and holds its failing count at 0 (`tests-green`; its summary must be pytest-style, `3
+   passed, 1 failed in 0.5s`); `block: NAME` holds that block's contradicted claims at `escape-share` (`claims-kept`;
+   leave it out when a goal already holds `ergostat.trust.contradicted@NAME`); `changes: true` holds the model changes
+   that regressed at 0 (`changes-hold`); `repair: NAME` serves repair's own `fixes-hold`. Nothing is made without its
+   parameter, and each goal is served by a person (`agent:` names who). Tell them what holding does not promise: the
+   tests that ran passed, not that nothing regressed. `examples/image-squeeze/lab.yaml` uses it.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
@@ -1114,6 +1121,33 @@ ergostat why change/c5 --json
    `missing`, or `nothing` for a state someone does take. Each says what the record lacks: a sensor with no reading
    (give it one), a taking with no process recorded (declare `budget:`), a state nothing takes (a block, a relation,
    or a working state as above). Fix the model and ask again.
+
+## 3n. A CI/CD pipeline: its stages, how long each took, how long is left
+
+When the work is a pipeline (a build, a deploy, a merge queue, a release train), the person asks while it runs:
+what is in it, which stage is it at, how long did the earlier ones take, how long has this one run, how long is left.
+Model it so ergostat can answer (SPEC §5a, *Stages*):
+
+1. **One item a run of the pipeline**, not a stage: `deploy/<id>`, `batch/<run tag>`. Its states are the coarse
+   ones a person names (`testing`, `isolating`, `pushing`, `landed`); the stages live inside the item.
+2. **Declare `pipeline:` on its kind**: `title` (its Dashboard row), `stages` (every stage name it may record: these
+   label its histograms, so they must be a fixed, short list; a name not listed is counted as `other`) and, when it
+   takes from a line of other items, `waiting: {kind, state, order}`, with a relation on the kind naming that kind
+   (the batch's `gaps`), so its row shows what the running item holds and what waits, in the order it is taken.
+3. **Have whatever runs a stage say it**, as two ordinary events about the item, each with a span id it makes, unique
+   to that stage run: `{"stages": {SPAN: {"stage", "run", "run_kind", "started", "until"}}}` when it begins and
+   `{"stages": {SPAN: {"finished", "outcome"}}}` when it ends, `outcome` `passed` only for a normal end (`failed`,
+   `stopped` when cut short, `error`). Say the end in a `finally`, so an error still ends it. Give `until` (its own
+   time limit plus slack): a recorder that dies leaves the stage `unfinished`, never running forever. Stages that run
+   at once overlap; a stage run again is a new span. `run` is the attempt the stage belongs to and `run_kind` what kind
+   of run it is (`full`, a retry, an isolation round): estimates compare like with like.
+4. **Declare a `sql` source** (`sources: {record: {type: sql}}`): the views `item_stages`, `stage_estimates` and
+   `item_progress` answer the questions, and the default Dashboard's row is built from them. Each estimate needs 3
+   normal runs; until then it says there is none, and so does the time left. After a stage fails, the time left is
+   unknown (the remaining path depends on what fails), and the row says so.
+5. **Check it with a simulated run**, as `tests/test_stages.py` does: say the stages of a few green runs and one under
+   way on a clock you set, then ask `item_progress` for the time left you worked by hand. The merge queue's own
+   (`dev/bin/batches.py` `stage()`, `dev/model/landing.yaml`) is a worked example.
 
 ## 4. Common mistakes
 

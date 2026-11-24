@@ -47,7 +47,8 @@ def summary(a: dict | None) -> dict:
     if a is None:
         return {"not_analysed": True}
     pick = lambda d, *ks: {k: d[k] for k in ks if k in (d or {})}        # noqa: E731
-    return {**pick(a, "why", "performance", "u", "y", "declared", "known", "step_test_waiting", "step_test_refused"),
+    return {**pick(a, "why", "performance", "u", "y", "declared", "known", "step_test_waiting", "step_test_refused",
+                    "systems"),
             "identified": pick(a.get("identified"), "found", "proposable", "why"),
             "tuning": pick(a.get("tuning"), "why"), "controller": pick(a.get("controller"), "law", "says"),
             "proposals": [{"kind": x.get("kind")} for x in a.get("proposals") or []]}

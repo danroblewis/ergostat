@@ -129,6 +129,8 @@ def test_the_query_box_highlights_sql_and_completes_views_and_their_columns(page
     area = page.locator('.pe-q textarea[data-slot="text"]')
     area.click()
     page.keyboard.type("select count(*) as n from item_s")
+    assert picks(page) == [("view", "item_spans"), ("view", "item_stages")]    # (and the stages' view)
+    page.keyboard.type("p")
     assert picks(page) == [("view", "item_spans")]
     page.keyboard.press("Tab")
     assert area.input_value() == "select count(*) as n from item_spans"
