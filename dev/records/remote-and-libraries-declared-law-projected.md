@@ -15,3 +15,22 @@ Acceptance tests: test_projection_runs_declared_law (a short record with no iden
 Size budget: 90 net lines.
 
 Area: remote-and-libraries. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: all five items, the four acceptance tests in tests/test_known_laws.py, and one more
+(test_a_declared_law_whose_output_cannot_be_moved_is_external_not_run, item 4). 65 net lines of code (budget 90).
+Each test was seen to fail with its code broken: models() ignoring `law:` fails the first three; `how` always
+'identified model', the what-if not applied and the old `elif` in findings fail the projection, wins, what-if and
+not-run tests. The risk check (no `hpa.` name in `sampled`) can fail only if a declared model carries `se`; the risk
+code samples `m.se`, which a declared model leaves empty. main had not moved since the branch was made: nothing to merge.
+
+Choices made without anyone to ask, each the most reversible:
+- A declared law is started from the record, so it needs at least one reading of its input and two of its output;
+  with none it is not run (the generic stand-in moves the flow, as before), and external-unidentified says why.
+- The record's grid (the output sensor's period) is resampled at the law's own period (an HPA's `every`) before
+  `settle`, so its stabilization window counts the law's samples, not the sensor's.
+- A declared block whose record is too short still says external-unidentified (it is not identified); it is no longer
+  the only thing said about it, since the projection runs the declared law.
+- What-if values are flattened to `"BLOCK.PARAMETER" → value` in `WhatIf.laws` so `WhatIf.key()` stays hashable. A
+  value tried on a block whose law is not run ahead adds a note saying it changes nothing, so it is not silently dropped.
