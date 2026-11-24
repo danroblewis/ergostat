@@ -877,8 +877,12 @@ or when the same question is asked of the page again and again (SPEC §4f):
 5. Open `GET /api/dashboard/NAME` (or `ergostat snapshot`) and read each panel's answer: none should be empty
    without a reason.
 
-A dashboards-only change alters no version and no replay, but the judge does not yet know that (it would replay it
-as a parameter change): add a dashboard as a direct edit followed by `ergostat check`, not as a proposal.
+A dashboards-only change alters no version and no replay: propose it with `kind: display` (SPEC §12e), and the
+judge passes it on `check` alone, without a replay; the owner accepts it like any change. A display proposal that
+touches anything but `dashboards:` is refused, so put any other edit in a change of its own. When the owner has
+arranged a draft on the Dashboard page, they press **Keep** themselves: the server makes the same display change
+from the draft (`query` panels, the page's own) and it waits for their Accept. Do not copy a draft's link into YAML
+by hand; point the owner at Keep.
 
 ## 3m. Why isn't this done: a model that can say what holds the work up
 

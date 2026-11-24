@@ -1436,6 +1436,9 @@ def handler(project):
                 elif u.path.startswith("/api/intent/"):    # a proposed decision or correction: the owner's answer
                     from .intent_api import post as intent
                     code, data = intent(live, u.path.removeprefix("/api/"), q)
+                elif u.path == "/api/propose" and q.get("keep") == ["dashboard"]:   # the Dashboard's Keep
+                    from .numbers_api import keep
+                    code, data = keep(live, body)
                 else:
                     code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down

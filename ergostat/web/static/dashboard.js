@@ -257,6 +257,7 @@ function saveDashboardDraft(d) {
   clean.since ||= S.since;
   DASH.draft = clean;
   DASH.kept = true;
+  DASH.declared = null;                                // a declared one changed is the reader's own draft
   try { localStorage.setItem(dashKey(), JSON.stringify(clean)); } catch (e) { /* kept in the address alone */ }
   if (parseRoute().path === "/dashboard") replaceRoute(dashAddress(clean, clean.since));
   if (DASH.grid?.isConnected) { dashDraw(); dashHead(); }
@@ -1192,6 +1193,26 @@ async function dashCopy() {
   if (DASH.said) DASH.said.textContent = said;
   dashAnnounce(said);
 }
+/* Keep: the draft sent to the server, which works out the dashboards: entry and files it as a display change; it is
+   written only when the owner accepts it under Changes to review (nothing is written here) */
+async function dashKeep() {
+  DASH.said.textContent = "Keeping…";
+  try {
+    const got = await apiSend("propose?keep=dashboard", DASH.draft), name = String(got.target || "").replace(/^dashboard\./, "");
+    DASH.said.replaceChildren("Kept as a change for you to accept in ", h("a", { href: "/model#review-queue" }, "Changes to review"),
+      "; once accepted it is ", h("a", { href: `/dashboard?name=${encodeURIComponent(name)}` }, `the dashboard ${name}`));
+    dashAnnounce("Kept as a change to review");
+  } catch (e) {
+    DASH.said.textContent = `Not kept: ${e.message || e}`;
+    dashAnnounce(DASH.said.textContent);
+  }
+}
+/* a declared dashboard's own panels (dashboards:, kind query) as a draft the page draws; null when it has none */
+function dashDeclared(got) {
+  const panels = (got?.panels || []).map((x) => x.panel).filter((x) => x?.panel === "query").map((x, i) => ({ ...x, id: `p${i + 1}`,
+    size: String(x.size || "m").replace(/-tall$/, ""), tall: /-tall$/.test(x.size || ""), display: x.display || {} }));
+  return panels.length ? dashClean({ title: got.title || got.name, since: Object.keys(WINDOWS).find((k) => WINDOWS[k] === got.window) || null, panels }) : null;
+}
 function dashUndo() {
   const last = DASH.undo[DASH.undo.length - 1];
   if (!last) return;
@@ -1242,6 +1263,8 @@ function dashHead() {
     DASH.editing && DASH.kept ? h("button", { type: "button", onclick: dashReset, title: "Drop this draft and go back to the default" }, "Reset") : null,
     refresh,
     h("button", { type: "button", onclick: dashCopy, title: "Copy a link to this dashboard" }, "Copy link"),
+    DASH.kept && !DASH.declared && !SNAP ? h("button", { type: "button", class: "dash-keep", onclick: dashKeep,
+      title: "Propose this draft as one of the model's dashboards: it is written when you accept it" }, "Keep") : null,
     h("button", { type: "button", class: `dash-edit${DASH.editing ? " on" : ""}`, "aria-pressed": String(DASH.editing), onclick: () => {
       DASH.editing = !DASH.editing;
       dashDraw();
@@ -1299,8 +1322,17 @@ async function pageDashboard(main, q) {
     fromAddress = !!d;
     if (!d) { notice.hidden = false; notice.textContent = "This link's dashboard could not be read, so this is the one kept here."; }
   }
+  DASH.declared = null;
+  const named = q.get("name");
+  if (!d && named) {                                   // a dashboard the model declares (dashboards:), drawn as one
+    const got = await api(`dashboard/${encodeURIComponent(named)}`).catch(() => null);
+    if (n !== DASH.page) return;
+    d = dashDeclared(got);
+    if (d) DASH.declared = named;
+    else { notice.hidden = false; notice.textContent = `The model declares no dashboard ${named} of the page's own panels, so this is the one kept here.`; }
+  }
   d ||= dashStored();
-  DASH.kept = !!d;
+  DASH.kept = !!d && !DASH.declared;
   if (!d) {
     try { d = dashClean(await dashBuildDefault()); } catch (e) {
       if (n !== DASH.page) return;
@@ -1317,7 +1349,7 @@ async function pageDashboard(main, q) {
   DASH.since = since;
   DASH.draft = d;
   if (DASH.kept) d.since = since;
-  if (moved) replaceRoute(dashAddress(DASH.kept ? d : null, since));
+  if (moved) replaceRoute(DASH.declared ? `/dashboard?${new URLSearchParams({ name: DASH.declared, since })}` : dashAddress(DASH.kept ? d : null, since));
   // a link opened is only shown: what this browser keeps changes when the reader changes something
   if (moved && DASH.kept && !fromAddress) try { localStorage.setItem(dashKey(), JSON.stringify(d)); } catch (e) { /* in the address */ }
   DASH.grid.replaceChildren();
