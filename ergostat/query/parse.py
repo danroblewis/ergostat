@@ -18,6 +18,8 @@ MEASURES = ("entries", "exits", "time_in_state")
 RATE_PER = {"second": 1.0, "minute": 60.0, "hour": 3600.0, "day": 86400.0}
 MOST_ENCODED = 48_000       # characters of ``q`` (an address must stay an address)
 MOST_QUERIES = 64           # a page of 24 panels, a few queries each
+ANALYSIS = "analysis"       # the reserved source of calls over the request's other queries (analysis.py)
+MOST_ANALYSIS = 8           # of those, in one request: each reads up to analysis.READINGS_MOST readings
 MOST_POINTS = 1000
 POINTS = 120
 MOST_WINDOW = 400 * 86400.0
@@ -320,12 +322,16 @@ def parse(d: dict) -> Asked:
         raise BadQuery("query: queries must be a list of at least one")
     got: list[Query | SourceQuery | Refused] = []
     seen: set[str] = set()
+    calls = 0
     for i, x in enumerate(qs):
         id_ = _id_of(x, i)
+        calls += isinstance(x, dict) and x.get("source") == ANALYSIS
         if i >= MOST_QUERIES:
             got.append(Refused(id_, f"query {id_}: not answered, past the {MOST_QUERIES} queries one request may ask"))
         elif id_ in seen:
             got.append(Refused(id_, f"query {id_}: two queries have the same id"))
+        elif isinstance(x, dict) and x.get("source") == ANALYSIS and calls > MOST_ANALYSIS:
+            got.append(Refused(id_, f"query {id_}: not answered, past the {MOST_ANALYSIS} analysis queries one request may ask"))
         else:
             try:
                 got.append(_query(x, i))

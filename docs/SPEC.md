@@ -1525,6 +1525,42 @@ reads the event log.
   sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
   A refusal the source places in the text (Prometheus's `2:3: parse error: ...`, or `at char 5`) also has `error_at`,
   `[line, column]` from 1, the column in UTF-8 bytes as Prometheus counts it (the page turns it into a place in the text).
+- **Analysis.** `analysis` is a reserved source, never declared under `sources:` (a source declared by that name is not
+  listed, and is never asked). `/api/query/fields` lists it first among `datasources`, its language `ergostat analysis`.
+  A query `{"id": "r", "source": "analysis", "text": "raw(A)"}` is answered on the server over another query of the same
+  request, named by its id. The language is small and closed: a call's name, the ids of the queries it reads, then
+  `key=value` options. The one call is `raw` (`pair`, `psd`, `spectrogram` and `ccf` are to come), reading one query,
+  with one option, `points` (16 to 5,000; 5,000 by default). Refused, each in its own result while the others answer:
+  an unknown call or option, an id after an option, text that does not parse (with `error_at`, `[1, column]`), and a
+  reference to an id not in the request, to itself, to another analysis query, or to a query whose answer failed (a
+  failed answer is never read as an empty one). At most 8 analysis queries a request, refused past that at parse and
+  again as they run.
+  `raw(A)`, A an ergostat `series` query with no transform, reads A's readings, never its roll-ups, and answers a
+  `series` on one uniform grid whose step is the readings' median spacing (`scrape_s`), coarsened only to stay within
+  `points` (each value then the mean of its step's readings, and a `partial` warning says so). A hole longer than
+  `GAP_SAMPLES` (3) spacings, in seconds between the two readings, stays empty and is listed in `gaps` as
+  `[from, to]` (the first 200; any further holes stay empty too, and a `partial` warning says they are not listed); a
+  shorter one is a straight line. The mask and the fill are one rule, so a listed hole is never drawn over, wherever
+  in their buckets its readings fall. Where only roll-ups cover the window it is refused (`only-rollups`); where they cover part of it, that
+  part is left empty and warned. More than 500,000 readings in the window is a `limit`. A metrics store whose raw
+  readings cannot be told from its roll-ups (VictoriaMetrics) is refused. A a data source's query is asked again at the
+  finest step 1,000 points allow; the answer warns `not-raw`, naming its range windows, which still smooth it.
+- **Sampling.** Every answer carries `meta.sampling`: `step_s`; `scrape_s`, the readings' median spacing where they are
+  read (an ergostat `series`, from the newest 2,000 raw readings in the window, and `raw`, from all it reads; an answer
+  built from series readings, such as candles, an X-paired or binned series or a frequency response, carries the
+  coarsest scrape of its series, null if any is not known), null where it is not known (a data source's; a series
+  whose raw readings are gone); `range_windows_s`, every `[d]` and `[d:r]` of a PromQL text (its
+  `d`, strings and comments not read), or a moving average's span, `[]` for none and null for a language not read;
+  `observable_period_s`, `[lo, hi]` with `lo = 2 × max(scrape, step)` (G2) and `hi` half the window; and `nulls_s`,
+  each period `W/k` of a range window inside that band, where an average over `W` shows nothing (G1), at most 50, the
+  longest of all the windows' first. An unknown scrape never counts as fine: `lo` is then from the step alone and the answer warns
+  `scrape-unknown`. The sources that record each change at its time (`items`, `moves`, `counts`, `events`) are not
+  sampled: their `scrape_s` is null with no warning. Nor is a `model` source's answer, worked out from the model and
+  never read from readings (`scrape_s` null, `range_windows_s` `[]`, no warning). When a request's answers (refused ones aside) differ in step or in
+  range windows, each warns `mixed-windows`, naming every step and window (G4). It compares one request's answers: the
+  page asks the panels above the fold in one request and the rest in another, so it compares across the panels of
+  each, and a panel's warning can depend on which request it was in. Windows the controller consumes (G3) need loop roles, and are not
+  checked yet.
 - **The built-in source `ergostat`.** ergostat's own readings, as a `prometheus` source no model declares (one the model
   declares under that name is its own instead). Over `victoriametrics` (section 4b) it asks the server that holds them,
   with `extra_label=project=<state key>` on each query and suggestion, so the server answers only this project's series
@@ -1557,7 +1593,8 @@ reads the event log.
   nothing sent.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
-  is never sent, and `datasources` lists to them only the `model` source below; their other queries are answered as
+  is never sent, and `datasources` lists to them only `analysis` and the `model` source below (an analysis of a
+  data source's query they may not ask is refused, as that query is); their other queries are answered as
   before.
 - **The model as a data source.** A source of type `model` is the project's own model and record, so one named `model`
   is there without declaring it (a source declared under that name takes the name; another may be declared
@@ -1635,23 +1672,56 @@ reads the event log.
   `queryEditors.SQL`) highlights keywords, functions, the source's views and columns, strings, numbers and comments. It
   completes the views after `FROM` or `JOIN`, and elsewhere the columns of the views the text names, with SQL's words.
   Both come from `GET /api/query/suggest`: `what=metrics` for the views, `what=labels&metric=VIEW` for a view's columns.
-- **Result shapes.** Every answer says which of five shapes it is (`shape`), so a chart is chosen by what the data is and
+- **Result shapes.** Every answer says which of six shapes it is (`shape`), so a chart is chosen by what the data is and
   not by where it came from: `series` (values over time; `roles` `input` and `output` when it is two signals, one drawn
   against the other, as an X of another query gives; `open`, `high`, `low`, `close` for candles), `table` (`dims`,
   `measures` and `rows`: a category X, or bins of an aggregate other than `count`), `points` (a field X; `order: "time"`
-  when the order is the content), `distribution` (`form` `bins` for a count in bins, `samples` for aggregation `none`
-  by category) and `response` (`has` `frequency`, and `system` from a model). Each answer also carries `meta`: its
-  `source`, its `query` (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the
-  record, `declared` for a model's) and `verdict` (`ok`, `warn` with what the answer says of itself, or `refuse` with the
-  error). A data source's type may answer with a typed frame instead of a list of series: `series` (with roles), a
-  `table`, `points` or a `response` (`frequency`, and `system` with its poles and zeros as `[re, im]`; one refused,
-  `supported: false`, carries no curve), each checked and bounded (5,000 rows or points), and refused with `error` when
-  it is not what it says. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
+  when the order is the content), `distribution` (`form` `bins` for a count in bins, with `over_time` for a histogram's
+  buckets at each time; `samples` for aggregation `none` by category), `response` (`has` `frequency`, and `system` from
+  a model) and `graph` (the nodes and edges of one named `kind` of diagram: `process`, `conformance`, `dependency`,
+  `wait_for`, `impact`, `service`, `sequence` or `lineage`). Each answer also carries `meta`: its `source`, its `query`
+  (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the record, `declared` for a
+  model's), `verdict`, `n` (the values it holds: a table's are its measure cells, a missing one not counted),
+  `n_effective` and `sampling` (*Sampling* above). `n_effective` is `null`, as not known yet, never guessed. A data source's type may answer with a typed frame instead of a list of series: `series` (with roles),
+  a `table`, `points`, a `response` (`frequency`, and `system` with its poles and zeros as `[re, im]`; one refused,
+  `supported: false`, carries no curve), a histogram's cumulative buckets, or a `graph`. Each is checked and bounded
+  (5,000 rows, points, nodes or edges, 50 buckets), and refused with `error` when it is not what it says. A role on a
+  series (`sp`, `pv`, `op`, `mv`, `limit_hi`, `limit_lo`, `mode`, `input`, `output` and the four of candles) or on a
+  graph's field (`rate`, `errors`, `latency`, `utilisation`, `wait`, `count`, `age`, `slack`, `exposure`) is one of a
+  closed list. A series' role is kept on it in the answer (`role`), and the frame's `roles` lists them in order; two
+  series of one answer with the same role are refused. `input` with `output`, or the four of candles, make two signals
+  or candles; any other roles are values over time, drawn by the families that draw those. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
+- **Histograms.** A PromQL answer whose every series has a numeric `le` label, over two bounds or more with a finite
+  one, is one histogram's buckets (chart 16, the latency heatmap); an answer at one bound (`x_bucket{le="0.3"}` by
+  instance, an SLO's numerator) stays plain series. The buckets are a `distribution` of `bins` from 0 to the highest
+  finite bound, with `over_time`, the count in each bucket at each time (a time some bucket has no value at is a gap,
+  never a zero). It is refused when the buckets are of more than one histogram (`many-histograms`: add them with
+  `sum by (le)`) or a count falls from one bound to a higher one (`not-cumulative`). It is warned when counts lie
+  above the highest finite bound, or there is no `+Inf` (`open-top-bucket`). Only `le` is read: VictoriaMetrics's own
+  `vmrange` buckets are not. The heatmap draws one histogram's buckets on its own: a panel with them and another
+  answer draws nothing and says so.
+- **A graph.** Each edge's `source` and `target`, and each node's `parent`, must be one of the nodes; ids are unique;
+  `semantics.paths_real` (is a route through two edges evidence?) must be said, with no default; `acyclic` is worked
+  out by the server, and a frame that states it wrongly is refused; an `inferred` edge needs its `confidence`; a
+  `wait_for` or `dependency` graph is never built from inferred edges; a graph of `events` needs each edge's `t`; and
+  `omitted` must say what was left out. An unknown `kind` is refused. Drawing a graph is `graph-result-and-panel`; until
+  then the table family lists its edges, a row each.
+- **Verdicts.** `verdict` is `ok`, `warn` or `refuse`, the worst of its `reasons`, each `{code, says, fix}`. The codes
+  are a closed list (`ergostat/query/verdicts.py`), each with its level and its fix: an error's kind (`limit`,
+  `unreachable`, `refused`, `unknown`, `unanswerable`, `busy`, `reader`), `no-coherence`, `partial`, and the misuses
+  `not-cumulative`, `many-histograms`, `open-top-bucket`, `averaged-percentiles` (an `avg` or `avg_over_time` of a
+  `histogram_quantile`) and `quantile-in-bucket` (any `histogram_quantile`, whose value is interpolated inside its
+  bucket), and those of *Analysis* and *Sampling*: `only-rollups`, `not-raw`, `scrape-unknown` and `mixed-windows`. A refused answer holds nothing to draw (its `id`, `error` and `meta` only), except a frequency response
+  without coherence, which is sent with no curve. In the panel, a refused answer is drawn by no family: it says
+  "Refused" when the source refused it ("Could not load" otherwise), the reason, and "Fix:". A warned one is drawn, with
+  each reason and its fix under the plot. An answer from a model, a fit, a simulation or a hypothesis says so there
+  ("From the model, not measured.").
 - **Which charts apply.** Each chart family declares the shapes it takes (`shapes` in its registration): line takes
   series, a table over one numeric dimension, and points; bar series, a one-dimension table and bins; stat plain series and a
-  one-row table; table plain series and a one-dimension table; scatter two signals, a table of two measures, and points;
-  phase two signals and points in time order; histogram plain series, bins and samples; box samples and quartiles;
-  heatmap points; candlestick candles; Bode and Nyquist a response with its frequency; pole-zero a model's response.
+  one-row table; table plain series, a one-dimension table and a graph's edges; scatter two signals, a table of two
+  measures, and points; phase two signals and points in time order; histogram plain series, bins and samples; box
+  samples and quartiles; heatmap points and bins over time; candlestick candles; Bode and Nyquist a response with its
+  frequency; pole-zero a model's response.
   A chart that cannot show an answer is disabled in the panel editor, and a panel saved with it draws nothing and says
   in one sentence what it needs and how to reshape the data. Switching among the charts that apply asks the server
   nothing: the editor asks again only when what a chart would send differs.
