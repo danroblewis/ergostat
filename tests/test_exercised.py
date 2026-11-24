@@ -124,6 +124,8 @@ def test_the_finding_is_shown_by_ergostat_findings_and_the_page(tmp_path, capsys
     live = Live(p)
     page = api(live, "exercised", {})
     assert any(x["about"] == "flow.flat-points-lost" and x["level"] == "warn" for x in page)    # the Check page
+    row = next(x for x in page if x["about"] == "flow.flat-points-lost")                   # with its numbers: a row
+    assert row["why"] == "never-moved" and row["readings"] >= 20 and row["span"] >= 3.5 * 3600 and "never moved" in row["says"]
     panel = api(live, "part/flow/flat-points-lost", {})
     assert [x["code"] for x in panel["findings"]] == [ex.CODE]                     # the part's side panel
     assert not api(live, "part/flow/arrivals", {})["findings"]
