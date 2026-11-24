@@ -140,7 +140,10 @@ def name_of(cfg: dict, module: str, now: float) -> str:
 def definition(branch: str, module: str, s: float, row: dict, gaps: list[dict] = (), now: float = 0.0) -> str:
     text = (fac.HERE / "prompts" / "simplify.md").read_text()
     q = times.quiet(list(gaps), now or time.time())
-    quiet = "unknown (no gap's catches counted yet)" if q is None else ", ".join(f"`{g}`" for g in q) or "none"
+    quiet = "unknown (no gap's catches counted yet)" if q is None else ", ".join(f"`{g}`" for g in q[0]) or "none"
+    if q and q[2]:                                     # some gaps unknown: the quiet ones are quiet only among the rest
+        quiet += (f" (among the {q[1]} gap(s) whose catches are counted; {q[2]} gap(s) whose catches are unknown are"
+                  " left out, and a gate named may have caught there)")
     for k, v in {"branch": branch, "module": module, "score": f"{s:.2f}",
                  "evidence": json.dumps(row, indent=2), "quiet_gates": quiet}.items():
         text = text.replace("{" + k + "}", v)

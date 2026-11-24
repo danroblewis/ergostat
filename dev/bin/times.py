@@ -234,12 +234,14 @@ def measures() -> list[str]:
             + [f"gate-{g}-minutes" for g in GATES] + [f"gate-catches-{g}" for g in (*CATCHING, "unlisted")])
 
 
-def quiet(gaps: list[dict], now: float, days: int = 30) -> list[str] | None:
-    """The gates in CATCHING with no catch in the last ``days``, over the gaps whose catches are known; None (unknown,
-    never all quiet) when no gap's are."""
-    if not any(isinstance(g["fields"].get("catch_times"), dict) for g in gaps):
+def quiet(gaps: list[dict], now: float, days: int = 30) -> tuple[list[str], int, int] | None:
+    """The gates in CATCHING with no catch in the last ``days`` over the gaps whose catches are known, with how many
+    gaps are known and how many unknown (left out: a gate named may have caught there); None (unknown, never all
+    quiet) when no gap's are."""
+    known = sum(isinstance(g["fields"].get("catch_times"), dict) for g in gaps)
+    if not known:
         return None
-    return [g for g in CATCHING if not caught(g, gaps, now - days * 86400)]
+    return [g for g in CATCHING if not caught(g, gaps, now - days * 86400)], known, len(gaps) - known
 
 
 def goals() -> dict:

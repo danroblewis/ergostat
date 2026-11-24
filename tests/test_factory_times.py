@@ -289,6 +289,14 @@ def test_a_quiet_gate_reaches_the_simplifier_brief():
     assert "unknown (no gap's catches counted yet)" in none                    # never read as every gate quiet
     every = [{"id": "gap/d", "fields": {"catch_times": {g: [now - 60] for g in times.CATCHING}}}]
     assert "):\nnone. Each" in simplify.definition("s", "m", 1.0, {}, every, now)
+    # some known, some unknown (rolled up or not timed before catches were counted): quiet only among the known,
+    # with the unknown ones counted in the brief, never stated as plain 'no catch'
+    mixed = simplify.definition("s", "m", 1.0, {}, [*gaps, {"id": "gap/c", "fields": {}},
+                                                    {"id": "gap/e", "fields": {"catch_times": None}}], now)
+    line = mixed[mixed.index("## The quiet gates"):mixed.index("## The rules")]
+    assert "`queue`, `triage`, `lint`, `measure-runs`" in line
+    assert "among the 2 gap(s) whose catches are counted; 2 gap(s) whose catches are unknown are left out" in line
+    assert "unknown are left out" not in brief                                  # all known: no such clause
 
 
 def gap(gid: str, state: str, ready_hours: float | None, left: float, **fields) -> dict:

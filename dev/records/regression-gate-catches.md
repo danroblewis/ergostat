@@ -62,3 +62,14 @@ Choices made alone, each the most reversible I could see:
 Not run here: `ergostat check` from the CLI (that command was refused in this session). The acceptance test reads the
 whole factory model through `ergostat.spec.read` and asserts no error and no finding on any gate-catches part, and
 tests/test_factory.py::test_ergostat_check_on_the_factory_model_reports_no_new_finding passes.
+
+Round 2: the review's one finding is fixed, and nothing else is left. Round 1's claim above, that the brief "says
+unknown, never every gate quiet", held only when no gap's catches were known. With some gaps known and the rest
+unknown, the brief called gates quiet when their catches were in fact unknown. Now `times.quiet()` also returns how
+many gaps are known and how many are unknown. When any are unknown, the brief adds "(among the N gap(s) whose catches
+are counted; M gap(s) whose catches are unknown are left out, and a gate named may have caught there)". I chose to
+carry the count rather than call the whole result unknown while any gap is unknown. Gaps rolled up before
+`catch_times` existed stay unknown forever, so that rule would keep the brief at "unknown" for good. The count keeps
+the evidence and says plainly how far it reaches. The mixed case is in
+`test_a_quiet_gate_reaches_the_simplifier_brief`. With the clause disabled, that test fails at the new assert (seen).
+Net lines this round: +5 in dev/ (times.py +2, simplify.py +3), 90 in all, at the budget.
