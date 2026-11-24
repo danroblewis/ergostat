@@ -15,6 +15,10 @@ systems:
     within: intake
     description: a split gap waiting for its sub-gaps to merge, then joined and judged covered, short or parked
     show: [stock.gaps-split, stock.gaps-joined]
+  joins:                            # the join judge's half hour, apart from a split's days (time-scales); split-watch
+    within: split-and-join          # and join-judge are intake's own, as no goal is in split-and-join (purpose)
+    description: a joined gap waiting for the join judge - covered (merged), short (split again) or parked
+    show: [stock.gaps-joined]
 
 stocks:
   gaps-open:

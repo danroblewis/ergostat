@@ -17,6 +17,10 @@ systems:
     within: landing
     description: the instance switched to the newest installed version once the coordinator approves, kept when healthy or reverted
     show: [stock.upgrades-installed, stock.upgrades-switching]
+  switch-over:                      # the switch's minutes, apart from the approval's hours (time-scales); its blocks
+    within: switching               # stay in switching, beside the goal they act for (purpose)
+    description: an approved switch begun, the new engine started, then kept when healthy or reverted
+    show: [stock.upgrades-switching]
 
 items:
   batch:
@@ -84,12 +88,12 @@ stocks:
     description: versions installed in their own folders and checked, waiting for the coordinator to approve the switch
     sensor: {items: upgrade, state: installed, every: 1m}
   upgrades-approved:
-    system: switching
+    system: switch-over
     unit: upgrades
     description: switches approved, begun by the switcher's next minute (the runs under way carry on, taken up by the new engine)
     sensor: {items: upgrade, state: approved, every: 1m}
   upgrades-switching:
-    system: switching
+    system: switch-over
     unit: upgrades
     description: versions switched to, their health not yet shown
     sensor: {items: upgrade, state: switched, every: 1m}
@@ -241,7 +245,7 @@ flows:
     equation: withdraw-share * stock.upgrades-installed / approve-time
     sensor: {items: upgrade, entering: withdrawn, over: 1d}
   upgrades-switched:
-    system: switching
+    system: switch-over
     from: upgrades-approved
     to: upgrades-switching
     description: the engine stopped, current pointed at it, started - the runs under way left going, taken up by its engine
@@ -249,14 +253,14 @@ flows:
     equation: stock.upgrades-approved / switch-time
     sensor: {items: upgrade, entering: switched, over: 1d}
   upgrades-kept:
-    system: switching
+    system: switch-over
     from: upgrades-switching
     description: healthy - a pass, the sensors reading, the record read, the queue there
     driven-by: [+stock.upgrades-switching]
     equation: (1 - revert-share) * stock.upgrades-switching / health-time
     sensor: {items: upgrade, entering: healthy, over: 1d}
   upgrades-reverted:
-    system: switching
+    system: switch-over
     from: upgrades-switching
     description: not healthy in time - back to the version before it
     driven-by: [+stock.upgrades-switching]
@@ -342,17 +346,17 @@ parameters:
     estimate: true
     description: the share of switch requests withdrawn for a newer version
   switch-time:
-    system: switching
+    system: switch-over
     value: 2m
     estimate: true
     description: from the approval to the new engine started - the switcher's next minute, the stop and the start
   health-time:
-    system: switching
+    system: switch-over
     value: 2m
     estimate: true
     description: how long a new version takes to show it is healthy
   revert-share:
-    system: switching
+    system: switch-over
     value: 0.05
     unit: "1"
     range: [0, 1]

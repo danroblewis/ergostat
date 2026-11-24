@@ -22,7 +22,7 @@ stocks:
     description: gaps split into sub-gaps, each waiting until every one of its sub-gaps is merged (a join)
     sensor: {items: gap, state: split, every: 1m}
   gaps-joined:
-    system: split-and-join
+    system: joins
     unit: gaps
     description: split gaps whose sub-gaps all merged, waiting for the join judge - covered (merged) or short (split again)
     sensor: {items: gap, state: joined, every: 1m}
@@ -206,7 +206,7 @@ flows:
     equation: stock.gaps-split / split-time
     sensor: {items: gap, entering: joined, over: 1d}
   joins-covered:
-    system: split-and-join
+    system: joins
     from: gaps-joined
     to: gaps-landed
     description: a joined gap the join judge found covered - merged (merged_by join-judge, so not gaps-merged's), with its verdict
@@ -214,7 +214,7 @@ flows:
     equation: (1 - short-share) * stock.gaps-joined / judge-time
     sensor: {items: gap, entering: merged, where: {join_verdict: covered}, over: 1d}
   joins-short:
-    system: split-and-join
+    system: joins
     from: gaps-joined
     to: gaps-split
     description: a joined gap the join judge found short - a sub-gap requested for what was not built, then split again
@@ -222,7 +222,7 @@ flows:
     equation: short-share * stock.gaps-joined / judge-time
     sensor: {items: gap, entering: split, where: {lease.back: joined}, over: 1d}
   joins-parked:
-    system: split-and-join
+    system: joins
     from: gaps-joined
     description: a joined gap found short past the most short rounds - parked with the points still not built
     sensor: {items: gap, entering: parked, where: {parked_in: joined}, over: 1d}
@@ -355,12 +355,12 @@ parameters:
     estimate: true
     description: how long a split gap waits for every one of its sub-gaps to merge
   judge-time:
-    system: split-and-join
+    system: joins
     value: 30m
     estimate: true
     description: how long a joined gap waits for the join judge
   short-share:
-    system: split-and-join
+    system: joins
     value: 0.2
     unit: "1"
     range: [0, 1]
@@ -518,7 +518,7 @@ blocks:
 
   split-watch:
     type: program
-    system: split-and-join
+    system: intake
     description: parks a split gap one of whose sub-gaps parked or died, naming it (the join only moves it on once all merged)
     run: python3 dev/bin/plan.py splits
     every: 5m
@@ -526,7 +526,7 @@ blocks:
     out: flow.splits-parked
   join-judge:
     type: ai
-    system: split-and-join
+    system: intake
     agent: opus
     description: a session per joined gap in a read-only clone of main - its entry, its coverage, each sub-gap's definition and last review against the code (a sub-gap it cannot read is short, with no session); covered merges it (no merged_at), short requests a sub-gap for what is missing and splits it again (the second short parks it); it waits while the day's money is spent
     run: python3 dev/bin/plan.py join

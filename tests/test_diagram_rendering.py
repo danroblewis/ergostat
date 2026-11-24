@@ -2658,15 +2658,17 @@ def test_a_system_is_drawn_c_p_or_named_with_the_same_p_by_m_closed_and_open(bro
 
 # dev/records/model-split-oversized-systems.md: the factory's landing, times and intake, each split into subsystems
 FACTORY_SPLIT = {"landing": ["merging", "upgrading", "switching"], "times": ["state-times", "loop-times", "gate-times"],
-                 "intake": ["open-gaps", "split-and-join"]}
+                 "intake": ["open-gaps", "split-and-join"], "switching": ["switch-over"], "split-and-join": ["joins"]}
 # one of each subsystem's parts, as the Dynamics view names its node (an auxiliary's is named stock: too)
 FACTORY_SPLIT_PART = {"merging": "stock:gaps-queued", "upgrading": "stock:upgrades-available",
-                      "switching": "stock:upgrades-switching", "state-times": "stock:in-ready-hours",
-                      "loop-times": "stock:loop-hours", "gate-times": "stock:gate-unit-minutes",
-                      "open-gaps": "stock:gaps-open", "split-and-join": "stock:gaps-split"}
-# the Blocks view draws nothing of these, before the split as after: gate-times has no block, and split-and-join's
-# split-watch and join-judge (no goal's loop) were not drawn inside intake either
-NO_BLOCKS = {"gate-times", "split-and-join"}
+                      "switching": "stock:upgrades-installed", "switch-over": "stock:upgrades-switching",
+                      "state-times": "stock:in-ready-hours", "loop-times": "stock:loop-hours",
+                      "gate-times": "stock:gate-unit-minutes", "open-gaps": "stock:gaps-open",
+                      "split-and-join": "stock:gaps-split", "joins": "stock:gaps-joined"}
+# the Blocks view draws nothing of these: gate-times has no block, and switch-over, split-and-join and joins hold
+# none (the switch's blocks are switching's; split-watch and join-judge, in no goal's loop, are intake's own and
+# were not drawn before the split either)
+NO_BLOCKS = {"gate-times", "split-and-join", "switch-over", "joins"}
 # the subsystems drawn closed: each one's box, by its name ([name, its node's id, drawn])
 CLOSED_SYSTEMS = """(names) => names.map((x) => { const n = S.graph.nodes.find((n) => n.role === 'subsystem' && n.label === x);
   return [x, n?.id || null, !!(n && document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`))]; })"""
@@ -2682,8 +2684,8 @@ OPEN_SYSTEMS = """(names) => Object.fromEntries(names.map((x) => {
 def test_the_factorys_split_systems_are_drawn_in_dynamics_and_blocks(browser, tmp_path):
     """Done 3: the factory's model, served, draws the new subsystems of landing, times and intake, each system's view
     in turn. Dynamics: opened, each subsystem a frame with its parts in it. Blocks: closed, each a block of its own
-    inside its parent; opened, a frame with its blocks in it (but the two of NO_BLOCKS, drawn as before). No page
-    error."""
+    inside its parent; opened, a frame with its blocks in it (but those of NO_BLOCKS, which hold none: split-and-join's
+    own Blocks view, with nothing to draw, is not opened). No page error."""
     src = tmp_path / "src" / "factory"
     (src / "dev").mkdir(parents=True)
     shutil.copy(ROOT / "ergostat.yaml", src / "ergostat.yaml")
@@ -2695,7 +2697,7 @@ def test_the_factorys_split_systems_are_drawn_in_dynamics_and_blocks(browser, tm
         pg.on("pageerror", lambda e: errors.append(str(e)))
         n = 0
         for parent, subs in FACTORY_SPLIT.items():
-            for view in ("dynamics", "blocks"):
+            for view in ("dynamics", "blocks")[:1 if parent in NO_BLOCKS else 2]:   # (no block: nothing to draw)
                 drawn(pg, url, f"view={view}&system={parent}", n)
                 tree = pg.evaluate("() => S.graph.tree || {}")
                 assert {s: (tree.get(s) or {}).get("within") for s in subs} == dict.fromkeys(subs, parent), view

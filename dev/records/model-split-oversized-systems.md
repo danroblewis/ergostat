@@ -63,3 +63,33 @@ other browser files, the unit suite. Fails here, unrelated: tests/test_queue_bat
 test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run (the page never lists the batch in 60 s, twice). Its
 model is landing.yaml's `items:` slice alone, which a scratch test found identical to main's, and the branch changes
 no ergostat code; it was not run on main here.
+
+### After check's findings (round 1, sent back before the suites)
+
+Check found three notes on the branch and not on main: `purpose@system.split-and-join`,
+`time-scales@system.split-and-join` and `time-scales@system.switching`. All three are gone, and the split now
+adds no check finding (tests/test_factory_split_systems.py::test_ergostat_check_passes_on_the_split_model asserts
+that the branch adds none against the split undone, where before it pinned the three). This replaces the paragraph
+above that begins "What check says differently", and the part counts given above for switching and split-and-join:
+- `switching` keeps the approval (upgrades-installed, switches-approved and -withdrawn, the goal, approve-switch,
+  switcher and switch: 7 parts). A new subsystem inside it, `switch-over`, holds the switch's minutes
+  (upgrades-approved, upgrades-switching, upgrades-switched, -kept and -reverted: 5). time-scales compares only a
+  system's own parts, so the 2 h approval and the 2 min switch are no longer side by side. Switch-over holds no block,
+  so it does not need a goal (purpose).
+- `split-and-join` keeps a split's days (gaps-split, replans-split-off, splits-joined, splits-parked: 4). A new
+  subsystem inside it, `joins`, holds the join judge's half hour (gaps-joined, joins-covered, -short and -parked: 4).
+  split-watch and join-judge now sit in `intake` directly, because split-and-join holds no goal for them to act for.
+  This is decided alone and reversible: the other ways out were a new goal, or putting them in open-gaps (21 parts,
+  where system-splits would screen it), and this gap asks for neither.
+- Parameters moved with the flows that use them (switch-time, health-time, revert-share; judge-time, short-share).
+  No equation, value or description changed. The comparison test (split undone, through both levels) still passes.
+- What this costs: `explain` no longer calls intake nearly decomposable, because its two blocks sit loose beside its
+  subsystems. That is a note of explain, not a check finding. The test now asserts it for landing only, and says why.
+- Diagrams: switch-over and joins are drawn as frames in their parents' Dynamics view. The Blocks view of
+  split-and-join (no block at any depth) has nothing to draw, so the test does not open it. That view's page waits
+  forever for a first node, which is how a first run of the changed test timed out. NO_BLOCKS now lists switch-over
+  and joins as well.
+
+Run here: tests/test_factory_split_systems.py (4 passed), the diagram test above (1 passed, 252 s, under the
+watchdog), tests/test_factory_join.py's two tests that read the factory's model (2 passed), ruff (clean). Not run
+here: the unit suite, the rest of the browser files, all of test_factory.py.
