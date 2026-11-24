@@ -56,3 +56,75 @@ depends-on: [analysis-source-and-window-1]
 ## Size budget
 240 net lines
 size: L (confidence: low)
+
+## Where it stopped
+
+Built: every item of the definition, with the eight named acceptance tests in `tests/test_analysis_calls.py`, all
+passing. Nothing is left in this gap.
+
+Choices made alone (the most reversible, each easy to change):
+- The calls are registered in `ergostat/query/analysis.py`, not `ergostat/datasources/analysis.py`: the files list
+  names the latter as "from analysis-source-and-window-1", but that gap built the source in `query/analysis.py`, and
+  no `datasources/analysis.py` exists. The engine's `_analysis` (`query/engine.py`, not in the files list) gets the
+  one branch that sends a call other than `raw` to `analysis.called`, and `_reread`, which raises a re-read's refusal
+  as the call's.
+- Two verdict codes are added to the closed list in `query/verdicts.py` (not in the files list): `windowed` (G1: a
+  spectrum of a data source's query under a range window, or whose windows are not read) and `unanalysable` (a record
+  too short, non-finite, gappy or flat). Both refuse.
+- `frequency.py` exposes its helpers under public names by one alias line (`runs`, `windows`, `stretch`, `cells`,
+  `detrended`, `varies`, `smooth`); nothing in it changes behaviour.
+- A spectrum of a data source's query with no range window (`x`) is answered from its re-read, warned `not-raw` and
+  `scrape-unknown`; one with a window, or whose language's windows are not read, is refused (G1). `pair` and `ccf` of a
+  windowed source are answered from its re-read, with its `not-raw` warning.
+- `psd`'s x is the period in seconds (the definition allows period or frequency). Its band is an approximate 95%
+  interval per period: chi-square with `dof` = 2 × round(9/11 × stretches), the same 9/11 count of a half-overlapping
+  Hann stretch as `frequency.floor`; the quantile is exact for that even dof (its closed form, bisected).
+- `spectrogram`'s `length` and `ccf`'s `most_lag` are durations (`90`, `90s`, `10m`, `2h`, `1d`). Their ceilings are
+  in samples (1,024 and 256), checked once the step is known. Past `cells`, the stretches are thinned evenly and warned
+  `partial`; a single stretch with more frequencies than `cells` is refused.
+- `ccf` also carries the G4 warning when its two signals differ in step or windows: it puts them on one grid as
+  `pair` does, so the same thing is true of it.
+- G2: on a raw grid the step is never under the scrape, so `2 × max(scrape, step)` is the FFT's own shortest period and
+  the cut takes nothing more. It cuts more only when the scrape is the longer. The engine-level part of
+  `test_psd_marks_periods_below_twice_the_step_unobservable` checks the bound and the mark; the cut itself is checked
+  on `spectra.psd` with a scrape of 60 s over a 10 s grid. SPEC says so.
+- A NaN or ±inf cannot reach a call through the engine today (the store and the source frames turn them into gaps).
+  The refusal is tested on `spectra` directly for all four calls. The short, gappy and flat cases are tested both
+  there and through `/api/query`.
+
+Checked by breaking the code, each seen to fail and then restored: with the G1 check off,
+`test_psd_refuses_a_windowed_signal_without_raw` fails (psd answered the windowed sine); with the G2 cut off,
+`test_psd_marks_periods_below_twice_the_step_unobservable` fails; with the cells thinning off,
+`test_spectrogram_shows_when_a_period_starts` fails (1,357 rows for 100 cells); with the ccf lag's sign flipped,
+`test_ccf_names_the_lag_and_its_sign` fails; with the non-finite check off,
+`test_calls_refuse_short_gappy_flat_or_nonfinite_records` fails; with the psd band ten times too narrow,
+`test_psd_finds_a_planted_period`'s coverage check fails (0.68 inside).
+
+Not measured: the time of the largest call. A ccf is at most 513 lags over at most 2,048 samples (about a million
+products), a spectrogram at most 5,000 cells. Writing a timing script outside the repository was refused (the file
+tools are confined to `/work`), so no number is claimed.
+
+Tests run here: `tests/test_analysis_calls.py` (8 passed), `test_analysis_source.py`, `test_query_frequency.py`,
+`test_result_frames_and_verdicts.py`, `test_query_engine.py`, `test_result_shapes.py`, `test_data_sources.py`,
+`test_model_data_source.py`, `test_query_fixes.py` and `test_sql_source.py`, all passing. ruff is clean. No page
+changed, so no browser file was run. Main is already merged into the branch (`git merge main`: already up to date).
+The whole unit suite and the four browser files were not run here (the factory runs them).
+
+Overrun reason: 292 lines added and 19 removed outside tests, docs and dev against the branch's base, 273 net against 240. The four calls, each with its four refusals, its bounds and its words naming them, the G1, G2 and G4 guards, an exact chi-square quantile in the standard library for the psd band, the common grid for two signals, and the engine's re-read of each query are each asked for and cost a few lines; the rest is docstrings.
+
+## Entry
+
+section: Done recently
+
+- **The analysis calls** (analysis-source-and-window-2). Beside `raw`, the `analysis` source answers `pair(A, B)`
+  (`points` in time order on one grid, the coarser step), `psd(A, detrend=, segments=)` (`points` by period: Welch
+  power with an approximate 95% band per period), `spectrogram(A, length=, detrend=, cells=)` (a `table` of stretch
+  start × frequency → power) and `ccf(A, B, most_lag=)` (`points` by lag in seconds, positive when B moves after A,
+  with ±1.96/√n, which holds only for independent white signals). Each reads its queries only through the raw re-read,
+  never the values the panel drew, and reuses `query/frequency.py`'s FFT, coarsening, detrending and stretches. A
+  spectrum of a data source's query under a range window is refused (`windowed`, G1); a period under 2 × max(scrape,
+  step) is never answered and is marked `not_observable_s` (G2); two signals of different steps or windows warn
+  `mixed-windows` (G4). A record too short, non-finite, with no stretch of 16 samples between gaps, or flat is refused
+  in words (`unanalysable`), never zeros. `segments` (64), `length` (1,024 samples), `most_lag` (256 samples) and
+  `cells` (5,000) each have a ceiling, and a value past it is refused. Left: the page's batching still does not rewrite
+  the ids inside an analysis text (from analysis-source-and-window-1).
