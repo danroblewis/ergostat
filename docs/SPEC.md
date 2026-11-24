@@ -1752,7 +1752,8 @@ reads the event log.
       `refused`. The index is not asked.
   - Only a text that passed is run on the index. It runs on a connection of its own to the index's file, opened read only,
     under the file's shared lock. There each view is a temporary SQLite view over the index's tables, so a query reads
-    only the rows it needs. The stages' views, made in Python, are copied into temporary tables when the text names one.
+    only the rows it needs. The stages' and the forecast's views, made in Python, are copied into temporary tables when
+    the text names one. On the stand-in they are empty tables too, and the forecast's group functions are there as well.
     - The finished states that make `reason` and the query are read in one read transaction. So a query that joins two
       views sees each item the same in both, even if a catch-up is committed meanwhile.
     - The authorizer there allows only SELECT, the functions above plus `_fields` and `json_each`, and reads of what the

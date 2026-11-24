@@ -167,6 +167,25 @@ Round 3: the one finding (blocking) is fixed, as the review suggested.
 
 Overrun reason: 74 net lines against 60 (round 3 removed 4). The 14 over are round 1's no-database read handling and round 2's `_resolves` probe for the review's blocking hole in it. Neither was in the plan.
 
+Round 4: the one finding (main conflicted in `_itemviews.py` and `sql.py`) is fixed. Main (d0f95413) is merged in.
+- Main added the forecast's views (`forecast_*`, copied from a worked-out forecast, as the stages' are) and the group
+  functions (`forecast_out` and the rest, in FUNCTIONS). Both are kept. `opened` takes the forecast after `own` and
+  copies the views the text names into temp tables, inside the one read transaction (the commit stays when `opened`
+  exits). `check` takes the forecast too: the stand-in already has an empty table per view (`views()` now holds
+  FORECAST), and it gets the group functions so that a text calling them can be prepared. `sql.query` reads the
+  forecast first, as main does (none means `unknown`), then checks, then runs. SPEC §4e says the forecast's views are
+  copied like the stages', and that the stand-in has them.
+- Run here, each passing: `tests/test_sql_views.py`, `tests/test_sql_source.py`, `tests/test_stages.py` (27),
+  `tests/test_group_counts.py`, `tests/test_forecast_result.py` and `tests/test_queue_batch_item.py` (the forecast's
+  and main's other `opened` caller), and `tests/test_sql_editor.py` with Playwright under the watchdog. ruff is clean.
+- Failing, and not this branch's (lesson-13): `tests/test_queue_batch_item.py::test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run`
+  (a browser test) times out waiting for the Items page's rows. That page is drawn from a static snapshot, which
+  reads neither the SQL source nor `_itemviews`. With main's two files put back in the worktree, it fails the same
+  way. The branch's files were then restored.
+- Not run: the whole unit suite and the four browser files (the factory runs them).
+
+Overrun reason: 78 net lines against 60. The 14 over before this round are round 1's no-database read handling and round 2's `_resolves` probe. This round adds 4 to merge main's forecast views into the check and `opened`. None of it was in the plan.
+
 ## Entry
 
 entry-of: sql-source-over-item-views
