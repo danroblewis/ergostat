@@ -64,3 +64,19 @@ the parent has a child missing from the record (`gap/ghost`) and a sub-gap that 
 readable and then not. `unread` is a list. Its points are the ghost's and the sub-gap's, never the record's note.
 `short_of` makes one point per item, and the entry names the unreadable record only when it is unreadable. With
 round 1's code restored, the test failed: an AttributeError at `unread.append` (plan.py:436).
+
+Round 3 (2026-11-24). Size: 37 net lines in dev/bin (65 added, 28 removed), within the 60.
+
+The finding (the queue's): `tests/test_shell_rule.py`'s two brief tests failed alone. Round 1 had `brief.assemble`
+call `record_entry` directly, so the test's stand-in for `brief.gaps_entry`, the seam on main, no longer applied.
+The real read then ran, and its `import gapsdoc` failed: the file loads brief.py by path, with dev/bin not on
+`sys.path`. In the full suite an earlier test had put it there, so the batch failed only when the file ran alone.
+Fix: `assemble` reads the entry through `gaps_entry` again: the entry, or `record_entry`'s note of the records it
+may be in. The brief's `gaps_entry` context flag is true only for a real entry (not one starting with `UNREAD`).
+The shell-rule test file was not changed. The batch's other failures were not named to this gap, so nothing else
+was changed for them.
+
+Breaks seen to fail: with `gaps_entry` returning only the entry (no note), the unreadable test failed at its first
+assert, with the brief saying "(no entry: not in main's records)".
+
+Also: two docstring lines in brief.py over ruff's 140 were wrapped (ruff over dev/bin/brief.py is now clean).
