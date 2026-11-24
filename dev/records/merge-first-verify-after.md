@@ -101,3 +101,24 @@ Every new test was seen to fail with its fix broken, as listed above. Docs: dev/
 Tests run in round 2: `tests/test_verify_after.py` 21 passed; `tests/test_factory.py` 251 passed, 2 skipped (Docker absent); `tests/test_queue.py` 19 passed; `tests/test_queue_halves.py` 63 passed; `tests/test_landing_goal.py` 13 passed; ruff clean on ergostat, tests and scripts and on the changed dev/bin files. Not run here: the full unit suite and the four browser files, which the merge queue runs. main (d0f95413) was already merged into the branch and has not moved since.
 
 Size: still 0 net lines outside tests/, docs/ and dev/.
+
+### Round 3
+
+Main (49a47c01) merged in first. It conflicted in `dev/bin/measure.py`'s help text only: main's reworded
+planning-cost-share line and the branch's four verify series are both kept.
+
+The one blocking finding of round 2's review is answered. The review listed no non-blocking findings.
+
+1. A push denied at once erased the hold (verify.py `revert()` with `ask()` and `denied()`, lesson-1 and lesson-3).
+   When push-main answers 4 at once, `ask()` calls `q.settle()`, which puts main back and has `denied()` write `held`
+   from a fresh read of run/verify.json. `revert()` then saved its own stale copy over the file and erased `held`.
+   Now `revert()` reads run/verify.json again after `ask()` and only then drops `found` and sets `again`, so `held`
+   stays. Test: `test_a_revert_push_denied_at_once_holds_the_lane_and_the_next_run_reverts_nothing`. In it the
+   fixture's act answers 4. The test checks that no gap is told, main is back with a and b, and run/verify.json holds
+   `held` and no `found`. It also checks that the next run does nothing: no suite run, no push asked, main unchanged.
+   Without the re-read it fails because `held` is gone (`{'again': 'after the revert of gap/a'}`).
+
+Tests run in round 3, after the merge of main: `tests/test_verify_after.py` 22 passed; `tests/test_factory.py` 251
+passed, 2 skipped (Docker absent); `tests/test_queue.py` 19 passed; `tests/test_queue_halves.py` with
+`tests/test_landing_goal.py` 76 passed; ruff clean on ergostat, tests and scripts and on the
+changed dev/bin files. Not run here: the full unit suite and the four browser files, which the merge queue runs.

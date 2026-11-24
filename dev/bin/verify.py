@@ -559,7 +559,8 @@ def revert(cfg: dict, repo: Path, st: dict, q) -> str:
             ask(cfg, repo, q, top, head, c["gap"], then)    # again by the next run, never lost)
         else:                                           # (reverted already: nothing to push, said now)
             q.release({"then": then})
-        st.pop("found")
+        st = state(cfg)                                 # (read again: a push denied at once held the lane, denied(),
+        st.pop("found", None)                           # and that hold is kept, never saved over: lesson-1)
         st["again"] = f"after the revert of {c['gap']}"
         save(cfg, st)
         logged(cfg, **f["line"], outcome="red", culprit=c["gap"], reverted=[c["gap"], *[d["gap"] for d in deps]],

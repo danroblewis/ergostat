@@ -241,6 +241,23 @@ def test_a_denied_revert_push_tells_no_gap_puts_main_back_and_holds_the_lane(tmp
     assert said == [] and suite_runs(f) == runs
 
 
+def test_a_revert_push_denied_at_once_holds_the_lane_and_the_next_run_reverts_nothing(tmp_path):
+    f, _ = landed_stack(tmp_path)
+    head = git(f.checkout, "rev-parse", "main")
+    db = f.db()
+    db["act_reply"] = {"rc": 4, "id": True}                               # push-main denied at once (fac.act exit 4)
+    f.record.write_text(json.dumps(db))
+    said, _ = f.run("verify.py", argv=("run",))
+    assert "intervention.recorded" in said and "gap.queue-failed" not in said and "gap.retried" not in said
+    assert git(f.checkout, "rev-parse", "main") == head and on_main(f, "a.txt") and on_main(f, "b.txt")
+    st = json.loads((f.model / "run" / "verify.json").read_text())
+    assert "held" in st and "found" not in st                             # (revert() never saves over denied()'s hold)
+    acts, runs = len(f.db()["acts"]), suite_runs(f)
+    said, _ = f.run("verify.py", argv=("run",))                         # held: the same merge is not found again
+    assert said == [] and suite_runs(f) == runs and len(f.db()["acts"]) == acts
+    assert git(f.checkout, "rev-parse", "main") == head
+
+
 def test_escapes_counts_the_culprit_s_revert_against_it_and_none_for_its_stack(tmp_path, capsys):
     e = module("escapes")
     f, _ = landed_stack(tmp_path)
