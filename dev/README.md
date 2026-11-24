@@ -125,9 +125,9 @@ it) records one factory-wide AI hold till the reset it names, in `run/ai_hold.js
 never shortened by an earlier one). Its run ends at once, its lease given back uncounted and put off till the reset: no
 attempt, nothing toward the kill rule, never parked or a dead letter. While the hold stands the goal `ai-not-held`
 (the sensor `aihold.py held`, in its own system `ai-hold`; a stale reading counts as held) shuts implement-, review-
-and research-when, and plan- and plan-review-when through `ai-stopped` (planning's one read of it and the budget), so no
+and research-when, and plan-when through `ai-stopped` (planning's one read of it and the budget), so no
 AI-role lease is taken, and every AI program that took one in the sensor's lag gives it back the same way
-(`fac.ai_holds`); the groomer and the plan review start no session (`fac.ai_held`). The merge queue, triage and the
+(`fac.ai_holds`); the groomer starts no session (`fac.ai_held`). The merge queue, triage and the
 suites read neither and run on. At the reset the hold lifts by itself and the items given back are taken again in their
 blocks' order. A reset time that cannot be read (no time, an unknown zone, a date that does not exist, more than 8 days
 off), or a hold file that cannot be read, holds for an hour and says so; the next session after it finds the limit
@@ -472,9 +472,8 @@ at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a si
 `plan_budget_most`), and the answer must hold exactly one `<coverage>` block restating what the parent must do, a
 `- ` point per line ending `(by: name, name)`, every name one of the split's sub-gaps (matched exactly) and every
 sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
-made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
-file). Once every sub-gap is merged the join moves the parent to `joined`, never to `merged`, and the **join judge**
-(`plan.py join`, the plan reviewer's model and session cap, `[ai] join_judge_*`) reads, in a read-only clone of main,
+made a definition by the lint sweep. Once every sub-gap is merged the join moves the parent to `joined`, never to
+`merged`, and the **join judge** (`plan.py join`, `[ai] join_judge_*`) reads, in a read-only clone of main,
 the parent's entry, its coverage, and each sub-gap's definition and last review (anything unreadable shown as
 `(missing: why)`). A sub-gap whose definition or last review cannot be read (or a child not in the record) makes the
 verdict `short` at once, a point naming each, with no clone, no session and cost 0. `covered` moves the parent to
@@ -494,12 +493,10 @@ median, over parents judged covered in 14 days by `judged_at`, of the parent's a
 sub-gap's and its continuation's both, over the median cost of merged unsplit gaps of the children's size class; a
 parent unpriced, with a child unmerged, unsized or unpriced, or with no unsplit gap of its class is left out and
 named), and `splits-covered ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
-The plan review is advice, never a gate (which plans it reads: *Planning by size* below; `[plan] review = off`
-reads none, and `sample` 1 in `sample_every` = 3, or `all`, now marks only the lint sweep's plans;
-`dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
-findings are appended to the definition as notes the implementor answers, and recorded by class on
-`review/<branch>-plan` for the knowledge loop. "This should not be built" is only asked of you (`park-gap`, in the
-inbox). `plan-review-agreement` and `plan-{flagged,clean}-{fix-rounds,parks}` say what the stage is worth. A definition you write yourself skips all of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
+There is no plan review: the advisory one was removed (the owner, 2026-11-23: it cost about as much as writing the
+code and could not say a plan is good; `dev/records/plan-review-removed.md`). Its old records stay as they were
+written (`review/<branch>-plan` items, `plan_review` fields, parks by `plan-review`), and nothing reads them now but
+the parks' and the lint sweep's handling of what it left. A definition you write yourself skips all of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
 
 ```sh
 python3 dev/bin/status.py                                   # one screen: in flight, blocked, failed, queue, spend
@@ -554,29 +551,27 @@ before it plans) and does as much as the class calls for. Today the only thing t
 is the request itself: `ergostat event --add gap.requested --item gap/NAME --data '{"title": ..., "entry": "its
 text", "planned_size": "S", "size_confidence": "high"}'`. Gaps from `docs/GAPS.md`, and those the coordinator files
 with a definition, carry none. Whether the groomer, the coordinator or a sizing step should record one is still the
-owner's call. A gap with neither field takes main's path: the full planner, marked for the plan review on
-`[plan] review`'s sample, as before. So does every sub-gap of a split, since they carry no class. The planner trusts a
-class only when it is exactly S, M, L or XL and its confidence (low 0.25, medium 0.5, high 0.75) is at least
-`[planning] min_size_confidence`. A class or confidence that is present but not trusted (`"s "`, a missing or unknown
-confidence, one below the bar) takes the full planner and is always marked for review. So is every replan (the gap's
-state `replan`, which the fold sets from the send-back by seq), except an XL one.
+owner's call. A gap with neither field takes main's path: the full planner. So does every sub-gap of a split, since
+they carry no class. The planner trusts a class only when it is exactly S, M, L or XL and its confidence (low 0.25,
+medium 0.5, high 0.75) is at least `[planning] min_size_confidence`. A class or confidence that is present but not
+trusted (`"s "`, a missing or unknown confidence, one below the bar) takes the full planner, and so does every replan
+(the gap's state `replan`, which the fold sets from the send-back by seq), except an XL one.
 - **S**: no session. The definition is written from the gap's own title and text (its entry in main's records,
   else a join sub-gap's `entry`; with neither, or a record that cannot be read, the gap takes the full path) with the house rules' done
   criteria and a 50-line budget, created exclusively in `run/defs/` (one already there, or one that lands first, is
   kept byte for byte and the gap is the coordinator's). `defined_by: size-s`, `planning_cost_usd: 0`. **No AI and no
   reviewer has looked at this definition**; the implementor names the tests.
-- **M**: one session under `[ai] planner_m_session_usd`, then ready with no plan review (`defined_by:
-  plan-unreviewed`). If it splits, the sub-gaps take main's review sample.
-- **L**: the full planner. A share `[planning] l_review_share` is marked for review, picked from the gap's id alone
-  (a lease retry picks the same); the rest are ready unreviewed, as M is.
+- **M**: one session under `[ai] planner_m_session_usd`, then ready (`defined_by: plan-unreviewed`, the name it had
+  while the plan review read other plans, kept so the record and the flow `plans-unreviewed` read on). If it splits,
+  the sub-gaps take main's path.
+- **L**: the full planner (`defined_by: plan`).
 - **XL**: one definition for the gap itself is sent back ("an XL gap must split"). It counts toward the lint's park
   (the 6th send-back parks), so a planner that keeps answering whole stops costing money.
-Unreviewed means unreviewed: nothing here claims M, unsampled L or S plans are as good as reviewed ones. A cap above
-`planner_session_usd` (or 0), or a share or confidence outside [0, 1], stops the planner run with an error before any
-session. Unset, the cap is the planner's own, every L plan is reviewed and no class is trusted.
+A cap above `planner_session_usd` (or 0), or a confidence outside [0, 1], stops the planner run with an error before
+any session. Unset, the cap is the planner's own and no class is trusted.
 
-Each planner and plan-review session also adds its cost to `planning_cost_usd` (summed, so plan, review and replan
-add up). A session that times out, errors or is cancelled adds its whole reservation, to `ai_cost_usd` too.
+Each planner session also adds its cost to `planning_cost_usd` (summed, so plan and replan add up; older gaps also
+carry the removed plan review's). A session that times out, errors or is cancelled adds its whole reservation, to `ai_cost_usd` too.
 `measure.py planning-cost-share` is planning dollars over AI dollars, of gaps merged in 14 days that carry the field.
 A gap without it is left out, never counted as 0; one with a planning cost negative or above its total is left out
 and named on stderr; with none it has no value (exit 1). It says where the money went, not that less planning is
@@ -1103,9 +1098,9 @@ in between: when each such episode began is kept in `run/manager.json` (`episode
 The p90s and the rest are plain measures, the file's header says which and why. The shipped holds are first guesses,
 and `python3 dev/bin/times.py setpoints` in the instance's folder sets each to today's reading (one with nothing in the
 window keeps its own). `status.py` prints them as a table, the waiting states first (time spent waiting on someone
-else, the cheapest to remove: open and replan for the planner, planned for the plan review, split for its sub-gaps,
+else, the cheapest to remove: open and replan for the planner, planned for the plan lint's sweep, split for its sub-gaps,
 ready and fix for the implementor, built for the reviewer, approved for the queue, queue-failed for triage, dead for a
-park), then the working ones, where a run holds the gap (leased: the planner's, the plan review's and triage's whole
+park), then the working ones, where a run holds the gap (leased: the planner's and triage's whole
 run and the others' start, the queue's wait for its lock with it; building; in-review; queued: the queue's run from its
 `gap.queued`, said once it holds its lock, the merge and the suites), the loop and the gates, with how many gaps are in
 each state now and the oldest of them.
@@ -1242,7 +1237,7 @@ refusal at the start (the gap no longer measurable) fails the action, and no run
 records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in
 `parked_until`), `needs` (an action named for someone), `kill-rule` (rounds, hours or attempts ran out: the implementor,
 the reviewer, the queue, triage, the plan lint, dead letters), `deferred` (the manager's park, once the coordinator
-approved it), `cancelled` (the plan review's), `split` (split-watch: the stopped sub-gaps). The reviewer's park verdict
+approved it), `cancelled` (the removed plan review's, in older records), `split` (split-watch: the stopped sub-gaps). The reviewer's park verdict
 gives its kind and condition; one naming nothing checkable is a `defect`. The block `park-resume` (every 5 minutes, no
 AI) resumes `waits_on` once the gap's work is on main as pushed (its merge on the checkout's `origin/main`; a merge not
 pushed has not cleared), through its continuation (`resumed_as`, followed) when it was continued, or once the commits
