@@ -5090,6 +5090,16 @@ other loop with that head is the head "via" the fewest of its members no sibling
 first, then stocks, auxiliaries, goals and blocks (`backlog-clear via rejected`). Never numbered,
 never a list of everything in it.
 
+**A goal, its feedback loops and its control loop** are three things, cross-referenced from the spec
+alone. A loop that runs through a goal's gap **closes** it, and the graph API gives it `goal` (the
+first by name when it runs through several); a loop through no gap has none. A goal's answer
+(`loops/NAME`) gives `feedback_loops` (those that close it, each with its label) and `control_loop`
+(its sensors, controllers and actuators). The dynamics view's list (folded, "Feedback loops") states
+the reconciliation in its summary ("Feedback loops 34, 28 close a goal"). A loop's panel says "Serves goal X", a link to
+the goal's panel. The goal's panel, in either view, has one line, "Feedback loops: B1 backlog-clear …
+(Dynamics) · Control loop: … (Blocks)". Each name there is a link that switches to that view with
+the loop chosen.
+
 **Drawn** (the dynamics view, `ergostat/dynamics.py`): each loop is labelled as Sterman numbers them,
 R1, B1 (the shortest first, the ones the model names before others of their length), with its name
 beneath. Only loops of known polarity are marked on the diagram, each inside the loop as drawn; the
@@ -5119,7 +5129,8 @@ open system comes from a shadow variable `<x>` inside the receiving system, and 
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a
 pipe out ends in a cloud with the part beyond named under it. An
 open system is a sector, a light tint with its name at the top left; a closed one is a module, its
-connection points named on its edge. The view's panels use system dynamics' words only. The side
+connection points named on its edge. The view's panels use system dynamics' words only, but for
+the goal a loop closes (above). The side
 list's cards are said in those words too, but only a sentence's own words: a code, an id or a part
 name (`queue-goal-tolerance`, `goal.ci-upgrade-planned`) and the tier a request names are kept as
 they are, the same as in Blocks. A flow's

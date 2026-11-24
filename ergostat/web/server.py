@@ -993,7 +993,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                     "moves": {m.valves[v].flow: snap["flows"].get(m.valves[v].flow, {}).get("rate")     # its own valves'
                               for v in (lp["valves"] or (c.drives if c.through else [])) if v in m.valves},
                     "decisions": st.decisions(p, name, since, snap["at"]),
-                    "hints": [h for h in snap["hints"] if h["controller"] == name]}
+                    "hints": [h for h in snap["hints"] if h["controller"] == name], **graph.goal_loops(m, name)}
         # each loop with its stock's trend (the snapshot's), and with perf=1 how it is doing, from the background
         from .control_api import performances
         perf = performances(live, p, snap, list(snap["loops"])) if one("perf") else None

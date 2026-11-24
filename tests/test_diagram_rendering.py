@@ -2889,6 +2889,44 @@ def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard
         pg.close()
 
 
+@pytest.mark.slow
+def test_a_goal_and_its_feedback_loops_link_each_other_across_the_views(browser, tmp_path):
+    """goal -> feedback loop (Dynamics, the loop chosen) -> goal, and goal -> control loop (Blocks); the list's summary
+    counts the loops that close a goal as the answer does. Structure only: whichever goals are off."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        r = pg.evaluate("""() => ({ head: document.querySelector('.sd-loops-head').textContent,
+          all: S.graph.causalLoops.length, closing: S.graph.causalLoops.filter((c) => c.goal).length })""")
+        assert r["closing"] and r["head"] == f" {r['all']}, {r['closing']} close a goal", r
+        for goal in pg.evaluate("() => Object.keys(S.status.loops)"):      # every goal names at least its control loop
+            pg.evaluate("(g) => openLoop(g)", goal)
+            pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g) && "
+                                 "document.querySelector('#detail .goal-loops a.to-blocks')", arg=goal, timeout=5000)
+        goal = pg.evaluate("() => S.graph.causalLoops.find((c) => c.goal && c.name !== c.goal).goal")   # one named apart
+        pg.evaluate("(g) => openLoop(g)", goal)
+        pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g) && "
+                             "document.querySelector('#detail .goal-loops a.to-dynamics')", arg=goal, timeout=5000)
+        links = pg.locator("#detail .goal-loops a.to-dynamics")
+        first = next(x for x in links.all() if x.inner_text().split(" ", 1)[1] != goal)
+        label, name = first.inner_text().split(" ", 1)
+        first.click()
+        pg.wait_for_function("(n) => S.hlCausal === n && document.querySelector('#detail .subtitle')?.textContent === n",
+                             arg=name, timeout=DRAWN_S * 1000)
+        assert pg.locator("#detail h2").inner_text() == label
+        pg.locator("#detail .serves a.goal-link").click()                  # and back to the goal it serves
+        pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g) && "
+                             "document.querySelector('#detail .goal-loops')", arg=goal, timeout=5000)
+        pg.locator("#detail .goal-loops a.to-blocks").click()              # its control loop, chosen in Blocks
+        pg.wait_for_function("() => S.graph?.kind === 'blocks' && S.bdSel?.node && !document.querySelector('#detail').hidden",
+                             timeout=DRAWN_S * 1000)
+        assert goal in pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel.node).loops")
+        assert not errors, errors
+        pg.close()
+
+
 # the focused part: its key, what it is called, its id, and the graph's kind and role of it
 ON = ("() => { const a = document.activeElement, n = a && S.graph?.nodes.find((x) => x.id === a.dataset?.id); "
       "return a && { key: a.dataset?.key || '', aria: a.getAttribute('aria-label') || '', id: a.dataset?.id || '', "
@@ -3071,6 +3109,10 @@ def test_the_focus_ring_is_the_accent_and_stands_3_to_1_in_both_themes(browser, 
 
 
 SD_WORDS = r"\b(controller|setpoint|rule|goal)s?\b|<=|>="   # (a valve is Sterman's word for where a rate is set)
+# the two places Dynamics names a goal (R11: goal, feedback loop and control loop are three things, cross-referenced):
+# the loop list's summary ("Feedback loops 49, 14 close a goal"), a loop's row (Q62's "serves goal X") and a loop's
+# panel ("Serves goal X")
+SD_GOAL_SAID = r", \d+ closes? a goal|[Ss]erves goals? \S+"
 
 
 def unsign_rollout(d: Path) -> None:
@@ -3111,7 +3153,7 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
         assert r["hullStroke"] in ("none", None) or "0)" in r["hullStroke"], r["hullStroke"]   # a sector: a tint, no outline
         assert r["hullFill"] not in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]
-        assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, r["side"], re.I), r["side"][:600]
+        assert "Feedback loops" in r["side"] and not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", r["side"]), re.I), r["side"][:600]
         # every panel: a loop's, a desired level's, a gap's, a connector's
         for sel in [".loop-marker", '.node[data-id^="desired:"]', '.node[data-id^="gap:"]']:
             pg.locator(f"svg.canvas {sel}").first.dispatch_event("click") if sel == ".loop-marker" else None
@@ -3121,7 +3163,7 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
             pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
             pg.wait_for_timeout(300)
             text = pg.locator("#detail").inner_text()
-            assert not re.search(SD_WORDS, text, re.I), (sel, text[:800])
+            assert not re.search(SD_WORDS, re.sub(SD_GOAL_SAID, "", text), re.I), (sel, text[:800])
         assert not errors, errors
         pg.close()
 

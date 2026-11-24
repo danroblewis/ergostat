@@ -646,9 +646,11 @@ function sdLoopList(panel, g) {
   const known = sort(sdLoopGroups(g).flatMap((x) => x.loops));
   const unknown = sort(sdLoopGroups(g, null, true).flatMap((x) => x.loops).filter((c) => !c.polarity));
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
-  const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
+  const every = new Map([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => [c.name, c]));   // (one loop may run through two modules)
+  const closing = [...every.values()].filter((c) => c.goal).length;      // the reconciliation with the goals: those it closes
   // folded, its count in the summary (the legend comes first)
-  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
+  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Feedback loops", h("span", { class: "muted sd-loops-head" },
+    ` ${every.size}, ${closing} close${closing === 1 ? "s" : ""} a goal`)));
   panel.append(side);
   const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
@@ -973,6 +975,7 @@ function openCausal(name) {
   const rows = c.around || [], minus = rows.filter((r) => r.sign === "-").length, unsigned = sdUnsigned(c);
   showDetail(h("div", { class: "kind" }, `Feedback loop, ${word}`),
     h("h2", {}, h("span", { class: `loop-tag pol-${pol || "unknown"}` }, pol ? c.label : "?")), h("div", { class: "subtitle" }, c.name),
+    c.goal ? h("p", { class: "serves" }, "Serves goal ", h("a", { href: "#", class: "goal-link", onclick: (ev) => { ev.preventDefault(); openLoop(c.goal); } }, c.goal)) : null,
     h("p", {}, pol ? `${minus} negative link${minus === 1 ? "" : "s"} around it: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
       : unsigned.length ? `No sign on ${unsigned.map((r) => `${r.fromName} → ${r.toName}`).join(", ")}, so whether it reinforces or balances is not known.`
       : `Its links' signs (${minus} negative) and the model's ${c.polarity ? `${c.polarity === "R" ? "reinforcing" : "balancing"} disagree` : "not knowing differ"}, so it is not called either.`),
