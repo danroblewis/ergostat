@@ -56,6 +56,8 @@ def rows(items, now: float) -> list[dict]:
             if not isinstance(s, dict):
                 continue
             t0, t1, until = _t(s.get("started")), _t(s.get("finished")), _t(s.get("until"))
+            if until is None and s.get("until") is not None:
+                until = -math.inf                       # (an `until` that cannot be read: past, never running)
             state = "done" if t1 is not None else "unfinished" if not open_ or (until is not None and now > until) \
                 else "running"
             secs = None if t0 is None else t1 - t0 if state == "done" else now - t0 if state == "running" else None

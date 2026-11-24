@@ -126,13 +126,17 @@ def test_a_stage_whose_recorder_died_reads_unfinished_and_never_running(p):
     p.events.add("deploy.rolled-back", item="deploy/6", at=T + 9700)
     p.events.add("deploy.rolling", item="deploy/7", at=T + 9900)
     stage(p, "deploy/7", "7b", "build", 1, 9900, until=20_000)        # alive: within its time, its deploy open
+    p.events.add("deploy.stage-started", item="deploy/8", at=T + 9950, data={"stages": {"8b": {    # an until unread:
+        "stage": "build", "run": "1", "run_kind": "rollout", "started": T + 9950, "until": "soon"}}})   # never running
     got = view(p, "select id, state, outcome, seconds from item_stages order by id")
     assert got == [{"id": "deploy/5", "state": "unfinished", "outcome": None, "seconds": None},
                    {"id": "deploy/6", "state": "unfinished", "outcome": None, "seconds": None},
-                   {"id": "deploy/7", "state": "running", "outcome": None, "seconds": 100.0}]
+                   {"id": "deploy/7", "state": "running", "outcome": None, "seconds": 100.0},
+                   {"id": "deploy/8", "state": "unfinished", "outcome": None, "seconds": None}]
     left = {r["id"]: (r["note"], r["left"]) for r in view(p, 'select id, note, "left" from item_progress')}
-    assert left == {"deploy/5": ("build is unfinished: what ran it stopped before it ended", None),
-                    "deploy/7": ("no green rollout of deploy yet", None)}              # deploy/6 is closed: not in it
+    gone = ("build is unfinished: what ran it stopped before it ended", None)
+    assert left == {"deploy/5": gone, "deploy/7": ("no green rollout of deploy yet", None),
+                    "deploy/8": gone}                                                  # deploy/6 is closed: not in it
 
 
 def test_under_three_normal_runs_a_stage_has_no_estimate_and_a_failed_or_cut_short_one_is_not_normal(p):
