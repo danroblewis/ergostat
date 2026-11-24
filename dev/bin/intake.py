@@ -14,7 +14,8 @@
   `docs/roadmap/overnight/<branch>.md`, on main or on the gap's branch; nothing else is read;
 - a gap waiting for main to move (`waits_on_main`: its fast suites failed only on tests that fail on main too,
   onmain.py) released once the checkout's main is another commit (what the drop gives the implementor, and what the
-  queue pushes to origin), so the implementor takes it again;
+  queue pushes to origin), so the implementor takes it again, or at once when a test it waits on is not on that
+  main commit at all (onmain.present: not main's failure);
 - a gap that `continues` an existing branch (`"continues": "NAME"`, e.g. a parked one): that branch fetched into the
   factory's drop as factory/<branch> first, so its own definition file is found there; one that cannot be fetched
   (the checkout lacks it, or the fetch fails) says so on the gap (`unfetched`), which the pipeline watch raises.
@@ -34,6 +35,7 @@ import brief  # noqa: E402
 import deps  # noqa: E402
 import fac  # noqa: E402
 import gapsdoc  # noqa: E402
+import onmain  # noqa: E402
 
 DOD = re.compile(r"^## Definition of done\s*$", re.M)  # what makes a record (dev/records) a definition
 ENTRY = re.compile(r"^- \*\*(.+?)\*\*(.*)$")
@@ -212,12 +214,22 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str, unreadable: dict[
 
 
 def main_moved(cfg: dict, known: dict[str, dict]) -> int:
-    """Each gap waiting on a main commit that is no longer the checkout's main, released (`waits_on_main` cleared)."""
-    now = fac.git(fac.path(cfg, "checkout"), "rev-parse", cfg["git"]["base"])
-    moved = [g for g in known.values() if g["fields"].get("waits_on_main") not in (None, "", now)]
-    for g in moved:
-        fac.say("gap.measured", g["id"], waits_on_main=None, main_moved_to=now)
-    return len(moved)
+    """Each gap waiting on a main commit that is no longer the checkout's main, released (`waits_on_main` cleared);
+    and one held there by a main-broken test that main commit does not have (onmain.present; recorded before only main's
+    own tests could be main's), released saying which (`not_on_main`), so its failure counts as the gap's."""
+    repo = fac.path(cfg, "checkout")
+    now = fac.git(repo, "rev-parse", cfg["git"]["base"])
+    n = 0
+    for g in known.values():
+        at = g["fields"].get("waits_on_main")
+        if at in (None, ""):
+            continue
+        off = [t for t in g["fields"].get("main_broken_tests") or [] if not onmain.present(repo, str(at), str(t))]
+        if at != now or off:
+            fac.say("gap.measured", g["id"], waits_on_main=None, **({"main_moved_to": now} if at != now else {}),
+                    **({"not_on_main": {t: g["id"] for t in off}} if off else {}))
+            n += 1
+    return n
 
 
 def main() -> int:

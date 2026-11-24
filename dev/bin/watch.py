@@ -51,6 +51,7 @@ STUCK = {"ready": 6, "fix": 6, "leased": 3, "building": 5, "built": 2, "in-revie
          "push-pending": 4, "queue-failed": 1}      # hours, the defaults of [manager.stuck_hours]
 MOST_ACTIONS = 12                                   # the ceiling of [manager] most_actions, whatever the settings say
 EVERY_FLOOR, BROKEN_FLOOR = 15.0, 5.0              # minutes: the floors of [manager] every and broken_minutes
+CURRENT = ("building",)                          # states judged by the visit they are in now, not the sum of visits
 AT_ONCE = ("main-twice", "dispatch")               # broken conditions counted at once (the dispatcher's: 2 min already)
 
 
@@ -105,9 +106,10 @@ def visit_start(moves: list[dict], state: str) -> float | None:
 
 
 def hours_in(g: dict, start: float, now: float) -> float:
-    """Its time in its state: state-times' closed visits (time_in) and the one it is in, else this visit alone."""
+    """Its time in its state: state-times' closed visits (time_in) and the one it is in, else this visit alone. Building
+    is this visit alone (CURRENT): rounds of rebuilding are bounded by the kill rule, not by this."""
     t = (g["fields"].get("time_in") or {}).get(g["state"])
-    if isinstance(t, dict):
+    if isinstance(t, dict) and g["state"] not in CURRENT:
         return float(t.get("hours") or 0) + (now - float(g.get("entered") or start)) / 3600
     return (now - start) / 3600
 

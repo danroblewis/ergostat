@@ -258,7 +258,7 @@ def fold_line(db: dict, kinds: dict, line: dict, about: str | None = None) -> No
     assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
                                                                 ".dependencies", ".push-settled", ".groomed",
                                                                 ".resumed", ".need-met", ".released",
-                                                                ".reverted")), line
+                                                                ".reverted", ".stage-started", ".stage-finished")), line
     it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
     for op in line.get("patch") or []:                             # (RFC 6902, as flakes.py writes it: top level)
         k = op["path"][1:].replace("~1", "/").replace("~0", "~")
@@ -2034,6 +2034,7 @@ def test_record_dependent_findings_are_not_counted(tmp_path):
 
 
 T ="tests/test_x.py::test_y"
+TEST_Y = "def test_y():\n    assert False\n"
 
 
 def suite_sh(tmp: Path, fails: str) -> Path:
@@ -2055,7 +2056,9 @@ def test_a_failure_on_main_too_waits_for_main(tmp_path):
     sh = suite_sh(tmp_path, "[ -e broken ]")
     f = Factory(tmp_path, unit=str(sh), alone=str(sh))
     (f.checkout / "broken").write_text("main's own failure\n")
-    git(f.checkout, "add", "broken")
+    (f.checkout / "tests").mkdir()
+    (f.checkout / "tests" / "test_x.py").write_text(TEST_Y)                  # (only a test main has can be main's)
+    git(f.checkout, "add", "broken", "tests")
     git(f.checkout, "commit", "-q", "-m", "main breaks a test")
     git(f.checkout, "push", "-q", "origin", "main")
     main = git(f.checkout, "rev-parse", "main")
@@ -2088,6 +2091,7 @@ def test_a_failure_on_main_too_waits_for_main(tmp_path):
 def test_a_failure_that_passes_on_main_is_counted(tmp_path):
     sh = suite_sh(tmp_path, "[ -d standin ]")                              # (the stand-in's work: on the branch only)
     f = Factory(tmp_path, unit=str(sh), alone=str(sh))
+    on_main_files(f, {"tests/test_x.py": TEST_Y})                         # (main has it: run there)
     gid = ready(f)
     said, lines = f.run("implement.py", gid)
     assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
@@ -2096,6 +2100,80 @@ def test_a_failure_that_passes_on_main_is_counted(tmp_path):
     for _ in range(f.gates["build_failures"] - 1):
         said, _ = f.run("implement.py", gid)
     assert said[-1] == "gap.parked"                                         # counted, as before
+
+
+def test_a_test_main_does_not_have_is_never_mains_failure(tmp_path):
+    """main-broken-needs-the-test-on-main: a test failing everywhere it runs, but whose file (or function) main does
+    not have, is the gap's: counted, never run on main, no main-broken item, and the gap told so."""
+    for case, files in (("no file", {}), ("renamed", {"tests/test_x.py": "def test_other():\n    assert False\n"})):
+        where = tmp_path / case.replace(" ", "-")
+        where.mkdir()
+        sh = suite_sh(where, "true")                                       # (it would fail on main too, if run)
+        f = Factory(where, unit=str(sh), alone=str(sh))
+        if files:
+            on_main_files(f, files)
+        main = git(f.checkout, "rev-parse", "main")
+        gid = ready(f)
+        said, lines = f.run("implement.py", gid)
+        assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1, case
+        gap = f.item(gid)["fields"]
+        assert not gap.get("waits_on_main") and gap["main_broken_tests"] == [] and not f.flakes_said(), case
+        assert gap["suites_fast"]["not_on_main"] == {T: gid} and gap["suites_fast"]["main_broken"] is False
+        assert not [r for r in runs(where) if "-main-" in r], case          # never run on main
+        why = next(x["nack"] for x in lines if "nack" in x)["why"]
+        assert f"not on main {main[:12]}, so not main's: {T} (this gap)" in why, why
+
+
+def test_a_stacked_gaps_failure_from_its_base_names_the_base(tmp_path):
+    sh = suite_sh(tmp_path, "true")
+    f = Factory(tmp_path, unit=str(sh), alone=str(sh))
+    base_gap(f, "beta-base", {"tests/test_x.py": TEST_Y}, rank=1)           # the test is the base's, not main's
+    gid = stacked(f, "gap/beta-base")
+    said, lines = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
+    gap = f.item(gid)["fields"]
+    assert gap["suites_fast"]["not_on_main"] == {T: "gap/beta-base"} and not gap.get("waits_on_main")
+    assert not f.flakes_said() and not [r for r in runs(tmp_path) if "-main-" in r]
+    assert f"{T} (its base gap/beta-base)" in next(x["nack"] for x in lines if "nack" in x)["why"]
+
+
+def test_a_gap_held_on_a_test_main_does_not_have_is_released(tmp_path):
+    """An existing main-broken hold (waits_on_main) on a test its main commit lacks stops holding the gap at once;
+    one on a test main has still waits for main to move."""
+    f = Factory(tmp_path)
+    on_main_files(f, {"tests/test_x.py": TEST_Y})
+    main = git(f.checkout, "rev-parse", "main")
+    gid = ready(f)
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"waits_on_main": main, "main_broken_tests": [T]}}], None)
+    said, _ = f.run("intake.py")
+    assert "gap.measured" not in said and f.item(gid)["fields"]["waits_on_main"] == main     # main's own: held
+    gone = "tests/test_control_spike.py::test_gate_cost_per_event"
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"main_broken_tests": [T, gone]}}], None)
+    said, _ = f.run("intake.py")
+    gap = f.item(gid)["fields"]
+    assert said == ["gap.measured"] and gap["waits_on_main"] is None and gap["not_on_main"] == {gone: gid}
+
+
+def test_present_reads_the_test_at_the_commit(tmp_path, monkeypatch):
+    f = Factory(tmp_path)
+    on_main_files(f, {"tests/test_x.py": "class TestA:\n    async def test_b(self):\n        pass\n\n"
+                                         "def test_y_more():\n    pass\n"})
+    monkeypatch.setattr(sys, "path", [*sys.path, str(BIN)])     # (appended: dev/bin/queue.py must not shadow queue)
+    onmain = module("onmain")
+    yes = ("tests/test_x.py::TestA::test_b", "tests/test_x.py::TestA::test_b[1-2]")
+    no = ("tests/test_x.py::test_y", "tests/test_x.py::TestB::test_b", "tests/test_gone.py::test_b", "tests/test_x.py")
+    assert all(onmain.present(f.checkout, "main", t) for t in yes)
+    assert not any(onmain.present(f.checkout, "main", t) for t in no)
+    assert not onmain.present(f.checkout, "0" * 40, yes[0]) and not onmain.present(f.checkout, "", yes[0])  # unreadable
+
+
+def on_main_files(f: Factory, files: dict[str, str]) -> None:
+    for p, text in files.items():
+        (f.checkout / p).parent.mkdir(parents=True, exist_ok=True)
+        (f.checkout / p).write_text(text)
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "main has tests")
+    git(f.checkout, "push", "-q", "origin", "main")
 
 
 def test_a_flake_in_the_fast_suites_is_retried(tmp_path):

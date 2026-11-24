@@ -273,6 +273,12 @@ lesson 13). If every failing test fails on main, the failure is not counted and 
 is given back with `waits_on_main`, the implementor skips it, and the intake releases it once main is another commit.
 At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
 failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
+Only a test main has can be main's: before that run each test is looked for at main (`onmain.present`: its file, and
+each `class` and its `def` in it; a file or ref that cannot be read is not there). One main lacks is never run on main
+and stays the gap's, or a stacked gap's first base's that has it (`not_on_main` on `suites_fast`); it is counted and
+goes back through the fix path, the fix session and the nack naming whose it is. The run on main is on main itself,
+never on the stack of main and the bases. A gap held (`waits_on_main`) on a test its main commit lacks, recorded
+before this, is released by the intake at once, `not_on_main` saying which.
 
 Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) goes through `dev/bin/flakes.py`, which
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
@@ -914,6 +920,13 @@ and `batch-run-failures` read its progress from its own pytest logs (the least a
 from the record. Saying any of this never fails or delays a merge: a failure to write is dropped. A batch whose queue
 run was killed ends when the next run takes over: `given-back` when recovery puts main back, and, killed after its
 merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
+The batch kind is a pipeline (SPEC §5a, *Stages*): each stage of each run is said as it starts and ends
+(`batch.stage-started`, `-finished`, through `batches.stage()`): ruff, unit, browser, host and demo in `suites()`
+(`passed`, `failed`, `stopped` when the failure of the suite beside it stopped it, `error`), `named` in `named()`
+(the failing tests alone, on main, and on each prefix), and `push-wait` from `pending()` until `pushed()` settles it.
+The Dashboard's Merge queue row (the root model's `record` sql source) reads them: the running batch and the gaps
+waiting in rank order, its stage now with elapsed, expected and time left, each of its stages, recent batches and the
+median of each stage over time; a Prometheus scraping `/api/stages/metrics` has them as histograms.
 
 The merge pipeline's health is read from the batch items (`dev/bin/landing.py`, through `measure.py`):
 `main-still-minutes` (since the latest batch whose landing stood, ended `landed` or `partial`, at its `landed_at`;
@@ -991,6 +1004,11 @@ A `stacked_on` that cannot be read, or that names a gap not in the record, count
 moved. The pass says what it did with each gap on stderr, in the block's log.
 
 ## Time in each state
+
+(The measure sensors, `dev/bin/measure.py`, share one listing of each kind: run by the engine, the first reading of a
+kind lists it, under that kind's lock in `<state>/listings/`, and the readings within the next 120 s, `listing.SHARE`,
+read that listing, so readings due together make one listing of the gaps, not one each. A listing that fails is not kept. The
+15-second load sensors, `dev/model/interlock.yaml`, read on the engine's fast lane, never behind them.)
 
 Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of each gap whose events grew since it was
 last read (at most 50 a run, those never read first) and writes `gap.timed` on it when its timing changed, for any gap
@@ -1088,8 +1106,9 @@ none said), unless another gap carries its branch on or the park is `deferred` o
 coordinator's `deferred: true` or `cancelled: true`), or an old park classified `unknown` whatever its age; a `waits_on`
 or `needs` park not cleared in `park_wait_hours` (24, at least 1); a continuing gap whose branch intake could not fetch
 (`unfetched`); a `split` park never (each stopped sub-gap raises its own
-trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
-else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
+trigger); a gap past `[manager.stuck_hours]` in its state (`building` by its current visit alone, from its moves, a
+lease taken and given back counting as the same visit, since rounds of rebuilding are bounded by the kill rule; every
+other state by the sum, state-times' closed visits in `time_in` plus the current one when it has it, else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
 queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.

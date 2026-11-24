@@ -864,9 +864,13 @@ function bdDraw(svg, g, lay) {
     const pts = le ? bdPts(le) : [];
     if (pts.length < 2) continue;
     const vec = (e.signal?.n || 0) > 1;
-    const eg = s("g", { class: `edge bd-edge${vec ? " bd-vec" : ""}`, "data-id": e.id, "data-nodes": `${e.source} ${e.target}`, "data-net": e.sourcePort });
+    // what it carries, as a class; a record, or a line to or from a port or a disturbance's input, in the ink's second tone
+    const what = `bd-${String(e.signal?.what || "signal").replace(/[^a-z0-9]+/gi, "-")}`;
+    const aside = [byId[e.source], byId[e.target]].some((n) => n?.kind === "port" || n?.role === "disturbance") ? " bd-aside" : "";
+    const eg = s("g", { class: `edge bd-edge ${what}${aside}${vec ? " bd-vec" : ""}`, "data-id": e.id, "data-nodes": `${e.source} ${e.target}`, "data-net": e.sourcePort });
     const { els, mark } = bdEdgeContent(e, pts, cross);
-    eg.append(...els);    eg.addEventListener("mouseenter", () => bdTrace(svg, { net: e.sourcePort }));
+    eg.append(...els);
+    eg.addEventListener("mouseenter", () => bdTrace(svg, { net: e.sourcePort }));
     eg.addEventListener("mouseleave", () => bdTrace(svg, S.bdSel || null));
     eg.addEventListener("click", (ev) => { ev.stopPropagation(); S.bdSel = { net: e.sourcePort }; bdTrace(svg, S.bdSel); openSignal(e); });
     if (mark) taken.push(mark);
@@ -1243,6 +1247,8 @@ function blocksLegend() {
     row(has((n) => bdErrState(n)), `<text x="1" y="14" font-size="9" fill="currentColor"><tspan font-style="italic">e</tspan> = 3 <tspan font-weight="600">off</tspan></text>`,
         "a loop's state, on its error: e's value now and, when its goal is not holding, the goal's word (bold when off); no colour"),
     row(Object.values(nets).some((k) => k > 1), `<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
+    row(es.some((e) => e.signal?.what === "record") || has((n) => n.kind === "port" || n.role === "disturbance"), `<path d="M2,6 H28" ${ink}/><path d="M2,14 H28" stroke="var(--ink-2-line)" stroke-width="1.2"/>`,
+        "a lighter line: information, not material: what a collector records (and its bus), a port's line, a disturbance's input; r, e, u, y and y_m in full ink"),
     row(es.some((e) => (e.signal?.n || 0) > 1) || has((n) => n.kind === "mux" || n.kind === "demux"), `<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
     row(fr.some((f) => f.frame === "cascade"), `<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
     es.some((e) => e.signal?.sym) && [h("span", { class: "sym" }, "r e u y d"), h("span", {},"reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample")]);

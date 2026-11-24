@@ -42,6 +42,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
 @entry per-item-and-per-group-goals
 @entry finding-structure-from-residuals
 @entry proposals-drawn-dashed-in-both
+@entry model-data-source
 
 ## Runtime, scale and latency
 
@@ -62,6 +63,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
 @entry searching-items-and-querying
 @entry light-theme-the-repeats-toward
 @entry sql-source-over-item-views
+@entry dashboard-keep-display-proposal
+@entry merge-run-stages-with-times
 
 ## The owner's work setup
 
@@ -98,3 +101,4 @@ review into *Done recently*). Newest decisions from the owner first within each 
 @entry event-driven-counts-a-scheduler
 @entry what-each-run-costs
 @entry process-view-drag-pin-and-re
+@entry dashboard-first-load-fast
