@@ -268,6 +268,15 @@ flows:
     sensor: {items: upgrade, entering: reverted, over: 1d}
 
 parameters:
+  verify-lines:                      # read by dev/bin/verify.py (settings()); [verify] lines overrides it
+    system: merging
+    value: 1500
+    unit: lines
+    description: with [verify] after, main is verified once the merges since the verified commit reach this many net lines (each merge's own, as its absolute value), 1 to 100000
+  verify-hours:                      # read by dev/bin/verify.py (settings()); [verify] hours overrides it
+    system: merging
+    value: 2h
+    description: with [verify] after, main is verified once its oldest unverified commit is this old, whatever its lines (over 0, at most 48h)
   queue-wait:
     system: merging
     value: 30m
@@ -406,6 +415,7 @@ dashboards:
     description: the merge pipeline's health, from its batch items
     panels:
       - {panel: chart, size: full, refs: [auxiliary.main-stalled-minutes, auxiliary.main-still-minutes, auxiliary.batch-runs, auxiliary.batch-first-green, auxiliary.crash-lost-minutes, auxiliary.gaps-landed-per-hour]}
+      - {panel: chart, size: full, refs: [auxiliary.suite-runs-per-merged-gap, auxiliary.merge-to-verified-hours, auxiliary.verify-escapes, auxiliary.verify-reverts]}
 
 actions:
   push-main:
@@ -461,6 +471,15 @@ blocks:
     every: 2m
     timeout: 1m
     in: auxiliary.push-settleable
+  verifier:
+    system: merging
+    type: program
+    description: merge first, verify after - with [verify] after (off, it does nothing), main as pushed gets its full suites once the merges since the verified commit reach verify-lines or verify-hours; green moves the ref verified, red bisects the merges, reverts the first red one and those stacked on it under the queue's lock, sends it to flake triage and verifies again (dev/bin/verify.py)
+    run: python3 dev/bin/verify.py run
+    every: 10m
+    timeout: 3h
+    in: [auxiliary.merge-to-verified-hours]
+    out: [auxiliary.verify-escapes, auxiliary.verify-reverts]
 
   triage-when:
     system: merging
