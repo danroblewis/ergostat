@@ -128,3 +128,14 @@ Round 5:
 - No other finding was given for this round.
 - Run: tests/test_graph_cli_web.py whole (61 pass), the acceptance test and tests/test_forecast_panel.py (pass),
   ruff (clean). Not run: the unit suite and the four browser files whole.
+
+Round 6:
+
+- Merged main (d0f95413): the one conflict in details.js was main (agent-names-link-to-their-page) linking the name in
+  the per-actor `p.actor-line`s under the dl (`agentA(a.name)`). As in round 4, dropped that second copy of the actor
+  lines and made the runbook's third line link each actor's name the same way (`agentA`), so main's change is kept.
+- No review finding was given for this round beyond the conflict.
+- Run: tests/test_graph_cli_web.py whole (62 pass); the acceptance test, tests/test_forecast_panel.py and
+  tests/test_agent_links.py (7 pass); tests/test_agents_page.py whole (14 pass, including
+  test_each_row_says_how_it_is_engaged_and_which_goal_it_serves, which failed in rounds 1-4); ruff clean. Not run: the
+  unit suite and the four browser files whole.
