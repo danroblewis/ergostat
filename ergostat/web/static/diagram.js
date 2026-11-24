@@ -1620,7 +1620,7 @@ function renderSide(side, g, view) {
   const row = (a) => {
     const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^(?:loop|goal) (\S+)$/.exec(a.what)?.[1];
+    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = a.goal;   // (a field, not its words)
     const said = h("span", { class: "att-word" }, `${word} · `);
     const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
     if (a.answer && a.first) return h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a));
@@ -1665,7 +1665,7 @@ function renderSide(side, g, view) {
     const d = h("details", { class: "suggest", key: "suggest", open: S.suggestOpen ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
-      const loop = /^(?:loop|goal) (\S+)/.exec(a.what)?.[1];      // (Dynamics calls a controlled goal a goal)
+      const loop = a.goal;                                // the goal it is about, a field (never read from its words)
       d.append(h("div", { class: "hint" }, loop ? goalButton(loop, h("b", {}, a.what)) : h("b", {}, a.what), " ", op(a.says), " ",
         loop ? h("a", { href: "#", class: "hit24", "aria-label": `Evidence for loop ${loop}`, onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
     }
