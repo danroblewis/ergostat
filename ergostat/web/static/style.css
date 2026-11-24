@@ -443,6 +443,25 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
   .kind-flow .cfd { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
   .kind-flow .cfd-states { flex-direction: row; max-height: none; }
 }
+/* a kind's bar (kinds.js), the same on the Items page and the kind's page */
+.kind-bar .states { margin: var(--sp-1) 0 0; }
+.kind-bar .kind-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-2); margin: 0; font-size: var(--text); font-weight: 600; }
+.page h1.kind-title { font-size: var(--text-xl); }
+.kind-bar .disclose { font: inherit; padding: var(--sp-0) var(--sp-1); margin-left: calc(-1 * var(--sp-1)); color: var(--muted); }
+.kind-bar .kname { color: var(--ink); overflow-wrap: anywhere; }
+.kind-bar .kname .mono, .kind-bar .kind-total { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); font-size: var(--text-sm); }
+.kind-bar .kind-id { font-weight: 400; }
+.kind-bar .kind-desc { margin: var(--sp-1) 0 0; max-width: 60em; }
+.kind-bar .kind-says { margin: var(--sp-1) 0 0; }
+/* the kind's page: its sections stack, each within the page's width */
+.kind-page .kind-flow { max-width: none; }
+.kind-page .kind-sect { min-width: 0; max-width: 100%; }
+.kind-page details.kind-sect { margin: var(--sp-5) 0; }
+.kind-page details.kind-sect > summary { font-size: var(--text-lg); font-weight: 600; cursor: pointer; }
+.kind-def { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); overflow-wrap: anywhere; }
+.kind-def dt { color: var(--muted); }
+.kind-def dd { margin: 0; }
+@media (max-width: 40rem) { .kind-def { grid-template-columns: minmax(0, 1fr); } .kind-def dd { margin-bottom: var(--sp-2); } }
 .kind-flow > .states { margin: var(--sp-1) 0 0; }
 /* the overview (kinds.js): a dense grid of small cards, each chart's legend at its right but on a phone */
 .kind-overview .sys-head { margin: var(--sp-1) 0; }

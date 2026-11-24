@@ -55,10 +55,18 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
         b = p.chromium.launch()
         pg = b.new_page(viewport={"width": 1500, "height": 950})
         pg.on("pageerror", lambda e: errs.append(str(e)))
+        kind = None
         for route in ("diagram", "diagram?view=blocks", "diagram?view=process", "loops", "agents", "items",
-                      "items?view=graph", "items?view=timeline", "record", "residuals", "check", "guide"):
+                      "kind?view=graph", "kind?view=timeline", "record", "residuals", "check", "guide"):
+            if route.startswith("kind"):      # the Graph and the Timeline: on the first kind's page (the overview's card)
+                if not kind:
+                    continue
+                route = kind.lstrip("/") + route[4:]
             pg.goto(f"{url}/{route}")
             pg.wait_for_timeout(1800)
+            if route == "items":
+                card = pg.locator(".kind-card a.kname").first
+                kind = card.get_attribute("href") if card.count() else None
             if shot and route in ("diagram", "diagram?view=blocks", "diagram?view=process", "agents"):
                 pg.screenshot(path=str(shot.with_name(f"{shot.stem}-{route.replace('?view=', '-')}.png")))
             if route == "diagram" and pg.locator(".node").count() == 0:

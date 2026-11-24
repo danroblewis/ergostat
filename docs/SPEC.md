@@ -2457,9 +2457,10 @@ catches up on the events recorded since it last read, as for every indexed answe
 the moment shown is folded again from its own events). Where the
 index cannot answer for a kind (no index, or a moment so long past that most of its items changed since), the card
 says so instead of its numbers. `/items?kind=KIND` goes to `/items/KIND`, which is the list, graph and timeline below
-for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, as before.
+for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, with no view switch:
+the Graph and the Timeline are a kind's page's alone (an old `/items?view=graph` is that list and asks for no graph).
 
-**A kind's page.** `/items/KIND`'s list is a page of the kind's items, 25 rows by default (100 or 300 by choice), with
+**A kind's page's list.** `/items/KIND`'s list (the kind's page, below) is a page of the kind's items, 25 rows by default (100 or 300 by choice), with
 a pager in the kind's bar and under its table: *1-25 of 1200 · Prev · Next* (*of 3 matches* with a search, *of 77
 review* with a state chosen). Each page is asked of the server, `GET /api/items?kind=KIND` with `state` (one, when
 chosen), `offset`, `n` (1..500) and, when given, `q` and `sort` (`items.kind_page`, read from the item index: the ids,
@@ -2478,13 +2479,11 @@ and the sort are in the address, the page and sort named by their kind (`page=ga
 snapshot (no server) the kind's list is the snapshot's, as before. A set (`where`, `moved` and the process map's
 filters) is listed as before, its newest 300.
 
-**The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
-group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
-(`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes). A system none of
-whose kinds has relations: the Timeline draws its kinds' items all the same, and the Graph says its items do not wait
-on one another, so there is no dependency graph. In both, the view comes first, above the kinds' charts, and the
-systems it draws come before those it has nothing to draw for, the project's before ergostat's own (List keeps the
-systems' order):
+**The Items page's views.** Beside **List** (its items, newest first), a kind's page (`/items/K`) shows that kind
+and the items its relations reach, of any kind (`GET /api/items-graph?kinds=K`; `kinds=A,B` or `system=NAME` are
+still answered; worked out again only when the record changes). A kind with no relations: the Timeline draws its
+items all the same, and the Graph says its items do not wait on one another, so there is no dependency graph.
+`/items` itself has neither:
 
 | View | What it shows |
 |---|---|
@@ -2685,6 +2684,41 @@ while it was there (`taken while here`), its run and that run's attempt (counted
 rework is a repeated step; a state nothing counts has `says`. The k-th move into `leased` is matched to the k-th
 lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
 answer.
+
+**The kind's page.** `/items/K` is the Items page with that one kind chosen (no nav entry of its own: *Items* stays
+lit). `/items?kind=K` ends there, its other parameters kept (`/items?kind=K&state=S&view=graph` becomes
+`/items/K?state=S&view=graph`), and every link to a whole kind points there: the item page's *Kind*, the Items page's
+bar titles, the process map's kind names, a side panel's set when it is a whole kind (a set with a state or a move
+keeps its `/items?kind=K&…` address and ends on the same page). It asks for that kind's items alone. Its sections, in
+order:
+
+1. *The kind's bar*, drawn by the one `kindBar` (`static/kinds.js`) that draws each kind's bar on the Items page,
+   with the same markup apart from its heading's level (the page's `h1` here) and its disclosure's open state: the
+   title (its name small), id pattern, description, `finishes: S, …` or `lives on` (where that came from on hover),
+   the state chips with their counts, the total, and `in SYSTEM` (why on hover). The Items page draws these bars in
+   every kind's list (`/items?view=list`, a search); its bare overview draws cards, whose name links here too. A chip
+   filters the list in place (`/items/K?state=S` in the address, a second click clears it), the same on both pages;
+   the title links to the kind's page; in every kind's list the disclosure hides or shows that kind's list in place.
+2. *Now*: the kind's cumulative flow chart, drawn as the overview's: its state groups by default (from
+   `/api/kinds/K`'s `group`, the overview's rule), its legend at its right, and the overview's one switch, *State
+   groups* or *Every state*, kept in the address (`/items/K?states=all`); then its cycle times.
+3. *In the model*, from `GET /api/kinds/K`: a row each for the parts that count it (*counted in*: the stock or
+   auxiliary, its states, how many are there now), the flows counted from its moves (*moved by*: the state entered or
+   left and the events that move an item there), the blocks that take it (*taken by*: what it takes, to where, its
+   pool, attempts and TTL, how many it has taken now and how many wait in its `at` states), its goals (how each
+   holds, and its status word) and its feedback loops (R or B, and through which of its parts). Each name links to
+   the diagram drawn around it (`around=stock/NAME`, a block in Blocks, a goal its control loop, a feedback loop
+   around its first part), and the last links open its states as a process map (`view=process&kinds=K`) and, when
+   anything counts or takes it, draw what it touches (`view=dynamics&kind=K`, *Drawn alone* below). A kind
+   nothing counts and nothing takes says so here, and its other sections are drawn as for any kind. A goal's word is
+   `goalWord`'s. When `/api/kinds/K` cannot be read, a 404 says the model declares no such kind; any other failure
+   is said as an error here and in the definition, never as a fact about the model.
+4. *Definition*, a closed disclosure: its states (first, finished, paused, final, ergostat's), where its finishing
+   came from, events to states, the fields shown, how each folds, its relations both ways, its joins, its lease rule.
+5. *Items*: the search, the List, Graph and Timeline views and the set chip of the Items page, for this kind alone
+   (the Graph and the Timeline draw its items and the items their relations reach, as they do).
+
+At 390 px wide its sections stack, with no sideways scroll.
 
 **Where it went, on the item's page.** Right after its header, an item of a kind the model counts or takes shows its
 `path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that

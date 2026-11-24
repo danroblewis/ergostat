@@ -457,7 +457,7 @@ function pmSide(panel, g) {
     return h("div", { class: "sub pm-unlinked" }, `${n} link${n === 1 ? "" : "s"} to it not drawn (${Object.entries(u).map(([r, c]) => `${r} ${c}`).join(", ")})`);
   };
   for (const k of g.kinds) side.append(h("div", { class: "looprow" }, h("b", {}, k.schedule ? "schedules" : k.remote ? `${k.name} (remote ${k.remote})`
-                                                                               : h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name)), h("span"),
+                                                                               : h("a", { href: kindHref(k.name) }, k.name)), h("span"),
     h("div", { class: "sub" }, k.schedule ? `${k.items} scheduled run${k.items === 1 ? "" : "s"} that caused events on items`
       : k.drawn ? `${k.items} item${k.items === 1 ? "" : "s"} in the window, by ${k.by}` : "nothing on the record in the window"), unlinked(k)));
   for (const [r, x] of Object.entries(g.remotes || {})) {           // a remote with no kind drawn (unreachable): its own row

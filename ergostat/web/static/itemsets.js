@@ -3,11 +3,12 @@
 "use strict";
 
 const ITEMS_SHOWN = 10;
-/* the Items page's address for a set: its params, as the server said them (a key may repeat: where) */
+/* the Items page's address for a set: its params, as the server said them (a key may repeat: where); a whole kind is
+   that kind's page */
 function itemsHref(params) {
   const u = new URLSearchParams();
   for (const [k, vs] of Object.entries(params || {})) for (const v of [].concat(vs)) u.append(k, v);
-  return `/items?${u}`;
+  return [...u.keys()].join() === "kind" ? kindHref(u.get("kind")) : `/items?${u}`;
 }
 /* an item as a line in a list: its title, or its kind's columns */
 function itemTitle(i) {
