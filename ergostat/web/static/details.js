@@ -65,7 +65,12 @@ function whatIs(kind) {
 }
 
 function dl(pairs) { return h("dl", {}, pairs.filter(([, v]) => v != null && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])); }
-function agentLink(a) { return a ? h("span", {}, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, a.name), h("span", { class: "muted" }, ` ${a.kind}`)) : h("span", { class: "s-open" }, "unfilled"); }
+/* an agent's name as a link to its page (/agent/NAME): Tab reaches it, a middle click opens it in a new tab */
+const agentHref = (n) => `/agent/${encodeURIComponent(n)}`;
+const agentA = (n, attrs = {}) => h("a", { href: agentHref(n), class: "agent-link", ...attrs }, n);
+const plainClick = (ev) => ev.button === 0 && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey);
+// in a panel a plain click opens the agent's panel in place; its page is the link's own
+function agentLink(a) { return a ? h("span", {}, agentA(a.name, { onclick: (ev) => { if (plainClick(ev)) { ev.preventDefault(); openAgent(a.name); } } }), h("span", { class: "muted" }, ` ${a.kind}`)) : h("span", { class: "s-open" }, "unfilled"); }
 
 /* a remote system (run by another ergostat, SPEC §4c): where it runs, the version of its model read here, how old
    its readings are, and that nothing of it runs here */
@@ -192,7 +197,7 @@ async function openLoopNow(name, asController) {
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
   if (lp.control_loop) kids.push(goalLoopsLine(name, lp));
   // each that acts for it in one line, from the counts Agents and the Record use
-  for (const a of lp.actors || []) kids.push(h("p", { class: "actor-line" }, h("b", {}, a.name), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
+  for (const a of lp.actors || []) kids.push(h("p", { class: "actor-line" }, h("b", {}, agentA(a.name)), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
     + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
   kids.push(h("table", { class: "parts" }, tableCaption(`The parts along loop ${name}`), headRow(["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
@@ -285,7 +290,7 @@ async function openAgentNow(name) {
         ["runs", engagedText(a)], ["fills", rolesText(a.roles) || "nothing"],
         ["the load", (a.loads || []).map((x) => `disturbance ${x}`).join(", ") || null], ...agentTally(a),
         ["log", a.log_path ? h("code", {}, a.log_path.split(/[\\/]/).pop()) : null]]),   // its file, not where it lies
-    h("p", {}, h("a", { href: `/agent/${encodeURIComponent(name)}`, class: "agent-page-link" }, "Open its page")), ...agentRuns(a, name)];
+    h("p", {}, h("a", { href: agentHref(name), class: "agent-page-link" }, "Open its page")), ...agentRuns(a, name)];
   showDetail(...kids);
 }
 

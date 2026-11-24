@@ -657,7 +657,7 @@ def test_a_valves_leased_items_are_listed_live(browser, site):
     line = pg.locator("#detail .leases-line")
     line.wait_for()
     assert "developer" in line.inner_text() and "hypothesis" in line.inner_text() and "1 leased now" in line.inner_text()
-    line.locator("a").click()
+    line.locator("a.leased-link").click()                             # (its block's name is a link to its agent too)
     pg.wait_for_selector('td[data-lease="held"]')
     leased = lambda: pg.locator('section.sys-group table tr td:first-child').all_inner_texts()   # noqa: E731
     assert leased() == ["hypothesis/1"]
