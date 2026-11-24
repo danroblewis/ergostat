@@ -222,7 +222,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `ticket-factory-jira-links`, with its limits in that example's README).
 - **A kind chosen in a snapshot** (done, on `a-kind-chosen-in-a-snapshot`; SPEC §5a): a snapshot holds each kind
   chosen alone (`items?kind=K`), its list in each of its states (`items?kind=K&state=S`, the states from the kind's
-  own answer), and its Graph and Timeline (`items-graph?kinds=K&system=S`, related or not); an answer that cannot be got is
+  own answer), and its Graph and Timeline (`items-graph?kinds=K`, related or not); an answer that cannot be got is
   left out, so the page says "not in this snapshot". Left: see *A set chosen in a snapshot*.
 - **A set chosen in a snapshot** (partly done on `a-set-chosen-in-a-snapshot`; found on `a-kind-chosen-in-a-snapshot`):
   a set's parameters are free (any field, any span), so they cannot all be taken ahead. A snapshot now holds the sets

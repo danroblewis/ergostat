@@ -1148,7 +1148,7 @@ def test_a_snapshot_holds_the_timeline_of_a_system_without_relations(tmp_path):
     p.events.add("ticket.opened", item="ticket/a", data={"title": "printer"})
     p.events.add("call.taken", item="call/c", data={"title": "a call"})
     data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
-    got = data.get("items-graph?kinds=ticket,call") or data.get("items-graph?kinds=call,ticket")
+    got = data.get("items-graph?kinds=ticket,call&system=desk") or data.get("items-graph?kinds=call,ticket&system=desk")
     assert got is not None, sorted(k for k in data if k.startswith("items-graph"))
     assert {x["id"] for x in got["items"]} == {"ticket/a", "call/c"}                # memo: no items, not asked
     assert not any("memo" in k and "," in k for k in data if k.startswith("items-graph"))

@@ -1509,6 +1509,31 @@ def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadma
     pg.close()
 
 
+CAP_NOTE = """([d, o]) => { const m = rgModel(d, o);
+  return { note: rgCapNote(m), stubs: m.nodes.filter((n) => n.stub).length, capped: m.capped }; }"""
+
+
+def test_a_capped_graph_with_stubs_counts_only_its_items_as_drawn(browser, roadmap):
+    """Review finding (round 2): past the bound, another system's stubs are nodes but not items, so the note's
+    "N of M items drawn: K not drawn" counts the cards alone; 50 stubs on a capped Graph leave K what the bound cut."""
+    from ergostat.web import graph_parts
+    from tests.test_graph_parts import drawn as rule
+    from tests.test_graph_parts import factory_answer
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    big = graph_parts.mark(factory_answer(n_open=1200, seed=11))
+    scope, keep, _ = rule(big)
+    on = sorted(keep)[:50]
+    big["outside"] = [{"id": f"gap/x{i}", "kind": "gap", "system": "building", "status": "unblocked", "outside": True,
+                       "state": "ready"} for i in range(50)]
+    big["edges"] = big["edges"] + [{"kind": "outside", "from": f"gap/x{i}", "to": a, "rel": "gap"} for i, a in enumerate(on)]
+    got = pg.evaluate(CAP_NOTE, [big, {"finished": "waits", "group": "parent", "q": "", "status": None}])
+    left = len(scope) - len(keep)
+    assert got["stubs"] == 50 and got["capped"] == len(scope) > 600
+    assert got["note"].startswith(f"{len(keep)} of {len(scope)} items drawn: {left} item{'' if left == 1 else 's'} and "), got["note"]
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap):
     pg, errors = open_view(browser, roadmap, "items?view=timeline", ".rg-timeline[data-drawn] .rg-row")
     rows = drawn(pg, ".rg-timeline .rg-row .rg-label")

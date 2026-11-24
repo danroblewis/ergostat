@@ -282,6 +282,13 @@ function rgStub(n, open) {
   return g;
 }
 
+/* what the bound left out (the Graph's note): of the items, so another system's stubs are not counted as drawn */
+function rgCapNote(m) {
+  const n = m.nodes.filter((x) => !x.stub).length, left = m.capped - n;
+  return m.capped ? `${n} of ${m.capped} items drawn: ${left} item${left === 1 ? "" : "s"} and ${m.lost} dependency line${m.lost === 1 ? "" : "s"} not drawn `
+    + `(connected groups kept whole, those with active or unblocked work first; only the first that does not fit is cut, by status). Narrow it with the search, or choose a kind.` : "";
+}
+
 /* the Graph: a box with its own pan and zoom, drawn again in place when its model changes */
 function relGraph(open) {
   const view = { x: 0, y: 0, k: 1, moved: false };
@@ -348,9 +355,7 @@ function relGraph(open) {
     if (stage.style.height !== `${hgt}px`) stage.style.height = `${hgt}px`;
     vp.replaceChildren(...parts);
     if (!view.moved) fit(); else apply();
-    const left = m.capped - m.nodes.length;
-    setText(note, m.capped ? `${m.nodes.length} of ${m.capped} items drawn: ${left} item${left === 1 ? "" : "s"} and ${m.lost} dependency line${m.lost === 1 ? "" : "s"} not drawn `
-      + `(connected groups kept whole, those with active or unblocked work first; only the first that does not fit is cut, by status). Narrow it with the search, or choose a kind.` : "");
+    setText(note, rgCapNote(m));
     el.dataset.drawn = String(mine);
   };
   return el;

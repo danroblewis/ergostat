@@ -37,3 +37,30 @@ plus the branch's stubs (`STUB_H`, "400 stubs", "another system's: a stub"). The
 clause now applies only without `system=`. tests/test_items_page.py fails 6 of 33, the same 6 on two runs, all on the
 diagram's side panel (`#detail .item-set`, `.counts-line`, `.leases-line`, a snapshot's sets, the header counts),
 which the branch does not touch. They were not run on main: a scratch worktree of main under /tmp was refused.
+
+Round 3: main (b9341591) merged in; conflicts in SPEC §5a, precedence.build, relations_api, snapshot, pages.js,
+relations.js and two test files resolved keeping both sides: main's levelled schedule (`build(lanes=)`, the cache key
+on the lanes), its milestone frames, its sentence for a system without relations and its Timeline of such a system's
+kinds (`held`, asked with `system=` too, in the page and in a snapshot), its `finished=` choice; and the branch's
+`own`, stubs, `waits: false` sentence and hover text. tests/test_graph_cli_web.py's new snapshot test of a system
+without relations now looks for the key with `system=desk`, as the page asks. The review's blocking finding is fixed:
+the Graph's cap note counts only cards (`rgCapNote`, stubs not counted as items drawn), and
+`test_a_capped_graph_with_stubs_counts_only_its_items_as_drawn` (1200 open gaps, 50 stubs) fails on the old count
+("650 of 1219 items drawn: 569 items") and passes on the new one. docs/GAPS.md is put back as main has it (the round-2
+merge had changed a line of another gap's entry there; `git checkout b9341591cb70 -- docs/GAPS.md` was refused, so the
+line was restored by hand); the entry is below. tests/test_items_page.py: 90 of 93 pass;
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` and
+`test_every_surface_prints_the_servers_one_count_of_goals_off` expect a "Loops" heading where main's page now says
+"Goals" (main's goals-page rename; the branch touches neither), and
+`test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel` (the diagram's side panel) failed in the file's run and
+passed alone; none was run on main here.
+
+## Entry
+
+section: Interface
+
+- **A system's Graph draws its own kinds** (done, on `items-graph-draws-the-systems-own-kinds`; SPEC §5a): the Items
+  page asks `items-graph` with `system=`, so a system's Graph follows only precedence and parent relations to its own
+  kinds; another system's item it waits on is a stub at the edge, its status still counted; an *about* relation is in
+  the card's hover text, and a system with no dependency says so and where its items point ("reviews are about gaps:
+  see building"). Left: the owner's question whether "of any kind" should come back.
