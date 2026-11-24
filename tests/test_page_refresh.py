@@ -480,7 +480,7 @@ def test_the_header_menu_lists_running_projects_then_counts_the_stopped(browser,
               "stopped": 7, "at": 1.0, "age": 600.0}
     pg.route("**/api/projects?*", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(listed)))
     pg.route("http://elsewhere.test/**", lambda r: r.fulfill(status=200, content_type="text/html", body="<p>elsewhere</p>"))
-    pg.goto(f"{site['url']}/loops")
+    pg.goto(f"{site['url']}/goals")
     pg.wait_for_function("() => document.querySelectorAll('#project option').length > 3", timeout=10000)
     got = options(pg)
     assert got[1:] == [["elsewhere (2 off)", "http://elsewhere.test", False], ["no-page (no page)", "", True],
@@ -489,5 +489,5 @@ def test_the_header_menu_lists_running_projects_then_counts_the_stopped(browser,
     assert pg.get_attribute("#project option:nth-child(4)", "title") == "ValueError: bad"
     pg.select_option("#project", "http://elsewhere.test")
     pg.wait_for_url("http://elsewhere.test/**", timeout=10000)
-    assert pg.url == "http://elsewhere.test/loops", pg.url
+    assert pg.url == "http://elsewhere.test/goals", pg.url
     pg.close()

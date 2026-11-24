@@ -73,7 +73,7 @@ def system_lines(model, snap: dict, parts: set[str]) -> str:
         if lp.controller.name not in parts:
             continue
         s = snap["loops"][lp.name]
-        out.append(c("loop ", "dim") + loop_line(s, lp.name))
+        out.append(c("goal ", "dim") + loop_line(s, lp.name))
         stock = f"[{lp.stock} {fmt(snap['stocks'].get(lp.stock, {}).get('value'))}]"
         sensors = ", ".join(f"({x} · {model.sensors[x].agent or '-'})" for x in lp.sensors) or c("(no sensor)", "warn")
         ctl = f"<{lp.name} {lp.controller.setpoint} · {lp.controller.agent or '-'}>"
@@ -172,7 +172,7 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
         col = len(left) + 1
         v = model.valve_of(d.name)
         source = next((x.name for x in model.loops() if v and v.name in x.valves), None)
-        who = f" (u of loop {source}, measured)" if source else f" (valve {v.name} · {v.agent})" if v and v.agent else ""
+        who = f" (u of goal {source}'s control loop, measured)" if source else f" (valve {v.name} · {v.agent})" if v and v.agent else ""
         lines.append(" " * col + f"d: {d.name}{who} {fmt(rate.get('rate'))}{(' ' + unit) if unit else ''}/h"
                      + (" (est.)" if rate.get("estimated") else "") + f" ({dsign})"
                      + (f" +{len(dists) - 1} more" if len(dists) > 1 else ""))
@@ -188,7 +188,7 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
         lines.append(" " * tee + "│")
         lines.append(" " * 2 + watched + "─" * pad + "┘")
         lines.append(" " * 2 + f"(watched against r: {_sp(c_.setpoint)}, not fed back)")
-        head = f"loop {name}  {status_word(s['status'])}  open loop"
+        head = f"goal {name}  {status_word(s['status'])}  open loop"
         return head + "\n" + "\n".join("  " + x for x in lines)
     lines.append(" " * sum_at + "▲−" + " " * (tee - sum_at - 2) + "│")
     mid = " ym "
@@ -196,5 +196,5 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     body = mid + "─" * 4 + hb + "◀"
     pad = max(inner - len(body), 2)
     lines.append(" " * sum_at + "└" + "─" * (pad // 2) + body + "─" * (pad - pad // 2) + "┘")
-    head = f"loop {name}  {status_word(s['status'])}"
+    head = f"goal {name}  {status_word(s['status'])}"
     return head + "\n" + "\n".join("  " + x for x in lines)

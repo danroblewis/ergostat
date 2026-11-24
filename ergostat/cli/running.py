@@ -384,7 +384,7 @@ def cmd_projects(args) -> int:
         state = c("running", "ok") if x["running"] else c("stopped", "dim")
         g, sys_off = x["goals"], x["goals_off"]           # the one count (state.goals_off), as `ergostat` says it
         names = ", ".join(sys_off[:3]) + (f" +{len(sys_off) - 3}" if len(sys_off) > 3 else "")
-        off = c(st.goals_said(g) + (f": {names}" if names else ""), "bad" if g["system"] else "ok") if x["loops"] else "no loops"
+        off = c(st.goals_said(g) + (f": {names}" if names else ""), "bad" if g["system"] else "ok") if x["loops"] else "no goals"
         rows.append([x["name"], state, off, x["web"] or "", x["repo"]])
-    print(table(["PROJECT", "STATE", "LOOPS", "PAGE", "REPOSITORY"], rows, "no projects yet: ergostat run in a repository"))
+    print(table(["PROJECT", "STATE", "GOALS", "PAGE", "REPOSITORY"], rows, "no projects yet: ergostat run in a repository"))
     return 0

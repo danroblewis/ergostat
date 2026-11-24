@@ -94,6 +94,7 @@ SENSOR = {     # where sensors live: stocks.X.sensor(s), flows.X.sensor(s), auxi
     "run": (SBX, "runs on the owner's shell only as R1, R2 allow; any other run, only in ergostat.sandbox"),
     "query": (T, "reads an outside source: only as the owner or a trusted template wrote every piece of it"),
     "daemon": (NO, "starts and keeps a process"),
+    "journal": (NO, "reads files in the owner's folder into the record"),
     "push": (NO, "takes readings pushed from outside"),
     "parse": (NO, "only means something on a command's or query's output"),
     "every": (W, "starts readings on a timer: only as the owner or a trusted template wrote it"),

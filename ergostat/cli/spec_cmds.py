@@ -106,6 +106,9 @@ def check_yaml(args, path: Path) -> int:
     for name, r in (getattr(spec, "remotes", None) or {}).items():     # each remote system (SPEC §4c)
         print(c(f"remote {name}: {r['url']}, " + (f"model version {r['version']}, {len(r['parts'])} parts read in"
                                                   if r.get("version") else "its model not read"), "dim"))
+    for inst, u in (getattr(spec, "uses", None) or {}).items():       # each use of a fetched library's template (§2a)
+        if u.get("library"):
+            print(c(f"use {inst}: template {u['template']} from library {u['library']} ({u['path']})", "dim"))
     for p in errors:
         print(f"{c('error', 'bad')}  {p}")
     if errors:
