@@ -54,7 +54,10 @@ scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run python -m
 # the browser suite
 scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q \
     -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py \
-    tests/test_page_refresh.py tests/test_keyboard_story.py
+    tests/test_page_refresh.py tests/test_keyboard_story.py tests/test_golden_pages.py
+# the golden files' references, regenerated after an intended change to a page (then read and commit
+# `git diff tests/golden`; tests/golden.py says how they are made)
+scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m tests.golden
 # every example, its pages checked with Playwright
 scripts/in_container.sh uv run --with playwright==1.63.0 python scripts/demo_check.py
 # the benchmarks (results under .out/, which git ignores)
