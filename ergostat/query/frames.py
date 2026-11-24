@@ -81,7 +81,8 @@ def framed(got: dict, q) -> dict:
     A refused answer keeps nothing to draw: its id, its error and the envelope."""
     method = got.get("method")
     meta = {"source": getattr(q, "source", None), "query": getattr(q, "text", None),
-            "provenance": "declared" if method == "model" else "derived" if method == "empirical" else "observed",
+            "provenance": got.get("provenance") or ("declared" if method == "model" else "derived" if method == "empirical"
+                                                    else "observed"),
             "verdict": _verdict(got)}
     if got.get("error"):
         return {**{k: got[k] for k in ("id", "error", "error_kind", "error_at", "read_log") if k in got}, "meta": meta}

@@ -359,6 +359,27 @@ def test_a_gap_stuck_in_its_state_from_its_moves_and_from_state_times(tmp_path):
     assert subjects(sit) == ["gap/slow", "gap/timed"] and "8.0h" in sit["triggers"][0]["why"]
 
 
+def rebuilt(now: float, ago: float) -> list[dict]:
+    """A gap back in building after a review round: fixed, leased, and building since ``ago`` seconds."""
+    return [{"time": now - 8 * H, "from": "building", "to": "built"}, {"time": now - 7 * H, "from": "built", "to": "fix"},
+            {"time": now - ago, "from": "fix", "to": "leased"}, {"time": now - ago + 30, "from": "leased", "to": "building"}]
+
+
+def test_a_gap_rebuilt_in_rounds_is_not_stuck_while_its_build_is_young(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/rounds", "building", ago=20 * H, entered=600 - 30, moves=rebuilt(f.now, 600), branch="rounds",
+          time_in={"building": {"hours": 6.0, "visits": 7}})
+    assert f.tool("watch.py", "stuck").stdout.strip() == "0"
+
+
+def test_a_build_past_its_threshold_is_stuck_by_that_build(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/long", "building", ago=20 * H, entered=6 * H - 30, moves=rebuilt(f.now, 6 * H), branch="long",
+          time_in={"building": {"hours": 3.0, "visits": 2}})                # summed it would read 9.0h
+    sit = f.watch()
+    assert subjects(sit) == ["gap/long"] and "building for 6.0h (its threshold 5h)" in sit["triggers"][0]["why"]
+
+
 def test_only_unremedied_defects_are_triggers_and_never_the_managers_own(tmp_path):
     f = Pipe(tmp_path)
     old = f.now - 20 * H
