@@ -6760,3 +6760,101 @@ def test_browser_daily_holds_the_queue_lock(tmp_path):
     assert daily_clean(f) and not (f.model / "run" / "browser-daily.json").exists()
     with open(lock, "a") as lk:                                        # and so did the lock
         fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+# ---- merge-pipeline-gaps-briefs-read-records: the briefs, the planner and the knowledge block read main's records
+
+HEADING = "## Its entry (the `## Entry` of its record, as main's dev/records/ render it into docs/GAPS.md)\n\n"
+BRIEFS = """import sys, json
+sys.path[:0] = [sys.argv[1]]
+import fac, brief, knowledge, plan
+cfg = fac.config()
+cfg["ai"].setdefault("planner_model", "opus")
+g = json.loads(fac.ergostat("item", sys.argv[2], "--json").stdout)
+out = {r: brief.assemble(cfg, r, g, fac.path(cfg, "checkout"))[0] for r in ("implementor", "reviewer", "planner")}
+out = {r: t.split(sys.argv[3], 1)[1].split("\\n\\n## ", 1)[0] for r, t in out.items()}
+print(json.dumps({**out, "join": plan.join_brief(cfg, g, [])["entry"], "own": plan.entry_of(cfg, g),
+                  "related": [i for i, _ in knowledge.related(cfg, g)]}))"""
+
+
+def briefs_of(f: Factory, gid: str) -> dict:
+    """The entry an implementor's, a reviewer's and a planner's brief carry (the text under HEADING), the join judge's
+    (`join`), the S definition's own text (`own`) and the knowledge block's related gaps, for ``gid``."""
+    r = subprocess.run([sys.executable, "-c", BRIEFS, str(BIN), gid, HEADING], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def gapsdoc_module():
+    sys.path.insert(0, str(BIN))                                      # (gapsdoc imports fac by name)
+    try:
+        return module("gapsdoc")
+    finally:
+        sys.path.remove(str(BIN))
+
+
+def block_of(text: str, title: str) -> str:
+    """The entry titled ``title`` in GAPS.md's text, read here apart from brief.py: its bullet and indented lines."""
+    lines = text.split("\n")
+    n = next(i for i, ln in enumerate(lines) if ln.startswith(f"- **{title}**"))
+    end = next(i for i in range(n + 1, len(lines) + 1) if i == len(lines) or not lines[i].startswith("  "))
+    return "\n".join(lines[n:end])
+
+
+def test_the_briefs_carry_the_entry_from_the_records_as_the_rendered_gaps_md_has_it(tmp_path):
+    gapsdoc = gapsdoc_module()
+    pinned = (ROOT / "tests" / "fixtures" / "gaps_md_pinned.md").read_text(encoding="utf-8")
+    s = gapsdoc.split(pinned)
+    assert gapsdoc.render(s["records"], s["head"])[0] == pinned       # the records render the pinned GAPS.md
+    f = Factory(tmp_path)                                             # (its docs/GAPS.md has none of these titles)
+    commit_files(f, {f"{NEW}/GAPS-head.md": s["head"], **{f"{NEW}/{n}.md": t for n, t in s["records"].items()}})
+    titles = ("Searching items and querying their graph", "Daemon YAML schema review")
+    for i, title in enumerate(titles):
+        gid = f"gap/pinned-{i}"
+        f.fold([{"event": "gap.requested", "item": gid, "data": {"branch": f"pinned-{i}", "title": title}}], None)
+        want = block_of(pinned, title)
+        assert want.count("\n") >= 1 and title not in (f.checkout / "docs" / "GAPS.md").read_text()
+        got = briefs_of(f, gid)
+        assert [got[r] for r in ("implementor", "reviewer", "planner")] == [want] * 3, got
+        assert got["join"] == f"{title}\n\n{want}" and got["own"] == want
+
+
+def test_an_unreadable_record_is_said_in_the_brief_by_name_never_read_as_no_entry(tmp_path):
+    f = Factory(tmp_path)
+    commit_files(f, {**GAPS_RECORDS, f"{NEW}/alpha-thing.md": "## Entry\n\nsection: Modelling\n"})   # no bullet
+    f.fold([{"event": "gap.requested", "item": g, "data": {"branch": g[4:], "title": t}}
+            for g, t in (("gap/alpha-thing", "Alpha thing"), ("gap/beta", "Beta"), ("gap/gamma", "Gamma"))], None)
+    got = briefs_of(f, "gap/alpha-thing")
+    for r in ("implementor", "reviewer", "planner", "join"):
+        assert f"`{NEW}/alpha-thing.md` (an entry needs 'section:'" in got[r] and "(unreadable:" in got[r], got[r]
+        assert "no entry: not in main's records" not in got[r] and "missing: not in main's records" not in got[r]
+    assert got["own"] == ""                                            # no S definition from it: the full path
+    commit_files(f, GAPS_RECORDS)                                      # readable again: the entry, from the records
+    got = briefs_of(f, "gap/alpha-thing")
+    want = "- **Alpha thing** (open; the first gap): what it lacks.\n  More of it."
+    assert [got[r] for r in ("implementor", "reviewer", "planner", "own")] == [want] * 4
+    assert got["related"] == ["gap/beta"]                              # its section (Modelling) from the records
+    commit_files(f, {f"{NEW}/gamma.md": "## Entry\n\nsection: Modelling\n\n- **Gamma**: done.\n",
+                     f"{NEW}/GAPS-head.md": GAPS_RECORDS[f"{NEW}/GAPS-head.md"].replace("@entry gamma\n", "")
+                     .replace("@entry delta\n", "@entry delta\n@entry gamma\n")})
+    assert briefs_of(f, "gap/alpha-thing")["related"] == ["gap/beta", "gap/gamma"]   # moved in the records: read there
+    pre = Factory(tmp_path / "pre")                                    # no GAPS-head.md on main (before the split):
+    pre.fold([{"event": "gap.requested", "item": "gap/alpha-thing", "data": {"branch": "alpha-thing",
+                                                                            "title": "Alpha thing"}}], None)
+    assert briefs_of(pre, "gap/alpha-thing")["implementor"] == want    # its docs/GAPS.md, as deps.py reads it then
+
+
+def test_no_test_reads_the_repositorys_own_docs_gaps_md():
+    """The merge queue writes docs/GAPS.md from the records: a test pins a fixture or the records' render, never the
+    file. Read as a path built from the repository's root, an open() of `docs/GAPS.md`, or a ref's `:docs/GAPS.md`
+    other than a pinned commit's (a full sha)."""
+    live = re.compile(r"""(?:ROOT|parents\[\d\])\s*/\s*["']docs(?:["']\s*/\s*["']|/)GAPS\.md["']"""
+                      r"""|open\(\s*["'](?:\./)?docs/GAPS\.md|["'](?:HEAD|main|origin/main)\S*:docs/GAPS\.md""")
+    for bad in ('GAPS = ROOT / "docs" / "GAPS.MD"', "(ROOT / 'docs/GAPS.MD').read_text()", 'open("docs/GAPS.MD")',
+                'Path(__file__).parents[1] / "docs" / "GAPS.MD"', 'git("show", "main:docs/GAPS.MD")'):
+        assert live.search(bad.replace(".MD", ".md")), bad             # each way of reading it is seen (spelt .MD here
+    #                                                                    so that this file's own lines are not hits)
+    hits = [f"{p.relative_to(ROOT)}:{n}" for p in sorted((ROOT / "tests").rglob("*.py"))
+            for n, ln in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if live.search(ln)]
+    assert hits == []

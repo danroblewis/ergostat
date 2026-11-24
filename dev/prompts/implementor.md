@@ -15,7 +15,7 @@ answer questions: take the most reversible option and say so in the definition f
 
 {definition}
 
-## Its entry in docs/GAPS.md
+## Its entry (the `## Entry` of its record, as main's dev/records/ render it into docs/GAPS.md)
 
 {gaps_entry}
 

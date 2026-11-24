@@ -16,7 +16,7 @@ only the work: judge what is in the branch, not what anyone says about it.
 
 {definition}
 
-## Its entry in docs/GAPS.md
+## Its entry (the `## Entry` of its record, as main's dev/records/ render it into docs/GAPS.md)
 
 {gaps_entry}
 
