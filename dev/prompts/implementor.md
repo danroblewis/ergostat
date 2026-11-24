@@ -47,12 +47,13 @@ answer questions: take the most reversible option and say so in the definition f
    Playwright, under the watchdog
    (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_x.py`:
    a page test skipped is a failure). Never the whole unit suite or the four browser files yourself: after
-   you, the factory runs only ruff and its build step (`[suites] build`; the unit suite while none is set), plus the
+   you, the factory runs only its build step (`[suites] build`; the unit suite while none is set), plus the
    four browser files only if `[suites] build_browser = true`, and the full suites (unit,
    the four browser files, demo) run in the merge queue. A failure on main is reported, not fixed (lesson 13): a test that
    fails on main too, or on something your change did not touch, is named in your report with why it is unrelated,
    and left alone; the factory runs failing tests again on clean main and holds the gap until main is fixed.
-4. `uv run ruff check ergostat tests scripts` must be clean.
+4. Lint and style are not checked: a pre-commit hook formats and fixes the Python files you commit (lint it cannot
+   fix never stops a commit, a round or a merge). Spend nothing on lint.
 5. Commit your work with `git add` and `git commit` as you go, each message ending with the line
    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 6. Never push, never `git stash`, never change git's config or remotes, never reach the network. No employer's

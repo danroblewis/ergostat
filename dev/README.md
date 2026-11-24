@@ -202,7 +202,11 @@ so a rise shows. The implementor's and the reviewer's briefs end their working r
 here` (agents.shell_rule, from the role's own allowlist): one allowed command per Bash call, nothing chained, the
 role's commands named, and a refusal never a reason to stop), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after: ruff and `[suites] build`, each under the watchdog in a suite container of the agent image and the suite slot.
+after: `[suites] build` (and ruff only when `[suites] ruff` is set; it is not), each under the watchdog in a suite
+container of the agent image and the suite slot. Lint is no gate (owner, 2026-11-23): with `[suites] precommit` set,
+the clone gets a pre-commit hook (`agents.precommit`, written after this program's own commits) that runs it on the
+staged Python files (`ruff format`, `ruff check --fix --exit-zero`) and stages them again, whole; it never refuses a
+commit. What the session leaves uncommitted is committed by `finish` with hooks off, so that commit is not formatted.
 The four browser files run there too only with `[suites] build_browser = true` (default false: minutes of 4 CPUs a
 round, plus a Chromium launch); then a browser test skipped fails them, as in the queue. `build` is the small set
 (`scripts/affected_tests.py`: the test files the branch changed since main and `tests/test_<module>.py` of each
@@ -770,11 +774,12 @@ with no push carrying it, which the watch raises as stuck at once). A failed pus
 the queue; an action that cannot be read is read again on the next two runs before it counts as failed. The watch counts a `push-pending` gap as explained only while its push is held, requested or approved, and one that no
 pending push carries as stuck at once.
 
-**The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
+**The suites in the queue:** ruff (only when `[suites] ruff` is set; it is not, so no batch is red for lint), then
+unit and browser at once, then demo_check alone (under the other two's load
 its pages drew nothing). The first of them to fail is the one reported, and it stops the rest: a unit failure kills
 the browser run still going (and the other way round), which is recorded `stopped_by` it, its own result not judged.
 
-**Which tests run where.** With `[suites] queue_container`, ruff, unit, browser and demo run in containers, each on a
+**Which tests run where.** With `[suites] queue_container`, ruff (when set), unit, browser and demo run in containers, each on a
 copy of the checkout (tarred into the container's stdin, never bind-mounted: Docker Desktop's file sharing keeps a
 handle open on every file read through a mount; `vm-open-files` in `dev/model/resources.yaml` watches that count), where
 bwrap cannot make its namespaces and there is no kqueue: `tests/test_repair2.py` and `tests/test_sandbox_attacks.py`

@@ -73,7 +73,7 @@ def test_both_briefs_state_the_shell_rule_and_tell_only_allowed_commands(monkeyp
         assert listed == {t.removeprefix("Bash(").removesuffix(":*)") for t in agents.TOOLS[role]
                           if t.startswith("Bash(")}, role
     run = {s for s, _ in commands(got["implementor"])}
-    assert {"uv run ruff check ergostat tests scripts", "git add", "git commit",
+    assert {"git add", "git commit",                    # (no ruff: lint is the pre-commit hook's, never a gate)
             "uv run python scripts/named_tests.py tests/test_x.py",
             "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py "
             "tests/test_x.py", "uv run python scripts/demo_up.py start DEMO",

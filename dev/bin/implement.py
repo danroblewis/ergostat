@@ -6,7 +6,8 @@
    reason said), never a browser file skipped;
    the definition of done committed first (`dev/records/<branch>.md`) when the branch lacks it, by this
    program; a branch behind main (a continued one, a fix round) has main merged in by this program (a conflict is
-   left for the session, its files in the brief); then published to the drop. A gap whose every unfinished
+   left for the session, its files in the brief); then published to the drop, and the pre-commit hook of
+   [suites] precommit written into the clone when set (agents.precommit). A gap whose every unfinished
    dependency is approved, queued or push-pending (fac.stack_base) is stacked: main and each one's reviewed head merged
    in rank order (`--no-ff`, never a rebase or a squash) as a commit in the drop, refs/stack/factory/<branch>, by this
    program, and that commit merged in instead of main; it is the base the strays, net lines, check findings and the
@@ -19,7 +20,7 @@
    suites, a branch adding scratch files (`strays`: [gates] scratch_patterns, or a new top-level file or folder the
    definition's Files to touch does not name) is refused, back to the session's next round with the list (uncounted;
    still there after the last, a failed build), and so is one adding `ergostat check` findings (`new_findings`); the
-   fast suites (ruff, then the unit suite and the four browser files under the watchdog, a browser test skipped
+   fast suites (ruff when [suites] ruff is set, then the unit suite and the four browser files under the watchdog, a browser test skipped
    counting as a failure) in a container with no network, in a machine-wide slot; a failure
    that names tests is triaged first (onmain.py: run alone on the branch, a flake retried once; run on clean main, a
    test failing there too is main's), and a failure of the gap's is given back to a session to fix, `suite_fix_rounds`
@@ -272,6 +273,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
     what = "main and its bases " + ", ".join(b["gap"] for b in bases) if bases else "main"
     conflicts = merge_main(work, against, what)
     was = agents.publish(cfg, work, branch)           # (in a merge left in progress: the branch as it was before it)
+    agents.precommit(cfg, work)                        # (after this program's own commits: the session's alone)
     text, context = brief.assemble(cfg, "implementor", gap, work, definition=definition)
     text += conflict_brief(against, conflicts) if conflicts else ""
     text = gaps_md_brief(text, against, branch, what) if gaps_md_edited(work, against, "HEAD") else text

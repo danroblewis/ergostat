@@ -60,8 +60,8 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
 
 ## Working here
 
-- Python 3.12+, `uv`, the standard library only at runtime; the unit suite and `uv run ruff check` before every
-  commit.
+- Python 3.12+, `uv`, the standard library only at runtime; the unit suite before every commit. Lint and style are
+  not checked or reviewed (owner, 2026-11-23): the factory's build sessions format and fix with a pre-commit hook.
 - **Testing.** Both suites run in parallel (pytest-xdist), under the watchdog (`scripts/suite_watch.py`: kills the run
   past 1,500 threads or 6 GB, and one worker past 2 GB), one suite at a time, never both at once:
   - unit (about 2 min; 12 serial): `uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`

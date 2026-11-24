@@ -18,8 +18,8 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    again;
 4. merge each onto main as a commit of its own (`git merge-tree`, the checkout untouched), the tree the one
    dry-merged; one that conflicts on a new base goes back to `approved` uncounted;
-5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py (the first
-   to fail stops the other), then demo_check, once for the batch; a browser test skipped counts as a failure. The
+5. ruff (only when `[suites] ruff` is set: lint_on()), then the unit suite (-n 8) and the four browser files (-n 4)
+   at once under scripts/suite_watch.py (the first to fail stops the other), then demo_check, once for the batch; a browser test skipped counts as a failure. The
    browser files run only when the batch (`git diff --name-only pre HEAD`) touches a `[suites] browser_paths` glob
    (an empty list, or one unreadable: always); else `browser: {not_run: ...}`, finished, never stopped (rest()), and
    the batch's halves keep its decision. The daily browser run on main (browserday.py) is the net for the rest. The
@@ -235,7 +235,7 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
         {"browser": {"not_run": "no browser path changed", "counts": "not_run"}}
     for step in (("ruff",), ("unit", "browser"), ("host",), ("demo",)):
         if not (step := tuple(n for n in step if (only is None or n in only) and (n != "host" or host_on(cfg))
-                              and n not in out)):
+                              and (n != "ruff" or lint_on(cfg)) and n not in out)):
             continue
         got = together(step)
         if step[0] == "unit":                          # the quarantined tests after them, whatever they said
@@ -295,6 +295,12 @@ COUNTED = re.compile(r"\b\d+ skipped\b")
 def host_on(cfg: dict) -> bool:
     """`[suites] host`, the tests the queue's container cannot run (the sandbox's), on the Mac: empty or absent, off."""
     return bool(str(cfg["suites"].get("host") or "").strip())
+
+
+def lint_on(cfg: dict) -> bool:
+    """`[suites] ruff`, the lint step: empty or absent, off (lint is fixed by the build sessions' pre-commit hook,
+    agents.precommit, and never fails a batch)."""
+    return bool(str(cfg["suites"].get("ruff") or "").strip())
 
 
 def nowhere(host: str, unit_log) -> list[str]:

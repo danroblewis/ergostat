@@ -391,6 +391,35 @@ def clone(cfg: dict, branch: str, role: str, at: str | None = None) -> tuple[Pat
     return home, work
 
 
+HOOK = """#!/bin/sh
+# Written by the factory (agents.precommit, from [suites] precommit): the staged Python files formatted and their
+# fixable lint fixed, then staged again (each whole file). It never refuses a commit: lint is no gate
+# (dev/records/lint-in-a-pre-commit-hook.md).
+list=$(mktemp) || exit 0
+git diff --cached --name-only --diff-filter=ACMR -z -- '*.py' > "$list" 2>/dev/null
+if [ -s "$list" ]; then
+    xargs -0 sh -c {cmd} precommit < "$list" >&2 || echo "pre-commit: [suites] precommit failed; committed as fixed so far" >&2
+    xargs -0 git add -- < "$list"
+fi
+rm -f "$list"
+exit 0
+"""
+
+
+def precommit(cfg: dict, work: Path) -> Path | None:
+    """A build session's pre-commit hook in its clone, when [suites] precommit is set: a shell command given the staged
+    Python files as "$@" (formats and fixes them). Unset or empty: none written (None). Written by this program after
+    its own commits (the definition, main merged in), so it runs only on the session's, in its container."""
+    cmd = str((cfg.get("suites") or {}).get("precommit") or "").strip()
+    if not cmd:
+        return None
+    hook = Path(fac.git(work, "rev-parse", "--path-format=absolute", "--git-path", "hooks")) / "pre-commit"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text(HOOK.replace("{cmd}", shlex.quote(cmd)))
+    hook.chmod(0o755)
+    return hook
+
+
 def publish(cfg: dict, work: Path, branch: str) -> str:
     """Before the session: what this program committed in the work (the definition) to the drop, then the remote
     removed, so nothing in the container names a host path. The sha published: `finish` moves the drop's branch only
