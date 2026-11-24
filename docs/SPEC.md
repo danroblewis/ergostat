@@ -9636,11 +9636,15 @@ its absolute value), when its oldest unverified commit is `verify-hours` old, af
 (`verify.py run --now WHY`, before a publish). Green moves the git ref `verified` to that commit, and each gap merged
 in the window records `verified_sha`, `verified_at` and `verify_hours`; version switches (`upgrade.py watch`) and the
 publish job (`verify.py verified`) take only that commit. Red: one to three tests that pass alone twice are flakes, as
-in the queue; tests that fail alone on the verified commit are main's own (an intervention, nothing reverted). Else the
-merges since the verified commit are bisected in rounds of several prefixes at once, the first red merge is tried alone
-on the verified commit, and it and the merges stacked on it are reverted on main under the queue's lock, each a commit
-saying `This reverts commit`; the culprit goes to flake triage (`gap.queue-failed` with its tests), what was stacked
-on it back to `approved`, the reverts' push is asked as the queue's own, and main is verified again. A gap coming back
+in the queue; tests that fail alone on the verified commit are main's own (an intervention, nothing reverted), and so
+is a verified commit that is red itself when full runs blame the window's first merge. Else the merges since the
+verified commit are bisected in rounds of several prefixes at once, each round waiting for the load interlock, the
+first red merge is tried alone on the verified commit, and it and the merges stacked on it (read again from main's head
+inside the queue's lock) are reverted on main under that lock, each a commit saying `This reverts commit`. The
+reverts' push is asked as the queue's own, and the gaps' outcomes wait on it: once it runs, the culprit goes to flake
+triage (`gap.queue-failed` with its tests) and what was stacked on it back to `approved`; denied, main is put back, no
+gap is told, and the lane stops with an intervention. The escapes count records the culprit's revert against its gap
+and none against what was stacked on it. Then main is verified again. A gap coming back
 has its reverts undone before it merges. A culprit no gap owns, a revert that conflicts, or a bisection that cannot
 tell stops the lane with an intervention. The dashboard `landing.merge-pipeline` charts `suite-runs-per-merged-gap`,
 `merge-to-verified-hours`, `verify-escapes` and `verify-reverts` beside the queue's own measures, and

@@ -448,7 +448,8 @@ def action_state(aid: str) -> str:
 
 def pushed(p: dict | None) -> list[str]:
     """The gaps a pending push carries: a batch's, or one (a pending record from before batches); none for the
-    verification lane's reverts (`reverts`: their gaps' outcome was said as they were reverted, verify.py)."""
+    verification lane's reverts (`reverts`: their gaps' outcomes are its `then`, said once it runs or fails; denied,
+    none is said and the lane is held, verify.denied())."""
     return [] if not p or p.get("reverts") else list(p.get("gaps") or [p["gap"]])
 
 
@@ -546,6 +547,9 @@ def settle(cfg: dict, repo) -> str | None:
                                   f"(main at {head[:12]})")
         st.pop("pending")
         save(cfg, st)
+        if p.get("reverts"):                           # the verification lane's: its merges back, no gap told
+            verify.denied(cfg, p)
+            return None
         for gid in pushed(p):                          # one approval for the batch: a denial sends back all of it
             fac.say("gap.sent-back", gid, sent_back_by="queue", push="denied",
                     findings=[f"the push of its merge ({p['sha'][:12]}) was denied: the merge is undone"])

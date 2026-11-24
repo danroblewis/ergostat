@@ -485,7 +485,7 @@ blocks:
   verifier:
     system: merging
     type: program
-    description: merge first, verify after - with [verify] after (off, it does nothing), main as pushed gets its full suites once the merges since the verified commit reach verify-lines or verify-hours; green moves the ref verified, red bisects the merges, reverts the first red one and those stacked on it under the queue's lock, sends it to flake triage and verifies again (dev/bin/verify.py)
+    description: merge first, verify after - with [verify] after (off, it does nothing), main as pushed gets its full suites once the merges since the verified commit reach verify-lines or verify-hours, each round once the load interlock has room (gated in its code by verify.room, since a goal here would take it off its schedule); green moves the ref verified, red bisects the merges, reverts the first red one and those stacked on it under the queue's lock, sends it to flake triage and verifies again (dev/bin/verify.py)
     run: python3 dev/bin/verify.py run
     every: 10m
     timeout: 3h

@@ -12,7 +12,9 @@ this lane's own reverts).
   commit is verify-hours old (the parameters in dev/model/landing.yaml; [verify] lines and hours override them), or a
   revert was pushed since, or a run was asked for (`verify.py run --now WHY`: before a publish). The full suites
   (queue.suites, the browser files always) run in a worktree of the lane's own (run/verify-half/), on the second half of
-  the queue's CPUs (halves.share), in containers named suite-verify-* that the queue's sweep never kills.
+  the queue's CPUs (halves.share), in containers named suite-verify-* that the queue's sweep never kills. Before each
+  round it waits for the load interlock (room()): the suites running and its own leave the last of machine-quiet's
+  slots free, and the suites' threads and memory are within suite-threads-within and suite-memory-within.
 - Green: the ref `verified` (refs/heads/verified in the checkout) moves to it, compare-and-swap from the commit it was
   read at, and each gap merged in the window says gap.measured verified_sha, verified_at and verify_hours (its merge to
   verified). Version switches take only that commit (switchable(), upgrade.py watch); the publish job reads
@@ -22,13 +24,17 @@ this lane's own reverts).
   queue), the lane held until it is remedied, nothing reverted. Else the merges since the verified commit are bisected,
   each round checking up to NAMED_AT_ONCE prefixes at once on the failing tests (when they fail alone on the tip), or
   FULL_AT_ONCE full runs (halves.run_all), and the first red merge is tried alone on the verified commit (`confirmed`
-  true or false, said with it). It and every later merge whose branch holds its branch (a stacked gap) are reverted on
-  main under the queue's lock, newest first, each a commit of its own (`This reverts commit`, which escapes.py counts,
-  and `Reverted-tip:`, which taken_out() reads). The culprit says gap.queue-failed (failed_tests, its base as `pre`), so
-  flake triage takes it as today; each dependent says gap.retried, back to approved uncounted. The reverts' push is
-  asked as the queue asks its own, its pending record marked `reverts` (no gap's outcome waits on it), and the next run
-  verifies again. A culprit that is no gap's merge, a revert that conflicts, or a bisection that cannot tell holds the
-  lane with an intervention instead (lesson-3: never a guess).
+  true or false, said with it). When that is the window's first merge and the bisection ran by full runs, the
+  verified commit itself is run first: red or not told there, main's own (held, nothing reverted). It and every later
+  merge whose branch holds its branch (a stacked gap; read again from main's head under the queue's lock, so one landed
+  meanwhile goes too) are reverted on main under that lock, newest first, each a commit of its own (`This reverts
+  commit`, `Reverted-tip:`, which taken_out() and escapes.py read, and for a stacked one `Stacked-on:`, which escapes.py
+  counts as no escape). The culprit is to say gap.queue-failed (failed_tests, its base as `pre`), so flake triage takes
+  it as today; each dependent gap.retried, back to approved uncounted. The reverts' push is asked as the queue asks its
+  own, its pending record marked `reverts`, and those outcomes are kept in it (`then`) until it settles: ran or failed,
+  said; denied, main is back over the reverts, nothing is said and the lane is held (denied()). No verification starts
+  while it waits. The next run verifies again. A culprit that is no gap's merge, a revert that conflicts, or a
+  bisection that cannot tell holds the lane with an intervention instead (lesson-3: never a guess).
 - Coming back: a gap whose merge this lane reverted (reverted_by_verify) has those reverts undone first when the queue
   merges it again (reapplied()): a branch's commits already on main would merge as nothing.
 
@@ -312,6 +318,36 @@ def first_red(lo: int, hi: int, check, most: int) -> tuple[int, int]:
     return lo, hi
 
 
+INTERLOCK = (("machine-quiet", "suites"), ("suite-threads-within", "threads"), ("suite-memory-within", "memory"))
+
+
+def holds() -> dict[str, float]:
+    """The load interlock's setpoints (dev/model/interlock.yaml); one not found raises (lesson-3: never no limit)."""
+    text, out = (fac.HERE / "model" / "interlock.yaml").read_text(), {}
+    for goal, what in INTERLOCK:
+        m = re.search(rf'^  {goal}:\s*$.*?hold: "<= ([\d.]+)"', text, re.M | re.S)
+        if not m:
+            raise ValueError(f"the goal {goal} has no hold in dev/model/interlock.yaml")
+        out[what] = float(m[1])
+    return out
+
+
+def room(cfg: dict, n: int) -> float:
+    """Waits until the machine has room for ``n`` more suites under the load interlock: the suites running and ``n``
+    leave the last of machine-quiet's slots free (the queue's: slots.py; ``n`` past that, none may run), and the suites'
+    threads and memory are within suite-threads-within and suite-memory-within. The seconds waited. Off with
+    [load] wait = false (the tests' machine is not the factory's)."""
+    if cfg["load"].get("wait", True) is False:
+        return 0.0
+    import load
+    lim, began, poll = holds(), time.time(), float(cfg["load"]["wait_poll"])
+    while fac.suites_running() + n > max(n, lim["suites"] - 1) or load.reading("threads") > lim["threads"] \
+            or load.reading("memory") > lim["memory"]:
+        fac.renew()
+        time.sleep(poll)
+    return time.time() - began
+
+
 def run(cfg: dict, repo: Path, now: float | None = None, asked: str = "") -> str:
     """One turn of the lane, under its own lock (another holding it: nothing). What it did, said."""
     import queue as q  # (dev/bin/queue.py, loaded here: it imports this module)
@@ -322,6 +358,10 @@ def run(cfg: dict, repo: Path, now: float | None = None, asked: str = "") -> str
             return "a verification runs already"
         if cfg["suites"].get("queue_container", True) is not False:
             fac.agents_module().sweep_box(BOX)          # (a SIGKILLed run's: none is live under this lock)
+        if waiting(cfg, q):                             # (its gaps' outcomes wait on it: never verified past it)
+            q.settle_alone(cfg)                         # (the push-settler's work, here when the queue's lock is free;
+            if p := waiting(cfg, q):                    # denied, the lane is held: read below)
+                return f"the push of its reverts ({p['sha'][:12]}) waits to settle"
         st = state(cfg)
         if h := st.get("held"):
             if q.action_state(h["intervention"]) != "remedied":
@@ -335,6 +375,33 @@ def run(cfg: dict, repo: Path, now: float | None = None, asked: str = "") -> str
         return verify(cfg, repo, st, base, tip, why, q) if why else "not due"
 
 
+def waiting(cfg: dict, q) -> dict | None:
+    """The queue's pending push when it is this lane's reverts (unreadable raises: the run fails where it is seen)."""
+    p = q.state(cfg).get("pending")
+    return p if p and p.get("reverts") else None
+
+
+def stacked(repo: Path, c: dict, tip: str, gaps: list[dict]) -> list[dict] | str:
+    """The merges after the culprit ``c`` up to ``tip`` whose branch holds the culprit's (stacked on it), not reverted
+    there, each with its gap; why not, when one is the merge of no one gap."""
+    if not fac.git_ok(repo, "merge-base", "--is-ancestor", c["sha"], tip):
+        return f"the culprit's merge {c['sha'][:12]} is not in main's history at {tip[:12]}"
+    window = commits(repo, c["sha"], tip)
+    standing, out = reverts(window), []
+    for x in merges(window):
+        if x["sha"] in standing or not fac.git_ok(repo, "merge-base", "--is-ancestor", c["parents"][1], x["parents"][1]):
+            continue
+        if not (g := gap_of(gaps, x)):
+            return f"{x['sha'][:12]}, stacked on the culprit, is the merge of no one gap the record names"
+        out.append(found_of(x, g))
+    return out
+
+
+def found_of(x: dict, g: dict) -> dict:
+    return {"sha": x["sha"], "gap": g["id"], "pre": x["parents"][0], "tip": x["parents"][1],
+            "was": list(g["fields"].get("reverted_by_verify") or [])}
+
+
 def verify(cfg: dict, repo: Path, st: dict, base: str, tip: str, why: str, q) -> str:
     began = time.time()
     tag, logs, conf, runs = fac.run_tag("verify", began), fac.run_dir(cfg, "verify"), halves.share(cfg, 1), [0]
@@ -342,14 +409,15 @@ def verify(cfg: dict, repo: Path, st: dict, base: str, tip: str, why: str, q) ->
     ids = [g["id"] for c in merges(window) if (g := gap_of(gaps, c))]
     line = {"tip": tip, "base": base, "due": why, "gaps": ids}
 
-    def at(heads: list[str], fn, most: int) -> list:
+    def at(heads: list[str], fn, most: int, each: int) -> list:
+        room(cfg, min(len(heads), most) * each)         # (the load interlock, before each round: lesson-4)
         runs[0] += len(heads)
         return halves.run_all(cfg, repo, heads, fn, tag, most, HALF)
 
-    def full(heads: list[str], **kw) -> list:
+    def full(heads: list[str], **kw) -> list:           # (unit and browser at once: 2 suites a run)
         k, confs = runs[0], [halves.share(conf, j) for j in range(2)] if len(heads) > 1 else [conf]
         return at(heads, lambda i, wt: q.suites(confs[i], wt, f"{tag}-{k}-{i}", logs, heads[i], cover=False,
-                                                browser=True, box=BOX, **kw), FULL_AT_ONCE)
+                                                browser=True, box=BOX, **kw), FULL_AT_ONCE, 2)
 
     def said(r) -> str:
         return "unknown" if r is None or isinstance(r, BaseException) or r.get("crashed") else \
@@ -371,7 +439,7 @@ def verify(cfg: dict, repo: Path, st: dict, base: str, tip: str, why: str, q) ->
         k, here = runs[0], [q.present(repo, h, tests) + unseen for h in heads]
         got = at(heads, lambda i, wt: q.named(conf, wt, f"{tag}-{k}-{i}", logs, {"failed": red["failed"],
                                                                                  "tests": here[i]}, box=BOX)
-                 if here[i] else {}, halves.NAMED_AT_ONCE)
+                 if here[i] else {}, halves.NAMED_AT_ONCE, 1)
         return [said(r) for r in got]
 
     first = alone([tip])[0] if tests and len(tests) <= q.NAMED_MOST else "unknown"
@@ -404,22 +472,23 @@ def verify(cfg: dict, repo: Path, st: dict, base: str, tip: str, why: str, q) ->
     full_check = lambda picks: [said(r) for r in full([heads[i] for i in picks])]          # noqa: E731
     lo, hi = first_red(-1, len(heads) - 1, named_check, halves.NAMED_AT_ONCE) if by_name else (-1, len(heads) - 1)
     lo, hi = first_red(lo, hi, full_check, FULL_AT_ONCE)
+    if lo == -1 and hi == 0 and not by_name:           # (the first merge blamed, the verified commit not run since:
+        was = said(full([base])[0])                     # main's own failure, a tool's or the clock's, is red there too)
+        if was != "pass":
+            return hold(cfg, st, f"the verified {base[:12]} {'is red' if was == 'fail' else 'could not be told'} now "
+                                 "by full runs: main's own, no merge's", **line, runs=runs[0])
     c = window[places[hi]]
     if hi - lo != 1 or len(c["parents"]) != 2 or c["sha"] in standing:
         return hold(cfg, st, f"the bisection of {base[:12]}..{tip[:12]} could not name a merge (prefixes "
                              f"{lo + 1} to {hi} of {len(heads)})", **line, runs=runs[0])
     alone_on = q.dry(repo, base, c["parents"][1], "verify: the culprit alone on the verified commit")[0]
     r = (alone([alone_on]) if by_name else [said(full([alone_on])[0])]) if alone_on else ["unknown"]
-    later = [x for x in merges(window[places[hi] + 1:])               # (stacked on it: its branch holds the culprit's)
-             if x["sha"] not in standing and fac.git_ok(repo, "merge-base", "--is-ancestor", c["parents"][1], x["parents"][1])]
-    found = []
-    for x in [c, *later]:
-        if not (g := gap_of(gaps, x)):
-            return hold(cfg, st, f"main turned red at {x['sha'][:12]}, the merge of no one gap the record names",
-                        **line, runs=runs[0])
-        found.append({"sha": x["sha"], "gap": g["id"], "pre": x["parents"][0], "tip": x["parents"][1],
-                      "was": list(g["fields"].get("reverted_by_verify") or [])})
-    st["found"] = {"culprit": found[0], "dependents": found[1:], "confirmed": {"fail": True, "pass": False}.get(r[0]),
+    if not (g := gap_of(gaps, c)):
+        return hold(cfg, st, f"main turned red at {c['sha'][:12]}, the merge of no one gap the record names",
+                    **line, runs=runs[0])
+    if isinstance(later := stacked(repo, c, tip, gaps), str):   # (read again inside the queue's lock: revert())
+        return hold(cfg, st, later, **line, runs=runs[0])
+    st["found"] = {"culprit": found_of(c, g), "dependents": later, "confirmed": {"fail": True, "pass": False}.get(r[0]),
                    "red": {"suite": red["failed"], "tests": tests, "tail": red.get("tail", "")[-1500:],
                            "log": red.get("log")}, "line": line | {"runs": runs[0]}}
     save(cfg, st)
@@ -454,14 +523,21 @@ def revert(cfg: dict, repo: Path, st: dict, q) -> str:
         if why:
             return f"its reverts wait: {why}"
         head = top = fac.git(repo, "rev-parse", "HEAD")
+        c = f["culprit"]
+        # (read again here, under the lock: a gap stacked on the culprit may have landed since verify() read main)
+        c_ = {"sha": c["sha"], "parents": [c["pre"], c["tip"]]}
+        if isinstance(deps := stacked(repo, c_, head, fac.items("gap")), str):
+            return hold(cfg, st, deps, **f["line"])
+        f["dependents"] = deps
         made: dict[str, list[str]] = {}
-        for m in [*reversed(f["dependents"]), f["culprit"]]:
+        for m in [*reversed(deps), c]:
             for sha in [m["sha"], *reapplies(repo, m["pre"], m["tip"])]:
                 if grep(repo, f"This reverts commit {sha}", f"{sha}..{top}"):
                     continue
                 subject = fac.git(repo, "log", "-1", "--format=%s", sha)
+                on = "" if m is c else f"\nStacked-on: {c['gap']}"     # (escapes.py: a dependent's is no escape)
                 new = revert_commit(repo, top, sha, f'Revert "{subject}" (verification found main red)\n\nThis reverts '
-                                                    f"commit {sha}.\nReverted-tip: {m['tip']}\nFailing: "
+                                                    f"commit {sha}.\nReverted-tip: {m['tip']}{on}\nFailing: "
                                                     f"{', '.join(tests[:5]) or f['red']['suite']}")
                 if new is None:
                     return hold(cfg, st, f"the revert of {sha[:12]} ({m['gap']}) conflicts on main {top[:12]}",
@@ -470,24 +546,25 @@ def revert(cfg: dict, repo: Path, st: dict, q) -> str:
                 top = new
         if top != head and not fac.git_ok(repo, "reset", "-q", "--keep", top):
             return hold(cfg, st, f"main could not be moved to its reverts ({top[:12]})", **f["line"])
-        c = f["culprit"]
         n = f["line"].get("runs")
-        fac.say("gap.queue-failed", c["gap"], failed_suite=f["red"]["suite"], failed_tests=tests, pre=c["pre"],
-                reverted_by_verify=c["was"] + made.get(c["gap"], []), verify_confirmed=f["confirmed"],
-                findings=[f"{f['red']['suite']} failed on main after it merged, found by verification in {n} runs, "
-                          f"and its merge was reverted: {', '.join(tests[:8]) or f['red']['tail'][-300:]}"])
-        for d in f["dependents"]:
-            fac.say("gap.retried", d["gap"], approved_by="verify-given-back", reverted_by_verify=d["was"] +
-                    made.get(d["gap"], []), given_back=f"reverted with {c['gap']}, which it is stacked on")
+        then = [{"event": "gap.queue-failed", "item": c["gap"], "data": {
+            "failed_suite": f["red"]["suite"], "failed_tests": tests, "pre": c["pre"],
+            "reverted_by_verify": c["was"] + made.get(c["gap"], []), "verify_confirmed": f["confirmed"],
+            "findings": [f"{f['red']['suite']} failed on main after it merged, found by verification in {n} runs, "
+                         f"and its merge was reverted: {', '.join(tests[:8]) or f['red']['tail'][-300:]}"]}}]
+        then += [{"event": "gap.retried", "item": d["gap"], "data": {
+            "approved_by": "verify-given-back", "reverted_by_verify": d["was"] + made.get(d["gap"], []),
+            "given_back": f"reverted with {c['gap']}, which it is stacked on"}} for d in deps]
+        if top != head:                                 # (first: killed past here, the outcomes are kept, or said
+            ask(cfg, repo, q, top, head, c["gap"], then)    # again by the next run, never lost)
+        else:                                           # (reverted already: nothing to push, said now)
+            q.release({"then": then})
         st.pop("found")
         st["again"] = f"after the revert of {c['gap']}"
         save(cfg, st)
-        logged(cfg, **f["line"], outcome="red", culprit=c["gap"], reverted=[c["gap"], *[d["gap"] for d in
-                                                                                         f["dependents"]]],
+        logged(cfg, **f["line"], outcome="red", culprit=c["gap"], reverted=[c["gap"], *[d["gap"] for d in deps]],
                confirmed=f["confirmed"], tests=tests)
-        if top != head:
-            ask(cfg, repo, q, top, head, c["gap"])
-    return f"reverted {c['gap']} and {len(f['dependents'])} stacked on it; verifying again"
+    return f"reverted {c['gap']} and {len(deps)} stacked on it; verifying again"
 
 
 def reapplies(repo: Path, pre: str, tip: str) -> list[str]:
@@ -499,21 +576,32 @@ def reapplies(repo: Path, pre: str, tip: str) -> list[str]:
     return out
 
 
-def ask(cfg: dict, repo: Path, q, sha: str, pre: str, culprit: str) -> None:
-    """The reverts' push, asked as the queue asks its own (queue.ask), under its lock: pending in run/queue.json until
-    it settles, marked `reverts` so no gap's outcome is said with it."""
+def ask(cfg: dict, repo: Path, q, sha: str, pre: str, culprit: str, then: list[dict]) -> None:
+    """The reverts' push, asked as the queue asks its own (queue.ask), under its lock. Pushed: the gaps' outcomes
+    (``then``) said. Else pending in run/queue.json, marked `reverts`, the outcomes kept in it until the push settles
+    (queue.settle): ran, said; failed, said with the queue blocked (main still holds the reverts); denied, main back
+    over the reverts, nothing said and the lane held (denied())."""
     try:
         rc, said = fac.act("push-main", key=sha, sha=sha)
         push = {0: "pushed", 1: "failed", 3: "held", 4: "denied"}.get(rc, f"refused ({rc})")
     except FileNotFoundError:
         push, said = "not asked: not run by ergostat", ""
-    if push != "pushed":
-        m = re.search(r"ergostat\.action/[0-9a-f]+", said)
-        q.save(cfg, {**q.state(cfg), "pending": {"sha": sha, "pre": pre, "gap": f"the reverts of {culprit}", "gaps": [],
-                                                 "reverts": True, "action": m.group(0) if m else "",
-                                                 "known": push.split(" ")[0], "said": said[-600:], "at": time.time(),
-                                                 "then": []}})
-        q.settle(cfg, repo)
+    if push == "pushed":
+        q.release({"then": then})
+        return
+    m = re.search(r"ergostat\.action/[0-9a-f]+", said)
+    q.save(cfg, {**q.state(cfg), "pending": {"sha": sha, "pre": pre, "gap": f"the reverts of {culprit}", "gaps": [],
+                                             "reverts": True, "action": m.group(0) if m else "",
+                                             "known": push.split(" ")[0], "said": said[-600:], "at": time.time(),
+                                             "then": then}})
+    q.settle(cfg, repo)
+
+
+def denied(cfg: dict, p: dict) -> None:
+    """The reverts' push denied (queue.settle, which put main back over them): no gap told, the lane held, so the same
+    merges are not found and reverted again until the coordinator records the intervention remedied."""
+    hold(cfg, state(cfg), f"the push of {p['gap']} ({p['sha'][:12]}) was denied: main holds those merges again",
+         denied=[e["item"] for e in p.get("then") or []])
 
 
 # ---- the dashboard series and the replay
@@ -537,10 +625,10 @@ def reading(name: str, lines: list[dict], batches: list[dict], gaps: list[dict],
     verify-reverts (merges reverted), merge-to-verified-hours (median, over gaps verified), suite-runs-per-merged-gap
     (the batches' runs and the verifications' over the gaps merged: today's queue alone, while the lane is off)."""
     mine = [x for x in lines if (num(x.get("at")) or 0) >= since]
-    if name == "verify-escapes":
-        return float(sum(x.get("outcome") == "red" for x in mine))
+    if name == "verify-escapes":                        # (less the reverts whose push was denied: undone, denied())
+        return float(sum(x.get("outcome") == "red" for x in mine) - sum(bool(x.get("denied")) for x in mine))
     if name == "verify-reverts":
-        return float(sum(len(x.get("reverted") or []) for x in mine))
+        return float(sum(len(x.get("reverted") or []) - len(x.get("denied") or []) for x in mine))
     if name == "merge-to-verified-hours":
         hs = [h for g in gaps if (num(g["fields"].get("verified_at")) or 0) >= since
               and (h := num(g["fields"].get("verify_hours"))) is not None]

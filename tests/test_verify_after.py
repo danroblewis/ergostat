@@ -53,6 +53,13 @@ def pushed(f: Factory) -> None:
     git(f.checkout, "push", "-q", "origin", "main")
 
 
+def settled(f: Factory) -> list[str]:
+    """The push asked for, approved and run, and settled by the push-settler (`queue.py settle`): the events said."""
+    pushed(f)
+    said, _ = f.run("queue.py", argv=("settle",))
+    return said
+
+
 def ref(f: Factory) -> str:
     return git(f.checkout, "rev-parse", "refs/heads/verified")
 
@@ -78,12 +85,8 @@ def test_a_batch_lands_on_the_quick_check_and_a_red_window_is_bisected_reverted_
     f, start = landed_stack(tmp_path)
     said, _ = f.run("verify.py", argv=("run",))
     assert suite_runs(f) == 1                                             # the tip; the bisection ran by name
-    assert said.count("gap.queue-failed") == 1 and said.count("gap.retried") == 1
-    a, b = f.item("gap/a"), f.item("gap/b")
-    assert a["state"] == "queue-failed" and a["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
-    assert a["fields"]["verify_confirmed"] is True and len(a["fields"]["reverted_by_verify"]) == 1
-    assert b["state"] == "approved" and len(b["fields"]["reverted_by_verify"]) == 1
-    assert f.item("gap/x")["state"] == f.item("gap/c")["state"] == "merged"
+    assert "gap.queue-failed" not in said and "gap.retried" not in said  # (told once the reverts' push settles)
+    assert f.item("gap/a")["state"] == f.item("gap/b")["state"] == "merged"
     assert not on_main(f, "bad.txt") and not on_main(f, "a.txt") and not on_main(f, "b.txt")
     assert on_main(f, "x.txt") and on_main(f, "c.txt")
     body = git(f.checkout, "log", "-2", "--format=%B", "main")
@@ -91,9 +94,18 @@ def test_a_batch_lands_on_the_quick_check_and_a_red_window_is_bisected_reverted_
     assert ref(f) == start                                                # red: the ref stays
     pending = json.loads((f.model / "run" / "queue.json").read_text())["pending"]
     assert pending["reverts"] is True and pending["sha"] == git(f.checkout, "rev-parse", "main")
+    assert [e["item"] for e in pending["then"]] == ["gap/a", "gap/b"]
     assert json.loads((f.model / "run" / "verify.json").read_text())["again"] == "after the revert of gap/a"
+    said, _ = f.run("verify.py", argv=("run",))                         # the push still held: nothing runs
+    assert said == [] and suite_runs(f) == 1
     pushed(f)
-    said, _ = f.run("verify.py", argv=("run",))                         # due again after the revert: green
+    said, _ = f.run("verify.py", argv=("run",))                         # settled and said; due again: green
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.retried") == 1
+    a, b = f.item("gap/a"), f.item("gap/b")
+    assert a["state"] == "queue-failed" and a["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+    assert a["fields"]["verify_confirmed"] is True and len(a["fields"]["reverted_by_verify"]) == 1
+    assert b["state"] == "approved" and len(b["fields"]["reverted_by_verify"]) == 1
+    assert f.item("gap/x")["state"] == f.item("gap/c")["state"] == "merged"
     assert suite_runs(f) == 2 and ref(f) == git(f.checkout, "rev-parse", "main")
     told = {i for i, g in f.db()["items"].items() if g["fields"].get("verified_sha") == ref(f)}
     assert told == {"gap/x", "gap/c"}                                    # (a reverted merge is not verified)
@@ -104,7 +116,7 @@ def test_a_batch_lands_on_the_quick_check_and_a_red_window_is_bisected_reverted_
 def test_a_reverted_gap_and_its_stack_come_back_whole(tmp_path):
     f, _ = landed_stack(tmp_path)
     f.run("verify.py", argv=("run",))
-    pushed(f)
+    settled(f)
     f.fold([{"event": "gap.retried", "item": "gap/a", "data": {"approved_by": "flake-retry"}}], None)
     said, _ = f.run("queue.py", "gap/b")                                 # b's base was reverted: it comes along
     assert said.count("gap.merged") == 2 and on_main(f, "a.txt") and on_main(f, "b.txt")
@@ -118,12 +130,12 @@ def test_two_culprits_in_one_window_are_found_one_after_the_other(tmp_path):
     f.run("queue.py", "gap/p")
     pushed(f)
     f.run("verify.py", argv=("run",))
+    settled(f)
     assert f.item("gap/a")["state"] == "queue-failed" and f.item("gap/c")["state"] == "merged"
-    pushed(f)
-    said, _ = f.run("verify.py", argv=("run",))                         # red again: c, never a again
+    f.run("verify.py", argv=("run",))                                     # red again: c, never a again
+    said = settled(f)
     assert said.count("gap.queue-failed") == 1 and f.item("gap/c")["state"] == "queue-failed"
     assert ref(f) == start and not on_main(f, "bad-c.txt") and on_main(f, "q.txt")
-    pushed(f)
     f.run("verify.py", argv=("run",))
     assert ref(f) == git(f.checkout, "rev-parse", "main")
 
@@ -131,7 +143,7 @@ def test_two_culprits_in_one_window_are_found_one_after_the_other(tmp_path):
 def test_a_dependent_never_lands_while_its_reverted_base_is_away(tmp_path):
     f, _ = landed_stack(tmp_path)
     f.run("verify.py", argv=("run",))
-    pushed(f)
+    settled(f)
     head = git(f.checkout, "rev-parse", "main")
     said, lines = f.run("queue.py", "gap/b")                             # a is still in triage (queue-failed)
     assert "gap.merged" not in said and git(f.checkout, "rev-parse", "main") == head
@@ -143,7 +155,8 @@ def test_a_culprit_found_by_full_runs_when_its_tests_do_not_fail_by_name(tmp_pat
     approved_gaps(f, {"p": 0, "q": 1, "r": 2, "s": 3}, batch=4, edits={"r": "bad-r.txt"})
     f.run("queue.py", "gap/p")
     pushed(f)
-    said, _ = f.run("verify.py", argv=("run",))
+    f.run("verify.py", argv=("run",))
+    said = settled(f)
     assert f.item("gap/r")["state"] == "queue-failed" and said.count("gap.retried") == 0
     assert [f.item(f"gap/{g}")["state"] for g in "pqs"] == ["merged"] * 3
     assert not on_main(f, "bad-r.txt") and on_main(f, "s.txt")
@@ -167,6 +180,101 @@ def test_main_s_own_failure_reverts_nothing_and_holds_the_lane(tmp_path):
     assert on_main(f, "p.txt")
     said, _ = f.run("verify.py", argv=("run",))                         # held until the intervention is remedied
     assert said == [] and suite_runs(f) == 1
+
+
+def test_main_s_own_failure_found_by_full_runs_reverts_nothing_and_holds_the_lane(tmp_path):
+    f = lane(tmp_path, rerun="echo again", lines=1)                       # (named runs say nothing: full runs only)
+    (f.checkout / "bad-main.txt").write_text("main's own\n")               # (a tool's or the clock's: red everywhere)
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "main breaks")
+    git(f.checkout, "push", "-q", "origin", "main")
+    git(f.checkout, "update-ref", "refs/heads/verified", "main")
+    start = ref(f)
+    approved_gaps(f, {"p": 0}, batch=1)
+    f.run("queue.py", "gap/p")
+    pushed(f)
+    head = git(f.checkout, "rev-parse", "main")
+    said, _ = f.run("verify.py", argv=("run",))
+    assert "intervention.recorded" in said and "gap.queue-failed" not in said and ref(f) == start
+    assert on_main(f, "p.txt") and git(f.checkout, "rev-parse", "main") == head        # nothing reverted
+    assert "main's own" in json.loads((f.model / "run" / "verify.json").read_text())["held"]["why"]
+    runs = suite_runs(f)
+    said, _ = f.run("verify.py", argv=("run",))                         # held: not again, not the next merge
+    assert said == [] and suite_runs(f) == runs
+
+
+def test_a_gap_stacked_on_the_culprit_that_lands_while_its_reverts_wait_is_reverted_with_it(tmp_path):
+    f = lane(tmp_path)
+    stacked_gaps(f, {"a": 1, "b": 2}, bad="a")
+    f.fold([{"event": "gap.sent-back", "item": "gap/b", "data": {}}], None)       # (b not approved yet)
+    approved_gaps(f, {"x": 0}, batch=4)
+    f.run("queue.py", "gap/x")
+    pushed(f)
+    f.fold([{"event": "gap.approved", "item": "gap/b", "data": {}}], None)
+    said, _ = f.run("queue.py", "gap/b")                                 # b lands on a; its push is held, so main
+    assert "gap.merged" in said and on_main(f, "b.txt")                  # as pushed (verified) lacks it
+    f.run("verify.py", argv=("run",))                                     # a found; its reverts wait for b's push
+    assert json.loads((f.model / "run" / "verify.json").read_text())["found"]["dependents"] == []
+    assert on_main(f, "a.txt") and on_main(f, "b.txt")
+    pushed(f)
+    f.run("verify.py", argv=("run",))                                     # under the queue's lock: b read again
+    settled(f)
+    assert not on_main(f, "a.txt") and not on_main(f, "b.txt") and on_main(f, "x.txt")
+    assert f.item("gap/a")["state"] == "queue-failed" and f.item("gap/b")["state"] == "approved"
+
+
+def test_a_denied_revert_push_tells_no_gap_puts_main_back_and_holds_the_lane(tmp_path):
+    f, _ = landed_stack(tmp_path)
+    head = git(f.checkout, "rev-parse", "main")
+    f.run("verify.py", argv=("run",))
+    assert git(f.checkout, "rev-parse", "main") != head
+    db = f.db()
+    db["actions"][max(db["actions"])] = "denied"                         # the reverts' push, the last asked
+    f.record.write_text(json.dumps(db))
+    said, _ = f.run("verify.py", argv=("run",))
+    assert "intervention.recorded" in said and "gap.queue-failed" not in said and "gap.retried" not in said
+    assert git(f.checkout, "rev-parse", "main") == head and on_main(f, "a.txt") and on_main(f, "b.txt")
+    assert f.item("gap/a")["state"] == f.item("gap/b")["state"] == "merged"
+    assert "pending" not in json.loads((f.model / "run" / "queue.json").read_text())
+    runs = suite_runs(f)
+    said, _ = f.run("verify.py", argv=("run",))                         # held: the same merge is not found again
+    assert said == [] and suite_runs(f) == runs
+
+
+def test_escapes_counts_the_culprit_s_revert_against_it_and_none_for_its_stack(tmp_path, capsys):
+    e = module("escapes")
+    f, _ = landed_stack(tmp_path)
+    f.run("verify.py", argv=("run",))
+    settled(f)
+    gaps = [g for i, g in f.db()["items"].items() if i.startswith("gap/")]
+    log = git(f.checkout, "log", "--first-parent", "--format=%H%x00%B%x1e", "main")
+    capsys.readouterr()
+    for entry in log.split("\x1e"):
+        revert, _, body = entry.strip().partition("\0")
+        for old in e.REVERTS.findall(body):
+            e.record(f.checkout, gaps, set(), revert, old, body)
+    said = [json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith("{")]
+    assert [(x["event"], x["item"]) for x in said] == [("gap.reverted", "gap/a")]   # (never reverted-unmatched)
+
+
+def test_the_lane_waits_for_the_load_interlock(monkeypatch):
+    v = module("verify")
+    import load
+    rows, now, slept = iter([(7, 0, 0), (4, 0, 0), (3, 3500, 0), (3, 100, 50), (3, 100, 10)]), {}, []
+
+    def suites():
+        now["r"] = next(rows)
+        return now["r"][0]
+    monkeypatch.setattr(v.fac, "suites_running", suites)
+    monkeypatch.setattr(load, "reading", lambda what: now["r"][{"threads": 1, "memory": 2}[what]])
+    monkeypatch.setattr(v.time, "sleep", slept.append)
+    v.room({"load": {"wait_poll": 0}}, 2)                                 # 6 slots, the last kept: 3 + 2 fit
+    assert len(slept) == 4 and next(rows, None) is None
+    rows = iter([(1, 0, 0), (0, 0, 0)])
+    v.room({"load": {"wait_poll": 0}}, 8)                                 # more than the slots: an empty machine
+    assert len(slept) == 5
+    assert v.room({"load": {"wait": False, "wait_poll": 0}}, 99) == 0.0
+    assert v.holds() == {"suites": 6.0, "threads": 3000.0, "memory": 40.0}
 
 
 def test_a_red_quick_check_keeps_the_gap_off_main_with_no_full_suite(tmp_path):

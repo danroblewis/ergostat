@@ -1008,7 +1008,10 @@ publish. Both are parameters in `dev/model/landing.yaml` (a controller may move 
 override them, for tests). The full suites (`queue.suites`, browser always) run in `run/verify-half/`, on the second
 half of `[agents] queue_cpuset` with half the workers (`halves.share`), in containers named `suite-verify-*` that the
 queue's sweep leaves alone. The queue's lock is taken only to write reverts, never while a suite runs, so landing never
-waits for verification (both still count against the load interlock's slots).
+waits for verification. Before each round of suites the lane waits for the load interlock (`verify.room`): the suites
+running and the round's own (2 for each full run, 1 for each named rerun) leave the last of `machine-quiet`'s slots
+free for the queue, and the suites' threads and memory are within `suite-threads-within` and `suite-memory-within`
+(their holds read from `dev/model/interlock.yaml`; one not found fails the run).
 
 **Green** moves `refs/heads/verified` in the checkout (compare-and-swap from the commit read at the start), and each gap
 merged in the window gets `verified_sha`, `verified_at` and `verify_hours`. **Red**, as the queue does: 1 to 3 tests
@@ -1017,14 +1020,23 @@ verified; tests that fail alone twice on the verified commit are main's own: an 
 reverted, the lane held (run/verify.json `held`) until the intervention is remedied. Otherwise the merges since the
 verified commit are bisected (each prefix built without the merges the lane reverted later in the window, so a second
 culprit in the same window is found next, never the first again): in rounds of up to 4 prefixes at once on the failing tests when they fail alone on the
-tip, else 2 full runs at once (`halves.run_all`, `verify.first_red`). The first red merge is tried alone on the
-verified commit (`verify_confirmed` true or false on the gap). It and every later merge whose branch holds its branch
-(a stacked gap) are reverted on main under the queue's lock, newest first, once no push of the queue's waits: each a
-commit `Revert "Merge branch ..."` with `This reverts commit <merge>` (escapes.py counts it) and `Reverted-tip:
-<branch tip>`. The culprit says `gap.queue-failed` (its tests, `pre` its base, `reverted_by_verify`), so flake triage
-takes it as today; each stacked gap says `gap.retried` (back to approved, uncounted). The reverts' push is asked like
-the queue's (run/queue.json `pending`, marked `reverts`: no gap waits on it), and the next run verifies again. A merge
-no gap owns, a revert that conflicts, or a bisection that cannot tell holds the lane with an intervention instead.
+tip, else 2 full runs at once (`halves.run_all`, `verify.first_red`). When the full runs blame the window's first
+merge, the verified commit itself is run first: red there (a tool, the clock, more failing tests than can be chased by
+name), or a run that cannot tell, is main's own, held as above. The first red merge is tried alone on the verified
+commit (`verify_confirmed` true or false on the gap). It and every later merge whose branch holds its branch (a
+stacked gap) are reverted on main under the queue's lock, newest first, once no push of the queue's waits. The
+stacked merges are read again inside that lock, from the culprit to main's head, so a stacked gap the queue landed
+during the verification goes too. Each is a commit `Revert "Merge branch ..."` with `This reverts commit <merge>` and
+`Reverted-tip: <branch tip>`, and a stacked one also `Stacked-on: gap/...`. escapes.py records the culprit's as
+`gap.reverted` on its gap, matched by that tip or by `reverted_by_verify` in whatever state the gap is now, and a
+stacked one's as nothing. The culprit is to say `gap.queue-failed` (its tests, `pre` its base, `reverted_by_verify`),
+so flake triage takes it as today; each stacked gap `gap.retried` (back to approved, uncounted). Those outcomes wait in
+the reverts' pending push (run/queue.json `pending`, marked `reverts`, their events in `then`), as the queue holds its
+own gaps' outcomes. Ran, or failed (the queue blocked, main still holding the reverts), they are said. Denied, main
+goes back over the reverts, no gap is told, and the lane is held with an intervention, so it does not find and revert
+the same merge again. No verification starts while that push waits; the next run after it settles verifies again. A
+merge no gap owns, a revert that conflicts, or a bisection that cannot tell holds the lane with an intervention
+instead.
 
 **Coming back.** When the queue merges a gap whose merge was reverted, it first undoes those reverts on the base
 (`verify.reapplied`: a commit `Reapply gap/...`, `Reapplied-tip:`), since a branch's commits already in main's history
