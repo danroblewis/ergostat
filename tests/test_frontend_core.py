@@ -111,6 +111,42 @@ def test_a_page_module_that_exports_page_is_mounted_and_its_calls_end_when_it_is
     pg.close()
 
 
+POLLED = """import { html, useApi } from "/static/app/core.js";
+let drawn = 0;
+export function page() {
+  const a = useApi("steady", {}, { every: 100 });
+  window.__drawn = ++drawn;
+  return html`<div class="page polled"><p class="n">${a.data ? a.data.n : ""}</p></div>`;
+}
+"""
+HIDE = """(on) => { Object.defineProperty(document, "hidden", { configurable: true, get: () => on });
+                    document.dispatchEvent(new Event("visibilitychange")); }"""
+POLLS_MADE = "() => window.ERGOSTAT_CALLS.filter((c) => c.path === 'steady').length"
+
+
+def test_use_api_polls_at_most_twice_a_second_not_while_hidden_and_draws_nothing_for_the_same_answer(browser, site):
+    """``every`` asks again after each answer, never faster than every 500 ms (100 asked); a hidden tab asks nothing
+    and asks again once shown; an unchanged answer draws the component no more."""
+    pg = browser.new_page()
+    pg.route("**/static/app/pages/agents/index.js*", lambda r: r.fulfill(status=200, content_type="text/javascript", body=POLLED))
+    pg.route("**/api/steady*", lambda r: r.fulfill(status=200, content_type="application/json", body='{"n": 3}'))   # never changes
+    pg.goto(f"{site}/agents")
+    pg.wait_for_function("() => document.querySelector('#main .polled .n')?.textContent", timeout=30000)
+    drawn, first = pg.evaluate("window.__drawn"), pg.evaluate(POLLS_MADE)
+    pg.wait_for_timeout(2000)
+    made = pg.evaluate(POLLS_MADE) - first
+    assert 2 <= made <= 5, f"{made} polls in 2 s at every: 100 (at least 500 ms apart: at most 5)"
+    assert pg.evaluate("window.__drawn") == drawn, "an unchanged answer drew the page again"
+    pg.evaluate(HIDE, True)
+    pg.wait_for_timeout(1000)                     # (one on its way arrives)
+    hidden = pg.evaluate(POLLS_MADE)
+    pg.wait_for_timeout(1500)
+    assert pg.evaluate(POLLS_MADE) == hidden, "asked while hidden"
+    pg.evaluate(HIDE, False)
+    pg.wait_for_function(f"() => ({POLLS_MADE})() > {hidden}", timeout=5000)
+    pg.close()
+
+
 def test_the_timing_overlay_lists_each_call_slowest_first(browser, site):
     """Off by default; ?timing=1 opens it (and is no part of the route); Shift+T closes and opens it, but not while
     typing in a field; each row a call's path and milliseconds, slowest first, new calls added as they end."""

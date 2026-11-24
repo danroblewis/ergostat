@@ -62,8 +62,9 @@ export const apiGet = (path, params = {}, signal = undefined) => getText(path, a
 
 /* an API answer for a component: { data, error, loading, ms, reload }. Asked again when the path, the params, the
    window or the moment change; the call in flight aborted when the component leaves (or asks again). ``every``: asked
-   again that many ms after each answer (shortened by ERGOSTAT_POLL_SPEED, as poll() is), never while the tab is
-   hidden. An answer the same as the last keeps the same data, so nothing is drawn again for it. */
+   again that many ms after each answer (at least 500; shortened by ERGOSTAT_POLL_SPEED, as poll() is), never while
+   the tab is hidden. An answer the same as the last changes nothing (``ms`` stays the last changed answer's), so
+   nothing is drawn again for it. */
 export function useApi(path, params = {}, { every = 0 } = {}) {
   const w = useStore((s) => s.window), at = useStore((s) => s.at);
   const [got, setGot] = useState({ data: null, error: null, loading: true, ms: null });
@@ -85,7 +86,7 @@ export function useApi(path, params = {}, { every = 0 } = {}) {
         if (gone) return;
         const ms = Math.round(performance.now() - t0);
         if (text !== last) { last = text; setGot({ data: JSON.parse(text), error: null, loading: false, ms }); }
-        else setGot((g) => (g.ms === ms && !g.error ? g : { ...g, ms, error: null }));
+        else setGot((g) => (g.error ? { ...g, ms, error: null } : g));   // (the same answer: nothing drawn again)
       } catch (e) {
         if (gone || e?.name === "AbortError") return;
         setGot((g) => ({ ...g, error: e, loading: false }));
