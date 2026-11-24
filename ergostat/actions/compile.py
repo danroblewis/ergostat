@@ -124,13 +124,13 @@ def columns(c, m, key: str, what: str, ok, says: str) -> dict:
 
 
 def risk(c, m, what: str) -> tuple[int | None, dict]:
-    """``risk: {severity: 1..5, threshold: 1 < T ≤ 50}`` (SPEC §12k, ``risk.py``): a floor and a ceiling on each; the
+    """``risk: {severity: 1..5, threshold: 1 < T ≤ 100}`` (SPEC §12k, ``risk.py``): a floor and a ceiling on each; the
     threshold may be a map by operating column."""
     r = m.get("risk")
     if r is None:
         return None, {}
     if not isinstance(r, dict):
-        c.err(f"{what}.risk: a map, {{severity: 1 to 5, threshold: above 1, at most 50 (default 8)}}", m.at("risk"),
+        c.err(f"{what}.risk: a map, {{severity: 1 to 5, threshold: above 1, at most {HIGHEST:g} (default 8)}}", m.at("risk"),
               "not-a-map")
         return None, {}
     c.keys(r, {"severity", "threshold"}, f"{what}.risk")
