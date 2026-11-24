@@ -67,10 +67,13 @@ def _verdict(got: dict) -> dict:
 
 
 def _n(got: dict) -> int:
-    """How many values an answer holds: its series' or points' values, a table's cells, a graph's nodes, a response's
-    frequencies."""
+    """How many values an answer holds: its series' or points' values, a typed table's measure cells (a missing one is
+    not counted), a graph's nodes, a response's frequencies."""
     if got.get("shape") == "graph":
         return len(got["nodes"]["id"])
+    if got.get("shape") == "table":                    # (a data source's: rows, no series)
+        k = len(got.get("dims") or [])
+        return sum(v is not None for r in got.get("rows") or [] for v in r[k:])
     if "frequency" in got:
         return len((got.get("frequency") or {}).get("hz") or [])
     return sum(v is not None for s in got.get("series") or [] for v in s.get("close") or s.get("values") or [])

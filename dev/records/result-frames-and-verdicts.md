@@ -386,6 +386,28 @@ Run here, none skipped:
 
 Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
 
+### Round 13
+
+The one finding, blocking, is answered: *a typed table's `meta.n` was 0* (`query/frames.py`, `_n`). `n` was counted
+only from `series`, so a data source's table, every SQL table answer among them, said `n = 0` however many rows it
+held. A typed table's `n` now counts its measure cells, and a missing or non-finite cell is not counted. Its dims are
+keys, not values, so they are not counted either. An engine-built table still counts its series' values, as before.
+The docstring and SPEC §4e say so.
+
+Test: `tests/test_result_frames_and_verdicts.py::test_a_typed_tables_n_counts_its_measure_cells_and_not_its_dims_or_missing_ones`
+(three rows of two measures through `_frames.answer`, one cell `None` and one NaN, give `n = 4`). With the table branch
+of `_n` turned off, it failed (`assert 0 == 4`). Then the branch was restored.
+
+Outside tests, docs and dev the branch is 392 lines added and 59 removed. `git merge main` says "Already up to date".
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_result_shapes (59);
+  test_result_frames_and_verdicts, test_query_engine and test_data_sources (106).
+- Browser, rc 0: test_result_frames_page with test_result_shapes_page (13).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently

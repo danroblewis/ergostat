@@ -1556,8 +1556,8 @@ reads the event log.
   a model) and `graph` (the nodes and edges of one named `kind` of diagram: `process`, `conformance`, `dependency`,
   `wait_for`, `impact`, `service`, `sequence` or `lineage`). Each answer also carries `meta`: its `source`, its `query`
   (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the record, `declared` for a
-  model's), `verdict`, `n` (the values it holds), `n_effective` and `sampling` (`step_s`; `scrape_s`,
-  `range_windows_s` and `observable_period_s`). `n_effective` and those three of `sampling` are `null`, as not known yet,
+  model's), `verdict`, `n` (the values it holds: a table's are its measure cells, a missing one not counted),
+  `n_effective` and `sampling` (`step_s`; `scrape_s`, `range_windows_s` and `observable_period_s`). `n_effective` and those three of `sampling` are `null`, as not known yet,
   never guessed. A data source's type may answer with a typed frame instead of a list of series: `series` (with roles),
   a `table`, `points`, a `response` (`frequency`, and `system` with its poles and zeros as `[re, im]`; one refused,
   `supported: false`, carries no curve), a histogram's cumulative buckets, or a `graph`. Each is checked and bounded

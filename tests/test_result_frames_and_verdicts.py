@@ -202,6 +202,14 @@ def test_the_envelope_says_n_and_step_and_leaves_what_it_does_not_know_unknown()
     assert got["meta"]["sampling"] == {"step_s": 120.0, "scrape_s": None, "range_windows_s": None, "observable_period_s": None}
 
 
+def test_a_typed_tables_n_counts_its_measure_cells_and_not_its_dims_or_missing_ones():
+    table = _frames.answer({"shape": "table", "dims": [{"name": "queue", "type": "string"}],
+                            "measures": [{"name": "waiting"}, {"name": "served"}],
+                            "rows": [["a", 3, 5], ["b", None, 2], ["c", 1, float("nan")]]}, None, 10)
+    assert "series" not in table
+    assert frames.framed(table, None)["meta"]["n"] == 4      # 3, 5, 2 and 1: a missing or NaN cell is not a value
+
+
 class Histogram(BaseHTTPRequestHandler):
     """A Prometheus whose every range query answers the hand-worked buckets; ``two`` answers them for two jobs."""
 
