@@ -1,0 +1,29 @@
+{
+ "about": "A merge queue's batches for the lanes replay (tests/test_merge_lanes.py): arrival and suite minutes, the code paths each changes (docs and records left out, as a model would declare its apart: field), and whether its suites pass. Made up for the test, shaped like the factory's queue: about 40 minutes a run, a batch every 12 minutes, one in eight red.",
+ "batches": [
+  {"id": "batch/01", "at": 0,   "minutes": 40, "passes": true,  "touches": ["ergostat/leases/dispatch.py", "ergostat/leases/fold.py"]},
+  {"id": "batch/02", "at": 12,  "minutes": 38, "passes": true,  "touches": ["ergostat/web/static/items.js"]},
+  {"id": "batch/03", "at": 24,  "minutes": 42, "passes": true,  "touches": ["ergostat/numbers/eta.py"]},
+  {"id": "batch/04", "at": 36,  "minutes": 40, "passes": false, "touches": ["ergostat/leases/dispatch.py"]},
+  {"id": "batch/05", "at": 48,  "minutes": 36, "passes": true,  "touches": ["ergostat/query/parse.py", "ergostat/query/buckets.py"]},
+  {"id": "batch/06", "at": 60,  "minutes": 41, "passes": true,  "touches": ["ergostat/remote/compose.py"]},
+  {"id": "batch/07", "at": 72,  "minutes": 39, "passes": true,  "touches": ["ergostat/web/static/items.js", "ergostat/web/server.py"]},
+  {"id": "batch/08", "at": 84,  "minutes": 44, "passes": true,  "touches": ["ergostat/spec/compile.py"]},
+  {"id": "batch/09", "at": 96,  "minutes": 40, "passes": true,  "touches": ["ergostat/numbers/etamodel.py"]},
+  {"id": "batch/10", "at": 108, "minutes": 37, "passes": true,  "touches": ["ergostat/leases/dispatch.py"]},
+  {"id": "batch/11", "at": 120, "minutes": 40, "passes": true,  "touches": ["ergostat/cli/main.py"]},
+  {"id": "batch/12", "at": 132, "minutes": 43, "passes": false, "touches": ["ergostat/spec/compile.py", "ergostat/spec/ir.py"]},
+  {"id": "batch/13", "at": 144, "minutes": 40, "passes": true,  "touches": ["ergostat/spec/ir.py"]},
+  {"id": "batch/14", "at": 156, "minutes": 38, "passes": true,  "touches": ["ergostat/daemons/supervise.py"]},
+  {"id": "batch/15", "at": 168, "minutes": 41, "passes": true,  "touches": ["ergostat/web/static/details.js"]},
+  {"id": "batch/16", "at": 180, "minutes": 40, "passes": true,  "touches": ["ergostat/numbers/eta.py", "ergostat/numbers/etamodel.py"]},
+  {"id": "batch/17", "at": 192, "minutes": 39, "passes": true,  "touches": ["ergostat/query/parse.py"]},
+  {"id": "batch/18", "at": 204, "minutes": 42, "passes": true,  "touches": ["ergostat/remote/listen.py"]},
+  {"id": "batch/19", "at": 216, "minutes": 40, "passes": true,  "touches": ["ergostat/costs/record.py"]},
+  {"id": "batch/20", "at": 228, "minutes": 40, "passes": false, "touches": ["ergostat/web/server.py"]},
+  {"id": "batch/21", "at": 240, "minutes": 38, "passes": true,  "touches": ["ergostat/web/server.py", "ergostat/web/static/details.js"]},
+  {"id": "batch/22", "at": 252, "minutes": 41, "passes": true,  "touches": ["ergostat/leases/frozen.py"]},
+  {"id": "batch/23", "at": 264, "minutes": 40, "passes": true,  "touches": ["ergostat/spec/engine.py"]},
+  {"id": "batch/24", "at": 276, "minutes": 39, "passes": true,  "touches": ["ergostat/cli/main.py", "ergostat/spec/engine.py"]}
+ ]
+}
