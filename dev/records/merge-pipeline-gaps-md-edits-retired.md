@@ -1,0 +1,7 @@
+# merge-pipeline-gaps-md-edits-retired: No branch edits docs/GAPS.md any more: the carry step and the union merge go
+
+depends-on: [merge-pipeline-gaps-intake-reads-records, merge-pipeline-gaps-deps-read-records, merge-pipeline-gaps-briefs-read-records]
+
+Problem: the carry step in the queue (gapsdoc.carry) and `GAPS.md merge=union` in docs/.gitattributes exist only for branches approved before the cutover. Once none is left they are dead code and the union merge can still splice. Change: before removing anything the gap checks, and says in its record, that no gap in building, built, review, fix, approved, queued or push-pending has a branch whose diff against main touches docs/GAPS.md; if one does, the gap is given back uncounted naming it. Then: remove gapsdoc.carry and its call; the queue gives back to fix, uncounted, an approved gap whose diff touches docs/GAPS.md, with the brief implement.py already gives; remove the union line from docs/.gitattributes; dev/records/GAPS-unplaced.md, if it holds anything, is listed in the record for the coordinator and not deleted. Done: a batch-mate editing GAPS.md goes back uncounted and the batch lands without it; the regeneration commit is unchanged; README and the queue's docstring no longer mention carrying. Files: dev/bin/queue.py, dev/bin/gapsdoc.py, docs/.gitattributes, dev/README.md, tests/test_factory.py. Budget: -20 net lines in dev/bin (a removal).
+
+Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
