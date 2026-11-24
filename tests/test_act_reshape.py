@@ -253,6 +253,23 @@ def test_program_full_denied_by_risk_target_runs_once(tmp_path):
     assert ran(tmp_path) == ["push t1", "push t1"] and len(record.stored(p)) == 6
 
 
+def test_program_full_denied_by_risk_asked_anew_once_owner_back(tmp_path):
+    """Denied by its act-risk under away, its target ran. The owner back (normal: auto, no reshape, a risk that
+    passes), the same ask no longer finds the denied full act standing: the full act is asked anew and runs once, and
+    the target is not run again (lesson-5)."""
+    p = project(tmp_path, pr_risk="risk: {severity: 3, threshold: {normal: 50, away: 2}}")
+    cfg = {"block": "dev", "run": "r1", "item": None, "workdir": str(tmp_path), "actions": ["pr"]}
+    a = program.ask(p, p.model.spec, cfg, "pr", ARGS, key="k1")
+    full = record.get(p, a["reshaped_from"])
+    assert full["state"] == "denied" and full["denied_by"] == "gate" and a["state"] == "ran"
+    operating.enter(p, "normal")                    # the owner present: normal's auto, T 50
+    b = program.ask(p, p.model.spec, {**cfg, "run": "r2"}, "pr", ARGS, key="k1")
+    assert b["action"] == "pr" and b["id"] != full["id"] and b["state"] == "ran" and "reshaped_to" not in b
+    c = program.ask(p, p.model.spec, {**cfg, "run": "r3"}, "pr", ARGS, key="k1")
+    assert c["id"] == b["id"] and len(record.stored(p)) == 3, "the full act that ran stands"
+    assert ran(tmp_path) == ["push t1", "pr t1"], "the full act ran once, the target once"
+
+
 def test_program_full_denied_by_risk_held_target_leased(tmp_path):
     """The full act denied by its act-risk, its target held: asked again under a later lease, the target is taken over
     by that lease (as under a held full act), and runs once approved."""

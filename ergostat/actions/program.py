@@ -15,8 +15,9 @@ its item back while it waits, and is taken again, finds its action and its resul
 that ran is never run again, its result given back; one the owner denied stays denied. One that failed is asked for
 anew. A reshaped act (SPEC §12k) is answered by its smaller act while the full one is held, and by the full one once
 the owner answers it; asked again, the smaller act is taken over with it, or asked anew when it failed. A full act
-the gate denied at its request (its own act-risk) is answered by its smaller act while that one stands, so the
-smaller act is never run twice; once that one no longer stands, both are asked for anew. Every result given to the
+the gate denied at its request (its own act-risk) is answered by its smaller act while that one stands and the column in
+force is a reshape still, so the smaller act is never run twice; once that one no longer stands, both are asked for
+anew, and once no reshape is in force (the owner back), the full act is asked for anew. Every result given to the
 run that asked is ``delivered`` (``how: run``)."""
 
 from __future__ import annotations
@@ -61,8 +62,9 @@ def key_of(name: str, args: dict, key: str | None = None) -> str:
 
 def known(p, spec, cfg: dict, name: str, k: str, scoped: bool) -> dict | None:
     """The same act asked for before, when it still stands: held, approved, ran, or denied by the owner (or by a gate
-    whose cell in force is deny still, or by the gate at its request while the smaller act it was reshaped to stands).
-    None for one that failed, or was denied by a gate since changed, or by fencing."""
+    whose cell in force is deny still, or by the gate at its request while the smaller act it was reshaped to stands
+    and its column in force is a reshape still). None for one that failed, or was denied by a gate since changed (its
+    act-risk is assessed again), or by fencing."""
     item = cfg.get("item")
     if not item and not scoped:                       # no item, no --key: every run's request is its own
         return None
@@ -83,9 +85,11 @@ def stands(p, spec, a: dict) -> dict | None:
         act = spec.actions.get(a.get("action") or "")
         if act is not None and gt.in_force(p, act)[0] == "deny" and not note.startswith("fenced"):
             return a
-        t = rec.get(p, a["reshaped_to"]) if a.get("reshaped_to") and not a.get("approved_by") else None
-        if t is not None and stands(p, spec, t):     # denied at its request, reshaped: its target answers (lesson-5)
-            return a
+        shaped = a.get("reshaped_to") and not a.get("approved_by") and act is not None
+        if shaped and (act.reshapes or {}).get(gt.in_force(p, act)[2]["column"]):   # while a reshape is in force
+            t = rec.get(p, a["reshaped_to"])         # denied at its request, reshaped: its target answers (lesson-5)
+            if t is not None and stands(p, spec, t):
+                return a
     return None
 
 

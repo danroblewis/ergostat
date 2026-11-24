@@ -197,3 +197,33 @@ Run: `tests/test_act_reshape.py` (15 passed), `tests/test_program_actions.py`, `
 `tests/test_regime_gates.py`, `tests/test_act_risk.py`, `tests/test_operating_state.py`, `tests/test_spec_schema.py`,
 `tests/test_spec_structure.py`: all passed (136 tests). ruff is clean. The unit suite and the four browser files were
 not run here (the factory runs them). No page changed.
+
+## Where it stopped (round 4)
+
+Built, round 4. This round had one finding (blocking), and it is fixed in `ergostat/actions/program.py` (`stands`). The finding: a full act
+denied by its own act-risk at its request stood for as long as its target stood, even after the reshape was no longer
+in force. Once the owner was back, every later ask was answered by the old target, and the full act could never be
+asked for again (lesson-5).
+- `program.stands`: a full act denied by the gate at its request, with a `reshaped_to`, stands only while its column
+  in force is still a reshape (`act.reshapes.get(gt.in_force(p, act)[2]["column"])`, the same reading the request
+  makes) and its target stands. Otherwise it is like any act denied by act-risk: it does not stand, `known()` returns
+  None, and `start` asks for the full act anew. That new ask is made under the column's own gate and act-risk, with no
+  reshape and no new target. So the target is not run again. The docstrings (module, `known`) and SPEC §12k (*A program
+  asking again*) now say this, and the docstring's "denied by a gate since changed" again matches what the code does.
+- Test: `test_program_full_denied_by_risk_asked_anew_once_owner_back` uses `risk: {severity: 3, threshold: {normal:
+  50, away: 2}}`. Under away the full act is denied by act-risk and the target runs. Then `operating.enter(p, "normal")`
+  and the same key is asked again. The answer is a new `pr` record, which ran and has no `reshaped_to`. A third ask
+  gets that same record back (3 records in all). `ran.txt` is `["push t1", "pr t1"]`: the full act ran once and the
+  target once.
+- I broke the fix by hand (the reshape-in-force check removed) and the new test failed: the second ask was answered by
+  `push`, which reproduces the finding. The round-3 tests still pass with the fix in place, because there the column
+  stays `away`, so the reshape is still in force.
+
+Main has nothing new (`HEAD..main` is empty).
+
+Overrun reason: the gap is now 119 net lines outside tests and docs, against the base gap's merge (f3425a8f). That is round 3's 115 plus this round's 4 in program.py (11 added, 7 removed), and 9 over the 110 budget. The four review rounds asked for program-ask rules the plan did not foresee: lease takeover, asking anew, the owner's answer, the gate-denied full act, and this round's check that the reshape is still in force. Most of program.py's lines are those rules and the docstring that states them.
+
+Run: `tests/test_act_reshape.py` (16 passed), `tests/test_program_actions.py`, `tests/test_regime_gates.py`,
+`tests/test_gated_actions.py`, `tests/test_act_risk.py`, `tests/test_operating_state.py`, `tests/test_spec_schema.py`,
+`tests/test_spec_structure.py`: all passed (137 tests). ruff is clean. I did not run the unit suite or the four browser
+files here (the factory runs them). No page changed.
