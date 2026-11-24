@@ -1,22 +1,27 @@
 """Act-risk (SPEC §12k): an action declared with ``risk: {severity: S, threshold: T}`` is gated one step stricter when
 this act is riskier than its class. Plain arithmetic, no AI:
 
-    act_risk = S × (1 + 4c) × (1 + n)        step  ⇔  act_risk ≥ T
+    act_risk = S × (1 + s) × (1 + 4c) × (1 + n)        step  ⇔  act_risk ≥ T
 
-``c``: the asking block's contradicted share of its checked claims over the last week (``trust.WEEK``); ``n``: 0 when
-another action of the same name ran (exit 0) within the last 90 days, else 1. Every input that cannot be read counts
-as the worst case (c = 1, n = 1), each with its own reason. A step goes ``auto`` → ``approve`` → ``deny``, never back."""
+``s``: 1 when the action's work item moved (an event by another writer, ``seq`` after the asking run's start) under
+the run that planned it, else 0; ``c``: the asking block's contradicted share of its checked claims over the last week
+(``trust.WEEK``); ``n``: 0 when another action of the same name ran (exit 0) within the last 90 days, else 1. Every
+input that cannot be read counts as the worst case (s = 1, c = 1, n = 1), each with its own reason. A step goes
+``auto`` → ``approve`` → ``deny``, never back."""
 
 from __future__ import annotations
 
 import math
 import time
 
+from ..leases import RENEWED
+
 ORDER = ("auto", "approve", "deny")      # least to most strict
 COLUMNS = ("normal", "away", "maintenance", "freeze", "incident")      # what the operating state picks (SPEC §12k)
 NOVEL = 90 * 86400.0                     # how far back a run of the same action makes it known
 THRESHOLD = 8.0                          # T's default
-HIGHEST = 50.0                           # the largest score: S=5, c=1, n=1
+HIGHEST = 100.0                          # the largest score: S=5, s=1, c=1, n=1
+START = "agent.started"                  # a run's start: its event's id is the run's id
 
 
 def clamp(x) -> float:
@@ -60,15 +65,41 @@ def novelty(p, name: str, now: float, aid: str | None = None) -> tuple[int, str]
     return 1, "not run within 90 days"
 
 
-def inputs(p, name: str, block: str | None, aid: str | None = None, now: float | None = None) -> dict:
+def own(e: dict, run: str) -> bool:
+    """The run's own write: caused by it, or the engine's renewal of its lease (``data.run``, no ``causedby``)."""
+    return e.get("causedby") == run or (e.get("type") == RENEWED and (e.get("data") or {}).get("run") == run)
+
+
+def staleness(p, run: str | None, item: str | None) -> tuple[int, str]:
+    """s: 1 when ``item`` has an event by a writer other than ``run`` (not its ``own``) with a ``seq`` after the run's
+    start, else 0. Ordered by ``seq``, never by time (lesson-2); anything not found or not read is 1 (lesson-3)."""
+    if not run:
+        return 1, "no asking run"
+    if not item:
+        return 1, "no work item"
+    try:
+        start = p.events.get(run)                        # (get also takes an id's prefix: the id and type are checked)
+        if not start or start.get("id") != run or start.get("type") != START or not isinstance(start.get("seq"), int):
+            return 1, "the run's start not found"
+        moved = [e for e in p.events.query(n=None, item=item, after_seq=start["seq"]) if not own(e, run)]
+    except Exception:                                    # noqa: BLE001
+        return 1, "record unreadable"
+    if moved:
+        return 1, f"{item} moved by another writer since the run started"
+    return 0, "not moved since the run started"
+
+
+def inputs(p, name: str, block: str | None, aid: str | None = None, now: float | None = None,
+           run: str | None = None, item: str | None = None) -> dict:
     now = time.time() if now is None else now
+    s, s_why = staleness(p, run, item)
     c, c_why = contradicted(p, block, now)
     n, n_why = novelty(p, name, now, aid)
-    return {"c": c, "c_why": c_why, "n": n, "n_why": n_why}
+    return {"s": s, "s_why": s_why, "c": c, "c_why": c_why, "n": n, "n_why": n_why}
 
 
-def score(severity: int, c: float, n: int) -> float:
-    return float(severity * (1 + 4 * c) * (1 + n))
+def score(severity: int, c: float, n: int, s: int) -> float:
+    return float(severity * (1 + s) * (1 + 4 * c) * (1 + n))
 
 
 def step(gate: str, act_risk: float, threshold: float) -> str:
@@ -116,14 +147,14 @@ def cell(action, o) -> tuple[str, float, str]:
 
 
 def assess(p, action, block: str | None, aid: str | None = None, gate: str | None = None,
-           threshold: float | None = None) -> dict | None:
+           threshold: float | None = None, run: str | None = None, item: str | None = None) -> dict | None:
     """The act's reading (None for an action without ``risk:``): its score, inputs and its gate (``gate``: the
-    column's, else the action's), stepped at ``threshold``."""
+    column's, else the action's), stepped at ``threshold``. ``run``, ``item``: the asking run and its work item."""
     if action.severity is None:
         return None
     gate, threshold = gate or action.gate, action.threshold if threshold is None else threshold
-    got = inputs(p, action.name, block, aid)
-    s = score(action.severity, got["c"], got["n"])
+    got = inputs(p, action.name, block, aid, run=run, item=item)
+    s = score(action.severity, got["c"], got["n"], got["s"])
     return {"score": s, "severity": action.severity, "threshold": threshold, **got, "gate": step(gate, s, threshold)}
 
 

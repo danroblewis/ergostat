@@ -216,6 +216,13 @@ def browser():
         b.close()
 
 
+def panel(pg, name: str) -> None:
+    """An agent's side panel opened, as the diagram opens it (a row on /agents goes to the agent's own page)."""
+    pg.evaluate("(n) => { openAgent(n); }", name)
+    pg.wait_for_selector(f"#detail h2:text-is('{name}')")
+    pg.wait_for_selector("#detail .panel-loading", state="detached")      # (its heading is drawn before it is read)
+
+
 def shot(pg, name: str) -> None:
     out = os.environ.get("RUNCOST_SHOTS")
     if out:
@@ -245,7 +252,7 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     assert rows["writer"][1].endswith("M") or rows["writer"][1].endswith("k")
     assert "What the runs cost" in pg.inner_text(".page .note")
     shot(pg, f"agents-page-{theme}.png")
-    pg.click("tr.click:has(b:text-is('writer'))")
+    panel(pg, "writer")
     pg.wait_for_selector(".use-charts .chart canvas")
     pg.wait_for_timeout(800)
     names = pg.eval_on_selector_all(".use-charts .chart-name", "els => els.map((e) => e.textContent)")
@@ -448,7 +455,7 @@ def test_an_agent_that_never_ran_is_behind_or_last_failed_stands_out(standout, b
     top = pg.inner_text(".ladder-line")
     assert "1 never ran" in top and "1 behind schedule" in top and "1 last run failed" in top
     runs = pg.eval_on_selector(row("judge"), "tr => tr.children[2].textContent")
-    pg.click(row("judge"))
+    panel(pg, "judge")
     pg.wait_for_selector("#detail h2:text-is('judge')")
     pg.wait_for_selector("#detail .panel-loading", state="detached")      # (its heading is drawn before it is read)
     said = re.search(r"(\d+) runs: \d+ done", pg.inner_text("#detail"))
@@ -539,7 +546,8 @@ def test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_a
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(f"{site['url']}/agents")
-    pg.click("tr.click:has(b:text-is('writer'))")
+    pg.wait_for_selector("tr.click:has(b:text-is('writer'))")
+    panel(pg, "writer")
     pg.wait_for_selector(".runs-table td a[href^='/item/']")
     rows = pg.eval_on_selector_all(".runs-table > table tr", """trs => trs.slice(1).map((tr) => ({
         item: tr.cells[1].querySelector("a")?.getAttribute("href"), outcome: tr.cells[2].textContent,
@@ -628,12 +636,12 @@ def test_each_row_says_how_it_is_engaged_and_which_goal_it_serves(site, leased, 
         assert when and all(when), when
     row = pg.inner_text("tr.click:has(b:text-is('work'))")
     assert "on demand, per item (leased)" in row and "valve work → goal located-worked" in row, row
-    pg.click("tr.click:has(b:text-is('work'))")
+    panel(pg, "work")
     pg.wait_for_selector("#detail h2:text-is('work')")
-    panel = pg.inner_text("#detail")
-    assert "not run by ergostat" not in panel
-    assert "started per item by its lease, not on a schedule" in panel
-    assert "28 runs: 9 done, 19 refused (workspace pool full), 0 failed" in panel, panel
+    said = pg.inner_text("#detail")
+    assert "not run by ergostat" not in said
+    assert "started per item by its lease, not on a schedule" in said
+    assert "28 runs: 9 done, 19 refused (workspace pool full), 0 failed" in said, said
     assert not errors, errors
     pg.close()
 
@@ -654,7 +662,7 @@ def test_an_ai_agents_runs_given_back_for_a_full_pool_read_free_not_unknown(leas
     pg.wait_for_selector("tr[data-total] td[data-use=cost]")
     assert pg.inner_text("tr.click:has(b:text-is('work')) td[data-use=cost]") == "free stand-in, $0"
     assert "not known" not in pg.inner_text("tr[data-total] td[data-use=cost]")
-    pg.click("tr.click:has(b:text-is('work'))")
+    panel(pg, "work")
     pg.wait_for_selector("#detail .runs-table > table > tr")         # a run's row (the head row is in its thead)
     costs = panel_costs(pg)
     assert len(costs) == 10 and all(c == "free stand-in, $0" for c in costs), costs   # the ten newest: all given back
@@ -670,7 +678,8 @@ def test_a_stand_in_agents_panel_reads_free_for_a_good_run_and_not_known_for_a_k
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(f"{site['url']}/agents")
-    pg.click("tr.click:has(b:text-is('drafter'))")
+    pg.wait_for_selector("tr.click:has(b:text-is('drafter'))")
+    panel(pg, "drafter")
     pg.wait_for_selector("#detail .runs-table > table > tr")         # a run's row (the head row is in its thead)
     costs = panel_costs(pg)
     assert len(costs) == 10 and all(c == "free stand-in, $0" for c in costs), costs   # good exit-0 runs, no session
@@ -691,7 +700,8 @@ p.events.add("agent.failed", item="drafter", source="ergostat", causedby=begun["
             break
         time.sleep(0.2)
     pg.goto(f"{site['url']}/agents")
-    pg.click("tr.click:has(b:text-is('drafter'))")
+    pg.wait_for_selector("tr.click:has(b:text-is('drafter'))")
+    panel(pg, "drafter")
     pg.wait_for_function("""() => [...document.querySelectorAll("#detail tr")].some((tr) => /killed/.test(tr.textContent))""",
                          timeout=20000)
     costs = panel_costs(pg)

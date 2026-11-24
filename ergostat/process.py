@@ -74,15 +74,15 @@ def _kind(spec, kinds: list[str], id: str | None) -> str | None:
 
 
 def _done(spec, events, kind) -> set[str]:
-    from .spec.itemindex import done_states
+    """The states the map's end is reached in: ``finished.ends_of`` (finished, and ``dead``: what the Items list hides)."""
+    from .spec.finished import ends_of
     from .spec.items import _index
-    declared = getattr(getattr(spec, "messages", None), "done", None)
     ix = _index(events, spec, False)
     left: set[str] = set()
     if ix is not None:
         with ix.lock:
             left = ix.left(kind.name)
-    return set(done_states(kind, left, declared)) - {"leased"}       # held by a run is never finished, however new the record
+    return set(ends_of(spec, kind.name, left))
 
 
 def _folded(events, spec, kind: str, ids) -> dict:

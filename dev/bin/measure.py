@@ -11,7 +11,9 @@ begun at most listing.SHARE (120) seconds before (listing.py): readings due toge
   merges-per-hour     gaps merged per hour of the queue's running: the gaps merged over the hours of every queue run
                       that ended in the window (each run's whole length once, whatever it landed: `queue_runs`)
   suite-minutes       median minutes of the queue's suites (unit, browser, demo) on the runs that passed
-  first-pass-yield    the share of first reviews whose verdict was merge
+  first-pass-yield    the share of first reviews whose verdict was merge, an env-park's review left out
+  env-parks           parks caused by done items the implementor's container cannot do (plan.py env_needs): gaps
+                      parked at plan time for the owner (env_parked_at), and reviews that parked such a gap for a need
   fix-rounds          mean rounds sent back to the implementor per merged gap
   flake-rate          flakes per queue run: triage's retries plus the runs the queue excused as flakes (a landed gap's
                       suites_queue.excused, each run once by batch_id), over the queue runs, as merges-per-hour counts them
@@ -121,7 +123,9 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         at = [float(r["fields"].get("recorded_at") or r.get("first") or 0) for r in rows]
         return float(sum(t >= now - 7 * 86400 for t in at) - sum(now - 14 * 86400 <= t < now - 7 * 86400 for t in at))
     if name == "first-pass-yield":
-        first = [r for r in recent(listing.items("review"), "written_at", since) if r["fields"].get("round") == 1]
+        gaps = {g["id"]: g for g in listing.items("gap")}     # (an env-park is not the implementor's failure)
+        first = [r for r in recent(listing.items("review"), "written_at", since) if r["fields"].get("round") == 1
+                 and not env_park(r, gaps)]
         if not first:
             raise SystemExit("first-pass-yield: no value yet (no first review in the window)")   # not 0: unknown
         return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
@@ -139,6 +143,8 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
             if len(unknown) == len(rows):
                 raise SystemExit("tool-denials: no value (no session in the window said what it was refused)")
         return float(sum(int(r["tool_denials"] or 0) for r in rows if "tool_denials" in r))
+    if name == "env-parks":
+        return env_parks(since)
     if name == "refused-commands-per-session":
         return refused_commands([r["fields"] for r in recent(listing.items("session"), "started", since)])
     if name in KNOWLEDGE:
@@ -342,6 +348,22 @@ def knowledge_reading(name: str, since: float) -> float:
         return share([r["fields"].get("verdict") == "merge" for r in first if carried.get(review_gap(r))], name)
     risks = {r["id"]: set(gaps.get(review_gap(r), {}).get("fields", {}).get("risks") or []) for r in first}
     return share([not (risks[r["id"]] & set(r["fields"].get("classes") or [])) for r in first if risks[r["id"]]], name)
+
+
+def env_park(review: dict, gaps: dict) -> bool:
+    """A review that parked its gap for a need, on a gap with done items the implementor cannot do (plan.py's
+    env_needs): a park those items caused after building (one at plan time is the gap's env_parked_at)."""
+    f = review["fields"]
+    return f.get("verdict") == "park" and f.get("parked_for") == "needs" and bool(
+        gaps.get(review_gap(review), {}).get("fields", {}).get("env_needs"))
+
+
+def env_parks(since: float) -> float:
+    """The parks caused by done items an implementor's container cannot do: at plan time (env_parked_at), and by a
+    review (env_park), in the window."""
+    gaps = {g["id"]: g for g in listing.items("gap")}
+    return float(sum(float(g["fields"].get("env_parked_at") or 0) >= since for g in gaps.values()) + sum(
+        env_park(r, gaps) for r in recent(listing.items("review"), "written_at", since)))
 
 
 def recurring(gaps: dict, reviews: list[dict]) -> float:

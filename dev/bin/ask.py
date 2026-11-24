@@ -1,9 +1,10 @@
 """A research question for the factory's researcher (dev/bin/research.py), from the coordinator; run in the
 instance's folder. The answer lands in run/research/<name>.md, its summary on the item (`ergostat item ID`). With
 --gap, the question is that gap's: once answered, its report is in the gap's implementor's, reviewer's and planner's
-briefs (knowledge.py, "Research for this gap"); a gap the record does not hold is refused.
+briefs (knowledge.py, "Research for this gap"); a gap the record does not hold is refused. With --areas, the finding
+its checked answer proposes (research.finding) is carried in the briefs of gaps whose text names one of them.
 
-    ask.py [--gap GAP] "How does the queue decide a flake?\""""
+    ask.py [--gap GAP] [--areas A,B] "How does the queue decide a flake?\""""
 
 from __future__ import annotations
 
@@ -20,8 +21,10 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="ask.py", description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("words", nargs="*", help="the question")
     ap.add_argument("--gap", default="", help="the gap it is for, by branch or id")
+    ap.add_argument("--areas", default="", help="the areas its finding is carried by, comma-separated (process, lease)")
     args = ap.parse_args(argv)
     question = " ".join(" ".join(args.words).split())
+    areas = [a for a in (" ".join(x.split()).lower() for x in args.areas.split(",")) if a]
     if not question:
         raise SystemExit(__doc__)
     fac.cli(fac.config())
@@ -30,7 +33,7 @@ def main(argv: list[str]) -> int:
         raise SystemExit(f"no such gap: {gap}")
     rid = f"research/{fac.slug(question, 40) or 'question'}-{uuid.uuid4().hex[:6]}"
     fac.add("research.asked", rid, question=question, asked_by="coordinator", asked_at=time.time(),
-            **({"gap": gap} if gap else {}))
+            **({"gap": gap} if gap else {}), **({"areas": areas} if areas else {}))
     print(rid)
     return 0
 

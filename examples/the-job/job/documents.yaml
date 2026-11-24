@@ -76,6 +76,7 @@ flows:
       over: 10m
   docs-approved:
     from: docs-drafted
+    description: a document approved, after I finished it and presented it to its reviewers or the board (mine)
     sensor:
       items: doc
       entering: approved
