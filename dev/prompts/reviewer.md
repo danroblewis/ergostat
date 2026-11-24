@@ -16,7 +16,7 @@ only the work: judge what is in the branch, not what anyone says about it.
 
 {definition}
 
-## Its entry in docs/GAPS.md
+## Its entry (the `## Entry` of its record, as main's dev/records/ render it into docs/GAPS.md)
 
 {gaps_entry}
 
@@ -50,9 +50,8 @@ file (a probe, a profile, a tail of a log, a benchmark) committed to the branch 
 - a failure on main is reported, not fixed (lesson 13): a fix in the branch for a test that fails on main too, or for
   something the definition does not ask, is a finding; a test failing on main is never the branch's fault.
 
-Read the code; run single test files if you need to (`uv run python -m pytest -q tests/test_x.py`), never the whole
-suite. Change nothing.
-
+Read the code. You run no tests or programs (the gates above say what the factory ran), and change nothing.
+{shell}
 # The bar (operator, 2026-11-20)
 
 Block only for what would hurt main: a bug, a wrong behaviour, a missing test of the definition's risk, a security or

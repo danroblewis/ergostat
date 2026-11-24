@@ -235,7 +235,7 @@ def test_untrusted_refused_at_use_line(tmp_path, case):
     body, where = CASES[case]
     path = write(tmp_path, MAIN, {"lib": {"bad": BASE + body}})
     msg = refused_once(path, "library-unsandboxed" if where.endswith(".daemon") else "library-untrusted")
-    assert f"makes {where}," in msg and "template bad" in msg and str((tmp_path / "lib").resolve()) in msg
+    assert f"makes ⟦untrusted: library file⟧{where}," in msg and "template bad" in msg and str((tmp_path / "lib").resolve()) in msg
 
 
 @pytest.mark.parametrize("body", ["flows:\n  f: {to: s, sensor: {run: echo 1}}\n",
@@ -269,7 +269,7 @@ def test_untrusted_out_to_a_part_it_did_not_make_refused(tmp_path, out, where):
             f"  x: {{type: timer, after: 1h, in: stock.s, out: {out}}}\n")
     path = write(tmp_path, MAIN + OWNER_PARTS, {"lib": {"bad": BASE + body}})
     msg = refused_once(path)
-    assert f"makes {where}," in msg, msg
+    assert f"makes ⟦untrusted: library file⟧{where}," in msg, msg
     spec, _ = read(path)
     assert "deploy" in spec.blocks and not [c for c in spec.commanders_of("deploy")]
 

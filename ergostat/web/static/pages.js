@@ -184,13 +184,16 @@ async function pageRecord(main, q) {
   runs.addEventListener("change", () => tick());
   filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") tick(); });
   const ans = answers();
+  const empty = () => (filt.value ? h("p", { class: "muted" }, `Nothing matches “${filt.value}” · `,     // a filter's miss, said as one
+    h("a", { href: "#", class: "clear-filter", onclick: (ev) => { ev.preventDefault(); filt.value = ""; tick(); } }, "clear"))
+    : h("p", { class: "muted" }, "Nothing recorded yet."));
   async function tick(force = true) {
     const u = new URLSearchParams(kept()).toString();
     if (p.isConnected && parseRoute().path === "/record") replaceRoute("/record" + (u ? "?" + u : ""));
     if (remote) {                                       // what failed said, with how old what is shown is; never "nothing"
       const d = await remoteApi("events", { remote, n: 80, ...(filt.value ? { type: filt.value } : {}) });
       if (!p.isConnected) return;
-      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false, true) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
+      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false, true) : d.ok ? empty() : null;
       patch(box, ...[remoteSaid(remote, d), list].filter(Boolean));
       return;
     }
@@ -201,7 +204,7 @@ async function pageRecord(main, q) {
       evs = await ans.api("events", { n: 80, ...asked });
     } catch (err) { patch(box, h("p", { class: "muted" }, String(err.message || err))); return; }
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
-    patch(box, evs.length ? eventsTable(evs, false, true) : h("p", { class: "muted" }, "Nothing recorded yet."));
+    patch(box, evs.length ? eventsTable(evs, false, true) : empty());
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -712,8 +715,9 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
+  const hitsSaid = h("span", { class: "muted search-hits", "aria-live": "polite" });   // the search's count, beside it
   const mayDo = h("p", { class: "may-do", hidden: true }, MAY_DO);   // on the gated actions: what a person may do
-  p.append(notes, h("div", { class: "filters" }, search, found, showFin, viewBar, chip), mayDo, loading, compose, box, rbox);
+  p.append(notes, h("div", { class: "filters" }, search, hitsSaid, found, showFin, viewBar, chip), mayDo, loading, compose, box, rbox);
   let rbusy = false;
   const remoteTick = async (rs) => {
     if (rbusy || SNAP || !rs.length) return;
@@ -811,8 +815,8 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     remoteTick(d.remotes || []);                        // (not waited on)
     const got = paged() && d.offset != null ? Math.floor(d.offset / per) + 1 : wanted;   // past the end: the last page
     if (got !== wanted && pg === wanted && size === per) { pg = got; go(false); }   // (unless another was asked meanwhile)
-    const hits = d.total ?? 0;
-    setText(found, paged() && search.value.trim() ? `${hits} match${hits === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "");
+    const total = d.total ?? 0;
+    setText(found, paged() && search.value.trim() ? `${total} match${total === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "");
     const flowsWere = JSON.stringify([flows, gps]);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
@@ -907,6 +911,12 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       const m = needle && !paged() ? its.filter(isHidden).length : 0;   // (a kind's page: said beside the search)
       return m ? h("p", { class: "note finished-note", key: `fin:${name}` }, `${m} finished match${m === 1 ? "" : "es"}`) : null;
     };
+    // a search: how many each kind matched (the server's count, a snapshot's own), its kinds without one not drawn;
+    // not on a kind's own paged page: there d.matched counts one page only, and `found` says the kind's whole count
+    const hits = !needle || paged() ? null : !SNAP && d.matched ? d.matched : rows.reduce((a, i) => ({ ...a, [i.kind || ""]: (a[i.kind || ""] || 0) + 1 }), {});
+    const hitsN = hits && Object.values(hits).reduce((a, b) => a + b, 0);
+    setText(hitsSaid, hits ? (hitsN ? String(hitsN) : "nothing matches") : "");
+    const hit = (k) => !hits || hits[k] > 0;
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
     const isNum = (its, f) => its.some((i) => typeof i.fields[f] === "number") && its.every((i) => i.fields[f] == null || typeof i.fields[f] === "number");
     const tableOf = (its, show, limit) => {
@@ -990,14 +1000,15 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     for (const g of systems) {
       if (d.set && !g.kinds.includes(kind)) continue;     // a set: the page is about its kind alone, until its chip goes
       const names = [...g.kinds, ...(g.name === "other" && d.unkinded ? [""] : [])];
-      const n = g.kinds.reduce((a, k) => a + Object.values(kindOf[k]?.counts || {}).reduce((x, y) => x + y, 0), 0) + (names.includes("") ? d.unkinded : 0);
+      if (!names.some(hit)) continue;                    // a search: a system none of whose kinds matched, not drawn
+      const n = hits ? names.reduce((a, k) => a + (hits[k] || 0), 0) : g.kinds.reduce((a, k) => a + Object.values(kindOf[k]?.counts || {}).reduce((x, y) => x + y, 0), 0) + (names.includes("") ? d.unkinded : 0);
       const open = isOpen(g.name);
       const head = h("h2", { class: "sys-head" },
         h("button", { class: "ghost disclose", "aria-expanded": String(!!open), title: open ? "Fold away this system's lists of items" : "Show this system's lists of items",
                       onclick: () => toggle(g.name) }, h("span", { class: "tri", "aria-hidden": "true" }, open ? "▾" : "▸"), g.name),
-        h("span", { class: "muted" }, ` ${n} item${n === 1 ? "" : "s"}, ${g.kinds.length} kind${g.kinds.length === 1 ? "" : "s"}`),
+        h("span", { class: "muted" }, ` ${n} item${n === 1 ? "" : "s"}${hits ? (n === 1 ? " matches" : " match") : ""}, ${g.kinds.length} kind${g.kinds.length === 1 ? "" : "s"}`),
         g.description ? h("span", { class: "muted sys-desc" }, g.description) : null);
-      const charts = h("div", { class: "kind-flows" }, g.kinds.filter((k) => !d.set || k === kind).map((k) => kindOf[k]).filter(Boolean).map(card));
+      const charts = h("div", { class: "kind-flows" }, g.kinds.filter((k) => (!d.set || k === kind) && hit(k)).map((k) => kindOf[k]).filter(Boolean).map(card));
       if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head, charts)); continue; }   // the charts, not the lists
       const t = view === "list" ? await tables(names) : await relPart(g);
       anyRows ||= t.length > 0;
@@ -1220,7 +1231,7 @@ async function pageItem(main, id, q) {
     // what its kind touches in the model (unread: the lifecycle strip, saying nothing of the model)
     const fp = k && d.path?.length ? await ans.api(`kinds/${encodeURIComponent(k.name)}`).catch(() => null) : null;
     const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
-      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
+      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])]), w.place]);
     if (!p.isConnected || late()) return;
     const same = wsig === whySig;
     whySig = wsig;
@@ -1446,19 +1457,49 @@ async function pageModel(main) {
   S.timer = poll(() => tick(false), 5000, p);
 }
 
+/* the findings that come many of a kind (/api/exercised): what each kind says, its columns, and which is worst */
+const FINDING_KINDS = {
+  "not-exercised": { title: "Not exercised by the record", advice: "Its rate cannot be identified from this record, which is not evidence it is " +
+      "absent: it is kept, and nothing is estimated or judged from it until the record moves it (a step test or a planned disturbance would).",
+    head: ["part", "why", ["record", "num"], ["points", "num"]],
+    worst: (a, b) => (a.why === "never-moved" ? 0 : 1) - (b.why === "never-moved" ? 0 : 1) || b.span - a.span,
+    cells: (c) => [h("td", { class: "small" }, c.says), h("td", { class: "num" }, dur(c.span)), h("td", { class: "num" }, c.readings)] },
+  "calibration-worse-than-mean": { title: "Equations that fit worse than their mean",
+    advice: "Its equation fits its record worse than holding it at its mean: calibrate it, or write it again.",
+    head: ["part", ["R²", "num"], ["scaled error", "num"], ["points", "num"]],
+    worst: (a, b) => b.nmse - a.nmse,
+    cells: (c) => [h("td", { class: "num" }, two(c.r2 ?? 0)), h("td", { class: "num" }, fmt(c.nmse)), h("td", { class: "num" }, c.n)] },
+};
+const SAID = /^(?:(\S+:\d+): )?(stock|flow|auxiliary|parameter|goal|block|items|agent) ([^\s:]+): (.+)$/s;   // file:line: kind name: what
 async function pageCheck(main) {
   const st = await api("status");
   let quiet = [];                                          // the parts the record has not exercised (a finding each)
   try { quiet = await api("exercised"); } catch (e) { quiet = []; }
-  st.check = [...st.check, ...quiet.map((x) => ({ level: "warn", message: x.message }))];
+  st.check = [...st.check, ...quiet.map((x) => ({ ...x, level: "warn" }))];
   const info = st.check.filter((c) => c.level === "info");  // the extreme-conditions tests, while they run in the background
   st.check = st.check.filter((c) => c.level !== "info");
   const errors = st.check.filter((c) => c.level === "error").length, warnings = st.check.length - errors;
   const words = [errors ? `${errors} error${errors > 1 ? "s" : ""}` : "", warnings ? `${warnings} warning${warnings > 1 ? "s" : ""}` : ""].filter(Boolean);
   const p = page(main, words.length ? `Check: ${words.join(", ")}` : "The model is whole");
-  if (st.check.length) p.append(h("div", { class: "att" }, st.check.map((c) => h("div", {},
+  const alike = {};                                        // the static check's same warning (or note) about several parts: a kind too
+  for (const c of [...st.check, ...info]) {
+    const m = !c.code && c.level !== "error" && SAID.exec(c.message);
+    if (m) (alike[`${c.level}\n${m[4]}`] ||= []).push(Object.assign(c, { where: m[1] || "", about: `${m[2]}.${m[3]}` }));
+  }
+  const cap = (x) => x[0].toUpperCase() + x.slice(1);
+  const kinds = [...Object.entries(FINDING_KINDS).map(([code, k]) => ({ ...k, code, rows: st.check.filter((c) => c.code === code).sort(k.worst) })),
+    ...Object.entries(alike).filter(([, cs]) => cs.length > 1).map(([key, cs]) => ({ title: cap(key.split("\n")[1].split(/[,:(]/)[0]),
+      advice: `${cap(key.split("\n")[1])}.`, code: "alike", head: ["part", "where"], rows: cs, cells: (c) => [h("td", { class: "mono small" }, c.where)] }))];
+  const grouped = (c) => kinds.some((k) => k.rows.includes(c)), one = st.check.filter((c) => !grouped(c)), notes = info.filter((c) => !grouped(c));
+  if (one.length) p.append(h("div", { class: "att" }, one.map((c) => h("div", {},
     h("b", { class: c.level === "error" ? "lvl-error" : "lvl-warning" }, c.level === "error" ? "Error" : "Warning"), " ", op(c.message)))));
-  if (info.length) p.append(h("p", { class: "muted small extremes-status" }, info.map((c) => c.message).join("; ")));
+  for (const k of kinds.filter((x) => x.rows.length)) {     // a kind said once, above a row per part, worst first
+    const word = k.rows[0].level === "info" ? "note" : "warning";
+    p.append(h("h3", {}, k.title, h("span", { class: word === "note" ? "muted" : "lvl-warning" }, ` · ${k.rows.length} ${word}s`)), h("p", {}, k.advice),
+      table(k.head, k.rows.map((c) => h("tr", {}, h("td", {}, toolLink(c.about.replace(".", " "), { view: "dynamics", part: c.about }, "on the diagram")),
+        ...k.cells(c))), `fit findings ${k.code}`));
+  }
+  if (notes.length) p.append(h("h3", {}, "Notes"), h("ul", { class: "extremes-status" }, notes.map((c) => h("li", {}, op(c.message)))));
   if (info.some((c) => c.message.startsWith("extremes: running")))   // drawn again once they are done
     S.timer = poll(async () => { const s2 = await api("status"); if (!s2.check.some((c) => c.level === "info" && c.message.startsWith("extremes: running"))) { S.timer.stop(); pageCheck(main); } }, 2000, p);
   const slot = h("div");                                   // the three views held against each other (SPEC §12l), when read

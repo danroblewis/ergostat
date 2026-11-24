@@ -45,6 +45,7 @@ TAKES = {
     "survival": set(),
     "over-time": {"bar", "histogram", "heatmap"},       # (result-frames-and-verdicts: a Prometheus histogram's buckets)
     "graph": {"table", "heatmap"},                      # (its edges a row each; its matrix. The graph family: test_graph_result_page)
+    "loop": {"line", "bar", "stat", "table", "histogram"},   # (a loop's sp and pv are values over time; loop panels are B7)
     "frequency": {"bode", "nyquist"},
     "model": {"bode", "nyquist", "pole-zero"},
 }

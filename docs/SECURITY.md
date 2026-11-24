@@ -211,9 +211,10 @@ What this does **not** stop:
   copies a library's command there makes it your command.
 
 - **Its words reaching agents.** An untrusted template's descriptions, `example:` and `reading:` are still shown to
-  the AI agents that use the authoring tools, and may try to steer them. In the `templates` tool and in three kinds
-  of `check` problem they are marked as the library's (SPEC §2a, *Untrusted libraries*), which tells an agent what
-  they are but does not stop it reading them; the text of the parts a template makes is not marked.
+  the AI agents that use the authoring tools, and may try to steer them. In the `templates` tool, in `check` and in
+  the MCP `check`, `explain`, `status` and `context` answers they, and the text of the parts a template makes, are
+  marked as the library's (SPEC §2a, *Untrusted libraries*), which tells an agent what they are but does not stop it
+  reading them; the diagrams do not mark the parts' text yet.
 - **What you trusted.** A path entry, or a map entry with `trust: owner`, is trusted wholesale: its templates may make
   anything, and may take the place of ergostat's own. Read a folder before you mark it so.
 - **An agent that can write the main file.** It can mark a folder trusted, as you can. The agent guide tells agents
@@ -240,8 +241,9 @@ when `.libraries` or `.libraries/NAME` is a link. Every load checks the copy aga
 hash, links hashed by their target, never followed, FIFOs and devices refused unopened) and parses the very bytes it
 hashed. What this does not cover: a library with `trust: owner` is trusted wholesale, as any folder you mark so; the
 lock pins what you fetched, not that it is safe; and a script a template runs from `${here}` is read again when it
-runs, so a change to it between load and run is not caught here. A library without `trust: owner` is listed but never
-expanded until the provenance gate and the sandbox reach fetched libraries.
+runs, so a change to it between load and run is not caught here. A library without `trust: owner` is untrusted exactly
+as an untrusted folder is: its uses are held, checked against the same allowlist and bounded, its text is marked (in
+`check`, the name of the file it came from too, with control characters written `\uXXXX`), and a use that makes more than that is refused (`library-untrusted`).
 
 ## The page from elsewhere
 

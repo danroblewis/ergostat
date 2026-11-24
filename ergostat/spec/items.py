@@ -231,16 +231,21 @@ def late_cap(ix, kind: str | None = None) -> int:
     return max(50, ix.total(kind) // 10)
 
 
-def _late(ix, events, spec, kind: str | None, until: float | None, transcript: bool) -> dict[str, Item] | None:
+def _late(ix, events, spec, kind: str | None, until: float | None, transcript: bool,
+          keys: tuple | None = None) -> dict[str, Item] | None:
     """The items (of ``kind``) with an event after ``until``, each folded again from the record up to
     then (dropped when it had none by then); None when that is most of them (a moment long past: the
-    caller folds the record itself). Under the index's lock."""
+    caller folds the record itself). With ``keys``, only those whose fields ``keys`` may have changed
+    since (``Index.still``): the caller reads the rest from the index. Under the index's lock."""
     if until is None:
         return {}
     cap = late_cap(ix, kind)
     ids = ix.late(until, kind, limit=cap + 1)
     if len(ids) > cap:
         return None
+    if keys is not None:
+        still = ix.still(ids, keys, until)
+        ids = [i for i in ids if i not in still]
     skip = () if transcript else (TRANSCRIPT_TYPES,)
     out = {}
     for i in ids:
@@ -303,10 +308,11 @@ def moved(events, spec: Spec, kind: str, key: str, state: str | None, since: flo
     ix = _index(events, spec, transcript)
     if ix is not None:
         with ix.lock:
-            late = _late(ix, events, spec, kind, at, transcript) if where else {}
-            if late is not None:
-                got = ix.moved(kind, key, state, since, until, until_newest=at if where else None)
+            late = _late(ix, events, spec, kind, at, transcript, keys=tuple(where)) if where else {}
+            if late is not None:                  # (the rest of those changed since ``at``: as they were then, to then)
+                got = ix.moved(kind, key, state, since, until if not where or at is None else min(until, at))
                 if where:
+                    got = [(i, t) for i, t in got if i not in late]
                     ids = {i for i, _ in got}
                     ok = {i.id for i in ix.items(kind, ids=ids, moves=False) if matches(i, where)}
                     got = [(i, t) for i, t in got if i in ok]
@@ -319,15 +325,15 @@ def moved(events, spec: Spec, kind: str, key: str, state: str | None, since: flo
 
 
 def in_states(events, spec: Spec, kind: str, states=None, where: dict | None = None, until: float | None = None,
-              items: bool = False) -> tuple[int, float | None, list[Item]]:
+              items: bool = False, transcript: bool | None = None) -> tuple[int, float | None, list[Item]]:
     """``kind``'s items in ``states`` (any, when None) matching ``where``, as they stood at ``until``:
     how many, when the one longest in its state entered it, and (``items``, or with ``where``) the
-    items themselves. Counted by the index when nothing asks for their fields."""
+    items themselves. Counted by the index when nothing asks for their fields. ``transcript``: as ``project``."""
     where = where or {}
     k = spec.items.get(kind)
     if k is None:
         return 0, None, []
-    transcript = asks_transcript([k], tuple(where))
+    transcript = asks_transcript([k], tuple(where)) if transcript is None else transcript
     ix = _index(events, spec, transcript)
     if ix is not None:
         with ix.lock:
@@ -397,6 +403,18 @@ def moved_items(events, spec: Spec, kind: str, key: str, states, since: float, u
                         and any(m[key] in states and since <= m["time"] <= until for m in i.moves)]
     return [i for i in project(events, spec, kind, until=until, fields=tuple(where) + tuple(k.show), transcript=transcript)
             if matches(i, where) and any(m[key] in states and since <= m["time"] <= until for m in i.moves)]
+
+
+def current(events, spec: Spec, ids, fields=()) -> dict[str, Item]:
+    """The items ``ids`` as they are now, by id (one with no event left out), without their moves: read from the item
+    index, which folds a transcript's events in only when ``fields`` need them (``asks_transcript``), as every read of
+    it does; for a record kept nowhere on disk, each folded from the record (``one``)."""
+    ids = sorted({i for i in ids if i})
+    ix = _index(events, spec, asks_transcript([k for i in ids if (k := kind_of(spec, i))], tuple(fields))) if ids else None
+    if ix is None:
+        return {i: it for i in ids if (it := one(events, spec, i)) is not None}
+    with ix.lock:
+        return {it.id: it for it in ix.items(ids=ids, moves=False)}
 
 
 def one(events, spec: Spec, id: str) -> Item | None:

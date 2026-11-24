@@ -14,7 +14,7 @@
   /* does result r meet c, what a family declared it takes of r's shape */
   function meets(c, r) {
     if (r.shape === "series") {
-      if (c.roles === "none") return !(r.roles || []).length;
+      if (c.roles === "none") return !hasRoles(r, TWO) && !hasRoles(r, CANDLE);   // (a loop's sp, pv, ... are plain series too)   // (a loop's sp, pv, ... are plain series too)
       if (Array.isArray(c.roles)) return hasRoles(r, c.roles);
       return !hasRoles(r, CANDLE);                       // (candles are for a family that names their roles)
     }

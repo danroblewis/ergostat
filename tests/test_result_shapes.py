@@ -88,6 +88,9 @@ def samples(tmp_path) -> dict[str, dict]:
         "survival": {"id": "a", "shape": "distribution", "form": "survival", "unit": "s", "series": []},
         "over-time": from_source(verdicts_test.buckets(times=[T + 120 * i for i in range(4)])),   # Prometheus's _bucket by le
         "graph": from_source(verdicts_test.graph()),
+        "loop": from_source({"shape": "series", "time": [T + 120 * i for i in range(1, 5)], "series": [  # a loop's roles
+            {"key": "target", "role": "sp", "unit": "items", "values": [5, 5, 5, 5]},
+            {"key": "backlog", "role": "pv", "unit": "items", "values": [7, 6, 5, 4]}]}),
     }
     span = _wave(p)
     out["frequency"] = one({"source": "frequency", "input": {"source": "series", "series": "in"},
@@ -107,6 +110,7 @@ FRAMES = {
     "model": {"shape": "response", "has": ["frequency", "system"]},
     "over-time": {"shape": "distribution", "form": "bins"},
     "graph": {"shape": "graph", "kind": "dependency"},
+    "loop": {"shape": "series", "roles": ["sp", "pv"]},
 }
 
 
@@ -178,16 +182,20 @@ def fake_sql(src, text, w):
             "series": [{"key": k, "values": [v for _, job, v in rows if f'up{{job="{job}"}}' == k]} for k in keys]}
 
 
+FAKE_SQL = "fake-sql"   # a type name of the test's own: the real ergostat/datasources/sql.py is type ``sql``
+
+
 @pytest.fixture
 def sql():
-    datasources.register(types.SimpleNamespace(TYPE="sql", KEYS={"database"}, LANGUAGE="SQL", query=fake_sql))
+    datasources.types()     # the package's own types found first, so none of them is registered over the fake later
+    datasources.register(types.SimpleNamespace(TYPE=FAKE_SQL, KEYS={"database"}, LANGUAGE="SQL", query=fake_sql))
     yield
-    datasources.unregister("sql")
+    datasources.unregister(FAKE_SQL)
 
 
 def same_shape_answers(tmp_path, prom_url: str) -> tuple[dict, dict]:
     """``sum by (job) (up)`` asked of a (stub) Prometheus, and its SQL equal asked of a SQL source, over one window."""
-    p = project(tmp_path, f"prom: {{type: prometheus, url: '{prom_url}'}}\nwarehouse: {{type: sql, database: metrics}}")
+    p = project(tmp_path, f"prom: {{type: prometheus, url: '{prom_url}'}}\nwarehouse: {{type: {FAKE_SQL}, database: metrics}}")
     a = ask_source(p, {"source": "prom", "text": "sum by (job) (up)"}, until=PT + 480)[0]
     b = ask_source(p, {"source": "warehouse", "text": "SELECT t, job, up FROM up_by_job"}, until=PT + 480)[0]
     return a, b

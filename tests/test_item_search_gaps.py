@@ -1,5 +1,7 @@
-"""docs/GAPS.md's entry for searching items and querying their graph: done, read as done by intake, naming both
-merge commits on main, listed once (dev/records/item-search-join-2.md)."""
+"""The entry for searching items and querying their graph: done, read as done by intake, naming both merge commits on
+main, listed once (dev/records/item-search-join-2.md). Read from the pinned copy of GAPS.md (tests/test_gapsdoc.py
+checks it is GAPS.md as of a named commit), never the moving docs/GAPS.md, which the merge queue writes from the
+records (dev/records/merge-pipeline-gaps-briefs-read-records.md)."""
 
 import json
 import subprocess
@@ -9,7 +11,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parents[1]
-GAPS = ROOT / "docs" / "GAPS.md"
+GAPS = ROOT / "tests" / "fixtures" / "gaps_md_pinned.md"
 TITLE = "Searching items and querying their graph"
 LIMITS = "Not the Items page's own box, not MCP, not `--at`."
 
@@ -17,7 +19,7 @@ LIMITS = "Not the Items page's own box, not MCP, not `--at`."
 def intake(fn: str):
     """intake.<fn> over GAPS.md, run in a subprocess as tests/test_gaps_doc.py does."""
     code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import intake; "
-            f"print(json.dumps(intake.{fn}(open(sys.argv[2]).read())))")
+            f"print(json.dumps(intake.{fn}(open(sys.argv[2], encoding='utf-8').read())))")
     r = subprocess.run([sys.executable, "-c", code, str(ROOT / "dev" / "bin"), str(GAPS)], cwd=ROOT,
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
@@ -27,7 +29,7 @@ def intake(fn: str):
 def entry() -> list[str]:
     """The ## Interface bullet titled TITLE with its indented lines; the test fails if there is none."""
     section, out = "", None
-    for line in GAPS.read_text().splitlines():
+    for line in GAPS.read_text(encoding="utf-8").splitlines():
         if out is not None:
             if line.startswith("  "):
                 out.append(line)
@@ -93,4 +95,4 @@ def test_item_search_entry_listed_once():
     gid = [e["id"] for e in intake("gaps_md") if e["title"] == TITLE]
     assert gid, "intake finds no entry titled " + TITLE
     assert gid[0] not in intake("twice")
-    assert sum(line.startswith(f"- **{TITLE}**") for line in GAPS.read_text().splitlines()) == 1
+    assert sum(line.startswith(f"- **{TITLE}**") for line in GAPS.read_text(encoding="utf-8").splitlines()) == 1

@@ -257,6 +257,7 @@ function saveDashboardDraft(d) {
   clean.since ||= S.since;
   DASH.draft = clean;
   DASH.kept = true;
+  DASH.declared = null;                                // a declared one changed is the reader's own draft
   try { localStorage.setItem(dashKey(), JSON.stringify(clean)); } catch (e) { /* kept in the address alone */ }
   if (parseRoute().path === "/dashboard") replaceRoute(dashAddress(clean, clean.since));
   if (DASH.grid?.isConnected) { dashDraw(); dashHead(); }
@@ -386,17 +387,84 @@ function dashDefault(fields, infos = [], queues = {}) {
       panels.push({ title: x.name, form: "line", size: "m", queries: [{ id: "a", source: "series", series: x.name, agg: "last", transform: "none" }],
                     display: { unit: x.unit || "", ...dashLegend() } });
   }
-  return { title: "Overview", since: null, panels: panels.slice(0, DASH_MOST).map((p, i) => ({ note: "", tall: false, ...p, id: `p${i + 1}` })) };
+  const out = { title: "Overview", since: null, panels: panels.slice(0, DASH_MOST).map((p, i) => ({ note: "", tall: false, ...p, id: `p${i + 1}` })) };
+  const sql = (fields?.datasources || []).find((s) => s.type === "sql");
+  const pipes = sql ? (fields?.pipelines || []).filter((x) => /^[A-Za-z_]\w*$/.test(x.kind.replace(/-/g, "_"))).slice(0, 2) : [];
+  if (!pipes.length) return out;
+  const span = (p) => ({ id: p.id, w: DASH_COLUMNS[p.size || "m"], h: dashRows(p) * (p.tall ? 2 : 1) });
+  const laid = DashLayout.pack(out.panels.map(span));
+  out.panels.forEach((p, i) => { p.layout = { x: laid[i].x, y: laid[i].y, w: laid[i].w, h: laid[i].h }; });
+  out.rows = [];
+  for (const [n, pipe] of pipes.entries()) {
+    const top = DashLayout.height([...out.panels.map((p) => p.layout), ...out.rows.map((r) => ({ y: r.layout.y, h: 1 }))]);
+    const mine = dashPipeline(pipe, sql.name).slice(0, DASH_MOST - out.panels.length).map((p, i) => ({ note: "", tall: false, ...p, id: `q${n + 1}-${i + 1}` }));
+    const at = DashLayout.pack(mine.map(span), [{ x: 0, y: top, w: 12, h: 1 }]);
+    mine.forEach((p, i) => { p.layout = { x: at[i].x, y: at[i].y, w: at[i].w, h: at[i].h }; });
+    out.rows.push({ id: `row-${pipe.kind}`, title: pipe.title || pipe.kind, collapsed: false, layout: { y: top } });
+    out.panels.push(...mine);
+  }
+  return out;
+}
+/* a pipeline's row (SPEC §5a, Stages): what its running item holds and the line waiting, its stage now and time left,
+   that item's every stage, its recent items and the typical time of each stage; ordinary SQL panels over item_stages,
+   item_progress and stage_estimates, which a person opens, edits and copies like any other */
+function dashPipeline(pipe, src) {
+  const lit = (s) => `'${String(s).replace(/'/g, "''")}'`, word = (s) => `"${s}"`, K = lit(pipe.kind);
+  const view = (k) => k.replace(/-/g, "_");
+  const live = `(select id from item_stages where kind = ${K} order by id in (select id from item_progress) desc, started desc limit 1)`;
+  const q = (text) => [{ id: "a", source: src, text }];
+  const out = [];
+  const w = pipe.waiting;
+  if (w && /^[A-Za-z_]\w*$/.test(view(w.kind))) {
+    const f = (x) => `(select value from item_fields f where f.id = w.id and f.field = ${lit(x)})`;
+    const order = [...w.order.flatMap((x) => [`${f(x)} is null`, f(x)]), "w.id"].join(", ");
+    const held = pipe.holds ? `select w.id || ' in ' || l.id as item, 0 as turn from ${word(view(w.kind))} w, ` +
+      `(select id, value from item_fields where field = ${lit(pipe.holds)} and id = ${live} and id in (select id from item_progress)) l ` +
+      `where instr(l.value, '"' || w.id || '"') > 0 union all ` : "";
+    out.push({ title: `${pipe.title || pipe.kind}: running, and waiting in the order taken`, form: "table", size: "m",
+               queries: q(`${held}select * from (select w.id || ' waiting' as item, row_number() over (order by ${order}) as turn ` +
+                          `from ${word(view(w.kind))} w where w.state = ${lit(w.state)}) order by turn`), display: {} });
+  }
+  // a table takes one dimension: each row's words in one column, its numbers (minutes) after
+  const min = (x, as) => `round(${x} / 60.0, 1) as ${as}`;
+  out.push({ title: `${pipe.title || pipe.kind}: now`, form: "table", size: "m", display: {},
+             queries: q(`select id || ': ' || coalesce(stage, 'between stages') || case when note != '' then ' (' || note || ')' else '' end as stage, ` +
+                        `${min("elapsed", "elapsed_min")}, ${min("expected", "expected_min")}, samples, ${min('"left"', "left_min")} ` +
+                        `from item_progress where kind = ${K} order by id`) });
+  out.push({ title: `${pipe.title || pipe.kind}: each stage of the running one`, form: "table", size: "m", display: {},
+             queries: q(`select row_number() over (order by s.started) || '. ' || s.stage || ' (run ' || s.run || ' ' || s.run_kind || ': ' || ` +
+                        `s.state || coalesce(', ' || s.outcome, '') || ')' as stage, ${min("s.seconds", "minutes")}, ${min("e.expected", "expected_min")} ` +
+                        `from item_stages s left join stage_estimates e on e.kind = s.kind and e.run_kind = s.run_kind and e.stage = s.stage ` +
+                        `where s.id = ${live} order by s.started`) });
+  const size = pipe.holds ? `(select json_array_length(value) from item_fields f where f.id = s.id and f.field = ${lit(pipe.holds)}) as size, ` : "";
+  out.push({ title: `${pipe.title || pipe.kind}: recent`, form: "table", size: "m", display: {},
+             queries: q(`select s.id || ' ' || i.state || ': ' || group_concat(s.stage || ' ' || coalesce(round(s.seconds / 60.0, 1) || ' min', s.state), ', ') as item, ` +
+                        `${size}${min("(max(coalesce(s.finished, s.started)) - min(s.started))", "minutes")} from (select * from item_stages where kind = ${K} order by started) s ` +
+                        `join ${word(view(pipe.kind))} i on i.id = s.id group by s.id order by min(s.started) desc limit 10`) });
+  out.push({ title: `${pipe.title || pipe.kind}: median minutes per stage`, form: "line", size: "full", display: { unit: "min", ...dashLegend(), y: { min: 0 } },
+             queries: q(`select cast(finished / max(:step, 3600) as integer) * max(:step, 3600) as time, ` +
+                        pipe.stages.map((s) => `median(case when stage = ${lit(s)} then seconds / 60.0 end) as ${word(s)}`).join(", ") +
+                        ` from item_stages where kind = ${K} and outcome = 'passed' and finished >= :since and finished < :until group by 1 order by 1`) });
+  return out;
+}
+/* the states the work of the three leading kinds, and of the kinds their relations name, waits in: from the fields
+   (as the Graph gives them, which asked for them started its schedule's simulation, and on a cold server that held
+   back every panel's first answer) */
+function dashQueues(fields, infos) {
+  const by = new Map(infos.map((x) => [x.name, x])), moves = fields?.sources?.moves?.kinds || {}, queues = {};
+  const todo = dashKinds(fields, infos).filter((k) => !k.name.startsWith("ergostat.")).slice(0, 3).map((k) => k.name);
+  for (const seen = new Set(todo); todo.length;) {
+    const name = todo.shift();
+    if (moves[name]?.queue?.length) queues[name] = moves[name].queue;
+    for (const to of Object.values(by.get(name)?.relations || {}).flat())
+      if (typeof to === "string" && !seen.has(to)) { seen.add(to); todo.push(to); }
+  }
+  return queues;
 }
 async function dashBuildDefault() {
   const fields = await queryFields();
-  const infos = (await api("items", { n: 1 }).catch(() => null))?.kinds || [];
-  const top = dashKinds(fields, infos).filter((k) => !k.name.startsWith("ergostat.")).slice(0, 3).map((k) => k.name), queues = {};
-  if (top.length) {
-    const graph = await api("items-graph", { kinds: top.join(",") }).catch(() => null);
-    for (const k of graph?.kinds || []) if (k.queue?.length) queues[k.name] = k.queue;
-  }
-  return dashDefault(fields, infos, queues);
+  const infos = (await api("items", { n: 1, eta: 0 }).catch(() => null))?.kinds || [];   // (its kinds: no estimate)
+  return dashDefault(fields, infos, dashQueues(fields, infos));
 }
 
 /* what a panel is told of an answer: a labelled query's one series goes by the label alone ("completions", not
@@ -442,7 +510,7 @@ function dashStartsNearZero(results) {
 
 /* ---- the grid ---- */
 
-const dashRows = (p) => (p.form === "stat" ? 4 : 7);    // a stat: its title, number, change and sparkline
+const dashRows = (p) => (p.form === "stat" ? 4 : p.form === "diagram" ? 10 : 7);    // a stat: its title, number, change and sparkline
 /* what is on the grid: the panels and the rows (a folded row keeps its panels in it, off the grid) */
 const dashItems = (d) => [...d.panels.map((p) => ({ id: p.id, ...p.layout })),
                           ...(d.rows || []).map((r) => ({ id: r.id, row: true, x: 0, y: r.layout.y, w: DashLayout.COLS, h: 1 }))];
@@ -512,8 +580,8 @@ function dashTool(text, label, onclick) {
 /* in edit mode a panel offers only Edit and remove, laid over its header's corner on hover or focus (a tap focuses
    it), so nothing moves; its title moves it, its edges resize it, and the keyboard does both (dashKeydown) */
 function dashCell(p) {
-  const panel = chartPanel(p);
-  const edit = typeof openPanelEditor === "function" ? dashTool("Edit", "Edit this panel", () => dashEditPanel(p.id)) : null;
+  const diagram = p.form === "diagram", panel = diagram ? diagramPanel(p) : chartPanel(p);   // (an address: the editor has no form for it)
+  const edit = typeof openPanelEditor === "function" && !diagram ? dashTool("Edit", "Edit this panel", () => dashEditPanel(p.id)) : null;
   const tools = h("div", { class: "dash-tools" }, edit, dashTool("×", "Remove this panel", () => dashRemove(p.id)));
   const edge = (cls, sides, title) => h("span", { class: cls, "data-resize": sides, title });
   const el = h("section", { class: "dash-cell", "data-panel": p.id, tabindex: "0",
@@ -635,8 +703,8 @@ function dashWholeBucket(since, until) {
     if (Math.floor(since / step) === Math.floor((until + 120) / step)) return step;
   return null;
 }
-function dashWithWhole(panels) {
-  const until = S.at || nowS(), bucket = dashWholeBucket(until - WINDOWS[S.since], until);
+function dashWithWhole(panels, until = S.at || nowS()) {
+  const bucket = dashWholeBucket(until - WINDOWS[S.since], until);
   if (!bucket) return panels;
   return panels.map((p) => (p.display?.whole ? { ...p, queries: p.queries.map((q) => ({ ...q, bucket })) } : p));
 }
@@ -661,9 +729,19 @@ async function dashStill(n) {
     if (note !== c.still) { c.still = note; c.panel.setConfig?.({ ...p, note }); }
   }
 }
-function dashAsk(panels, ctrl) {
+function dashAsk(panels, ctrl, until = S.at || null) {
   const gaveUp = new Promise((_, no) => ctrl.signal.addEventListener("abort", () => no(new DOMException("gave up", "AbortError")), { once: true }));
-  return Promise.race([queryPanels(dashWithWhole(panels), { since: WINDOWS[S.since], until: S.at || null, signal: ctrl.signal }), gaveUp]);
+  return Promise.race([queryPanels(dashWithWhole(panels, until || undefined), { since: WINDOWS[S.since], until, signal: ctrl.signal }), gaveUp]);
+}
+/* the panels asked for first: those whose cell begins above the fold, so what is seen is drawn before what is
+   scrolled to (a cold server answers a request's queries in turn, so fewer come back sooner); none placed: all at once */
+function dashFirst(panels) {
+  const fold = window.innerHeight, first = [], rest = [];
+  for (const p of panels) {
+    const top = DASH.cells.get(p.id)?.el?.getBoundingClientRect().top;
+    (Number.isFinite(top) && top >= fold ? rest : first).push(p);
+  }
+  return first.length ? [first, rest] : [panels, []];
 }
 /* an answer still to come is late (a panel with nothing drawn yet says it is still loading); only one that failed is an error */
 function dashSayLate(words, failed = false) {
@@ -678,8 +756,17 @@ async function dashRefresh() {
   const late = setTimeout(() => { if (n === DASH.asked) dashSayLate(`waiting ${dur(DASH_LATE / 1000)} for the answer`); }, DASH_LATE);
   const giveUp = setTimeout(() => ctrl.abort(), DASH_GIVE_UP);
   try {
-    const got = await dashAsk(dashView(d).panels.filter(dashAsks), ctrl);
+    const [first, rest] = dashFirst(dashView(d).panels.filter(dashAsks));
+    let got = await dashAsk(first, ctrl);
     if (n !== DASH.asked) return;
+    if (rest.length) {                                 // what is seen drawn, then the rest asked of the same moment
+      DASH.got = got;
+      dashFeed();
+      const until = [...got.values()].find((a) => a.meta?.until != null)?.meta.until;
+      const more = await dashAsk(rest, ctrl, S.at || until || null);
+      if (n !== DASH.asked) return;
+      got = new Map([...got, ...more]);
+    }
     DASH.got = got;
     let changed = false;                               // a repeated panel's values, as its query now answers
     for (const p of d.panels.filter((x) => x.repeat?.query)) {
@@ -1192,6 +1279,26 @@ async function dashCopy() {
   if (DASH.said) DASH.said.textContent = said;
   dashAnnounce(said);
 }
+/* Keep: the draft sent to the server, which works out the dashboards: entry and files it as a display change; it is
+   written only when the owner accepts it under Changes to review (nothing is written here) */
+async function dashKeep() {
+  DASH.said.textContent = "Keeping…";
+  try {
+    const got = await apiSend("propose?keep=dashboard", DASH.draft), name = String(got.target || "").replace(/^dashboard\./, "");
+    DASH.said.replaceChildren("Kept as a change for you to accept in ", h("a", { href: "/model#review-queue" }, "Changes to review"),
+      "; once accepted it is ", h("a", { href: `/dashboard?name=${encodeURIComponent(name)}` }, `the dashboard ${name}`));
+    dashAnnounce("Kept as a change to review");
+  } catch (e) {
+    DASH.said.textContent = `Not kept: ${e.message || e}`;
+    dashAnnounce(DASH.said.textContent);
+  }
+}
+/* a declared dashboard's own panels (dashboards:, kind query) as a draft the page draws; null when it has none */
+function dashDeclared(got) {
+  const panels = (got?.panels || []).map((x) => x.panel).filter((x) => x?.panel === "query").map((x, i) => ({ ...x, id: `p${i + 1}`,
+    size: String(x.size || "m").replace(/-tall$/, ""), tall: /-tall$/.test(x.size || ""), display: x.display || {} }));
+  return panels.length ? dashClean({ title: got.title || got.name, since: Object.keys(WINDOWS).find((k) => WINDOWS[k] === got.window) || null, panels }) : null;
+}
 function dashUndo() {
   const last = DASH.undo[DASH.undo.length - 1];
   if (!last) return;
@@ -1242,6 +1349,8 @@ function dashHead() {
     DASH.editing && DASH.kept ? h("button", { type: "button", onclick: dashReset, title: "Drop this draft and go back to the default" }, "Reset") : null,
     refresh,
     h("button", { type: "button", onclick: dashCopy, title: "Copy a link to this dashboard" }, "Copy link"),
+    DASH.kept && !DASH.declared && !SNAP ? h("button", { type: "button", class: "dash-keep", onclick: dashKeep,
+      title: "Propose this draft as one of the model's dashboards: it is written when you accept it" }, "Keep") : null,
     h("button", { type: "button", class: `dash-edit${DASH.editing ? " on" : ""}`, "aria-pressed": String(DASH.editing), onclick: () => {
       DASH.editing = !DASH.editing;
       dashDraw();
@@ -1299,8 +1408,17 @@ async function pageDashboard(main, q) {
     fromAddress = !!d;
     if (!d) { notice.hidden = false; notice.textContent = "This link's dashboard could not be read, so this is the one kept here."; }
   }
+  DASH.declared = null;
+  const named = q.get("name");
+  if (!d && named) {                                   // a dashboard the model declares (dashboards:), drawn as one
+    const got = await api(`dashboard/${encodeURIComponent(named)}`).catch(() => null);
+    if (n !== DASH.page) return;
+    d = dashDeclared(got);
+    if (d) DASH.declared = named;
+    else { notice.hidden = false; notice.textContent = `The model declares no dashboard ${named} of the page's own panels, so this is the one kept here.`; }
+  }
   d ||= dashStored();
-  DASH.kept = !!d;
+  DASH.kept = !!d && !DASH.declared;
   if (!d) {
     try { d = dashClean(await dashBuildDefault()); } catch (e) {
       if (n !== DASH.page) return;
@@ -1317,7 +1435,7 @@ async function pageDashboard(main, q) {
   DASH.since = since;
   DASH.draft = d;
   if (DASH.kept) d.since = since;
-  if (moved) replaceRoute(dashAddress(DASH.kept ? d : null, since));
+  if (moved) replaceRoute(DASH.declared ? `/dashboard?${new URLSearchParams({ name: DASH.declared, since })}` : dashAddress(DASH.kept ? d : null, since));
   // a link opened is only shown: what this browser keeps changes when the reader changes something
   if (moved && DASH.kept && !fromAddress) try { localStorage.setItem(dashKey(), JSON.stringify(d)); } catch (e) { /* in the address */ }
   DASH.grid.replaceChildren();

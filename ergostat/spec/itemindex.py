@@ -58,15 +58,16 @@ import uuid
 from collections import OrderedDict
 from pathlib import Path
 
+from ..leases import PREFIX as LEASE_PREFIX
 from ..store import damaged
 from . import codec, itemnumbers, projections
 from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
-VERSION = 7                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
+VERSION = 8                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
 #                             6: the numbers, or what the status reads, on the two branches that each took 6;
-#                             7: both)
+#                             7: both; 8: records.last, latest, ticks, each item's fields touched)
 ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
@@ -108,6 +109,25 @@ create index if not exists numbers_kind on numbers(kind, field, value);
 """
 
 COLS = "rid, id, kind, state, first, last, newest, entered, n, latest, arrived, raw, raw_first, body"
+
+
+def touches(e: dict) -> list[str]:
+    """The top-level fields an event may change in its item's fold (``*``: any; more is safe, never fewer): a snapshot
+    or a ``set`` any, a lease event its ``lease``, a patch the first key of each path, plain data its keys."""
+    if e["type"] == SNAPSHOT or e.get("set") is not None:
+        return ["*"]
+    if e["type"].startswith(LEASE_PREFIX):
+        return ["lease"]
+    if e.get("patch") is not None:
+        ops, out = e["patch"], []
+        for o in ops if isinstance(ops, list) else [None]:
+            for p in ((o.get("path"), *([o["from"]] if "from" in o else [])) if isinstance(o, dict) else [None]):
+                if not isinstance(p, str) or not p.startswith("/"):
+                    return ["*"]
+                out.append(p[1:].split("/")[0].replace("~1", "/").replace("~0", "~"))
+        return out
+    d = e.get("data")
+    return list(d) if isinstance(d, dict) else [] if d is None else ["*"]
 
 
 def kinds_key(spec) -> tuple:
@@ -326,7 +346,7 @@ class Index:
         return i
 
     def name(self, i: int | None) -> str | None:
-        if i not in self.rnames:
+        if i is not None and i not in self.rnames:          # (none is no name: never read them all again for it)
             self._load_names()
         return self.rnames.get(i)
 
@@ -404,6 +424,23 @@ class Index:
         """``fn()``, which reads the index's file directly, under the index's lock, healed and run again when the file
         cannot be read."""
         return _healing(lambda self: fn())(self)
+
+    @contextlib.contextmanager
+    def reading(self):
+        """A connection of its own to the index's file, opened read only (``mode=ro``), under the file's shared lock, so
+        no process deletes the file while it is read; closed after (the SQL data source: datasources/sql.py)."""
+        with self.lock:
+            path = self.path
+        held = _hold(path)
+        try:
+            c = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, check_same_thread=False, timeout=5,
+                                isolation_level=None)
+            try:
+                yield c
+            finally:
+                c.close()
+        finally:
+            os.close(held)
 
     def moved_to(self, path: Path) -> None:
         """Another process retired this file: the next one is opened instead."""
@@ -483,6 +520,7 @@ class Index:
                 rid, arrived, newest, raw, raw_first = row[0], row[10], row[6], row[11], row[12]
             else:
                 it, rid, arrived, newest, raw, raw_first = None, None, None, None, 0, None
+            touched, dis = (dict(getattr(it, "touched", {})), getattr(it, "dis", None)) if it is not None else ({}, None)
             it, numbered, renumbered = itemnumbers.follow(id, evs, k, it, self.transcript, fold)
             restored = False
             for e in evs:
@@ -492,11 +530,17 @@ class Index:
                     if not raw:
                         raw_first = e["time"]
                     raw += 1
-                newest = e["time"] if newest is None else max(newest, e["time"])
+                if newest is not None and e["time"] < newest:     # out of time order: around it, what came by a
+                    dis = [min(dis[0], e["time"]), max(dis[1], newest)] if dis else [e["time"], newest]   # moment
+                newest = e["time"] if newest is None else max(newest, e["time"])                 # is no seq's prefix
+                for f in touches(e):
+                    touched[f] = max(touched.get(f, e["time"]), e["time"])
+            it.touched, it.dis = touched, dis                                        # type: ignore[attr-defined]
             if (restored or arrived is None) and it.moves:
                 arrived = it.moves[0]["time"]
             values = (self.nid(it.kind), self.nid(it.state), it.first, it.last, newest, it.entered, it.n,
-                      self.nid(it.latest), arrived, raw, raw_first, codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled}),
+                      self.nid(it.latest), arrived, raw, raw_first,
+                      codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled, "t": touched, "d": dis}),
                       text_of(it.fields))
             if rid is None:
                 rid = self.db.execute("insert into items(id, kind, state, first, last, newest, entered, n, latest, arrived, "
@@ -577,6 +621,7 @@ class Index:
         body = codec.unpack(r[13])
         it = Item(r[1], self.name(r[2]), self.name(r[3]), body["f"], r[4], r[5], r[7], r[8], self.name(r[9]) or "",
                   moves if moves is not None else [], [], body["r"], body.get("o", 0))
+        it.touched, it.dis = body.get("t", {"*": 1e300}), body.get("d")          # type: ignore[attr-defined]
         return it
 
     # ---- reading it (after catch_up)
@@ -637,6 +682,20 @@ class Index:
         w, a = self._where(kind)
         w = (w + " and " if w else " where ") + "newest > ?"
         return [r[0] for r in self.db.execute(f"select id from items{w}" + (f" limit {int(limit)}" if limit else ""), (*a, until))]
+
+    @_healing
+    def still(self, ids, keys, at: float) -> set[str]:
+        """Of ``ids``, those whose fields ``keys`` (``lease.back``: ``lease``'s too) no event after ``at`` may have
+        changed (``touches``), and whose events came in time order around ``at``: what came by then is a prefix of
+        their fold, so those fields now, and their moves up to ``at``, are theirs as of then."""
+        roots = {"*", *keys, *(k.split(".", 1)[0] for k in keys)}
+        out = set()
+        for r in self._rows_of(list(ids)).values():
+            b = codec.unpack(r[13])
+            t, d = b.get("t", {"*": 1e300}), b.get("d")
+            if all(t.get(k, -1e300) <= at for k in roots) and not (d and d[0] <= at < d[1]):
+                out.add(r[1])
+        return out
 
     @_healing
     def total(self, kind: str | None = None) -> int:
@@ -916,6 +975,11 @@ class Index:
     records = _healing(projections.records)          # what the status reads (projections.py)
     marked = _healing(projections.marked)
     asked = _healing(projections.asked)
+    newer = _healing(projections.newer)
+    latest_of = _healing(projections.latest_of)
+    ticks_of = _healing(projections.ticks_of)
+    ticked = _healing(projections.ticked)
+    amounts = _healing(projections.amounts)
 
     def close(self) -> None:
         """Its file closed (opened again when next used)."""
@@ -933,9 +997,37 @@ _OPEN_LOCK = threading.Lock()
 OPEN_MOST = 12                                      # indexes kept open at once (each holds its file, WAL and shm)
 
 
-def index_for(events, spec, transcript: bool) -> Index | None:
-    """The index of this record's items for these kinds (opened once per process), caught up; None
-    for a record kept nowhere on disk."""
+_PIN = threading.local()
+
+
+@contextlib.contextmanager
+def pinned():
+    """Within it (on this thread), each index ``index_for`` gives is caught up once, by its first call: one answer (the
+    status's) reads the record at one moment, and its hundreds of reads do not each look for what is new."""
+    if getattr(_PIN, "got", None) is not None:
+        yield
+        return
+    _PIN.got = {}
+    try:
+        yield
+    finally:
+        _PIN.got = None
+
+
+def index_for(events, spec, transcript: bool, made: bool = False) -> Index | None:
+    """The index of this record's items for these kinds (opened once per process), caught up (once, while
+    ``pinned``); None for a record kept nowhere on disk, or, with ``made``, for an index not made yet (no file is made)."""
+    pin = getattr(_PIN, "got", None)
+    key = (id(events), id(spec), transcript, made)
+    if pin is not None and key in pin:
+        return pin[key]
+    ix = _index_for(events, spec, transcript, made)
+    if pin is not None:
+        pin[key] = ix
+    return ix
+
+
+def _index_for(events, spec, transcript: bool, made: bool = False) -> Index | None:
     d = state_dir(events)
     if d is None or not hasattr(events, "generation"):
         return None
@@ -947,6 +1039,8 @@ def index_for(events, spec, transcript: bool) -> Index | None:
     idle = getattr(storage, "item_idle", None) or IDLE
     with _OPEN_LOCK:
         ix = _OPEN.get(at)
+        if ix is None and made and not path.exists():
+            return None
         if ix is None:
             if not path.exists() and not upkept(spec):  # (under use: upkeep its tidier does it: SPEC §2a, Upkeep)
                 with contextlib.suppress(OSError):    # (a folder that cannot be listed: nothing tidied, as before)

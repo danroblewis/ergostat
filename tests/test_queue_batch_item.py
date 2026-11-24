@@ -22,7 +22,9 @@ QUEUE = pytest.mark.slow            # (see above: a run of the queue, 10 s+)
 
 
 def said(lines: list[dict]) -> list[str]:
-    return [x["event"] for x in lines if x.get("event", "").startswith("batch.")]
+    """The batch's own events, but its stages' (test_a_red_batch_s_every_stage_...)."""
+    return [x["event"] for x in lines if x.get("event", "").startswith("batch.")
+            and not x["event"].startswith("batch.stage-")]
 
 
 def batch(f: Factory) -> dict:
@@ -428,3 +430,98 @@ def test_a_run_s_progress_is_read_from_its_logs(tmp_path, monkeypatch):
             b.progress(cfg)
         (run / "queue.json").write_text(json.dumps({"running": {"pre": "x"}}))
     assert b.progress(cfg) == (0, 0)                                              # the run finished
+
+
+# ---- its stages (dev/records/merge-run-stages-with-times.md; ergostat/stages.py)
+
+def stage_rows(p, text: str = "select stage, run, run_kind, state, outcome, seconds from item_stages") -> list[tuple]:
+    import time
+
+    from ergostat.datasources import _itemviews
+    from ergostat.spec.itemindex import index_for
+    ix = index_for(p.events, p.model.spec, False)
+    with _itemviews.opened(ix, p.model.spec, time.monotonic() + 10, text) as (c, _):
+        return [tuple(r) for r in c.execute(text)]
+
+
+def test_a_simulated_batch_that_goes_red_isolates_its_culprit_and_lands_the_rest_shows_every_stage(tmp_path, monkeypatch):
+    """Done 2. A batch of a, b, c on a clock of its own, its stages said as queue.py says them (suites(): ruff, then
+    unit and browser at once, then demo; named(); the push wait from pending() to pushed()): red in full (unit fails,
+    browser stopped by it), its named tests fail alone; by name, on each prefix at once, b is found; the survivors a
+    and c pass in full, land, and the push waits 15 minutes for its approval."""
+    b, clock, out, cfg = batches_module(monkeypatch, tmp_path)
+    b.begin(cfg, "a-20261123T100000Z", ["gap/a", "gap/b", "gap/c"], "0" * 40)
+
+    def wait(s):
+        clock[0] += s
+
+    def suites(unit_s, browser_s, red):
+        with b.stage("ruff", cfg):
+            wait(60)
+        with b.stage("unit", cfg) as u:
+            with b.stage("browser", cfg) as w:
+                wait(browser_s)
+                w["outcome"] = "stopped" if red else "passed"
+            wait(unit_s - browser_s)
+            u["outcome"] = "failed" if red else "passed"
+        if not red:
+            with b.stage("demo", cfg):
+                wait(120)
+
+    with b.run("full", ["gap/a", "gap/b", "gap/c"]) as seen:
+        suites(600, 600, True)
+        with b.stage("named", cfg) as n:                                         # its failing tests, alone
+            wait(120)
+            n["outcome"] = "failed"
+        seen.append({"failed": "unit", "tests": ["tests/t.py::t"], "unit": {"counts": {"failed": 1, "passed": 9}}})
+    wait(30)
+    with b.run("named", ["gap/a", "gap/b", "gap/c"]) as seen:                    # each prefix at once
+        with b.stage("named", cfg) as x, b.stage("named", cfg) as y, b.stage("named", cfg) as z:
+            wait(90)
+            x["outcome"], y["outcome"], z["outcome"] = "passed", "failed", "failed"
+        seen += [{"named": {"tests": 1}}, {"named": {"tests": 1}, "failed": True, "tests": ["tests/t.py::t"]}]
+    b.isolated("gap/b", "named", ["tests/t.py::t"])
+    wait(30)
+    with b.run("full", ["gap/a", "gap/c"]) as seen:
+        suites(610, 500, False)
+        seen.append({"unit": {"counts": {"failed": 0, "passed": 10}}})
+    b.settled(["gap/a", "gap/c"], "1" * 40, [("gap/b", "failed in the queue")])
+    pending = b.pending()
+    wait(900)
+    b.pushed(cfg, pending, "ran")
+    p = project(tmp_path, out)
+    assert stage_rows(p) == [
+        ("ruff", "1", "full", "done", "passed", 60.0), ("unit", "1", "full", "done", "failed", 600.0),
+        ("browser", "1", "full", "done", "stopped", 600.0), ("named", "1", "full", "done", "failed", 120.0),
+        ("named", "2", "named", "done", "passed", 90.0), ("named", "2", "named", "done", "failed", 90.0),
+        ("named", "2", "named", "done", "failed", 90.0),
+        ("ruff", "3", "full", "done", "passed", 60.0), ("unit", "3", "full", "done", "passed", 610.0),
+        ("browser", "3", "full", "done", "passed", 500.0), ("demo", "3", "full", "done", "passed", 120.0),
+        ("push-wait", "3", "full", "done", "passed", 900.0)]
+    assert stage_rows(p, "select state from batch") == [("partial",)]
+    assert stage_rows(p, "select count(*) from item_progress") == [(0,)]          # ended: nothing runs, nothing left
+
+
+@QUEUE
+def test_a_red_batch_s_every_stage_is_said_by_the_queue_itself(tmp_path):
+    """The real queue (the fixture's fake suites): a and b, a bad; red in full, then halves (its named check cannot
+    tell), b lands; every stage of every run is said, finished, and the push wait ends when the push is settled."""
+    import time
+    f = Factory(tmp_path, unit=ANY_BAD.format(runs=tmp_path / "runs", greens=tmp_path / "greens"))
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2, edits={"a": "bad-a.txt"})
+    _, lines = f.run("queue.py", "gap/b")
+    lines += settle_push(f)
+    p = project(tmp_path, [(x["event"], x["item"], x.get("data") or {}, time.time()) for x in lines
+                           if x.get("event", "").startswith("batch.")])
+    got = stage_rows(p)
+    assert {r[3] for r in got} == {"done"}                                       # every stage said finished
+    full = [r for r in got if r[1] == "1"]
+    assert [(r[0], r[4]) for r in full if r[0] != "browser"] == [   # its tests alone, then on main: both cannot tell
+        ("ruff", "passed"), ("unit", "failed"), ("named", "passed"), ("named", "passed")]
+    assert [r[4] for r in full if r[0] == "browser"] in (["passed"], ["stopped"])   # (it may end before unit fails)
+    halves = {s: sorted(r[4] for r in got if r[1] == "2" and r[0] == s) for s in ("ruff", "unit", "browser", "demo")}
+    assert halves["ruff"] == ["passed"] * 2 and halves["unit"] == ["failed", "passed"] and len(halves["browser"]) == 2
+    assert halves["demo"] == ["passed"]                                          # a's half red: no demo; b's green
+    assert {r[2] for r in got if r[1] == "2"} == {"halves"}
+    assert [r[0] for r in got][-1] == "push-wait" and got[-1][4] == "passed"
+    assert all(r[5] is not None and r[5] >= 0 for r in got)

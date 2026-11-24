@@ -15,7 +15,7 @@ answer questions: take the most reversible option and say so in the definition f
 
 {definition}
 
-## Its entry in docs/GAPS.md
+## Its entry (the `## Entry` of its record, as main's dev/records/ render it into docs/GAPS.md)
 
 {gaps_entry}
 
@@ -61,5 +61,5 @@ answer questions: take the most reversible option and say so in the definition f
    around it.
 7. If you cannot finish, add a "Where it stopped" section to the definition file (what is done, what is left, why),
    commit it, and say so.
-
+{shell}
 End with three lines: what you built, what is left, and the tests you ran.

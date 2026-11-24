@@ -149,7 +149,10 @@ outside the entries goes to `dev/records/GAPS-head.md`; one it cannot place, suc
 another title's record, goes to `dev/records/GAPS-unplaced.md` and is said as `gaps_md_unplaced`), then
 writes GAPS.md from the records and commits it as `docs/GAPS.md from the records` (a render that fails says
 `gaps_md: why` on the run and lands the batch without it), and the implementor refuses, uncounted, a branch whose own
-commits change GAPS.md. Every reader still reads GAPS.md. A gap that is not in GAPS.md is asked for as an
+commits change GAPS.md. The dependency reader, the briefs (an implementor's, a reviewer's, a planner's, the join
+judge's), the S definition and the knowledge block's related gaps read a gap's entry and its section from main's
+records (`gapsdoc.entries`, through `brief.records_at_main`; GAPS.md only before the split); a record that cannot be
+read is said in the brief by name where the entry would be, never as no entry. Intake still reads GAPS.md. A gap that is not in GAPS.md is asked for as an
 event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):
 
 ```sh
@@ -180,7 +183,10 @@ itself: a clean merge is committed by the factory; a conflicted one is handed to
 (it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
 `scripts/named_tests.py`, below; its refused calls are kept as `tool_denials`, and a session with no result or
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
-`tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
+`tool-denials-unknown` counts; `refused-commands-per-session` is the mean Bash calls refused per session that said,
+so a rise shows. The implementor's and the reviewer's briefs end their working rules with `# How the shell works
+here` (agents.shell_rule, from the role's own allowlist): one allowed command per Bash call, nothing chained, the
+role's commands named, and a refusal never a reason to stop), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
 after: ruff and `[suites] build`, each under the watchdog in a suite container of the agent image and the suite slot.
 The four browser files run there too only with `[suites] build_browser = true` (default false: minutes of 4 CPUs a
@@ -211,7 +217,9 @@ the suites again. Its reviews are numbered past the branch's earlier ones (`revi
 
 **Dependencies.** A gap waits on others named by `depends-on: [name, ...]` in its definition (the template is
 `dev/prompts/definition.md`), `"depends_on": ["gap/..."]` in its request, or `after `name``, `needs `name` first` and a
-"Depends on" table column in GAPS.md. It is built only once each is merged (a parked one holds it, with `blocked_reason`); the implementor takes the unblocked first,
+"Depends on" table column in GAPS.md, as main's records render it. It is built only once each is merged (a parked one
+holds it, with `blocked_reason`; so does its own record when main's cannot be read, said by name); the implementor
+takes the unblocked first,
 the critical first. A name that is no gap, or a link that would close a cycle, is refused and said (the goal
 `dependencies-sound`); a gap waiting on any unfinished one names it and its state (`blocked_reason`), and one whose
 branch is already merged into main and whose own definition file is in main's tree (so a branch made from main with no
@@ -262,6 +270,12 @@ lesson 13). If every failing test fails on main, the failure is not counted and 
 is given back with `waits_on_main`, the implementor skips it, and the intake releases it once main is another commit.
 At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
 failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
+Only a test main has can be main's: before that run each test is looked for at main (`onmain.present`: its file, and
+each `class` and its `def` in it; a file or ref that cannot be read is not there). One main lacks is never run on main
+and stays the gap's, or a stacked gap's first base's that has it (`not_on_main` on `suites_fast`); it is counted and
+goes back through the fix path, the fix session and the nack naming whose it is. The run on main is on main itself,
+never on the stack of main and the bases. A gap held (`waits_on_main`) on a test its main commit lacks, recorded
+before this, is released by the intake at once, `not_on_main` saying which.
 
 Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) goes through `dev/bin/flakes.py`, which
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
@@ -328,6 +342,19 @@ programs already there.
   number of days since the oldest `when`. No goal is on it until the owner says how long a test may stay. A list, a
   line or a date held.py cannot read gives no value (exit 1), never 0. A listed test with no flake item marked
   `quarantined`, or such an item whose test is not listed, is named on stderr.
+- **flakes-few, main-repaired-fast** (dev/model/guarantees-flakes.yaml). The stock
+  `flakes-open` counts the flakes `seen`, filled by `flakes-seen` and drained by `flakes-fixed`, which counts every move
+  out of `seen`: fixed by green runs or by hand, or to `main-broken`. So the two flows add up to the stock. `flakes-few` holds each seen flake by its hours in `seen` (`per: item`, on the stock
+  `flakes-open-hours`, `measure: oldest` over the same items) at or under `flake-hours-most` (3). Off, it names the
+  oldest first. check refuses `per: item` on a count (goal-per), so the definition's "at most 3, the oldest named" is
+  one goal on the age, not on the count. Whether it should be the count instead is the owner's question.
+  `main-repaired-fast` holds `main-repair-hours` at or under `main-repair-hours-most` (24). The two
+  readings are `flakes.py main-repair-hours` and `flakes.py flake-fix-hours`. Each is the median, over the stays that
+  ended `fixed` in the last 14 days, from the move into `main-broken` (or `seen`) to the move to `fixed`. The moves are
+  read in the record's order, never by comparing stamps. A repeat break keeps the clock, and a flake made again from
+  `fixed` starts a new stay. A `seen` stay that went to `main-broken` ended unfixed. At most 500 flakes are read, by
+  id, and more is said on stderr. With no stay ended, or a flake that cannot be read, there is no value (exit 1). Both
+  goals are `on-stale: off`. Nothing reads either goal yet: they are unserved until regression-guarantees-wired.
 - **lessons-hold.** The auxiliary `lessons-recurring` (dev/model/guarantees-lessons.yaml, `measure.py
   lessons-recurring`) counts, over 14 days of reviews (every round), the librarian's classes found that the gap's
   first implementor brief carried. A review whose classes are not recorded, or whose gap has no first brief, is left
@@ -519,8 +546,8 @@ class only when it is exactly S, M, L or XL and its confidence (low 0.25, medium
 `[planning] min_size_confidence`. A class or confidence that is present but not trusted (`"s "`, a missing or unknown
 confidence, one below the bar) takes the full planner and is always marked for review. So is every replan (the gap's
 state `replan`, which the fold sets from the send-back by seq), except an XL one.
-- **S**: no session. The definition is written from the gap's own title and text (its `docs/GAPS.md` entry on main,
-  else a join sub-gap's `entry`; with neither, the gap takes the full path) with the house rules' done
+- **S**: no session. The definition is written from the gap's own title and text (its entry in main's records,
+  else a join sub-gap's `entry`; with neither, or a record that cannot be read, the gap takes the full path) with the house rules' done
   criteria and a 50-line budget, created exclusively in `run/defs/` (one already there, or one that lands first, is
   kept byte for byte and the gap is the coordinator's). `defined_by: size-s`, `planning_cost_usd: 0`. **No AI and no
   reviewer has looked at this definition**; the implementor names the tests.
@@ -868,7 +895,8 @@ first 8; the rest count as real) runs alone twice (`[suites] rerun`, `-rA`). One
 green. The others raise one intervention of class `queue` (which pipeline-watch raises as a situation) naming them,
 main's sha, and the first-parent commits since the last green sha as `suspects` (the latest 50 when no green is known
 or it is no ancestor of main). A red run that names no test (a skip, a stall) raises one with the log's tail, and so
-does a crashed run (the queue's `crashed()`: exit 3, `INTERNALERROR>`, a full disk, a lost worker), whose FAILED lines
+does a crashed run (the queue's `crashed()`: exit 3, `INTERNALERROR>`, a full disk, a lost worker, read from neither a
+PASSED, SKIPPED, XFAIL or XPASS line nor the test name on a FAILED one, so a test named for `[Errno 28]` is no crash), whose FAILED lines
 are not read, since they name whatever was running; neither is ever green. It holds no batch back: the queue's own check on main (`main_red`) is unchanged. The auxiliary
 `browser-main-green` reads the file (1 green, 0 red; no reading when it is missing or cannot be read), and the goal
 of that name shows it on the Dynamics diagram. The daily run reads the goal (read, not commanded, so it keeps its
@@ -889,6 +917,26 @@ and `batch-run-failures` read its progress from its own pytest logs (the least a
 from the record. Saying any of this never fails or delays a merge: a failure to write is dropped. A batch whose queue
 run was killed ends when the next run takes over: `given-back` when recovery puts main back, and, killed after its
 merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
+The batch kind is a pipeline (SPEC §5a, *Stages*): each stage of each run is said as it starts and ends
+(`batch.stage-started`, `-finished`, through `batches.stage()`): ruff, unit, browser, host and demo in `suites()`
+(`passed`, `failed`, `stopped` when the failure of the suite beside it stopped it, `error`), `named` in `named()`
+(the failing tests alone, on main, and on each prefix), and `push-wait` from `pending()` until `pushed()` settles it.
+The Dashboard's Merge queue row (the root model's `record` sql source) reads them: the running batch and the gaps
+waiting in rank order, its stage now with elapsed, expected and time left, each of its stages, recent batches and the
+median of each stage over time; a Prometheus scraping `/api/stages/metrics` has them as histograms.
+
+The merge pipeline's health is read from the batch items (`dev/bin/landing.py`, through `measure.py`):
+`main-still-minutes` (since the latest batch whose landing stood, ended `landed` or `partial`, at its `landed_at`;
+one still pushing, or whose push was denied, moved nothing), `batch-runs`, `batch-first-green`, `crash-lost-minutes`
+and `gaps-landed-per-hour` (the last day, landings that stood), charted together on the dashboard
+`landing.merge-pipeline`. The goal `main-moving` (in `landing.yaml`, beside its measure; the pipeline watch reads its
+reason in code, with no `in:` edge, which would widen `managing`'s boundary) holds `main-stalled-minutes` at 120 (tolerance 30): the minutes main has
+not moved while gaps wait (approved, queued, or leased by merge-queue), from the later of its last move and the oldest
+waiting gap's approval, so it is 0, never off, while nothing waits. Its reason, `measure.py main-stalled-why`, names
+the current batch, its run and the cause ("batch/x-… (isolating, 3 gap(s)), run 6 (halves) crashed: OSError: …"); the
+pipeline watch puts it in its `no-merge` condition, and the pipeline manager's brief carries it and the current batch's
+fields under *The merge queue*, in place of `run/queue.json`. A waiting gap's *Why isn't this done?* names the batch it
+is in, with its run, or how many batches holding approved gaps are ahead of it (SPEC §5a, *place*).
 
 A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
@@ -953,6 +1001,11 @@ A `stacked_on` that cannot be read, or that names a gap not in the record, count
 moved. The pass says what it did with each gap on stderr, in the block's log.
 
 ## Time in each state
+
+(The measure sensors, `dev/bin/measure.py`, share one listing of each kind: run by the engine, the first reading of a
+kind lists it, under that kind's lock in `<state>/listings/`, and the readings within the next 120 s, `listing.SHARE`,
+read that listing, so readings due together make one listing of the gaps, not one each. A listing that fails is not kept. The
+15-second load sensors, `dev/model/interlock.yaml`, read on the engine's fast lane, never behind them.)
 
 Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of each gap whose events grew since it was
 last read (at most 50 a run, those never read first) and writes `gap.timed` on it when its timing changed, for any gap
@@ -1050,8 +1103,9 @@ none said), unless another gap carries its branch on or the park is `deferred` o
 coordinator's `deferred: true` or `cancelled: true`), or an old park classified `unknown` whatever its age; a `waits_on`
 or `needs` park not cleared in `park_wait_hours` (24, at least 1); a continuing gap whose branch intake could not fetch
 (`unfetched`); a `split` park never (each stopped sub-gap raises its own
-trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
-else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
+trigger); a gap past `[manager.stuck_hours]` in its state (`building` by its current visit alone, from its moves, a
+lease taken and given back counting as the same visit, since rounds of rebuilding are bounded by the kill rule; every
+other state by the sum, state-times' closed visits in `time_in` plus the current one when it has it, else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
 queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.

@@ -170,6 +170,284 @@ Not run here: the whole unit suite and the four browser files (the factory's), `
 
 Refused in this session: a stray `python3 - <<'EOF'` with an empty body (nothing depended on it).
 
+### Round 3
+
+The only finding was the conflicts with main (fa51005d, the `sql` data source) in `docs/SPEC.md` and
+`ergostat/datasources/__init__.py`. Both are resolved, keeping both sides:
+- `__init__.py`: main's `ASKING` context around `mod.query`, then the branch's `_lint.warnings` (G22 reads PromQL
+  only, so SQL text gets no warnings).
+- SPEC §4e: main's *The SQL source* is kept, followed by the branch's *Result shapes*, which says six shapes.
+
+No code changed besides the merge. Outside tests, docs and dev the branch is still 388 lines added and 59 removed.
+SQL answers go through the branch's envelope: `tests/test_sql_source.py` passed.
+
+Run here, none skipped:
+- Unit: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62) all passed. test_result_shapes,
+  test_query_engine and test_web_access (92) had 91 pass and 1 fail (below). test_query_engine, test_web_access and
+  test_dashboards (110) had 109 pass and the same 1 fail.
+- Browser, all rc 0: test_result_frames_page with test_result_shapes_page (13); test_data_source_panels,
+  test_panel_editor and test_panels (62); test_sql_editor, test_plot_forms and test_promql_suggest (137).
+- ruff is clean.
+
+`test_query_engine.py::test_a_factory_sized_record_answers_each_source_within_100_ms_without_the_log` failed 4 of 6
+runs. Each time it was the `counts` source, at a best of 104 to 109 ms against its 100 ms bound. It passed in round 2.
+- I don't think the branch caused it. With the branch's `n`/`sampling` line in `frames.framed` turned off, it passed
+  once. With it on, it also passed once. The answer holds about 120 values per series, so that line costs microseconds.
+  The two runs were then restored, and `git status` was clean.
+- Main also changed this path since the branch's base (`spec/itemindex.py`, +17 lines, in `fde8110a`).
+- I could not compare with main on this machine. The commands that would have done it were refused (below). It is
+  reported, not fixed (lesson 13), and the bound was left as it is.
+
+Refused in this session: `git worktree add --detach /tmp/mainwt main` (to time the test on main), and
+`ps -A -o pcpu=,command= --sort=-pcpu` (to see the load).
+
+### Round 4
+
+The only finding was the conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. Round 3's
+merge (097de0eb) had already resolved them. Main has not moved since: it is still fa51005d, which is the merge-base,
+`git merge main` says "Already up to date", and no conflict markers are left in the tree. No code changed in this
+round. Outside tests, docs and dev the branch is still 388 lines added and 59 removed.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62). test_result_shapes,
+  test_query_engine and test_web_access (92), including
+  `test_a_factory_sized_record_answers_each_source_within_100_ms_without_the_log`, which failed 4 of 6 runs in round 3
+  and passed on its single run here. One pass doesn't make it reliable, so round 3's note on it still stands.
+- Browser, all rc 0: test_result_frames_page with test_result_shapes_page (13); test_data_source_panels, test_panels
+  and test_sql_editor (30).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), `demo_check` (no example touched).
+
+### Round 5
+
+The finding is the same as in rounds 3 and 4: conflicts with main in `docs/SPEC.md` and
+`ergostat/datasources/__init__.py`. In this clone there are none to resolve:
+- local `main` is still fa51005d, which is the merge-base;
+- `git merge main` says "Already up to date";
+- no conflict markers are left in the tree.
+
+If the queue's main has moved past fa51005d, this clone cannot see that commit, so the conflict can't be reproduced or
+resolved here. The branch's whole change to those two files against main is small: in `__init__.py`, the `_lint`
+import, `SourceError.code`, and the `warnings` added to the two returns of `query`; in SPEC §4e, the *Result shapes*
+paragraph rewritten, and *Histograms*, *A graph*, *Verdicts* and *Which charts apply* added or changed. Whoever merges
+a newer main should keep both sides, as round 3 did. The one change in this round is a SPEC line in *Histograms*
+rewrapped to the file's width, with no words changed. No code changed. Outside tests, docs and dev, the branch is still
+388 lines added and 59 removed.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62).
+- Browser, rc 0: test_result_frames_page with test_result_shapes_page (13).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
+### Round 6
+
+The finding was the same as before: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`.
+Main had moved to b9341591, and the factory's merge 6ef14e49 brought it into the branch before this session. That
+merge left no conflict markers in the tree, and `git merge main` says "Already up to date". Against main, the branch's
+change to `__init__.py` is still only the `_lint` import, `SourceError.code`, and the `warnings` on the two returns of
+`query`. Its change to SPEC §4e is still only the *Result shapes*, *Histograms*, *A graph*, *Verdicts* and *Which
+charts apply* paragraphs. Main's new SPEC text, 96 lines elsewhere, is kept whole. In this round I rewrapped one line
+of *Histograms* that was over the file's width. No words changed and no code changed.
+
+In that merge main changed `panels.js` by 107 lines, so I ran the page tests again:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62); test_result_shapes,
+  test_query_engine and test_dashboards (98), which includes the 100 ms factory-sized test from round 3.
+- Browser, rc 0: test_result_frames_page, test_result_shapes_page and test_dashboard_page (62); test_panels,
+  test_data_source_panels and test_dashboard_keep_page (29).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
+### Round 7
+
+The finding was the same as before: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. In
+this clone there are none to resolve. Local `main` is b9341591, which is the merge-base, `git merge main` says "Already
+up to date", and no conflict markers are left in the tree. If the queue's main has moved past b9341591, this clone
+can't see that commit. Whoever merges it should keep both sides, as round 3 did. The branch's change to the two files
+is still the one recorded in round 6.
+
+Round 6 said it rewrapped a line of *Histograms*, but one line there was still over the paragraph's width. In this
+round it is rewrapped, with no words changed. No code changed. Outside tests, docs and dev the branch is still 388
+lines added and 59 removed.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62).
+- Browser, rc 0: test_result_frames_page with test_result_shapes_page (13).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
+### Round 8
+
+The finding was the same again: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. This
+clone has none to resolve:
+- local `main` is still b9341591, the merge-base;
+- `git merge main` says "Already up to date";
+- neither file has a conflict marker.
+
+The branch's change to `__init__.py` against main is still 4 hunks: the `_lint` import, `SourceError.code`, and the
+`warnings` on the two returns of `query`. If the queue's main has moved past b9341591, that commit can't be seen here,
+and this branch waits for a merge of it. Whoever merges should keep both sides, as round 3 did. Nothing changed in
+this round apart from this note: no code, and no SPEC rewrap.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62).
+- Browser, rc 0: test_result_frames_page with test_result_shapes_page (13).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
+### Round 9
+
+The factory merged main (e8669794) into the branch, and it conflicted in three files. I resolved each one in d483a580,
+keeping both sides:
+- `ergostat/datasources/_frames.py`: main's `response` frame (`_response`, `_pairs`, `_plain`, and its docstring line)
+  sits beside the branch's `_buckets` and `_graph`. `answer` takes all six, and its refusal names them all.
+- `ergostat/query/engine.py`: a reader's refusal keeps the branch's `error_code: "reader"`, under main's new condition
+  (a reader may still ask the model's own source, `datasources.own`). It also passes main's `reader` on to
+  `_from_source`.
+- SPEC §4e *Result shapes*: the branch's paragraph, with main's `response` frame (poles and zeros as `[re, im]`, and
+  `supported: false` carrying no curve) added to the list of typed frames.
+
+The auto-merged `query/frames.py` already gives a `supported: false` response the branch's `no-coherence` reason. No
+other code changed. Outside tests, docs and dev the branch is 389 lines added and 59 removed: one more line than
+before, because the engine's condition is now split over two lines.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62); test_model_data_source,
+  test_query_engine and test_result_shapes (102), which include main's response frames; test_web_access,
+  test_dashboards and test_web_lanes (69).
+- Browser, rc 0: test_result_frames_page, test_result_shapes_page and test_data_source_panels (16).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
+### Round 10
+
+The finding was the same as before: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`.
+Round 9's merge (d483a580) resolved them against e8669794, and this clone has nothing left to resolve:
+- local `main` is still e8669794, which is the merge-base;
+- `git merge main` says "Already up to date";
+- no conflict markers are in `docs/SPEC.md` or in any file under `ergostat/`.
+
+Against main, the branch's change to `__init__.py` is still 4 hunks: the `_lint` import, `SourceError.code`, and the
+`warnings` on the two returns of `query`. If the queue's main has moved past e8669794, this clone can't see that
+commit, and this branch waits for a merge of it. Whoever merges it should keep both sides, as rounds 3 and 9 did.
+Nothing changed in this round apart from this note.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62); test_model_data_source,
+  test_query_engine and test_result_shapes (102).
+- Browser, rc 0: test_result_frames_page, test_result_shapes_page and test_data_source_panels (16).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
+### Round 11
+
+The finding was the same again: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. This
+clone has none to resolve:
+- local `main` is still e8669794, the merge-base;
+- `git merge main` says "Already up to date";
+- no conflict markers are in `docs/SPEC.md` or in any file under `ergostat/`.
+
+Against main the two files differ by 55 lines added and 17 removed, the same change rounds 9 and 10 recorded. The
+conflict the queue reports must be with a main newer than e8669794, which this clone cannot see. This branch waits for
+the factory to merge that main in. Whoever does should keep both sides, as rounds 3 and 9 did. Nothing changed in this
+round apart from this note.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62).
+- Browser, rc 0: test_result_frames_page, test_result_shapes_page and test_data_source_panels (16).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
+### Round 12
+
+The finding was the same again: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. Main
+had moved to b20756c7, and the factory's merge 043d975f brought it into the branch before this session:
+- `git merge main` says "Already up to date";
+- no conflict markers are anywhere in the tree;
+- against main the two files still differ by 55 lines added and 17 removed. That is the change rounds 9 to 11
+  recorded, with main's new SPEC text (98 lines, elsewhere) kept whole.
+
+In this round I rewrapped one line of SPEC §4e *Result shapes* that was over the file's width. No words changed and no
+code changed. Main's merge also changed `tests/test_result_shapes.py`, so I ran it again.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_result_shapes and test_data_sources (67); test_sql_source,
+  test_query_engine and test_model_data_source (97).
+- Browser, rc 0: test_result_frames_page, test_result_shapes_page and test_data_source_panels (16).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
+### Round 13
+
+The one finding, blocking, is answered: *a typed table's `meta.n` was 0* (`query/frames.py`, `_n`). `n` was counted
+only from `series`, so a data source's table, every SQL table answer among them, said `n = 0` however many rows it
+held. A typed table's `n` now counts its measure cells, and a missing or non-finite cell is not counted. Its dims are
+keys, not values, so they are not counted either. An engine-built table still counts its series' values, as before.
+The docstring and SPEC §4e say so.
+
+Test: `tests/test_result_frames_and_verdicts.py::test_a_typed_tables_n_counts_its_measure_cells_and_not_its_dims_or_missing_ones`
+(three rows of two measures through `_frames.answer`, one cell `None` and one NaN, give `n = 4`). With the table branch
+of `_n` turned off, it failed (`assert 0 == 4`). Then the branch was restored.
+
+Outside tests, docs and dev the branch is 392 lines added and 59 removed. `git merge main` says "Already up to date".
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_result_shapes (59);
+  test_result_frames_and_verdicts, test_query_engine and test_data_sources (106).
+- Browser, rc 0: test_result_frames_page with test_result_shapes_page (13).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
+### Round 14
+
+The one finding, blocking, is answered: *a series role other than input/output or candles was checked, then thrown
+away* (`datasources/_frames.py`, `_series`). Now:
+- each placed series keeps its `role` in the answer;
+- the frame's `roles` lists the roles in series order, so `describe` and `meta` carry them;
+- two series of one answer with the same role are refused ("two series have the role 'sp'"), so neither is silently
+  dropped. This also covers two `input`s or two `close`s, which used to keep only the last.
+
+One choice taken without asking, the most reversible: a frame's `roles` once meant two signals or candles, and the
+families that take plain series (`roles: "none"`: stat, table, histogram) refused any answer with `roles`. In
+`frames.js` that check now reads "neither two signals nor candles". A loop's `sp`/`pv` answer is drawn as values over
+time, as before this round, by line, bar, stat, table and histogram. Loop panels are B7 (`loop-roles-and-loop-panels`).
+
+Tests:
+- `tests/test_result_frames_and_verdicts.py::test_a_role_on_a_series_or_a_graphs_field_is_from_a_closed_list` now
+  frames a loop (`sp`, `pv`, an unroled series, `op`, `limit_hi`). It asserts each series' `role`, the frame's
+  `roles` and `describe`'s, that a second `sp` is refused, and that a series with no role gets no `role` key.
+- `tests/test_result_shapes.py` has a `loop` sample (frame `{"shape": "series", "roles": ["sp", "pv"]}`), and
+  `tests/test_result_shapes_page.py`'s family-by-shape table has its row: the five families of plain series.
+
+Seen to fail when the code they guard was broken, then restored:
+- With `role` dropped from the placed series, the unit test failed (`[None, None, ...] != ['sp', 'pv', ...]`).
+- With the duplicate check off, it failed (`DID NOT RAISE`).
+- With `frames.js`'s old `roles: "none"` check put back, the page table failed: `loop` was refused by stat, table and
+  histogram.
+
+SPEC §4e *Result shapes* says how roles are carried, and the `_frames.py` docstring does too. I also rewrapped a line
+of that paragraph that was over the file's width, with no words changed. Outside tests, docs and dev the branch is 400
+lines added and 62 removed (budget 600 net). `git merge main` says "Already up to date".
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_result_shapes and test_data_sources (68);
+  test_result_frames_and_verdicts, test_sql_source and test_query_engine (97).
+- Browser, rc 0: test_result_shapes_page, test_result_frames_page and test_data_source_panels (16);
+  test_result_shapes_page, test_result_frames_page and test_panels (38).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently
