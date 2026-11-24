@@ -47,7 +47,8 @@ the estimates. It is worked out in the eta worker, never on a request, as now (S
 {"schema": "forecast/v1", "at": T, "version": MODEL_VERSION, "runs": 200, "seed": 1, "horizon": 7776000,
  "basis": {"since": T-14d, "flags": {...}, "whatif": [...], "assumed": {block: why}, "limits": {block: L},
            "capacity": {block: n}, "sources": {block: words}},
- "items":  {ID: {"finish": {"p05","p10","p25","p50","p75","p90","p95"}, "beyond": 0.0, "start": T,
+ "items":  {ID: {"p50": T, "p90": T, "mean": T, "start": T,
+                 "finish": {"p05","p10","p25","p50","p75","p90","p95"}, "beyond": 0.0,
                  "dead": 0.0, "out": 0.0, "runs": 200,
                  "waits_on": [{"on": "block", "name": "welders", "ahead": 9},
                               {"on": "item", "id": "order/118", "binding": 0.62}],
@@ -62,7 +63,8 @@ the estimates. It is worked out in the eta worker, never on a request, as now (S
 
 - **Finish-time range.** The ladder is the empirical quantiles of the runs' finishes, with `beyond` the share of runs
   not finished within the horizon. With fewer than `eta.FEW` runs, only p50 is said, as now: the rest are null and
-  never extrapolated. `p50`, `p90` and `start` keep their present meaning, so today's readers are unchanged.
+  never extrapolated. `p50`, `p90`, `mean`, `start`, `dead`, `out`, `runs`, `why` and `unscheduled` keep the keys
+  and meanings `eta.simulate` gives them today, so today's readers are unchanged; `finish.p50` equals `p50`.
 - **Per group.** A group is a parent under a `group: true` relation (SPEC §5a, `parent`). In each run, the group's
   finish is the latest finish of its open members and of the parent itself. `by.good` counts, per run, the members
   that reached a *good* finished state (§2) by each moment of the ladder, which is what an N-of-M promise reads.
@@ -70,8 +72,8 @@ the estimates. It is worked out in the eta worker, never on a request, as now (S
   its p50 and p90 over the runs that reach S. This is kept only for the states a model's promise or frozen window
   names, plus the kind's finished states, so memory stays items × named states × runs. Per kind and state,
   `stages.clears` is when the items in or bound for S now have all left it, and `per_hour` is entries per hour over
-  the first 24 h. `per_hour` is the same count CAE §6 exposes as `flows`: one number, two names avoided, so CAE's
-  `flows` is this.
+  the first 24 h. `per_hour` is the same count CAE §6 exposes as `flows: {flow: per hour}`: CAE's `flows` is this
+  count read at each flow's sensor state (`entering: S`), so it is one number under one name, not two.
 - **What it waits on.** This is the data behind today's `why`. The block and its place in the queue, or the state,
   come from `eta.reasons`. The unfinished items it names come with `binding`: the share of runs in which that item was
   the last thing released before it moved (counted in `_Run.done`). Also listed: a gate closed now (CAE §7), a frozen
@@ -202,7 +204,8 @@ blocks:
     frozen: {for: 1d, every: 1h, urgent: {field: rush, is: true}, most: 100}
 ```
 
-- Every `every`, the eta worker freezes: the items whose forecast start at this block (`stages`, the p50) falls
+- Every `every`, the eta worker freezes: the items whose forecast start at this block (`stages` of the block's
+  `takes.at` states, which a frozen window names and so keeps: the p50 of `enter`) falls
   within `for` of now, ordered by that start. They are recorded as one event, `block.frozen` {block, items in order,
   until, the forecast's `at` and version}. `most` caps the list, with a ceiling of 500 at check (lesson 4), and the
   rest are counted. An item stays frozen until it is first taken by that block, or it finishes, or the list's `until`
@@ -217,8 +220,9 @@ blocks:
   When the dispatcher takes an urgent item while frozen ones wait, it records `block.frozen.broken` {block, item,
   went ahead of [ids]}. The Items tab and the item's why say so. A quote with an urgent item reports whom it would push,
   and by how much.
-- **Failing closed.** If the newest list cannot be read, the block takes by its plain order. A missing freeze is a
-  missing preference, not a refusal. This is said in the block's why ("frozen window not read: plain order"). A list
+- **When the list cannot be read**, the block takes by its plain order. This falls back on purpose, and is not
+  failing closed: a missing freeze is a missing preference, not a refusal, and stopping the block would be the worse
+  case for the work it protects. This is said in the block's why ("frozen window not read: plain order"). A list
   naming an item not in the record is skipped for that item and counted.
 
 ## 6. Calibration
@@ -375,8 +379,9 @@ the 12 lots' p90 (say Fri 06:00 against a p90 of Thu 20:00), the simulation must
 spread. That is `test_extra_matches_binomial`.
 
 **When time binds.** With due Thu 18:00, the 13th lot would start behind the other twelve in the oven's queue, so it
-adds chance only if it finishes in time. The search reports each k: "k=0 41%, k=1 70%, k=2 84%, k=3 83%: no k up to 6
-reaches 90%: best 84% at 2". The added lot competes for the same four lanes, which is why the chance is not monotone.
+adds chance only if it finishes in time. The search tries every k up to `most` and reports each: "k=0 41%, k=1 70%,
+k=2 84%, k=3 83%, k=4 80%, k=5 77%, k=6 74%: no k up to 6 reaches 90%: best 84% at 2". Each is at most the
+binomial's chance for the same count (43%, 78%, 93%, 98%, …), which time can only lower. The added lot competes for the same four lanes, which is why the chance is not monotone.
 The answer here is a promise that cannot be kept, said before work starts, and not more lots.
 
 **Frozen window**: `frozen: {for: 8h}` on the oven keeps the next eight hours' loading order. A rush order's lots go
@@ -387,7 +392,9 @@ the shelf is ever empty over the horizon is at most 5%.
 **Read as a remote.** A shop that sells the lots reads this model as remote `bakery`. Its kind `delivery` has
 `waits_for: {kind: bakery-lot, forecast: true}`. Each delivery's forecast then draws its lot's finish from the
 bakery's ladder, and a delivery says "not scheduled: waits on bakery-lot/88, whose forecast is 14m old" when the
-bakery stops answering.
+bakery stops answering. In the model that is
+`items: {delivery: {relations: {waits_for: {kind: bakery-lot, forecast: true}}}}`: `bakery-lot` is the remote's kind
+`lot` by its local name (SPEC §5a, *A remote's kind*), and it stays never precedence for the engine.
 
 ## The ergostat-on-ergostat factory, as one user
 

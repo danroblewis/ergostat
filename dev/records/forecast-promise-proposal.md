@@ -45,3 +45,20 @@ Round 1: written. docs/proposals/forecasts-and-promises.md settles the eight (§
   event; an unreadable freeze takes the plain order; the conformal correction and remote quotes off unless declared;
   per-item random streams only if the backtest is unchanged.
 - Not measured, and the live instance not touched. No test, page or example changed, so only ruff was run.
+
+Round 2 (no review findings to answer): the proposal checked against the code and SPEC it names. Every name it cites
+exists as cited (`eta.FEW`, `etacheck.FEW`, `KindIn.said`, `_Run.done`, `eta.reasons`, `take_key` shared by the
+dispatcher and `eta._Run`, `closedloop.parse_whatif`'s `block.NAME.pool`/`.failure`, `closedloop.risk`'s
+`p_ever_off`, `eta_api.KEEP` 8, `remote/items.ASKS`, the remote API's `AT_MOST` 200), and it agrees with
+control-aware-estimates.md §1–§9. Five corrections, no change of design:
+- §1: the item shape keeps every key `eta.simulate` gives today, `mean` included, which round 1 had left out.
+- §1: CAE's `flows: {flow: per hour}` is said to be `per_hour` read at each flow's sensor state: one count, one name.
+- §5: the frozen start is read from `stages` of the block's `takes.at` states. The unreadable-list case is no longer
+  headed "failing closed": it falls back to the plain order on purpose, which the text now says (lesson 8).
+- §9.2: the time-bound search lists every k up to `most`, as §2 says it does, and each chance is at most the binomial's.
+- §9.2: the remote reader's relation is given in SPEC §5a's `relations:` form, with `bakery-lot` as the remote's kind.
+- The binomial table was worked by hand again and agrees: 0.434, 0.782, 0.935, 0.984. A scratch script for it,
+  `/tmp/binom.py` written with the Write tool, was refused (`/tmp` is outside /work for the file tools), and a
+  scratch file inside the repository would break the rule against them, so no machine check was run.
+  `test_extra_matches_binomial` in the quote gap remains the check.
+- Still 0 net lines of code. Only ruff was run.
