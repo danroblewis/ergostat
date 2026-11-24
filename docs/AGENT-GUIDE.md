@@ -1100,6 +1100,33 @@ ergostat why change/c5 --json
    (give it one), a taking with no process recorded (declare `budget:`), a state nothing takes (a block, a relation,
    or a working state as above). Fix the model and ask again.
 
+## 3n. A CI/CD pipeline: its stages, how long each took, how long is left
+
+When the work is a pipeline (a build, a deploy, a merge queue, a release train), the person asks while it runs:
+what is in it, which stage is it at, how long did the earlier ones take, how long has this one run, how long is left.
+Model it so ergostat can answer (SPEC §5a, *Stages*):
+
+1. **One item a run of the pipeline**, not a stage: `deploy/<id>`, `batch/<run tag>`. Its states are the coarse
+   ones a person names (`testing`, `isolating`, `pushing`, `landed`); the stages live inside the item.
+2. **Declare `pipeline:` on its kind**: `title` (its Dashboard row), `stages` (every stage name it may record: these
+   label its histograms, so they must be a fixed, short list; a name not listed is counted as `other`) and, when it
+   takes from a line of other items, `waiting: {kind, state, order}`, with a relation on the kind naming that kind
+   (the batch's `gaps`), so its row shows what the running item holds and what waits, in the order it is taken.
+3. **Have whatever runs a stage say it**, as two ordinary events about the item, each with a span id it makes, unique
+   to that stage run: `{"stages": {SPAN: {"stage", "run", "run_kind", "started", "until"}}}` when it begins and
+   `{"stages": {SPAN: {"finished", "outcome"}}}` when it ends, `outcome` `passed` only for a normal end (`failed`,
+   `stopped` when cut short, `error`). Say the end in a `finally`, so an error still ends it. Give `until` (its own
+   time limit plus slack): a recorder that dies leaves the stage `unfinished`, never running forever. Stages that run
+   at once overlap; a stage run again is a new span. `run` is the attempt the stage belongs to and `run_kind` what kind
+   of run it is (`full`, a retry, an isolation round): estimates compare like with like.
+4. **Declare a `sql` source** (`sources: {record: {type: sql}}`): the views `item_stages`, `stage_estimates` and
+   `item_progress` answer the questions, and the default Dashboard's row is built from them. Each estimate needs 3
+   normal runs; until then it says there is none, and so does the time left. After a stage fails, the time left is
+   unknown (the remaining path depends on what fails), and the row says so.
+5. **Check it with a simulated run**, as `tests/test_stages.py` does: say the stages of a few green runs and one under
+   way on a clock you set, then ask `item_progress` for the time left you worked by hand. The merge queue's own
+   (`dev/bin/batches.py` `stage()`, `dev/model/landing.yaml`) is a worked example.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |
