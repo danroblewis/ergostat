@@ -262,10 +262,10 @@ def test_the_named_loops_and_one_per_goal_are_drawn_and_every_other_loop_is_mino
     assert set(spec.named_loops) == {"rework", *PRODUCT_LOOPS}
     assert {n for n, c in loops.items() if c["named"]} == set(spec.named_loops)      # each entry names exactly one loop
     for name, goal in PRODUCT_LOOPS.items():
-        assert loops[name]["goal"] == goal and loops[name]["shown"] == name, loops[name]
+        assert loops[name]["seeks"] == goal and loops[name]["shown"] == name, loops[name]
         assert "product" in loops[name]["systems"]
-    seekers = {c["goal"]: c for c in loops.values() if c["goal"]}
-    assert len(seekers) == sum(1 for c in loops.values() if c["goal"]) <= len(spec.goals)   # one loop per goal at most
+    seekers = {c["seeks"]: c for c in loops.values() if c["seeks"]}
+    assert len(seekers) == sum(1 for c in loops.values() if c["seeks"]) <= len(spec.goals)   # one loop per goal at most
     for goal, c in seekers.items():                                       # balancing, through its gap, the shortest
         assert c["polarity"] == "B" and f"gap:{goal}" in c["nodes"], c
         rivals = [x for x in loops.values() if x["polarity"] == "B" and f"gap:{goal}" in x["nodes"]]
@@ -278,7 +278,7 @@ def test_the_named_loops_and_one_per_goal_are_drawn_and_every_other_loop_is_mino
     for pol in "RB":                                                       # the drawn take the first numbers: B1, B2 …
         ns = sorted(int(c["label"][1:]) for c in major if c["polarity"] == pol)
         assert ns == list(range(1, len(ns) + 1)), (pol, ns)
-    assert all(not c["named"] and not c["goal"] for c in loops.values() if c["minor"])
+    assert all(not c["named"] and not c["seeks"] for c in loops.values() if c["minor"])
     # the routed read: users-won runs through the stock → block read its goal's gap is drawn on
     assert ("stock.users", "block.product-manager") in zip(loops["users-won"]["parts"], loops["users-won"]["parts"][1:], strict=False)
 
@@ -293,6 +293,114 @@ def test_a_system_s_box_and_the_list_drawing_it_alone_count_its_loops_alike(fact
     mine = [c for c in alone["causalLoops"] if "product" in c["systems"]]
     assert box == {"named": sum(not c["minor"] for c in mine), "minor": sum(c["minor"] for c in mine)}
     assert top["loopCount"]["named"] + top["loopCount"]["minor"] == len(top["causalLoops"])     # everything: every loop
+
+
+SMALL = """\
+name: small
+parameters:
+  r: 2
+  k: 1
+stocks:
+  people:
+    unit: people
+    sensor:
+      manual: true
+flows:
+  births:
+    to: people
+    driven-by: +stock.people
+    equation: r * stock.people
+  deaths:
+    from: people
+    driven-by: +stock.people
+    equation: k * stock.people
+  leaving:
+    from: people
+goals:
+  few:
+    stock: people
+    hold: "<= 100"
+blocks:
+  thin:
+    type: program
+    run: "true"
+    in: [goal.few.error]
+    out: flow.leaving
+"""
+
+
+def test_each_loop_through_a_gap_names_its_goal_and_the_goal_names_its_loops(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(SMALL)
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    live = Live(Project(mdl.load(tmp_path)))
+    g = api(live, "graph", {"view": ["dynamics"], "open": ["*"]})
+    loops = {c["name"]: c for c in g["causalLoops"]}
+    closing = {n for n, c in loops.items() if c["goal"]}
+    # a loop through a gap carries its goal; one through none (births R, deaths B) carries none
+    assert closing and all(loops[n]["goal"] == "few" and "goal.few" in loops[n]["parts"] for n in closing)
+    assert all(c["goal"] is None and not any(p.startswith("goal.") for p in c["parts"])
+               for n, c in loops.items() if n not in closing)
+    assert {loops[n]["polarity"] for n in loops if n not in closing} == {"R", "B"}
+    assert [loops[n]["polarity"] for n in closing] == ["B"]                # thin drains people when it is over 100
+    lp = api(live, "loops/few", {})
+    assert [x["name"] for x in lp["feedback_loops"]] == sorted(closing)    # the same loops, from the goal's side
+    assert lp["feedback_loops"][0]["label"] == loops[next(iter(closing))]["label"]
+    assert lp["control_loop"]["controllers"] == ["thin"] and lp["control_loop"]["name"] == "few"
+
+
+TWO = """\
+name: two
+stocks:
+  a:
+    unit: people
+    sensor:
+      manual: true
+  b:
+    unit: people
+    sensor:
+      manual: true
+flows:
+  move:
+    from: a
+    to: b
+  back:
+    from: b
+    to: a
+goals:
+  calm:
+    stock: b
+    hold: "<= 50"
+  few:
+    stock: a
+    hold: "<= 100"
+blocks:
+  thin:
+    type: program
+    run: "true"
+    in: [goal.few.error]
+    out: flow.move
+  slow:
+    type: program
+    run: "true"
+    in: [goal.calm.error]
+    out: flow.back
+"""
+
+
+def test_a_loop_through_two_gaps_closes_both_goals(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(TWO)
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    live = Live(Project(mdl.load(tmp_path)))
+    loops = {c["name"]: c for c in api(live, "graph", {"view": ["dynamics"], "open": ["*"]})["causalLoops"]}
+    both = [n for n, c in loops.items() if {"goal.few", "goal.calm"} <= set(c["parts"])]
+    assert both, loops                                   # a -> few -> thin -> move -> b -> calm -> slow -> back -> a
+    assert all(loops[n]["goal"] == "calm" for n in both)  # its one goal, the first by name
+    for g in ("few", "calm"):                            # yet it closes each, so each goal's panel lists it
+        fl = [x["name"] for x in api(live, f"loops/{g}", {})["feedback_loops"]]
+        assert set(both) <= set(fl), (g, fl)
+        assert set(fl) == {n for n, c in loops.items() if f"goal.{g}" in c["parts"]}
 
 
 def test_closed_systems_fold_the_loops_into_their_boxes(factory):

@@ -956,7 +956,7 @@ def _write(f: Path, text: str) -> None:
     os.replace(tmp, f)
 
 
-CARRIED = ("description", "unit", "redesign")        # kept across a change to the model, if its edit still applies
+CARRIED = ("description", "unit", "display", "redesign")        # kept across a change to the model, if its edit still applies
 
 
 def _carried(p, spec: Spec, x: dict) -> str | None:

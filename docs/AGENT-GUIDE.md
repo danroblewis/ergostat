@@ -385,6 +385,17 @@ The essentials:
   so the dashed lines between kinds appear; rework as a declared move back.
 - **Everywhere**: the same names in every view, a description on every part.
 
+### A template's exports
+
+When a template says `exports:` (`templates` with `name:` shows them), the rest of the model may read only those of
+an instance's parts; the others are internal, free to change in the next version of the template, and a reference to
+one from outside the instance is a finding (**template-internal-reference**, SPEC §2a). Reference only exports: read
+`help-queue-waiting`, not `help-queue-picked-up`. If what you need is internal, ask the owner (or the template's
+author) to export it, rather than reading it anyway. **When you write a template, write its `exports:`**: the
+stocks, flows, auxiliaries, goals and blocks a user is meant to read (its commitment goal, its main stock), and
+nothing that only its own loops use; an inner use's part is exported by its local name (`stock.INNER-x`), and only
+if that template exports it too.
+
 ### Templates from a folder the owner did not write
 
 A `library:` entry written `{folder: PATH}` is untrusted (SPEC §2a): its templates may make only structure, and a use
@@ -877,8 +888,12 @@ or when the same question is asked of the page again and again (SPEC §4f):
 5. Open `GET /api/dashboard/NAME` (or `ergostat snapshot`) and read each panel's answer: none should be empty
    without a reason.
 
-A dashboards-only change alters no version and no replay, but the judge does not yet know that (it would replay it
-as a parameter change): add a dashboard as a direct edit followed by `ergostat check`, not as a proposal.
+A dashboards-only change alters no version and no replay: propose it with `kind: display` (SPEC §12e), and the
+judge passes it on `check` alone, without a replay; the owner accepts it like any change. A display proposal that
+touches anything but `dashboards:` is refused, so put any other edit in a change of its own. When the owner has
+arranged a draft on the Dashboard page, they press **Keep** themselves: the server makes the same display change
+from the draft (`query` panels, the page's own) and it waits for their Accept. Do not copy a draft's link into YAML
+by hand; point the owner at Keep.
 
 ## 3m. Why isn't this done: a model that can say what holds the work up
 
@@ -1099,6 +1114,33 @@ ergostat why change/c5 --json
    `missing`, or `nothing` for a state someone does take. Each says what the record lacks: a sensor with no reading
    (give it one), a taking with no process recorded (declare `budget:`), a state nothing takes (a block, a relation,
    or a working state as above). Fix the model and ask again.
+
+## 3n. A CI/CD pipeline: its stages, how long each took, how long is left
+
+When the work is a pipeline (a build, a deploy, a merge queue, a release train), the person asks while it runs:
+what is in it, which stage is it at, how long did the earlier ones take, how long has this one run, how long is left.
+Model it so ergostat can answer (SPEC §5a, *Stages*):
+
+1. **One item a run of the pipeline**, not a stage: `deploy/<id>`, `batch/<run tag>`. Its states are the coarse
+   ones a person names (`testing`, `isolating`, `pushing`, `landed`); the stages live inside the item.
+2. **Declare `pipeline:` on its kind**: `title` (its Dashboard row), `stages` (every stage name it may record: these
+   label its histograms, so they must be a fixed, short list; a name not listed is counted as `other`) and, when it
+   takes from a line of other items, `waiting: {kind, state, order}`, with a relation on the kind naming that kind
+   (the batch's `gaps`), so its row shows what the running item holds and what waits, in the order it is taken.
+3. **Have whatever runs a stage say it**, as two ordinary events about the item, each with a span id it makes, unique
+   to that stage run: `{"stages": {SPAN: {"stage", "run", "run_kind", "started", "until"}}}` when it begins and
+   `{"stages": {SPAN: {"finished", "outcome"}}}` when it ends, `outcome` `passed` only for a normal end (`failed`,
+   `stopped` when cut short, `error`). Say the end in a `finally`, so an error still ends it. Give `until` (its own
+   time limit plus slack): a recorder that dies leaves the stage `unfinished`, never running forever. Stages that run
+   at once overlap; a stage run again is a new span. `run` is the attempt the stage belongs to and `run_kind` what kind
+   of run it is (`full`, a retry, an isolation round): estimates compare like with like.
+4. **Declare a `sql` source** (`sources: {record: {type: sql}}`): the views `item_stages`, `stage_estimates` and
+   `item_progress` answer the questions, and the default Dashboard's row is built from them. Each estimate needs 3
+   normal runs; until then it says there is none, and so does the time left. After a stage fails, the time left is
+   unknown (the remaining path depends on what fails), and the row says so.
+5. **Check it with a simulated run**, as `tests/test_stages.py` does: say the stages of a few green runs and one under
+   way on a clock you set, then ask `item_progress` for the time left you worked by hand. The merge queue's own
+   (`dev/bin/batches.py` `stage()`, `dev/model/landing.yaml`) is a worked example.
 
 ## 4. Common mistakes
 

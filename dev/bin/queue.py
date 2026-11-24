@@ -117,16 +117,31 @@ def up_to_date(cfg: dict, repo) -> str | None:
 
 HOST = threading.Lock()                                 # the host step runs on the Mac itself: one half at a time
 NAMED_MOST = 10                                         # more failing tests than this: not a failure to chase by name
-CRASH = re.compile(r"^INTERNALERROR>|\[Errno 28\]|No space left on device|worker '\w+' crashed", re.M)
+CRASH = re.compile(r"^INTERNALERROR>|\[Errno 28\]|No space left on device|worker '\w+' crashed")
+PASSING = re.compile(r"\b(PASSED|SKIPPED|XFAIL|XPASS)\b")    # a result line naming a test: its name is not a crash
+FAILING = re.compile(r"\b(FAILED|ERROR)\b")                  # only its reason, after " - ", can report one
+
+
+def crash_text(line: str) -> str:
+    """The part of one log line a crash marker may be read from: all of an INTERNALERROR line or a plain line, none
+    of a passing result line, only the reason of a FAILED or ERROR line (`FAILED id - worker 'gw3' crashed`)."""
+    if line.startswith("INTERNALERROR>"):
+        return line
+    if PASSING.search(line):
+        return ""
+    return line.partition(" - ")[2] if FAILING.search(line) else line
 
 
 def crashed(rc: int, text: str) -> str:
     """Why a pytest run's failures are the run's and not its tests' (exit 3: pytest's internal error, or suite_watch
     stopping it; INTERNALERROR; a full disk; a lost xdist worker), or "". Such a run names no test: the tests it
-    reports failed are whatever was running."""
+    reports failed are whatever was running. Test names are not read: a parametrize id holding `[Errno 28]`, on a
+    verbose PASSED line, is no crash."""
     if rc == 3:
         return "exit 3: an internal error, or the suite's watchdog stopped it"
-    return m.group(0) if rc and (m := CRASH.search(text)) else ""
+    if not rc:
+        return ""
+    return next((m.group(0) for line in text.splitlines() if (m := CRASH.search(crash_text(line)))), "")
 
 
 def browser_wanted(cfg: dict, repo, pre: str) -> bool:
@@ -182,17 +197,21 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
         got, ts, first, said = {}, [], [], threading.Lock()
         for n in names:
             def body(n=n):
-                try:
-                    r = one(n)
-                except BaseException as e:             # (raised again below, in the queue's own thread)
-                    r = e
-                with said:                             # (which failed first, decided and kept in one hold)
-                    if isinstance(r, dict) and r.get("failure") and first:
-                        r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]} \
-                            | ({"counts": "unknown"} if n in PYTEST else {})      # (killed: its counts unsaid)
-                    elif isinstance(r, BaseException) or r.get("failure"):   # (a container that did not start:
-                        first.append(n)                                          # its sibling is stopped too)
-                    got[n] = r
+                with batches.stage(n, cfg) as st:      # (its batch's stage: ergostat/stages.py)
+                    try:
+                        r = one(n)
+                    except BaseException as e:         # (raised again below, in the queue's own thread)
+                        r = e
+                    with said:                         # (which failed first, decided and kept in one hold)
+                        if isinstance(r, dict) and r.get("failure") and first:
+                            r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]} \
+                                | ({"counts": "unknown"} if n in PYTEST else {})      # (killed: its counts unsaid)
+                        elif isinstance(r, BaseException) or r.get("failure"):   # (a container that did not start:
+                            first.append(n)                                          # its sibling is stopped too)
+                        got[n] = r
+                    st["outcome"] = ("stopped" if isinstance(r, fac.Stalled) else "error") \
+                        if isinstance(r, BaseException) else "stopped" if r.get("stopped_by") \
+                        else "failed" if r.get("failure") else "passed"
             ts.append(threading.Thread(target=body, daemon=True))
             ts[-1].start()
         try:
@@ -250,7 +269,9 @@ def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
     (a test not found, a run that could not start or crashed) None. It never counts as the green run anything lands on (land())."""
     tests = failed["tests"]
     log = logs / f"{tag}-named.txt"
-    rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, box="queue", tests=[*tests, "-rA"])
+    with batches.stage("named", cfg) as st:
+        rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, box="queue", tests=[*tests, "-rA"])
+        st["outcome"] = "failed" if rc else "passed"
     text = log.read_text()
     if crashed(rc, text):                                # (what it reports failed is whatever was running)
         return None

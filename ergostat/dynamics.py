@@ -376,9 +376,9 @@ def dynamics(g: dict, model) -> dict:
     for c in causal:
         c["around"] = _around(spec, c["nodes"], conns, names)
         c["named"] = spec is not None and c["name"] in spec.named_loops
-        c["goal"] = seeks.get(c["name"])
-        c["minor"] = spec is not None and not (c["named"] or c["goal"])     # (an older model: every loop drawn, as before)
-        c["shown"] = c["name"] if c["named"] or not c["goal"] else c["goal"]
+        c["seeks"] = seeks.get(c["name"])                                  # (``goal``, from the graph: the goal it closes)
+        c["minor"] = spec is not None and not (c["named"] or c["seeks"])    # (an older model: every loop drawn, as before)
+        c["shown"] = c["name"] if c["named"] or not c["seeks"] else c["seeks"]
         c["systems"] = sorted({s for p in c.get("parts") or [] for s in chains.get(p, [])})
     tags = labels(causal)
     for c in causal:
