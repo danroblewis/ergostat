@@ -1686,7 +1686,8 @@ reads the event log.
   100 edges (`ergostat/query/graphfit.py`): over it, nodes are collapsed by their declared `group`, then by `type`,
   then by weight into one `other`, each step only while too many are left, then the lightest edges are left out, and
   `omitted` says how many and their share of the weight; a share its maker could not say (`null`, as when a graph was
-  cut by its maker's caps) stays `null` once fitted, never 0. An aggregated node or edge says how many it `holds`; counts
+  cut by its maker's caps) stays `null` once fitted, never 0, and so does the share when any edge's weight is not
+  known (an `n` that is null), since then neither what was left out nor the whole is known. An aggregated node or edge says how many it `holds`; counts
   and rates are summed, and nothing else is: a latency, a wait, an age, a slack or a field with no role holds its worst
   member's value, and `worst` names that member. One unhealthy member marks its group. A collapsed graph's
   `paths_real` is false. `acyclic` is worked out on the whole graph first, and is `null` (not known) when the graph

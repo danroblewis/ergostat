@@ -236,7 +236,24 @@ def test_over_the_edge_budget_the_lightest_edges_are_left_out_and_their_share_sa
     assert how == [f"the lightest 20 edges left out ({share:.0%} of the weight)"]
 
 
-def test_an_over_budget_graph_warns_and_offers_the_matrix():                       # chart 77
+def test_edges_of_unknown_weight_left_out_leave_their_share_unknown():           # lesson 3
+    """120 edges, the lightest 20 of which (n 1 to 20) have their n null: nobody knows what they weigh, so leaving them
+    out is never said to be 0% of the weight. Through ``graphs.panel``, as a data source's graph is fitted, too."""
+    g = graph(30, 120)
+    g["edges"]["relation"] = [f"r{i}" for i in range(120)]
+    g["edges"]["n"] = [None] * 20 + list(range(21, 121))
+    g = _frames.answer(g, None, 0)
+    assert g["edges"]["n"][:20] == [None] * 20
+    got, how = graphfit.fit(g, *graphfit.PANEL)
+    assert len(got["edges"]["id"]) == 100 and got["omitted"]["edges"] == 20 and got["omitted"]["weight_share"] is None
+    assert how == ["20 edges left out (their share of the weight is not known)"]
+    out = graphs.panel(g, {})
+    assert out["omitted"]["edges"] == 20 and out["omitted"]["weight_share"] is None
+    g["edges"]["n"] = list(range(1, 100)) + [None] + list(range(101, 121))    # one kept edge unknown: the total is too
+    assert graphfit.fit(g, *graphfit.PANEL)[0]["omitted"]["weight_share"] is None
+
+
+def test_an_over_budget_graph_warns_and_offers_the_matrix():                     # chart 77
     out = graphs.drawn(*graphs.service({"nodes": [{"id": f"agent:{i}", "label": str(i), "runs": i} for i in range(50)],
                                         "edges": [], "since": 0, "until": 1}))
     framed = frames.framed(out, parse.Query(id="0", source="graph", agg="count", diagram="service"))

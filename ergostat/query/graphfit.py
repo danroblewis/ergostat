@@ -33,6 +33,14 @@ def _weight(fields: list[dict], i: int) -> float:
     return 1.0
 
 
+def _eweight(edges: dict, i: int) -> float | None:
+    """What an edge weighs: its ``n``, else its first summed field, else 1; None when that is not known."""
+    if "n" in edges:
+        return None if edges["n"][i] is None else float(edges["n"][i])
+    summed = [f for f in edges["fields"] if f.get("role") in SUMMED]
+    return 1.0 if not summed else _weight(summed, i) if any(f["values"][i] is not None for f in summed) else None
+
+
 def _merged(fields: list[dict], members: list[list[int]], names: list[str]) -> tuple[list[dict], list[dict | None]]:
     """Each field over each set of ``members``: summed when it may be, else its worst member's (``worst``: whose)."""
     out, worst = [], [None if len(m) == 1 else {} for m in members]
@@ -118,15 +126,16 @@ def fit(g: dict, most_nodes: int, most_edges: int) -> tuple[dict, list[str]]:
             continue
         by.setdefault((s, t, edges["relation"][i]), []).append(i)
     ends, groups = list(by), list(by.values())
-    weight = [sum(_weight(edges["fields"], i) for i in m) if "n" not in edges
-              else sum(edges["n"][i] or 0.0 for i in m) for m in groups]
-    total = sum(weight)
+    weight = [None if any(w is None for w in ws) else sum(ws)
+              for ws in ([_eweight(edges, i) for i in m] for m in groups)]
+    known = None not in weight                            # an edge of unknown weight leaves the share unknown
+    total = sum(w for w in weight if w is not None)
     if len(groups) > most_edges:
-        keep = sorted(sorted(range(len(groups)), key=lambda j: -weight[j])[:most_edges])
-        cut = sum(weight) - sum(weight[j] for j in keep)
-        how.append(f"the lightest {len(groups) - most_edges} edges left out ({cut / total:.0%} of the weight)"
-                   if total else f"{len(groups) - most_edges} edges left out")
-        dropped, share = len(groups) - most_edges, (cut / total if total else None)
+        keep = sorted(sorted(range(len(groups)), key=lambda j: -(weight[j] or 0.0))[:most_edges])
+        cut = total - sum(weight[j] or 0.0 for j in keep)
+        dropped, share = len(groups) - most_edges, (cut / total if known and total else None)
+        how.append(f"the lightest {dropped} edges left out ({share:.0%} of the weight)" if share is not None
+                   else f"{dropped} edges left out (their share of the weight is not known)")
         groups, ends = [groups[j] for j in keep], [ends[j] for j in keep]
     else:
         dropped, share = 0, 0.0

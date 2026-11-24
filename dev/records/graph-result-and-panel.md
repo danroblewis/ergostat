@@ -288,3 +288,30 @@ Run here:
 
 Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
 walk.
+
+## Where it stopped (round 7)
+
+Built, round 7: the one finding (there were no others). In `graphfit.fit`, an edge whose `n` was null weighed 0. So
+the edge fit dropped these edges first and called their share 0%, though nobody knows what they weigh (lesson 3).
+- `graphfit._eweight`: an edge's weight is its `n`. Without an `n` column it is its first summed field, or 1 if it has
+  none. It is None when that value is null. A merged edge with any unknown member weighs None.
+- `graphfit.fit`: if any edge's weight is not known, the share is `null` whenever edges are left out, because the
+  whole is not known either. The how-text then says "N edges left out (their share of the weight is not known)". For
+  ordering, an unknown weight still sorts as the lightest, so which edges are kept is unchanged.
+- Test: `test_edges_of_unknown_weight_left_out_leave_their_share_unknown`. 120 edges, the 20 lightest with `n` null,
+  are fitted to 100. It asserts 20 omitted, `weight_share` None and the how-text. It checks the same through
+  `graphs.panel`, which is the data-source path. It also covers one kept edge of unknown weight. With the check forced
+  off (`known = True`), the test failed at `0.0 is None`; then the fix was restored.
+- SPEC §4e (*A graph on a panel*) says this.
+
+Sizes, outside tests, docs and dev: this gap's own change is 606 added and 19 removed (587 net,
+`git diff --shortstat 197d03ee`).
+Overrun reason: measured against main, the diff includes the merged base gap result-frames-and-verdicts (338 net lines, not yet on main); this gap's own change is 587 net lines, under the 600.
+
+Run here:
+- Unit, all passed: test_graph_result_and_panel, test_result_shapes and test_data_sources (58).
+- Browser, under the watchdog: test_graph_result_page passed (3, rc 0).
+- ruff is clean. `git merge main` said "Already up to date."
+
+Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
+walk.
