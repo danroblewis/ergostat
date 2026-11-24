@@ -2903,6 +2903,15 @@
       }
     },
     "daemon_use": {"description": "A map of its own, or the name of one under daemons:", "oneOf": [{"$ref": "#/$defs/name"}, {"$ref": "#/$defs/daemon"}]},
+    "lane_cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A lane's cost, or the bound on all of them: cores and memory",
+      "properties": {
+        "cpu": {"type": "number", "exclusiveMinimum": 0, "maximum": 1024},
+        "memory": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "pattern": "^\\s*\\d+(\\.\\d+)?\\s*([kmgtKMGT]i?)?[bB]?\\s*$"}]}
+      }
+    },
     "lease_terms": {
       "type": "object",
       "additionalProperties": false,
@@ -2972,6 +2981,20 @@
           "properties": {
             "first": {"type": "integer", "minimum": 1, "maximum": 200},
             "urgent": {"type": "string", "minLength": 1}
+          }
+        },
+        "lanes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["apart", "most", "within"],
+          "description": "Lanes (SPEC section 9.5): items whose apart: lists share no entry run at once, one that shares an entry on top of a lane ahead: deep at most (discarded, uncounted, when what it is on does not pass); most: lanes, each costed the larger of each: and its block's measured runs, together never above within:",
+          "properties": {
+            "apart": {"type": "string", "minLength": 1},
+            "most": {"type": "integer", "minimum": 1, "maximum": 16},
+            "ahead": {"type": "integer", "minimum": 0, "maximum": 4},
+            "within": {"$ref": "#/$defs/lane_cost"},
+            "each": {"$ref": "#/$defs/lane_cost"},
+            "passed": {"oneOf": [{"$ref": "#/$defs/name"}, {"type": "array", "items": {"$ref": "#/$defs/name"}}]}
           }
         },
         "faults": {

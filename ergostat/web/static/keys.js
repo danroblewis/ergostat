@@ -34,6 +34,7 @@ const roveKey = () => S.pinKey || location.search;        // (per view: the view
 function keyable(svg) {
   for (const el of svg.querySelectorAll(KEYS)) {
     if (el.matches(".k-cloud") && !nodeOf(el.dataset.id)?.beyond) continue;   // (a cloud is no control)
+    if (el.matches(".loop-marker.minor")) continue;    // (drawn only while chosen: its row in the side list is its button)
     const said = saidIn(el), host = el.parentElement?.closest(".node, [data-hull]");
     el.setAttribute("tabindex", "-1"); el.setAttribute("role", "button"); el.setAttribute("aria-label", ariaOf(el, said));
     el.dataset.key = [el.classList[0], el.dataset.id, el.dataset.loop, el.dataset.hull, el.dataset.act, host?.dataset.id,

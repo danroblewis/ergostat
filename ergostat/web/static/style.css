@@ -343,6 +343,9 @@ button.looprow { width: calc(100% + 2 * var(--sp-2)); min-height: 0; border: 0; 
 .detail h2 { font-size: var(--text-lg); font-weight: 600; margin: var(--sp-0) 0 var(--sp-3); overflow-wrap: anywhere; }
 .detail h3 { font-size: var(--text); font-weight: 600; margin: var(--sp-5) 0 var(--sp-2); }
 .detail h3::first-letter { text-transform: uppercase; }
+/* a goal's four lines and its remedy, first in its evidence: sentences that wrap, never wider than the panel */
+.detail .runbook-line, .detail .remedy { margin: 0 0 var(--sp-1); overflow-wrap: anywhere; max-width: 100%; }
+.detail .remedy { margin: var(--sp-2) 0 var(--sp-3); }
 .detail dl { display: grid; grid-template-columns: 8em minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); margin: var(--sp-3) 0; }
 .detail dt { color: var(--muted); }
 .detail dt::first-letter { text-transform: uppercase; }
@@ -693,7 +696,8 @@ svg.sd .edge.lit .pipe-head, svg.sd .edge.in-loop .pipe-head, svg.sd .edge.lit .
 .loop-marker .marker-arc { fill: none; stroke: var(--sd-ink); stroke-width: 1.4; }
 .loop-marker .marker-head { fill: var(--sd-ink); }
 .loop-marker .marker-letter { fill: var(--sd-ink); font-size: var(--canvas-sm); font-weight: 700; }
-.loop-marker .marker-more { fill: var(--sd-muted); font-size: var(--canvas-sm); font-weight: 600; }
+.loop-marker.minor:not(.on) { display: none; }          /* a minor loop: drawn only while chosen or pointed at in the list */
+.loop-marker.minor { cursor: auto; }                     /* (its row there is its button: keys.js) */
 .loop-marker .marker-name { fill: var(--sd-ink-2);font-size: var(--canvas-sm); font-style: italic; paint-order: stroke; stroke: var(--sd-paper); stroke-width: 3px; stroke-linejoin: round; }
 .loop-marker.pol-unknown .marker-arc { stroke: var(--sd-muted); }
 .loop-marker.pol-unknown .marker-head, .loop-marker.pol-unknown .marker-letter, .loop-marker.pol-unknown .marker-name { fill: var(--sd-muted); }

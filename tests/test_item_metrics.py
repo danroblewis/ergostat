@@ -401,7 +401,7 @@ def test_how_long_since_the_last_merge_in_a_real_victoriametrics(rec, vm):  # no
     v = Victoria(vm, rec.dir, project=f"test-{uuid.uuid4().hex[:10]}")
     rec.measurements = v
     keep(rec, T0 + 250)
-    got = v._query(f'time() - max({im.LAST}{{kind="gap",to="merged",project="{v.project}"}})', T0 + 240)
+    got = v._query(f'time() - max(gap_last_transition_timestamp_seconds{{to="merged",project="{v.project}"}})', T0 + 240)
     assert got and got[0][1] == pytest.approx(40)
     v.drop()
 
@@ -414,7 +414,7 @@ def test_samples_go_to_victoriametrics_under_their_labels_and_stay_out_of_its_se
            ({"__name__": im.ITEMS, "kind": "gap", "state": "open"}, T0 + 60, 4.0)])
     lines = [json.loads(x) for x in sent[0][2].decode().splitlines()]
     assert sent[0][0] == "/api/v1/import" and sent[-1][0] == "/internal/force_flush"
-    assert lines == [{"metric": {"__name__": im.ITEMS, "kind": "gap", "state": "open", "project": "p1"},
+    assert lines == [{"metric": {"__name__": "gap_items", "state": "open", "project": "p1"},   # (the kind's own name)
                       "values": [3.0, 4.0], "timestamps": [T0 * 1000, (T0 + 60) * 1000]}]
     sent.clear()
     monkeypatch.setattr(v, "_req", lambda path, params=None, body=None: sent.append(params) or

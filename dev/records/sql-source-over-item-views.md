@@ -130,4 +130,3 @@ section: Interface
   - Writes, ATTACH, PRAGMA and the index's own tables are refused.
   - Each query is bounded in time, rows, bytes and memory.
   - Its editor highlights SQL and completes views and columns.
-  - Left: real views in place of per-query copies, if the authorizer can be made to tell a view's reads apart.

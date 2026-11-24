@@ -155,18 +155,22 @@ mkdir -p run/defs && $EDITOR run/defs/<branch>.md        # the gap's `branch` fi
 
 (or `dev/records/<branch>.md` on main or on its branch: the gaps' working records, out of `docs/`; the old
 `docs/roadmap/overnight/<branch>.md` is still read for a branch begun before the move, the new path first; a
-`dev/records/<branch>.md` holding only its `## Entry` is not a definition, and the old file is read). A gap's GAPS.md
+`dev/records/<branch>.md` is a definition only with a `## Definition of done` section, so one holding only its
+`## Entry` makes nothing ready, and the old file is read). A gap's GAPS.md
 entry is written in its record, as its `## Entry` section (dev/prompts/definition.md shows the shape), never in
-`docs/GAPS.md`: each landing of the merge queue carries the batch's own GAPS.md edits into the records
-(`gapsdoc.carry`: a new entry gets a record of its own, `dev/records/<branch>.md` holding only its Entry, and text
-outside the entries goes to `dev/records/GAPS-head.md`; one it cannot place, such as an entry whose branch names
-another title's record, goes to `dev/records/GAPS-unplaced.md` and is said as `gaps_md_unplaced`), then
+`docs/GAPS.md` (the text outside the entries is `dev/records/GAPS-head.md`): each landing of the merge queue
 writes GAPS.md from the records and commits it as `docs/GAPS.md from the records` (a render that fails says
-`gaps_md: why` on the run and lands the batch without it), and the implementor refuses, uncounted, a branch whose own
-commits change GAPS.md. The dependency reader, the briefs (an implementor's, a reviewer's, a planner's, the join
+`gaps_md: why` on the run and lands the batch without it). No branch edits GAPS.md: the implementor refuses,
+uncounted, a branch whose own commits change it, and the queue sends an approved one back to `fix`, uncounted,
+where the implementor's brief says why; its batch lands without it. The intake and its dependency reader read the entries from main's records, once a pass
+(`gapsdoc.entries`: what GAPS.md renders, without the file; before the split, `docs/GAPS.md`); a record it cannot
+read, and two entries of one branch (two records of one title, in any section, *Done recently* too), are said by
+name, as a dependency problem on the gap (a gap whose record cannot be read is held) or on stderr, never read as no
+entry and never one picked; the pass goes on. The briefs (an implementor's, a reviewer's, a planner's, the join
 judge's), the S definition and the knowledge block's related gaps read a gap's entry and its section from main's
-records (`gapsdoc.entries`, through `brief.records_at_main`; GAPS.md only before the split); a record that cannot be
-read is said in the brief by name where the entry would be, never as no entry. Intake still reads GAPS.md. A gap that is not in GAPS.md is asked for as an
+records too (`gapsdoc.entries`, through `brief.records_at_main`; GAPS.md only before the split); a record that cannot
+be read is said in the brief by name where the entry would be, never as no entry. A gap that is not in GAPS.md is
+asked for as an
 event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):
 
 ```sh
