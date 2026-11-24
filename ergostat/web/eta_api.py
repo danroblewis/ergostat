@@ -1,7 +1,11 @@
-"""Each open item's completion estimate, for the Items page, the Timeline and an item's page (SPEC §5a, *Completion
-estimates*; ``numbers/eta.py``). Worked out by one worker thread, never on a page's request: a request is given what
-was last worked out (None the first time) and asks for the next when the record changed since, at most every
-``EVERY`` seconds (and every ``KEPT`` seconds whatever: a lease's age moves with the clock). The worker works out one
+"""The forecast (``numbers/forecast.py``, ``forecast/v1``: each open item's completion estimate, each kind's, group's
+and stage's), for the Items page, the Timeline, an item's page, ``/api/forecast``, the SQL source's ``forecast_*``
+views and the remote API (SPEC §5a, *Completion estimates*, *The forecast*; ``numbers/eta.py``). Worked out by one
+worker thread, never on a request: a request is given what was last worked out (None the first time) and asks for
+the next when the record changed since, at most every ``EVERY`` seconds (and every ``KEPT`` seconds whatever: a
+lease's age moves with the clock). A record changed only where the simulation does not read it (its fingerprint,
+``forecast.fingerprint``: every input but what moves with the clock alone, unchanged) keeps the last answer and its
+version, unrun, within ``KEPT`` of when it was computed. The worker works out one
 at a time, the latest asked for first (an older ask for another what-if waits, and is dropped when a newer one for the
 same comes). The owner's what-if (a block's ``pool`` or ``failure``) is kept apart; the eight used last are kept.
 How well last week's estimates held (``numbers/etacheck.py``: each kind's calibration) is worked out by the same
@@ -23,6 +27,7 @@ _CAL: OrderedDict = OrderedDict()         # (spec, kinds) → {"made" (when begu
 _CAL_WANT: OrderedDict = OrderedDict()    # (spec, kinds) → (p, spec, kinds): worked out when no estimate waits
 _LOCK = threading.Condition()
 _WORKER: list = []
+_SERIAL = [0]                             # the last forecast version given out (numbers/forecast.py: ``version``)
 
 
 def kinds_of(spec) -> list[str]:
@@ -72,6 +77,15 @@ def estimates(p, m, whatif: str | None = None, wait: float = 0.0) -> dict | None
             _LOCK.wait(min(left, 0.1))
 
 
+def current(p, m) -> dict | None:
+    """The forecast as another reader asks it (``/api/forecast``, the SQL views, the remote API): as ``estimates``,
+    and for a model with no kind to forecast, a forecast saying so (never None, which is 'being worked out')."""
+    if not kinds_of(getattr(m, "spec", None)):
+        from ..numbers.forecast import failed
+        return failed("this model has no item kind with states: nothing to forecast", time.time(), None, error=False)
+    return estimates(p, m)
+
+
 def _worker() -> None:
     while True:
         with _LOCK:
@@ -87,6 +101,7 @@ def _worker() -> None:
                     _CAL.popitem(last=False)
             else:
                 ckey, (key, (p, spec, kinds, mark, w)) = None, _WANT.popitem(last=True)
+                kept = _CACHE.get(key)
         if ckey is not None:
             cal = _calibrate(p, spec, kinds)
             with _LOCK:
@@ -94,9 +109,12 @@ def _worker() -> None:
                     _CAL[ckey]["ans"] = cal
                 _LOCK.notify_all()
             continue
-        ans = _work(p, spec, kinds, w)
+        ans, fp = _work(p, spec, kinds, w, mark, kept)
         with _LOCK:                                    # (a failure kept too: said, tried again as an answer is)
-            _CACHE[key] = {"made": time.time(), "mark": mark, "ans": ans}
+            if kept is None or ans is not kept["ans"]:   # (worked out again: a new version, one counter for all)
+                _SERIAL[0] += 1
+                ans = {**ans, "version": _SERIAL[0]}
+            _CACHE[key] = {"made": time.time(), "mark": mark, "ans": ans, "fp": fp}
             _CACHE.move_to_end(key)
             while len(_CACHE) > KEEP:
                 _CACHE.popitem(last=False)
@@ -113,30 +131,24 @@ def _calibrate(p, spec, kinds) -> dict | None:
         return None
 
 
-def _work(p, spec, kinds, w) -> dict:
-    from ..numbers import eta, etamodel
+def _work(p, spec, kinds, w, mark=(None,), old: dict | None = None) -> tuple[dict, str | None]:
+    """The forecast (``numbers/forecast.py``) and what it read (its fingerprint): ``old``'s answer again, unrun, when
+    what the simulation reads of the record is unchanged and it was computed within ``KEPT``."""
+    from ..numbers import eta, etamodel, forecast
     try:
         inp = etamodel.read(p, spec, kinds, time.time())
-        ans = eta.simulate(inp, pools=w.pools, failures=w.failures)
+        fp = forecast.fingerprint(inp, w.pools, w.failures)
+        if old and old.get("fp") == fp and time.time() - (old["ans"].get("computed") or 0.0) < KEPT:
+            return old["ans"], fp
+        sets, left = forecast.sets(inp)
+        sim = eta.simulate(inp, pools=w.pools, failures=w.failures, sets=sets)
         why = eta.reasons(inp, w.pools)
-        for i, x in ans["items"].items():               # (reasons' words kept; one not scheduled says so first)
-            r = dict(why.get(i) or {})
-            if x.get("unscheduled"):                    # (the bare reason kept for the Timeline row and item page)
-                r["said"] = x["why"]
-            if x.get("unscheduled") and not r.get("why", "").startswith(x["why"]):
-                r["why"] = f"not scheduled: {x['why']}" + (f"; {r['why']}" if r.get("why") else "")
-            elif x.get("out"):                          # (counted out in some runs: said after reasons' words)
-                r["why"] = "; ".join(filter(None, [r.get("why"), x["why"]]))
-            x.update(r)
-        ans["assumed"] = {b.name: b.assumed for b in inp.blocks if b.assumed}
-        ans["sources"] = {b.name: _source(b, w.pools, getattr(spec.blocks.get(b.name), "pool_now", None))
-                          for b in inp.blocks}
-        ans["whatif"] = w.said()
-        return ans
+        sources = {b.name: _source(b, w.pools, getattr(spec.blocks.get(b.name), "pool_now", None)) for b in inp.blocks}
+        return forecast.build(inp, sim, why, time.time(), mark[0], w.said(), sources, left), fp
     except Exception as e:                       # the page goes on without estimates, the failure said on it and in the log
         import sys
         print(f"eta: {type(e).__name__}: {e}", file=sys.stderr)
-        return {"error": f"{type(e).__name__}: {e}", "items": {}, "kinds": {}}
+        return forecast.failed(f"{type(e).__name__}: {e}", time.time(), mark[0]), None
 
 
 def _source(b, pools: dict, now) -> str:
@@ -150,7 +162,8 @@ def _source(b, pools: dict, now) -> str:
 
 
 def merge(ans: dict, est: dict | None) -> dict:
-    """The Graph's and Timeline's answer (``precedence.build``) with the estimates: each open item's p50, p90 and why
+    """The Graph's and Timeline's answer (``precedence.build``) with the forecast (``est``: ``forecast/v1``, as
+    ``estimates`` gives it; numbers/forecast.py): each open item's p50, p90 and why
     (an item left out of the run: unscheduled, and why, with no bar ahead), its projected bars from the levelled run (a
     block's lane on each), each kind's last finish, each block's capacity and where it comes from, and each kind's
     calibration (how well last week's estimates held: ``{coverage, items, mae, since, said}``, ``{}`` until worked
@@ -168,7 +181,9 @@ def merge(ans: dict, est: dict | None) -> dict:
             elif segs:
                 x["projected"] = [s for s in segs if s[2] > est["at"]]
         items.append(x)
-    return {**ans, "items": items, "eta": {"at": est["at"], "runs": est["runs"], "kinds": est["kinds"],
+    return {**ans, "items": items, "eta": {"schema": est.get("schema"), "version": est.get("version"),
+                                           "computed": est.get("computed"), "at": est["at"], "runs": est["runs"],
+                                           "kinds": est["kinds"],
                                            "capacity": est["capacity"], "sources": est.get("sources") or {},
                                            "limit": est.get("limit") or {}, "assumed": est.get("assumed") or {},
                                            "whatif": est.get("whatif") or [],
