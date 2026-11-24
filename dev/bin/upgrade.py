@@ -1,5 +1,6 @@
 """upgrader. `upgrade.py watch` (a collector): opens an upgrade (upgrade/<sha12>, available) for each new commit on
-the remote's pushed main (origin/main, fetched into the checkout), never for a merge not pushed; then records the
+the remote's pushed main (origin/main, fetched into the checkout), never for a merge not pushed (with `[verify] after`,
+for the verified commit only, once the pushed main holds it: verify.switchable()); then records the
 reverts pushed to main since its last read as escapes (dev/bin/escapes.py; a failure there stops that step alone).
 
 `upgrade.py` takes an upgrade (upgrade/<sha12>, available) under a lease, installs it into
@@ -21,6 +22,7 @@ import time
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import live  # noqa: E402
+import verify  # noqa: E402
 
 
 def watch() -> int:
@@ -35,14 +37,16 @@ def watch() -> int:
             print(f"sweep: {e}", file=sys.stderr)
     repo, base, remote = fac.path(cfg, "checkout"), cfg["git"]["base"], cfg["git"]["remote"]
     fac.git(repo, "fetch", "-q", remote, f"+refs/heads/{base}:refs/remotes/{remote}/{base}")
-    sha = fac.git(repo, "rev-parse", f"refs/remotes/{remote}/{base}")
+    pushed = fac.git(repo, "rev-parse", f"refs/remotes/{remote}/{base}")
+    sha = verify.switchable(cfg, repo, pushed)          # ([verify] after: the verified commit only, verify.py)
     known = {u["fields"].get("sha") for u in fac.items("upgrade")}
     running = live.target(live.live(cfg) / "current")
-    if sha not in known and sha != running:
-        fac.say("upgrade.opened", f"upgrade/{sha[:12]}", sha=sha, available_at=time.time(), source=f"{remote}/{base}")
+    if sha and sha not in known and sha != running:
+        fac.say("upgrade.opened", f"upgrade/{sha[:12]}", sha=sha, available_at=time.time(),
+                source=f"{remote}/{base}" if sha == pushed else "verified")
     try:                                                # reverts on the pushed main, escapes (dev/bin/escapes.py)
         import escapes
-        escapes.watch(cfg, repo, sha)
+        escapes.watch(cfg, repo, pushed)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as e:      # (this step alone stops)
         print(f"escapes: {e}", file=sys.stderr)
     return 0
