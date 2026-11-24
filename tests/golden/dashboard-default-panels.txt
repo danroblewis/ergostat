@@ -789,13 +789,69 @@ section.dash-cell at=0,50 size=4x7 data-panel="p20" aria-label="widget: the proc
               div.panel-canvas
                 div.panel-mount
                   div.graph-panel role="img" aria-label="Graph: widget: the process map"
-                    p.panel-message-text "The graph could not be laid out: Cannot read properties of undefined (reading 'id')"
+                    svg.graph-svg
+                      defs
+                        marker
+                          path.graph-arrow
+                      g.graph-edge
+                        path
+                        title "start → new (follows, observed) · n 10 · count 10 · returns 0 · median 10 min"
+                      g.graph-edge
+                        path
+                        title "new → ready (follows, observed) · n 10 · count 10 · returns 0 · median 10 min"
+                      g.graph-edge
+                        path
+                        title "ready → building (follows, observed) · n 10 · count 10 · returns 0 · median 10 min"
+                      g.graph-edge
+                        path
+                        title "building → checked (follows, observed) · n 10 · count 10 · returns 0 · median 10 min"
+                      g.graph-edge
+                        path
+                        title "checked → shipped (follows, observed) · n 10 · count 10 · returns 0 · median 10 min"
+                      g.graph-edge
+                        path
+                        title "shipped → end (follows, observed) · n 10 · count 10 · returns 0 · median 10 min"
+                      g.graph-edge
+                        path
+                        title "checked → ready (follows, observed) · n 2 · count 2 · returns 2 · median 10 min"
+                      g.graph-node
+                        rect
+                        text "start"
+                        title "start · count 10 · items 10"
+                      g.graph-node
+                        rect
+                        text "new"
+                        title "new · count 10 · items 10"
+                      g.graph-node
+                        rect
+                        text "ready"
+                        title "ready · count 12 · items 10"
+                      g.graph-node
+                        rect
+                        text "building"
+                        title "building · count 12 · items 10"
+                      g.graph-node
+                        rect
+                        text "checked"
+                        title "checked · count 12 · items 10"
+                      g.graph-node
+                        rect
+                        text "shipped"
+                        title "shipped · count 10 · items 10"
+                      g.graph-node
+                        rect
+                        text "end"
+                        title "end · count 10 · items 10"
             div.panel-keys (hidden)
           div.panel-legend
+            div.plot-legend
+              div.plot-legend-note
+                svg.plot-legend-mark aria-hidden="true"
+                span "A route through two lines is not evidence that anything took it"
         div.panel-stats (hidden)
         div.panel-table (hidden)
         div.is-loading.panel-message (hidden)
-        p.panel-warning role="note" (hidden)
+        p.panel-warning role="note" title="A line back is a return or concurrency, not a defect: the items' own steps say which." "A line back is a return or concurrency, not a defect: the items' own steps say which."
   span.dash-edge.dash-edge-r title="Drag to resize"
   span.dash-edge.dash-edge-b title="Drag to resize"
   span.dash-edge.dash-handle title="Drag to resize"
