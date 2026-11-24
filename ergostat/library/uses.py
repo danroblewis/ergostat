@@ -25,7 +25,7 @@ def as_map(x, where: Where):
 def library(doc) -> dict[str, tp.Template]:
     got = getattr(doc, "_templates", None)
     if got is None:
-        got, notes = tp.find_all(doc.library, getattr(doc, "untrusted", ()))
+        got, notes = tp.find_all(doc.library, getattr(doc, "untrusted", ()), getattr(doc, "fetched", ()))
         doc._templates, doc._template_notes = got, notes
         for n in notes:
             doc.problems.append(Problem("finding", n, None, "template-library"))
@@ -67,14 +67,16 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
             doc.defined.pop(key, None)
         at = entry.at("use") if hasattr(entry, "at") else w
         text = isinstance(path, trust.Text)
+        said = f"{path}, under template {u.name} from {u.path.parent}"          # its key, name and folder: the library's
+        said = "".join(ch if ch.isprintable() else repr(ch)[1:-1] for ch in said)  # a newline written \n
         why = ("its ask, prompt, query and sources may hold only text the owner or a trusted template wrote, and this "
                "holds text the library wrote (R3)" if text else "a use of such a folder may make only structure, and "
                "run only the owner's own commands and ergostat's programs with checked arguments")
         doc.problems.append(Problem(
-            "error", f"use {inst}: refused, and nothing of it is in the model: it makes {path}, under template {u.name} "
-            f"from {u.path.parent}, a library folder not marked trusted, and {why} (SPEC §2a). Only the owner can "
-            f"mark a folder trusted, after reading it.", at, "untrusted-text" if text else "library-unsandboxed"
-            if path.endswith(".daemon") else "library-untrusted",
+            "error", f"use {inst}: refused, and nothing of it is in the model: it makes {mark(said, FILE)}, a library "
+            f"folder not marked trusted, and {why} "
+            f"(SPEC §2a). Only the owner can mark a folder trusted, after reading it.",
+            at, "untrusted-text" if text else "library-unsandboxed" if path.endswith(".daemon") else "library-untrusted",
             f"system.{inst}"))
         return
     for step in chain.steps:
@@ -113,8 +115,12 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
     t = lib.get(str(entry["use"]))
     if t is None:
         broken = [n for n in getattr(doc, "_template_notes", []) if f"{entry['use']}." in n or "/" + str(entry["use"]) in n]
+        broken += [f"library {n} refused: {code}, {why}" for n, (code, why) in getattr(doc, "refused", {}).items()]
         return err(f"no template {entry['use']!r} (there are: {', '.join(sorted(lib)) or 'none'}; the owner's own come "
-                   f"from library: in the main file)" + (f"; {broken[0]}" if broken else ""), at, "unknown-template")
+                   f"from library: in the main file)" + "".join(f"; {b}" for b in broken), at, "unknown-template")
+    if t.library and not tp.trusted(t):
+        return err(f"template {t.name} is from library {t.library}, not marked trust: owner: it is listed, never "
+                   f"expanded (SPEC §2a)", at, "library-untrusted")
     if t.once:
         uses = {**doc.uses, **{s[1]: s[2] for s in chain.steps if s[0] == "use"}}
         prior = next((n for n, u in uses.items() if u["template"] == t.name), None)
@@ -166,7 +172,8 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
                                       "depth": depth, "trust": t.trust, "untrusted": untrusted, "above": above,
-                                      "owner_runs": trust.owner_runs(made.marked or {}, author(t)) if untrusted else []}))
+                                      "owner_runs": trust.owner_runs(made.marked or {}, author(t)) if untrusted else [],
+                                      "library": t.library}))
     if made.standins:
         chain.steps.append(("problem", Problem("finding", f"use {inst}: runs on free stand-ins "
                                                f"({said('; '.join(made.standins))}); give them under with: to run it for "

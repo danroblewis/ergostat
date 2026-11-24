@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------------ details */
 
 /* closed by hand (its ×, Escape): the loop chosen on the Loops page leaves the address too */
-function shutDetail() { closeDetail(); if (parseRoute().path === "/loops" && parseRoute().q.has("select")) setQuery({ select: null }); }
+function shutDetail() { closeDetail(); if (parseRoute().path === "/goals" && parseRoute().q.has("select")) setQuery({ select: null }); }
 function closeDetail() { S.again = null; if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
 /* the panel the window asks again: an opener's own, kept only while its panel is the last shown (any other clears it) */
 async function askedAgain(again, open) {
@@ -20,11 +20,12 @@ function showDetail(...kids) {
   const defs = kids.filter((k) => k.nodeType && k.matches?.("details.what")), rest = kids.filter((k) => !defs.includes(k));
   const close = h("button", { class: "close ghost", title: "Close (Esc)", "aria-label": "Close", onclick: shutDetail }, "\u00d7");
   const head = rest[0]?.classList?.contains("kind") ? h("div", { class: "head" }, rest.shift(), close) : h("div", { class: "head" }, h("span"), close);
+  const inside = !d.hidden && d.contains(document.activeElement);   // (filled in again as its numbers come: kept in it)
   d.replaceChildren(head, ...rest, ...defs);
   d.hidden = false;
   d.scrollTop = 0;
   if (typeof panelNote === "function") panelNote(d);   // where the other view draws what is chosen (interact.js)
-  const hd = S.keyHead && d.querySelector("h2, h3");    // opened by keyboard: the focus to its heading (keys.js)
+  const hd = (S.keyHead || inside) &&d.querySelector("h2, h3");    // opened by keyboard: the focus to its heading (keys.js)
   if (hd) { S.keyHead = null; hd.tabIndex = -1; hd.focus(); }
 }
 /* a panel being opened: its kind and title, and "Loading…", at once, until what it says has been read */
@@ -41,7 +42,7 @@ const WHAT = {
   disturbance: ["Flow, uncontrolled (a disturbance)", "material moving into or out of a stock that nothing in the model sets. The world pushes it; the loops on its stocks must make up for it."],
   sensor: ["Sensor", "an instrument. It reads one stock or flow; a loop sees only what its sensor reads."],
   controller: ["Controller", "the part that decides, to hold a goal. At its summing point (the Σ in its corner) it compares the stock's reading y with the setpoint r: e = r − y. While that error says the goal is off, it commands a valve. The badge names the block that fills it. With its sensor, the stock and the valve it closes a feedback loop: the loop is the whole cycle, not this box."],
-  loop: ["Feedback loop", "a goal on a stock and what serves it. When the stock's reading is off the setpoint, the controller commands a valve until it is back."],
+  goal: ["Goal", "what is wanted of a stock (its bound) and whether it holds; its control loop (sensor, controller, valve) serves it"],
   system: ["System", "a part of the model drawn as one part. Its ports are what crosses its edge: what it reads and is told, what it moves and drives."],
   agent: ["Agent", "the program, AI or person that does a part's work: reads a sensor, decides as a controller, or opens a valve."],
   pipe: ["Flow", "the pipe a flow runs along: material leaving one stock and arriving in another (or coming from or going to outside the model). Only flows change stocks."],
@@ -164,13 +165,13 @@ async function openNodeNow(n) {
 function openLoop(name, asController = false) { return askedAgain(() => openLoop(name, asController), () => openLoopNow(name, asController)); }
 async function openLoopNow(name, asController) {
   let lp;
-  const note = panelLoading(asController ? "Controller" : "Loop", name);
+  const note = panelLoading(asController ? "Controller" : "Goal", name);
   try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; return; }
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
   const kids = asController
-    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("controller"), whatIs("loop")]
-    : [h("div", { class: "kind" }, lp.open_loop ? "Open loop" : "Loop"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("loop")];
+    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("controller"), whatIs("goal")]
+    : [h("div", { class: "kind" }, lp.open_loop ? "Goal, open loop" : "Goal"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("goal")];
   kids.push(loopScope(name, { numbers: "new" }));       // its scope first (charts.js); time off and back in are below
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));

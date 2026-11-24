@@ -884,7 +884,8 @@ function fit(svg, lay, legible = false) {
   // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
   const whole = Math.min(1.25, (r.width - 40) / lay.width, (r.height - 90) / lay.height);
   // the first view keeps 11px text at 9px or more on screen; a wider system is panned from its left
-  const k = legible ? (whole >= 0.7 ? whole : 0.8) : Math.max(0.08, whole);   // nearly whole at 0.7: show it whole
+  // nearly whole at 0.7: show it whole. The process map: its nodes' 11px text never under 11px (the hint says where more is)
+  const k = Math.max(S.graph?.kind === "process" ? 1 : 0, legible ? (whole >= 0.7 ? whole : 0.8) : Math.max(0.08, whole));
   const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 120;   // the toolbars: 56 above, 50 below
   const ox = (lay.ox || 0) * k, oy = (lay.oy || 0) * k;
   S.view = { k, x: (fitsW ? (r.width - lay.width * k) / 2 : 20) - ox, y: (fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60) - oy };
@@ -895,7 +896,8 @@ function fit(svg, lay, legible = false) {
    box, else a stock, else what comes first), kept from showing empty space beyond the drawing, and the hint says
    which way the rest lies */
 function fitNarrow(svg, lay, whole, legible, r) {
-  const k = legible ? Math.max(whole, NARROW_K) : Math.max(0.08, whole), ox = lay.ox || 0, oy = lay.oy || 0;
+  // the process map: its 11px text never drawn smaller, as in fit()
+  const k = Math.max(S.graph?.kind === "process" ? 1 : 0, legible ? Math.max(whole, NARROW_K) : Math.max(0.08, whole)), ox = lay.ox || 0, oy = lay.oy || 0;
   const at = (ext, size, o) => (ext * k <= size - 20 ? (size - ext * k) / 2 - o * k : null);   // it fits: centred
   let x = at(lay.width, r.width, ox), y = at(lay.height, r.height, oy);
   if (x == null || y == null) {
@@ -1045,7 +1047,7 @@ function legend(view) {
     row('<path d="M1 9 H20" stroke="var(--ctl-line)" stroke-width="1.8"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--ctl-line)"/>', "information link, control action: the controller opens a valve"),
     (S.graph?.edges || []).some((e) => e.kind === "influence") &&
       row('<path d="M1 9 H20" stroke="var(--dist)" stroke-width="1.6" stroke-dasharray="7 4"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--dist)"/>', "information link, influence: a flow's rate follows this (driven-by)"),
-    row('<path d="M1 9 H25" stroke="var(--bad)" stroke-width="2"/>', "a loop off: its lines in red when pointed at in the list (amber: open)"),
+    row('<path d="M1 9 H25" stroke="var(--bad)" stroke-width="2"/>', "a goal off: its lines in red when pointed at in the list (amber: open)"),
     h("span", { class: "sym" }, "H A P"), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, `${RUNG_LETTER[i]} ${k}`))));
 }
 
@@ -1107,25 +1109,31 @@ async function pageDiagram(main, q) {
   }
   const view = !q.get("view") || q.get("view") === "control" ? "dynamics" : q.get("view");
   // the Process view's own: which kinds, states or events, the paths slider; counts or times (the page's)
-  const pq = { kinds: q.get("kinds") || "", by: q.get("by") || "", paths: q.get("paths") || "", show: q.get("show") || "" };
+  const pq = { kinds: q.get("kinds") || q.get("kind") || "", by: q.get("by") || q.get("mode") || "",   // (kind, mode: Items' link)
+               paths: q.get("paths") || "", show: q.get("show") || "" };
   S.pmShow = pq.show;
   const system = q.get("system") || "";
+  S.here = system;                                               // (Escape by keyboard goes back out of it: keys.js)
   const around = q.get("around") || "";
+  const item = view !== "process" ? q.get("item") || "" : "", kind = view !== "process" && !item ? q.get("kind") || "" : "";
+  const subQ = item ? { item } : kind ? { kind } : {};          // drawn alone: what an item passed through, a kind touches
   const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
   const proposal = view !== "process" ? q.get("proposal") || "" : "";   // a change waiting, drawn as it would leave the model
   if (q.has("select")) S.sel =new Set(q.get("select").split(",").filter(Boolean));   // the parts chosen, from a link (interact.js)
   S.portAt = {}; S.portRank = {};                                 // a new view: ports face what they join here
-  S.pinKey = `ergostat.pins.${S.status?.name || ""}.${view}.${system}.${around}`;   // (whatever is open: kept from systems' frames)
+  // (whatever is open: kept from systems' frames); a subset's its kind's, an item's too once its kind is known (show)
+  const pinBase = `ergostat.pins.${S.status?.name || ""}.${view}.${system}.${around}`;
+  S.pinKey = pinBase + (kind ? `.kind:${kind}` : item ? `.item:${item}` : "");
   S.pins = loadPins();
-  S.showHulls = !around;
+  S.showHulls = !around && !item && !kind;
   const wrap = h("div", { class: "canvas-wrap" });
   const svg = s("svg", { class: "canvas", "aria-labelledby": "diagram-caption" });
   const caption = h("h1", { id: "diagram-caption", class: "caption" }, captionText(S.status, view));   // the page's name
-  const sysSel = h("select", { title: "The system drawn", "aria-label": "System", onchange: (ev) => go({ system: ev.target.value, around: "" }) }, h("option", { value: "" }, "Everything"));
+  const sysSel = h("select", { title: "The system drawn", "aria-label": "System", onchange: (ev) => go({ system: ev.target.value, around: "", item: "", kind: "" }) }, h("option", { value: "" }, "Everything"));
   for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
   function go(over) {
     const to = over.view || view;
-    const p = new URLSearchParams({ view, system, around, ...(openQ != null ? { open: openQ } : {}), ...(to === "process" ? pq : {}),
+    const p = new URLSearchParams({ view, system, around, ...(to !== "process" ? subQ : {}), ...(openQ != null ? { open: openQ } : {}), ...(to === "process" ? pq : {}),
                                     ...(proposal && to !== "process" ? { proposal } : {}), select: [...S.sel].join(","), ...over });
     for (const [k, v] of [...p]) if (!v) p.delete(k);
     navigate("/diagram?" + p.toString());
@@ -1208,6 +1216,8 @@ async function pageDiagram(main, q) {
     h("span", { class: "sep" }),
     sysSel, crumbs, ...pmBar,
     around ? h("span", { class: "around" }, "around ", h("b", {}, around), " ", h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ around: "" }) }, "\u00d7")) : null,
+    item || kind ? h("span", { class: "around subset" }, item ? ["what ", h("b", {}, item), " passed through "] : ["what kind ", h("b", {}, kind), " touches "],
+      h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ item: "", kind: "" }) }, "\u00d7")) : null,
     more, caption);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
@@ -1245,9 +1255,9 @@ async function pageDiagram(main, q) {
     let g;
     // the blocks view draws every loop, each in its system's outline: it asks for everything opened
     const openArg = openQ != null && view !== "process" ? { open: openQ } : {};
-    S.graphQ = { system, around, ...openArg };      // (the other view's answer is asked the same: interact.js)
+    S.graphQ = { system, around, ...subQ, ...openArg };      // (the other view's answer is asked the same: interact.js)
     const pmArg = view !== "process" ? {} : Object.fromEntries(["kinds", "by", "paths"].filter((k) => pq[k]).map((k) => [k, pq[k]]));
-    const ask = { view, system, around, ...openArg, ...pmArg, ...(proposal ? { proposal } : {}) }, key = JSON.stringify(ask);
+    const ask = { view, system, around, ...subQ, ...openArg, ...pmArg, ...(proposal ? { proposal } : {}) }, key = JSON.stringify(ask);
     if (!SNAP) ask.have = (S.held?.key === key && S.held.hash) || "-";   // the structure it holds: then only the values come
     const t0 = performance.now();
     try { g = await api("graph", ask); fails = 0; }
@@ -1272,6 +1282,9 @@ async function pageDiagram(main, q) {
     wrap.querySelector(".loading")?.remove();
     shell.classList.remove("opening");
     S.graph = g;
+    if (item && g.subset?.kind && S.pinKey !== `${pinBase}.kind:${g.subset.kind}`) {   // an item's: its kind's pins
+      S.pinKey = `${pinBase}.kind:${g.subset.kind}`; S.pins = loadPins();
+    }
     if (typeof quietRefresh === "function") quietRefresh(g);   // an open system's panel: its quiet sentence (details.js)
     setText(caption, captionText(S.status, view));
     caption.title = caption.textContent;
@@ -1313,7 +1326,7 @@ async function pageDiagram(main, q) {
       wrap.querySelector(".empty")?.remove();
       if (!g.nodes.length) {
         svg.replaceChildren();
-        wrap.append(h("div", { class: "empty" }, "No control system here: no goal, and no block that acts."));
+        wrap.append(h("div", { class: "empty" }, g.subset ? `${g.subset.says}.` : "No control system here: no goal, and no block that acts."));
       } else if (!S.pressed) {
         await drawBlocksView(svg, g);
         if (S.anchor && S.anchored) S.fitted = true;  // a system just opened or closed: the view stays as it was
@@ -1328,7 +1341,7 @@ async function pageDiagram(main, q) {
     if (!g.nodes.length) {
       svg.replaceChildren();
       wrap.querySelector(".empty")?.remove();
-      wrap.append(h("div", { class: "empty" }, "Nothing to draw: the model is empty."));
+      wrap.append(h("div", { class: "empty" }, g.subset ? `${g.subset.says}.` : "Nothing to draw: the model is empty."));
       renderSide(side, g, view);
       return;
     }

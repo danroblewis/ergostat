@@ -212,11 +212,20 @@ def test_the_cli_topics_answer(repo, project, capsys):
     assert rc == 0 and "not running" in out and "disk-under-80" in out and "off by 5" in out
     for args, expect in [(["check"], "1 stock ·"), (["loop"], "disk-under-80"), (["loop", "disk-under-80"], "FILLED BY"),
                          (["agent"], "cleaner"), (["agent", "cleaner"], "fills"), (["system"], "host"),
-                         (["system", "host"], "loop disk-under-80"), (["system", "--all", "--wiring"], "cleaner"),
+                         (["system", "host"], "goal disk-under-80"), (["system", "--all", "--wiring"], "cleaner"),
                          (["stock"], "disk-used"), (["valve"], "delete-old-files"), (["disturbance"], "logs-written"),
                          (["sensor", "disk-usage"], "85"), (["residual"], "two readings"), (["event"], ""), (["item"], "")]:
         rc, out = run_cli(repo, *args, capsys=capsys)
         assert rc == 0 and expect in out, (args, out)
+
+
+def test_the_cli_calls_what_is_held_a_goal(repo, project, capsys):
+    """What show.py prints of a goal says 'goal NAME', never 'loop NAME'; the table's column is GOAL."""
+    import re
+    for args in (["system", "host"], ["system", "host", "--blocks"], ["loop", "disk-under-80"], ["loop"]):
+        rc, out = run_cli(repo, *args, capsys=capsys)
+        assert rc == 0 and ("goal disk-under-80" in out or "GOAL" in out), (args, out)
+        assert not re.search(r"\bloop disk-under-80|\bLOOP\b", out), (args, out)
 
 
 def test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals(tmp_path):
@@ -442,6 +451,77 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_counted_whole():
+    """What the Items page's count beside its search box and the Record's 'Nothing matches' are read from (the browser
+    half is tests/test_items_page.py): a search's ``matched`` counts every match of a kind, past the newest per_kind
+    listed, and holds no kind for a miss, so the page draws no kind; a kind matched by name keeps all of its items."""
+    from ergostat.web.server import _as_listed
+    its = [{"id": f"ticket/{n}", "kind": "ticket", "fields": {"title": f"t{n}"}} for n in range(1, 31)]
+    got = {"kinds": [{"name": "ticket", "show": ["title"]}, {"name": "bug", "show": []}],
+           "items": [*its, {"id": "bug/1", "kind": "bug", "fields": {}}]}
+    assert _as_listed(got, "zzqx", 25, True)["matched"] == {}
+    one = _as_listed(got, "ticket/2", 25, True)            # ticket/2 and ticket/20..29: eleven, all counted
+    assert one["matched"] == {"ticket": 11} and len(one["items"]) == 11
+    assert _as_listed(got, " TICKET ", 25, True)["matched"] == {"ticket": 30}   # by the kind's name: all 30, 25 listed
+    assert len(_as_listed(got, "ticket", 25, True)["items"]) == 25
+
+
+def test_the_record_answers_a_type_that_matches_nothing_with_no_events(project):
+    """The Record's 'Nothing matches “zzz” · clear' is drawn on an empty answer to its type filter: the answer must be
+    empty for a miss, and the record's events come back once the filter is cleared."""
+    from ergostat.web import serve
+    project.events.add("cleanup.done", item="disk/1")
+    server, url = serve(project, free_port())
+    try:
+        def events(query):
+            with urllib.request.urlopen(url + "/api/events?n=80" + query, timeout=10) as r:
+                return json.loads(r.read())
+        assert events("&type=zzz") == []
+        assert [e["type"] for e in events("&type=cleanup.done")] == ["cleanup.done"]
+        assert events("")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them(tmp_path):
+    """In States, each state's node of /api/graph?view=process carries ``now``: the count /api/items gives that
+    state (the browser half of this check is tests/test_diagram_rendering.py's Items-to-process-map test)."""
+    import shutil
+    import time
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import serve
+    d = tmp_path / "the-job"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "examples" / "the-job", d,
+                    ignore=shutil.ignore_patterns("run", "__pycache__"))
+    p = Project(model.load(d))
+    now = time.time()
+    for i, last in enumerate(["new"] * 3 + ["explained"] * 2 + ["answered"]):     # 3 new, 2 explained, 1 answered
+        it = f"ticket/now{i}"
+        p.events.add("ticket.filed", item=it, at=now - 2000 + i)
+        for j, st in enumerate(["explained", "answered"][:["new", "explained", "answered"].index(last)]):
+            p.events.add(f"ticket.{st}", item=it, at=now - 1500 + i * 10 + j)
+    server, url = serve(p, free_port())
+    try:
+        def get(path):
+            with urllib.request.urlopen(url + path, timeout=30) as r:
+                return json.loads(r.read())
+        counts = {k["name"]: k["counts"] for k in get("/api/items")["kinds"]}["ticket"]
+        g = get("/api/graph?view=process&kinds=ticket&by=states")
+        other = get("/api/graph?view=process&kinds=ticket&by=events")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert {k: v for k, v in counts.items() if v} == {"new": 3, "explained": 2, "answered": 1}, counts
+    assert g["by"] == "states"
+    states = {x["activity"]: x.get("now") for x in g["nodes"] if x["kind"] == "activity"}
+    assert states == {"new": 3, "explained": 2, "answered": 1}, states
+    assert not any("now" in x for x in other["nodes"]), other["nodes"]   # by events: no states, no count of now
+
+
 def test_needs_attention_and_the_actions_page_say_one_sentence_of_what_a_person_may_do():
     """The sentence is defined once (pages.js MAY_DO); the Needs attention group shows that same constant, described
     by it (aria-describedby), with its empty form when nothing waits (the browser half is test_diagram_rendering.py)."""
@@ -630,7 +710,7 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
         except urllib.error.HTTPError as e:
             return e.code, e.headers["Content-Type"], e.read()
     try:
-        for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/loops", "/agents", "/items?kind=ticket&state=open",
+        for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/goals", "/loops", "/agents", "/items?kind=ticket&state=open",
                      "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
                      "/record?type=x.y", "/model", "/check", "/guide?frame=3", "/fit", "/residuals"):
             code, ctype, body = get(path)

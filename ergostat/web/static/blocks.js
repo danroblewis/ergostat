@@ -738,7 +738,7 @@ function bdBody(n, fn, w, hgt, dy) {                    // what is inside a bloc
   }
   const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
   const top = frac ? hgt / 2 - 12 : fn.expr ? hgt / 2 - 2 : hgt / 2 + 5;
-  bdSym(g, w / 2, top, fn);
+  bdSym(g, w / 2, top, n.role === "subsystem" ? { ...fn, bold: false } : fn);   // its letter in one typeface, closed or open (the frame's is not bold)
   if (frac) {
     const fw = Math.max(bdTextW(frac[0]), bdTextW(frac[1])) + 6;
     g.append(bdPower(s("text", { x: w / 2, y: hgt / 2 + 6, class: "bd-expr", "text-anchor": "middle" }), frac[0]),
@@ -824,7 +824,8 @@ function bdDraw(svg, g, lay) {
     const fg = s("g", { class: `sys-hull hull bd-frame bd-frame-${f.frame}`, "data-hull": c.id });
     fg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height }));
     const t = bdSym(fg, c.x + 10, c.y + 19, f.fn?.named ? {} : f.fn || {}, { anchor: "start", size: 13 });   // a named one: its name once
-    t.append(s("tspan", { class: "bd-frame-name", dx: f.fn?.named ? 0 : 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
+    if (f.frame === "cascade" || f.fn?.named || f.fn?.sub !== f.label)      // C_name, P_name: the name is the subscript, not printed twice
+      t.append(s("tspan", { class: "bd-frame-name", dx: f.fn?.named ? 0 : 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
     if (f.frame === "system" && f.fn?.expr) t.append(s("tspan", { class: "bd-frame-dims", dx: 8 }, f.fn.expr));   // p × m, as on the closed block
     fg.append();
     // its top is a handle: dragged, the frame moves with everything in it, and stays there (interact.js, places.js)
@@ -1176,7 +1177,7 @@ function openBlock(n) {
       `${lp.stock} was read ${dur(lp.stale)} ago, too long for its sensor; on-stale: ${lp.on_stale}`));
   }
   const loops = n.loops || [];
-  if (loops.length) kids.push(h("h3", {}, `In the loop${loops.length > 1 ? "s" : ""} of`),
+  if (loops.length) kids.push(h("h3", {}, `In the control loop${loops.length > 1 ? "s" : ""} of`),
     h("p", {}, ...loops.flatMap((l, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(l); } }, l)])));
   if (n.remote) kids.push(remoteNote(n.remote));
   const sysName = n.role === "subsystem" ? n.label : n.kind === "frame" && n.frame === "system" ? n.label : null;
