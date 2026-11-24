@@ -120,7 +120,8 @@ items:
                                      # manager's close, once the coordinator approved it)
     show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason,
            parked_for, loop_rounds, loop_hours]
-    # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended and gates (dev/bin/times.py)
+    # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended, gates, catches and catch_times
+    # (dev/bin/times.py)
     relations:
       depends_on: {kind: gap, starts_at: [approved, queued, push-pending]}
                                      # precedence: ready to build once every gap it names is finished, or reviewed and

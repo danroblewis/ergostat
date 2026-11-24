@@ -1024,6 +1024,15 @@ or unreadable bookmark makes it read every gap again (and write only a changed t
   has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
   `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
   at once, or the coordinator settling it).
+- `catches` (`{gate: n}`) and `catch_times` (`{gate: [time, ...]}`): each time a gate in `CATCHING` sent the gap
+  back: `gap.sent-back` by its `sent_back_by` (`queue`, `triage`, `review`, `measure-runs`), `gap.plan-sent-back` by
+  its `plan_sent_back_by` (`lint`), and `strays` (a `gap.measured` whose `suites_fast` names the implementor's stray
+  files: its last try in the round only). Any other sender (the stack's `stack-forward`, a missing one) is counted
+  under `unlisted` and named on the timer's stderr. `measure.py gate-catches-GATE` sums them over every gap by each
+  catch's own time in the last 14 days (a gap whose catches are unknown left out and counted on stderr);
+  `dev/model/guarantees-gates.yaml` holds one auxiliary per gate with no goal, and the simplifier's brief names each
+  gate with no catch in 30 days as one to question, never to remove unasked. Rolled up, they start from the
+  snapshot's `catch_times`; a snapshot without them leaves them unknown (`null`), as the gates.
 
 A gap's record rolled up (after 7 days by default, `ergostat/rollup.py`) starts with a snapshot: its moves are kept
 there, so `time_in` and the loop are counted as before, but the events carrying the gate times are in the archive. The

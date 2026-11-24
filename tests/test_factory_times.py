@@ -210,6 +210,87 @@ def test_gates_survive_the_roll_up_of_a_gaps_record():
     assert times.values("gate-review-minutes", [{"fields": blind}], 0) == []
 
 
+def sent(kind: str, h: float, **data) -> dict:
+    return {"type": f"gap.{kind}", "time": T0 + h * H, "data": data}
+
+
+# a fixture's send-backs: two reviews, the queue, triage, measure-runs, the plan lint, a stray refusal; a build that
+# failed its suites (no strays) and a gap.retried are no catch
+CAUGHT = [sent("plan-sent-back", 1, plan_sent_back_by="lint"), sent("sent-back", 2, sent_back_by="review"),
+          sent("measured", 3, build_failures=1, suites_fast={"failed": "unit", "tests": ["t"]}),
+          sent("measured", 4, build_failures=1, suites_fast={"failed": "scratch files", "stray": ["x.py"]}),
+          sent("sent-back", 5, sent_back_by="review"), sent("sent-back", 6, sent_back_by="queue"),
+          sent("retried", 7), sent("sent-back", 8, sent_back_by="triage"),
+          sent("sent-back", 9, sent_back_by="measure-runs")]
+
+
+def test_catches_counted_per_gate_from_sent_back(tmp_path):
+    d = {"id": "gap/x", "moves": FIXED_TWICE, "record": CAUGHT, "record_total": len(CAUGHT)}
+    got = times.timing(d)
+    assert got["catches"] == {"lint": 1, "review": 2, "strays": 1, "queue": 1, "triage": 1, "measure-runs": 1}
+    assert got["catch_times"]["review"] == [T0 + 2 * H, T0 + 5 * H]
+    assert times.timing({**d, "record": [], "record_total": 0})["catches"] == {}                  # nothing sent back: none, known
+    # rolled up: the snapshot's catches kept, the later ones added; one timed before catches were counted is unknown
+    snap = {"type": times.SNAPSHOT, "time": T0 + 10 * H, "set": {"gates": {}, "catch_times": got["catch_times"]}}
+    again = times.timing({**d, "record_total": 2, "record": [snap, sent("sent-back", 11, sent_back_by="review")]})
+    assert again["catches"] == {**got["catches"], "review": 3}
+    old = times.timing({**d, "record_total": 2, "record": [{**snap, "set": {"gates": {}}}, sent("sent-back", 11, sent_back_by="review")]})
+    assert old["catches"] is None and old["catch_times"] is None
+    # measure.py gate-catches-GATE: the catches in the last 14 days, by each catch's own time, over every gap
+    real = time.time()
+    live = [{"id": "gap/a", "kind": "gap", "state": "merged", "events": 1, "entered": real,
+             "fields": {"catch_times": {"review": [real - 86400, real - 20 * 86400], "queue": [real - 3600]}}},
+            {"id": "gap/b", "kind": "gap", "state": "fix", "events": 1, "entered": real,
+             "fields": {"catch_times": {"review": [real - 60]}}},
+            {"id": "gap/c", "kind": "gap", "state": "open", "events": 1, "entered": real, "fields": {}}]
+    r = run(tmp_path, "measure.py", "gate-catches-review", items=live)
+    assert r.stdout.strip() == "2.0" and "1 gap(s) whose catches are unknown" in r.stderr
+    assert run(tmp_path, "measure.py", "gate-catches-lint", items=live).stdout.strip() == "0.0"
+    assert {f"gate-catches-{g}" for g in (*times.CATCHING, "unlisted")} <= set(times.measures())
+    # the auxiliaries: one per listed gate, each sensed by its measure, with no goal; check finds no error
+    from ergostat.spec import read
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    assert [p for p in problems if "gate-catches" in f"{p.about} {p.message}"] == []      # nor any other finding
+    for g in (*times.CATCHING, "unlisted"):
+        a = spec.auxiliaries[f"gate-catches-{g}"]
+        assert a.system == "guarantees" and f"measure.py gate-catches-{g}" in str(a.sensors), g
+    held = {(x.of.kind, x.of.name) for x in spec.goals.values()}
+    assert not {n for k, n in held if k == "auxiliary" and n.startswith("gate-catches-")}
+
+
+def test_an_unlisted_gate_is_counted_and_named(capsys):
+    evs = [sent("sent-back", 1, sent_back_by="review"), sent("sent-back", 2, sent_back_by="stack-forward"),
+           sent("sent-back", 3), sent("plan-sent-back", 4, plan_sent_back_by="someone-new")]
+    got = times.timing({"id": "gap/x", "moves": FIXED_TWICE, "record": evs, "record_total": 4})
+    assert got["catches"] == {"review": 1, "unlisted": 3}
+    err = capsys.readouterr().err
+    assert "gap/x: gap.sent-back by an unlisted sender 'stack-forward'" in err
+    assert "gap.sent-back by an unlisted sender None" in err and "'someone-new'" in err
+    assert times.caught("unlisted", [{"fields": got}], T0) == 3.0
+    try:
+        times.caught("nobody", [{"fields": got}], T0)
+        raise AssertionError("a gate off the allowlist was read")
+    except SystemExit as e:
+        assert "no gate 'nobody'" in str(e)
+
+
+def test_a_quiet_gate_reaches_the_simplifier_brief():
+    simplify = load("simplify")
+    now = T0 + 100 * 86400
+    gaps = [{"id": "gap/a", "fields": {"catch_times": {"review": [now - 86400], "queue": [now - 40 * 86400]}}},
+            {"id": "gap/b", "fields": {"catch_times": {"strays": [now - 29 * 86400]}}}]
+    brief = simplify.definition("simplify-x-1", "dev/bin/x.py", 1.0, {"module": "dev/bin/x.py"}, gaps, now)
+    line = brief[brief.index("## The quiet gates"):brief.index("## The rules")]
+    assert "`queue`, `triage`, `lint`, `measure-runs`" in line                 # the queue's catch is 40 days old
+    assert "`review`" not in line and "`strays`" not in line and "never to remove unasked" in line
+    assert "{quiet_gates}" not in brief
+    none = simplify.definition("simplify-x-1", "dev/bin/x.py", 1.0, {}, [{"id": "gap/c", "fields": {}}], now)
+    assert "unknown (no gap's catches counted yet)" in none                    # never read as every gate quiet
+    every = [{"id": "gap/d", "fields": {"catch_times": {g: [now - 60] for g in times.CATCHING}}}]
+    assert "):\nnone. Each" in simplify.definition("s", "m", 1.0, {}, every, now)
+
+
 def gap(gid: str, state: str, ready_hours: float | None, left: float, **fields) -> dict:
     t = {"ready": {"hours": ready_hours, "visits": 1, "left": left}} if ready_hours is not None else {}
     return {"id": gid, "kind": "gap", "state": state, "events": 1, "entered": left,
