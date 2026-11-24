@@ -4744,7 +4744,7 @@ def test_on_a_phone_each_goal_is_a_card_its_value_against_its_bound_and_how_long
 HINTS =("() => [...document.querySelectorAll('details.suggest .hint')].map((e) => [...e.childNodes]"   # (less its Evidence link)
          ".filter((n) => n.nodeName !== 'A').map((n) => n.textContent).join('').trim())")
 LOOP_ENTRY = ("() => [...document.querySelectorAll('.att > div')].map((e) => e.textContent)"
-              ".filter((t) => /^[a-z]+ · loop short-backlog/.test(t))")   # (after its state word)
+              ".filter((t) => /^[a-z]+ · goal short-backlog/.test(t))")   # (after its state word)
 CAUSE = re.compile(r"off \d+% of [^:]+: ([^.;]+)")
 
 
