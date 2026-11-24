@@ -232,7 +232,7 @@ answer (lesson 12).
 - **Run here, one file at a time.**
   - tests/test_item_risk.py: 23 passed.
   - tests/test_spec_schema.py, tests/test_library_trust.py and tests/test_cli_fallback.py: 106 passed.
-  - tests/test_spec_structure.py, tests/test_queue.py and tests/test_item_search.py: see below.
+  - tests/test_spec_structure.py, tests/test_queue.py and tests/test_item_search.py: 41 passed.
   - `ruff check ergostat tests scripts`: clean.
 - **Not run.** The factory's `ergostat check` tests were not run (neither `ergostat.yaml` nor a dev/ model changed).
   The whole unit suite, the four browser files (no page changed) and the live backtest were not run either. `main`
