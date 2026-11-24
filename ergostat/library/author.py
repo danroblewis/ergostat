@@ -41,17 +41,20 @@ def library(root: Path | None, name: str | None = None) -> dict:
     system dynamics, its example, its parameters)."""
     doc = _doc(root) if root is not None and (root / FILE).is_file() else None
     extra = doc.library if doc else []
-    got, notes = tp.find_all(extra, doc.untrusted if doc else (), doc.fetched if doc else ())
+    fetched = doc.fetched if doc else []
+    got, notes = tp.find_all(extra, doc.untrusted if doc else (), fetched)
+    every = [*(t for t in got.values() if not t.library), *fetched]       # each fetched one by LIB/TEMPLATE
     if name:
-        t = got.get(name)
+        t = tp.lookup(got, fetched, name)
         if t is None:
-            raise AuthorError(f"no template {name!r} (there are: {', '.join(sorted(got))})")
-        return marked(t, {**t.summary(), "reading": t.reading, "example": t.example})
-    out = {"templates": [marked(t, {"template": t.name, "description": t.description, "from": t.summary()["from"],
-                                    "trust": t.trust, "params": list(t.params)}) for t in got.values()],
+            raise AuthorError(f"no template {name!r} (there are: {', '.join(sorted(map(tp.qualified, every)))})")
+        return marked(t, {**t.summary(), "template": tp.qualified(t), "reading": t.reading, "example": t.example})
+    out = {"templates": [marked(t, {"template": tp.qualified(t), "description": t.description,
+                                    "from": t.summary()["from"], "trust": t.trust, "params": list(t.params)})
+                         for t in every],
            "folders": [str(f) for f in tp.folders(extra)], **({"notes": notes} if notes else {}),
            "next": "templates with name: NAME for its parameters and its reading; add_use to try one"}
-    shown = any(t.untrusted for t in got.values()) or any(n.startswith("untrusted library folder") for n in notes)
+    shown = any(t.untrusted for t in every) or any(n.startswith("untrusted library folder") for n in notes)
     return {**out, "markers": ut.SAYS} if shown else out
 
 
@@ -166,6 +169,11 @@ def change(root: Path, instance: str, template: str, given: dict | None = None, 
     if not target.is_relative_to(root.resolve()):
         raise AuthorError(f"file: {file} is outside the model's folder; templates may live anywhere (library:), the model's files may not")
     old = target.read_text(encoding="utf-8") if target.is_file() else ""
+    if main.is_file() and "/" not in template:             # a fetched library's template: written LIB/TEMPLATE
+        from .uses import library as found
+        doc = _doc(root)
+        t = tp.lookup(found(doc), doc.fetched, template)
+        template = tp.qualified(t) if t is not None else template
     new = {target: placed(old, instance, entry_text(instance, template, given or {}, within, description), replace)}
     if target != main.resolve() and not _included(root, target):
         rel = os.path.relpath(target, root)

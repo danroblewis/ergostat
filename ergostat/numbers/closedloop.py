@@ -11,7 +11,8 @@ loop holds. Here the control structure runs forward beside the stocks and flows,
   internal state the record lets us rebuild: a delay's line, a timer's or an alarm's start, a counter's count). Given the
   same readings at the same moments, a built-in decides what the engine would; the projection's readings are the
   model's, taken at its own steps, and a state the record cannot rebuild is said in the notes;
-- **machine blocks** run as their identified models (``blockmodels.py``);
+- **machine blocks** run as their identified models (``blockmodels.py``), an external block by its declared law where
+  it has one (``external.py``: stated, not estimated, so the risk samples none of its numbers);
 - the goals and built-ins read a count of items as a whole number, as its sensor does.
 
 **Risk** (``risk``): Monte Carlo over what the projection does not know: the model's uncertain parameters
@@ -206,18 +207,25 @@ class WhatIf:
     setpoints: dict[str, float] = field(default_factory=dict)
     pools: dict[str, int] = field(default_factory=dict)
     failures: dict[str, float] = field(default_factory=dict)    # a block's share of runs that fail (0 to 1)
+    laws: dict[str, float | str] = field(default_factory=dict)  # "BLOCK.PARAMETER" of a declared law → its value, as checked
 
     def __bool__(self) -> bool:
-        return bool(self.flows or self.setpoints or self.pools or self.failures)
+        return bool(self.flows or self.setpoints or self.pools or self.failures or self.laws)
 
     def key(self) -> tuple:
-        return tuple(tuple(sorted(d.items())) for d in (self.flows, self.setpoints, self.pools, self.failures))
+        return tuple(tuple(sorted(d.items())) for d in (self.flows, self.setpoints, self.pools, self.failures, self.laws))
 
     def said(self) -> list[str]:
         return [f"{r[5:]} {'×' + format(v, 'g') + ' its mean' if how == 'x' else 'at ' + _rate(v)}"
                 for r, (how, v) in self.flows.items()] + \
             [f"goal {g} at {v:g}" for g, v in self.setpoints.items()] + [f"{b}'s pool {n}" for b, n in self.pools.items()] + \
-            [f"{b} failing {v:.0%} of its runs" for b, v in self.failures.items()]
+            [f"{b} failing {v:.0%} of its runs" for b, v in self.failures.items()] + \
+            [f"{b}'s declared {k} {v if isinstance(v, str) else format(v, 'g')}"
+             for b, k, v in ((*bk.split(".", 1), v) for bk, v in self.laws.items())]
+
+    def law_of(self, block: str) -> dict:
+        """The declared law's parameters tried for a block."""
+        return {k.split(".", 1)[1]: v for k, v in self.laws.items() if k.split(".", 1)[0] == block}
 
 
 class WhatIfError(ValueError):
@@ -233,8 +241,9 @@ def _number(k: str, v: str, words: str) -> float:
 
 def parse_whatif(spec: Spec, raw: dict[str, str]) -> tuple[dict[str, str], WhatIf]:
     """The parameters (as they came, for ``proposals.what_if``) apart from ``flow.NAME`` (a rate an hour, or ``x2``),
-    ``goal.NAME`` (a setpoint), ``block.NAME.pool`` and ``block.NAME.failure`` (a share of its runs, 0.2 or 20%)."""
-    params, w = {}, WhatIf()
+    ``goal.NAME`` (a setpoint), ``block.NAME.pool`` and ``block.NAME.failure`` (a share of its runs, 0.2 or 20%), and
+    ``block.NAME.PARAMETER`` of a block's declared law (checked as ``law:`` is)."""
+    params, w, tried = {}, WhatIf(), {}
     for k, v in raw.items():
         v = str(v).strip()
         if k.startswith("flow."):
@@ -263,8 +272,29 @@ def parse_whatif(spec: Spec, raw: dict[str, str]) -> tuple[dict[str, str], WhatI
             if not 0 <= f < 1:
                 raise WhatIfError(f"{k}: a share from 0 up to 1")
             w.failures[k[6:-8]] = f
+        elif k.startswith("block.") and (b := spec.blocks.get(k[6:].rpartition(".")[0])) is not None and b.law is not None:
+            from ..control import laws
+            key = k.rpartition(".")[2]
+            if key not in b.law.params:
+                raise WhatIfError(f"{k}: {b.name}'s declared {b.law.kind} has no {key}: its parameters are "
+                                  f"{', '.join(b.law.params)}")
+            try:
+                raw = float(v)
+            except ValueError:
+                raw = v                                      # a duration with its unit (30s), or a side
+            got, bad = laws.check({"kind": b.law.kind, **b.law.params, key: raw})
+            if got is None:
+                raise WhatIfError(f"{k}: " + "; ".join(why for _, why in bad))
+            w.laws[f"{b.name}.{key}"] = got.params[key]
+            tried.setdefault(b.name, {})[key] = raw
         else:
             params[k] = v
+    for name, keys in tried.items():                         # the values tried together, as one law: is (min ≤ max)
+        from ..control import laws
+        law = spec.blocks[name].law
+        got, bad = laws.check({"kind": law.kind, **law.params, **keys})
+        if got is None:
+            raise WhatIfError(f"block.{name}: the values tried together: " + "; ".join(why for _, why in bad))
     return params, w
 
 
@@ -387,6 +417,9 @@ class _Control:
     def notes(self) -> list[str]:
         out = [f"with the loops running: the goals and built-in blocks worked out as the engine does, each machine block "
                f"by its identified model; inputs {'held where they were' if self.inputs == 'hold' else 'carried on along their trend'}"]
+        declared = sorted({f"{m.block} ({m.known.kind})" for m in self.models.values() if m.form == "declared"})
+        if declared:
+            out.append(f"by its declared law, stated, not identified (none of its numbers sampled): {', '.join(declared)}")
         assumed = sorted({m.block for m in self.models.values() if m.assumed})
         if assumed:
             out.append(f"assumed, not identified (too little record): {', '.join(assumed)}")
@@ -404,6 +437,9 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
     is a Monte Carlo run's values: ``{"models": {flow: {name: value}}, "inputs": {ref: rate}}``."""
     whatif, draw = whatif or WhatIf(), draw or {}
     models = {r: m for r, m in (models or {}).items() if r not in whatif.flows}   # a rate tried replaces its model
+    models = {r: m.tried(whatif.law_of(m.block)) if m.form == "declared" and whatif.law_of(m.block) else m
+              for r, m in models.items()}                    # a declared law's parameter tried: its law run with it
+    unrun = sorted({k.split(".", 1)[0] for k in whatif.laws} - {m.block for m in models.values() if m.form == "declared"})
     base = pl or sim.plan(spec)
     # a flow whose equation its model runs itself (gated, capped) is taken out of the plan
     gated = {r for r, m in models.items() if m.form == "equation" and r in base.eqs and not base.eqs[r].slots}
@@ -428,7 +464,8 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
             c.faults.clear()
             c.faults.update(saved[r])
     got.values.update(ctl.out)
-    got.how.update({r: "identified model" for r in models})
+    got.how.update({r: "declared law" if m.form == "declared" else "identified model" for r, m in models.items()})
+    got.notes += [f"{b}: its declared law is not run ahead here, so what is tried on it changes nothing" for b in unrun]
     for r, k in ctl.faults.items():
         got.faults.setdefault(r, {})["failed to compute"] = k
     return ClosedRun(**got.__dict__, off=ctl.off, off_end=ctl.off_end, off_hours=ctl.hours, models=models)

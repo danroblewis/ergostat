@@ -119,6 +119,24 @@ class Victoria:
         read too until ``ergostat migrate`` renames it."""
         return "{" + f'__name__=~"{name}",project={_q(self.project)}' + (f",series={_q(series)}" if series else "") + "}"
 
+    def _own(self) -> str:
+        """This project's series (with a ``series`` label): not the item metrics written under labels of their own."""
+        return self._sel()[:-1] + ',series!=""}'
+
+    def put(self, rows: list[tuple[dict, float, float]]) -> None:
+        """Samples under labels of their own (``itemmetrics.py``: a name and its labels, no ``series``), with this
+        project's ``project``, imported at once; a server away raises ``VictoriaError``."""
+        groups: dict[tuple, dict] = {}
+        for labels, t, v in rows:
+            g = groups.setdefault(tuple(sorted(labels.items())), {"metric": {**labels, "project": self.project},
+                                                                    "values": [], "timestamps": []})
+            g["values"].append(float(v))
+            g["timestamps"].append(round(float(t) * 1000))
+        got = list(groups.values())
+        for i in range(0, len(got), 2000):
+            self._req("/api/v1/import", body="".join(json.dumps(g) + "\n" for g in got[i:i + 2000]).encode())
+        self._req("/internal/force_flush")
+
     def _import(self, rows: list[tuple[str, float, float]]) -> None:
         groups: dict[str, dict] = {}
         for s, t, v in rows:
@@ -268,7 +286,7 @@ class Victoria:
         self._sync_reads()
         until = until if until is not None else time.time() + 86400
         span = f"{max(1.0, until - since) + EPS:.3f}s" if since is not None else FOREVER
-        got = self._query(f"sum(count_over_time({self._sel(series)}[{span}]))", until)
+        got = self._query(f"sum(count_over_time({self._sel(series) if series else self._own()}[{span}]))", until)
         return int(got[0][1]) if got else 0
 
     def bucketed(self, series: str, since: float, until: float, n: int) -> list[tuple[int, float, float, float]]:
@@ -309,7 +327,7 @@ class Victoria:
 
     def series(self) -> list[dict]:
         self._sync_reads()
-        sel = self._sel()
+        sel = self._own()
         n = {m["series"]: v for m, v in self._query(f"sum by (series) (count_over_time({sel}[{FOREVER}]))", time.time() + 86400)}
         last = {m["series"]: v for m, v in self._query(f"max by (series) (tlast_over_time({sel}[{FOREVER}]))", time.time() + 86400)}
         val = {m["series"]: v for m, v in sorted(self._query(f"last_over_time({sel}[{FOREVER}])", time.time() + 86400),
@@ -319,7 +337,7 @@ class Victoria:
 
     def first_time(self) -> float | None:
         self._sync_reads()
-        got = self._query(f"min(tfirst_over_time({self._sel()}[{FOREVER}]))", time.time() + 86400)
+        got = self._query(f"min(tfirst_over_time({self._own()}[{FOREVER}]))", time.time() + 86400)
         return got[0][1] if got else None
 
     # ---- setting aside, keeping

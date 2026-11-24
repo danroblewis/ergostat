@@ -18,10 +18,13 @@ of numbers only is named by row (dim ``row``: "1", "2", ...); a number meant as 
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 
 from . import ASKING, SourceError, _frames, _itemviews
+
+_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 TYPE = "sql"
 KEYS = ()
@@ -93,20 +96,35 @@ def _frame(cols: list[str], rows: list[tuple]) -> dict:
             "rows": [["" if v is None and i < n else v for i, v in enumerate(r)] for r in rows]}
 
 
+def _forecast(p, text: str) -> dict | None:
+    """The forecast, when the text names a ``forecast_*`` view: as last worked out, never worked out on this query;
+    with none (being worked out, failed, no run finished) the query is refused with why, never answered empty."""
+    if not {x.lower() for x in _WORD.findall(text)} & {*_itemviews.FORECAST, *_itemviews.GROUP_FUNCTIONS}:
+        return None
+    from ..web.eta_api import current
+    fc = current(p, p.model)
+    if fc is None:
+        raise SourceError("unknown", "the forecast is being worked out; ask again shortly")
+    if fc.get("none"):
+        raise SourceError("unknown", f"no forecast: {fc['none']}")
+    return fc
+
+
 def query(src, text: str, w) -> dict:
     p, spec = _project()
     deadline = time.monotonic() + w.seconds
     ix = _index(p, spec)
     why: list = []
+    fc = _forecast(p, text)
     params = {"since": w.since, "until": w.until, "step": w.step}
     try:                                        # (on a stand-in first: only a text that passed reaches the index)
-        own = _itemviews.check(spec, deadline, text, params, why)
+        own = _itemviews.check(spec, deadline, text, params, why, fc)
     except sqlite3.Error as e:
         raise _refusal(e, why, w.seconds) from None
     except Exception as e:                      # (never fails open)
         raise SourceError("refused", f"the query could not be checked ({type(e).__name__})") from None
     try:
-        with _itemviews.opened(ix, spec, deadline, text, why, own) as (c, _):
+        with _itemviews.opened(ix, spec, deadline, text, why, own, fc) as (c, _):
             cur = c.execute(text, params)
             if cur.description is None:
                 raise SourceError("refused", "the text holds no SELECT")

@@ -160,7 +160,8 @@ TOOLS = [
                           "findings": {"type": "array", "items": {"type": "string"}}, "repro": {"type": "string"},
                           "by": {"type": "string"}})},
     {"name": "templates", "description": "The templates a small control system is made from (respond-to, re-ping, "
-     "daily-report, keep-under, steps, collect, and the owner's own from library: folders): each a reusable shape that "
+     "daily-report, keep-under, steps, collect, the owner's own from library: folders, and each fetched library's "
+     "under LIB/TEMPLATE): each a reusable shape that "
      "expands into ordinary items, stocks, flows, goals and blocks, one system per use. Without name: the list. With name: "
      "its parameters (type, default, what stands in when left out), what it is in control theory and system dynamics, "
      "and an example uses: entry. Read it before add_use. A template from a folder not marked trusted says "
@@ -171,7 +172,8 @@ TOOLS = [
      "with: {params}}, written into file (default ergostat.yaml; a new file is created and included). Without write: true "
      "nothing is written: it returns the diff, what check says (errors point at the use: line), and the parts it makes "
      "(named INSTANCE-...). Parameters left out run on free stand-ins (said in the findings). replace: true rewrites an "
-     "instance already in that file. project: another folder (a scratch copy try_use made) instead of this one.",
+     "instance already in that file. A fetched library's template is written LIB/TEMPLATE. "
+     "project: another folder (a scratch copy try_use made) instead of this one.",
      "inputSchema": _obj({"instance": {"type": "string", "description": "lowercase name, like pr-pings"},
                           "template": {"type": "string"}, "with": {"type": "object"}, "file": {"type": "string"},
                           "within": {"type": "string", "description": "a system it is part of"},

@@ -39,7 +39,10 @@ def project(tmp_path, acts) -> Project:
 
 
 def ask(p, tmp_path, name="act"):
-    return gate.request(p, p.model.spec, name, {}, {"block": "dev", "run": "r1", "workdir": str(tmp_path)})
+    """Asked on a fresh plan (act-risk's s = 0): by a run started just now, on an item nothing moved since."""
+    run = p.events.add("agent.started", item="dev", source="ergostat", data={})["id"]
+    return gate.request(p, p.model.spec, name, {}, {"block": "dev", "run": run, "item": "ticket/1",
+                                                    "workdir": str(tmp_path)})
 
 
 def ran(tmp_path) -> list[str]:
@@ -218,7 +221,7 @@ def test_bad_gate_map_refused(tmp_path):
     lines = ["name: t", "actions:",
              "  k:", "    run: x", "    gate:", "      normal: auto", "      holiday: deny",
              "  v:", "    run: x", "    gate:", "      normal: auto", "      freeze: never",
-             "  t:", "    run: x", "    risk:", "      severity: 2", "      threshold:", "        away: 51",
+             "  t:", "    run: x", "    risk:", "      severity: 2", "      threshold:", "        away: 101",
              "  ok:", "    run: x", "    gate: {normal: auto, away: approve}", "    risk: {severity: 2, threshold: {away: 3}}"]
     (tmp_path / "ergostat.yaml").write_text("\n".join(lines) + "\n")
     compiled, problems = spec_mod.read(tmp_path / "ergostat.yaml")

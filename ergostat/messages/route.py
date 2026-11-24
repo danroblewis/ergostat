@@ -36,11 +36,12 @@ RUN_FOR = 86400.0             # a run started longer ago than this (or its timeo
 
 # ---- the work: items, and the runs working on them
 
-def done_states(p, spec: Spec, kind, items=None, left=None, reached=None) -> set[str]:
-    """The states an item of this kind is finished in: as ``messages: {done:}`` says, else its last state and each
-    state after the first that no item has left while some item reached a state written after it (a state items
-    rest in while others go on is waiting, not finished: a review briefed, waiting for its reviewer). What items
-    left and reached: from ``items``' moves, unless given."""
+def route_done_states(spec: Spec, kind, items=None, left=None, reached=None) -> set[str]:
+    """The states in which a message about an item goes to the ``finished:`` policy, not to the work: as ``messages:
+    {done:}`` says, else its last state and each state after the first that no item has left while some item reached
+    a state written after it. Not ``finished.finish_of`` on purpose (SPEC §5a): a state items rest in while no item
+    has gone on is waiting, not finished (a review briefed, waiting for its reviewer). What items left and reached:
+    from ``items``' moves, unless given."""
     if kind.name in spec.messages.done:
         return set(spec.messages.done[kind.name])
     if not kind.states:
@@ -79,7 +80,7 @@ def work_items(p, spec: Spec, text: str | None = None, ids=None) -> list[dict]:
             continue
         ix = index_for(p.events, spec, asks_transcript([k]))
         with ix.lock:
-            done = done_states(p, spec, k, left=ix.left(name), reached=ix.reached(name))
+            done = route_done_states(spec, k, left=ix.left(name), reached=ix.reached(name))
             still = None if not k.states else [s for s in k.states if s not in done] + [""]
             for it in ix.items(name, states=still, moves=False):
                 add(it, k, done)
@@ -100,7 +101,7 @@ def _every_work_item(p, spec: Spec) -> list[dict]:
         if name in OWN_KINDS:
             continue
         got = its.project(p.events, spec, name)
-        done = done_states(p, spec, k, got)
+        done = route_done_states(spec, k, got)
         for it in got:
             out.append({"id": it.id, "kind": name, "state": it.state, "fields": it.fields, "last": it.last,
                         "entered": it.entered, "finished": bool(it.state and it.state in done)})

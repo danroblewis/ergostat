@@ -78,7 +78,8 @@ def note(project, extra: dict | None = None) -> dict | None:
     changed = sorted(k for k in set(now) & set(before) if now[k] != before[k])
     return project.events.add("model.changed", item=project.model.name, source="ergostat",
                               data={"added": added, "removed": removed, "changed": changed, "parts": now,
-                                    "version": v, "first": not last, **more, **(extra or {})})
+                                    "version": v, "first": not last, **more, **(extra or {}),
+                                    "rungs": {a.name: a.kind for a in project.model.agents.values()}})   # each block's
 
 
 def changes(project, since: float) -> list[dict]:
