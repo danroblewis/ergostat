@@ -8075,10 +8075,13 @@ actions:
   `auto`. The owner's holds under `auto` or `approve`. `deny` refuses both. A refused act is `failed` with `exit:
   null`, `seconds: 0` and `refused: WHY`, and its command never starts. The command is started in a session of its
   own (`gate._spawn`), and on its timeout its whole process group is killed.
-- **Which races are tested.** Tests open the gap between the re-check and the start, and between `enter`'s read and
-  its write, for `enter` and for a bypass's `end`. Those are the changes that tighten a gate. `leave` and `grant` only
-  loosen. A race with either can only leave an act refused or held under the stricter answer it read. Their exclusive
-  lock is held for the same order, and no test opens a gap for them.
+- **Which races are tested.** Tests open the gap between the re-check and the start for `enter`, `leave` and a
+  bypass's `end`, and the gap between `enter`'s read and its write. Entering or leaving a state can tighten a gate or
+  loosen it, since a state's cell may be looser or stricter than the cell of the state it replaces (an action
+  `{normal: deny, freeze: auto}` goes from auto to deny when freeze is left). `end` only tightens. `grant` only
+  loosens: a bypass's answer is never stricter than the cell, so a race with a grant can only leave an act refused or
+  held under the stricter answer it read. Its exclusive lock is held for the same order, and no test opens a gap for
+  it.
 
 **Bypass leases.** The owner may let one class through while a state holds it back:
 

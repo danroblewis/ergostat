@@ -288,6 +288,34 @@ def test_state_entry_waits_for_command_start(tmp_path, monkeypatch):
     assert sch.state(p, p.model.spec) == "freeze"         # and the entry landed, once the lock was let go
 
 
+def test_state_leave_waits_for_command_start(tmp_path, monkeypatch):
+    """Leaving a state can tighten a gate as well as loosen it: thaw is auto in freeze and deny in normal."""
+    p = project(tmp_path)
+    enter(p, "freeze")
+    a = ask(p, "thaw", asker="program")                   # approved by the gate in freeze
+    assert a["state"] == "approved" and a["approved_by"] == "gate"
+    order, done, real, threads = [], threading.Event(), gate._spawn, []
+    other = again(p)
+
+    def spawn(command, cwd, env):
+        def go():
+            acts.leave(other, other.model.spec, "freeze", "test", env={})
+            order.append("left")
+            done.set()
+        th = threading.Thread(target=go)
+        th.start()
+        threads.append(th)
+        done.wait(2)                                      # (with the lock held it cannot end: the wait runs out)
+        order.append("spawned")
+        return real(command, cwd, env)
+    monkeypatch.setattr(gate, "_spawn", spawn)
+    got = gate.run_once(p, p.model.spec, a["id"])
+    threads[0].join(10)
+    assert order == ["spawned", "left"], order
+    assert got["state"] == "ran" and mark(p, "thawed")    # re-checked in freeze, started before the leave
+    assert sch.state(p, p.model.spec) == "normal"         # and the leave landed, once the lock was let go
+
+
 def test_act_waits_for_state_entry(tmp_path, monkeypatch):
     p = project(tmp_path)
     a = held_approved(p, "hold")                          # normal: approve, freeze: deny

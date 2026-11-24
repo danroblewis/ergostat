@@ -248,6 +248,26 @@ After the change, these pass: `test_operating_gates` (32), `test_gated_actions`,
 `test_spec_structure`, `test_inbox` and `test_leased_workspaces`. Ruff is clean. `HEAD..main` is empty, so there was
 nothing to merge. Net code is about +3 lines (within budget). Not run here: the unit suite and the four browser files.
 
+**Round 4.** There was one finding, and it was blocking. Round 1's answer to the plan review said that `leave` and
+`grant` only loosen a gate. Since round 3, that is false for `leave`: a state's cell may be looser than `normal`'s, so
+leaving that state tightens the gate. `thaw` (`{normal: deny, freeze: auto, else: approve}`) goes from auto to deny
+when freeze is left. The lock was in `leave`, but no test failed without it. The round 1 answer above is replaced by
+this one:
+- *Test.* `test_state_leave_waits_for_command_start` is the `leave` version of
+  `test_state_entry_waits_for_command_start`. `thaw` is approved by the gate in freeze (a program's request). The
+  patched `_spawn` starts a thread that calls `acts.leave(freeze)` and waits up to 2 s for it. The test asserts the
+  order `['spawned', 'left']`, that the act ran on the freeze reading (marker present), and that the state is `normal`
+  afterwards. Broken by hand, and each time put back: with `leave` taking the lock shared it failed
+  (`['left', 'spawned']`), and with the lock removed from `leave` it failed the same way.
+- *SPEC* §12k *Which races are tested* now says that `enter` and `leave` can each loosen or tighten a gate, that `end`
+  only tightens, and that only `grant` only loosens. `grant` keeps the old reasoning: a bypass's answer is never
+  stricter than the cell. It is the only one of the four exclusive takers with no race test.
+- No code changed (the size is the same as round 3).
+
+After the change, these pass: `test_operating_gates` (33), `test_operating`, `test_gated_actions`,
+`test_cli_fallback`, `test_program_actions` and `test_regime_gates`. Ruff is clean. `HEAD..main` is empty, so there was
+nothing to merge. Not run here: the unit suite and the four browser files.
+
 ## Entry
 
 entry-of: operating-modes-regime
