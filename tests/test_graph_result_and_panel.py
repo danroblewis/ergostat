@@ -275,6 +275,56 @@ def test_what_a_cycle_means_is_said_by_kind():                                  
     assert svc["warnings"] == [] and svc["said"][0].startswith("calls that go round are normal")
 
 
+def test_a_cycle_in_a_kind_with_no_words_of_its_own_is_said_and_never_fails(monkeypatch):   # G44; lesson 3
+    """A sequence diagram's reply (a > b > a) is a cycle; its graph still answers, a reply said to be no defect. A kind
+    with no wording at all is warned of in the generic sentence, never a KeyError."""
+    def seq():
+        return _frames.answer({"shape": "graph", "kind": "sequence", "nodes": {"id": ["a", "b"], "label": ["a", "b"]},
+                               "edges": {"id": ["1", "2"], "source": ["a", "b"], "target": ["b", "a"], "relation": ["calls", "replies"],
+                                         "evidence": ["observed"] * 2},
+                               "semantics": {"paths_real": True}, "time": {"mode": "snapshot"},
+                               "omitted": {"nodes": 0, "edges": 0, "weight_share": 0.0, "how": ""}}, None, 0)
+    out = graphs.panel(seq(), {})
+    assert out["semantics"]["acyclic"] is False and out["warnings"] == []
+    assert out["said"] == ["a message back is a reply, not a defect"]
+    monkeypatch.delitem(graphs.CYCLE, "sequence")
+    out = graphs.panel(seq(), {})
+    assert out["warnings"] == [("graph-cycle", graphs.UNSAID[1])] and "said" not in out
+
+
+def test_a_start_to_start_wait_whose_state_is_reached_is_met(tmp_path):               # G40, done 1
+    """h is started (``doing``). k waits on h through ``after`` (``starts_at: [doing]``), m through ``blocked_by``
+    (finish to start). Hand-worked: h > k is met (k is ready, h being in doing), h > m blocks (h is not done)."""
+    p = project(tmp_path, DEPS.replace("blocked_by: ticket", "blocked_by: ticket\n      after: {kind: ticket, starts_at: [doing]}"))
+    ev = p.events.add
+    ev("ticket.planned", item="ticket/h", at=T0)
+    ev("ticket.started", item="ticket/h", at=T0 + 10)
+    ev("ticket.planned", item="ticket/k", data={"after": "ticket/h"}, at=T0 + 20)
+    ev("ticket.planned", item="ticket/m", data={"blocked_by": "ticket/h"}, at=T0 + 20)
+    [r] = ask(p, {"source": "graph", "diagram": "dependency", "kind": "ticket"})
+    assert "error" not in r, r
+    assert dict(zip(r["edges"]["id"], r["edges"]["relation"], strict=True)) == {
+        "ticket/h>ticket/k:after": "met", "ticket/h>ticket/m:blocked_by": "blocks"}
+
+
+def test_graph_reads_are_charged_to_the_request_and_none_starts_late(tmp_path, monkeypatch):   # done 5; lesson 4
+    """With one read of the event log a request: the process map reads it, the process map of one kind is refused, and the
+    dependency graph (the item index) still answers. Past the request's deadline no graph is read at all."""
+    from ergostat import process as pm
+    from ergostat.query import engine
+    p, calls, real = steps(tmp_path), [], pm.process
+    monkeypatch.setattr(pm, "process", lambda *a, **k: calls.append(1) or real(*a, **k))
+    monkeypatch.setattr(engine, "LOG_READS", 1)
+    a, b, c = ask(p, {"source": "graph", "diagram": "process"}, {"source": "graph", "diagram": "process", "kind": "ticket"},
+                  {"source": "graph", "diagram": "dependency"}, until=T0 + 600)
+    assert "error" not in a and "error" not in c, (a, c)
+    assert "already read the event log 1 times" in b["error"] and len(calls) == 1
+    monkeypatch.setattr(graphs, "_KEPT", {})
+    monkeypatch.setattr(engine, "REQUEST_SECONDS", -1.0)
+    late = ask(p, {"source": "graph", "diagram": "process"}, {"source": "graph", "diagram": "dependency"}, until=T0 + 600)
+    assert all("ran past" in r["error"] for r in late) and len(calls) == 1, late
+
+
 @pytest.mark.parametrize("q,word", [
     ({"source": "graph"}, "diagram: dependency | process | service"),
     ({"source": "graph", "diagram": "callgraph"}, "diagram: dependency | process | service"),

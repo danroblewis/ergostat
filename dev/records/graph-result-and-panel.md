@@ -137,3 +137,46 @@ section: Done recently
   fitted to 40 nodes and 100 edges, collapsed by group, type, then weight. What an aggregate holds is said, and latency
   is never averaged. The matrix is offered, and the heatmap draws it. A cycle is worded by kind, and a graph read in
   part says that whether it has a cycle is not known.
+
+## Where it stopped (round 2)
+
+Built, round 2: the three findings of round 1's review, each answered (all three were blocking; there were no others).
+This gap's own work is now about 568 net lines outside tests, docs and dev: against `main` it is 965 added and 68
+removed (897 net), of which the merged base `result-frames-and-verdicts` is 388 added and 59 removed (329 net,
+`git diff --shortstat main e30ee5e4^2`).
+Overrun reason: measured against main, the diff includes the merged base gap result-frames-and-verdicts (329 net lines, not yet on main); this gap's own change is about 568 net lines, under the 600.
+
+1. `graphs.py` `CYCLE` had no `sequence` entry (a KeyError for a data source's sequence graph with a reply). It now has
+   one ("a message back is a reply, not a defect": a note, not a warning). Any kind with no words of its own gets
+   `UNSAID`, a `graph-cycle` warning in a generic sentence, so a miss fails safe and says it. Test:
+   `test_a_cycle_in_a_kind_with_no_words_of_its_own_is_said_and_never_fails` (a sequence a > b > a; then with
+   `sequence` removed from `CYCLE`).
+2. Graph reads were outside the request's budget. `engine.Work.charge` now takes them: no graph read starts past the
+   request's deadline (`REQUEST_SECONDS`), and a read of the event log (process map, wiring) is one of the request's
+   `LOG_READS`, keyed like an event chart's. The dependency graph reads the item index, so it is held to the deadline only.
+   A kept answer (30 s) is still answered with no charge, as `_one` and `_shaped` do. So a request of many graph queries,
+   or one scrubbing past windows, makes at most four log reads, none started late. Each scrubbed moment still reads
+   once (an answer depends on its `until`), the same as event charts. Test:
+   `test_graph_reads_are_charged_to_the_request_and_none_starts_late`.
+3. `met` read only `status == "done"`. `precedence.build` now marks each precedence edge `met` by its own `finished`
+   (done, or in a state the relation's `starts_at` names), and `graphs.dependency` reads that. Test:
+   `test_a_start_to_start_wait_whose_state_is_reached_is_met` (h doing; k `after` h with `starts_at: [doing]` is `met`,
+   m `blocked_by` h is `blocks`). SPEC §4e was updated for 1 to 3.
+
+Seen to fail when broken (each restored): `CYCLE.get` back to `CYCLE[kind]` gave a KeyError in the first test. The
+`work.charge` call removed let the second process graph read (no error). `met` not set in `precedence.py` drew h > k
+as `blocks`.
+
+Run here:
+- Unit, all passed: test_graph_result_and_panel, test_precedence and test_query_engine (85); test_graph_parts,
+  test_result_shapes and test_data_sources (41); test_relations, test_relations_asof and test_graph_cli_web (92).
+- Browser, under the watchdog: test_graph_result_page passed (3). test_items_page had 4 failures and 83 passed.
+  Among them were `test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel`,
+  `test_the_graph_and_the_timeline_left_open_change_nothing` (`[graph]` in one run, `[timeline]` in the other), and the
+  goals-upkeep heading test at line 3151 ("Goals ·" where "Loops ·" is expected). The fourth failure's name was cut off
+  in the output. The file failed 4 the same way with this round's `precedence.py` change reverted, so these failures
+  are not this change's (lesson 13). They are left alone.
+- ruff is clean. `git merge main` said "Already up to date."
+
+Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
+walk.

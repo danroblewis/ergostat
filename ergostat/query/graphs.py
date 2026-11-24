@@ -2,10 +2,11 @@
 chart catalog's §2.2): ``{"source": "graph", "diagram": D, "kind"?: K}``.
 
 - ``dependency``: the Items page's precedence network (``precedence.py``, through ``web/relations_api.py``), an item a
-  node and a precedence relation an edge from what comes first (``blocks``, or ``met`` once that item is finished:
-  never drawn as a wait still held, G40). Its routes are real (``paths_real``), each node has its ``slack``,
-  ``duration`` and whether it is ``critical``, and the answer says the critical path's end beside the end levelled by
-  each block's capacity (G42: the critical path alone is not the finish date). Charts 74 and 75.
+  node and a precedence relation an edge from what comes first (``blocks``, or ``met`` once precedence.py counts it
+  met: that item finished, or in a state the relation's ``starts_at`` names; never drawn as a wait still held, G40).
+  Its routes are real (``paths_real``), each node has its ``slack``, ``duration`` and whether it is ``critical``, and
+  the answer says the critical path's end beside the end levelled by each block's capacity
+  (G42: the critical path alone is not the finish date). Charts 74 and 75.
 - ``process``: the process map (``process.py``), a step a node and a line an edge; its routes are not real.
 - ``service``: the wiring the event log proves (``graph.wiring``), a machine a node and what passed between two an
   edge, ``observed``, ``declared`` (never seen in the window) or ``both``, with when it was last seen. The service map
@@ -14,7 +15,8 @@ chart catalog's §2.2): ``{"source": "graph", "diagram": D, "kind"?: K}``.
 Each is checked as a data source's graph is (datasources/_frames.py), its cycles worked out on the whole of it, and
 fitted to the panel (graphfit.py), with the matrix beside it. What a cycle means is said by kind (G44). A graph its
 maker read only in part (past its own caps) says so, and whether it has a cycle is then not known (G43). A maker's
-answer is kept ``KEPT`` seconds for each graph asked, so the record is read at most that often, however many ask."""
+answer is kept ``KEPT`` seconds for each graph asked, so the record is read at most that often, however many ask; a read
+is charged to the request (engine.Work.charge), so none starts past its deadline, and of the event log only a few."""
 
 from __future__ import annotations
 
@@ -36,7 +38,9 @@ CYCLE = {   # kind: (whether a cycle is a warning, what it means). The kind sets
     "impact": (False, "a cycle is shared fate: each of its members can affect the others"),
     "service": (False, "calls that go round are normal, but a cold start of them needs one to go first"),
     "lineage": (True, "a cycle in lineage is a defect: nothing is its own source"),
+    "sequence": (False, "a message back is a reply, not a defect"),
 }
+UNSAID = (True, "it has a cycle, and what a cycle means in a graph of this kind is not known")   # (a kind not above: warned)
 _KEPT: dict = {}
 _LOCK = threading.Lock()
 
@@ -59,7 +63,7 @@ def dependency(ans: dict) -> tuple[dict, dict]:
                                                                               float(x["critical"]) for x in items]}]},
              "edges": {"id": [f"{e['from']}>{e['to']}:{e['rel']}" for e in prec], "source": _col(prec, "from"),
                        "target": _col(prec, "to"), "evidence": ["declared"] * len(prec),
-                       "relation": ["met" if by[e["from"]]["status"] == "done" else "blocks" for e in prec],
+                       "relation": ["met" if e.get("met", by[e["from"]]["status"] == "done") else "blocks" for e in prec],
                        "fields": [{"name": "critical", "unit": "", "values": [float(e.get("critical", False)) for e in prec]}]},
              "semantics": {"paths_real": True, "focus": ans.get("critical") or []},
              "time": {"mode": "snapshot", "since": ans.get("since"), "until": ans.get("now")},
@@ -137,7 +141,7 @@ def panel(full: dict, said: dict) -> dict:
         warnings.append(("graph-truncated", f"only part of the {kind} graph was read ({full['omitted']['how']}), so "
                                             "whether it has a cycle, and what reaches what, is not known"))
     elif full["semantics"]["acyclic"] is False:
-        warn, words = CYCLE[kind]
+        warn, words = CYCLE.get(kind, UNSAID)
         cycles = said.get("cycles") or []
         words = f"{words} ({'; '.join(', '.join(c) for c in cycles[:3])})" if cycles else words
         (warnings.append(("graph-cycle", words)) if warn else notes.append(words))
@@ -154,13 +158,16 @@ def panel(full: dict, said: dict) -> dict:
     return out
 
 
-def _made(p, diagram: str, kinds: list[str], since: float, until: float, past: bool, gate) -> tuple[dict, bool]:
-    """The maker's answer, and whether the record was read for it now (else it was kept)."""
+def _made(p, diagram: str, kinds: list[str], since: float, until: float, past: bool, work) -> tuple[dict, bool]:
+    """The maker's answer, and whether the record was read for it now (else it was kept). A read is charged to the
+    request (``work``: engine.Work): none is started past its deadline, and one of the event log counts among its few."""
     key = (id(p), diagram, tuple(kinds), round(until - since), until if past else None)
     with _LOCK:
         got = _KEPT.get(key)
         if got is not None and time.monotonic() - got[0] < KEPT:
             return got[1], False
+    work.charge(("graph", *key[1:]), diagram != "dependency")
+    gate = work.gate
     if not gate.acquire(blocking=False):
         raise Unanswerable("busy: the record is being read for other charts; try again shortly")
     try:
@@ -184,13 +191,13 @@ def _made(p, diagram: str, kinds: list[str], since: float, until: float, past: b
     return ans, True
 
 
-def answer(p, q, since: float, until: float, past: bool, gate) -> dict:
-    """``q``, a graph query, over the window: the panel's graph, or ``Unanswerable``."""
+def answer(p, q, since: float, until: float, past: bool, work) -> dict:
+    """``q``, a graph query, over the window, within the request's ``work``: the panel's graph, or ``Unanswerable``."""
     spec = getattr(p.model, "spec", None)
     if spec is None and q.diagram != "service":
         raise Unanswerable(f"this model declares no items to draw a {q.diagram} graph of")
     if q.kind is not None and (q.diagram == "service" or q.kind not in spec.items):
         raise Unanswerable(f"a {q.diagram} graph takes no kind" if q.diagram == "service"
                            else f"kind {q.kind!r} is not in the model")
-    ans, read = _made(p, q.diagram, [q.kind] if q.kind else [], since, until, past, gate)
+    ans, read = _made(p, q.diagram, [q.kind] if q.kind else [], since, until, past, work)
     return {"id": q.id, **drawn(*ADAPT[q.diagram](ans)), "read_log": read and q.diagram != "dependency"}

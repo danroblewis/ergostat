@@ -73,6 +73,16 @@ class Work:
     def late(self) -> bool:
         return time.monotonic() > self.deadline
 
+    def charge(self, key, log: bool) -> None:
+        """A read of the record made by another maker (graphs.py): never started past the deadline, and, of the event
+        log, one of the request's ``LOG_READS``."""
+        if self.late():
+            raise Unanswerable(f"busy: this request ran past {REQUEST_SECONDS:g} s; try again")
+        if log and key not in self.read:
+            if len(self.read) >= LOG_READS:
+                raise Unanswerable(f"busy: this request already read the event log {LOG_READS} times; ask for fewer event charts")
+            self.read[key] = None
+
     def log(self, p, n, type_, since, until, skip) -> list:
         key = (n, type_, since, until, skip)
         if key in self.read:
@@ -296,7 +306,7 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
 def _graph(p, q: Query, since: float, until: float, past: bool, work: Work) -> dict:
     """One of ergostat's own graphs (graphs.py), failing alone."""
     try:
-        return graphs.answer(p, q, since, until, past, work.gate)
+        return graphs.answer(p, q, since, until, past, work)
     except Unanswerable as e:
         return {"id": q.id, "error": f"graph: {e}", "read_log": False}
     except Exception as e:                            # one query's failure is its own: the others still answer

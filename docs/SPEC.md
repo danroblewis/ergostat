@@ -1430,12 +1430,15 @@ reads the event log.
   `omitted` must say what was left out. An unknown `kind` is refused. A node may say its `health` (`ok`, `unhealthy`).
 - **Ergostat's own graphs.** `{"source": "graph", "diagram": D, "kind"?: K}` (`ergostat/query/graphs.py`) answers with
   one of the graphs ergostat already works out: `dependency`, the Items page's precedence network (an item a node, a
-  precedence relation an edge, `blocks`, or `met` once what it waits on is finished; routes real; each node's `slack`,
+  precedence relation an edge, `blocks`, or `met` once what it waits on is finished or in a state the relation's
+  `starts_at` names, as the item's own status reads it; routes real; each node's `slack`,
   `duration` and `critical`; and the critical path's end said beside the end levelled by each block's capacity, since
   the critical path alone is not the finish date: charts 74 and 75); `process`, the process map (routes not real); and
   `service`, the wiring the event log proves between machines, each edge `observed`, `declared` (never seen in the
   window, with no time it was seen) or `both` (the map from callers' and callees' labels in metrics is not this). A
-  maker's answer is kept 30 s for each graph asked, so the record is read at most that often however many ask.
+  maker's answer is kept 30 s for each graph asked, so the record is read at most that often however many ask. A read
+  is the request's: none starts past its 10 s deadline, and a read of the event log (a process map or the wiring) is
+  one of the four the request may make, as an event chart's is; past them a graph answers that it was not read.
 - **A graph on a panel.** Every graph, a data source's or ergostat's own, is fitted to a panel's budget of 40 nodes and
   100 edges (`ergostat/query/graphfit.py`): over it, nodes are collapsed by their declared `group`, then by `type`,
   then by weight into one `other`, each step only while too many are left, then the lightest edges are left out, and
@@ -1446,7 +1449,8 @@ reads the event log.
   was cut before it came (its maker's caps, or `omitted` not empty), with `graph-truncated`. Over the budget it is
   warned (`graph-over-budget`), and the fix offers the matrix. A cycle is said by kind: a warning (`graph-cycle`) in a
   `dependency`, `wait_for` or `lineage` graph, and otherwise a sentence under the drawing (a line back in a process map
-  is a return or concurrency). The answer also holds `matrix`, the graph fitted to 300 rows (a budget from the
+  is a return or concurrency, a message back in a `sequence` a reply); a kind with no words of its own is warned of
+  generically, never left unsaid. The answer also holds `matrix`, the graph fitted to 300 rows (a budget from the
   network-diagrams report, not measured here) as an adjacency matrix in group order (chart 77).
 - **Drawing a graph.** The graph family draws one graph answer. Its layout is never in the answer: ELK lays it out in a
   Web Worker (`graph-layout.js`; on the page's own thread only when no worker can start), layered for each kind but
