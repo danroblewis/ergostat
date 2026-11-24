@@ -262,3 +262,29 @@ Run here:
 
 Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
 walk.
+
+## Where it stopped (round 6)
+
+Built, round 6: the one finding (blocking; there were no others). `graphfit.fit` turned a maker's unknown omitted
+weight share (`null`) into 0, or into the share the fit dropped, whenever the maker counted no omitted edges. That is
+what ergostat's own dependency graph past precedence.py's caps and the wiring past its event cap send, so a capped graph
+over the 40-node panel budget said nothing of weight was left out beside its `graph-truncated` warning (lesson 3).
+- `graphfit.fit`: the joined share is `null` whenever the maker's was `null` or the fit's own is unknown. `_frames`
+  requires every graph to state its share (0 when nothing was left out), so `null` always means not known.
+- Test: `test_a_capped_graph_over_the_panel_budget_keeps_its_share_unknown`. The wiring of 50 agents and 49 edges is
+  fitted to 40 nodes. Uncapped, its share stays 0.0 (a known share stays known). Capped, it is `null` with 0 edges
+  omitted. The same holds for a dependency graph of 50 items with `open` capped. With the old line put back, the test
+  failed at the capped wiring (`0.0 is None`), then the fix was restored.
+- SPEC §4e (*A graph on a panel*) says that an unknown share stays `null` once fitted.
+
+Sizes are unchanged from round 5 (one line replaced). Outside tests, docs and dev: this gap's own change is 597 added
+and 19 removed (578 net, `git diff --shortstat 197d03ee`).
+Overrun reason: measured against main, the diff includes the merged base gap result-frames-and-verdicts (338 net lines, not yet on main); this gap's own change is 578 net lines, under the 600.
+
+Run here:
+- Unit, all passed: test_graph_result_and_panel, test_result_shapes and test_data_sources (57).
+- Browser, under the watchdog: test_graph_result_page passed (3, rc 0).
+- ruff is clean. `git merge main` said "Already up to date."
+
+Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
+walk.
