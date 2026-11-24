@@ -2687,8 +2687,10 @@ fails it after all (a change reverted). An item that enters `at` again while an 
 attempt unjudged. `undone` (optional, none of them `failed` types) names the events that say a failure was not the
 item's, such as a flake retried after the failure was said: a kind that declares it has a failure of an open attempt
 **held** until the item's next change of state. An `undone` event first withdraws the attempt unjudged; any other
-change of state judges it failed; while held it is judged neither way (the backtest counts it as open and held). The
-kind's events are replayed in the record's order, by `seq` and never by time, so each attempt is scored only from the
+change of state judges it failed; while held it is judged neither way (the backtest counts it as open and held). A
+change of state here is always one the item's own events make: a lease's moves (§9.5: taken into `leased`, given back,
+to `dead`) are its runner's, and neither judge, withdraw nor open an attempt, so a block that takes the item to triage
+it does not judge the failure it is triaging. The kind's events are replayed in the record's order, by `seq` and never by time, so each attempt is scored only from the
 attempts judged before it.
 
 How the score is worked out:

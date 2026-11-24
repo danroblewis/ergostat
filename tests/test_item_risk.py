@@ -15,6 +15,7 @@ import pytest
 
 from ergostat import model as mdl
 from ergostat.cli import main
+from ergostat.leases import ENDED, TAKEN
 from ergostat.numbers import itemrisk
 from ergostat.spec import items as its
 from ergostat.store import Project
@@ -42,12 +43,19 @@ def factory_record(p: Project, n: int = 800, seed: int = 7, flaky: list | None =
     chance of failing is known: logit = -2.6 + 1.9 (touches the hot file) + 1.1 (big) + 0.8 (a planner's split).
     Before that, a fifth of them (and more of the hot ones) fail in the queue on a flake first, which triage retries:
     never the gap's failure. Each gap's (chance, failed); the flaky gaps' numbers are put in ``flaky``."""
-    rng, evs, t, later, truth = random.Random(seed), [], [T0], {}, []
+    rng, evs, t, later, truth, fence = random.Random(seed), [], [T0], {}, [], {}
     flakes = random.Random(seed + 1)
 
     def say(i: int, type: str, **data) -> None:
         t[0] += 60
         evs.append({"at": t[0], "type": type, "item": f"gap/g{i}", "data": data, "source": "test"})
+
+    def take(i: int, block: str) -> None:                                    # the queue's or triage's lease: to leased
+        fence[i] = fence.get(i, 0) + 1
+        say(i, TAKEN, run=f"r{i}.{fence[i]}", block=block, fence=fence[i], ttl=1800, max=3)
+
+    def ack(i: int) -> None:
+        say(i, ENDED, run=f"r{i}.{fence[i]}", fence=fence[i], how="ack")
     for i in range(n):
         hot, big, plan = rng.random() < 0.3, rng.random() < 0.4, rng.random() < 0.3
         paths = rng.sample(FILES, rng.randint(1, 3)) + (["ergostat/hot.py"] if hot else [])
@@ -59,19 +67,28 @@ def factory_record(p: Project, n: int = 800, seed: int = 7, flaky: list | None =
         say(i, "gap.built", paths=paths, net_lines=rng.choice([400, 900]) if big else rng.choice([10, 40, 120]),
             built_by="opus")
         say(i, "gap.approved")
+        take(i, "merge-queue")
         say(i, "gap.queued")
         if flakes.random() < (0.4 if hot else 0.2):                          # a flake: queue-failed, then retried
             say(i, "gap.queue-failed", failed_tests=["tests/test_slow.py::t"])
+            ack(i)
+            take(i, "flake-triage")                                          # queue-failed -> leased
             say(i, "gap.measured", stalls=1)                                 # (triage's own, no state)
             say(i, "gap.retried", approved_by="flake-retry", retries=1)
+            ack(i)
+            take(i, "merge-queue")
             say(i, "gap.queued")
             if flaky is not None:
                 flaky.append(i)
         if fails and rng.random() < 0.8:
             say(i, "gap.queue-failed")
+            ack(i)
+            take(i, "flake-triage")
             say(i, "gap.sent-back", sent_back_by="triage", failed_gates=1)  # a real failure, sent back
+            ack(i)
         else:
             say(i, "gap.merged")
+            ack(i)
             if fails:
                 later.setdefault(i + 5, []).append(i)
         for j in later.pop(i, []):
@@ -159,19 +176,15 @@ def test_a_flake_retried_is_never_the_changes_failure(tmp_path):
     factory_record(p, n=20)
     base = itemrisk.learned(p.events, p.model.spec, "gap", lambda lr: (lr.n, lr.f, dict(lr.by), lr.withdrawn))
     t = T0 + 10 ** 6
-
-    def run(id: str, *types: str) -> None:
-        p.events.add_many([{"at": t + j, "type": x, "item": id, "data": {"paths": ["ergostat/flaky.py"]}
-                            if x == "gap.built" else {}} for j, x in enumerate(types)])
-    run("gap/flake", "gap.found", "gap.built", "gap.approved", "gap.queued", "gap.queue-failed", "gap.measured",
+    run(p, t, "gap/flake", "gap.found", "gap.built", "gap.approved", "gap.queued", "gap.queue-failed", "gap.measured",
         "gap.retried", "gap.queued", "gap.merged")
     n, f, by, withdrawn = itemrisk.learned(p.events, p.model.spec, "gap",
                                            lambda lr: (lr.n, lr.f, dict(lr.by), lr.withdrawn))
     assert (n, f, withdrawn) == (base[0] + 1, base[1], base[3] + 1)          # one judged, passed; one withdrawn
     assert by[("paths", "ergostat/flaky.py")] == [1, 0]
-    run("gap/real", "gap.found", "gap.built", "gap.approved", "gap.queued", "gap.queue-failed", "gap.sent-back")
-    run("gap/kill", "gap.found", "gap.built", "gap.approved", "gap.queued", "gap.queue-failed", "gap.parked")
-    run("gap/wait", "gap.found", "gap.built", "gap.approved", "gap.queued", "gap.queue-failed", "gap.measured")
+    run(p, t, "gap/real", "gap.found", "gap.built", "gap.approved", "gap.queued", "gap.queue-failed", "gap.sent-back")
+    run(p, t, "gap/kill", "gap.found", "gap.built", "gap.approved", "gap.queued", "gap.queue-failed", "gap.parked")
+    run(p, t, "gap/wait", "gap.found", "gap.built", "gap.approved", "gap.queued", "gap.queue-failed", "gap.measured")
     bt = itemrisk.backtest(p.events, p.model.spec, "gap")
     got = itemrisk.learned(p.events, p.model.spec, "gap", lambda lr: (lr.n, lr.f, {
         i: lr.last[i]["failed"] for i in ("gap/flake", "gap/real", "gap/kill", "gap/wait")}))
@@ -179,6 +192,48 @@ def test_a_flake_retried_is_never_the_changes_failure(tmp_path):
     assert bt["held"] == 1 and bt["withdrawn"] == base[3] + 1
     itemrisk._CACHE.clear()                                                  # a replay from the start agrees
     assert itemrisk.learned(p.events, p.model.spec, "gap", lambda lr: (lr.n, lr.f)) == got[:2]
+
+
+def run(p, t: float, id: str, *steps: str) -> None:
+    """One gap's events: each an event type, or a lease step (`take:BLOCK`, `ack`, `nack`) as the runner writes it."""
+    evs, fence = [], 0
+    for j, x in enumerate(steps):
+        if x.startswith("take:"):
+            fence += 1
+            data = {"run": f"r{fence}", "block": x[5:], "fence": fence, "ttl": 1800, "max": 3}
+            x = TAKEN
+        elif x in ("ack", "nack"):
+            data, x = {"run": f"r{fence}", "fence": fence, "how": x}, ENDED
+        else:
+            data = {"paths": ["ergostat/flaky.py"]} if x == "gap.built" else {}
+        evs.append({"at": t + j, "type": x, "item": id, "data": data})
+    p.events.add_many(evs)
+
+
+def test_a_lease_moving_the_item_never_judges_or_reopens_an_attempt(tmp_path):
+    """The factory's real flow: the queue and triage each take the gap under a lease, which moves it into `leased` and
+    back. Triage taking a queue-failed gap is no change of state of the gap's own, so the held failure waits for
+    gap.retried and is withdrawn; a lease given back to `approved` (nack) is no new attempt."""
+    p = project(tmp_path, factory_kinds())
+    factory_record(p, n=20)
+    base = itemrisk.learned(p.events, p.model.spec, "gap", lambda lr: (lr.n, lr.f, lr.withdrawn, len(lr.attempts)))
+    t = T0 + 10 ** 6
+    run(p, t, "gap/flake", "gap.found", "gap.built", "gap.approved", "take:merge-queue", "gap.queued",
+        "gap.queue-failed", "ack", "take:flake-triage", "gap.measured", "gap.retried", "ack", "take:merge-queue",
+        "nack", "take:merge-queue", "gap.queued", "gap.merged", "ack")
+    run(p, t, "gap/real", "gap.found", "gap.built", "gap.approved", "take:merge-queue", "gap.queued",
+        "gap.queue-failed", "ack", "take:flake-triage", "gap.sent-back", "ack")
+    run(p, t, "gap/wait", "gap.found", "gap.built", "gap.approved", "take:merge-queue", "gap.queued",
+        "gap.queue-failed", "ack", "take:flake-triage")
+    def state(lr):
+        return (lr.n, lr.f, lr.withdrawn, len(lr.attempts), lr.by[("paths", "ergostat/flaky.py")],
+                [(a["item"], a["failed"]) for a in lr.attempts if a["item"] in ("gap/flake", "gap/real", "gap/wait")])
+    got = itemrisk.learned(p.events, p.model.spec, "gap", state)
+    assert got == (base[0] + 2, base[1] + 1, base[2] + 1, base[3] + 4, [2, 1], [
+        ("gap/flake", "withdrawn"), ("gap/flake", False), ("gap/real", True), ("gap/wait", None)])
+    assert itemrisk.backtest(p.events, p.model.spec, "gap")["held"] == 1
+    itemrisk._CACHE.clear()                                                  # a replay from the start agrees
+    assert itemrisk.learned(p.events, p.model.spec, "gap", state) == got
 
 
 def test_without_undone_a_failure_is_judged_at_once(tmp_path):

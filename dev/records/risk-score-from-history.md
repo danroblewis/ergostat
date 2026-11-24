@@ -157,6 +157,49 @@ Round 2, 2026-11-24. The review's one finding was blocking. It is fixed, and the
   unit suite and the four browser files were not run (no page changed). The live backtest was not run either.
 - **Size.** About 30 more net lines outside tests/, docs/ and dev/, within the budget.
 
+Round 3, 2026-11-24. The review had two findings, both blocking. Both are answered, and there were no others
+(lesson 12).
+
+- **Finding 1: a lease's move ended the hold.** It was right. Round 2's fix held a flake's failure only until the next
+  change of state. In the real flow, triage takes the gap under a lease, and `ergostat.lease.taken` moves it from
+  queue-failed to leased. That move judged the held failure as failed before `gap.retried` arrived, so every flake,
+  quarantined-only failure and stall was still learned as the branch's failure. Round 2's claim was wider than the
+  code (lesson 8).
+- **The fix, in the core option, naming no gaps.** I took the reviewer's first way, because it is the narrower of
+  the two. The replay now keeps each item's own state, the one its own events moved it to. A lease event
+  (`ergostat.lease.*`: taken, ended, expired, redriven) still folds the item, but is never a change of state for the
+  score. So a lease never judges, withdraws or opens an attempt. That also covers a lease given back to `approved` (a
+  nack): before the fix, that return withdrew the open attempt and opened a new one. A kind with no leases behaves
+  as before. SPEC §5a, the agent guide, the schema's `undone` description and the module docstring say it.
+- **What this leaves out.** A lease that ends in `dead` (attempts used up) does not judge a held failure either. That
+  attempt stays held, counted as open and held in the backtest, until the item's own events move it. This is the
+  reversible side: a dead letter is the runner's state, not a verdict on the change.
+- **Finding 2: the tests had no lease events.** That was also right (lesson 9). The tests now carry them:
+  - **The synthetic factory record.** It now has the queue's lease (taken at approved, then acked), and triage's
+    lease on each queue failure (taken at queue-failed, then acked after `gap.retried` or `gap.sent-back`). The
+    calibration and queryable tests run on it.
+  - **The new test, `test_a_lease_moving_the_item_never_judges_or_reopens_an_attempt`.** It replays the reviewer's
+    sequence on the factory's own kind: queue-failed, ack, triage's lease taken, measured, retried, ack. A queue lease
+    nacked back to approved and taken again follows, then queued, merged and ack. It asserts that the attempt is
+    withdrawn, that the one after it passes, and that the path's counts are `[2, 1]` (that pass plus the sent-back gap's
+    failure). A sent-back gap under the same leases is judged failed, and a gap still under triage's lease is held.
+    A fresh replay agrees with the kept one.
+  - `run()` is now a module helper that writes lease steps. The round-2 flake test still runs without leases.
+- **Seen to fail on round 2's code, before the fix.** Three tests failed:
+  - the calibration test: 0 withdrawn of 196;
+  - the queryable test: 258 judged instead of 200;
+  - the new test: two more judged and two more failed than expected, with the waiting gap judged failed.
+  All 22 pass after the fix.
+- **Run here, one file at a time.**
+  - tests/test_item_risk.py: 22 passed.
+  - tests/test_spec_schema.py, tests/test_library_trust.py and tests/test_cli_fallback.py: 106 passed.
+  - tests/test_spec_structure.py, tests/test_queue.py and tests/test_item_search.py: 41 passed.
+  - `ruff check ergostat tests scripts`: clean.
+- **Not run.** The factory's `ergostat check` tests were not run again, because neither `ergostat.yaml` nor any
+  dev/ model changed this round. The whole unit suite, the four browser files (no page changed) and the live backtest
+  were not run either. `main` has not moved past the merge already on this branch.
+- **Size.** About 10 more net lines outside tests/, docs/ and dev/, within the budget.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)
@@ -164,8 +207,8 @@ section: The factory (ergostat on ergostat)
 - **Each change gets a risk score learned from what failed before** (done, on `risk-score-from-history`; SPEC §5a,
   *Risk score*). A kind may declare `risk-score:` (off unless declared). An attempt opens each time an item enters a
   state. It fails at the declared events (a revert after passing too) and passes at the declared states. With
-  `undone` declared, a failure is held until the item's next change of state, and an `undone` event (a flake retried)
-  first withdraws it unjudged. It is scored
+  `undone` declared, a failure is held until the item's next change of state by its own events (never a lease's), and
+  an `undone` event (a flake retried) first withdraws it unjudged. It is scored
   from the attempts judged before it, in the record's order: naive Bayes over declared fields (a value, a list's
   riskiest element, a size band), calibrated by Platt scaling, a missing value learned as its own, and no score before
   `least`. It is on each item's detail (`risk_score`) and in `ergostat item --kind K --risk-score [--backtest]`. The

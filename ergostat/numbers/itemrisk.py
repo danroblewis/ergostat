@@ -7,8 +7,9 @@ it failed: a change reverted), and passed when the item enters a ``passed`` stat
 while an attempt is open withdraws that attempt, so it is never judged. A kind that declares ``undone`` (the event
 types that say a failure was not the item's: a flake retried) has a failure of an open attempt **held** until the
 item's next change of state: an ``undone`` event first withdraws the attempt unjudged, any other change judges it
-failed. The record is replayed in its own order (each event's ``seq``, never its time), so an attempt is scored only
-from the attempts judged before it.
+failed. A change of state is one the item's own events make: a lease's moves (taken into ``leased``, given back,
+dead) are the runner's, and neither judge, withdraw nor open an attempt. The record is replayed in its own order
+(each event's ``seq``, never its time), so an attempt is scored only from the attempts judged before it.
 
 The score is a naive Bayes estimate. It starts from the base rate of failure, and then, for each declared field, adds
 the log odds by which that field's value has failed more or less often. Each value's rate is shrunk toward the base
@@ -27,6 +28,7 @@ from __future__ import annotations
 import math
 import threading
 
+from ..leases import PREFIX as LEASE_PREFIX
 from ..spec.items import SNAPSHOT, TRANSCRIPT_TYPES, Item, asks_transcript, field_at, fold
 
 HOWS = ("value", "each", "size")
@@ -92,6 +94,7 @@ class Learner:
         self.items: dict[str, Item] = {}
         self.open: dict[str, dict] = {}       # item: its open attempt
         self.last: dict[str, dict] = {}       # item: its latest attempt (open or judged)
+        self.own: dict[str, str | None] = {}  # item: its state as its own events moved it (a lease's moves left out)
         self.attempts: list[dict] = []
         self.n = self.f = 0                    # judged attempts, and of them failed
         self.by: dict[tuple, list[int]] = {}   # (field, value): [judged, failed]
@@ -160,8 +163,12 @@ class Learner:
             if e["type"] == SNAPSHOT:
                 self.rolled.add(id)
             it = self.items.get(id)
-            was = it.state if it else None
+            before = it.state if it else None
             it = self.items[id] = fold(id, [e], self.kind, it=it)
+            if e["type"].startswith(LEASE_PREFIX):      # a lease's moves (to leased, back, dead) are its runner's:
+                continue                                 # never the item's own change of state
+            was = self.own.get(id)
+            now = self.own[id] = it.state if it.state != before else was
             a = self.last.get(id)
             if a is not None and a.get("held") and e["type"] in d["undone"]:
                 self.withdraw(a)                         # the failure was not the item's: never judged
@@ -170,11 +177,11 @@ class Learner:
                     a["held"] = True                     # judged at the next change of state, unless undone first
                 else:
                     self.judge(a, True)
-            elif a is not None and a.get("held") and it.state != was:
+            elif a is not None and a.get("held") and now != was:
                 self.judge(a, True)
-            if it.state == was:
+            if now == was:
                 continue
-            if it.state == d["at"]:
+            if now == d["at"]:
                 if id in self.open:
                     self.withdraw(self.open[id])
                 feats = self.features(it.fields)
@@ -183,7 +190,7 @@ class Learner:
                      "failed": None, "base": self.base()}
                 self.attempts.append(a)
                 self.open[id] = self.last[id] = a
-            elif it.state in d["passed"] and id in self.open:
+            elif now in d["passed"] and id in self.open:
                 self.judge(self.open[id], False)
 
     def base(self) -> float | None:
