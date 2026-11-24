@@ -63,7 +63,8 @@ AI sessions and programs: where they work and what they may do
   workspaces     The workspace pools: each workspace, the item it is for, free, in use, held or quarantined
   actions        The gated actions sessions asked for, counted per class; ID --approve or --deny: the owner's answer
   act            From a block's run: ask for one of its gated actions ($ERGOSTAT_CMD act NAME --arg K=V)
-  operating      The operating state and the owner's presence; freeze | incident | maintenance --for DUR | normal
+  operating      The operating state and the owner's presence; freeze | incident | maintenance --for DUR | normal;
+                 the states the model declares: enter NAME --why TEXT, leave NAME --why TEXT
 
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
@@ -72,7 +73,6 @@ see it
                  (ID --near [N], ID --path B, ID --about: what its relations and mentions reach, 2,000 items at most)
   why            Why an item is not done (why ticket/12): the cause followed to its root, who must act, the evidence
   lease          The leases on items: who holds what, until when, and the dead letters (ITEM --redrive)
-  operating      The operating states: rank, pool, entered or left (enter NAME --why TEXT, leave NAME --why TEXT)
   decisions      The owner's decisions: extract them from transcripts, confirm, dismiss, supersede
   corrections    The owner's corrections: confirm, dismiss, retire; scan the record for them
   context        A session's starting context: context decisions --scope X, context corrections --kind Y
@@ -390,8 +390,6 @@ def build() -> argparse.ArgumentParser:
     library_topics(sub, common)
     from .reports import register as report_topics
     report_topics(sub, common)
-    from .operating import register as operating_topics
-    operating_topics(sub, common)
     from .worker import register as worker_topic
     worker_topic(sub, common)
     return ap

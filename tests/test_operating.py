@@ -256,7 +256,7 @@ def test_undeclared_entered_state_counts_as_pool_zero(tmp_path, capsys):
     e.dispatch.tick()
     assert held_n(p) == 0, "an entered state the model no longer declares holds pool 0"
     assert main(["-C", str(tmp_path), "operating", "--json"]) == 0
-    listed = {x["state"]: x for x in json.loads(capsys.readouterr().out)}
+    listed = {x["state"]: x for x in json.loads(capsys.readouterr().out)["declared"]}
     assert listed["freeze"]["now"] == "entered" and listed["freeze"]["declared"] is False
     assert main(["-C", str(tmp_path), "operating", "leave", "freeze", "--why", "fixed"]) == 0
     e.dispatch.tick()
@@ -356,7 +356,7 @@ def test_owner_enter_leave_cli(tmp_path, capsys, monkeypatch):
     assert main(["-C", d, "operating", "enter", "freeze"]) == 2, "--why is required"
     capsys.readouterr()
     assert main(["-C", d, "operating", "--json"]) == 0
-    got = {x["state"]: x for x in json.loads(capsys.readouterr().out)}
+    got = {x["state"]: x for x in json.loads(capsys.readouterr().out)["declared"]}
     assert got["freeze"]["now"] == "entered" and got["freeze"]["by"] == "owner" and got["freeze"]["why"] == "mainline red"
     assert got["incident"]["now"] == "left" and got["maintenance"]["pool"] == 1
     assert main(["-C", d, "operating"]) == 0 and "freeze" in capsys.readouterr().out
@@ -660,3 +660,30 @@ def test_trips_are_checked_by_the_lead_alone(tmp_path, monkeypatch, lead):
     finally:
         e.close()
     assert looked == ([True] if lead else [])
+
+
+def test_declared_states_beside_the_operating_state_of_12k(tmp_path, capsys):
+    """Main's ``operating: {away-after:}`` and its states (SPEC §12k) share the section, the event prefix and the topic
+    with the declared states: away-after is no state, a declared state's events never read as incident there, and
+    one ``ergostat operating`` serves both."""
+    from ergostat.actions import operating as ops
+    assert problems(tmp_path, EXAMPLE + "  away-after: 1h\n") == []
+    p, e, _ = setup(tmp_path, EXAMPLE + "  away-after: 1h\n", n=0)
+    e.close()
+    assert set(p.model.spec.operating) == {"incident", "freeze", "maintenance"} and p.model.spec.away_after == 3600
+    d = str(tmp_path)
+    assert main(["-C", d, "operating", "enter", "freeze", "--why", "red"]) == 0
+    trips.check(p, p.model.spec, time.time())                  # (may write a watching event: also not 12k's)
+    assert ops.read(p).state == "normal", "a declared state's events are not the §12k state's"
+    assert main(["-C", d, "operating", "incident", "--note", "outage"]) == 0
+    assert ops.read(p).state == "incident" and op_fold.in_force(p, p.model.spec)[0] == "freeze"
+    capsys.readouterr()
+    assert main(["-C", d, "operating", "--json"]) == 0
+    got = json.loads(capsys.readouterr().out)
+    assert got["state"] == "incident" and {x["state"]: x["now"] for x in got["declared"]}["freeze"] == "entered"
+    assert main(["-C", d, "operating", "freeze", "--why", "x"]) == 2, "--why belongs to enter and leave"
+    assert main(["-C", d, "operating", "enter", "freeze", "--note", "x", "--why", "y"]) == 2
+    (tmp_path / "ergostat.yaml").write_text("name: t\noperating: {away-after: 1h}\n")
+    _, got = read(tmp_path / "ergostat.yaml")
+    q = Project(mdl.load(tmp_path))
+    assert not [x for x in got if x.level == "error"] and KIND not in q.model.spec.items, "away-after alone: no kind"

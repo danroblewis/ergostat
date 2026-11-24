@@ -597,3 +597,36 @@ This needs a decision from the owner or the coordinator, not a merge fix, becaus
 taken. The most reversible fix is to rename this gap's three names (for example section `states:`, kind
 `ergostat.states`, topic `ergostat states`), which leaves main's landed gap as it is. The other option is to fold the
 two designs into one, with main's four fixed states declared as this gap's ranked states. That is a redesign.
+
+Round 17, continued (the `ergostat check` finding: "said nothing readable on the branch"). The cause was the double
+`operating` topic named above: argparse refused it, so no `ergostat` command built, `check` included. The
+repository's own model declares no `operating:`, so nothing in the model had to change. Unlike the note above, I did
+not rename anything. I made the two share each name instead, which changes main's gap by three lines and keeps the
+definition's names as written. One rename later is still open to the coordinator:
+- **The topic**: one `ergostat operating`, main's (`cli/gated.py`). Its first word takes main's four states or
+  `enter`/`leave`, which go to this gap's half (`cli/operating.py`, now with no parser of its own). The listing
+  prints main's state line, then the declared states. `--json` is main's dict with the declared states under
+  `declared` (this gap's test changed to read it there). `NAME`/`--why` with one of main's states, or `--note`/
+  `--for`/`--actions` with `enter`/`leave`, is refused (rc 2).
+- **The section**: `away-after:` stays main's presence key and is no state (`operating/compile.py` skips it). Main's
+  `c.keys(m, {"away-after"})` is gone, because every other key is a state, compiled by this gap's code. A typo like
+  `away-aftr: 2h` now reads as a state that is not a map (`not-a-map`), not as `unknown-key`. `operating:
+  {away-after: 2h}` alone declares no state, adds no kind and reads nothing (invariant 12). Main's rule that
+  `operating:` belongs in the main file only now covers the states too.
+- **The events**: main's fold (`actions/operating.py`) skips `ergostat.operating.entered`, `.left` and `.watching`
+  (`DECLARED`). Any other unknown `ergostat.operating.*` still reads as incident there. Without the skip, entering a
+  declared state turned main's gates to incident for good. The kind names don't collide: main's events sit on the
+  item `ergostat.operating` (no `/`), and this gap's sealed kind is `ergostat.operating/*`.
+- New test `test_declared_states_beside_the_operating_state_of_12k`. With the `DECLARED` skip removed, it failed
+  (`'incident' == 'normal'`); restored, it passes. SPEC §9.5 and the agent guide say all of this.
+- Left as it was: the record's entry says presence is left. Main has since built presence (§12k `away-after`), but
+  a state scheduled by presence is not built, so the line stands. Narrowing it is the coordinator's call.
+
+`ergostat check` itself was refused in this session (`uv run ergostat check`, twice), so I did not run it. Every
+test that calls `ergostat.cli.main` builds the parser and passes (below). Tests run: `tests/test_operating.py` (37),
+`tests/test_operating_state.py`, `tests/test_cli_fallback.py` and `tests/test_regime_gates.py` (39),
+`tests/test_library_trust.py`, `tests/test_act_reshape.py` and `tests/test_leases.py` (102), and
+`tests/test_architecture.py` with `tests/test_operating.py` (46). All passed, and ruff is clean. Not run: the full unit
+suite and the four browser files. No demo is touched, so `demo_check` is not needed.
+
+Overrun reason: 469 net lines, 19 over the 450 budget: the 5 given in round 14 (the try/except in `Dispatcher.trip` asked by review operating-states-4, `operating` refused in `library/trust.py` for main's allowlist test, `take()`'s re-check inside the `try` asked by review operating-states-9), and 14 this round to share the `operating` topic, section and event prefix with main's §12k operating state, which landed on main with the same names and broke the CLI at merge; nothing else could go without dropping a part of the definition.

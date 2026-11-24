@@ -4275,6 +4275,14 @@ infinite. That last one is for readability only (the higher state reads as the s
 is that the pool in force is the least among the states entered, whatever their ranks. A model without `operating:`
 gets nothing: no built-in kind, no read of the record, no trip check.
 
+The section is shared with the operating state of §12k (*The operating state*): its key `away-after:` is the owner's
+presence setting, never a state, and every other key is a declared state. So `operating: {away-after: 2h}` alone
+declares no state. The two are separate layers. The §12k state (normal, maintenance, freeze, incident, entered with
+`ergostat operating freeze`) picks each gated action's column; a declared state (entered with `ergostat operating
+enter freeze`) caps the pools, even when the names match. The §12k fold passes over the declared states' events
+(`ergostat.operating.entered`, `.left`, `.watching`); any other unknown `ergostat.operating.*` still reads there as
+incident.
+
 **Folded from the record.** With `operating:` declared, the built-in kind `ergostat.operating` has one item per
 state, `ergostat.operating/<state>`, `entered` or `left`, moved by `ergostat.operating.entered` and
 `ergostat.operating.left`, with fields `by` (owner, run or trip), `why`, `since` and `trips` (`{goal, spell,
@@ -4289,8 +4297,8 @@ state entered is lifted, with no `left` in the record. Putting the section back 
 them). A model change is the owner's to make, or a change the model's own judge accepted under `accept:`; leave the
 states before removing the section.
 
-**Entered and left.** `ergostat operating` lists the states (rank, pool, entered or left, by, since, the trips that
-entered it); `ergostat operating enter NAME --why TEXT` and `ergostat operating leave NAME --why TEXT` are the owner's
+**Entered and left.** `ergostat operating` lists the states after the §12k state's line (rank, pool, entered or
+left, by, since, the trips that entered it; with `--json`, under `declared`); `ergostat operating enter NAME --why TEXT` and `ergostat operating leave NAME --why TEXT` are the owner's
 acts, and `leave` works for any state entered, declared or not. From a run (`ERGOSTAT_RUN` in its environment) `leave`
 is refused (exit 1) and `enter` is allowed, toward the safe state, recorded as caused by the run with `by: run`. Only
 the owner leaves a state (or removes the section, above: a change the model's judge accepted can do that too), and

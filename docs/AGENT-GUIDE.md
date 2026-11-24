@@ -641,6 +641,9 @@ operating:
 - The person enters and leaves a state: `ergostat operating enter freeze --why "..."`, `ergostat operating leave
   freeze --why "..."`; `ergostat operating` lists them. A run may enter one, never leave one. Trips only enter.
 - Removing the whole `operating:` section lifts every state entered; tell the person to leave them first.
+- `away-after:` in the same section is the owner's presence setting (SPEC §12k), not a state. Don't name a state
+  that. `ergostat operating freeze` (no `enter`) is §12k's operating state, which picks gated actions' columns. It
+  caps no pool.
 
 ## 3d. People in the loop: rare, reached, and graduated
 

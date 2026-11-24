@@ -12,6 +12,7 @@ from . import KIND, kind
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 KEYS = {"rank", "pool", "description", "trips"}
 TRIP_KEYS = {"unknown-after"}
+AWAY = "away-after"
 
 
 def _whole(c, m, key: str, least: int, what: str) -> int | None:
@@ -28,6 +29,8 @@ def section(c, spec) -> None:
         return
     ranks: dict[int, str] = {}
     for name, m in body.items():
+        if name == AWAY:                                 # the owner's presence (SPEC §12k, actions/compile.py): no state
+            continue
         what, w = f"operating state {name}", c.doc.defined[("operating", name)]
         if not isinstance(name, str) or not NAME.match(name):
             c.err(f"{what}: a name is lowercase letters, digits and -, starting with a letter or digit, at most 64",
