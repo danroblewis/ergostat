@@ -375,7 +375,8 @@ def test_observed_autoscaler_and_alert_rule_run_offline_and_draw_in_both_views(t
         root = tmp_path / inst
         root.mkdir()
         (root / "ergostat.yaml").write_text("name: p\n")
-        got = author.trial(root, None, 12, {"instance": inst, "template": tpl, "given": {"every": "2s"}})
+        given = {"every": "2s", **({"pages": "slow-page"} if inst == "slow" else {})}     # pages: the stock still reads
+        got = author.trial(root, None, 12, {"instance": inst, "template": tpl, "given": given})
         assert got["check"]["ok"], got
         assert got["ran"]["stocks"][part]["sensors"], got["ran"]["stocks"]       # its stand-ins read, offline
         monkeypatch.setenv("ERGOSTAT_HOME", str(Path(got["scratch"]).parent / "home"))
@@ -396,13 +397,30 @@ def test_alert_rule_template_compiles(tmp_path):
     idf = b.params["identify"]
     assert (str(idf["input"]), str(idf["output"])) == ("auxiliary.slow-signal", "stock.slow-firing")
     assert "standin signal" in spec.auxiliaries["slow-signal"].sensors["main"].run
-    assert spec.stocks["slow-firing"].sensors["main"].items == {"kind": "slow-page", "state": ["firing"], "measure": "count",
-                                                                "where": {}}
+    # pages makes no items (ergostat never runs the rule): the firing stock stays on its measured sensor or stand-in
+    assert "standin firing" in spec.stocks["slow-firing"].sensors["main"].run
+    assert not spec.stocks["slow-firing"].sensors["main"].items
     assert spec.items["slow-page"].states == ["firing", "resolved"]
     assert [p for p in ps if p.code == "template-stand-in"]
     spec, ps = read(project(tmp_path, "name: t\nuses:\n  slow: {use: alert-rule, with: {threshold: 5, side: below}}\n"))
     assert not [p for p in ps if p.level == "error"] and not [k for k in spec.items if not k.startswith("ergostat.")]
     assert "standin firing" in spec.stocks["slow-firing"].sensors["main"].run and spec.blocks["slow-rule"].law.params["side"] == "below"
+
+
+def test_alert_rule_with_pages_reads_its_firing_stock_moving_with_the_signal(tmp_path, monkeypatch, capsys):
+    import shlex
+
+    from ergostat.library.run import standin
+    spec, _ = read(project(tmp_path, "name: t\nuses:\n  slow: {use: alert-rule, with: {threshold: 100, pages: slow-page}}\n"))
+    words = shlex.split(spec.stocks["slow-firing"].sensors["main"].run)
+    args = words[words.index("standin") + 1:]
+    assert args[0] == "firing", words
+    seen = []
+    for t in (450.0, 1350.0, 2250.0):                  # the made-up signal at its crest (150), trough (50), crest again
+        monkeypatch.setattr(standin, "now", lambda t=t: t)
+        assert standin.alert(args) == 0
+        seen.append(capsys.readouterr().out.strip())
+    assert seen == ["1", "0", "1"], seen
 
 
 def run_lib(cwd: Path, *args, stdin: str = "", env: dict | None = None) -> subprocess.CompletedProcess:

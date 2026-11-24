@@ -299,8 +299,8 @@ item), `keep-under` (a level held under a limit by a corrective action), `steps`
 of steps, a block each), `collect` (the event collector), `observed-autoscaler` (an autoscaler observed, never run:
 the replicas a stock, utilisation load / replicas or measured, a goal at `target`, and an external block with the
 declared law `kubernetes-hpa` and `identify:`, its Blocks loop r the target, y utilisation, u the replicas),
-`alert-rule` (a threshold alert observed: the signal an auxiliary, a stock of alerts firing, counted from the items
-it `pages` when given, and an external block with the declared law `alert-rule`) and `modelling` (the model improved as a loop of its
+`alert-rule` (a threshold alert observed: the signal an auxiliary, a stock of alerts firing, always measured
+by its sensor, `pages` declaring only the item kind whose events the alerting system posts, and an external block with the declared law `alert-rule`) and `modelling` (the model improved as a loop of its
 own, section 12e: its fit held by a goal, what `check` finds held as requests, a rule tier and an AI tier that answer
 them, and the judge; once a model, every model should have it), `upkeep` (ergostat's own upkeep as loops of
 the model, below), `regressions` (regression guarantees for the model, once a model, each part only when its parameter

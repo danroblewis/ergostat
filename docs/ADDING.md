@@ -238,14 +238,16 @@ uses:
       threshold: 0.3
       for: 5m                             # past the threshold this long before it fires
       signal-query: {source: prom, promql: 'histogram_quantile(0.99, sum(rate(checkout_seconds_bucket[5m])) by (le))'}
-      pages: checkout-page                # each firing an item of this kind; left out, it pages nothing here
+      pages: checkout-page                # the item kind of its pages (their events come from the alerting system)
 ```
 
 - **Control:** an observed controller with the declared law `alert-rule`: on-off, 0 or 1, firing once the signal is
   past `threshold` (`side`: above or below) for `for`, resolving as soon as it is back. It holds no goal itself.
 - **System dynamics:** a stock of alerts firing, its two-way flow their firing and resolving; the signal an
-  auxiliary nothing here controls. With `pages`, the stock counts that kind's items firing (`KIND.fired`,
-  `KIND.resolved`); else the `firing` command or `firing-query` measures it.
+  auxiliary nothing here controls. The stock is always measured, by the `firing` command or `firing-query` (or
+  the stand-in): ergostat never runs the rule, so it makes no pages. `pages: KIND` declares their item kind (states
+  firing, resolved); its events must come from the alerting system, posted as
+  `ergostat event --add KIND.fired --item KIND/ID` (and `KIND.resolved`), or they never appear.
 
 ### todo
 

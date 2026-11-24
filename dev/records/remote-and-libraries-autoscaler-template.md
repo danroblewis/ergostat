@@ -53,3 +53,27 @@ Run here: tests/test_templates.py (45 passed), tests/test_library_provenance.py,
 test_library_untrusted.py (125 passed), tests/test_template_exports.py and tests/test_known_laws.py (passed), ruff
 clean. Not run here: the whole unit suite and the four browser files (no page changed), which the factory and the
 merge queue run. `main` merged: already up to date.
+
+### Round 2
+
+The one finding (blocking): with `pages: KIND` the firing stock counted KIND's items firing, but nothing made those
+items, so it read 0 forever while the signal was past the threshold, and identify compared the signal with a
+permanent zero. Answered by the second remedy the review offered, the more reversible one: the firing stock is now
+always on its measured sensor (`firing`, `firing-query`, or the stand-in), with or without `pages`. `pages: KIND` only
+declares the item kind (states firing, resolved, on `KIND.fired` and `KIND.resolved`). The template's reading, its
+param text, docs/ADDING.md and SPEC §2a now say ergostat makes no pages, and that the alerting system has to post
+those events (`ergostat event --add KIND.fired --item KIND/ID`). Building the items from the firing sensor instead
+would need a collector or block that ergostat does not have for this, so it is a later change if wanted.
+
+Tests: test_alert_rule_template_compiles now checks that with `pages` the firing stock's sensor is the `standin firing`
+command and counts no items. New: test_alert_rule_with_pages_reads_its_firing_stock_moving_with_the_signal compiles
+with `pages`, takes the stock's sensor command and runs it at the made-up signal's crest, trough and crest (clock
+monkeypatched). It reads 1, 0, 1. The offline trial of alert-rule now gives `pages: slow-page`. With the old
+items-count sensor put back, the compile test and the new test both failed. The offline trial still passed (a count
+of 0 items is a reading too), so it does not guard this. Then restored.
+
+Overrun reason: 171 net lines against 130, for the round-1 reason above (the stand-ins item 1 requires, +42); round 2 removed 3 lines net.
+
+Run here, round 2: tests/test_templates.py, tests/test_template_exports.py, tests/test_library_trust.py (106 passed);
+tests/test_library_provenance.py, tests/test_library_untrusted.py, tests/test_known_laws.py (86 passed); ruff clean.
+Not run here: the whole unit suite and the four browser files (no page changed). `main` merged: already up to date.
