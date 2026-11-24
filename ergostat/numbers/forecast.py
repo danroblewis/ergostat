@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import hashlib
 
-from .eta import FEW, HORIZON
+from . import yields
+from .eta import FEW, HORIZON, RUNS
 from .etamodel import HISTORY
 
 SCHEMA = "forecast/v1"
 MOST_GROUPS = 200           # groups said in one forecast (the rest counted in ``groups_left``)
+MOST_COUNTED = 500_000      # members times runs kept for the group counts in one forecast (4 MB of times)
 
 
 def sets(inp) -> tuple[dict[str, list[str]], int]:
@@ -35,6 +37,18 @@ def sets(inp) -> tuple[dict[str, list[str]], int]:
     for g in groups[:MOST_GROUPS]:
         out[f"group:{g}"] = list(inp.groups[g])
     return out, max(0, len(groups) - MOST_GROUPS)
+
+
+def counted(inp, runs: int = RUNS) -> dict[str, list[str]]:
+    """The groups whose runs are kept for their counts (numbers/yields.py): each said group's members, its parent not
+    counted, by parent id while their members times ``runs`` stay within ``MOST_COUNTED`` (the rest say why not)."""
+    out, room = {}, MOST_COUNTED
+    for g in sorted(inp.groups)[:MOST_GROUPS]:
+        ids = [i for i in dict.fromkeys(inp.groups[g]) if i != g]
+        if len(ids) * runs > room:
+            break
+        out[g], room = ids, room - len(ids) * runs
+    return out
 
 
 def fingerprint(inp, pools: dict, failures: dict) -> str:
@@ -50,7 +64,7 @@ def fingerprint(inp, pools: dict, failures: dict) -> str:
               for b in inp.blocks]
     def shares(xs):
         return tuple((s, round(w, 3)) for s, w in xs)
-    kinds = sorted((k.name, tuple(k.states), tuple(sorted(k.finished)), tuple(sorted(k.paused)),
+    kinds = sorted((k.name, tuple(k.states), tuple(sorted(k.finished)), tuple(sorted(k.paused)), tuple(sorted(k.lost)),
                     tuple((s, km.n) for s, km in sorted(k.km.items())), round(k.arrivals, 1),
                     tuple((s, shares(v)) for s, v in sorted(k.next.items())), shares(k.arrive_at))
                    for k in inp.kinds.values())
@@ -108,12 +122,19 @@ def build(inp, sim: dict, why: dict, computed: float, seq, whatif: list, sources
     kinds = {k: _said({**v, "basis": {"open": v["open"], "visits": v["visits"]}}, runs, computed,
                       beyond if v["open"] else "no open item that can move")
              for k, v in sim.get("kinds", {}).items()}
-    groups, stages = {}, {}
+    groups, stages, draws = {}, {}, {}
     for name, v in sim.get("sets", {}).items():
         what, _, key = name.partition(":")
         e = _said(dict(v), v["runs"], computed, beyond if v["open"] else "none of its open items can move")
         e["basis"] = {"members": v["open"] + v["unscheduled"], "runs": runs}
         if what == "group":
+            c = sim.get("counts", {}).get(key)
+            if c and c["draws"]:                       # its counts (numbers/yields.py), the parent not a member
+                e["count"] = yields.summary(c["members"], c["draws"])
+                draws[key] = (c["members"], c["draws"])
+            else:
+                e["count"] = {"none": f"not counted: the forecast keeps the runs of {MOST_COUNTED:,} members' "
+                              "finishes at most, by parent id" if runs else "no run"}
             groups[key] = e
         else:
             kind, _, state = key.partition("/")
@@ -125,7 +146,8 @@ def build(inp, sim: dict, why: dict, computed: float, seq, whatif: list, sources
            "items": items if runs else {}, "kinds": kinds, "groups": groups, "groups_left": left, "stages": stages,
            # (the Timeline's own, as eta_api.merge reads them)
            "schedule": sim.get("schedule", {}), "capacity": sim.get("capacity", {}), "limit": sim.get("limit", {}),
-           "sources": sources, "assumed": assumed, "whatif": whatif, "flags": sim.get("flags", {})}
+           "sources": sources, "assumed": assumed, "whatif": whatif, "flags": sim.get("flags", {}),
+           "draws": draws}                             # (each counted group's runs, for asks: never served)
     if not runs:
         out["none"] = "no run of the simulation finished within its budget: no estimate yet"
     return out
@@ -139,12 +161,26 @@ def failed(words: str, computed: float, seq, error: bool = True) -> dict:
             "none": f"the simulation failed: {words}" if error else words}
 
 
-def served(fc: dict, items: list[str] | None = None, kinds: list[str] | None = None, most: int = 500) -> dict:
+def asked(fc: dict, ask: dict) -> dict:
+    """A group's counts asked of the forecast (numbers/yields.py ``parse``: ``group``, ``by``, ``at_least``,
+    ``confidence``), from its kept runs; ``none`` why, when it has none (not a group, not counted, no run)."""
+    got = (fc.get("draws") or {}).get(ask["group"])
+    if got is None:
+        g = (fc.get("groups") or {}).get(ask["group"])
+        why = (g or {}).get("count", {}).get("none") or fc.get("none") or "no such group in the forecast"
+        return {**ask, "none": why}
+    return {**yields.ask(got[0], got[1], ask), "computed": fc.get("computed"), "version": fc.get("version")}
+
+
+def served(fc: dict, items: list[str] | None = None, kinds: list[str] | None = None, most: int = 500,
+           ask: dict | None = None) -> dict:
     """The forecast as another reader is given it (``/api/forecast``, the remote API): without the levelled schedule
-    (the Timeline's own), only the ``items`` and ``kinds`` asked for (all when not asked), at most ``most`` items, the
-    rest counted in ``items_left``."""
+    (the Timeline's own) or the kept runs, only the ``items`` and ``kinds`` asked for (all when not asked), at most
+    ``most`` items, the rest counted in ``items_left``; with ``ask``, its answer (``asked``)."""
     got = {k: v for k, v in fc.items() if k not in ("schedule", "capacity", "limit", "sources", "assumed", "whatif",
-                                                     "flags", "calibration")}
+                                                     "flags", "calibration", "draws")}
+    if ask is not None:
+        got["asked"] = asked(fc, ask)
     every = fc.get("items") or {}
     want = [i for i in (items if items is not None else sorted(every)) if i in every
             and (not kinds or every[i].get("kind") in kinds)]

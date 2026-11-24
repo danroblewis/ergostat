@@ -1349,7 +1349,7 @@ what admits.
 | `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time, its `now` and its `instance`; at most 200 a call |
 | `/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
 | `/remote/v1/process` | its process map (§5b); with `at=ID` (repeated, each id whole, at most 200), `at`: the kind and the step each id asked was last at in the window (an id with no step there left out) |
-| `/remote/v1/forecast` | its forecast, `forecast/v1` (§5a, *The forecast*), as it last worked it out, without the levelled schedule: of the items `item=ID` (repeated, at most 200; `items_missing` the ones it has no estimate for) and `kinds=a,b`, else every item (at most 500, `items_left` the rest); never worked out on the request: 503 while the first is |
+| `/remote/v1/forecast` | its forecast, `forecast/v1` (§5a, *The forecast*), as it last worked it out, without the levelled schedule (with `group=PARENT`, `by`, `at_least`, `confidence`: that group's counts asked, in `asked`, §5a *Group counts*; a bad value 400): of the items `item=ID` (repeated, at most 200; `items_missing` the ones it has no estimate for) and `kinds=a,b`, else every item (at most 500, `items_left` the rest); never worked out on the request: 503 while the first is |
 
 **A remote composed of remotes.** An ergostat M that composes a remote A serves A's parts on to its own
 consumer L, which composes them like any of M's (`stock.m-a-open`, in the system `m-a` within `m`).
@@ -1420,7 +1420,7 @@ of them reaches the local record or fold.
 | `/api/items?remote=NAME` (`kind`, `state`, `n` 1..500, `offset` 0..100,000) | `remote`, `url`, `ok`, `why`, `read`, `age`, `counts` (from `/remote/v1/counts`), `total`, `items` (each marked `remote`) |
 | `/api/items/ID?remote=NAME` | `remote`, `ok`, `why`, `read`, `age`, `item` (the remote's own detail); 404 *no such item at NAME* on any 404 there, never a local item of the same id |
 | `/api/events?remote=NAME` (`n` ≤ 1,000, `type` a glob) | `remote`, `ok`, `why`, `read`, `age`, `events` from the cursor cache, in `seq` order, each marked `remote` |
-| `/api/forecast?remote=NAME` (`item=ID` repeated, at most 200, each id checked as for an item; `kinds=a,b`) | `remote`, `ok`, `why`, `read`, `age`, `forecast` (the remote's `/remote/v1/forecast`, §5a *The forecast*); an answer not of schema `forecast/v1`, or a 503 while the remote works its first out, is a failure, never an empty forecast |
+| `/api/forecast?remote=NAME` (`item=ID` repeated, at most 200, each id checked as for an item; `kinds=a,b`; a group's counts asked, `group=PARENT`, `by`, `at_least`, `confidence`, its id checked as an item's) | `remote`, `ok`, `why`, `read`, `age`, `forecast` (the remote's `/remote/v1/forecast`, §5a *The forecast*); an answer not of schema `forecast/v1`, or a 503 while the remote works its first out, is a failure, never an empty forecast |
 
 Without `remote=` these answer as before; `/api/items` also says `remotes` (each name and url) when the model has
 any. `NAME` must be a key of `remotes:` (else 400 *no remote NAME (this model's: …)*). An item `ID` (such as
@@ -1677,8 +1677,14 @@ reads the event log.
     estimate, none, why)`, one row an open item; and the aggregates, by labels the model bounds,
     `forecast_kinds(kind, open, unscheduled, …)`, `forecast_stages(kind, state, open, unscheduled, …)` and
     `forecast_groups(parent, open, unscheduled, …)` (at most 200 groups), each ending `p50, p90, runs, computed, at,
-    version, estimate, none`. Times are Unix seconds; `basis` is "block dev" or "state review", `sample` the record's
-    runs or stays it is drawn from; `estimate` is 1, or 0 with `none` saying why not.
+    version, estimate, none`, a group's then `members, out, lost, yield` (its counts' means, section 5a, *Group
+    counts*; null when not counted). Times are Unix seconds; `basis` is "block dev" or "state review", `sample` the
+    record's runs or stays it is drawn from; `estimate` is 1, or 0 with `none` saying why not.
+    `forecast_group_by(parent, n, p50, p90, computed, at, version)`: one row for each k-th member out, the date it is
+    out by in half and in nine tenths of the runs. And four functions answer a group's counts by any date (`by` null:
+    the horizon), null for a group not counted: `forecast_out(parent, by)` and `forecast_lost(parent, by)` the
+    expected number out and lost, `forecast_chance(parent, at_least, by)` the chance at least that many are out,
+    `forecast_start(parent, at_least, confidence, by)` how many to start to get that many out; a bad value is refused.
 
   The aggregates `median(x)`, `percentile(x, p)` (p from 0 to 100) and `percentile_cont(x, p)` (p from 0 to 1) are exact.
   They interpolate linearly between the two nearest values, as PostgreSQL's `percentile_cont` does, and ignore nulls.
@@ -1984,6 +1990,7 @@ items:
 | `attention` | a field name | none | A finding said where it is seen: the words of this field on the kind's latest item that has them (by its latest event, then its id; blank words are none) are a warning on the page's attention list, naming the item, cut at 400 characters; a kind that cannot be read says so there instead. Only the latest: a newer finding replaces it. A relation's field is refused (`bad-attention`) |
 | `final` | list of its states | none | States no event moves an item out of: a later move is ignored and said (the item's `refused`, form `final`) |
 | `finished` | list of its states, not its first | none | The states it counts as finished, when `messages: done:` does not name the kind (a template's kind says its own: a template writes no `messages:`); `bad-finished` for a state it does not have, or its first |
+| `lost` | list of its states, not its first | none | Its finished states that are a loss (scrapped, rejected): a group's counts take an item ending there as lost, not out (§5a, *Group counts*); a state named that is not finished is never reached as a loss; `bad-lost` for a state it does not have, or its first |
 | `moves-from` | map of one of its `on:` events → a list of its states | none | The only states that event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for an event not in `on:` or a state it does not have) |
 | `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
 | `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{kind, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge`; any other rule for it is refused (`bad-pipeline`), as is a library's |
@@ -2579,6 +2586,24 @@ rounded instead: each curve's recorded stays and each block's recorded runs and 
 kind's arrival rate to 0.1 an hour and its next-state and first-state shares to 0.001. A
 remote still working out its forecast (its 503) refuses that ask alone; the reader's counts, listings and details from
 that remote are asked as before.
+
+**Group counts.** From the same runs, each group's counts (`numbers/yields.py`), in the group's `count`: of its open
+members that can move (its parent not one of them, nor a member not scheduled), how many **come out** (reach a finished state that is not a loss) and how many
+are **lost** (end dead, or in a finished state the kind declares in `lost:`, its keys above; off unless declared, so a kind
+that declares none loses only its dead letters), each as `mean`, `p10`, `p50`, `p90` over the runs within the horizon;
+the `yield`, the share out; `members`; and `by`, for each k up to 500, `[k, p50, p90]`: the date by which at least k
+are out in half and in nine tenths of the runs (null past the horizon). A member that neither comes out nor is lost
+within the horizon, or cannot move, counts as neither. An **ask** (`GET /api/forecast?group=PARENT`, with `by=` a time
+in Unix seconds, else the horizon; `at_least=N`, 1 to 10,000; `confidence=` a share between 0 and 1, with `at_least`;
+the same on `/remote/v1/forecast` and through a remote as `/api/forecast?remote=NAME&group=…`) is answered in `asked`:
+`out` and `lost` by then, `chance` (the share of runs with at least N out by then) and `start`: how many to start to
+get N out by then at that confidence, the fewest M with P(Binomial(M, y) ≥ N) at least the confidence, where y is the
+share of these members out by then over every run (exact, not a normal approximation). It takes each item started to
+come out as these members did, alone of the others: the extra items' own waits for capacity are not simulated. A bad
+value is refused (400), never read as not asked; a group not counted says why in `none`. The runs of a group's
+members are kept for asks while every counted group's members times the runs stay within 500,000 (by parent id; the
+rest say so in `none`); they are never served. Validated on a record with a known yield and on a job shop with
+rework (`tests/test_group_counts.py`).
 
 **What it leaves out**, and so what makes it wrong: a capacity no block declares (a reviewer who is one person across
 two kinds, a rate limit), a goal that switches a block off (its

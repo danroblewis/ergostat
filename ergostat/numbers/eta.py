@@ -23,6 +23,7 @@ import bisect
 import heapq
 import random
 import time
+from array import array
 from dataclasses import dataclass, replace
 
 from ..leases.ready import take_key
@@ -64,7 +65,7 @@ class _Run:
         self.heap: list = []
         self.seq = 0
         self.items: dict[str, list] = {}               # id → [kind, state, entered, attempts, version]
-        self.finish, self.start, self.dead = {}, {}, set()
+        self.finish, self.start, self.dead, self.lost = {}, {}, set(), set()   # (lost: dead, or a ``lost:`` state)
         self.segs: dict[str, list] = {}                # (record) id → [state, from, to, block, lane]
         self.blocks = inp.blocks if flags.queue else []
         self.by_state: dict[tuple, list[int]] = {}
@@ -107,6 +108,8 @@ class _Run:
         k = self.inp.kinds[it[0]]
         it[1], it[2], it[4] = state, t, it[4] + 1
         if state in k.finished or state == DEAD:
+            if state == DEAD or state in k.lost:
+                self.lost.add(i)
             self.done(i, t, state == DEAD)
             return
         if state in k.paused:
@@ -325,10 +328,12 @@ class _Run:
 
 def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 1, budget: float = BUDGET,
              horizon: float = HORIZON, pools: dict | None = None, failures: dict | None = None,
-             sets: dict[str, list[str]] | None = None) -> dict:
+             sets: dict[str, list[str]] | None = None, counted: dict[str, list[str]] | None = None) -> dict:
     """Each open item's p50 and p90 finish and its expected start, per kind when its last open item finishes, and a
     levelled schedule (the run whose last finish is the median's) for the Timeline. ``sets``: named sets of items
-    (a group, a stage), each said as a kind is: when its last item that can move finishes (``sets`` in the answer)."""
+    (a group, a stage), each said as a kind is: when its last item that can move finishes (``sets`` in the answer).
+    ``counted``: named sets whose runs are kept for their counts (``counts``: ``{members, draws}``, a draw a run's
+    sorted times its members came out and were lost; numbers/yields.py reads them)."""
     t_end = time.monotonic() + budget                   # (the runs within ``budget``, the levelled one within as much again)
     live = {i: x for i, x in inp.items.items() if not x.unscheduled}   # (the rest: not scheduled, said why)
     fins, starts, deads, lasts = {i: [] for i in live}, {i: [] for i in live}, {i: 0 for i in live}, []
@@ -337,6 +342,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         for i in ids:
             if i in live:
                 in_sets.setdefault(i, []).append(name)
+    counts = {s: {"members": sum(i in live for i in ids), "draws": []} for s, ids in (counted or {}).items()}
     for r in range(runs):
         if n and time.monotonic() > t_end:
             break
@@ -358,6 +364,10 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
                 set_last[s] = max(set_last.get(s, 0.0), f)
         lasts.append(last)
         set_lasts.append(set_last)
+        for s, ids in (counted or {}).items():
+            ends = [(i in run.lost, run.finish[i]) for i in ids if i in live and i in run.finish]
+            counts[s]["draws"].append((array("d", sorted(t for lo, t in ends if not lo)),
+                                       array("d", sorted(t for lo, t in ends if lo))))
     few = n < FEW                                       # (too few runs for a p90: none said)
     mean = lambda xs: sum(xs) / len(xs) if xs and max(xs) < float("inf") else None   # noqa: E731
     items = {i: {"p50": _q(fins[i], 0.5), "p90": None if few else _q(fins[i], 0.9), "mean": mean(fins[i]),
@@ -396,7 +406,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         if x.lease and x.lease[0]:
             held[x.lease[0]] = held.get(x.lease[0], 0) + 1
     return {"at": inp.at, "runs": n, "flags": flags.__dict__, "items": items, "kinds": kinds, "sets": said_sets,
-            "schedule": rep or {},
+            "counts": counts if n else {}, "schedule": rep or {},
             "capacity": {b.name: max(1, b.capacity(pools), held.get(b.name, 0)) for b in inp.blocks},
             "limit": {b.name: max(1, b.capacity(pools)) for b in inp.blocks}}
 

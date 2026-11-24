@@ -12,7 +12,11 @@ over the item index (spec/itemindex.py), whose own tables are never readable.
   bounds, ``forecast_kinds`` (a kind), ``forecast_stages`` (a kind's state with open items) and ``forecast_groups``
   (a group's parent, at most ``forecast.MOST_GROUPS``). Each row says ``p50``, ``p90`` (Unix seconds), ``runs``, when
   it was ``computed``, the moment it is ``at``, its ``version``, ``estimate`` (1, or 0 with ``none``: why not); an
-  item its ``basis`` ("block dev", "state review") and ``sample``, the record's runs or stays that is drawn from.
+  item its ``basis`` ("block dev", "state review") and ``sample``, the record's runs or stays that is drawn from. A
+  group also its counts (numbers/yields.py; null when not counted): ``members`` (its open members that can move, the
+  parent not one), the expected number ``out`` and ``lost`` within the horizon and the ``yield``; ``forecast_group_by`` one row
+  for each k-th member out (``n``): the date it is out by in half (``p50``) and nine tenths (``p90``) of the runs; and
+  the functions ``GROUP_FUNCTIONS`` answer a group's counts by any date (``_group_functions``).
 - one view per item kind, named for the kind (``-`` read as ``_``; a name that is not then a plain word, or that is one
   of the views above, has none): ``(id, state, first, last, entered, events, <the kind's show: fields>)``.
 
@@ -47,8 +51,10 @@ FORECAST = {                                            # (made from the forecas
                        "computed", "at", "version", "estimate", "none", "why"),
     "forecast_kinds": ("kind", "open", "unscheduled", *_SAID),
     "forecast_stages": ("kind", "state", "open", "unscheduled", *_SAID),
-    "forecast_groups": ("parent", "open", "unscheduled", *_SAID),
+    "forecast_groups": ("parent", "open", "unscheduled", *_SAID, "members", "out", "lost", "yield"),
+    "forecast_group_by": ("parent", "n", "p50", "p90", "computed", "at", "version"),
 }
+GROUP_FUNCTIONS = ("forecast_out", "forecast_lost", "forecast_chance", "forecast_start")   # (a group's counts asked)
 KIND_COLUMNS = ("id", "state", "first", "last", "entered", "events")
 FUNCTIONS = frozenset((
     "abs char coalesce concat concat_ws format glob hex ifnull iif instr length like likely unlikely likelihood lower "
@@ -59,7 +65,7 @@ FUNCTIONS = frozenset((
     "acos asin atan atan2 ceil ceiling cos degrees exp floor ln log log10 log2 mod pi pow power radians sin sqrt tan trunc "
     "json json_array json_array_length json_extract json_object json_type json_valid json_quote json_group_array "
     "json_group_object -> ->> "
-    "median percentile percentile_cont").split())
+    "median percentile percentile_cont").split()) | set(GROUP_FUNCTIONS)
 MOST_VALUE = 16 * 2**20         # bytes of one string or blob a query may make (SQLITE_LIMIT_LENGTH)
 MOST_VALUES = 1_000_000         # numbers one median or percentile may hold
 CACHE_KB = 8000                 # SQLite's page cache, for the index and for the query's own temporaries each
@@ -214,8 +220,14 @@ def forecast_rows(fc: dict) -> dict[str, list[tuple]]:
         b = e.get("basis") or {}
         if view == "forecast_items":
             got |= {"basis": f"{b.get('from')} {b.get('name')}" if b else None, "sample": b.get("sample")}
+        if view == "forecast_groups":                  # its counts' means (numbers/yields.py), null when not counted
+            n = e.get("count") or {}
+            got |= {"members": n.get("members"), "out": (n.get("out") or {}).get("mean"),
+                    "lost": (n.get("lost") or {}).get("mean"), "yield": n.get("yield")}
         return tuple(got.get(c) for c in FORECAST[view])
-    return {"forecast_items": [row("forecast_items", e, id=i) for i, e in sorted(fc.get("items", {}).items())],
+    by = [(g, k, p50, p90, e.get("computed"), fc.get("at"), fc.get("version"))
+          for g, e in sorted(fc.get("groups", {}).items()) for k, p50, p90 in (e.get("count") or {}).get("by", [])]
+    return {"forecast_group_by": by,"forecast_items": [row("forecast_items", e, id=i) for i, e in sorted(fc.get("items", {}).items())],
             "forecast_kinds": [row("forecast_kinds", e, kind=k) for k, e in sorted(fc.get("kinds", {}).items())],
             "forecast_stages": [row("forecast_stages", e) for _, e in sorted(fc.get("stages", {}).items())],
             "forecast_groups": [row("forecast_groups", e, parent=g) for g, e in sorted(fc.get("groups", {}).items())]}
@@ -230,6 +242,28 @@ def _forecast_tables(c, fc: dict, words: set | None) -> set[str]:
             c.executemany(f'insert into temp."{view}" values ({", ".join("?" * len(cols))})', rows)
             made.add(view)
     return made
+
+
+def _group_functions(c, fc: dict, why: list) -> None:
+    """A group's counts asked of the forecast (numbers/forecast.py ``asked``), as SQL: ``forecast_out(parent, by)``
+    and ``forecast_lost(parent, by)`` the expected number out and lost by ``by`` (null: the horizon),
+    ``forecast_chance(parent, at_least, by)`` the chance at least that many are out, ``forecast_start(parent,
+    at_least, confidence, by)`` how many to start; null when the group is not counted, a bad value refused."""
+    from ..numbers.forecast import asked
+    from ..numbers.yields import parse
+
+    def answer(parent, **ask):
+        try:
+            got = parse({"group": parent, **{k: v for k, v in ask.items() if v is not None}})
+        except ValueError as e:
+            why.append(("refused", f"a group's count: {e}"))
+            raise
+        return asked(fc, got)
+    c.create_function("forecast_out", 2, lambda g, by: (answer(g, by=by).get("out") or {}).get("mean"))
+    c.create_function("forecast_lost", 2, lambda g, by: (answer(g, by=by).get("lost") or {}).get("mean"))
+    c.create_function("forecast_chance", 3, lambda g, n, by: answer(g, at_least=n, by=by).get("chance"))
+    c.create_function("forecast_start", 4, lambda g, n, conf, by: (answer(g, at_least=n, confidence=conf, by=by)
+                                                                   .get("start") or {}).get("n"))
 
 
 @contextlib.contextmanager
@@ -270,6 +304,7 @@ def opened(ix, spec, deadline: float, text: str | None = None, why: list | None 
             names |= set(stages.COLUMNS)
         if forecast is not None:
             names |= _forecast_tables(c, forecast, words)
+            _group_functions(c, forecast, why)
         c.execute("commit")
         c.execute("pragma query_only = 1")
 

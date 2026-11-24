@@ -141,7 +141,7 @@ def _work(p, spec, kinds, w, mark=(None,), old: dict | None = None) -> tuple[dic
         if old and old.get("fp") == fp and time.time() - (old["ans"].get("computed") or 0.0) < KEPT:
             return old["ans"], fp
         sets, left = forecast.sets(inp)
-        sim = eta.simulate(inp, pools=w.pools, failures=w.failures, sets=sets)
+        sim = eta.simulate(inp, pools=w.pools, failures=w.failures, sets=sets, counted=forecast.counted(inp))
         why = eta.reasons(inp, w.pools)
         sources = {b.name: _source(b, w.pools, getattr(spec.blocks.get(b.name), "pool_now", None)) for b in inp.blocks}
         return forecast.build(inp, sim, why, time.time(), mark[0], w.said(), sources, left), fp
