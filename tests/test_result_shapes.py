@@ -19,6 +19,7 @@ from ergostat.query import frames
 from ergostat.query.buckets import grid
 from ergostat.store import Project
 from tests import test_data_sources as ds
+from tests import test_result_frames_and_verdicts as verdicts_test
 from tests.test_data_sources import T as PT
 from tests.test_data_sources import ask as ask_source
 from tests.test_data_sources import project
@@ -50,7 +51,11 @@ def from_source(frame: dict) -> dict:
     """A typed frame as a data source's answer comes to the page: read, checked and given its envelope."""
     g = grid(T, T + 480, 4)
     asked = types.SimpleNamespace(source="sql", text="SELECT")
-    return {"id": "a", **frames.framed(_frames.answer(frame, g, datasources.MOST_SERIES), asked)}
+    got = _frames.answer(frame, g, datasources.MOST_SERIES)
+    if got["shape"] == "graph":                           # (fitted to a panel, with its matrix, as datasources.query does)
+        from ergostat.query.graphs import panel
+        got = panel(got, {})
+    return {"id": "a", **frames.framed(got, asked)}
 
 
 def samples(tmp_path) -> dict[str, dict]:
@@ -81,7 +86,11 @@ def samples(tmp_path) -> dict[str, dict]:
                       "x": {"type": "category", "label": "state", "unit": "", "scale": "category", "distribution": True},
                       "series": [{"name": "open", "xs": ["open"], "values": [3], "box": BOX}]},
         "survival": {"id": "a", "shape": "distribution", "form": "survival", "unit": "s", "series": []},
-        "over-time": {"id": "a", "shape": "distribution", "form": "over_time", "unit": "s", "series": []},
+        "over-time": from_source(verdicts_test.buckets(times=[T + 120 * i for i in range(4)])),   # Prometheus's _bucket by le
+        "graph": from_source(verdicts_test.graph()),
+        "loop": from_source({"shape": "series", "time": [T + 120 * i for i in range(1, 5)], "series": [  # a loop's roles
+            {"key": "target", "role": "sp", "unit": "items", "values": [5, 5, 5, 5]},
+            {"key": "backlog", "role": "pv", "unit": "items", "values": [7, 6, 5, 4]}]}),
     }
     span = _wave(p)
     out["frequency"] = one({"source": "frequency", "input": {"source": "series", "series": "in"},
@@ -99,10 +108,13 @@ FRAMES = {
     "samples": {"shape": "distribution", "form": "samples"},
     "frequency": {"shape": "response", "has": ["frequency"]},
     "model": {"shape": "response", "has": ["frequency", "system"]},
+    "over-time": {"shape": "distribution", "form": "bins"},
+    "graph": {"shape": "graph", "kind": "dependency"},
+    "loop": {"shape": "series", "roles": ["sp", "pv"]},
 }
 
 
-def test_each_of_ergostats_own_answers_is_one_of_five_shapes(tmp_path):
+def test_each_answer_is_one_of_six_shapes(tmp_path):
     got = samples(tmp_path)
     for name, frame in FRAMES.items():
         assert {k: got[name].get(k) for k in frame} == frame, name
@@ -117,17 +129,21 @@ def test_each_of_ergostats_own_answers_is_one_of_five_shapes(tmp_path):
 
 def test_every_answer_carries_its_envelope(tmp_path):
     got = samples(tmp_path)
-    assert got["series"]["meta"] == {"source": "items", "query": None, "provenance": "observed", "verdict": {"level": "ok", "reasons": []}}
+    assert got["series"]["meta"] == {"source": "items", "query": None, "provenance": "observed", "verdict": {"level": "ok", "reasons": []},
+                                     "n": 4, "n_effective": None, "sampling": {"step_s": 120.0, "scrape_s": None,
+                                                                               "range_windows_s": None, "observable_period_s": None}}
     assert got["model"]["meta"]["provenance"] == "declared" and got["frequency"]["meta"]["provenance"] == "derived"
     assert got["table-one-row"]["meta"]["query"] == "SELECT"
     p = _p(tmp_path / "e")
     [bad] = ask(p, {**COST, "x": {"type": "query", "query": "nope"}})
-    assert bad["meta"]["verdict"] == {"level": "refuse", "reasons": [{"code": "unanswerable", "says": bad["error"]}]}
+    assert bad["meta"]["verdict"] == {"level": "refuse", "reasons": [{"code": "unanswerable", "says": bad["error"],
+                                                                      "fix": verdicts_test.verdicts.REASONS["unanswerable"][1]}]}
     assert "shape" not in bad                                    # a refused answer holds nothing to draw
 
 
 @pytest.mark.parametrize("frame,word", [
-    ({"shape": "graph"}, "not 'graph'"),
+    ({"shape": "cube"}, "not 'cube'"),
+    ({"shape": "graph"}, "kind is one of"),
     ({"shape": "table", "dims": [{"name": "k", "type": "colour"}], "measures": [{"name": "n"}], "rows": []}, "typed"),
     ({"shape": "table", "dims": [{"name": "k", "type": "string"}], "measures": [{"name": "n"}], "rows": [["a"]]}, "a row holds"),
     ({"shape": "table", "dims": [{"name": "k", "type": "string"}], "measures": [{"name": "n"}], "rows": [["a", 1], ["a", 2]]}, "share"),

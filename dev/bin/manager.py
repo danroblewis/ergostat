@@ -182,7 +182,7 @@ def velocity(cfg: dict, now: float | None = None) -> dict:
     the binding constraint, and the manager's own proposals and questions with their answers."""
     now = now or time.time()
     out: dict = {n: reading(n) for n in ("queue-wait-hours", "queue-minutes", "suite-minutes", "merges-per-hour",
-                                         "first-pass-yield", "cycle-hours")}
+                                         "first-pass-yield", "env-parks", "cycle-hours")}
     gaps = fac.items("gap")
     merged = [g["fields"] for g in gaps if g["state"] == "merged" and float(g["fields"].get("merged_at") or 0) >= now - measure.WINDOW]
     batches: dict = {}

@@ -15,10 +15,11 @@ def main(argv: list[str]) -> int:
         return 2
     if argv[0] == "standin":
         subs = {"act": standin.act, "level": standin.level, "lower": standin.lower, "improver": standin.improver}
-        if len(argv) < 2 or argv[1] not in subs:
-            print(f"usage: ... standin {{{','.join(subs)}}} ...", file=sys.stderr)
+        named = {"load": standin.scaled, "replicas": standin.scaled, "signal": standin.alert, "firing": standin.alert}
+        if len(argv) < 2 or argv[1] not in {**subs, **named}:
+            print(f"usage: ... standin {{{','.join([*subs, *named])}}} ...", file=sys.stderr)
             return 2
-        return subs[argv[1]](argv[2:])
+        return named[argv[1]](argv[1:]) if argv[1] in named else subs[argv[1]](argv[2:])
     return progs[argv[0]](argv[1:])
 
 

@@ -24,6 +24,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import times  # noqa: E402
 
 POOL = 1                                                   # the owner's: the factory starts small; never from config
 DONE = {"merged", "parked", "closed"}
@@ -136,10 +137,15 @@ def name_of(cfg: dict, module: str, now: float) -> str:
     return branch
 
 
-def definition(branch: str, module: str, s: float, row: dict) -> str:
+def definition(branch: str, module: str, s: float, row: dict, gaps: list[dict] = (), now: float = 0.0) -> str:
     text = (fac.HERE / "prompts" / "simplify.md").read_text()
+    q = times.quiet(list(gaps), now or time.time())
+    quiet = "unknown (no gap's catches counted yet)" if q is None else ", ".join(f"`{g}`" for g in q[0]) or "none"
+    if q and q[2]:                                     # some gaps unknown: the quiet ones are quiet only among the rest
+        quiet += (f" (among the {q[1]} gap(s) whose catches are counted; {q[2]} gap(s) whose catches are unknown are"
+                  " left out, and a gate named may have caught there)")
     for k, v in {"branch": branch, "module": module, "score": f"{s:.2f}",
-                 "evidence": json.dumps(row, indent=2)}.items():
+                 "evidence": json.dumps(row, indent=2), "quiet_gates": quiet}.items():
         text = text.replace("{" + k + "}", v)
     return text
 
@@ -163,7 +169,7 @@ def request(cfg: dict, now: float | None = None) -> int:
             except NoPick as e:
                 print(f"no pick, asked for nothing: {e}")
                 return 0
-            p.write_text(definition(branch, row["module"], s, row))
+            p.write_text(definition(branch, row["module"], s, row, gaps, now))
             fac.add("gap.requested", f"gap/{branch}", title=f"simplify {row['module']}", source="simplifier",
                     branch=branch, depends_on=[], requested_at=now, definition=fac.rel(p), module=row["module"],
                     score=round(s, 3), evidence=row, passed_over=passed)

@@ -1,12 +1,14 @@
 """The briefs: what an implementor's or a reviewer's session is given, assembled from a template in dev/prompts/ and
-the gap (its definition, its GAPS entry, the guides it names, the findings of its earlier reviews, the diff for a
-reviewer), the factory's knowledge (knowledge.py: the rules, the lessons, decisions, related gaps, past findings, the
-module map, within a budget), and the record of what went in, so the model can learn which context drives first-pass yield.
+the gap (its definition, its entry as main's dev/records/ render it, the guides it names, the findings of its earlier
+reviews, the diff for a reviewer), the factory's knowledge (knowledge.py: the rules, the lessons, decisions, related
+gaps, past findings, the module map, within a budget), and the record of what went in, so the model can learn which
+context drives first-pass yield.
 
 A reviewer is never given the implementor's reasoning: no session text, no transcript, only the work itself."""
 
 from __future__ import annotations
 
+import itertools
 import re
 import time
 from pathlib import Path
@@ -40,21 +42,51 @@ def definition_text(cfg: dict, where: str, branch: str) -> str:
     return ""
 
 
-def gaps_entry(cfg: dict, title: str) -> str:
-    """The gap's whole entry in GAPS.md on main (the bullet and what is indented under it)."""
-    if not title:
-        return ""
-    text = fac.git(fac.path(cfg, "checkout"), "show", f"{cfg['git']['base']}:docs/GAPS.md", check=False)
-    lines, out = text.splitlines(), []
+RENDERED: dict[str, tuple[str, str]] = {}   # {main's sha: (its records' render, what could not be read)}
+UNREAD = "(unreadable: "                    # how record_entry's note of records not read begins
+
+
+def records_at_main(cfg: dict) -> tuple[str, str]:
+    """(GAPS.md as main's dev/records/ render it (gapsdoc.entries; main's docs/GAPS.md only before the split), and
+    what could not be read, by name: "" when everything was)."""
+    import gapsdoc
+    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
+    sha = fac.git(repo, "rev-parse", "-q", "--verify", f"{base}^{{commit}}", check=False).strip()
+    if sha not in RENDERED:
+        try:
+            got = gapsdoc.entries(repo, sha or base)
+            text, bad = got or (fac.git(repo, "show", f"{sha or base}:docs/GAPS.md"), {})
+            why = "; ".join(f"`{fac.DEFS}/{n}.md` ({w})" for n, w in sorted(bad.items()))
+        except (RuntimeError, ValueError) as e:
+            text, why = "", f"`{fac.DEFS}/` on {base} ({str(e).splitlines()[-1][:200] if str(e) else type(e).__name__})"
+        RENDERED[sha] = text, why
+    return RENDERED[sha]
+
+
+def entry_in(text: str, title: str) -> tuple[str, str]:
+    """(the entry titled ``title`` in GAPS.md's ``text``: the bullet and what is indented under it; its section)."""
+    lines, out, section = text.splitlines(), [], ""
     for i, line in enumerate(lines):
-        if line.startswith(f"- **{title}"):
-            out.append(line)
-            for nxt in lines[i + 1:]:
-                if nxt.startswith(("- ", "#")) or not nxt.strip():
-                    break
-                out.append(nxt)
-            break
-    return "\n".join(out)
+        section = line[3:].strip() if line.startswith("## ") else section
+        if title and line.startswith(f"- **{title}"):
+            out = [line, *itertools.takewhile(lambda x: x.strip() and not x.startswith(("- ", "#")), lines[i + 1:])]
+            return "\n".join(out), section
+    return "", ""
+
+
+def record_entry(cfg: dict, title: str) -> tuple[str, str]:
+    """(the gap's entry as main's records render it, "" when none; when none, what could not be read, said by name:
+    the entry may be in it, so it is never read as no entry)."""
+    text, why = records_at_main(cfg)
+    entry = entry_in(text, title)[0]
+    return entry, "" if entry or not why else (
+        f"{UNREAD}no entry titled {title!r} in the records that could be read, and these could not be, so it may"
+        f" be in one: {why})")
+
+
+def gaps_entry(cfg: dict, title: str) -> str:
+    """The gap's entry as main's records render it, or the records it may be in that could not be read."""
+    return "\n".join(record_entry(cfg, title)).strip() if title else ""
 
 
 def findings_text(findings: list) -> str:
@@ -69,7 +101,7 @@ def assemble(cfg: dict, role: str, gap: dict, worktree: Path, **extra) -> tuple[
     template = fac.HERE / "prompts" / f"{role}.md"
     definition = extra.pop("definition", None) or definition_text(cfg, str(f.get("definition", "")),
                                                                   fac.branch_of(gap))
-    entry = gaps_entry(cfg, f.get("title", ""))
+    entry = gaps_entry(cfg, f.get("title", ""))     # (the entry, or the records it may be in that could not be read)
     named = sorted({m for m in DOC.findall(definition + "\n" + entry) if (worktree / m).exists()})
     always = ALWAYS.get(role, ["CLAUDE.md"])
     guides = always + [g for g in named if g not in always]
@@ -77,7 +109,7 @@ def assemble(cfg: dict, role: str, gap: dict, worktree: Path, **extra) -> tuple[
     findings = list(f.get("findings") or [])
     values = {
         "gap": gap["id"], "title": f.get("title", gap["id"]), "branch": fac.git_branch(fac.branch_of(gap)), "worktree": "/work",
-        "base": cfg["git"]["base"], "definition": definition.strip(), "gaps_entry": entry or "(not in GAPS.md)",
+        "base": cfg["git"]["base"], "definition": definition.strip(), "gaps_entry": entry or "(no entry: not in main's records)",
         "guides": "\n".join(f"- {g}" for g in guides), "findings": findings_text(findings),
         "definition_path": fac.definition_file(gap, worktree), "budget": str(fac.budget_of(definition)),
         "round": str(int(f.get("rounds") or 0) + 1), "knowledge": know, "shell": agents.shell_rule(role),
@@ -85,7 +117,7 @@ def assemble(cfg: dict, role: str, gap: dict, worktree: Path, **extra) -> tuple[
     }
     text = re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), m.group(0)), template.read_text())
     context = {"role": role, "template": f"dev/prompts/{role}.md", "guides": guides, "files": named,
-               "findings": len(findings), "definition_chars": len(definition), "gaps_entry": bool(entry),
+               "findings": len(findings), "definition_chars": len(definition), "gaps_entry": bool(entry) and not entry.startswith(UNREAD),
                "brief_chars": len(text), "brief_tokens": len(text) // 4,
                "diff_chars": len(extra.get("diff", "")), "model": cfg["ai"][f"{role}_model"], **carried}
     return text, context

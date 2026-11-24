@@ -110,7 +110,7 @@ function sdCloud(n, w, hgt) {                           // (a cloud a flow leave
 /* a system closed: a module (Stella) or a view (Vensim): its name, and its ports, what crosses its edge */
 function sdSystem(n, w, hgt) {
   const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
-  g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote || n.upkeep ? { "stroke-dasharray": n.upkeep ? "6 4" : "9 5" } : {}) }));
+  g.append(s("rect", { class: "hit sd-module" + (systemOff(n) ? " sys-off" : ""), width: w, height: hgt, rx: 8, ...(n.remote || n.upkeep ? { "stroke-dasharray": n.upkeep ? "6 4" : "9 5" } : {}) }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
   // under its name, what it is (its description, in at most two lines; its loops are counted on its panel)
   const said = n.remote ? [n.remote.says] : sdWrap(n.description || "a module: open it to see its structure", Math.floor((w - 32) / CH), 2);
@@ -272,6 +272,41 @@ function sdTerminal(n, w, hgt) {
 }
 const SD_DRAW = { stock: sdStock, auxiliary: sdAux, valve: sdValve, disturbance: sdValve, cloud: sdCloud, system: sdSystem, terminal: sdTerminal };
 function sdKindWord(k) { return { valve: "flow", disturbance: "flow", stock: "stock", auxiliary: "auxiliary", cloud: "cloud" }[k] || k || ""; }
+/* a part's or a line's spoken name (its aria-label), in system dynamics' words only: what it is, its name, what a
+   sighted reader sees on it now (its value, rate, sign or goal's word: the server's, goalWord), the loops it is in */
+const SD_POL = { R: "reinforcing", B: "balancing" };
+function sdSpoken(x, g) {
+  const byId = Object.fromEntries((g?.nodes || []).map((n) => [n.id, n])), pipes = (g?.edges || []).filter((e) => e.kind === "pipe");
+  const end = (id) => (id == null ? "outside the drawing" : byId[id]?.kind === "cloud" ? "cloud" : byId[id]?.label || String(id).split(":").slice(1).join(" "));
+  const word = (goal) => goalWord(S.status?.loops?.[goal]);
+  const line = x.source != null, k = line ? x.kind : sdNodeKind(x);
+  const cs = (g?.causalLoops || []).filter((c) => (line ? (x.causal || []).includes(c.name) : c.nodes.includes(x.id)));
+  const v = line ? "" : sdValue(x).replace(/^–/, "no value");
+  const said = {
+    pipe: () => [`pipe of flow ${x.flow}`, `from ${end(x.source)} to ${end(x.target)}`],
+    connector: () => [`connector from ${end(original(x.source, x.sourcePort))} to ${end(original(x.target, x.targetPort))}`,
+                      { "+": "positive", "-": "negative" }[x.polarity] || "polarity not known"],
+    stock: () => [`stock ${x.label}`, v + (sdNoUnit(x) ? ", unit not known" : "") +
+                  (x.goals || []).map((o) => ` of desired ${o.desired}, ${word(o.name)}`).join("")],
+    flow: () => [`flow ${x.label}`, x.bare ? "" : x.rate == null ? "not measured" : x.rateText,
+                 `from ${end(pipes.find((e) => e.target === x.id)?.source)} to ${end(pipes.find((e) => e.source === x.id)?.target)}`],
+    desired: () => [`desired level ${x.goal}, of ${x.of}`, v],
+    gap: () => [`goal gap ${x.goal}`, word(x.goal), x.offBy],
+    excess: () => [`goal excess ${x.goal}`, word(x.goal), x.offBy],
+    decision: () => [`decision ${x.label}`],
+    auxiliary: () => [`auxiliary ${x.label}`, v],
+    exogenous: () => [`exogenous input ${x.label}`, v],
+    cloud: () => [`cloud, ${x.beyond ? `the flow goes on to ${x.beyond}` : x.from ? `from ${x.from}` : "outside the model's boundary"}`],
+    system: () => [`module ${x.label}`, x.remote?.says || x.description,
+                   ...Object.entries(x.loops || {}).map(([w, c]) => `${c} goal${c > 1 ? "s" : ""} ${w}`)],
+    shadow: () => [`shadow variable ${x.label}`],
+    stub: () => [`connector out to ${x.label}`],
+  }[k]?.() || [`${k} ${x.label || ""}`];
+  if (!line && k !== "system" && x.systems?.length) said.push(`in ${x.systems[x.systems.length - 1]}`);
+  if (cs.length) said.push(`in ${SD_POL[cs[0].polarity] || "unsigned"} loop ${cs[0].name}` +
+                           (cs.length > 1 ? ` and ${cs.length - 1} other${cs.length > 2 ? "s" : ""}` : ""));
+  return said.filter(Boolean).join(", ");
+}
 
 /* ------------------------------------------------------------------ connectors */
 
@@ -704,6 +739,9 @@ function sdDominant(mine) {
     `${best.c.label} ${best.c.minor ? best.c.name : best.c.shown || best.c.name}`), ` (at ${best.at})`);
   return el;
 }
+
+/* an open system's frame, as the views draw it (frameMarks: diagram.js): a hairline, its corners L marks */
+const FRAME_GLYPH = '<rect x="2" y="2" width="22" height="14" fill="none" stroke="var(--frame)" stroke-width="1"/><path d="M2,7V2H7M19,2H24V7M24,11V16H19M7,16H2V11" fill="none" stroke="var(--frame-mark)" stroke-width="1.3"/><text x="4" y="4.5" font-size="5" fill="var(--sd-muted)" stroke="var(--sd-paper)" stroke-width="2" paint-order="stroke">NAME</text>';
 const SD_LEGEND = {
   stock: '<rect x="3" y="3" width="20" height="12" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.4"/>',
   flow: '<path d="M0 9 H21" stroke="var(--sd-ink)" stroke-width="7"/><path d="M0 9 H21" stroke="var(--sd-paper)" stroke-width="3.6"/><path d="M8 3 L13 9 L8 15 Z M18 3 L13 9 L18 15 Z" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M21 4 L26 9 L21 14 Z" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.2"/>',
@@ -719,8 +757,9 @@ const SD_LEGEND = {
   loopR: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-ink)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-ink)">R</text>',
   loopB: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-ink)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-ink)">B</text>',
   loopQ: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-muted)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-muted)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-muted)">?</text>',
-  module: '<rect x="2" y="2" width="22" height="14" rx="3" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.3"/>',
-  sector: '<rect x="1" y="1" width="24" height="16" rx="3" fill="var(--sd-hull)"/><text x="3" y="7" font-size="5" fill="var(--sd-muted)">NAME</text>',
+  module: '<rect x="2" y="2" width="22" height="14" rx="3" fill="var(--sd-paper)" stroke="var(--frame-mark)" stroke-width="1.2"/>',
+  moduleOff: '<rect x="2" y="2" width="22" height="14" rx="3" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="2"/>',
+  sector: FRAME_GLYPH,
   stub: '<path d="M1 9 H17" stroke="var(--sd-ink-2)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink-2)"/><text x="21" y="12" font-size="8" fill="var(--sd-ink-2)">x</text>',
   shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-ink-2)">&lt;x&gt;</text>',
   nounit: '<text x="13" y="13" font-size="8" text-anchor="middle" fill="var(--sd-muted)">unit ?</text>',
@@ -754,7 +793,8 @@ function sdLegend() {
     pols.has("R") && row("loopR", "reinforcing loop: a change comes back amplified"),
     pols.has("B") && row("loopB", "balancing loop: a change comes back opposed (it seeks a desired level)"),
     has((n) => n.kind === "system") && row("module", "module: a system closed; its connection points are what crosses its edge (Open draws its parts in place; Into draws it alone)"),
-    (g.open || []).length > 0 && g.nodes.some((n) => (n.systems || []).length) && row("sector", "sector: a system open, its parts on a tinted ground, its name at the top left (drag it by its name)"),
+    has((n) => n.kind === "system" && systemOff(n)) && row("moduleOff", "module drawn heavy: a level in it is away from its desired level"),
+    (g.open || []).length > 0 && g.nodes.some((n) => (n.systems || []).length) && row("sector", "sector: a system open, framed by its corners, its name on the top edge (drag it by its name); modelling's dashed"),
     has((n) => n.kind === "terminal" && n.role !== "stub") && row("shadow", "shadow variable: a part drawn elsewhere, an input here (click to go there)"),
     has((n) => n.role === "stub") && row("stub", "a connector out of this system: it ends at the name of what it drives"),
     has((n) => n.kind === "cloud" && n.beyond) && row("cloud", "cloud named <x>: the flow goes on to x, outside this system"),
@@ -787,7 +827,8 @@ function sdExportItems() {
   return [["stock", "stock"], ["flow", "flow"], g.edges.some((e) => e.twoWay) && ["biflow", "biflow"], ["cloud", "source / sink"],
           ["aux", "auxiliary"], g.nodes.some((n) => n.exogenous) && ["exo", "exogenous"], ["plus", "connector +"], ["minus", "connector −"],
           ["tone", "a lighter line: information, not material"],
-          ["loopR", "reinforcing"], ["loopB", "balancing"]].filter(Boolean);
+          ["loopR", "reinforcing"], ["loopB", "balancing"], g.nodes.some((n) => n.kind === "system") && ["module", "module (system closed)"],
+          (g.open || []).length > 0 && ["sector", "system open"]].filter(Boolean);
 }
 
 /* ------------------------------------------------------------------ panels */

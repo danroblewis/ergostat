@@ -469,15 +469,18 @@ def test_the_attention_cards_speak_system_dynamics():
     from ergostat.dynamics import attention
     snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0,
                                        "off_by_words": "off by 4"}}}
-    att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
-           {"level": "hint", "what": "loop backlog-clear", "says": "was off 60% of the time: saturated, moving its most "
+    g = "backlog-clear"
+    att = [{"level": "bad", "what": f"goal {g}", "goal": g, "says": "backlog is 4, setpoint <= 0 (off by 4)"},
+           {"level": "hint", "what": f"goal {g}", "goal": g, "says": "was off 60% of the time: saturated, moving its most "
             "each run. Its valve moved 2/h out while 3/h came in"},
-           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill it"},
-           {"level": "hint", "what": "loop a", "says": "keeps feeding x: Hold it back (its controller can read x)"}]
+           {"level": "hint", "what": "controller x", "controller": "x",
+            "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill it"},
+           {"level": "hint", "what": "goal a", "goal": "a", "says": "keeps feeding x: Hold it back (its controller can read x)"}]
     out = attention(att, snap)
     assert out[0]["says"] == "backlog is 4, desired backlog = 0: off by 4"
-    # a controlled goal is called a goal ('loop' is for R and B loops): never 'loop backlog-clear'
+    # a controlled goal is called a goal ('loop' is for R and B loops), by its field: never 'loop backlog-clear'
     assert [a["what"] for a in out] == ["goal backlog-clear", "goal backlog-clear", "goal x", "goal a"]
+    assert [a["goal"] for a in out] == [g, g, "x", "a"]                         # the field kept, for its Evidence link
     assert out[1]["says"].startswith("was off 60% of the time: saturated, moving its most each run. Its flow moved")
     assert "(what serves it can read x)" in out[3]["says"], out[3]["says"]
     import re
@@ -488,7 +491,7 @@ def test_the_attention_cards_speak_system_dynamics():
 
 def test_a_goal_s_suggestion_says_what_serves_it():
     from ergostat.dynamics import attention
-    att = [{"level": "hint", "what": "controller fixes", "says": "loop fixes was off 70% of the time though its valve keeps "
+    att = [{"level": "hint", "what": "goal fixes", "goal": "fixes", "says": "goal fixes was off 70% of the time though its valve keeps "
             "up on average: it answers too late; its controller (fixer, every 1m) is the slowest stage"}]
     out = attention(att, {"loops": {}})
     assert out[0]["says"] == ("goal fixes was off 70% of the time though its flow keeps up on average: it answers too late; "

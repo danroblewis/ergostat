@@ -44,8 +44,12 @@ def register(sub, common) -> None:
     op = sub.add_parser("operating", parents=[common], help="The operating state (normal, maintenance, freeze, incident) "
                         "and the owner's presence; STATE: the owner enters it (normal ends the one in force)",
                         description="The operating state (SPEC §12k). ergostat operating [freeze | incident --note TEXT "
-                        "| maintenance --for DUR [--actions A,B] [--note TEXT] | normal]")
-    op.add_argument("state", nargs="?", choices=STATES, metavar="STATE", help=", ".join(STATES))
+                        "| maintenance --for DUR [--actions A,B] [--note TEXT] | normal]; the states the model declares "
+                        "(SPEC §9.5): ergostat operating [enter|leave NAME --why TEXT]")
+    op.add_argument("state", nargs="?", choices=[*STATES, "enter", "leave"], metavar="STATE",
+                    help=", ".join(STATES) + "; or enter|leave NAME: a state the model declares under operating:")
+    op.add_argument("name", nargs="?", metavar="NAME", help="with enter or leave: the declared state")
+    op.add_argument("--why", metavar="TEXT", help="with enter or leave: why (required)")
     op.add_argument("--for", dest="lease", metavar="DUR", help="maintenance: how long its lease runs (at most 24h)")
     op.add_argument("--actions", metavar="A,B", help="maintenance: the actions it is for")
     op.add_argument("--note", help="why")
@@ -55,7 +59,13 @@ def register(sub, common) -> None:
 def cmd_operating(args) -> int:
     from ..actions import operating as ops
     from ..durations import DurationError, human, parse_duration
+    from . import operating as declared
+    if args.state in ("enter", "leave"):                 # a declared state (SPEC §9.5)
+        return declared.act(args)
     p = open_project(args)                               # (a broken model: refused, as every act is)
+    if args.name or args.why:
+        print("refused: NAME and --why belong to enter and leave")
+        return 2
     if args.state:
         try:
             lease = parse_duration(args.lease, "--for") if args.lease else None
@@ -69,11 +79,12 @@ def cmd_operating(args) -> int:
             return 2
     o = ops.read(p)
     if args.json:
-        return out_json(o._asdict())
+        return out_json({**o._asdict(), "declared": declared.listing(p)})
     print(f"{c(o.state, 'bold')}  ·  owner {o.presence}" + (f"  ·  {o.note}" if o.note else ""))
     if o.until is not None:
         print(f"  lapses in {human(max(o.until - time.time(), 0))}" + (f", for {', '.join(o.actions)}" if o.actions else ""))
     print(c(f"  {o.reason}", "dim"))
+    declared.show(p)
     return 0
 
 

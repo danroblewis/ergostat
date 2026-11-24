@@ -228,10 +228,9 @@ def get(p, rid: str) -> dict | None:
 
 
 def stored(p, until: float | None = None) -> dict[str, dict]:
-    by: dict[str, list[dict]] = {}
-    for e in p.events.query(n=None, type=f"{REPORT}.*", until=until):
-        by.setdefault(e["item"], []).append(e)
-    return {item: fold(item, es) for item, es in by.items() if es[0]["type"] == f"{REPORT}.drafted"}
+    """Every report drafted, folded, oldest first (the item index's table: ``projections.stored``)."""
+    from ..spec import projections
+    return projections.stored(p, "report", None, until)
 
 
 def text_of(p, rid: str) -> dict:

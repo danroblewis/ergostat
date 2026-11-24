@@ -114,6 +114,77 @@ When a panel is slow (it says it is late, or answers *busy*):
 4. Fewer queries per panel (at most 12) and fewer panels; drop the panel with no decision first (section 1).
 5. Slow the refresh.
 
+## 6a. ergostat's own series in PromQL: turning on VictoriaMetrics
+
+A panel can ask the built-in data source `ergostat` in PromQL, as it would ask any Prometheus, for ergostat's own
+series: sensors, valves, blocks' outputs and each run's cost, tokens, CPU, memory and seconds. That needs the readings
+kept in VictoriaMetrics, the recommended metrics store for dashboards. On SQLite such a panel says so, and what to do;
+the rest of the page works as before.
+
+**Get it.** VictoriaMetrics is one binary with no dependencies: the single-node `victoria-metrics` from the project's
+releases (`victoria-metrics-<os>-<arch>-<version>.tar.gz`), or a package manager's (Homebrew's `victoriametrics`).
+Put it on your `PATH`.
+
+**Let ergostat run it.** In the model's main file:
+
+```yaml
+storage:
+  measurements:
+    backend: victoriametrics
+    url: http://127.0.0.1:8428
+    run: victoria-metrics -storageDataPath $HOME/.ergostat/victoria -httpListenAddr 127.0.0.1:8428 -retentionPeriod 2y
+```
+
+`run:` makes it a daemon ergostat supervises (SPEC §9.7): started with `ergostat run`, restarted if it exits, stopped
+with ergostat, listed with the daemons on the Agents page. It runs through the shell, in the model's folder, so give
+`-storageDataPath` an absolute path (or `$HOME/...`) to keep its data out of the repository. `-retentionPeriod` is how
+long the server keeps a reading: it is one month unless set, while SQLite keeps up to two years (730 days), so set it at
+least as long as the history you have. If you already run VictoriaMetrics yourself, leave `run:` out, and check its
+`-retentionPeriod` the same way. Several projects can share one server: each
+one's readings carry its own `project` label, and the built-in source only ever answers with this project's.
+
+**Move the readings already kept.** Once it is running, `ergostat migrate --dry-run` says how many readings it would
+send, and `ergostat migrate` sends them: every reading SQLite holds, under the names and labels below. It then reads
+each series back. If the server did not keep some readings (it drops, without saying so, any reading older than its
+`-retentionPeriod`), it fails, naming each such series with how many readings it lost and the days they span. Then
+stay on SQLite, or raise `-retentionPeriod` and run it again. Once every reading is held, running it again sends
+nothing, so it is safe to repeat (after a crash, or to catch readings written before the switch). `measurements.db`
+is only read, so going back is removing those lines: the project reads SQLite again.
+
+**A new install** (a project whose record has no readings yet, and whose YAML names no backend) uses VictoriaMetrics by
+itself when one answers at `http://127.0.0.1:8428`, so its dashboard has data from the first reading; with none there
+it uses SQLite, as before. An existing SQLite install stays on SQLite until it migrates, and so does one that is
+`ergostat reset`. On VictoriaMetrics, `ergostat reset --yes` deletes the project's series in the server too, so the
+record starts from nothing; with the server away it refuses, and deletes nothing. This default is taken only for a project under the default home, `~/.ergostat`: with
+`ERGOSTAT_HOME` set elsewhere (as scripts, demos and benchmarks do), a new project uses SQLite unless its YAML names
+`victoriametrics` or `ERGOSTAT_DEFAULT_MEASUREMENTS=victoriametrics` is set.
+
+**What to write.** Each series has a name and labels from the model (SPEC §4b, *Names and labels in PromQL*):
+
+- `ergostat_sensor{part="backlog", sensor="count"}`: the backlog's `count` sensor.
+- `sum by (block) (increase(ergostat_run_cost_usd[1d]))`: each block's runs' dollars in a day.
+- `ergostat_valve_position{valve="intake"}`, `ergostat_block_output{block="hold"}`.
+
+- `sum by (state) (ergostat_items{kind="gap"})`: how many gaps in each state; `sum(increase(
+  ergostat_item_transitions_total{kind="gap",to="merged"}[1d]))`: gaps merged in a day.
+- `time() - max(ergostat_item_last_transition_timestamp_seconds{kind="gap",to="merged"})`: seconds since the last
+  merge.
+- `histogram_quantile(0.85, sum by (le) (rate(ergostat_item_time_in_state_seconds_bucket{kind="gap",state="building"}[7d])))`:
+  how long the 85th percentile of gaps stayed building. This counts only the gaps that have left `building`, so it
+  cannot see one that is stuck there.
+
+The item metrics (SPEC §4b, *Item metrics*) are written once a minute from the item index, backfilled from it when
+first turned on; an arrival is `from="(new)"` and an item forgotten after a prune `to="(gone)"`. So the items in a
+state change by what moved in less what moved out, and a kind's items by its arrivals less its forgotten items.
+ergostat checks this on each pass, and says on its output where it does not hold. The exception is a window in which
+`increase(ergostat_item_index_rebuilds_total[1h]) > 0`: there the index was made again (a kind edited, say), the
+counts were taken afresh, and the two need not agree, so read no leak into it. Add a gauge over `milestone` before
+comparing it, as a move between milestones is not a transition.
+
+`count by(__name__)({__name__=~"ergostat_.+"})` lists them all. VictoriaMetrics computes `rate()` and `increase()`
+without Prometheus's extrapolation, so an integer counter's increase is a whole number (SPEC §4e, *The built-in source
+`ergostat`*).
+
 ## 7. Recipes
 
 The panels below read the example model at the end of this document: requests that wait, are worked on, reviewed

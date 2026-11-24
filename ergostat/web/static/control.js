@@ -183,8 +183,14 @@ function loopTable(d) {
     : c.law?.form === "PI" ? `, K_c ${fmt(c.law.Kc)}, τ_I ${secs(c.law.Ti)}` : ""}`;
   const proc = p ? `K ${pmText(p.K, se.K)}, ${p.form === "integrating" ? "an integrator" : `τ ${pmText(p.tau, se.tau)} s`}, θ ${pmText(p.theta, se.theta)} s`
     : "not identified: needs a step of u";
+  /* an external controller's laws on the record held out: the one identified, and the one declared beside it */
+  const lawFit = (w) => `skill ${fmt(w.skill)} one step ahead, R² ${fmt(w.r2)} run free`;
+  const ext = [c.identified ? `identified ${c.identified.short}: ${lawFit(c.identified)}` : "",
+    c.declared ? `declared ${c.declared.kind}${c.declared.short ? ` ${c.declared.short}: ${lawFit(c.declared)} of ${c.declared.points} points${c.declared.worse ? ", fits its record worse" : ""}` : `: not judged, ${c.declared.why}`}` : ""]
+    .filter(Boolean).join("; ");
   const rows = [["law", law], ["process", proc],
-    ["held-out fit", h("span", {}, `estimation ${pcFit(r.fit_est)}, validation ${pcFit(r.fit_val)} `, h("span", { class: "muted" }, `(${FIT})`))],
+    ["held-out fit", h("span", {}, `estimation ${pcFit(r.fit_est)}, validation ${pcFit(r.fit_val)} `, h("span", { class: "muted" }, `(${FIT})`),
+      ext ? h("span", { class: "declared-fit" }, `; ${c.block}'s law ${ext}`) : "")],
     ["time off", off != null ? pcFit(off * 100) : "–"], ["settling", ex.count ? `${secs(ex.settling)}, typically` : "–"],
     ["saturation", pf.saturation != null ? `${pcFit(pf.saturation * 100)} of the ${d.how === "valve" ? "openings" : "time"}` : "–"]];
   return h("table", { class: "loop-table" }, h("caption", {}, `The loop ${d.goal}`), rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))));
@@ -218,7 +224,7 @@ function identRows(d) {
 
 function processSection(d, done) {
   if (d.why) return [h("p", { class: "muted small" }, `The control loop of goal ${d.goal}: ${d.why}.`)];
-  const kids = [h("h3", {}, `The control loop of goal ${d.goal}, from u to y`)];
+  const kids = [h("h3", { "data-goal": d.goal }, `The control loop of goal ${d.goal}, from u to y`)];
   const u = (d.u || "").split(".").slice(1).join("."), y = (d.y || "").split(".").slice(1).join(".");
   kids.push(h("p", { class: "muted small" }, `u: ${u} (${d.how === "valve" ? "what its valve moves, a rate" : "the setting its controller steps"}); y: ${y}.`));
   if (d.known) kids.push(h("p", { class: "small" }, d.known + "."));
@@ -254,7 +260,7 @@ function processSection(d, done) {
 }
 
 function controllerSection(d, done) {
-  const kids = [h("h3", {}, `With the process of goal ${d.goal}'s control loop`)];
+  const kids = [h("h3", { "data-goal": d.goal }, `With the process of goal ${d.goal}'s control loop`)];
   const c = d.controller || {};
   if (!c.law) {
     kids.push(h("p", { class: "muted small" }, `${c.says || "Its law is not known"}: no closed loop worked out.`));

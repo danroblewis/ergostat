@@ -12,6 +12,7 @@ from ergostat import model as mdl
 from ergostat import spec as spec_mod
 from ergostat.actions import gate, record, risk
 from ergostat.claims import record as claims
+from ergostat.leases import RENEWED
 from ergostat.store import Project
 
 DAY = 86400.0
@@ -43,8 +44,16 @@ def edit(tmp_path, text):
     (tmp_path / "ergostat.yaml").write_text(text)
 
 
-def ctx(tmp_path, block="dev"):
-    return {"block": block, "run": "run1", "item": None, "workdir": str(tmp_path)}
+ITEM = "ticket/1"
+
+
+def start(p, block="dev", at=None):
+    """A run's start (``agent.started``, as the engine writes it): its event's id is the run's id."""
+    return p.events.add("agent.started", item=block, source="ergostat", data={"trigger": "test"}, at=at)["id"]
+
+
+def ctx(tmp_path, block="dev", run="run1", item=None):
+    return {"block": block, "run": run, "item": item, "workdir": str(tmp_path)}
 
 
 def said(p, block, *states):
@@ -69,8 +78,9 @@ def known(p, block="dev"):
     ran_before(p, 10)
 
 
-def ask(p, tmp_path, asker="session", name="act"):
-    return gate.request(p, p.model.spec, name, {}, ctx(tmp_path), asker=asker)
+def ask(p, tmp_path, asker="session", name="act", run=None):
+    """Asked on a fresh plan (s = 0): by a run started just now (``run``: that one), on ``ITEM``."""
+    return gate.request(p, p.model.spec, name, {}, ctx(tmp_path, run=run or start(p), item=ITEM), asker=asker)
 
 
 def ran(tmp_path) -> bool:
@@ -85,9 +95,9 @@ def types(p, aid):
 
 
 def test_score_formula():
-    assert risk.score(2, 0.5, 1) == 12.0
-    assert risk.score(1, 0, 0) == 1.0
-    assert risk.score(5, 1, 1) == 50.0
+    assert risk.score(2, 0.5, 1, 0) == 12.0
+    assert risk.score(1, 0, 0, 0) == 1.0
+    assert risk.score(5, 1, 1, 0) == 50.0
 
 
 def test_severity_alone_changes_the_step(tmp_path):
@@ -356,7 +366,7 @@ LEVEL = {g: i for i, g in enumerate(risk.ORDER)}
 def test_never_looser(tmp_path, monkeypatch):
     for s, t, c, n, base in itertools.product(range(1, 6), (1.5, 4, 8, 20, 50), (0, 0.25, 1, math.nan), (0, 1),
                                               risk.ORDER):
-        g = risk.step(base, risk.score(s, risk.clamp(c), n), t)
+        g = risk.step(base, risk.score(s, risk.clamp(c), n, 0), t)
         assert LEVEL[base] <= LEVEL[g] <= LEVEL[base] + 1
     for x, y in itertools.product(risk.ORDER, repeat=2):
         assert LEVEL[risk.stricter(x, y)] == max(LEVEL[x], LEVEL[y])
@@ -376,10 +386,112 @@ def test_never_looser(tmp_path, monkeypatch):
         got = record.get(p, a["id"])
         level = {"denied": 2, "requested": 1, "ran": 0 if got.get("approved_by") == "gate" else 1}[got["state"]]
         assert level >= LEVEL[base] and level >= LEVEL[asked], (s, t, base, c_act, got["state"])
-        at_act = risk.step(base, risk.score(s, c_act, 0), t)          # worked out here, not read from the record
+        at_act = risk.step(base, risk.score(s, c_act, 0, 0), t)         # worked out here, not read from the record
         if got["state"] != "denied" or a["state"] != "denied":       # (one denied at the request never reached the act)
             assert level >= LEVEL[at_act], (s, t, base, c_act, got["state"])
         assert (got["state"] == "ran") == ran(d)
+
+
+# ---- s: staleness, the work item moved under the run that planned the act
+
+
+def moved(p, item=ITEM, by="other", run=None, at=None):
+    """An event on ``item``: by another writer, or (``run``) one the asking run wrote itself."""
+    return p.events.add("ticket.updated", item=item, source=by, causedby=run, data={"note": "moved"}, at=at)
+
+
+def test_staleness_when_item_moved_by_another_writer(tmp_path):
+    p = project(tmp_path)                                            # auto, S=3, T=4; c = 0, n = 0: 3 fresh
+    known(p)
+    moved(p)                                                         # before the run's start: not a move under it
+    run = start(p)
+    assert risk.staleness(p, run, ITEM) == (0, "not moved since the run started")
+    moved(p, by="reviewer")
+    a = ask(p, tmp_path, run=run)
+    assert (a["risk"]["s"], a["risk"]["s_why"]) == (1, f"{ITEM} moved by another writer since the run started")
+    assert a["risk"]["score"] == 6.0 and a["risk"]["gate"] == "approve" and a["state"] == "requested"
+    assert "act-risk 6 ≥ 4: its gate auto stepped to approve" in gate.result(a)["note"] and not ran(tmp_path)
+    assert risk.score(5, 1, 1, 1) == risk.HIGHEST == 100.0
+
+
+def test_own_events_are_not_staleness(tmp_path):
+    p = project(tmp_path)
+    known(p)
+    run = start(p)
+    for _ in range(3):
+        moved(p, by="dev", run=run)                                  # the asking run's own writes on its item
+    moved(p, item="ticket/2")                                        # another item moved: not this act's
+    a = ask(p, tmp_path, run=run)
+    assert (a["risk"]["s"], a["risk"]["s_why"]) == (0, "not moved since the run started")
+    assert a["risk"]["score"] == 3.0 and a["state"] == "ran" and ran(tmp_path)
+    moved(p, by="dev", run="another-run")                            # the same source, another run: a move
+    assert risk.staleness(p, run, ITEM)[0] == 1
+
+
+def test_engine_renewal_of_the_runs_lease_is_not_staleness(tmp_path):
+    p = project(tmp_path)
+    known(p)
+    run = start(p)
+    for seen in ("activity", "taken up"):                            # the watchdog's and adopt's, as dispatch writes them
+        p.events.add(RENEWED, item=ITEM, source="ergostat", data={"run": run, "fence": 1, "seen": seen})
+    a = ask(p, tmp_path, run=run)
+    assert (a["risk"]["s"], a["risk"]["s_why"]) == (0, "not moved since the run started")
+    assert a["risk"]["score"] == 3.0 and a["state"] == "ran" and ran(tmp_path)
+    p.events.add(RENEWED, item=ITEM, source="ergostat", data={"run": "another-run", "fence": 2, "seen": "activity"})
+    assert risk.staleness(p, run, ITEM)[0] == 1                      # another run's lease renewed: a move
+
+
+def test_staleness_by_seq_not_time(tmp_path):
+    p = project(tmp_path)
+    now = time.time()
+    moved(p, at=now + 3600)                                          # an earlier seq, stamped later: not a move
+    run = start(p, at=now)
+    assert risk.staleness(p, run, ITEM)[0] == 0
+    moved(p, at=now - 3600)                                          # a later seq, stamped earlier: a move
+    assert risk.staleness(p, run, ITEM) == (1, f"{ITEM} moved by another writer since the run started")
+    same = start(p, at=now)
+    moved(p, at=now)                                                 # in the same second: still after it
+    assert risk.staleness(p, same, ITEM)[0] == 1
+
+
+def test_staleness_unknown_counts_one(tmp_path, monkeypatch):
+    p = project(tmp_path, risk_="{severity: 3, threshold: 7}")      # fresh: 3 < 7; stale: 6 < 7, so the score shows it
+    known(p)
+    run = start(p)
+
+    def asked(run_, item):
+        a = gate.request(p, p.model.spec, "act", {}, ctx(tmp_path, run=run_, item=item))
+        return a["risk"]["s"], a["risk"]["s_why"], a["risk"]["score"]
+    assert asked(None, ITEM) == (1, "no asking run", 6.0)
+    assert asked(run, None) == (1, "no work item", 6.0)
+    assert asked("no-such-run", ITEM) == (1, "the run's start not found", 6.0)
+    assert asked(run[:8], ITEM) == (1, "the run's start not found", 6.0)          # an id's prefix is not the run
+    claim = p.events.query(n=1, type=f"{claims.CLAIM}.*")[0]["id"]
+    assert asked(claim, ITEM) == (1, "the run's start not found", 6.0)           # an event that is not a start
+    assert asked(run, ITEM) == (0, "not moved since the run started", 3.0)
+
+    def broken(*a, **kw):
+        raise OSError("disk")
+    monkeypatch.setattr(p.events, "query", broken)
+    assert risk.staleness(p, run, ITEM) == (1, "record unreadable")
+    monkeypatch.setattr(p.events, "get", broken)
+    assert risk.staleness(p, run, ITEM) == (1, "record unreadable")
+
+
+def test_staleness_rechecked_at_the_act(tmp_path):
+    p = project(tmp_path)                                            # auto, S=3, T=4
+    known(p)
+    a = ask(p, tmp_path, asker="program")
+    assert a["state"] == "approved" and a["approved_by"] == "gate" and a["risk"]["s"] == 0
+    moved(p, by="reviewer")                                          # between the approval and the act
+    assert gate.sweep(p, p.model.spec) == 1
+    b = record.get(p, a["id"])
+    assert b["state"] == "requested" and b["held_by"] == "act-risk" and b["approved_by"] is None and not ran(tmp_path)
+    at = b["risk_at_act"]
+    assert (at["s"], at["s_why"]) == (1, f"{ITEM} moved by another writer since the run started")
+    assert at["score"] == 6.0 and at["effective"] == "approve" and b["risk"]["s"] == 0
+    got = gate.approve(p, p.model.spec, a["id"])                     # the owner's approval runs it
+    assert got["state"] == "ran" and got["risk_at_act"]["s"] == 1 and ran(tmp_path)
 
 
 # ---- compile
@@ -387,7 +499,7 @@ def test_never_looser(tmp_path, monkeypatch):
 
 def test_risk_key_validated(tmp_path):
     bad_s = {"s0": "0", "s6": "6", "s25": "2.5", "shigh": "high", "strue": "true"}
-    bad_t = {"t1": "1", "t51": "51", "tnan": ".nan", "tinf": ".inf", "tminf": "-.inf", "ttrue": "true"}
+    bad_t = {"t1": "1", "t101": "101", "tnan": ".nan", "tinf": ".inf", "tminf": "-.inf", "ttrue": "true"}
     lines = ["name: t", "actions:"]
     for k, v in bad_s.items():
         lines += [f"  {k}:", "    run: x", "    risk:", f"      severity: {v}"]

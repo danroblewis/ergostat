@@ -4,8 +4,6 @@
    graph of it, integrated here from the frame's equations (Euler). The last frame is the project's own. */
 "use strict";
 
-let GUIDE_QUEUE = Promise.resolve();          // the renderers keep their state in S: one drawing at a time
-
 async function pageGuide(main, q) {
   const p = page(main, "Guide");
   const d = await api("guide");
@@ -77,41 +75,13 @@ function guideView(box, v, caption = null) {
   box.append(cell);
   svg.addEventListener("pointerdown", (ev) => { if (!ev.target.closest(".bd-toggle")) ev.stopPropagation(); }, true);   // no drags, no pins
   let open = false;
-  const draw = () => guideDraw(svg, open && v.opened ? v.opened : v.graph, v.view, () => { open = !open; draw(); });
+  const toggle = () => { open = !open; draw(); };
+  const draw = () => drawStatic(svg, open && v.opened ? v.opened : v.graph, v.view, { aspect: 3, toggle })   // (wide: the frame is a row)
+    .then((got) => got && guideSize(svg, got, v.view));
   return draw();
 }
 
-function guideDraw(svg, g, view, toggle) {
-  const job = GUIDE_QUEUE.then(() => guideDrawNow(svg, JSON.parse(JSON.stringify(g)), view, toggle));
-  GUIDE_QUEUE = job.catch(() => {});
-  return job;
-}
-
-async function guideDrawNow(svg, g, view, toggle) {
-  if (!svg.isConnected) return;                    // stepped past before its turn came
-  Object.assign(S, { graph: g, graphSig: "", showHulls: false, pins: {}, portAt: {}, portRank: {}, anchor: null, redraw: null,
-                     toggleSystem: () => toggle?.() });
-  const wait = (lay) => Promise.race([lay.whenRouted || Promise.resolve(), new Promise((r) => setTimeout(r, 5000))]);
-  let lay;
-  if (view === "blocks") {
-    S.bdNoWrap = true;
-    try { lay = await bdLayout(g); } finally { S.bdNoWrap = false; }
-    S.layout = lay;
-    bdRoute(lay, g);
-    await wait(lay);
-    bdDraw(svg, g, lay);
-  } else {
-    lay = await layoutGraph(g, 3);                  // (wide: the frame is a row)
-    S.layout = lay;
-    await wait(lay);
-    drawGraph(svg, g, lay);
-  }
-  const vp = svg.querySelector("#viewport");
-  vp?.removeAttribute("transform");
-  let bb = { x: lay.ox || 0, y: lay.oy || 0, width: lay.width, height: lay.height };
-  try { const b = vp.getBBox(); if (b.width && b.height) bb = b; } catch (e) { /* not drawn: the layout's size */ }
-  const pad = 14, w = bb.width + 2 * pad, hgt = bb.height + 2 * pad;     // framed to what is drawn, labels and all
-  svg.setAttribute("viewBox", `${bb.x - pad} ${bb.y - pad} ${w} ${hgt}`);
+function guideSize(svg, { w, h: hgt }, view) {
   const views = svg.closest(".g-views"), n = views ? views.children.length : 1;
   const room = ((views?.getBoundingClientRect().width || 600) - 18 * (n - 1)) / n;     // its share of the row
   const k = Math.min(1.5, room / w, 380 / hgt);

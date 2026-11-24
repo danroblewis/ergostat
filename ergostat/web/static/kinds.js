@@ -1,9 +1,36 @@
+/* a kind of item (SPEC §5a, *The kind's page*): its one bar, drawn the same on the Items page and on the kind's page
+   (/items/K) apart from its heading's level and whether the list under it is open; and the Items page's overview.
+   The kind's page's own sections (In the model, its definition) are in kindpage.js */
+"use strict";
+
+const kindHref = (name, q = "") => `/items/${encodeURIComponent(name)}${q ? `?${q}` : ""}`;
+
+/* the bar: title (its name small), id pattern, description, finishes or lives on, the state chips with their counts,
+   the total, and its system (why on hover). Keyed by the kind's name; its handlers come in through opts, called
+   with the state or nothing, never closed over a build's rows */
+function kindBar(k, { level = 3, open = true, state = null, onState = null, onOpen = null } = {}) {
+  const total = Object.values(k.counts || {}).reduce((a, b) => a + b, 0);
+  const fin = k.lives_on ? "lives on" : k.finished?.length ? `finishes: ${k.finished.join(", ")}` : null;
+  const chip = (st) => h("a", { href: kindHref(k.name, st ? `state=${encodeURIComponent(st)}` : ""), class: `stbox${k.counts?.[st] ? " some" : ""}${st && state === st ? " on" : ""}`,
+    onclick: (ev) => { ev.preventDefault(); onState?.(st); } }, h("span", { class: "n" }, String(k.counts?.[st] || 0)), st || "items");
+  return h("div", { class: "kind-bar", key: k.name, "data-kind": k.name },
+    h(`h${level}`, { class: "kind-title" },
+      h("button", { class: "ghost disclose", "aria-expanded": String(!!open), "aria-label": open ? `Hide the ${k.name} items` : `Show the ${k.name} items`,
+                    onclick: () => onOpen?.() }, h("span", { class: "tri", "aria-hidden": "true" }, open ? "▾" : "▸")),
+      h("a", { href: kindHref(k.name), class: "kname" }, k.title || k.name, k.title ? h("span", { class: "mono" }, k.name) : null),
+      h("span", { class: "muted small mono kind-id" }, k.id || ""),
+      h("span", { class: "muted kind-total" }, ` ${total} item${total === 1 ? "" : "s"}`)),
+    k.description ? h("p", { class: "kind-desc" }, k.description) : null,
+    h("div", { class: "states" }, (k.states?.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, chip(st)])),
+    h("p", { class: "muted small kind-says" }, fin ? h("span", { title: finishSaid(k) || "" }, fin) : null, fin && k.system ? " · " : null,
+      k.system ? h("span", { class: "kind-sys", title: k.system_why || "" }, `in ${k.system}`) : null));
+}
+
 /* the Items page's overview (SPEC §5a, The overview): under each system, one compact card per item kind, in a dense
    grid: its name (a link to its own page, /items/KIND), how many are unfinished and in all, its states over the window
    and its rate in and out. All of it from one answer (/api/items-overview); no item is listed here. A chart shows the
    kind's state groups (waiting, working, stopped, done) or, with the page's one switch, every state: kept in the
    address (?states=all), and drawn again from the answer held, with no request */
-"use strict";
 
 const perHour = (x) => (x == null ? "–" : x >= 10 ? String(Math.round(x)) : x >= 1 ? x.toFixed(1) : x ? x.toFixed(2) : "0");
 
