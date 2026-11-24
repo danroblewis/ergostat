@@ -20,6 +20,11 @@ def mark(text, label: str) -> str:
     return f"⟦untrusted: {label}⟧{escape(text)}⟦end of untrusted⟧"
 
 
+def printable(text) -> str:
+    """``text`` with each character a terminal would act on (control characters, C1, separators) written ``\\uXXXX``."""
+    return "".join(ch if ch.isprintable() else f"\\u{ord(ch):04x}" for ch in str(text))
+
+
 def mark_all(value, label: str):
     """A string marked; a list or map written as JSON, then marked; a number, a bool or None left as it is."""
     if value is None or isinstance(value, bool | int | float):

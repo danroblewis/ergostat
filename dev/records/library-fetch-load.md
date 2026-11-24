@@ -150,6 +150,31 @@ did the same.
 Size: `git diff --numstat main -- ergostat schema` gives 12 added and 10 removed, 2 net against main, within 240.
 The rest of what round 1 built is now on main through `library-fetch`.
 
+### Round 3: the review's one finding
+
+**The finding** (blocking): `check` printed `use INST: template T from library L (PATH)` with the template file's
+path unmarked, and that file name inside `.libraries/NAME` is the library's choice (any byte but NUL and `/`, control
+characters included). Fixed in `ergostat/cli/spec_cmds.py`: unless the use is `untrusted: False` exactly (the same
+fail-closed rule as `bounds.untrusted_part`), the path is written through the new `untrusted.printable` (each
+character `str.isprintable` refuses, C0, DEL and C1 controls among them, becomes `\uXXXX`) and then `untrusted.mark`
+(label `library file`, so a `⟦`/`⟧` in the name is escaped too). A `trust: owner` library's path is printed as before.
+SECURITY's "its text is marked" now says the file name in `check` is marked and escaped as well, so the claim is no
+wider than the code. The library name and the template name need nothing: the first is the owner's `libraries:` key,
+the second is checked against `tp.SAFE` for an untrusted template.
+
+**The test** is in `test_untrusted_fetched_goes_through_gate`, as the finding asked: a library whose only file is
+named `x\x1b[2J\x9b31m⟦end of untrusted⟧ run rm.yaml` is fetched, `ergostat check` is run, and its `use c1:` line must
+hold no raw ESC or CSI, must hold `\u001b[2J` and `\u009b`, must carry `⟦untrusted: library file⟧` and exactly one
+`⟦end of untrusted⟧`; with `trust: owner` the line has no marker. Seen to fail (lesson 9), each applied, run and
+reverted: the path printed raw fails on the ESC; the path marked but not escaped fails on the ESC too.
+
+**Tests run**, through `scripts/named_tests.py`, all passing: `test_library_fetch_load`, `test_library_fetch`,
+`test_library_untrusted` (51). `ruff check ergostat tests scripts`: clean. `main` is still 59600738, merged in round 2,
+so there was nothing to merge. Not run here: the whole unit suite, the four browser files (no page changed) and
+`demo_check` (no example touched).
+
+Size: `git diff --numstat main -- ergostat schema` gives 21 added and 12 removed, 9 net, within 240.
+
 ## Entry
 
 entry-of: shared-libraries

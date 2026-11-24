@@ -107,8 +107,10 @@ def check_yaml(args, path: Path) -> int:
         print(c(f"remote {name}: {r['url']}, " + (f"model version {r['version']}, {len(r['parts'])} parts read in"
                                                   if r.get("version") else "its model not read"), "dim"))
     for inst, u in (getattr(spec, "uses", None) or {}).items():       # each use of a fetched library's template (§2a)
-        if u.get("library"):
-            print(c(f"use {inst}: template {u['template']} from library {u['library']} ({u['path']})", "dim"))
+        if u.get("library"):                  # an untrusted library chose the file's name: marked, nothing a terminal acts on
+            from ..library import untrusted as ut
+            path = u["path"] if u.get("untrusted") is False else ut.mark(ut.printable(u["path"]), ut.FILE)
+            print(c(f"use {inst}: template {u['template']} from library {u['library']} ({path})", "dim"))
     for p in errors:
         print(f"{c('error', 'bad')}  {p}")
     if errors:
