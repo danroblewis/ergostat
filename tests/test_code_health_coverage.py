@@ -286,8 +286,8 @@ def test_the_queue_traces_only_its_unit_run(tmp_path, on):
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
     out = json.loads(r.stdout.strip().splitlines()[-1])
-    assert set(out["ran"]) == {"ruff", "unit", "browser", "demo"}
-    assert [out["ran"][n] for n in ("ruff", "browser", "demo")] == [None, None, None]
+    assert set(out["ran"]) == {"unit", "browser", "demo"}                     # no lint step: `[suites] ruff` unset
+    assert [out["ran"][n] for n in ("browser", "demo")] == [None, None]
     if not on:
         assert out["ran"]["unit"] is None and out["kept"] == [] and "coverage" not in out["got"]["unit"]
         return

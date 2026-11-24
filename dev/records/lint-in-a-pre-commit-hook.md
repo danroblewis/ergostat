@@ -80,3 +80,14 @@ tests/test_lint_hook.py, tests/test_plan.py and tests/test_agents.py (43 passed)
 tests/test_factory_knowledge.py and tests/test_shell_rule.py (126 passed), tests/test_knowledge.py and
 tests/test_cleanup_finished.py (12 passed); `uv run ruff check ergostat tests scripts` clean. The unit suite and the
 browser files were not run here; they are the factory's.
+
+Round 4. The one finding (blocking): in a batch of 10 and again alone,
+tests/test_code_health_coverage.py::test_the_queue_traces_only_its_unit_run[True] and [False] failed. That test came
+from main's code-health-coverage gap and expected the queue to run a ruff step. Its instance takes the factory's
+dev/factory.toml, where this branch sets `ruff = ""`, so `queue.suites` runs unit, browser and demo with no ruff step.
+The queue's change is what this gap asks for (done item 2), so the test changed, not the code: it now expects
+{unit, browser, demo}, and each of browser and demo still gets no command. Nothing else changed. Searched tests/ for
+other tests that expect "ruff" in the queue's steps: the rest set their own suites or do not run `queue.suites`, and
+the queue named no other failure. Run: tests/test_code_health_coverage.py (11 passed; the two cases failed in the queue
+before the change); `uv run ruff check ergostat tests scripts` clean. main is unchanged since the clone, so no merge
+was needed. The unit suite and the browser files were not run here; they are the factory's.
