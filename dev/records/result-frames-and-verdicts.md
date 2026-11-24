@@ -366,6 +366,26 @@ Run here, none skipped:
 
 Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
 
+### Round 12
+
+The finding was the same again: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. Main
+had moved to b20756c7, and the factory's merge 043d975f brought it into the branch before this session:
+- `git merge main` says "Already up to date";
+- no conflict markers are anywhere in the tree;
+- against main the two files still differ by 55 lines added and 17 removed. That is the change rounds 9 to 11
+  recorded, with main's new SPEC text (98 lines, elsewhere) kept whole.
+
+In this round I rewrapped one line of SPEC §4e *Result shapes* that was over the file's width. No words changed and no
+code changed. Main's merge also changed `tests/test_result_shapes.py`, so I ran it again.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_result_shapes and test_data_sources (67); test_sql_source,
+  test_query_engine and test_model_data_source (97).
+- Browser, rc 0: test_result_frames_page, test_result_shapes_page and test_data_source_panels (16).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently

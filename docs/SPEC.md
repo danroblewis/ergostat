@@ -1561,10 +1561,10 @@ reads the event log.
   never guessed. A data source's type may answer with a typed frame instead of a list of series: `series` (with roles),
   a `table`, `points`, a `response` (`frequency`, and `system` with its poles and zeros as `[re, im]`; one refused,
   `supported: false`, carries no curve), a histogram's cumulative buckets, or a `graph`. Each is checked and bounded
-  (5,000 rows, points, nodes or edges, 50 buckets), and refused with `error` when it is not what it says. A role on a series (`sp`, `pv`,
-  `op`, `mv`, `limit_hi`, `limit_lo`, `mode`, `input`, `output` and the four of candles) or on a graph's field (`rate`,
-  `errors`, `latency`, `utilisation`, `wait`, `count`, `age`, `slack`, `exposure`) is one of a closed list. Series asked
-  in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
+  (5,000 rows, points, nodes or edges, 50 buckets), and refused with `error` when it is not what it says. A role on a
+  series (`sp`, `pv`, `op`, `mv`, `limit_hi`, `limit_lo`, `mode`, `input`, `output` and the four of candles) or on a
+  graph's field (`rate`, `errors`, `latency`, `utilisation`, `wait`, `count`, `age`, `slack`, `exposure`) is one of a
+  closed list. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
 - **Histograms.** A PromQL answer whose every series has a numeric `le` label, over two bounds or more with a finite
   one, is one histogram's buckets (chart 16, the latency heatmap); an answer at one bound (`x_bucket{le="0.3"}` by
   instance, an SLO's numerator) stays plain series. The buckets are a `distribution` of `bins` from 0 to the highest
