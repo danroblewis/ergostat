@@ -17,3 +17,39 @@ Definition of done.
 3. Any question for the owner is one sentence.
 
 Boundary (the owner, 2026-11-23). Anything general goes in ergostat's core as options a model declares, off unless declared, naming no gaps, software or factories. This factory is the first user and its choices live in its own model. Do not measure or change the live instance in the session: the coordinator applies changes.
+
+## Where it stopped
+
+Round 1: written. `docs/proposals/review-at-the-feature.md` settles the seven points: a core relation key
+`integrates` on a group relation (section 1a: a scoped start among members, progress, two limits with ceilings,
+`check` refusals), the factory's `feature` relation and `integrated` state with the group being a gap (1b); the
+checks a member gets and what only the group gets (2); forward merges of main, conflicts, `most_open: 24h` and
+`most_lines: 1200` (3); review effort and findings from the record (4); the queue, stacking and the pipeline row (5);
+per group and per path, by an allowlist `light_paths` (6); the planner's split as the first group and the suite split
+unchanged (7). Section 8 is the worked example on agent-show-page, agent-names-link-to-their-page and
+agent-page-narrow-ai-and-decision, three ways. Two owner questions, one sentence each.
+
+Decisions taken without the owner, each easy to undo:
+- "The build split" (point 7) is read as both the planner's split (a split parent as the group) and the suite split
+  (`[suites] build` against `unit`); the proposal settles both.
+- The numbers are from what this clone holds (git history, the records, the review lessons in the brief,
+  dev/factory.toml), as the boundary forbids measuring the live instance. Costs are therefore ceilings (sessions
+  times the caps), never spend; the review-round shares are mentions in the records' text, said as an upper bound;
+  the worked example's approval times after round 2 are not in git and are estimated from the record's own
+  durations, said as such. The proposal names the live readings (`ai_cost_usd`, `reviews_n`, `fix_rounds`,
+  `approved_at`) that replace them.
+- No code: the definition asks for the proposal only. 0 net lines outside tests, docs and dev.
+
+Run here: ruff (clean); tests/test_gaps_doc.py (9 passed: it renders every record's entry, this one included). Not
+run: the unit suite and the browser files (no code or test changed).
+
+## Entry
+
+section: The factory (ergostat on ergostat)
+done: 2026-11-24 The proposal for review and full testing once per group: docs/proposals/review-at-the-feature.md.
+
+- **Review and full testing once per feature, not once per task** (proposal written, `review-at-the-feature-proposal`;
+  `docs/proposals/review-at-the-feature.md`): a group relation may declare `integrates`, so its members merge into the
+  group's branch after light checks (ruff, affected tests, new findings) and the group is reviewed and fully tested
+  once; risky paths keep a review of their own. Left: building it (core key, then the factory's `feature` relation,
+  split parents first), after the owner's two questions.
