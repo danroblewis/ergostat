@@ -43,6 +43,20 @@ Decisions taken without the owner, each easy to undo:
 Run here: ruff (clean); tests/test_gaps_doc.py (9 passed: it renders every record's entry, this one included). Not
 run: the unit suite and the browser files (no code or test changed).
 
+Round 2: both blocking findings answered (there were no others).
+- A member leaving a group (past `most_open`, section 3) no longer has its `stacked_on` cleared: it keeps the group
+  as its base, is judged on its own commits against `stack_base`, is reviewed only once the group is approved, and the
+  queue lands the two bottom-up, whole or none; a member with no commits yet is rebuilt from main. A new paragraph,
+  *Dissolving a group* (fewer than two light members, section 6's bullet now points to it): the group branch is never
+  landed, a member carrying no other member's merge is rebuilt from main, any other is stacked on the members it
+  carries as reviewed bases. Chosen as the most reversible: it reuses today's stacking and changes no member's history.
+- Section 8, the path-rule case: the dependants start at 02:35, so narrow-ai is built about 02:51, reviewed and fixed
+  about 03:25, approved and integrated about 03:45, and the group approved about 04:55 (was 05:50); the table and the
+  bullet now say 04:55 against about 04:40 per-gap (04:19 plus about 20 minutes, the per-gap row now says so instead
+  of "after 04:19"), some 15 minutes later.
+
+Run here in round 2: ruff; tests/test_gaps_doc.py.
+
 ## Entry
 
 section: The factory (ergostat on ergostat)

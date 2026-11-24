@@ -139,9 +139,22 @@ gives it `depends-on` the group otherwise. Nothing new is needed for that beyond
 first one's definition was committed, all in one landing; a group of three to six members fits a day. A milestone
 need not: the upkeep cycle is 7 days (`[milestones] upkeep_days`), and the records name 19 milestones with 1 to 8
 gaps each (64 records). So a milestone is not a group by default (section 6). Past `most_open`, no new member joins (the take's `where`), members not yet built are
-taken out of the group (they go the per-gap way, with their `stacked_on` cleared), and the group goes to review with
-what is integrated. A group past `most_open` + 24 h is a trigger of the pipeline manager (`overdue`, read from the
-group row), never an automatic park.
+taken out of the group, and the group goes to review with what is integrated. A member taken out goes the per-gap
+way (its own review), but **keeps `stacked_on: [{gap: GROUP, sha}]`**: its branch was made from the group head and
+carries the other members' merges, so clearing the stack would let the queue land their unreviewed code with it and
+put their lines in its diff against main (lesson-7). Stacked, it is judged against its base (`stack_base`) on its own
+commits; its own review is taken only once the group is approved, so it is judged on a reviewed base as every stacked
+gap is today (`starts_at: [approved, queued, push-pending]`); and the queue lands the two bottom-up, whole or not at
+all (dev/README.md, *Stacked gaps*). A member that has no commits yet is instead rebuilt from
+main (its branch made again from main, no stack). A group past `most_open` + 24 h is a trigger of the pipeline manager
+(`overdue`, read from the group row), never an automatic park.
+
+**Dissolving a group.** When a group is not reviewed as one (section 6: fewer than two light members), its branch is
+never landed and each member is reviewed on its own; none is unstacked. A member whose branch carries no other
+member's merge (its base held only main) is rebuilt from main. Any other member is stacked on the members whose merges
+its branch carries (`stacked_on` lists each, by the merge sha on the group branch), as reviewed bases: its review is
+taken once they are approved, and the queue lands them bottom-up, whole or not at all, so no member reaches main ahead of the review
+of what it was built on.
 
 **Size.** `[features] most_lines = 1200` net lines (twice `plan_budget_most`); a member whose merge would take the
 group past it is not integrated and is sent back to the planner to move to another group, said on the gap.
@@ -277,18 +290,20 @@ ceiling of 4 × $15 + 2 × $10 = **$80**, three review sessions and one fix sess
 
 **As a group, with the path rule.** Show-page (`ergostat/web/**`) and names-link (`ergostat/web/static/`) are light.
 Narrow-ai adds `ergostat/agent_means.py` and changes `ergostat/history.py`, which writes the record, so it is
-reviewed on its own (its round-1 finding is found there, as it was) and integrated once approved (about 04:40,
-assuming its round-2 review took about 20 minutes). The group review then reads show-page and names-link fully and
-narrow-ai for how it meets them; it starts once narrow-ai is integrated, so with the same durations as above
-(50 minutes to review and fix, 20 for the second review) the group is approved at about 05:50. Sessions:
+reviewed on its own (its round-1 finding is found there, as it was) and integrated once approved. The dependants
+start at 02:35 here too, so with the record's own durations narrow-ai is built at about 02:51 (16 minutes), reviewed
+and fixed by about 03:25 (34 minutes), and approved and integrated at about 03:45 (20 minutes for its second review);
+names-link is integrated at about 03:08. The group review then reads show-page and names-link fully and narrow-ai for
+how it meets them; it starts once narrow-ai is integrated (03:45), so with the same durations as above (50 minutes to
+review and fix, 20 for the second review) the group is approved at about 04:55. Sessions:
 5 implementor (3 builds, narrow's fix, the group's fix) and 4 reviews (narrow 2 at $5, the group 2 at $10): a ceiling
 of **$105**.
 
 | Way | Reviews | Implementor sessions | Ceiling | Dependants start | All approved (about) | Landed |
 |---|---|---|---|---|---|---|
-| per-gap (as happened) | 5 | 5 | $100 | 03:27 | after 04:19 (record's `approved_at`) | 06:14 |
+| per-gap (as happened) | 5 | 5 | $100 | 03:27 | 04:40 (narrow-ai's round 2 at 04:19 plus about 20 minutes; the record's `approved_at` is not in git) | 06:14 |
 | group, all light | 2 | 4 | $80 | 02:35 | 04:20 | 06:14 (same landing) |
-| group, path rule | 4 | 5 | $105 | 02:35 | 05:50 | 06:14 (same landing) |
+| group, path rule | 4 | 5 | $105 | 02:35 | 04:55 | 06:14 (same landing) |
 
 What the example shows, without stretching it:
 
@@ -296,11 +311,14 @@ What the example shows, without stretching it:
   last member, so the group is approved at about the time the per-gap way was, and the landing was the same queue
   run either way (the queue's wait, about two hours here, dominated).
 - **The path rule took the saving away here.** With one of three members on a risky path, the group pays for that
-  member's own reviews and still for two group reviews: $105 against $100 at the ceilings, and later. The two light
+  member's own reviews and still for two group reviews: $105 against $100 at the ceilings, and approved at about
+  04:55 against about 04:40 per-gap (narrow-ai's round 2 at 04:19 plus about 20 minutes of review), some 15 minutes
+  later. The two light
   members needed only 3 per-gap reviews between them ($15), less than two group reviews at $10. On the record's
   average they would need more: the mentions of section 4 give about 1 + 0.72 + 0.42 + 0.26 + 0.19 = 2.6 review
   sessions a gap (an upper bound), so two light members about 5.2 ($26). Settled for the factory's model: a group
-  needs **at least two light members**, else its members go the per-gap way and no group review is held (the
+  needs **at least two light members**, else the group is dissolved: no group review is held and its members go the
+  per-gap way, each rebuilt from main or stacked on the members it carries (section 3, *Dissolving a group*; the
   `integrate` block checks it when the group would be built, and says so on the group); and the group's own rounds
   are measured (section 4) before the bar is lowered or raised.
 - **What would have been lost:** nothing visible here. The three findings were each inside one member's files, and
