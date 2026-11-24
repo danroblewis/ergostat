@@ -226,6 +226,7 @@ def spec(project, snap: dict, name: str) -> dict | None:
     b = s.blocks.get(name) if s is not None else None
     if b is None:
         return None
+    from ..agent_means import means
     roots = _roots(project, s)
     source, written = _source(b)
     files, own = _listed(project, s, b)
@@ -238,6 +239,7 @@ def spec(project, snap: dict, name: str) -> dict | None:
            "law": _law(s, snap, name),
            "machine": {**{k: v for k, v in a.__dict__.items() if k != "where"}, "where": _where(a.where, roots)} if a else None,
            "decisions": _decisions(project, m, snap, name), "rung_why": _rung_why(s, b), "own": own,
+           "means": means(project, m, name, snap["at"] - snap["window"], snap["at"]),   # its spec, its rung's spans
            "files": [{k: v for k, v in f.items() if k != "_path"} for f in files]}
     return plain(project, out)
 

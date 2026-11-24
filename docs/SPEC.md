@@ -4079,6 +4079,10 @@ More (filters, rate of change, latches) can be added when a case needs them.
 | `person` | a request to a person | `ask` (what they are asked to do); they report with `ergostat block NAME --done ...` |
 | `external` | nothing: observed only | none |
 
+No key declares a narrow AI's specification or a decision's answers: a narrow AI's specification is its block's
+contract as written here; an item-taking decision's answers are its `takes.to` (section 9.5); a controller's decision
+words are free text, and its `out` ports are what it may command, not an answer set.
+
 Common to machine blocks: `agent` (optional: the shared machine it runs on, section 10), `max`
 and `min` (limits on one run's amount), `timeout`, `every`/`cron` (its schedule when nothing commands it; when something does, `every`
 is the least time between runs), `takes`, `pool` and `lease` (the items it works, a run for each, and its leases' terms:
@@ -4267,7 +4271,7 @@ blocks:
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`), `faults` (`{healthy: R}`: a sensor, goal or command that says the queue's shared environment is up; while it does not, nothing is taken and a failing run spends no attempt; `{hold-by: [FIELD]}`: item fields whose values fail together, each value's group held on its own: *Faults* below; either or both) |
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done; for a decision, these are its answers, counted on its agent's page), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`), `faults` (`{healthy: R}`: a sensor, goal or command that says the queue's shared environment is up; while it does not, nothing is taken and a failing run spends no attempt; `{hold-by: [FIELD]}`: item fields whose values fail together, each value's group held on its own: *Faults* below; either or both) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
@@ -5177,7 +5181,7 @@ agents:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `kind` | `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` | from its blocks | Its rung on the ladder, when it adds something to the blocks' types |
+| `kind` | `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` | from its blocks | Its rung on the ladder, when it adds something to the blocks' types. A narrow AI's page shows each of its blocks' contract (§9.3, §12k); a decision's shows its program and, for item work, its `takes.to` states against what it decided; for a controller, what it said and which of its commands were carried out (it has no closed answer set). Each block's rung is kept with each recorded version (`model.changed`'s `rungs`), so a page lists its rung per span of versions, each span counted apart: the list is the span now (said "since vN" when there is more than one), each earlier span's counts below it, and versions recorded before rungs were kept are a span `not recorded` of their own, never read as the rung now |
 | `external` | bool | false | ergostat never runs it; it only observes what its blocks do |
 | `at-once` | integer | 1 | How many of its blocks may run at the same time |
 | `model` | string | none | For an AI machine: which model |
