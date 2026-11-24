@@ -236,3 +236,29 @@ Run here:
 
 Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
 walk.
+
+## Where it stopped (round 5)
+
+Built, round 5: the one finding (a test flake; there were no others). `web/relations_api.graph` keeps its answers in a
+process-wide `_CACHE` for 300 s. Its key holds `id(spec)` but not precedence.py's caps, and CPython reuses an id once
+the spec is freed. So the capped answer of `test_a_dependency_graph_read_only_in_part_states_no_schedule` could be served
+to a later dependency test on the same record, or an earlier uncapped answer to it, depending on order and allocation.
+- `tests/test_graph_result_and_panel.py`: the autouse `_fresh` fixture also monkeypatches `relations_api._CACHE` to `{}`.
+- `tests/test_graph_result_page.py`: the `dependency` fixture does the same. It now monkeypatches `graphs._KEPT` too,
+  where it used to clear the shared dict in place.
+monkeypatch puts the original dict back after each test, so entries made in a test are dropped with it. No answer
+passes between tests in either direction, and the tests of other files are not touched. Only tests changed, no code.
+The flake was not reproduced here: it depends on id reuse, and these files were run serially. So no failure was seen
+before the fix.
+
+Sizes are unchanged from round 4. Outside tests, docs and dev: against `main`, 987 added and 71 removed (916 net).
+This gap's own change is 597 added and 19 removed (578 net, `git diff --shortstat 197d03ee`).
+Overrun reason: measured against main, the diff includes the merged base gap result-frames-and-verdicts (338 net lines, not yet on main); this gap's own change is 578 net lines, under the 600.
+
+Run here:
+- Unit, all passed: test_graph_result_and_panel, test_precedence and test_result_shapes (49).
+- Browser, under the watchdog: test_graph_result_page passed (3, rc 0).
+- ruff is clean. `git merge main` said "Already up to date."
+
+Not run here: the whole unit suite and the four browser files (the factory's); `demo_check` (no example touched); a demo
+walk.

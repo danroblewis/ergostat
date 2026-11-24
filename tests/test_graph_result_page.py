@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from ergostat.query import frames, graphs, parse
+from ergostat.web import relations_api
 from tests import test_graph_result_and_panel as rec
 from tests import test_plot_forms as forms
 from tests.test_plot_forms import PAINTED, Site, config, playwright
@@ -57,8 +58,9 @@ def wired(out: dict, diagram="service") -> dict:
 
 
 @pytest.fixture
-def dependency(tmp_path):
-    graphs._KEPT.clear()
+def dependency(tmp_path, monkeypatch):
+    monkeypatch.setattr(graphs, "_KEPT", {})               # no kept answer from another test (rec._fresh's reason)
+    monkeypatch.setattr(relations_api, "_CACHE", {})
     [r] = rec.ask(rec.deps(tmp_path), {"source": "graph", "diagram": "dependency", "kind": "ticket"})
     return {**r, "id": "a"}
 

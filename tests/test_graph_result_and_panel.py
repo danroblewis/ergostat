@@ -31,6 +31,7 @@ from ergostat import model as mdl
 from ergostat.datasources import _frames
 from ergostat.query import frames, graphfit, graphs, parse
 from ergostat.store import Project
+from ergostat.web import relations_api
 from ergostat.web.server import Live, api
 
 T0 = 1_700_000_000.0
@@ -77,7 +78,10 @@ def ask(p, *queries, since=900.0, until=T0 + 3000) -> list[dict]:
 
 @pytest.fixture(autouse=True)
 def _fresh(monkeypatch):
+    """Each test starts with no kept answers: graphs.py's, and relations_api's, whose key holds id(spec), an id CPython
+    reuses once a test's spec is freed, and not precedence.py's caps; so a capped answer is never served to another."""
     monkeypatch.setattr(graphs, "_KEPT", {})
+    monkeypatch.setattr(relations_api, "_CACHE", {})
 
 
 def deps(tmp_path) -> Project:
