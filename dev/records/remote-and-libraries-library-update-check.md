@@ -77,9 +77,22 @@ Round 2, answering the one review finding (blocking; there were no others):
   suite and the four browser files (no page changed). Local main has nothing past this branch's base.
 Overrun reason: 261 net lines against a budget of 260; the one line over is the round-2 fix recording which parameters each use made, which the review asked for.
 
+Round 3, answering the one finding (blocking: a conflict with main in docs/AGENT-GUIDE.md; there were no others):
+
+- Merged main (d0f95413). The conflict was two paragraphs added at one place: main's `LIB/TEMPLATE` naming of a
+  fetched library's template, and this branch's *Before taking an update* paragraph. Both kept, as separate
+  paragraphs. No code conflicted; main's qualified-use change to library/fetched.py, uses.py and mcp.py merged clean.
+- The `## Entry` had no `section:` line, which dev/bin/gapsdoc.py refuses; it now says `section: Remote systems and
+  libraries`, and its bullet begins with the gap's full title, which is how the factory finds an entry.
+- Run after the merge: tests/test_library_update.py (10 passed); test_library_fetch.py, test_library_qualified.py,
+  test_templates.py (73 passed); ruff clean. Not run here: the whole unit suite and the four browser files (no page
+  changed).
+
 ## Entry
 
-- **An update to a library reviewed before it is taken** (SPEC §2a, *Before an update*): `ergostat library fetch NAME
+section: Remote systems and libraries
+
+- **An update to a library is reviewed before it is taken: what the new version breaks and changes** (SPEC §2a, *Before an update*): `ergostat library fetch NAME
   --update --dry-run` and the MCP `library_update` (name, version) fetch the candidate into a temporary folder under
   the libraries flock, never swapping it in or writing the lock, compile the model on both in memory, and report the
   commits, newer tags, templates added and removed, per use the parameters, defaults, exports, parts and values that
