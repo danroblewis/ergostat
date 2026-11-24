@@ -36,7 +36,6 @@ const whenMenu = menu(whenLabel(), () => {
     S.at ? { label: "Back to live", onclick: () => { S.at = null; showAt(); refreshHeader(); route(); } } : null,
   ];
 }, { right: true, title: "The window the page looks over, and the moment it shows" });
-$("#when").append(whenMenu);
 /* a window chosen: in the address (the Record's own window=1 kept), the page asked again with its panel left open */
 function setWindow(k) {
   S.since = k; S.graphSig = ""; showAt();
@@ -48,22 +47,28 @@ function showAt() {
   if (whenMenu.button.textContent !== whenLabel()) whenMenu.button.textContent = whenLabel();
   whenMenu.button.classList.toggle("past", !!S.at);
 }
-// the header's "N wait for you": the Diagram, at its "Waiting for you" (here at once, or once the page is drawn)
-$("#waits").addEventListener("click", () => { S.toWaiting = true; toWaiting(); });
 if (location.hash === "#waiting") S.toWaiting = true;
 window.addEventListener("hashchange", () => { if (location.hash === "#waiting") { S.toWaiting = true; toWaiting(); } });
 window.addEventListener("popstate", () => route());   // (no event as route's keep)               // back and forward
 window.addEventListener("hashchange", () => { if (HASHED || oldAddress()) route(); });   // a snapshot's route; an old #/ address
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") shutDetail(); });
-if (SNAP) {                                   // one moment, one window: nothing to slide or switch
-  for (const el of [$("#when"), $("#project")]) el.style.display = "none";
-  S.since = SNAP.since;
-} else if (Object.hasOwn(WINDOWS, parseRoute().q.get("window") || "")) { S.since = parseRoute().q.get("window"); showAt(); }   // a link's window
-(async () => {
-  await refreshHeader();
-  poll(refreshHeader, 5000);
-  oldAddress();                                                // #/items, an old address: shown at /items
-  const bare = HASHED ? !location.hash.startsWith("#/") : location.pathname === "/";
-  if (bare && window.innerWidth < 700) replaceRoute("/goals");    // on a phone, the goals first
-  route();
-})();
+/* the start, once the header is there: the shell's (app/shell.js) calls it once it has drawn the header; a snapshot or
+   a page opened from a file has no shell (no ES module there), so it starts at once on the header index.html has */
+function startPage() {
+  $("#when").append(whenMenu);
+  // the header's "N wait for you": the Diagram, at its "Waiting for you" (here at once, or once the page is drawn)
+  $("#waits").addEventListener("click", () => { S.toWaiting = true; toWaiting(); });
+  if (SNAP) {                                   // one moment, one window: nothing to slide or switch
+    for (const el of [$("#when"), $("#project")]) el.style.display = "none";
+    S.since = SNAP.since;
+  } else if (Object.hasOwn(WINDOWS, parseRoute().q.get("window") || "")) { S.since = parseRoute().q.get("window"); showAt(); }   // a link's window
+  (async () => {
+    await refreshHeader();
+    poll(refreshHeader, 5000);
+    oldAddress();                                                // #/items, an old address: shown at /items
+    const bare = HASHED ? !location.hash.startsWith("#/") : location.pathname === "/";
+    if (bare && window.innerWidth < 700) replaceRoute("/goals");    // on a phone, the goals first
+    route();
+  })();
+}
+if (HASHED) startPage();
