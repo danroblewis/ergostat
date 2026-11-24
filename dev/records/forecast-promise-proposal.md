@@ -145,6 +145,29 @@ proposal only:
   renewed over a quiet night. The Entry below was updated to match.
 - Still 0 net lines of code. Only ruff was run.
 
+Round 9: the one review finding answered (blocking; there were no others). A change of design, made in the
+proposal only:
+- Finding (`frozen.for` allowed down to `every`, so with `for` = `every` a renewed list lapsed while the next pass was
+  queued and simulating; after one missed pass the list lapsed a period before health's two-period alarm and was not
+  said; a block with a longer `every` than the schedule's period, renewed only on its own due pass, had the same edge;
+  the named test, `for: 2h` `every: 1h`, never reached it). Answered in §1 and §5:
+  - `frozen.for` now ranges 3 × `every` … 7 d: refused below at check (`bad-frozen`) and raised to 3 × `every` at run
+    time. A renewed list then reaches past the next two passes, so the seconds a pass waits (at most two `BUDGET`s)
+    leave no gap, one missed pass does not lapse it, and health's alarm at two periods comes a full period before the
+    lapse at three. The floor was chosen over tying health's alarm to each block's `for` (the finding's other option)
+    as the more reversible one; it is listed as a decision taken alone.
+  - Every good pass renews every frozen block's list, due or not, so a block with `every: 4h` on a 1 h schedule is
+    renewed hourly.
+  - A lapsed list is said at once: from its `until` the block's why says "frozen window lapsed at … (last good
+    standing pass …): plain order" and health reports it. §5's "said as below" now points at this point.
+  - §8: `test_unchanged_list_stays_in_force_past_for` becomes `for: 3h` (lapsed 3 h after passes stop); new
+    `test_one_missed_pass_does_not_lapse`, `test_lapse_said_at_once`, `test_block_renewed_by_every_pass` and
+    `test_for_below_three_every_refused`. frozen-windows 150 → 160 lines; seven gaps, about 1,080. §9.2's oven shows a
+    missed pass at 04:00 and the lapse said at 11:00. The Entry below was updated to match.
+- The figures (two `BUDGET`s of wait, the alarm a period before the lapse) are reasoned from the stated bounds, not
+  run or measured.
+- Still 0 net lines of code. Only ruff was run.
+
 ## Entry
 
 section: Modelling
@@ -156,8 +179,8 @@ section: Modelling
   date, a service level, extra started to cover loss); quotes of hypothetical items through the what-if path,
   writing nothing; standing runs on a bounded schedule, started by the runner and taken before page asks, for what
   must happen unwatched, each pass recorded as `standing.pass`; frozen windows as a term at the front of
-  `take_key`, renewed by each good pass, broken by urgent work and recorded;
-  calibration of recorded forecasts and promises beside the backtest; `/remote/v1/forecast` read by `forecast: true`
-  relations. Worked for a job shop with rework and a batch process with yield loss. *Left*: the seven build gaps of
-  its §8 (about 1,070 net lines), not yet filed; two owner's questions (whole-lot loss or yield inside a lot; a frozen
+  `take_key`, reaching at least three passes and renewed by each good pass, said at once when lapsed, broken by
+  urgent work and recorded; calibration of recorded forecasts and promises beside the backtest;
+  `/remote/v1/forecast` read by `forecast: true` relations. Worked for a job shop with rework and a batch process with
+  yield loss. *Left*: the seven build gaps of its §8 (about 1,080 net lines), not yet filed; two owner's questions (whole-lot loss or yield inside a lot; a frozen
   window refreshed hourly or only on request).

@@ -122,7 +122,10 @@ is open, and the forecasts recorded "as said" would sample only the moments some
   (or none was written within two periods of the runner's start), the engine's health reports it, and each frozen
   block's why says "last standing pass 3h ago (refresh every 1h)". When `standing.pass` cannot be read, health says
   so in the same way and the lists are read without their renewals (§5). The last list stays in force up to its
-  renewed `until` and lapses after it. A missed recorded pass is counted in the next pass's summary as `missed: n`.
+  renewed `until` and lapses after it. Since every pass renews every frozen block's list and `for` is at least three
+  times `every` (below), one missed pass never lapses a list, and health reports a late pass a full period before
+  any list can lapse. A list that lapses all the same is said at once (§5). A missed recorded pass is counted in the
+  next pass's summary as `missed: n`.
   It is never filled in afterwards, since a forecast made late is not what was said then.
 - **Page forecasts are never recorded.** Only standing passes write `forecast.made`, so the recorded sample is the
   schedule's and does not depend on who looked when.
@@ -133,7 +136,7 @@ is open, and the forecasts recorded "as said" would sample only the moments some
 | number | range | default | why it is bounded |
 |---|---|---|---|
 | `frozen.every` | 15 min … 1 d | 1 h | standing passes a day: at most 96 |
-| `frozen.for` | `every` … 7 d | 1 d | how far a list reaches |
+| `frozen.for` | 3 × `every` … 7 d | 1 d | how far a list reaches; at least three periods, so one missed pass never lapses it (§5) |
 | `frozen.most` | 1 … 200 | 100 | ids in one `block.frozen` event |
 | `forecast.record` | 1 h … 1 d | (none: off) | recorded passes a day: at most 24 |
 | items in one recorded pass | at most 200 | | the side file's growth (§6) |
@@ -284,8 +287,21 @@ blocks:
   `until` in force is the one named by the newest good `standing.pass` by `seq` that names it, and the list's own
   `until` when none does (a pass that wrote the list and stopped before its `standing.pass`, or `standing.pass` not
   readable). So while passes run, a steady list never lapses, however long it stays the same. When they stop, it
-  lapses `for` after the last good pass, and the block takes by its plain order, said as below. The renewal costs no
-  event of its own: it rides on the pass's one event.
+  lapses `for` after the last good pass, and the block takes by its plain order, said as in the next point. The
+  renewal costs no event of its own: it rides on the pass's one event.
+- **Every good pass renews every frozen block.** A block makes a new list only on its own due pass (every `every`),
+  but each good pass of the schedule, whose period is the shortest declared (§1), renews the list in force of every
+  frozen block, due or not. A block whose `every` is 4 h on a schedule of 1 h is renewed hourly.
+- **`for` is at least three times `every`** (§1, *Bounds*). A shorter `for` is refused at check (`bad-frozen`) and
+  raised to 3 × `every` at run time, the clamp that keeps more of the window rather than less. Then a list renewed
+  at a pass's `at` reaches past the next two passes: the seconds the next pass spends queued and simulating (at most
+  two `BUDGET`s, a page's run already under way and its own) leave no gap, and one missed pass does not lapse it.
+  Health reports a late pass when the newest good one is more than two periods old (§1), a full period before the
+  list lapses at three.
+- **A lapsed list is said at once.** From the moment a list's `until` in force passes without a newer list, the
+  block takes by its plain order and its why says "frozen window lapsed at 11:00 (last good standing pass 03:00):
+  plain order", and health reports it beside the late pass. It is never read as a window in force, and never left
+  for health's next alarm to find.
 - **What it adds to the record.** A new list is written only when its order or its members differ from the one in
   force; an unchanged pass writes only its `standing.pass`. At most one list per block per pass is written, so at
   worst 96 × 200 ids a day per block. The event is about the item `ergostat.frozen/BLOCK`, so the existing roll-up
@@ -398,7 +414,7 @@ on any of these, and none waits on it.
 | forecast-standing-runs | §1, *Standing runs*: `numbers/standing.py` started by the runner; the worker moved to `numbers/etaworker.py` with a `standing` job taken first and no idle exit while one is declared; the schedule's clamps; `standing.pass`; health's late or failed pass, from the newest good pass; `missed` | new `numbers/standing.py`; `numbers/etaworker.py` (moved from `web/eta_api.py`); `cli/running.py`; health | forecast-stable-result | 120 |
 | forecast-promises | §2: `promises:` schema and check (`promise-field-unknown`, `bad-promise`), date, quantity, level, the stock level from `closedloop.risk`; the Items tab's "at risk" in each row's why | `spec/`, `numbers/forecast.py`, `web/static/` (the row's existing why) | forecast-stable-result | 160 |
 | forecast-quotes | §4: quote items, per-item random streams (guarded by the backtest), the effect report, `extra` of §2, `ergostat quote`, dashed rows by address | `numbers/eta.py`, `numbers/etamodel.py`, `numbers/forecast.py`, `web/eta_api.py`, `relations.js` | forecast-promises | 170 |
-| frozen-windows | §5: `frozen:` schema and check with its bounds, the freeze in the standing pass, `block.frozen` written only when changed, its renewal through `standing.pass`, `block.frozen.broken`, the `take_key` term | `leases/ready.py`, `numbers/standing.py`, `spec/`, the dispatcher | forecast-standing-runs | 150 |
+| frozen-windows | §5: `frozen:` schema and check with its bounds, the freeze in the standing pass, `block.frozen` written only when changed, its renewal through `standing.pass`, `block.frozen.broken`, the `take_key` term, every pass renewing every block, the `for` floor of 3 × `every`, the lapse said at once | `leases/ready.py`, `numbers/standing.py`, `spec/`, the dispatcher | forecast-standing-runs | 160 |
 | forecast-calibration-recorded | §6: the side file and its keep, `forecast.made`, PIT and promise scoring, the second calibration clause, `calibrate: true`, `forecast-miscalibrated` | `numbers/etacheck.py`, `numbers/standing.py`, `relations.js` | forecast-promises, forecast-standing-runs | 160 |
 | remote-forecasts | §7: `/remote/v1/forecast`, the opt-in remote quote, `forecast: true` relations, the draw and the fail-closed read | `web/remote_api.py`, `remote/`, `numbers/etamodel.py` | forecast-stable-result | 160 |
 
@@ -421,8 +437,15 @@ Acceptance tests each gap must carry (named here so the definitions can take the
 - frozen-windows: `test_frozen_order_holds_against_a_later_arrival` (engine and simulation both);
   `test_urgent_breaks_and_is_recorded`; `test_unreadable_freeze_takes_plain_order`; `test_newest_list_by_seq`;
   `test_unchanged_list_writes_no_new_list` (only its `standing.pass`);
-  `test_unchanged_list_stays_in_force_past_for` (`for: 2h`, `every: 1h`, five unchanged passes: one `block.frozen`,
-  the list still in force at 5 h, and lapsed to the plain order 2 h after the passes stop);
+  `test_unchanged_list_stays_in_force_past_for` (`for: 3h`, `every: 1h`, five unchanged passes: one `block.frozen`,
+  the list still in force at 5 h, and lapsed to the plain order 3 h after the passes stop);
+  `test_one_missed_pass_does_not_lapse` (`for: 3h`, `every: 1h`, the pass at 1 h missed and the one at 2 h run late
+  by two `BUDGET`s: the list is in force throughout, and health is quiet until the newest good pass is two periods
+  old); `test_lapse_said_at_once` (passes stop: health reports the late pass at 2 h, and from the moment of the lapse
+  at 3 h the block's why says "frozen window lapsed" and health reports it, with no moment between where the list
+  is neither in force nor said); `test_block_renewed_by_every_pass` (a block with `every: 4h` on a schedule of 1 h,
+  set by `forecast: {record: 1h}`, is renewed by each hourly pass); `test_for_below_three_every_refused`
+  (`for: 2h`, `every: 1h` refused at check with `bad-frozen` and raised to 3 h at run time);
   `test_failed_pass_renews_nothing`; `test_frozen_lists_roll_up`.
 - forecast-calibration-recorded: `test_pit_coverage_on_a_calibrated_record` (coverage at 0.9 in [0.8, 1.0]);
   `test_below_level_only_past_wilson`; `test_calibrated_promise_moves_to_the_covering_level`;
@@ -431,7 +454,7 @@ Acceptance tests each gap must carry (named here so the definitions can take the
 - remote-forecasts: `test_remote_forecast_stale_is_not_scheduled`; `test_remote_draw_matches_ladder`;
   `test_remote_quote_off_by_default`.
 
-Seven gaps, about 1,070 net lines of code in total, plus tests. Order: the stable result first. Then standing runs
+Seven gaps, about 1,080 net lines of code in total, plus tests. Order: the stable result first. Then standing runs
 and promises in parallel. Then frozen windows (after standing runs), quotes (after promises) and recorded
 calibration (after both). Remote forecasts may follow the first gap at any time.
 
@@ -494,7 +517,10 @@ said before work starts, and not more lots.
 **Frozen window**: `frozen: {for: 8h}` on the oven keeps the next eight hours' loading order. A rush order's lots go
 ahead only with `urgent`, and are recorded when they do. When the loading order stays the same over a quiet night,
 one `block.frozen` is written at 18:00, and each hourly `standing.pass` renews it to its `at` + 8 h, so at 03:00 it
-is still in force (until 11:00), and health is quiet. If the runner stops at 03:00, the list lapses at 11:00. **Make-to-stock**, on the same model: the `shelf` stock's
+is still in force (until 11:00), and health is quiet. If the 04:00 pass is missed, the list is still in force and
+renewed by the 05:00 pass. If the runner stops at 03:00, health reports the late pass from 05:00, and the list lapses
+at 11:00, when the oven's why says so and the oven takes by its plain order. **Make-to-stock**, on the same model:
+the `shelf` stock's
 goal `shelf-never-empty` at level 0.95 reads `closedloop.risk`. It is kept when the share of closed-loop runs where
 the shelf is ever empty over the horizon is at most 5%.
 
@@ -527,6 +553,9 @@ declaration needed beyond the relations it already has.
 - An unchanged list is renewed by the pass's own `standing.pass` event rather than by a renewal event or by
   rewriting the list (§5). One small event a pass keeps lateness and renewal in one place, and dropping it later
   for a renewal written only near `until` stays possible.
+- `frozen.for` has a floor of 3 × `every`, rather than tying health's alarm to each block's `for`. A floor can be
+  lowered later without breaking a model that passed it, and one alarm for the schedule stays one rule. A `for`
+  below the floor is raised at run time, keeping more of the window rather than less.
 - The conformal correction is off unless a promise says `calibrate: true`.
 - Remote quotes are off unless the remote declares them.
 - Per-item random streams ship only if the existing backtest is unchanged within its spread.
