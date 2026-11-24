@@ -3014,7 +3014,8 @@ def test_the_diagram_is_one_tab_stop_that_remembers_the_part_last_on(browser, tm
 
 
 SPOKEN_UNIT = """() => {
-  const off = { 'users-at-180': { word: 'off', error: -28 }, 'located-worked': { word: 'off', error: -36 }, other: { word: 'holding' } };
+  const off = { 'users-at-180': { word: 'off', error: -28 }, 'located-worked': { word: 'off', error: -36 },
+                other: { word: 'holding' }, short: { word: 'off' } };
   S.status = { ...S.status, loops: off };
   const sd = { kind: 'dynamics', nodes: [
     { id: 'stock:users', kind: 'stock', label: 'users', valueText: '152', unit: 'users', systems: ['product'],
@@ -3026,7 +3027,10 @@ SPOKEN_UNIT = """() => {
     { id: 'auxiliary:churn', kind: 'auxiliary', label: 'churn', valueText: '2', unit: 'per day' },
     { id: 'decision:route', kind: 'auxiliary', role: 'decision', label: 'route' },
     { id: 'system:product', kind: 'system', label: 'product', description: 'what users get', loops: { holding: 2, off: 1 } },
-    { id: 'term:load', kind: 'terminal', role: 'shadow', label: 'load' }],
+    { id: 'term:load', kind: 'terminal', role: 'shadow', label: 'load' },
+    { id: 'gap:short', kind: 'auxiliary', role: 'gap', excess: true, goal: 'short', label: 'short excess', offBy: 'over by 4' },
+    { id: 'auxiliary:demand', kind: 'auxiliary', exogenous: true, label: 'demand', valueText: '40', unit: 'per hour' },
+    { id: 'term:ops', kind: 'terminal', role: 'stub', label: 'ops' }],
     edges: [{ id: 'p1', kind: 'pipe', source: 'cloud:signups:in', target: 'flow:signups', flow: 'signups' },
             { id: 'p2', kind: 'pipe', source: 'flow:signups', target: 'stock:users', flow: 'signups', causal: ['word of mouth'] },
             { id: 'c1', kind: 'connector', source: 'auxiliary:churn', target: 'gap:users-at-180', polarity: '+' }],
@@ -3045,7 +3049,14 @@ SPOKEN_UNIT = """() => {
       loops: ['located-worked', 'other'] },
     { id: 'pin', kind: 'port', role: 'in-port', label: 'demand' },
     { id: 'proc', kind: 'block', role: 'process', label: 'located', fn: { sym: 'P' } },
-    { id: 'y', kind: 'output', role: 'output', label: 'y located' }],
+    { id: 'y', kind: 'output', role: 'output', label: 'y located' },
+    { id: 'act', kind: 'block', role: 'actuator', label: 'judge', fn: { kind: 'judge' } },
+    { id: 'dist', kind: 'input', role: 'disturbance', label: 'd arrivals', fn: { sym: 'd' } },
+    { id: 'pout', kind: 'port', role: 'out-port', label: 'done' },
+    { id: 'zoh', kind: 'block', role: 'hold', label: 'ZOH', fn: {} },
+    { id: 'col', kind: 'block', role: 'collector', label: 'tickets seen', fn: { name: 'tickets seen', kind: 'collector' } },
+    { id: 'jn', kind: 'sum', role: 'junction', label: 'Σ queue', ins: [{ sign: '+' }, { sign: '+' }] },
+    { id: 'dmx', kind: 'demux', role: 'bus', label: 'bus', n: 2 }],
     edges: [{ id: 'e1', source: 'sum:located-worked', target: 'blk:k', signal: { sym: 'e', sub: 'located-worked', what: 'error' } }],
     frames: [{ id: 'casc:x', kind: 'frame', frame: 'cascade', label: 'located-worked' },
              { id: 'sys:intake', kind: 'frame', frame: 'system', label: 'intake' }] };
@@ -3056,7 +3067,8 @@ SPOKEN_UNIT = """() => {
 
 def test_each_views_name_function_speaks_every_part_kind_with_its_state_and_loops(browser, tmp_path):
     """Done items 2 and 4 of diagram-spoken-names: each view's name function (sdSpoken, bdSpoken) on a part of every
-    kind, an off goal's saying 'off' (the server's word), a stock its value and unit, a part its loops."""
+    kind (sdNodeKind's and BD_KINDS' each, and the lines and frames), with exact strings: an off goal's saying 'off'
+    (the server's word), a stock its value and unit, a part its loops, no part its name or kind twice."""
     with served("first-loop", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "view=dynamics", 0)
@@ -3071,6 +3083,9 @@ def test_each_views_name_function_speaks_every_part_kind_with_its_state_and_loop
             "decision route",
             "module product, what users get, 2 goals holding, 1 goal off",
             "shadow variable load",
+            "goal excess short, off, over by 4",
+            "exogenous input demand, 40 per hour",
+            "connector out to ops",
             "pipe of flow signups, from cloud to signups",
             "pipe of flow signups, from signups to users, in balancing loop word of mouth",
             "connector from churn to users gap, positive"], said["sd"]
@@ -3086,6 +3101,13 @@ def test_each_views_name_function_speaks_every_part_kind_with_its_state_and_loop
             "In port demand",
             "process P located",
             "output y located",
+            "actuator judge",
+            "disturbance input d arrivals",
+            "Out port done",
+            "zero-order hold (D/A) ZOH",
+            "collector (feedback path) tickets seen",
+            "summing junction of queue, plus plus",
+            "demux of 2 signals",
             "signal e located-worked, error, minus 36, off",
             "inner loop (cascade) of located-worked",
             "subsystem intake, open"], said["bd"]

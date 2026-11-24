@@ -1142,7 +1142,7 @@ function bdSpoken(x, g) {
     x.role === "comparator" ? "reference minus measurement"
       : x.kind === "sum" ? (x.ins || []).filter((p) => p.sign).map((p) => (p.sign === "+" ? "plus" : "minus")).join(" ") : fn.kind || fn.value,
     x.role === "subsystem" ? x.description : null, ...(x.loops || []).map(loop), x.alarm ? `alarm ${x.alarm}` : null];
-  return said.filter((w, i) => w && (i === 0 || w !== name)).join(", ");   // (never its name said twice)
+  return said.filter((w, i) => w && (i === 0 || w !== name && w !== x.role)).join(", ");   // (never its name or kind twice)
 }
 
 function openBlock(n) {
