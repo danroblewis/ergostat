@@ -226,6 +226,7 @@ async function openLoopNow(name, asController) {
     ].filter(Boolean).join("; ") : null],
     ["moves", Object.entries(lp.moves || {}).map(([f, r]) => `${f} ${rateText(r, "", f)}`).join(", ") || null],  // its own valves' only
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
+  if (lp.control_loop) kids.push(goalLoopsLine(name, lp));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
   kids.push(h("table", { class: "parts" }, tableCaption(`The parts along loop ${name}`), headRow(["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
     (lp.parts || []).map((pt) => h("tr", {}, h("td", {}, pt.kind), h("td", {}, h("b", {}, pt.name),
@@ -268,6 +269,17 @@ async function openLoopNow(name, asController) {
   }
   kids.push(h("p", {}, h("a", { href: `/diagram?around=loop/${encodeURIComponent(name)}` }, "Draw this loop alone")));
   showDetail(...kids);
+}
+
+/* a goal's loops in the other views: the feedback loops that close it (Dynamics) and its control loop (Blocks), each
+   a link that switches to that view with the loop chosen (openTool, review.js) */
+function goalLoopsLine(name, lp) {
+  const go = (text, how) => h("a", { href: "#", class: `goal-loop to-${how.view}`, onclick: (ev) => { ev.preventDefault(); openTool(how); } }, text);
+  const fl = lp.feedback_loops || [], cl = lp.control_loop;
+  const ctl = (n, _i, all) => (all.some(isController(name)) ? isController(name) : isComparator(name))(n);
+  return h("p", { class: "goal-loops" }, "Feedback loops: ",
+    fl.length ? fl.flatMap((c, i) => [i ? ", " : "", go(`${c.label} ${c.name}`, { view: "dynamics", causal: c.name })]) : h("span", { class: "muted" }, "none"),
+    " (Dynamics) · Control loop: ", go(cl.controllers.join(", ") || name, { view: "blocks", find: ctl, goal: name }), " (Blocks)");
 }
 
 /* a goal ahead, with the loops running (closedloop.py's Monte Carlo, in words by forecast_words.py), and a

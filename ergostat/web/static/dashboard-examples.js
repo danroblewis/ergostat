@@ -29,7 +29,7 @@ function dashFieldExamples(k) {
                     queries: pairs, display: { unit } });
   return out;
 }
-function dashFlowExamples(k, goals) {
+function dashFlowExamples(k, goals, source) {
   const stay = dashStayStates(k)[0];
   const out = [{ title: `${k.name}: items per state now`, form: "table", note: "Current count of each open state",
                  queries: [{ ...dashCount(k, "a", k.open, "items"), group_by: "state" }], display: { unit: "items", decimals: 0 } },
@@ -42,9 +42,10 @@ function dashFlowExamples(k, goals) {
                          { ...dashCount(k, "b", k.waiting, "waiting"), hidden: true }],
                display: { unit: "items", decimals: 0, x: { label: "waiting" } } });
   /* arrivals against completions is not an example of a response: nothing excites the arrivals, and their record seldom
-     supports one (dev/records/frequency-refuses-noise.md). The examples are a goal's declared process, when there is one */
-  if (!goals[0]) return out;
-  const model = { id: "a", source: "frequency", model: { goal: goals[0] } };
+     supports one (dev/records/frequency-refuses-noise.md). The examples ask the model data source for a goal's declared
+     process, when there is one (dev/records/model-data-source.md) */
+  if (!goals[0] || !source) return out;
+  const model = { id: "a", source: source.name, text: `goal ${goals[0]}` };
   out.push({ title: `${goals[0]}: the declared process, Bode`, form: "bode", note: "Gain and phase by frequency, from the model", queries: [model], display: {} },
            { title: `${goals[0]}: the declared process, Nyquist`, form: "nyquist", note: "The same response on the complex plane", queries: [model], display: {} },
            { title: `${goals[0]}: poles and zeros`, form: "pole-zero", note: "From the goal's declared process", queries: [model], display: {} });
@@ -53,7 +54,8 @@ function dashFlowExamples(k, goals) {
 /* rows of three, the last row filled */
 function dashExamples(k, fields, used) {
   const goals = fields?.sources?.frequency?.goals || [];
-  const made = [...dashFieldExamples(k), ...dashFlowExamples(k, goals)].filter((p) => !used.has(p.form));
+  const source = (fields?.datasources || []).find((s) => s.type === "model");
+  const made = [...dashFieldExamples(k), ...dashFlowExamples(k, goals, source)].filter((p) => !used.has(p.form));
   const left = made.length % 3;
   return made.map((p, i) => ({ ...p, size: left && i >= made.length - left ? (left === 1 ? "full" : "m") : "s" }));
 }

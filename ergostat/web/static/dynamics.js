@@ -348,8 +348,9 @@ function sdEdgeContent(e, pts, lay) {
   }
   const memo = sdMemo(lay), ck = `${e.source}>${e.target}:${pts.map((q) => `${q.x},${q.y}`).join(" ")}`;
   const c = memo.curves[ck] ||= sdCurve(pts, sdBlocked(lay, e));
-  out.push(Object.assign(s("path", { d: c.d, class: "info sd-connector" + (e.drivenBy ? " driven-by" : "") }), { poly: c.poly }));
-  out.push(arrowHead([c.tail, c.tip], "head sd-head", 7));
+  const drive = sdDrives(e) ? " sd-drive" : "";        // (full ink: the rest of the connectors take the ink's second tone)
+  out.push(Object.assign(s("path", { d: c.d, class: "info sd-connector" + drive + (e.drivenBy ? " driven-by" : "") }), { poly: c.poly }));
+  out.push(arrowHead([c.tail, c.tip], "head sd-head" + drive, 7));
   // its sign, or ? where its polarity is not known: placed beside its own head once all are drawn (sdPlaceSigns)
   out.push(s("text", { x: c.tip.x, y: c.tip.y, "text-anchor": "middle", class: "polarity" + (sdSign(e.polarity) ? "" : " unknown"),
                        "paint-order": "stroke", "data-edge": e.id }, sdSign(e.polarity) || "?"));
@@ -418,6 +419,15 @@ function sdPlaceSigns(root) {
     S.sdSignsAt = { key, at: best.at };
   }
   signs.forEach((t, i) => { const c = S.sdSignsAt.at[i]; t.setAttribute("x", c.x); t.setAttribute("y", c.y - c.dy); });
+}
+/* a goal's gap (or excess) into the flow it drives: the line that closes its loop, drawn as firmly as the pipe */
+const SD_BY_ID = new WeakMap();
+function sdDrives(e) {
+  const g = S.graph;
+  if (!g) return false;
+  if (!SD_BY_ID.has(g)) SD_BY_ID.set(g, Object.fromEntries(g.nodes.map((n) => [n.id, n])));
+  const by = SD_BY_ID.get(g);
+  return by[e.source]?.role === "gap" && ["valve", "disturbance"].includes(by[e.target]?.kind);
 }
 function sdPipeHead(pts, cls) {                         // a flow's head: hollow, as wide as the pipe and more, at its very end
   const a = pts[pts.length - 2], b = pts[pts.length - 1];
@@ -636,9 +646,11 @@ function sdLoopList(panel, g) {
   const known = sort(sdLoopGroups(g).flatMap((x) => x.loops));
   const unknown = sort(sdLoopGroups(g, null, true).flatMap((x) => x.loops).filter((c) => !c.polarity));
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
-  const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
+  const every = new Map([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => [c.name, c]));   // (one loop may run through two modules)
+  const closing = [...every.values()].filter((c) => c.goal).length;      // the reconciliation with the goals: those it closes
   // folded, its count in the summary (the legend comes first)
-  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
+  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Feedback loops", h("span", { class: "muted sd-loops-head" },
+    ` ${every.size}, ${closing} close${closing === 1 ? "s" : ""} a goal`)));
   panel.append(side);
   const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
@@ -669,17 +681,18 @@ const SD_LEGEND = {
   cloud: '<path d="M6 14 C1 14 1 8 6 8 C6 3 13 2 14 6 C17 3 23 5 21 9 C25 10 24 15 20 14 Z" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.1"/>',
   aux: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-ink)">name</text>',
   exo: '<text x="13" y="9" font-size="9" text-anchor="middle" fill="var(--sd-ink)">name</text><text x="13" y="17" font-size="6.5" font-style="italic" text-anchor="middle" fill="var(--sd-muted)">(exog.)</text>',
-  plus: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink)"/><text x="15" y="18" font-size="10" font-weight="700" fill="var(--sd-ink)">+</text>',
-  minus: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink)"/><text x="15" y="18" font-size="11" font-weight="700" fill="var(--sd-ink)">−</text>',
-  plain: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink)"/><text x="15" y="18" font-size="10" font-weight="700" fill="var(--sd-ink)">?</text>',
-  dashed: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink)" stroke-width="1.1" stroke-dasharray="4 3"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink)"/>',
+  plus: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink-2)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink-2)"/><text x="15" y="18" font-size="10" font-weight="700" fill="var(--sd-ink)">+</text>',
+  minus: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink-2)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink-2)"/><text x="15" y="18" font-size="11" font-weight="700" fill="var(--sd-ink)">−</text>',
+  plain: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink-2)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink-2)"/><text x="15" y="18" font-size="10" font-weight="700" fill="var(--sd-ink)">?</text>',
+  dashed: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink-2)" stroke-width="1.1" stroke-dasharray="4 3"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink-2)"/>',
+  tone: '<path d="M1 5 H25" stroke="var(--sd-ink)" stroke-width="2.2"/><path d="M1 13 H25" stroke="var(--sd-ink-2)" stroke-width="1.1"/>',
   loopR: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-ink)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-ink)">R</text>',
   loopB: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-ink)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-ink)">B</text>',
   loopQ: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-muted)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-muted)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-muted)">?</text>',
   module: '<rect x="2" y="2" width="22" height="14" rx="3" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.3"/>',
   sector: '<rect x="1" y="1" width="24" height="16" rx="3" fill="var(--sd-hull)"/><text x="3" y="7" font-size="5" fill="var(--sd-muted)">NAME</text>',
-  stub: '<path d="M1 9 H17" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink)"/><text x="21" y="12" font-size="8" fill="var(--sd-muted)">x</text>',
-  shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-muted)">&lt;x&gt;</text>',
+  stub: '<path d="M1 9 H17" stroke="var(--sd-ink-2)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink-2)"/><text x="21" y="12" font-size="8" fill="var(--sd-ink-2)">x</text>',
+  shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-ink-2)">&lt;x&gt;</text>',
   nounit: '<text x="13" y="13" font-size="8" text-anchor="middle" fill="var(--sd-muted)">unit ?</text>',
   off: '<rect x="1" y="1" width="24" height="16" rx="2" fill="none" stroke="var(--bad)"/><text x="13" y="8" font-size="6.5" text-anchor="middle" fill="var(--sd-ink)">gap</text><text x="13" y="15" font-size="5.5" font-weight="600" text-anchor="middle" fill="var(--bad)">off by 3</text>',
   nofeedback: '<text x="13" y="9" font-size="9" text-anchor="middle" fill="var(--sd-ink)">gap</text><text x="13" y="17" font-size="6" font-style="italic" text-anchor="middle" fill="var(--sd-muted)">→ no fb</text>',
@@ -707,6 +720,7 @@ function sdLegend() {
     row("minus", "connector, −: the cause rises, the effect falls below what it would have been"),
     g.edges.some((e) => e.kind === "connector" && !e.polarity) && row("plain", "connector, ?: the polarity is not known"),
     g.edges.some((e) => e.drivenBy) && row("dashed", "connector, dashed: a cause declared with driven-by, not a formula"),
+    g.edges.some((e) => e.kind === "connector") && row("tone", "a lighter line: information, not material (a goal's gap into the flow it drives stays full ink)"),
     pols.has("R") && row("loopR", "reinforcing loop: a change comes back amplified"),
     pols.has("B") && row("loopB", "balancing loop: a change comes back opposed (it seeks a desired level)"),
     has((n) => n.kind === "system") && row("module", "module: a system closed; its connection points are what crosses its edge (Open draws its parts in place; Into draws it alone)"),
@@ -737,10 +751,12 @@ function sdExportItems() {
     const kept = g.edges.filter((e) => sdFlowLinks(g).has(e.id)), has = (k) => g.nodes.some((n) => n.kind === k);
     return [has("stock") && ["stock", "stock"], kept.some((e) => e.kind === "pipe") && ["flow", "flow"], kept.some((e) => e.twoWay) && ["biflow", "biflow"],
             has("cloud") && ["cloud", "source / sink"], kept.some((e) => e.kind !== "pipe" && e.polarity === "+") && ["plus", "connector +"],
-            kept.some((e) => e.kind !== "pipe" && e.polarity === "-") && ["minus", "connector −"]].filter(Boolean);
+            kept.some((e) => e.kind !== "pipe" && e.polarity === "-") && ["minus", "connector −"],
+            kept.some((e) => e.kind !== "pipe") && ["tone", "a lighter line: information, not material"]].filter(Boolean);
   }
   return [["stock", "stock"], ["flow", "flow"], g.edges.some((e) => e.twoWay) && ["biflow", "biflow"], ["cloud", "source / sink"],
           ["aux", "auxiliary"], g.nodes.some((n) => n.exogenous) && ["exo", "exogenous"], ["plus", "connector +"], ["minus", "connector −"],
+          ["tone", "a lighter line: information, not material"],
           ["loopR", "reinforcing"], ["loopB", "balancing"]].filter(Boolean);
 }
 
@@ -959,6 +975,7 @@ function openCausal(name) {
   const rows = c.around || [], minus = rows.filter((r) => r.sign === "-").length, unsigned = sdUnsigned(c);
   showDetail(h("div", { class: "kind" }, `Feedback loop, ${word}`),
     h("h2", {}, h("span", { class: `loop-tag pol-${pol || "unknown"}` }, pol ? c.label : "?")), h("div", { class: "subtitle" }, c.name),
+    c.goal ? h("p", { class: "serves" }, "Serves goal ", h("a", { href: "#", class: "goal-link", onclick: (ev) => { ev.preventDefault(); openLoop(c.goal); } }, c.goal)) : null,
     h("p", {}, pol ? `${minus} negative link${minus === 1 ? "" : "s"} around it: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
       : unsigned.length ? `No sign on ${unsigned.map((r) => `${r.fromName} → ${r.toName}`).join(", ")}, so whether it reinforces or balances is not known.`
       : `Its links' signs (${minus} negative) and the model's ${c.polarity ? `${c.polarity === "R" ? "reinforcing" : "balancing"} disagree` : "not knowing differ"}, so it is not called either.`),
