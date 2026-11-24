@@ -7000,7 +7000,9 @@ flows:
 
 def queued(tmp_path: Path, monkeypatch) -> Path:
     """The queue model, and two hours of record as the world ran it with k = 3 (an hour is under three of
-    the queue's time constant, 30 minutes: too little to propose a value from)."""
+    the queue's time constant, 30 minutes: too little to propose a value from). Each arrivals reading is the rate
+    over the 30 s up to it, as a sensor reads a rate: read as the rate over the 30 s after it, arrivals reach the
+    queue a reading late, and the residual finder rightly proposes a delay on them (hidden.py)."""
     from ergostat import model as mdl
     from ergostat.store import Project
     d = tmp_path / "queue"
@@ -7011,10 +7013,10 @@ def queued(tmp_path: Path, monkeypatch) -> Path:
     now, q = time.time(), 0.0
     for i in range(241):
         a = 10 + 5 * ((i // 20) % 2)
+        for _ in range(30 if i else 0):
+            q += (a - 3 * q) / 3600
         p.measurements.add("sensor/queue.main", q, at=now - 7200 + i * 30)
         p.measurements.add("sensor/arrivals.main", a, at=now - 7200 + i * 30)
-        for _ in range(30):
-            q += (a - 3 * q) / 3600
     return d
 
 
@@ -7086,7 +7088,7 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         assert entry.locator("h3").inner_text() == "A parameter's value"            # the kind of change, its title
         entry.get_by_role("button", name="Effect and diff").click()
         prop = entry.inner_text()
-        assert "k: 2 1/h → 3" in prop and "value: 2" in prop and "Accept" in prop, prop
+        assert re.search(r"k: 2 1/h → (3|2\.99\d*|3\.0\d*) ", prop) and "value: 2" in prop and "Accept" in prop, prop
         # its valve's panel offers it too; accepted there, the file says the new value, its comment kept
         drawn(pg, url, "view=dynamics", 1)
         pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'flow:served'))")
