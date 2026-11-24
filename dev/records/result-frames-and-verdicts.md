@@ -261,6 +261,25 @@ In that merge main changed `panels.js` by 107 lines, so I ran the page tests aga
 
 Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
 
+### Round 7
+
+The finding was the same as before: conflicts with main in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. In
+this clone there are none to resolve. Local `main` is b9341591, which is the merge-base, `git merge main` says "Already
+up to date", and no conflict markers are left in the tree. If the queue's main has moved past b9341591, this clone
+can't see that commit. Whoever merges it should keep both sides, as round 3 did. The branch's change to the two files
+is still the one recorded in round 6.
+
+Round 6 said it rewrapped a line of *Histograms*, but one line there was still over the paragraph's width. In this
+round it is rewrapped, with no words changed. No code changed. Outside tests, docs and dev the branch is still 388
+lines added and 59 removed.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62).
+- Browser, rc 0: test_result_frames_page with test_result_shapes_page (13).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently
