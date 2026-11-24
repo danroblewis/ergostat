@@ -106,20 +106,51 @@ The owner's rule: general parts go in core, off unless declared, naming no gaps 
   refuses a name not in it (`unknown-proof`), a name listed twice, and anything that is not a list of strings
   (`bad-proofs`, refused at the key and never read as empty, lesson-3). A proof removed from the allowlist by its
   hardening gap gives `proof-hardened` (a note, not a refusal), so a model that still names it keeps working.
-- **`most_in_state`** on a kind: `{STATE: DURATION}`, from 1 h to 30 d. The time since an item's latest move into
-  that state is said as `in_state_hours`, and `over_limit` is set once it passes the limit. The latest move is chosen
-  by the record's `seq`, not by time stamps (lesson-2). Both are readings a goal may hold; core acts on neither.
-  `check` refuses a state the kind lacks, a duration outside the range, and a value that is missing or not a duration.
-  The factory uses it for the time limit (section 2). It is general: any model may cap the time an item waits in a
-  state.
+- **`clock_from`** on a kind: a list of states, at most 8. For each listed STATE, every item that has ever moved into
+  it gets the reading `hours_since.STATE`: the hours from its **first** move into STATE to now. The first move is the
+  one with the lowest record `seq`, not the earliest stamp (lesson-2); only the hours are taken from that event's
+  stamp. The clock does not restart when the item leaves the state and comes back, and it keeps counting after the
+  item leaves. An item never in STATE has no reading (absent, never 0, lesson-3). Core sets no limit and acts on
+  nothing: the reading is a number a goal or a block may compare against whatever it likes. `check` refuses a state the
+  kind lacks, a list over 8, a state listed twice, and a value that is not a list of state names (`bad-clock-from`,
+  refused at the key, never read as empty). It is general: any model may ask how long an item has been under way
+  since it first reached a state.
+
+  Core deliberately does not hold the limit. One kind-wide duration gives one threshold per state, and the factory
+  needs three per item (a trigger, a limit, and a limit that one item's extension changes, section 2). Limits per item
+  are the model's own fields, compared by the model's own block.
 
 Everything else is the factory's: what a proof is, the checks, the chain and the revert. Core never knows about git.
 
 ## 2. The time limit on main
 
-**Settled: 72 hours from the proof's merge on main to the merge of its last hardening gap**. This is the factory's
-model parameter `proof-hours`, with a ceiling of 336 (lesson-4), held through `most_in_state: {proven: 72h}` on the
-gap kind. A landed proof moves to the state `proven` and leaves it for `merged` when its chain is merged.
+**Settled: 72 hours from the proof's first merge on main to the merge of its last hardening gap**. This is the
+factory's model parameter `proof-hours`, with a ceiling of 336 (lesson-4). A landed proof moves to the state `proven`
+and leaves it for `merged` when its chain is merged.
+
+**The clock.** It starts at the proof's **first** `gap.merged`, chosen by `seq`, and never restarts. It is read from
+core's `clock_from: [proven]` on the gap kind (1c) as `hours_since.proven`. A proof that breaks main, is reverted, goes
+back to fix and lands again moves into `proven` a second time, but its clock still counts from the first landing. So a
+proof that keeps breaking main runs out of time, which is the point of the limit.
+
+**The limits, per proof.** Each proof carries two fields of its own, written by the factory and never by core:
+
+| Field | Written by | Value |
+|---|---|---|
+| `proof_limit_hours` | the queue, in the same write as the proof's first `gap.merged` | `proof-hours` as it is then (72) |
+| `proof_extended_hours` | the inbox's `proof-extend` answer, once | 1 to 72; absent until extended |
+
+The factory's program block `proof-clock` (no AI) runs on the pipeline's beat. It looks at each gap that has an
+`hours_since.proven` reading (it has landed as a proof at least once) and is not yet `merged`, `parked` or `dropped`.
+That includes a proof sent back to fix after a red run. For each, it reads `hours_since.proven` and the two fields, and
+works out:
+
+- `limit = proof_limit_hours + proof_extended_hours` (the second counted as 0 only when absent; present and not a
+  number is unreadable);
+- `due = limit - proof_limit_hours / 3`, so 48 h for an unextended proof and 120 h after a full extension.
+
+Keeping `proof_limit_hours` on the item means that changing `proof-hours` in the model later does not move a running
+proof's limit.
 
 Why 72 h:
 
@@ -133,20 +164,32 @@ Why 72 h:
 
 What happens at the limit:
 
-- **At 2/3 (48 h)**, the pipeline manager is triggered (`proof-due`, read from `over_limit` on a limit of 48 h).
-  It may move the chain up, ask the owner, or do nothing.
-- **At 72 h with the chain not all merged**, the program block `proof-expire` reverts the proof and every hardening
+- **At `due` (48 h unextended)**, `proof-clock` triggers the pipeline manager with `proof-due`. It may move the chain
+  up, ask the owner, or do nothing. The trigger is keyed by the proof and the `limit` it was raised for, so it fires
+  once per limit: an extension raises a new `proof-due` at the new `due`, and a later beat does not raise the same
+  one again (lesson-5).
+- **At `limit` (72 h unextended) with the chain not all merged**, `proof-clock` reverts the proof and every hardening
   gap that has landed. It uses the verification lane's revert (section 3), so the same `Reverted-tip:` commits are
-  made, under the same lock, through the same gated push. The proof gap is parked with the reason `expired`. Its
-  open hardening gaps are parked too, not dropped, so the chain can be continued.
-- **Extending.** The owner may extend the limit once, by up to 72 h, through the inbox (`proof-extend`). A second
-  extension is refused. A proof the owner wants to keep longer must be hardened, or rebuilt later as an ordinary gap.
-- **Unreadable.** A proof whose merge time or chain cannot be read is neither passed nor reverted. It raises an
-  intervention (lesson-3: never fine). A revert is reversible (`verify.reapplied()` brings a reverted gap back
-  whole), but it is not made on a guess.
+  made, under the same lock, through the same gated push. Inside that lock, before reverting, it reads the item's
+  fields and `hours_since.proven` again and reverts only if they still say the limit has passed, so an extension
+  answered between the beat's read and the revert wins (lesson-1). A proof that is already off main at its limit,
+  having been reverted by a red run and not yet landed again (`taken_out()`), has nothing of its own to revert. Its
+  landed hardening gaps, if any, are reverted as above. The proof gap is parked with the reason `expired`. Its open
+  hardening gaps are parked too, not dropped, so the chain can be continued.
+- **Extending.** The owner may extend the limit once, by 1 to 72 h, through the inbox (`proof-extend`). The answer
+  writes `proof_extended_hours` under the same lock as the revert, and is refused if the field is already present (a
+  second extension) or the proof is already `expired`. A proof the owner wants to keep longer must be hardened, or
+  rebuilt later as an ordinary gap.
+- **Unreadable.** A proof whose `hours_since.proven` is absent, whose `proof_limit_hours` is absent, not a number or
+  over the ceiling, or whose `proof_extended_hours` is present but not a number from 1 to 72, or whose chain cannot be
+  read, is neither passed nor reverted. It raises an intervention (lesson-3: never fine). A revert is reversible
+  (`verify.reapplied()` brings a reverted gap back whole), but it is not made on a guess.
 
-A reverted proof that comes back (continued from `parked`) lands again through `reapplied()`, and its clock starts
-again from that merge (`seq` of the new `gap.merged`).
+**Coming back.** A proof reverted because it broke main (section 3a) goes back to fix and lands again through
+`reapplied()`. Its clock keeps counting from the first landing. A proof reverted at its limit does **not** land again
+as a proof: if its clock were kept it would be expired again at once, and if it were restarted the limit would mean
+nothing. The owner may have it rebuilt as an ordinary gap (a new definition without `proof:`, the full review before
+main), or continue its parked chain, whose `-hardened` gap then takes the proof's diff in with its own.
 
 ## 3. Scheduled bisection and revert, and work that depends on a proof
 
@@ -158,8 +201,9 @@ lane verifies it on its next 10-minute turn, in a short window. A short window m
 one or two merges is settled in one round of `first_red`, not the several that a 1,500-line window can take.
 
 Red and the proof is the culprit: it is reverted with its dependents (3b) and goes back to fix with the failing
-tests, as any culprit does (`gap.queue-failed`). Its clock keeps running. The time limit is for the whole chain, so a
-proof that keeps breaking main runs out of time.
+tests, as any culprit does (`gap.queue-failed`). Its clock keeps running from its first landing (section 2: it is
+read from the first move into `proven` by `seq`, which a second landing does not restart). The time limit is for the
+whole chain, so a proof that keeps breaking main runs out of time.
 
 Red and a later merge broke the proof's tests: that merge is the culprit and is reverted, as for any regression. The
 proof's tests are main's tests once it has landed (the owner: tests exist for regressions). This is what the control
@@ -193,7 +237,7 @@ merge-first-verify-after's next round, or a gap of its own (section 5, gap 0).
 
 ### 3c. Reverting at the time limit
 
-A revert at the time limit is the same revert, made by `proof-expire` instead of by a red run. Its commits carry
+A revert at the time limit is the same revert, made by `proof-clock` instead of by a red run. Its commits carry
 `Expired: gap/NAME` instead of `Failing:`. `escapes.py` counts it as no escape (main was not red), the same way it
 skips `Stacked-on:`. After it, the lane verifies again (`again`), as after any revert.
 
@@ -213,7 +257,7 @@ build gap was amended to something smaller instead of building the coupling and 
 
 **What a proof costs that building once does not.**
 
-- Code on main that is not reviewed, for up to 72 h. The control spike's named-only test cost two follow-up gaps
+- Code on main that is not reviewed, for up to 72 h (144 h with the one extension). The control spike's named-only test cost two follow-up gaps
   (ceiling $20 each), a fix round for a gap it held (forecast-promise-proposal, up to $20) and two interventions for
   the coordinator. The tests-run-always rule is meant to turn that into one verification that blames the right merge.
 - The rule checks and the chain's blocks to maintain (section 5).
@@ -240,24 +284,33 @@ Each item below is a gap. All are off until declared, and switching them on is t
    from `stacked_on`, `depends-on` and `hardens`, not from branch ancestry, with a test in which a gap merges main
    after the culprit landed and stays on main (section 3b). This is needed before anything below. If
    merge-first-verify-after's review takes it as a finding, this gap is not needed.
-1. **core-most-in-state** (ergostat/, about 120 lines plus tests): `most_in_state` on a kind, the readings
-   `in_state_hours` and `over_limit` in the Items API and on the item's row, the `check` refusals, and SPEC §5a.
-   Tests: the latest move is chosen by `seq` and not by stamps; each refusal; the limits at and past the ceiling.
+1. **core-clock-from** (ergostat/, about 90 lines plus tests): `clock_from` on a kind, the reading `hours_since.STATE`
+   in the Items API and on the item's row, the `check` refusals, and SPEC §5a. Tests: the first move is chosen by
+   `seq` and not by stamps (a later event with an earlier stamp does not move it); leaving the state and coming back
+   does not restart the clock; an item never in the state has no reading; each refusal; a list of 8 and of 9.
 2. **core-proofs-option** (ergostat/, about 80 lines plus tests): the `proofs:` key, `model.proof()`, the allowlist in
    `ergostat/proofs.py` (empty when it lands), the `check` refusals and the `proof-hardened` note, SPEC.
-3. **factory-proof-path** (dev/bin and dev/model, about 350 lines plus tests):
-   - `proof:` in a definition, and the state `proven` and the relation `hardens` on the gap kind;
+3. **factory-proof-path** (dev/bin and dev/model, about 380 lines plus tests):
+   - `proof:` in a definition, and the state `proven`, the relation `hardens` and `clock_from: [proven]` on the gap
+     kind;
    - the rule checks of 1a and 3b.3 in the implementor's and the queue's checks (the flag, the hook lines, tests run
      always, the Hardening list, nothing outside the chain using a proven proof);
-   - the queue landing a proof on `verify.quick` and making the lane due at once;
-   - the blocks `harden-open` and `proof-expire` (through `verify.revert`, `Expired:`);
-   - the 48 h trigger for the pipeline manager;
-   - the inbox's `proof-extend`;
+   - the queue landing a proof on `verify.quick`, writing `proof_limit_hours` with its first `gap.merged`, and making
+     the lane due at once;
+   - the block `harden-open`, and the block `proof-clock`: `due` and `limit` per proof from its fields, the
+     `proof-due` trigger once per limit, and the revert at the limit (through `verify.revert`, `Expired:`) after
+     reading again inside the lane's lock;
+   - the inbox's `proof-extend`, writing `proof_extended_hours` once, under the same lock;
    - `[proofs] hook_lines` in dev/factory.toml, and `proof-hours` in dev/model/landing.yaml.
 
    Tests on the fixture repo: a proof lands with no AI review and its chain is opened; one over the hook lines is
-   refused; a proof expired at the limit is reverted with its landed hardening gap and comes back whole; a gap outside
-   the chain using the proof's module is refused; an unreadable merge time raises an intervention and reverts nothing.
+   refused; a proof that is reverted as a culprit and lands again keeps its first clock and is reverted at 72 h from
+   its first landing; `proof-due` is raised at 48 h and not again at the next beat; an extended proof (+72 h) is not
+   reverted at 72 h, gets `proof-due` at 120 h and is reverted at 144 h; a second extension is refused; an extension
+   answered between the beat's read and the revert stops the revert (the competing write put in that gap); a proof
+   expired at the limit is reverted with its landed hardening gap and is not landed again as a proof; a gap outside
+   the chain using the proof's module is refused; an absent clock, an absent or non-number `proof_limit_hours`, and a
+   non-number `proof_extended_hours` each raise an intervention and revert nothing.
 4. **proof-measures** (dev/model/measures.yaml and dev/bin/measure.py, about 60 lines): `proofs-hardened`,
    `proofs-dropped`, `proofs-expired`, `proofs-reverted`, and the chain's AI cost per merged net line (section 4).
 
