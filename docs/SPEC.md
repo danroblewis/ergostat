@@ -203,12 +203,21 @@ for an untrusted template only; a trusted template's output is unchanged:
   answer that carries a mark, a refusal's or a bad-param's included, ends with what the markers mean once (`check`'s
   last line; `"untrusted"` in a JSON answer). The owner's parts and those of trusted and built-in templates are not
   marked, even where their text is the same as a library's, and an answer with no
-  untrusted part or mark in it is unchanged.
+  untrusted part or mark in it is unchanged;
+- the diagrams (Dynamics and Blocks), from the same `Shown`. The graph answer (`/api/graph`, and so a snapshot
+  page) gives each node that is such a part, or a closed system box of such an instance, `untrusted`: its template's
+  name, escaped (`""` when its instance is gone from `uses`). A node stands for the part it is first (`corr`), never
+  for a region it only holds, so the owner's parts and a multi-input process box are not marked. The page says it in
+  words, never by colour alone: the box's title and its accessible name end `untrusted library, template NAME`, set
+  only as text. In the Blocks view's own text (each block's `says` and `rows`, which its panel and the loops' export
+  write), such a part's description is marked whole, its name marked wherever it stands as a word, and a first row
+  `untrusted library` holds its name, marked; a system's description, closed or open, is marked as well.
 
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
 known types); a finding's `about` and `id` in JSON, and the keys of the MCP `status` answer (a goal by its name):
 references, kept as they are so the thing can be named back; a library's description or command quoted in a finding
-about an owner's part (only the untrusted names in it are marked); the diagrams; and the MCP `spec` answer, which is
+about an owner's part (only the untrusted names in it are marked); a diagram box's drawn label, and the Dynamics
+view's own text (its boxes say they are untrusted instead); and the MCP `spec` answer, which is
 the format's document and holds none of the model's text; and an untrusted instance's own name, which the owner
 wrote under `uses:` (its system's description is marked). A held chain's `ask`, `prompt`, `query` and `sources` are gated by
 who wrote them instead (R3, below).
