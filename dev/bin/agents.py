@@ -6,10 +6,13 @@ risk is much lower"). What a session's container is given, and nothing else:
   its own with no network), fetched into the factory's drop repository (``<live>/drop.git``), never the owner's;
 - **the network to the Anthropic API alone**: the container is on an internal Docker network (no route out) whose
   only way out is the egress proxy (dev/agent/egress.py, its own container), which tunnels to [agents] hosts on 443;
+  a researcher's alone is on a second one, ergostat-research, whose proxy also reaches [agents] research_hosts
+  (default "*": any host whose addresses are all public) for its WebFetch and walker (lane());
 - **its transcript's folder**: one folder of its own (sessions.py), mounted as Claude Code's projects folder
   (/home/dev/.claude/projects), read-write, so the session's own file is kept (copied, the token scrubbed, into
   run/sessions/); nothing else of the host's home;
-- **its pictures' folder** (an implementor's or a designer's only): run/shots/<session>/, read-write at /shots;
+- **its pictures' folder** (an implementor's, a designer's or a researcher's only): run/shots/<session>/, read-write
+  at /shots;
 - **one secret, the session token**: read from [agents] token_file (mode 600, written by the owner from
   `claude setup-token`), given as CLAUDE_CODE_OAUTH_TOKEN at `docker run` by name (never in the command line, a log
   or an error), and nothing else of the host's environment: no home, no ERGOSTAT_*, no other variable;
@@ -33,6 +36,7 @@ from pathlib import Path
 import fac
 
 NET, PROXY, PORT = "ergostat-agents", "ergostat-egress", 3128
+RESEARCH_NET, RESEARCH_PROXY = "ergostat-research", "ergostat-egress-research"   # the researcher's alone (lane())
 DENY = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(git stash:*)", "Bash(curl:*)",
         "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch"]
 NAMED = "uv run python scripts/named_tests.py"   # (an allowlist: 1 to 3 named test files, no options; never a suite)
@@ -51,7 +55,7 @@ SEE = ["Bash(uv run python scripts/demo_up.py:*)",                       # a dem
        "Bash(uv run --with playwright==1.63.0 python scripts/walk.py:*)"]  # its pages walked in Chromium
 TOOLS["implementor"] += SEE
 TOOLS["designer"] = TOOLS["reviewer"] + SEE   # (read-only, like the reviewer: its pictures go to /shots alone)
-LOOKERS = ("implementor", "designer")         # the roles given a pictures folder, run/shots/<session>/ at /shots
+LOOKERS = ("implementor", "designer", "researcher")   # the roles given a pictures folder, run/shots/<session>/ at /shots
 WEB = "ergostat/web/"                         # an implementor whose brief names it gets designer_cpus
 LOOK = ("\n\n# Seeing a page\n\nStart a demo with `uv run python scripts/demo_up.py start DEMO` (and stop it after), "
         "walk it with `uv run --with playwright==1.63.0 python scripts/walk.py STEPS --shots /shots`: always pass "
@@ -88,8 +92,8 @@ LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", 
 SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
 TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
              join_judge=TOOLS["reviewer"], pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
-             researcher=TOOLS["reviewer"] + ["WebSearch"])      # all read-only: only the implementor writes; WebSearch is
-                                                                 # run by the API itself
+             researcher=TOOLS["reviewer"] + ["WebSearch", "WebFetch", SEE[1]])   # all read-only: only the implementor
+# writes. WebSearch is run by the API itself; WebFetch and the walker go out through the researcher's own proxy (lane())
 
 
 class Refused(RuntimeError):
@@ -101,6 +105,23 @@ def settings(cfg: dict) -> dict:
     return {"image": a.get("image", "ergostat-agent:latest"), "hosts": list(a.get("hosts") or ["api.anthropic.com"]),
             "token_file": Path(os.path.expanduser(a.get("token_file", "~/.config/ergostat/claude-token"))),
             "proxy_image": a.get("proxy_image", "ergostat-dev:latest")}
+
+
+HOST = re.compile(r"\*|(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9]([A-Za-z0-9-]{0,61}"
+                  r"[A-Za-z0-9])?")
+
+
+def lane(cfg: dict, role: str) -> tuple[str, str, list[str]]:
+    """(the network, its proxy, the hosts the proxy allows) of a role's sessions: the researcher's own
+    (ergostat-research: [agents] hosts and research_hosts), every other role's the first (hosts alone). A
+    research_hosts that is not a list of host names (or "*": any public host) refuses the researcher's session."""
+    hosts = settings(cfg)["hosts"]
+    if role != "researcher":
+        return NET, PROXY, hosts
+    web = (cfg.get("agents") or {}).get("research_hosts", ["*"])   # (absent: any; [] is the API alone, never "any")
+    if not isinstance(web, list) or not all(isinstance(h, str) and HOST.fullmatch(h) for h in web):
+        raise Refused(f"[agents] research_hosts = {web!r}: a list of host names, or [\"*\"] for any public host")
+    return RESEARCH_NET, RESEARCH_PROXY, list(dict.fromkeys(hosts + [h.lower() for h in web]))
 
 
 def session_cpus(a: dict, key: str = "session_cpus", default: str = "") -> str:
@@ -159,30 +180,37 @@ def docker(*args: str, check: bool = True, timeout: int = 120) -> subprocess.Com
     return r
 
 
-def egress(cfg: dict) -> None:
-    """The internal network and the egress proxy on it, started when not running (under a lock: two sessions starting
-    together never race to create them)."""
+def egress(cfg: dict, role: str = "implementor") -> None:
+    """The role's internal network and the egress proxy on it (lane()), started when not running, or started again
+    when running with other hosts than the settings' (under one lock: two sessions starting together never race to
+    create them)."""
     import fcntl
     with open(fac.run_dir(cfg) / "egress.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            _egress(cfg)
+            _egress(cfg, *lane(cfg, role))
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def _egress(cfg: dict) -> None:
-    if docker("network", "inspect", NET, check=False).returncode:
-        docker("network", "create", "--internal", NET)
-    got = docker("inspect", "-f", "{{.State.Running}}", PROXY, check=False)
-    if got.stdout.strip() == "true":
-        return
-    docker("rm", "-f", PROXY, check=False)
-    s = settings(cfg)
-    docker("run", "-d", "--name", PROXY, "--restart", "unless-stopped", "--network", "bridge", "--cap-drop", "ALL",
-           "--security-opt", "no-new-privileges", "-v", f"{fac.HERE / 'agent'}:/egress:ro", s["proxy_image"],
-           "python3", "/egress/egress.py", str(PORT), *s["hosts"])
-    docker("network", "connect", NET, PROXY)
+def proxy_args(port: int, hosts: list[str]) -> list[str]:
+    return ["python3", "/egress/egress.py", str(port), *hosts]
+
+
+def _egress(cfg: dict, net: str, proxy: str, hosts: list[str]) -> None:
+    if docker("network", "inspect", net, check=False).returncode:
+        docker("network", "create", "--internal", net)
+    want = proxy_args(PORT, hosts)
+    got = docker("inspect", "-f", "{{.State.Running}} {{json .Config.Cmd}}", proxy, check=False)
+    running, _, args = got.stdout.strip().partition(" ")
+    with contextlib.suppress(ValueError):
+        if running == "true" and json.loads(args) == want:      # (its hosts as set now: a narrowed list is obeyed)
+            return
+    docker("rm", "-f", proxy, check=False)
+    docker("run", "-d", "--name", proxy, "--restart", "unless-stopped", "--network", "bridge", "--cap-drop", "ALL",
+           "--security-opt", "no-new-privileges", "-v", f"{fac.HERE / 'agent'}:/egress:ro", settings(cfg)["proxy_image"],
+           *want)
+    docker("network", "connect", net, proxy)
 
 
 def claude_args(cfg: dict, role: str, sid: str | None = None) -> list[str]:
@@ -197,11 +225,13 @@ def claude_args(cfg: dict, role: str, sid: str | None = None) -> list[str]:
 
 def run_args(cfg: dict, role: str, work: Path, name: str, keep=None, brief: str = "") -> list[str]:
     """`docker run` for a session: the token by name only (its value is in the docker client's environment alone).
-    ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id. An
-    implementor's or designer's: run/shots/<session>/ read-write at /shots (named by ``keep``, else by ``name``)."""
-    proxy, loop = f"http://{PROXY}:{PORT}", "127.0.0.1,localhost"     # (loopback: a demo's own web, never proxied)
+    ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id. A
+    looker's (LOOKERS): run/shots/<session>/ read-write at /shots (named by ``keep``, else by ``name``). Its network
+    and proxy: the role's lane()."""
+    net, via, _ = lane(cfg, role)
+    proxy, loop = f"http://{via}:{PORT}", "127.0.0.1,localhost"     # (loopback: a demo's own web, never proxied)
     pics = ["-v", f"{shots(cfg, keep.stem if keep else name)}:/shots"] if role in LOOKERS else []
-    return ["run", "--rm", "-i", "--name", name, "--network", NET, *limits(cfg, "session", role_cpus(cfg, role, brief)),
+    return ["run", "--rm", "-i", "--name", name, "--network", net, *limits(cfg, "session", role_cpus(cfg, role, brief)),
             *SHOTS, "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work", *pics,
             *(["-v", f"{keep.raw}:{keep.HOME}"] if keep else []),
             "-e", "CLAUDE_CODE_OAUTH_TOKEN", "-e", f"HTTPS_PROXY={proxy}", "-e", f"https_proxy={proxy}",
@@ -256,7 +286,7 @@ def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = 
     timeout = timeout or TIMEOUTS[role]
     tok = token(cfg)
     sweep(cfg)
-    egress(cfg)
+    egress(cfg, role)
     name = container(role)
     try:                                                 # (a bad cpus or folder: refused, its reason said, unstarted)
         args = run_args(cfg, role, work, name, keep, brief)
@@ -265,7 +295,7 @@ def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = 
         raise
     if role in LOOKERS:
         shots(cfg, keep.stem if keep else name).mkdir(parents=True, exist_ok=True)
-        brief += LOOK
+        brief += LOOK if SEE[0] in TOOLS[role] else ""   # (the researcher's walker is in its own prompt)
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "DOCKER_HOST", "DOCKER_CONFIG",
                                                         "DOCKER_CONTEXT", "TMPDIR")}
     env["CLAUDE_CODE_OAUTH_TOKEN"] = tok

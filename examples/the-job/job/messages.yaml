@@ -78,7 +78,7 @@ flows:
   messages-routed-by-hand:
     from: messages-unrouted
     to: messages-awaiting
-    description: notes I routed by hand
+    description: notes I routed by hand (mine)
     sensor:
       items: ergostat.message
       leaving: unrouted

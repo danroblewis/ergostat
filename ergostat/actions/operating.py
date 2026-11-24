@@ -13,6 +13,7 @@ from ..durations import human
 KIND = "ergostat.operating"
 STATES = ("normal", "maintenance", "freeze", "incident")
 LAYERS = ("incident", "freeze", "maintenance")        # strongest first: the first one held is the state in force
+DECLARED = ("entered", "left", "watching")              # ergostat.operating.* of the declared states (ergostat/operating)
 OWNER = "owner"
 MOST_LEASE = 86400.0                                    # a maintenance lease is at most a day
 AWAY_AFTER, AWAY_LEAST, AWAY_MOST = 7200.0, 300.0, 7 * 86400.0
@@ -61,6 +62,8 @@ def fold(events: list[dict], now: float) -> tuple[str, int | None, str, dict]:
     last = None
     for e in sorted(events, key=lambda e: e["seq"]):
         st = e["type"][len(KIND) + 1:]
+        if st in DECLARED:                             # the declared states' own events (SPEC §9.5), not this one's
+            continue
         if st not in STATES:
             return "incident", e["seq"], f"event {e['seq']} names no operating state ({e['type']}): read as incident", UNSURE
         last = e

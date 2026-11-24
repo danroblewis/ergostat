@@ -13,6 +13,13 @@ const saidIn = (el) => [...el.querySelectorAll("text")].filter((t) => t.closest(
 /* what a screen reader says for it: what it is, and what is written on it ('stock backlog, 13 tickets') */
 function ariaOf(el, said) {
   const n = nodeOf(el.dataset.id), host = el.parentElement?.closest(".node, [data-hull]");
+  // Dynamics and Blocks: the part's name in its discipline's words, with its state and loops (dynamics.js, blocks.js)
+  const spoken = { dynamics: typeof sdSpoken === "function" && sdSpoken, blocks: typeof bdSpoken === "function" && bdSpoken }[S.graph?.kind];
+  const part = !spoken ? null : el.matches(".node") ? n : el.matches(".bd-frame") ? (S.graph.frames || []).find((f) => f.id === el.dataset.hull)
+    : el.matches(".edge") ? S.edgeById?.[el.dataset.id] || S.graph.edges.find((e) => e.id === el.dataset.id) : null;
+  const mark = el.matches(".node") && untrustedSays(n);     // (an untrusted library's part says so after its name)
+  if (part && mark) return `${spoken(part, S.graph)}, ${mark}`;
+  if (part) return spoken(part, S.graph);
   if (el.matches(".node")) return [`${n?.kind || "part"} ${said.join(", ") || n?.label || ""}`, n?.status, untrustedSays(n)].filter(Boolean).join(", ");
   if (el.matches(".edge")) { const e = S.edgeById?.[el.dataset.id], end = (x) => String(x || "").replace(/^\w+:/, "");
     const sign = SIGN_WORDS[e?.polarity] || (e?.kind === "connector" ? "sign not known" : "");
