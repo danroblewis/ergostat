@@ -4660,9 +4660,14 @@ def test_a_goals_evidence_opens_with_its_four_lines_and_its_remedy_then_the_char
     word for word, with its Evidence link; the charts follow, its parts and prose last; nothing in it says 'Not
     worked out'; at 390 px the lines fit without scrolling sideways."""
     d = goal_named(tmp_path, monkeypatch, False)
-    y = (d / "ergostat.yaml").read_text()                 # and a goal no block acts on
-    (d / "ergostat.yaml").write_text(y.replace("    tolerance: 1\n",
-                                               '    tolerance: 1\n  small-backlog:\n    stock: backlog\n    hold: "<= 50"\n'))
+    y = (d / "ergostat.yaml").read_text()                 # and a goal no block acts for (worker moves its stock for another),
+    (d / "ergostat.yaml").write_text(y.replace("    tolerance: 1\n",   # and one on an auxiliary a block sets with no goal: key
+                                               '    tolerance: 1\n  small-backlog:\n    stock: backlog\n    hold: "<= 50"\n'
+                                               '  low-throttle:\n    auxiliary: throttle\n    hold: "<= 0.5"\n')
+                                       .replace("auxiliaries:\n",
+                                                "auxiliaries:\n  throttle:\n    unit: share\n    sensor:\n      manual: true\n")
+                                       + "  damper:\n    type: program\n    run: echo 0.1\n    in: goal.low-throttle.error\n"
+                                         "    out: auxiliary.throttle\n")
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
                             env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -4702,12 +4707,15 @@ def test_a_goals_evidence_opens_with_its_four_lines_and_its_remedy_then_the_char
             assert "Not worked out" not in got["text"], got["text"]
             assert not got["wide"], (width, got["wide"])
             assert got["lines"][2].startswith("worker: commanded"), got["lines"]   # its block, listed as an actor
-            if not view and width > 400:                 # a goal nothing acts on: said so, never that nothing ran
-                pg.evaluate("() => openLoop('small-backlog')")
-                pg.wait_for_function("() => document.querySelector('#detail h2')?.textContent.startsWith('small-backlog')"
-                                     " && document.querySelectorAll('#detail .runbook-line').length === 4", timeout=30000)
-                third = pg.evaluate("() => document.querySelectorAll('#detail .runbook-line')[2].textContent")
-                assert third == "Nothing is declared to act on it: no block drives its stock.", third
+            if not view and width > 400:                 # a goal nothing acts for: said so, never that nothing ran
+                for goal, says in (("small-backlog", "No block acts for it: nothing that reads it or backlog moves backlog,"
+                                                      " directly or through what it commands."),
+                                   ("low-throttle", "damper: commanded ")):        # the block that sets it, listed
+                    pg.evaluate(f"() => openLoop('{goal}')")
+                    pg.wait_for_function(f"() => document.querySelector('#detail h2')?.textContent.startsWith('{goal}')"
+                                         " && document.querySelectorAll('#detail .runbook-line').length === 4", timeout=30000)
+                    third = pg.evaluate("() => document.querySelectorAll('#detail .runbook-line')[2].textContent")
+                    assert third == says if says.endswith(".") else third.startswith(says), third
             pg.close()
         assert not errors, errors
     finally:

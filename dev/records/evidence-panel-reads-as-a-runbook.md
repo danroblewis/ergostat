@@ -81,3 +81,25 @@ Round 2:
   still reads "Loading…"; openAgentNow is unchanged by the branch). The whole tests/test_diagram_rendering.py was
   stopped at its 20-minute limit about 30% through, with about 25 failures, roughly one test in four. It did not
   name them, so I cannot say which failed or why. Not run: the unit suite and the other browser files.
+
+Round 3:
+
+- The review's finding (line 3 says "Nothing is declared to act on it: no block drives its stock" whenever the loop has
+  no valve, though a block may set the goal's auxiliary directly, or move its stock for another goal): fixed.
+  - ergostat/web/server.py (outside the Files list, the reversible choice the finding itself names): /api/loops/NAME
+    now also gives the controller's `through`, and its actors also take the blocks on that path when the path ends at
+    the goal's own auxiliary (the block that sets it directly, spec/legacy.py), so such a block is listed with its
+    commanded, ran and moved counts like any other actor.
+  - `unlisted` (details.js), when the loop has no valve: with a path, "It is acted on through A → B; what each did is
+    not counted here" (reached only if none of its blocks could be listed); with no path, "No block acts for it:
+    nothing that reads it or M moves M, directly or through what it commands" (the loop finder's own rule, ir.py
+    `_loop`: actuators are what the blocks reading the goal or its measure reach); with `through` missing, "What acts
+    on it is not known". The words "its stock" are gone. The fixture's `small-backlog` now reads that sentence: worker
+    does move backlog, but for short-backlog, and reads neither.
+  - The acceptance test adds a fixture goal `low-throttle` on an auxiliary `throttle` that block `damper` (in:
+    goal.low-throttle.error, out: auxiliary.throttle, no goal: key) sets, and checks its third line starts "damper:
+    commanded". With the server's new actor source removed, the test failed on that line (it read "It is acted on the
+    long way, through damper → throttle; …", the wording since made neutral), then passed again.
+- Run: the acceptance test and tests/test_forecast_panel.py (pass), ruff (clean). tests/test_agents_page.py: 13 pass,
+  test_each_row_says_how_it_is_engaged_and_which_goal_it_serves fails as in rounds 1-2 (the Agent panel reads
+  "Loading…"; openAgentNow is not touched by the branch). Not run: the unit suite and the four browser files whole.

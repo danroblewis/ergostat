@@ -166,8 +166,12 @@ async function openNodeNow(n) {
   showDetail(...kids);
 }
 
-/* no agent of its own is listed (a valve's agent is optional): say what its valves did, never that nothing ran */
-const unlisted = (lp, n = lp.openings_total) => Array.isArray(lp.valves) && !lp.valves.length ? "Nothing is declared to act on it: no block drives its stock"
+/* no agent of its own is listed (a valve's agent is optional): say what the model declares and its valves did, never
+   that nothing ran; "no block acts for it" only when it has no valve and no path the long way (its loop's own words) */
+const unlisted = (lp, n = lp.openings_total, m = lp.row?.measure ?? lp.stock) => Array.isArray(lp.valves) && !lp.valves.length
+  ? (lp.through?.length ? `It is acted on through ${lp.through.map((x) => x.replace(/^[a-z]+\./, "")).join(" → ")}; what each did is not counted here`
+    : Array.isArray(lp.through) ? `No block acts for it: nothing that reads it or ${m} moves ${m}, directly or through what it commands`
+      : "What acts on it is not known")
   : `No agent that acts for it is recorded; ${n == null ? "whether its valves opened is not known"
   : n ? `its valves opened ${n} time${n === 1 ? "" : "s"} in this window` : "its valves did not open in this window"}`;
 /* a goal's evidence as a runbook (an SRE's order): four lines, each one sentence (what is wanted and where it is now; how

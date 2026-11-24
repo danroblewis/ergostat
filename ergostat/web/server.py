@@ -965,7 +965,9 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             from ..runner import log_path
             blocks = getattr(getattr(m, "spec", None), "blocks", {})
             actors = []
-            for a in dict.fromkeys([m.valves[v].agent for v in c.drives if v in m.valves] + [
+            direct = [x.split(".", 1)[1] for x in c.through if x.startswith("block.")] \
+                if c.through and c.through[-1] == f"auxiliary.{c.holds}" else []    # it sets the goal's auxiliary itself
+            for a in dict.fromkeys([m.valves[v].agent for v in c.drives if v in m.valves] + direct + [
                     b.name for b in blocks.values() if b.goal == name and b.machine and not b.implied]):
                 if a not in snap["agents"]:
                     continue
@@ -979,7 +981,8 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 actors.append({"name": a, "ran": snap["agents"][a]["runs"], "moved": moved, "log": said[-1] if said else None,
                                "commanded": len(p.events.query(n=None, type="block.commanded", item=a, since=since,
                                                                until=snap["at"]))})
-            return {**lp, "actors": actors, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
+            return {**lp, "actors": actors, "through": c.through, "points": stock_pts[::step], "openings": openings,
+                    "openings_total": n_open,
                     "since": since, "until": snap["at"], "off_stretches": stretches,
                     "crossings": [{**e, "off_by_words": st.off_by_words(e["data"].get("setpoint") or c.setpoint, e["data"].get(
                         "error"), c.tolerance, getattr(m.stocks.get(c.holds), "unit", ""),
