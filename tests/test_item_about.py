@@ -279,7 +279,7 @@ def test_status_off_loop_points_at_knowledge(home, capsys):
     _off(p, "c", 1)
     main(["-C", str(home), "status"])
     out = capsys.readouterr().out
-    att = next(x for x in out.splitlines() if "loop a:" in x)
+    att = next(x for x in out.splitlines() if "goal a:" in x)
     assert re.search(r"items about it: knowledge/\w+, knowledge/\w+, knowledge/\w+ \+2$", att), att
     assert "knowledge/measured" in att                                       # the latest, through stock.a
     row = next(x for x in out.splitlines() if re.match(r"^a\s", x))
@@ -287,12 +287,24 @@ def test_status_off_loop_points_at_knowledge(home, capsys):
     calm = next(x for x in out.splitlines() if re.match(r"^calm\s", x))
     assert "holding" in calm and "knowledge/q" not in out                    # a loop that holds names none
     main(["-C", str(home), "status", "--json"])
-    loops = json.loads(capsys.readouterr().out)["loops"]
+    got = json.loads(capsys.readouterr().out)
+    loops = got["loops"]
     assert loops["a"]["about"].endswith("+2") and "about" not in loops["calm"]
+    assert {a.get("goal") for a in got["attention"]} >= {"a", "quiet"}, got["attention"]   # quiet: nothing holds it
+    # --system S: only its goals' entries, the field matched
+    from ergostat.cli import status as cs
+    real = cs.parts_of
+    cs.parts_of = lambda args, m: {"a", "drain-a"} if args.system == "s" else real(args, m)
+    try:
+        main(["-C", str(home), "status", "--system", "s", "--json"])
+    finally:
+        cs.parts_of = real
+    att = json.loads(capsys.readouterr().out)["attention"]
+    assert [a["what"] for a in att if a.get("goal")] == ["goal a"] and "items about it" in att[0]["says"], att
 
 
 def test_status_names_the_items_on_the_loops_attention_line_not_its_suggestion(home, capsys, monkeypatch):
-    """A loop's suggestion is headed ``loop NAME`` like its attention line; the items go on that line only (§5a)."""
+    """A goal's suggestion is headed ``goal NAME`` like its attention line; the items go on that line only (§5a)."""
     from ergostat import state as st
     from ergostat.cli import main
     p = project(home)
@@ -300,9 +312,10 @@ def test_status_names_the_items_on_the_loops_attention_line_not_its_suggestion(h
     _off(p, "a", 50)
     real = st.attention
     monkeypatch.setattr(st, "attention", lambda *a, **k: real(*a, **k) + [
-        {"level": "hint", "what": "loop a", "says": "was off 92% of the time: falling behind the load"}])
+        {"level": "hint", "what": "goal a", "goal": "a", "says": "was off 92% of the time: falling behind the load"}])
     main(["-C", str(home), "status", "--json"])
-    att = [a for a in json.loads(capsys.readouterr().out)["attention"] if a["what"] == "loop a"]
+    att = [a for a in json.loads(capsys.readouterr().out)["attention"] if a.get("goal") == "a"]
+    assert all(a["what"] == "goal a" for a in att), att
     hint = [a for a in att if a["level"] == "hint"]
     line = [a for a in att if a["level"] != "hint"]
     assert hint and line, att
@@ -325,7 +338,7 @@ def test_status_at_a_past_time_names_no_items(home, capsys):
     assert json.loads(capsys.readouterr().out)["loops"]["a"].get("about") == "knowledge/g"   # live: named
     main(["-C", str(home), "status", "--at", "30m"])
     out = capsys.readouterr().out
-    assert "loop a:" in out and "knowledge/" not in out, out
+    assert "goal a:" in out and "knowledge/" not in out, out
     main(["-C", str(home), "status", "--at", "30m", "--json"])
     got = json.loads(capsys.readouterr().out)
     assert "about" not in got["loops"]["a"] and "knowledge/" not in json.dumps(got["attention"])
@@ -354,7 +367,7 @@ def test_status_with_an_unreadable_index_says_unknown(home, capsys, monkeypatch)
     _off(p, "a", 50)
     _break_index(p, monkeypatch)
     main(["-C", str(home), "status"])
-    att = next(x for x in capsys.readouterr().out.splitlines() if "loop a:" in x)
+    att = next(x for x in capsys.readouterr().out.splitlines() if "goal a:" in x)
     assert att.endswith("items about it: unknown (the item index could not be read)"), att
 
 

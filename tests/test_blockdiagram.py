@@ -112,7 +112,8 @@ def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
     g = drawn(spec)
     boxes = [n for n in g["nodes"] if n["role"] == "subsystem"]           # (and a C-P loop's r, Σ, H, y and d)
-    assert {n["id"] for n in boxes} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling"}
+    assert {n["id"] for n in boxes} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling",
+                                         "sys:regressions"}
     rest = {n["id"] for n in g["nodes"]} - {n["id"] for n in boxes}
     assert all(re.fullmatch(r"(ref|sum|h|out):top:[a-z-]+>service|dist:top:service", i) for i in rest), rest
     for n in boxes:
@@ -359,6 +360,7 @@ def test_the_blocks_panels_use_control_words_only():
         descriptions = {d for d in [*(s.description for s in spec.stocks.values()), *(f.description for f in spec.flows.values()),
                                     *(a.description for a in spec.auxiliaries.values()), *(b.description for b in spec.blocks.values()),
                                     *(g.description for g in spec.goals.values()), *spec.systems.values()] if d}
+        descriptions |= {f"({b.pool_now})" for b in spec.blocks.values() if b.pool_now}   # a pool's source, as SPEC §9.5 names it
         for where, g in _all_views(spec):
             for n in g["nodes"]:
                 said = _text([n.get("says", ""), n.get("math", []), [r for r in n.get("rows", []) if r[0] != "description"]])

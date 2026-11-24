@@ -81,13 +81,14 @@ def take(doc, data) -> None:
         doc.problems.append(Problem("error", f"{x.field}: refused, {x.code} (SPEC §2a)", data.at("libraries"), x.code))
         why = Refusal(x.code, f"the libraries: section is refused at {x.field}, so none of its libraries is used")
         for name, e in libs.items() if isinstance(libs, dict) else ():    # each raw entry listed, as refused
-            doc.libraries[str(name)] = described(str(name), e if isinstance(e, dict) else {}, None, [], why)
+            doc.listed[str(name)] = described(str(name), e if isinstance(e, dict) else {}, None, [], why)
         return
     try:
         entries, broken = _lock(doc), None
     except ValueError as x:
         entries, broken = None, Refusal("library-lock-unreadable", f"{LOCK} cannot be read: {x}")
     for name, e in cfg.items():
+        doc.libraries.append(name)
         got, refusal = [], None
         try:
             if broken:
@@ -98,7 +99,7 @@ def take(doc, data) -> None:
             refusal = r
             doc.refused[name] = (r.code, r.reason)
             doc.problems.append(Problem("error", f"library {name} refused: {r.reason}", libs.at(name), r.code))
-        doc.libraries[name] = described(name, e, (entries or {}).get(name), got, refusal)
+        doc.listed[name] = described(name, e, (entries or {}).get(name), got, refusal)
 
 
 HEX = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")

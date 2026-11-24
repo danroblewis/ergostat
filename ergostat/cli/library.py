@@ -79,7 +79,7 @@ def listing(main, data, bad) -> int:
     refused = []                                  # the libraries: section itself refused (sources.check): rc 1
     if data is not None:
         doc = load(main)
-        libs = doc.libraries
+        libs = doc.listed
         refused = [p for p in doc.problems if p.level == "error" and p.code in SECTION]
     else:
         p = goodmodel.fallback(main.parent, ValueError(f"{main.name}\n{bad[0] if bad else 'not a map of sections'}"))

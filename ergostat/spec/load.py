@@ -17,10 +17,10 @@ FILE = "ergostat.yaml"
 LOCAL = "ergostat.local.yaml"     # beside the main file, untracked: this machine's settings only (SPEC §2)
 PER_MACHINE = {"web": None, "intake": {"bind", "allow"}, "runs": {"outlive_engine"}}   # what LOCAL may set (and keys)
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
-            "loops", "claims", "contexts", "actions", "workspaces", "compute", "leases", "daemons")
+            "loops", "claims", "contexts", "actions", "workspaces", "compute", "leases", "daemons", "operating")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",
-            "daemons": "daemon"}
+            "daemons": "daemon", "operating": "operating state"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
        "defaults", "uses", "library", "libraries", "remotes", "budget", "operating", "runs", "dashboards",
        *SECTIONS}
@@ -151,7 +151,8 @@ class Document:
     untrusted: set[Path] = field(default_factory=set)   # of them, those not the owner's: {folder: PATH} (SPEC §2a)
     fetched: list = field(default_factory=list)         # the templates of libraries: (fetched, checked), in its order
     refused: dict[str, tuple[str, str]] = field(default_factory=dict)   # each library refused: its code and reason
-    libraries: dict[str, dict] = field(default_factory=dict)   # each library as load read it (fetched.described)
+    libraries: list[str] = field(default_factory=list)  # the names under libraries:, loaded or refused
+    listed: dict[str, dict] = field(default_factory=dict)      # each library as load read it (fetched.described)
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace

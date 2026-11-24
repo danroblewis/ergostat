@@ -8,7 +8,7 @@
 - **pi**: velocity form, ``u += kp Δx + ki dt (x − r)`` while ``|x − r|`` is past the deadband ``db``;
 - **stepper**, three-position step (floating) control: up by ``step_up`` while above ``up`` for ``for_up`` and
   ``cool_up`` since its last move, down by ``step_down`` while below ``down`` (the HPA's shape), within ``[lo, hi]``;
-- **ratio**, the HPA's own rule, declared (control/laws.py), stepped and never fitted: ``u = ⌈u x / target⌉`` when
+- **ratio**, the HPA's own rule, declared (control/laws.py) or fitted (``_fit_ratio``): ``u = ⌈u x / target⌉`` when
   ``x / target`` is outside ``1 ± tolerance``, down to the largest of that over ``stabilize_down``, up to the least over
   ``stabilize_up``, within ``[lo, hi]``.
 
@@ -22,11 +22,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from statistics import fmean, median, pstdev
+from statistics import fmean, median, median_low, pstdev
 
 from .estimate import _invert, solve_linear
 
-FAMILIES = ("onoff", "proportional", "pi", "stepper")
+FAMILIES = ("onoff", "proportional", "pi", "stepper", "ratio")
 SPREAD = ("on", "off", "up", "down")   # thresholds: their uncertainty is the spread of those that mistell as few moves
 MIN_POINTS = 40           # points of record, at least
 MIN_MOVES = 3             # moves of a switching law's output in the part fitted, at least
@@ -76,8 +76,8 @@ class Law:
                 f" {w} {p['step_' + w]:g} once {past} {g(w)} for {t('for_' + w)}, {t('cool_' + w)} after its last move"
                 for w, past in (("up", "above"), ("down", "below")) if p[w] is not None)
         elif self.family == "ratio":
-            law = (f"ratio: ⌈u x / {p['target']:g}⌉ outside ±{p['tolerance']:g}, down after {t('stabilize_down')}, "
-                   f"up after {t('stabilize_up')}")
+            law = (f"ratio (the HPA's rule): u ← ⌈u·x / {g('target')}⌉ outside 1 ± {g('tolerance')}, down after "
+                   f"{t('stabilize_down')}, up after {t('stabilize_up')}")
         elif self.family == "proportional":
             law = f"proportional: u = {g('c')} + {g('k')} x"
         else:
@@ -296,6 +296,64 @@ def _fit_switching(family: str, xs, us, dt) -> Law | None:
     return Law("stepper", p, dt, d * dt, se)
 
 
+def _ceiling(t0: float, moves: list[tuple[float, float]]) -> float:
+    """The target nearest the least-squares ``t0`` that the most moves up agree with: ⌈u x / t⌉ = u' holds for t in
+    [u x / u', u x / (u' − 1)), so the middle of the span the most such intervals share."""
+    ev = sorted([(ux / v, 1) for ux, v in moves] + [(ux / (v - 1), -1) for ux, v in moves if v > 1], key=lambda e: (e[0], e[1]))
+    spans, n = [], 0
+    for (t, s), nxt in zip(ev, ev[1:] + [(math.inf, 0)], strict=True):
+        n += s
+        spans.append((-n, abs((t + nxt[0]) / 2 - t0) if nxt[0] < math.inf else math.inf, t, nxt[0]))
+    best = min(spans, default=None)
+    return t0 if best is None or best[0] >= 0 or best[3] == math.inf else (best[2] + best[3]) / 2
+
+
+def _fit_ratio(xs, us, dt) -> Law | None:
+    """The HPA's rule, for each delay: the target by least squares on the moves up, log((u' − ½)/u) = log x − log target
+    (the ½ for the ceiling, then moved to the nearest the most moves agree with: ``_ceiling``; a move up is the rule's
+    own, a move down waits on its window); the tolerance the largest x/target − 1 that moved nothing, below the least
+    that moved it up (the side a scale-down's window does not hide); stabilize-down the median run of a lower desired
+    that ended in a move down (each is the window, but one sample misjudged at the tolerance's edge breaks a run, and the
+    shortest follows that sample); a bound where the record sat on its extreme while its rule wanted past it, at least
+    MIN_MOVES times; stabilize-up 0s. The delay is the one of least one-step error. None on a record not of whole
+    numbers from 1 or with fewer than MIN_MOVES moves up."""
+    eps, top, bottom = tol(us), max(us), min(us)
+    if bottom < 1 or any(u != round(u) for u in us):
+        return None
+    best = None
+    for d in range(MAX_DELAY + 1):
+        xd = [xs[max(0, k - d)] for k in range(len(xs))]
+        up = [k for k in range(1, len(us)) if us[k] > us[k - 1] + eps and xd[k] > 0]
+        if len(up) < MIN_MOVES:
+            continue
+        inner = [k for k in up if us[k] < top - eps]
+        on = inner if len(inner) >= MIN_MOVES else up
+        logs = [math.log(xd[k]) - math.log((us[k] - 0.5) / us[k - 1]) for k in on]
+        target = _ceiling(math.exp(fmean(logs)), [(us[k - 1] * xd[k], us[k]) for k in inner])
+        r = [x / target for x in xd]
+        least = min((r[k] for k in inner), default=math.inf)
+        still = [k for k in range(1, len(us)) if abs(us[k] - us[k - 1]) <= eps]
+        tolerance = max((r[k] - 1 for k in still if 1 < r[k] < least and us[k - 1] < top - eps), default=0.0)
+        want = [us[0]] + [math.ceil(us[k - 1] * r[k] - 1e-9) if abs(r[k] - 1) > tolerance else us[k - 1] for k in range(1, len(us))]
+        lower = []                                     # at each sample, how long the desired has been below the record's u
+        for k in range(len(us)):                       # counted back afresh only where the record's u moved
+            ref = us[k - 1 if k else 0]
+            lower.append(lower[-1] + 1 if k > 1 and ref == us[k - 2] and want[k] < ref else
+                         next((j for j in range(k + 1) if want[k - j] >= ref), k + 1))
+        downs = [lower[k] for k in range(1, len(us)) if us[k] < us[k - 1] - eps]
+        n_dn = median_low(downs) if downs else 0
+        hi = top if sum(1 for k in still if us[k - 1] >= top - eps and want[k] > top) >= MIN_MOVES else None
+        lo = bottom if sum(1 for k in still if us[k - 1] <= bottom + eps and lower[k] > n_dn) >= MIN_MOVES else None
+        se = {"target": target * pstdev(logs) / math.sqrt(len(logs)),
+              "tolerance": (min(least - 1, 1.0) - tolerance) / math.sqrt(12) if least < math.inf else 0.0}
+        law = Law("ratio", {"target": target, "tolerance": tolerance, "stabilize_down": n_dn * dt, "stabilize_up": 0.0,
+                            "lo": lo, "hi": hi}, dt, d * dt, se)
+        sse = sum((a - b) ** 2 for a, b in zip(run(law, xs, us), us, strict=True))
+        if best is None or sse < best[0] - 1e-12:
+            best = (sse, law)
+    return best[1] if best else None
+
+
 def _ols(rows, ys, names) -> tuple[dict, dict, float] | None:
     b = solve_linear(rows, ys) if len(rows) > len(names) else None
     if b is None:
@@ -363,7 +421,8 @@ def fit(xs: list[float], us: list[float], dt: float) -> tuple[Law | None, list[L
     nf = int(n * (1 - HELD_OUT))
     laws = []
     for fam in FAMILIES:
-        law = (_fit_switching if fam in ("onoff", "stepper") else _fit_linear)(fam, xs[:nf], us[:nf], dt)
+        law = (_fit_ratio(xs[:nf], us[:nf], dt) if fam == "ratio" else
+               (_fit_switching if fam in ("onoff", "stepper") else _fit_linear)(fam, xs[:nf], us[:nf], dt))
         if law is not None:
             judge(law, xs, us, nf)
             laws.append(law)

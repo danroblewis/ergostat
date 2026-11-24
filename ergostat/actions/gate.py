@@ -46,11 +46,17 @@ def folder(p) -> Path:
     return d
 
 
-def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", key: str | None = None) -> dict:
+def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", key: str | None = None,
+            shaped: tuple[str, str] | None = None) -> dict:
     """A session (or a program block's run: ``asker="program"``, ``program.py``) asks for an action. ``ctx``: its
     ``block``, ``run``, ``session``, ``item``, ``workdir``, ``branch``, ``lease``. Returns the action as recorded after
     its gate took it. A session's ``auto`` action runs here, at once; a program's is approved and left for ergostat's
-    engine to run, outside the program's own process and environment (``program.py``)."""
+    engine to run, outside the program's own process and environment (``program.py``).
+
+    Under a reshape cell (``Action.reshapes``) the act is held for the owner (``approve``, whatever its own gate) with
+    ``reshaped_to``, written first; then its target is asked for (``shaped``: its id, taken before, and the full act's),
+    with the args it takes and no ``key``, under its own gate and act-risk, ``reshaped_from`` in its first event. A
+    reshape is followed once: a target whose own cell reshapes is held as ``approve``, never reshaped."""
     a = spec.actions.get(name)
     if a is None:
         raise GateError(f"no action {name!r}")
@@ -59,17 +65,22 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
         raise GateError(f"{name} needs {', '.join(missing)}")
     args = {k: str(args[k]) for k in a.args}
     where = str((spec.root / a.in_).resolve()) if a.in_ else str(ctx.get("workdir") or spec.root)
-    aid = rec.new_id(name)
+    aid, of = shaped or (rec.new_id(name), None)
     from ..workspaces.leases import fence_of
     g0, t, opr = in_force(p, a)                          # (read before the writes: the act reads both again, below)
-    risk = rk.assess(p, a, ctx.get("block"), aid, g0, t)
+    to = (a.reshapes or {}).get(opr["column"])
+    if to:                                               # held, whatever the cell compiled says (lesson-8)
+        g0 = rk.stricter(g0, "approve")
+    tid = rec.new_id(to) if to in spec.actions and not of else None
+    risk = rk.assess(p, a, ctx.get("block"), aid, g0, t, ctx.get("run"), ctx.get("item"))
     g = risk["gate"] if risk else g0
     data = {"action": name, "class": a.cls or name, "gate": g0, "operating": opr, "args": args,
             "command": render(a, args, ctx),
             "in": where, **{k: ctx.get(k) for k in ("block", "run", "session", "item", "workdir", "branch")},
             **({"lease": fence_of(ctx.get("lease"))} if fence_of(ctx.get("lease")) is not None else {}),
             "description": a.description, **({"asker": asker} if asker != "session" else {}),
-            **({"key": key} if key else {}), **({"risk": risk} if risk else {})}
+            **({"key": key} if key else {}), **({"risk": risk} if risk else {}),
+            **({"reshaped_to": tid} if tid else {}), **({"reshaped_from": of} if of else {})}
     rec.step(p, aid, "requested", data, by=ctx.get("block") or "session", causedby=ctx.get("run"))
     why = fenced(p, spec, data)
     if why:
@@ -81,6 +92,9 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
         rec.step(p, aid, "approved", {"approved_by": GATE, "note": "its gate is auto: run at once"})
         if asker == "session":
             run_once(p, spec, aid)
+    if tid:                                              # (a crash before this leaves the full act held, nothing run)
+        request(p, spec, to, {k: v for k, v in args.items() if k in spec.actions[to].args}, ctx, asker,
+                shaped=(tid, aid))
     return rec.get(p, aid)
 
 
@@ -208,7 +222,7 @@ def at_act(p, spec, a: dict) -> tuple[Action | None, dict]:
     if act is None:
         return None, {"effective": "deny", "note": f"{a.get('action')} is no longer in the model: not run"}
     g0, t, opr = in_force(p, act)                     # the operating state read again, inside the run lock
-    risk = rk.assess(p, act, a.get("block"), a["id"], g0, t)
+    risk = rk.assess(p, act, a.get("block"), a["id"], g0, t, a.get("run"), a.get("item"))   # s worked out again
     mine = risk["gate"] if risk else g0
     asked = (a.get("risk") or {}).get("gate") or a.get("gate")
     return act, {**(risk or {}), "gate": mine, "cell": g0, "operating": opr, "asked": asked,
@@ -275,7 +289,8 @@ def delivered(p, aid: str, how: str, **to) -> dict:
 
 def result(a: dict) -> dict:
     """What a session, or a run, is given of an action."""
-    out = {"id": a["id"], "action": a.get("action"), "args": a.get("args"), "state": a["state"]}
+    out = {"id": a["id"], "action": a.get("action"), "args": a.get("args"), "state": a["state"],
+           **{k: a[k] for k in ("reshaped_to", "reshaped_from") if a.get(k)}}
     if a["state"] in ("ran", "failed"):
         out.update({"exit": a.get("exit"), "output": a.get("output")})
     if a["state"] == "denied":

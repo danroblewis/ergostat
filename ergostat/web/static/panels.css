@@ -100,6 +100,7 @@ td.panel-trend .panel-spark { width: 100%; height: var(--sp-4); }
 .panel-message p { margin: 0; }
 .panel-message-head { color: var(--ink-2); font-weight: 600; }
 .panel-message-text { max-width: 44ch; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.panel-message-fix { max-width: 44ch; color: var(--ink); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .panel-message.is-error .panel-message-head { color: var(--bad); }
 .panel-message.is-late .panel-message-head { color: var(--warn); }
 .panel-skeleton { display: flex; align-items: flex-end; gap: var(--sp-1); height: var(--sp-6); }

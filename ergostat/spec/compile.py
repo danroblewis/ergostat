@@ -70,7 +70,7 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "journal"
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
-                      "finished", "moves-from", "if-unchanged", "attention", "pipeline"}
+                      "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -746,6 +746,12 @@ class Compiler:
             self.err(f"{what}.finished: a list of its states, not its first, that count as finished ([done, dropped])",
                      m.at("finished") or m.where, "bad-finished")
             done = []
+        lost = m.get("lost") or []                   # its finished states that are a loss (SPEC §5a, *Group counts*)
+        lost = [lost] if isinstance(lost, str) else lost
+        if not isinstance(lost, list) or not all(isinstance(s, str) and s in states[1:] for s in lost):
+            self.err(f"{what}.lost: a list of its finished states, not its first, that are a loss ([scrapped])",
+                     m.at("lost") or m.where, "bad-lost")
+            lost = []
         only = m.get("moves-from") or {}             # event type → the only states it moves an item out of
         if not isinstance(only, dict) or not all(e in moves and isinstance(s, list) and s and set(s) <= set(states)
                                                  for e, s in only.items()):
@@ -768,7 +774,7 @@ class Compiler:
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
-                        finished=list(done), moves_from={e: tuple(s) for e, s in only.items()},
+                        finished=list(done), lost=list(lost), moves_from={e: tuple(s) for e, s in only.items()},
                         if_unchanged=tuple(fenced), attention=attention)
 
     def counted(self, spec: Spec) -> None:
@@ -954,7 +960,7 @@ class Compiler:
         d = self.doc
         spec = Spec(d.name, d.root, d.files, purpose=d.purpose)
         spec.uses = dict(d.uses)
-        spec.libraries = dict(d.libraries)
+        spec.libraries = dict(d.listed)
         spec.local = dict(d.local)
         spec.template_files = sorted({Path(u["path"]) for u in d.uses.values() if u.get("owners")})
         spec.remotes = dict(d.remotes)                 # each remote system (SPEC §4c): its model's file reloads this one
@@ -1170,6 +1176,8 @@ class Compiler:
         from ..daemons import config as daemons
         daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
         leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
+        from ..operating import compile as operating
+        operating.section(self, spec)                        # operating: the states, their pools and trips (SPEC §9.5)
         from ..library import bounds
         bounds.check(self, spec)                             # an untrusted library's parts: their limits (SPEC §2a)
         from . import triggers

@@ -4,6 +4,7 @@ written. Called by the spec compiler with itself."""
 
 from __future__ import annotations
 
+import itertools
 import math
 import re
 import string
@@ -21,14 +22,17 @@ SANDBOX_KEYS = ("workdir", "workspace", "read", "tools", "actions")
 
 
 def actions(c, spec) -> None:
+    shaped = []
     for name, m, what in c.named("actions"):
         c.keys(m, ACTION_KEYS, what)
         if not m.get("run"):
             c.err(f"{what}: run: the command it runs, a template ({{branch}}, {{item}}, and its args: filled in, quoted)",
                   m.where, "missing-key")
             continue
-        gates = columns(c, m, "gate", what, lambda g: g if g in GATES else None,
-                        "auto (run at once), approve (held until the owner approves) or deny (never run)")
+        gates = columns(c, m, "gate", what, cell_of, "auto (run at once), approve (held until the owner approves), "
+                        "deny (never run) or {reshape: ACTION} (that smaller action asked for at once, this one held)")
+        shapes = {k: g[1] for k, g in gates.items() if isinstance(g, tuple)}      # a reshape cell: approve, for itself
+        gates = {k: "approve" if k in shapes else g for k, g in gates.items()}
         gates = rk.schedule(gates.get("normal", "approve"), gates)
         args = m.get("args") or {}
         if not isinstance(args, dict):
@@ -64,7 +68,40 @@ def actions(c, spec) -> None:
         spec.actions[name] = Action(name, str(m["run"]), gates["normal"], cls, {str(k): str(v) for k, v in args.items()},
                                     c.duration(m, "timeout", what, 120.0), c.duration(m, "wait", what, 300.0),
                                     str(where) if where else None, c.text(m, "description"), m.where, fenced,
-                                    s, ts["normal"], gates, ts)
+                                    s, ts["normal"], gates, ts, shapes)
+        if shapes:
+            shaped.append((name, m, what))
+    for name, m, what in shaped:
+        reshapes(c, spec, name, m.get("gate"), what)
+
+
+def cell_of(g):
+    """A gate cell as written: a gate, or ``{reshape: ACTION}`` (as ``("reshape", ACTION)``); None: neither."""
+    if isinstance(g, dict) and list(g) == ["reshape"] and isinstance(g["reshape"], str) and NAME.match(g["reshape"]):
+        return "reshape", g["reshape"]
+    return g if g in GATES else None
+
+
+def reshapes(c, spec, name: str, m, what: str) -> None:
+    """Each reshape cell's target (``bad-reshape`` at its line, the cell left ``approve`` with no reshape): one of the
+    ``actions:``, taking no arg the full act does not, and never reshaping again under any state and presence in which
+    the full act's own cell is that reshape (each action's column resolved as at a request, ``risk.column``)."""
+    full = spec.actions[name]
+    for col, to in list(full.reshapes.items()):
+        t, why = spec.actions.get(to), None
+        if t is None:
+            why = f"{to!r} is not one of the actions:" + c.suggest(to, spec.actions)
+        elif set(t.args) - set(full.args):
+            why = f"{to} takes {', '.join(sorted(set(t.args) - set(full.args)))}, which {name} is not given"
+        else:
+            hit = [ct for st, pr, named in itertools.product(op.STATES, ("present", "away"), ((), (name,), (to,), (name, to)))
+                   for o in [op.Operating(st, pr, None, "", actions=named)]
+                   if rk.column(full, o) == col and (ct := rk.column(t, o)) in t.reshapes]
+            if hit:
+                why = f"{to} reshapes again under {hit[0]} (to {t.reshapes[hit[0]]}): a reshape is followed once, no chains"
+        if why:
+            c.err(f"{what}.gate.{col}: {why}", m.at(col), "bad-reshape")
+            del full.reshapes[col]
 
 
 def columns(c, m, key: str, what: str, ok, says: str) -> dict:
@@ -87,13 +124,13 @@ def columns(c, m, key: str, what: str, ok, says: str) -> dict:
 
 
 def risk(c, m, what: str) -> tuple[int | None, dict]:
-    """``risk: {severity: 1..5, threshold: 1 < T ≤ 50}`` (SPEC §12k, ``risk.py``): a floor and a ceiling on each; the
+    """``risk: {severity: 1..5, threshold: 1 < T ≤ 100}`` (SPEC §12k, ``risk.py``): a floor and a ceiling on each; the
     threshold may be a map by operating column."""
     r = m.get("risk")
     if r is None:
         return None, {}
     if not isinstance(r, dict):
-        c.err(f"{what}.risk: a map, {{severity: 1 to 5, threshold: above 1, at most 50 (default 8)}}", m.at("risk"),
+        c.err(f"{what}.risk: a map, {{severity: 1 to 5, threshold: above 1, at most {HIGHEST:g} (default 8)}}", m.at("risk"),
               "not-a-map")
         return None, {}
     c.keys(r, {"severity", "threshold"}, f"{what}.risk")
@@ -118,8 +155,7 @@ def operating(c, spec) -> None:
     if not isinstance(m, dict):
         c.err("operating: a map (away-after: 2h)", w, "not-a-map")
         return
-    c.keys(m, {"away-after"}, "operating")
-    v = m.get("away-after")
+    v = m.get("away-after")                             # (every other key: a declared state, ergostat/operating/compile.py)
     if v is None:
         return
     try:

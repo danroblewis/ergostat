@@ -121,7 +121,7 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
 - **Hints**, apart from the problems:
   - the refactor path: a controller filled by a person, an AI agent or a decision that decided the
     same thing (numbers taken out) at least 80% of at least 10 times could be filled by a lower rung;
-  - a loop off at least half the time though it acts: *falling behind* when its valve moved less
+  - a goal off at least half the time though it acts (said as `goal NAME was off N% of the time`): *falling behind* when its valve moved less
     than the load came in (saturated only when every opening moved the same amount: the valve at
     its limit); otherwise it answers too late, and the slowest stage (sensor, controller or valve,
     by its schedule) is named. For a job emptying a stock under an upper setpoint, the longest
@@ -129,7 +129,9 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
     cannot run that often.
 - **Attention**: problems first (goals off, goals open or unknown past two minutes of record,
   agents failing, lines refused or unreadable, missing readings while running, unexplained
-  residuals), then the hints. What a run by hand refused is not kept as a problem.
+  residuals), then the hints. An entry or hint about a goal reads `goal NAME` and carries the name as
+  its `goal` field, which the page's Evidence link and the CLI read. What a run by hand refused is not
+  kept as a problem.
 
 ## 6. The diagram
 
@@ -148,16 +150,22 @@ The control diagram is the product's main view. Conventions:
   Colour (§8): the material path in full ink, information in the ink's second tone.
 - **Layout** (ELK layered, vendored): the plant runs left to right along the pipes (pipes carry the
   highest straightness and direction priority), the feedback path above it; each loop a row.
-  Systems are drawn as thin outlines named in muted type (one ink: no colour per system), overlapping where they
-  share parts, labels never stacked. A chain of loops in series folds into rows at the pipes that
+  An open system is framed by its corners, the same in Dynamics, Blocks and Process: no fill, a hairline
+  (`--frame`, square-cornered) joining L marks at its corners (`--frame-mark`, 13 px arms, 8 px when nested),
+  its name in muted type on the top edge with the line broken behind it (one ink: no colour per system), labels
+  never stacked. Modelling's hairline is dashed (its corners solid), a cascade's inner loop in Blocks dotted, a
+  remote's kind in Process dashed. A closed system's outline is `--frame-mark` at 1.2 px, so the top level is not
+  ruled by its boxes; with a goal in it off it is full ink at 2 px. A chain of loops in series folds into rows at the pipes that
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
   would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
   all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or
-  more) and says when more lies beyond the edge, and which way (arrows); "Fit" shows everything (the Process
-  view's map at no less than full size: its nodes' text never under 11px). At phone
-  width (700px or less) each view opens fitted to the canvas down to 7.7px text (the Process
-  view's map still at no less than 11px), and a drawing still too big
-  is centred on its first part (a system box, else a stock).
+  more) and says which way more lies beyond the edge ("More to the right → and below ↓", clicked to pan
+  there); "Fit" shows everything drawn, every part, line and label, clear of the toolbars (the Process
+  view's map at no less than full size: its nodes' text never under 11px). A system
+  opened (Open) stays where its box was unless part of it would lie beyond the edge: then it is
+  panned, and zoomed out to no less than legible, until all of it is in view. At phone width (700px or
+  less) each view opens fitted to the canvas down to 7.7px text (the Process view's map still at no
+  less than 11px), and a drawing still too big is centred on its first part (a system box, else a stock).
 - **The process view** (`process.py`, `process.js`; SPEC §5b) is process mining's process map: a
   directly-follows graph per item kind, from the record in the window (the states items entered, or
   the event types about them), each kind's map laid out left to right in time order in a frame of its
@@ -225,6 +233,15 @@ The control diagram is the product's main view. Conventions:
   dynamics) · NAME: PURPOSE · 2 systems · 25 goals, 0 off" (every goal), "Block diagram (control) · … ·
   16 control loops, 2 off" (the goals a controller holds). The Process view gives its type, the model and
   its systems, and no goal count: a process map holds no goals.
+- **Spoken names.** Every part Tab reaches is a button (keys.js) whose name says what a sighted reader
+  sees on it, in that view's words only. Dynamics (sdSpoken): "stock users, 152 users of desired 180,
+  off, in product, in balancing loop word of mouth and 2 others", "flow signups, 3.1 per hour, from cloud
+  to users", "connector from churn to support load, positive", "goal gap users-at-180, off, off by 28";
+  a closed system: "module NAME, its description, 2 goals holding, 1 goal off". Blocks (bdSpoken):
+  "controller C keep-located-worked, on-off, control loop located-worked, off", "summing junction of
+  located-worked, reference minus measurement", "signal e located-worked, error, minus 36, off". A goal's
+  state is always the server's word (goalWord). Each name is worked out again at every draw, so it follows
+  the values on the poll; the focus is kept on the part by keys.js, as it was before the names. The Process view keeps keys.js's own names.
 - **Two views at once.** A grip on each edge of the canvas, dragged inward, reveals a second pane
   behind a separator (left or right: side by side; top or bottom: stacked); the separator resizes it,
   a double-click halves it, dragged back to the edge it closes; the edge and size are remembered in the
@@ -279,7 +296,8 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded):
-`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
+`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/agent/NAME` (what an agent is by its rung, its
+definition as written, its place, what it did; a row on `/agents` goes there), `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
 `%2F`), `/record?type=T`, `/model`, `/check`, `/guide?frame=N`. The server answers each with the page
 (`UI_PAGES` in `web/server.py` and `util.js`, one list); `/api/*`, `/static/*` and `/file/PATH` are never
 shadowed. The page routes with the History API: a plain click on one of its links draws the page in
@@ -299,9 +317,11 @@ page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and proc
 attention, goals and their control loops, feedback loops or the process map's kinds, model changes, legend), Goals, Agents (one list, by rung), Items (the
 record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
 its old address `/fit` goes there; first **What's available**: each loop, whether its process is
-identified and what would identify it, or that it closes through queues; each parameter to estimate,
+identified and what would identify it (loops identified alike said once, as a group: "12 loops: an
+integrator, from the model"), or that it closes through queues; each parameter to estimate,
 the parts it is in and whether the record is long enough yet; and where each model tool lives, every
-link choosing the part and opening its view and panel; `docs/MODEL-TOOLS.md` is the guide; then the
+link choosing the part and opening its view and panel (a loop's: with only the systems its goal and stock
+are in open); `docs/MODEL-TOOLS.md` is the guide; then the
 review queue: every change waiting, read like a pull request, each with what kind of change it is, where
 (Show on diagram chooses its parts and opens both views), why, how it was found, its benefit, its effect
 simulated in memory and the exact diff Accept writes; Simulate all pending; what ergostat can and cannot
@@ -313,7 +333,8 @@ little record"; the total led by its scaled error; the fit's history across vers
 each accepted change; Calibrate (each part alone, each system alone, or every stock integrated, with the
 loops a decision leaves open listed), the proposals waiting,
 and why the estimates not proposed were not; and the residuals),
-Check, and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
+Check (each finding once; a kind that comes about many parts, as one table under its advice, said once,
+worst first, each part a link to the diagram; the notes as a list), and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
 the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
 it (why: what we control and what we want; system dynamics; control; then the project's own model,
 both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which

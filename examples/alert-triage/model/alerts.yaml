@@ -183,7 +183,7 @@ goals:                                # an item step's goal: nothing waits, so i
 blocks:
   triage:
     type: ai
-    agent: claude
+    agent: triager
     description: reads the alert and its service's recent history; dismisses noise, passes the rest on
     goal: new-alerts-triaged
     prompt: prompts/triage.md
