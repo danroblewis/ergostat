@@ -652,6 +652,13 @@ svg.sd .edge.lit .pipe-head, svg.sd .edge.in-loop .pipe-head, svg.sd .edge.lit .
 .loop-marker .marker-name { fill: var(--sd-ink); font-size: var(--canvas-sm); font-style: italic; paint-order: stroke; stroke: var(--sd-paper); stroke-width: 3px; stroke-linejoin: round; }
 .loop-marker.pol-unknown .marker-arc { stroke: var(--sd-muted); }
 .loop-marker.pol-unknown .marker-head, .loop-marker.pol-unknown .marker-letter, .loop-marker.pol-unknown .marker-name { fill: var(--sd-muted); }
+/* a goal not holding: its word under its gap, muted; off, the word, the gap's outline and its balancing loop's marker in
+   --bad, never the accent (that is what is chosen or traced; a marker chosen still takes it) */
+svg.sd .node .gap-word .sd-word { fill: var(--sd-muted); }
+svg.sd .node .gap-off .sd-word { fill: var(--bad); font-weight: 600; }
+svg.sd .node .gap-off > .hit.sd-aux { stroke: var(--bad); stroke-width: 1.6; }
+.loop-marker.goal-off .marker-arc { stroke: var(--bad); }
+.loop-marker.goal-off .marker-head, .loop-marker.goal-off .marker-letter { fill: var(--bad); }
 .loop-marker:hover .marker-arc, .loop-marker.on .marker-arc { stroke: var(--accent); stroke-width: 2; }
 .loop-marker:hover .marker-head, .loop-marker.on .marker-head, .loop-marker:hover .marker-letter, .loop-marker.on .marker-letter,
 .loop-marker.on .marker-name { fill: var(--accent); }
