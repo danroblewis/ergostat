@@ -855,7 +855,8 @@ def test_new_roles_read_only_in_their_containers(role, tmp_path):
     sys.path[:0] = [str(BIN)]
     try:
         import agents
-        cfg = {"ai": {f"{role}_model": "opus", f"{role}_session_usd": 1.0}, "agents": {}}
+        cfg = {"ai": {f"{role}_model": "opus", f"{role}_session_usd": 1.0}, "agents": {},
+               "paths": {"run": str(tmp_path / "run")}}            # (the researcher's pictures' folder is under run/)
         args = agents.run_args(cfg, role, tmp_path, "n")
     finally:
         sys.path.remove(str(BIN))

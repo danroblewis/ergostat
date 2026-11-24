@@ -29,10 +29,24 @@ the egress proxy (`dev/agent/egress.py`, container `ergostat-egress`), which rea
 one secret, the session token, and nothing else of this machine. Claude Code inside still runs `--restricted` with the
 role's narrow tools.
 
+**The researcher reads the web.** A researcher session alone runs on a second internal network, `ergostat-research`,
+whose only way out is a proxy of its own, `ergostat-egress-research` (the same `dev/agent/egress.py`, started like the
+first and under the same lock), with `HTTPS_PROXY` pointing there. It allows `[agents] hosts` (the API) plus
+`[agents] research_hosts`: by default `["*"]`, any host on 443 whose TLS server name matches its CONNECT (as for the
+first proxy), and whose resolved addresses are all public (`ipaddress.is_global`): a name that resolves to a loopback,
+private, link-local or other non-global address (127.0.0.1, 10.x, 172.16/12, 192.168/16, 169.254/16, ::1), or to
+nothing, is refused, the reason in the proxy's log (`docker logs ergostat-egress-research`), and the tunnel goes to
+the address checked. A list of names allows those alone (and the API); `[]` the API alone. A proxy running with other
+hosts than the settings' is started again with them. The researcher's tools are the reviewer's plus WebSearch,
+WebFetch and the walker (`uv run --with playwright==1.63.0 python scripts/walk.py`), with a `run/shots/<session>/`
+folder at `/shots` as for the designer; WebFetch stays denied to every other role, and every other role stays on
+`ergostat-agents` with the same hosts. Its prompt says that a URL it cites must be one it opened, and to prefer
+primary sources.
+
 **A session may see a page.** The implementor and the designer (a read-only role, like the reviewer: the reviewer's
 tools and nothing that writes) may also run `uv run python scripts/demo_up.py` (start one demo of `examples/`, offline,
 and stop it) and `uv run --with playwright==1.63.0 python scripts/walk.py` (walk its pages in Chromium). No other
-role may. Each implementor or designer session gets a folder of its own on this machine, `run/shots/<session>/`
+role may, but the researcher may walk a page of the web (above). Each implementor or designer session gets a folder of its own on this machine, `run/shots/<session>/`
 (named as its transcript, `<gap>-<role>-<n>`), mounted read-write at `/shots`, and its brief tells it to pass
 `--shots /shots`: its pictures land there and outlive the container (its `/tmp` does not). A designer runs on
 `[agents] designer_cpus` CPUs (default 3, above 0 and at most 4, else the session is refused with the reason), and so
