@@ -62,6 +62,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
 @entry searching-items-and-querying
 @entry light-theme-the-repeats-toward
 @entry sql-source-over-item-views
+@entry dashboard-keep-display-proposal
 
 ## The owner's work setup
 
