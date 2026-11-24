@@ -219,6 +219,29 @@ Run here, none skipped:
 
 Not run here: the whole unit suite and the four browser files (the factory's), `demo_check` (no example touched).
 
+### Round 5
+
+The finding is the same as in rounds 3 and 4: conflicts with main in `docs/SPEC.md` and
+`ergostat/datasources/__init__.py`. In this clone there are none to resolve:
+- local `main` is still fa51005d, which is the merge-base;
+- `git merge main` says "Already up to date";
+- no conflict markers are left in the tree.
+
+If the queue's main has moved past fa51005d, this clone cannot see that commit, so the conflict can't be reproduced or
+resolved here. The branch's whole change to those two files against main is small: in `__init__.py`, the `_lint`
+import, `SourceError.code`, and the `warnings` added to the two returns of `query`; in SPEC §4e, the *Result shapes*
+paragraph rewritten, and *Histograms*, *A graph*, *Verdicts* and *Which charts apply* added or changed. Whoever merges
+a newer main should keep both sides, as round 3 did. The one change in this round is a SPEC line in *Histograms*
+rewrapped to the file's width, with no words changed. No code changed. Outside tests, docs and dev, the branch is still
+388 lines added and 59 removed.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_sql_source and test_data_sources (62).
+- Browser, rc 0: test_result_frames_page with test_result_shapes_page (13).
+- ruff is clean.
+
+Not run here: the whole unit suite and the four browser files (the factory's), and `demo_check` (no example touched).
+
 ## Entry
 
 section: Done recently
