@@ -1,7 +1,7 @@
 """A Prometheus-compatible source: PromQL, asked as a range query (``GET /api/v1/query_range``) by the server, so the
 browser never holds the source's address or credentials; its metadata (``/api/v1/labels``, ``/api/v1/label/<name>/values``)
-gives the names an editor completes. GETs of those paths are the only requests it makes, each ended at its time bound
-however slowly the source answers."""
+gives the names an editor completes, and ``/api/v1/label/<name>/values`` also a dashboard variable's values. GETs of
+those paths are the only requests it makes, each ended at its time bound however slowly the source answers."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ TYPE = "prometheus"
 KEYS = {"url"}
 LANGUAGE = "PromQL"
 _PATH = "/api/v1/query_range"
+_LABELS = "/api/v1/label/{}/values"     # a dashboard variable's label_values
 _MOST_BYTES = 8 * 1024 * 1024     # of one answer
 _MOST_NAME_BYTES = 256 * 1024     # of one metadata answer: past it, only the names read before it are kept
 _LINE_COL = re.compile(r"\b(\d+):(\d+): parse error")
@@ -130,8 +131,8 @@ def _at(said: str) -> tuple[int, int] | None:
     return (1, int(m[1])) if m else None
 
 
-def _get(src, params: dict, seconds: float) -> dict:
-    status, body = _ask(src, _PATH, params, seconds, _MOST_BYTES)
+def _get(src, params: dict, seconds: float, path: str = _PATH) -> dict:
+    status, body = _ask(src, path, params, seconds, _MOST_BYTES)
     if status != 200:
         raise SourceError("unreachable", f"source {src.name!r} answered {status}")
     if len(body) > _MOST_BYTES:
@@ -142,7 +143,7 @@ def _get(src, params: dict, seconds: float) -> dict:
         raise SourceError("unreachable", f"source {src.name!r} did not answer in JSON") from e
     if not isinstance(got, dict) or got.get("status") != "success":
         raise SourceError("refused", f"source {src.name!r} refused the query ({_said(body)})")
-    return got.get("data") or {}
+    return got.get("data")
 
 
 def _name(metric: dict, text: str) -> str:
@@ -156,6 +157,15 @@ def _number(v) -> float | None:
         return float(v)
     except (TypeError, ValueError, OverflowError):
         return None
+
+
+def values(src, selector: str | None, label: str, w) -> list:
+    """The values ``label`` takes over the window, among the series ``selector`` picks (all, when None)."""
+    params = {"start": f"{w.since:.3f}", "end": f"{w.until:.3f}", **({"match[]": selector} if selector else {})}
+    data = _get(src, params, w.seconds, _LABELS.format(urllib.parse.quote(label, safe="")))
+    if not isinstance(data, list):
+        raise SourceError("refused", f"source {src.name!r} answered with no list of values")
+    return data
 
 
 def _histogram(metrics: list) -> bool:
@@ -172,6 +182,8 @@ def _histogram(metrics: list) -> bool:
 def query(src, text: str, w) -> list:
     data = _get(src, {"query": text, "start": f"{w.start:.3f}", "end": f"{w.end:.3f}", "step": f"{w.step:g}",
                       "timeout": f"{w.seconds:g}s"}, w.seconds)
+    if not isinstance(data, dict):
+        data = {}
     if data.get("resultType") != "matrix" or not isinstance(data.get("result"), list):
         raise SourceError("refused", f"source {src.name!r} answered {data.get('resultType')!r}, not a range of series")
     out, metrics = [], []
