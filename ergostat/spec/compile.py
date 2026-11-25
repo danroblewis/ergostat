@@ -77,7 +77,8 @@ STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulat
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
                       "rate-unit"}
-GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner", "process", "per", "on-stale"}
+GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "query", "source", "unit", "every", "hold", "tolerance", "critical",
+                      "owner", "process", "per", "on-stale"}
 PROCESS_KEYS = {"gain", "time-constant", "dead-time", "integrating", "identified", "description"}
 AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation", "inferred", "formerly"}
 PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table", "range", "inferred"}
@@ -498,6 +499,28 @@ class Compiler:
         return v
 
     # ---- sections
+
+    def goal_query(self, name: str, m: Map, what: str, spec) -> Ref | None:
+        """A goal on a query (``query:``, PromQL, read through ``source:``, the built-in ``ergostat`` by default): its
+        process variable made a part of the model, an auxiliary named for the goal, read every ``every:`` (15s), so it
+        is drawn and can be read by blocks and projections like any other. Promote it to its own auxiliary when another
+        part reads it too."""
+        if name in spec.auxiliaries or name in spec.stocks or name in spec.flows:
+            self.err(f"{what}.query: its variable is named for the goal, and {name!r} is already a part of the model",
+                     m.at("query"), "defined-twice", f"auxiliary.{name}")
+            return None
+        where = m.at("query")
+        q = Map({"source": str(m.get("source") or "ergostat"), "promql": str(m["query"])})
+        s = Map({"query": q, "every": m.get("every") or "15s"})
+        owner = Map({"sensor": s})
+        for x in (q, s, owner):
+            x.where = where
+        v = Auxiliary(name, self.text(m, "unit"), self.system("goals", name, m),
+                      f"what goal {name} holds: {m['query']}", where=where)
+        v.sensors = self.sensors(owner, Ref("auxiliary", name), f"{what}.query")
+        v.defined = where
+        spec.auxiliaries[name] = v
+        return Ref("auxiliary", name)
 
     def sensors(self, owner: Map, of: Ref, what: str) -> dict[str, Sensor]:
         from ..library import bounds, runs
@@ -1171,10 +1194,12 @@ class Compiler:
                 spec.auxiliaries[name] = v
         for name, m, what in self.named("goals"):
             self.keys(m, GOAL_KEYS, what)
-            has = [k for k in ("stock", "flow", "auxiliary", "variable") if m.get(k) is not None]
+            has = [k for k in ("stock", "flow", "auxiliary", "variable", "query") if m.get(k) is not None]
             of = None
             if len(has) != 1:
-                self.err(f"{what}: say what it is about with exactly one of stock:, flow: or auxiliary:", m.where, "goal-of")
+                self.err(f"{what}: say what it is about with exactly one of stock:, flow:, auxiliary: or query:", m.where, "goal-of")
+            elif has[0] == "query":
+                of = self.goal_query(name, m, what, spec)
             else:
                 key = has[0]
                 k = "auxiliary" if key == "variable" else key
@@ -1849,7 +1874,13 @@ class Compiler:
                 if s.unit and st.unit and s.unit != st.unit:
                     self.err(f"stock {st.name} sensor {s.name} reads {s.unit}, but the stock is in {st.unit}", s.where, "units")
         for s in spec.sensors():
-            if s.query and s.query.get("source") not in spec.sources:
+            own = s.query and s.query.get("source") == "ergostat" and "ergostat" not in spec.sources
+            if own and not (spec.storage is not None and spec.storage.measurements == "victoriametrics"):
+                self.err(f"sensor {s.of.name}.{s.name}: the built-in source ergostat answers PromQL only from VictoriaMetrics: "
+                         f"storage: measurements: {{backend: victoriametrics, url: ...}}", s.where, "unknown-ref")
+            elif own:
+                pass                                     # the built-in source: this project's readings (SPEC §4b)
+            elif s.query and s.query.get("source") not in spec.sources:
                 self.err(f"sensor {s.of.name}.{s.name}: source {s.query.get('source')!r} is not under sources:", s.where,
                          "unknown-ref")
             elif s.query and spec.sources[s.query["source"]].type == "prometheus" and not s.query.get("promql"):

@@ -27,6 +27,8 @@ ITEM = {"ergostat_items": "items", "ergostat_item_transitions_total": "transitio
         "ergostat_item_time_in_state_seconds_bucket": "time_in_state_seconds_bucket",
         "ergostat_item_time_in_state_seconds_sum": "time_in_state_seconds_sum",
         "ergostat_item_time_in_state_seconds_count": "time_in_state_seconds_count",
+        "ergostat_item_lead_seconds_bucket": "lead_seconds_bucket", "ergostat_item_lead_seconds_sum": "lead_seconds_sum",
+        "ergostat_item_lead_seconds_count": "lead_seconds_count",
         "ergostat_item_field_total": "field_total"}
 _SUFFIXES = {*ITEM.values(), "time_in_state_seconds"}
 _KINDS = {"valve": ("ergostat_valve_position", "valve"), "block": ("ergostat_block_output", "block")}

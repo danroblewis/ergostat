@@ -432,3 +432,17 @@ def test_a_checkpoint_that_cannot_be_read_stops_it_and_a_store_without_labels_is
     im.kept(rec, rec.spec, said.append)                   # as the engine calls it: said, never raised
     assert said and "item metrics" in said[0] and not rec.measurements.s
     assert im.keep(SimpleNamespace(**{**vars(rec), "measurements": object()}), rec.spec, now=T0 + 250) is None
+
+
+def test_lead_time_is_kept_from_arrival_to_each_state_with_buckets_for_seconds(tmp_path):
+    """A change request that took 12.4 s from its arrival to prod is in the lead histogram under to="prod", in a
+    bucket fine enough to tell seconds apart (the toy factory's steps take seconds, not hours)."""
+    t = im.Tally()
+    t.move(1, "change-request", 100.0, None, "requested")
+    t.move(1, "change-request", 100.2, "requested", "working")
+    t.move(1, "change-request", 112.4, "working", "prod")
+    def val(name, **lb):
+        return sum(x for (n, labels), x in t.v.items() if n == name and all((k, w) in dict(labels).items() for k, w in lb.items()))
+    assert val(im.LEAD + "_count", to="prod") == 1 and abs(val(im.LEAD + "_sum", to="prod") - 12.4) < 1e-9
+    assert val(im.LEAD + "_bucket", to="prod", le="10") == 0 and val(im.LEAD + "_bucket", to="prod", le="15") == 1
+    assert val(im.STAY + "_bucket", state="requested", le="0.25") == 1      # a 0.2 s step is told from a 1 s one

@@ -142,6 +142,6 @@ def test_a_gauge_that_does_not_balance_is_said_and_never_made_up_by_a_flow(tmp_p
     s = p.measurements
     names = {dict(k)["__name__"] for k in s.s}
     assert names == {im.ITEMS, im.TRANS, im.LAST, im.STAY + "_bucket", im.STAY + "_sum", im.STAY + "_count",
-                     im.EVENTS, im.REBUILT}            # (no flow of its own)
+                     im.LEAD + "_bucket", im.LEAD + "_sum", im.LEAD + "_count", im.EVENTS, im.REBUILT}   # (no flow of its own)
     assert {s.val(m, im.REBUILT) for m in M} == {0}
     assert [s.val(M[4], im.TRANS, kind="gap", frm=im.NEW), s.val(M[4], im.TRANS, kind="gap", to=im.GONE)] == [5, 1]

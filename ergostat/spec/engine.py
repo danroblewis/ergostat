@@ -2579,7 +2579,14 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
     if s.journal is not None:
         return None, f"read from its journals in {s.journal} while ergostat runs"
     if s.query is not None:
-        src = spec.sources[s.query["source"]]
+        src = spec.sources.get(s.query["source"])
+        if src is None and s.query["source"] == "ergostat":     # the built-in source: this project's own readings
+            st = getattr(spec, "storage", None)
+            if st is None or st.measurements != "victoriametrics" or not st.url:
+                return None, "the built-in source ergostat answers PromQL only from VictoriaMetrics (storage: measurements)"
+            from ..store import state_dir
+            return prometheus(st.url, str(s.query.get("promql", "")), s.timeout,
+                              extra_label=f"project={state_dir(spec.name, spec.root).name}")
         if src.type == "prometheus":
             return prometheus(src.url, str(s.query.get("promql", "")), s.timeout)
         if src.type == "ergostat":                           # a remote ergostat's reading (SPEC §4c)
@@ -2672,8 +2679,8 @@ def number_in(text: str, parse: str | None) -> tuple[float | None, str]:
     return None, "it printed no number (a bare number, or {\"value\": n})" + (f": {lines[-1][:80]!r}" if lines else "")
 
 
-def prometheus(url: str, promql: str, timeout: float) -> tuple[float | None, str]:
-    q = urllib.parse.urlencode({"query": promql})
+def prometheus(url: str, promql: str, timeout: float, extra_label: str | None = None) -> tuple[float | None, str]:
+    q = urllib.parse.urlencode({"query": promql, **({"extra_label": extra_label} if extra_label else {})})
     try:
         with urllib.request.urlopen(f"{url.rstrip('/')}/api/v1/query?{q}", timeout=timeout) as r:  # noqa: S310
             body = json.loads(r.read().decode())

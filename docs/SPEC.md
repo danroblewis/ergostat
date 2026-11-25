@@ -1153,6 +1153,7 @@ turns into the kind's name as it writes (`promnames.item_labels`):
 | `KIND_transitions_total` (counter) | `from`, `to` | moves (a flow); an arrival is `from="(new)"`, an item the index forgets (its events pruned) `to="(gone)"` |
 | `KIND_last_transition_timestamp_seconds` (gauge) | `from`, `to` | when the latest such move was |
 | `KIND_time_in_state_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `state` | how long items stayed in a state, **observed when they leave it**: an item still in it is not counted, so it cannot see stuck work (for that, SQL over the item views with open items) |
+| `KIND_lead_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `to` | how long items took from their arrival to reaching a state, observed on that move: `histogram_quantile(0.9, sum by (le) (rate(change_request_lead_seconds_bucket{to="prod"}[1h])))` is the 90th percentile lead time to prod. Both histograms' buckets run from 0.1 s to 30 days, so a factory's seconds-long steps and a ticket's days are both told apart |
 | `KIND_field_total` (counter) | `field` | what items' numeric fields (§5a, *numbers*) went up by, added; a fall is not counted |
 | `ergostat_events_total` (counter) | `type`, `source` | the events about items that the index folded (no transcript lines, no roll-up snapshots) |
 | `ergostat_item_index_rebuilds_total` (counter) | none | times the index was made again (below); written from the first minute, at 0 |
@@ -3841,7 +3842,7 @@ goals:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `stock`, `flow` or `auxiliary` | name | required, exactly one | What it is about: a stock's level, a flow's rate, or an auxiliary's value (`variable:`, its old name, is still read) |
+| `stock`, `flow`, `auxiliary` or `query` | name, or PromQL for `query` | required, exactly one | What it is about: a stock's level, a flow's rate, an auxiliary's value (`variable:`, its old name, is still read), or a query: PromQL read through `source:` (default the built-in `ergostat`, this project's own series, which needs `storage: measurements: victoriametrics`) every `every:` (15s), with its `unit:`. The query is the goal's process variable, made an auxiliary named for the goal, so it is drawn and read by blocks like any other; when another part reads it too, declare it as its own auxiliary and name it here |
 | `hold` | setpoint | required | The setpoint |
 | `tolerance` | number | 0 | Hysteresis for the status: off past the setpoint by more than this; holding again only back within the setpoint (for `==`, within half of it) |
 | `critical` | bool | false | It guards against a cascade or an accumulating failure: watched for decay |

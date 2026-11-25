@@ -14,6 +14,8 @@ counters (events, rebuilds) keep ``ergostat_``.
   max(...{kind="gap",to="merged"})``: how long since the last merge);
 - ``ergostat_item_time_in_state_seconds{kind,state}``: a histogram (``_bucket{le}``, ``_sum``, ``_count``) of how long
   items stayed in a state, observed when they leave it: work still in the state is not in it (``HELP``);
+- ``ergostat_item_lead_seconds{kind,to}``: a histogram of how long items took from their arrival to reaching a
+  state, observed on that move (``to="done"``: the lead time);
 - ``ergostat_item_field_total{kind,field}``: what items' numeric fields went up by, added (a fall is not counted);
 - ``ergostat_events_total{type,source}``: the events the index folded (those about items);
 - ``ergostat_item_index_rebuilds_total``: times the index was made again (below): no balance is owed across one.
@@ -43,9 +45,11 @@ NEW, GONE = "(new)", "(gone)"
 ITEMS, TRANS = "ergostat_items", "ergostat_item_transitions_total"
 LAST = "ergostat_item_last_transition_timestamp_seconds"
 STAY = "ergostat_item_time_in_state_seconds"
+LEAD = "ergostat_item_lead_seconds"
 FIELD, EVENTS = "ergostat_item_field_total", "ergostat_events_total"
 REBUILT = "ergostat_item_index_rebuilds_total"
-LE = (60, 300, 900, 3600, 4 * 3600, 86400, 3 * 86400, 7 * 86400, 30 * 86400)
+LE = (0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30, 60, 120, 300, 900, 3600, 4 * 3600, 86400, 3 * 86400, 7 * 86400,
+      30 * 86400)   # seconds-long work (a factory's steps) to month-long (tickets)
 LABELS = frozenset({"kind", "state", "from", "to", "le", "field", "type", "source", "milestone"})
 MOST_VALUES = 100            # values of one label in one kind's metric: past it, the label is refused
 MOST_MINUTES = 1440          # minutes written by one pass (a backfill goes on at the next)
@@ -59,6 +63,8 @@ HELP = {
     TRANS: "Moves of a kind's items from one state to another (a flow); from=\"(new)\" is an arrival, to=\"(gone)\" an "
            "item the index forgot when its events were pruned.",
     LAST: "When the latest move of a kind's items from one state to another was, in seconds since the epoch.",
+    LEAD: "How long a kind's items took from their arrival to reaching a state (to=\"prod\": the lead time to prod), observed "
+          "on that move.",
     STAY: "How long a kind's items stayed in a state, observed when they leave it: an item still in the state is not "
           "counted, so this cannot see stuck work (ask the item views in SQL, open items censored, for that).",
     FIELD: "What a kind's items' numeric field went up by, added over its items (a fall is not counted).",
@@ -80,6 +86,7 @@ class Tally:
         self.refused = refused                       # (kind or None, label): left out
         self.v: dict[tuple, float] = dict(held or {})   # (what an index made again no longer counts: ``hold``)
         self.entered: dict[int, float] = {}          # item (rid) -> when its last move was
+        self.arrived: dict[int, float] = {}          # item (rid) -> when it was first seen
 
     def key(self, name: str, labels: dict) -> tuple:
         bad = set(labels) - LABELS
@@ -108,6 +115,10 @@ class Tally:
         if frm is not None and rid in self.entered:
             self.stay(kind, frm, t - self.entered[rid])
         self.entered[rid] = t
+        if frm is None:
+            self.arrived[rid] = t
+        elif rid in self.arrived:
+            self.lead(kind, to, t - self.arrived[rid])
 
     def stay(self, kind: str, state: str, d: float) -> None:
         d = max(0.0, d)
@@ -116,6 +127,15 @@ class Tally:
         self.add(STAY + "_bucket", {"kind": kind, "state": state, "le": "+Inf"}, 1)
         self.add(STAY + "_sum", {"kind": kind, "state": state}, d)
         self.add(STAY + "_count", {"kind": kind, "state": state}, 1)
+
+    def lead(self, kind: str, to: str, d: float) -> None:
+        """From an item's arrival to its reaching ``to`` (a request to prod: its lead time), observed on that move."""
+        d = max(0.0, d)
+        for le in LE:
+            self.add(LEAD + "_bucket", {"kind": kind, "to": to, "le": f"{le:g}"}, 1 if d <= le else 0)
+        self.add(LEAD + "_bucket", {"kind": kind, "to": to, "le": "+Inf"}, 1)
+        self.add(LEAD + "_sum", {"kind": kind, "to": to}, d)
+        self.add(LEAD + "_count", {"kind": kind, "to": to}, 1)
 
     def gone(self, kind: str, state: str, t: float) -> None:
         self.add(TRANS, {"kind": kind, "from": state, "to": GONE}, 1)
