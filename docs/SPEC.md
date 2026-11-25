@@ -673,10 +673,8 @@ the items with events past their roll-up horizon outside a snapshot: the number
 run may outlast the sensor's timeout, and the stock then has no reading), drained by `rolled-up`;
 `events-past-keep` (`ergostat.upkeep.events-past-keep`, the events older than the model's `keep` that pruning would
 forget: the model's history and each loop's last crossing are never counted, as they are never forgotten), drained
-by `events-forgotten`; and `measurements-due` (`ergostat.upkeep.measurements-due`, raw readings past
-`storage: measurements: raw`, and each tier's buckets past its keep, counted at the cut the roll forgets at: whole
-buckets of the next tier, never what it has not taken; so it is 0 straight after a roll; 0 without tiers, where
-nothing is forgotten), drained by `measurements-forgotten`. The goals `record-rolled-up`, `record-within-keep` and
+by `events-forgotten`; and `measurements-due` (`ergostat.upkeep.measurements-due`, drained by
+`measurements-forgotten`: it has no reading, as VictoriaMetrics keeps every reading for its own `-retentionPeriod`). The goals `record-rolled-up`, `record-within-keep` and
 `measurements-within-tiers` hold each at 0. Three controllers on the rule rung serve them, each run while its goal
 is off: `record-compactor` (for `record-rolled-up`), `${lib} upkeep rollup --every ${rollup-every}`, does the
 roll-up, the pruning past `keep` and the archive's forgetting, and prints `{"out": "flow.rolled-up", "moved":
@@ -801,7 +799,7 @@ purpose: keep checkout fast    # optional, main file only: what the whole model 
 include:
   - systems/*.yaml
 keep: 30d                       # how long the record is kept
-storage:                        # optional: where it is kept, rolled up and downsampled (section 4b)
+storage:                        # optional: where it is kept and rolled up (section 4b)
   ...
 defaults:
   system: core
@@ -944,18 +942,20 @@ only if nothing was dragged or laid out again meanwhile.
 
 ## 4b. Storage: where the record is kept
 
-The record is two stores, kept apart (few events, many measurements), each behind one interface
-with several backends, all held to one conformance suite (`tests/test_store_conformance.py`).
-The defaults need no services; a project names another backend in `storage:` (main file only):
+The record is two stores, kept apart (few events, many measurements), held to one conformance suite
+(`tests/test_store_conformance.py`): the events, in the state directory, behind one interface with two backends; and
+the measurements, every reading, in VictoriaMetrics, the only metrics store (the owner's decision, 2026-11-25: every
+metric goes through PromQL, recorded in VictoriaMetrics). VictoriaMetrics is required: with none answering,
+`ergostat run` refuses to start and a command that reads the readings fails, each saying how to start one
+(`brew install victoriametrics`, or `run:`); nothing is ever written somewhere else instead. A project says more in
+`storage:` (main file only):
 
 ```yaml
 storage:
   events: segments                 # or sqlite
   measurements:
-    backend: sqlite                # or victoriametrics, with url: http://127.0.0.1:8428 (unnamed: see "The default")
-    run: victoria-metrics ...      # victoriametrics: the command ergostat runs and supervises (the daemon victoriametrics)
-    raw: 2d                        # raw readings kept this long (never: kept until keep)
-    tiers: {1m: 14d, 10m: 90d, 1h: 2y}   # then buckets of each width, each kept this long
+    url: http://127.0.0.1:8428     # the VictoriaMetrics (else ERGOSTAT_METRICS_URL, else this)
+    run: victoria-metrics ...      # optional: the command ergostat runs and supervises (the daemon victoriametrics)
   rollup:
     after: 7d                      # an item's events older than this become one snapshot (never: not rolled up)
     kinds: {session: 1d}           # per item kind
@@ -1097,21 +1097,21 @@ forgotten whole, once nothing about it is newer than `keep`; until then its olde
 snapshot (the engine never keeps more than `keep` outside one). Archive months older than `keep`
 are deleted.
 
-**Measurements.** Raw readings are kept for `raw`; older ones are rolled into tiers of buckets,
-each bucket keeping the count, sum, min, max, and first and last reading (time and value), each
-tier for its own time. A tier is made from the one before it (raw, then 1m, then 10m...), in whole
-buckets, a few hours of record per transaction; a source is forgotten only once the next tier has
-taken it. A reading that arrives for a span already rolled up is merged into its buckets. Every
-read stitches the sources: raw where it is kept, buckets before that; a bucketed read (a chart's
-points) takes the coarsest tier no wider than its own buckets; a read of readings one by one gets
-each old bucket's last reading. `victoriametrics` keeps every reading under its series' name and bounded labels,
-with `project` (the state directory's name) and `series` (its ergostat name) beside them, in the server, which
-compresses and keeps them for its own
-`-retentionPeriod` (the open-source server does not downsample): buckets are computed by the
-server (MetricsQL over `query_range`), raw readings exported when there are few (20,000 at most),
-and old spans bucketed otherwise; a reading set aside (`forget`) is kept in
-`measurements.forgotten.json`, and the ledger of backfilled readings (section 6) in
-`measurements.backfilled.db` beside it (with `sqlite`, it is in `measurements.db`).
+**Measurements** (`ergostat/victoria.py`). Every reading is kept in VictoriaMetrics under its series' name and bounded
+labels, with `project` and `series` (its ergostat name) beside them; the server compresses and keeps them for its own
+`-retentionPeriod` (one month unless set; the open-source server does not downsample). `project` is the state key
+(the state directory's name) for a record under the default home, `~/.ergostat`; under any other `ERGOSTAT_HOME` (a
+script's, a demo's, a benchmark's, a test's) it is the key, `@`, and the first ten hex digits of the SHA-256 of that
+home's path, so two homes sharing one server never read or delete each other's series. Writes are imported (a
+reading waits at most half a second, to go with the others), then flushed, so what was written is read at once.
+Buckets (a chart's points, counts, sums, minima, maxima, last readings) are computed by the server (MetricsQL over
+`query_range`) when a span holds many readings, and from the readings when it holds few (20,000 at most); a read of
+readings one by one exports them, and buckets the part of a long span older than two days. Every series' newest
+reading, which the engine reads each pass, is kept in memory: read whole every five minutes (and after this process
+deleted readings), and between, only the series with a reading in the hour before the last read and since. A reading
+set aside (`forget`) is kept in `measurements.forgotten.json`, and the ledger of backfilled readings (section 6) in
+`measurements.backfilled.db` beside it. A record from before kept its readings in SQLite (`measurements.db`);
+ergostat no longer reads it, and `ergostat reset` removes it.
 
 **Names and labels in PromQL** (`ergostat/promnames.py`). What the model declares is a metric named for itself, and
 only the engine's own internals keep the `ergostat_` prefix. A name is the model's with dashes as underscores. Each
@@ -1134,11 +1134,10 @@ an item kind's metric takes (below), or that would start `ergostat_`, has its sy
 one that still collides is refused by `ergostat check` (`metric-clash`), which says to rename it or put it in a system.
 A part the model no longer declares keeps its own name, with its sensor's as a label. A record written under an earlier
 name (the one old `ergostat_reading{project, series}`, the old generic `ergostat_sensor{part, sensor}`, or a part's
-name before the model changed) is still read, as every selector takes any name with the series' `series` label, until
-`ergostat migrate` moves it. A query to the built-in source naming the old generic metrics with an exact `part=` or
-`kind=` (`ergostat_items{kind="gap"}`) asks the new name and the old together
-(`{__name__=~"gap_items|ergostat_items",kind=~"gap|"}`), so it answers alike before and after `ergostat migrate`, with
-an `old-name` warning naming the new (`gap_items`). Before the move, a series held under two names shows the value of
+name before the model changed) is still read, as every selector takes any name with the series' `series` label. A
+query to the built-in source naming the old generic metrics with an exact `part=` or `kind=` (`ergostat_items{kind="gap"}`)
+asks the new name and the old together (`{__name__=~"gap_items|ergostat_items",kind=~"gap|"}`), so it answers alike
+over either, with an `old-name` warning naming the new (`gap_items`). A series held under two names shows the value of
 its latest reading, whichever name holds it.
 
 **Item metrics** (`ergostat/itemmetrics.py`). On VictoriaMetrics, the engine's lead keeps these from the item index
@@ -1201,39 +1200,15 @@ Labels are bounded. Only `kind`, `state`, `from`, `to`, `le`, `field`, `type`, `
 (`Refused` for any other, so an item's id, a branch, a session or a commit never is one). A label with more than 100
 values in a kind's metric (`source` and `type`: in all of them) is left out, its series added together, and named in
 the checkpoint's `refused`. This is decided at each pass, from the index as it is then. So a label that passes the limit
-later ends its series there, and the summed series starts there. Over SQLite nothing is written: those readings have
-no labels.
+later ends its series there, and the summed series starts there.
 
-**Moving the readings to VictoriaMetrics** (`ergostat migrate [--url URL] [--dry-run]`, `ergostat/migrate.py`). Every
-reading the SQLite store answers (raw, and each old bucket's last reading) is copied to the server under its name and
-labels. A series held under a name it is no longer written under (the old single name, the old generic
-`ergostat_sensor`, a part's name before the model changed) is moved: written under its current name, then the old
-deleted, but only once every one of its readings is held under the new one. The item metrics written under the old
-generic names (`ergostat_items{kind="gap"}`) are moved the same way to their kind's own (`gap_items`), the old deleted
-only once every sample is read back under the new. For each series, only the readings the server does not
-already hold under the new name are sent: the same millisecond, and the same value to a relative 1e-9, since the
-server keeps a value's leading decimal digits, not its binary float. Each series is then read back. A reading sent
-that the server did not keep (older than its `-retentionPeriod`, one month by default, or too far ahead) is counted
-as `missing`, not as sent, and named by series in `lost` (`{n, first, last}`). The command then exits 1 and does not
-suggest switching the backend. Once every reading is held, a second run sends nothing and changes nothing, and a run
-after more readings were written sends only those. `measurements.db` is only read. The ledger of backfills is not copied: a file
-backfilled before is sent again by a later `--backfill`.
-
-**The default** when the YAML names no backend: a record that has one keeps it (`measurements.db`: an existing SQLite
-install, until it migrates and names `victoriametrics`; or `measurements.backend`, the mark a new record's choice
-leaves, so a server that is away is never read as "use SQLite"; `ergostat reset` leaves the mark `sqlite` when it
-deletes a `measurements.db`, so a reset SQLite install stays SQLite; on a VictoriaMetrics record it first deletes the
-project's series in the server, every name, through `delete_series`, and the backfill ledger with the rest, and a
-server that is away refuses the reset with nothing deleted). A new record under the default home
-(`~/.ergostat/<key>`) takes `victoriametrics` when one answers at `http://127.0.0.1:8428` (`/health`, within half a
-second) as it is first opened, and `sqlite` when none does. A new record under any other `ERGOSTAT_HOME` (the
-throwaway homes of the demo checks, load tests, benchmarks, the factory fixture and library trials) takes `sqlite`
-without asking, so it never writes into a live server, whose `project` label it could share.
-`ERGOSTAT_DEFAULT_MEASUREMENTS` (`sqlite` or `victoriametrics`) decides instead of asking, under any home (the tests
-set `sqlite`).
+**Where it is.** `storage: measurements: url:`, else `ERGOSTAT_METRICS_URL`, else `http://127.0.0.1:8428`
+(VictoriaMetrics' own default). `ergostat run` asks it (`/health`) before it starts, unless `run:` names the command
+that starts it. `ergostat reset --yes` first deletes the project's series in the server, every name, through
+`delete_series`, and the backfill ledger with the rest; a server that is away refuses the reset with nothing deleted.
 Ergostat starts no server of its own accord: one runs because the owner runs it, or names it in `run:`.
 
-**Supervised** (`run:`, with `backend: victoriametrics`). The command becomes the daemon `victoriametrics` (section
+**Supervised** (`run:`). The command becomes the daemon `victoriametrics` (section
 9.7): started with the engine although no block or sensor names it, restarted after a back-off when it exits, given up
 past `restart: max`, its process group stopped with ergostat. It serves no run and no reading (it never reads the
 protocol on its standard input). A `daemons:` entry of that name is an error. While it starts, the engine's writes
@@ -1246,17 +1221,20 @@ of image-squeeze), written faster, and read as fast or faster by every page. For
 owner chose VictoriaMetrics as the default for new installs (2026-11-23: dashboards are PromQL, and SQLite answers
 none), against what was measured here: VictoriaMetrics holds the readings in almost nothing and answers the pages as
 well, but every reading the engine reads is a request to the server, and the engine kept to under one reading a
-second where it makes six, until the engine reads through a cache. That measurement was not repeated for this choice.
+second where it makes six, until the engine reads through a cache (now `newest`, above). That measurement was not
+repeated for this choice. On 2026-11-25 the owner made VictoriaMetrics the only metrics store: all of ergostat's
+metrics go through PromQL, recorded in VictoriaMetrics.
 
-**Upkeep.** The engine rolls items up, forgets what is past `keep`, and rolls the measurements into
-their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--dry-run` says what
+**Upkeep.** The engine rolls items up and forgets what is past `keep` every `rollup.every` (an hour); the readings
+are the server's to keep (its `-retentionPeriod`). `ergostat compact` does it now (`--dry-run` says what
 it would roll up). A roll-up reads only the items the item index says are due (their first event
 since their snapshot older than the horizon, or a transcript's lines), a batch of them at a time.
 **`use: upkeep` changes this:** the engine then only rotates and trims its logs, and the template's
-`record-compactor`, `record-pruner` and `measurement-retainer` roll up, forget and retain, each every its own `every`
-(section 2a, *Upkeep*); `rollup.every` is then unused, and `check` says so.
+`record-compactor`, `record-pruner` and `measurement-retainer` roll up, forget and retain (the retainer now moves
+nothing: the server keeps the readings), each every its own `every` (section 2a, *Upkeep*); `rollup.every` is then
+unused, and `check` says so.
 
-**The compaction lock.** Whoever rolls up, prunes, forgets archive months or rolls the measurements
+**The compaction lock.** Whoever rolls up, prunes, forgets archive months or replaces readings (a backfill's)
 (the engine's pass, `ergostat compact`, `upkeep rollup`, `upkeep retain`) holds `<state>/compact.lock`
 for all of it, from reading what is due to writing it back: an exclusive `flock`, taken without
 waiting. One that finds it held does nothing to the record and says `busy` (a line in the engine's
@@ -1649,7 +1627,7 @@ reads the event log.
 
 - **Sources.** `items`: a numeric field of a kind, from the item index's `number_log`. `moves` (`measure`: `entries`,
   `exits` or `time_in_state`, with `state`). `counts`: items per state, the level at each bucket's end. `series` (`series`:
-  a metric's name), from the metrics store's roll-ups. `events` (`type`, which may end in `*`): counts by type, at most the
+  a metric's name), bucketed by VictoriaMetrics. `events` (`type`, which may end in `*`): counts by type, at most the
   latest 20,000 events of the window, marked `read_log` (and `truncated` when cut).
 - **Numbers of an item.** A value is a plain number at the top of its document: not a boolean, a numeric string, an id
   or a timestamp. Each change is kept with the value and how much it moved: for `items`, `sum` adds the moves (what a cost
@@ -1698,18 +1676,16 @@ reads the event log.
   reference to an id not in the request, to itself, to another analysis query, or to a query whose answer failed (a
   failed answer is never read as an empty one). At most 8 analysis queries a request, refused past that at parse and
   again as they run.
-  `raw(A)`, A an ergostat `series` query with no transform, reads A's readings, never its roll-ups, and answers a
+  `raw(A)`, A an ergostat `series` query with no transform, reads A's readings one by one, and answers a
   `series` on one uniform grid whose step is the readings' median spacing (`scrape_s`), coarsened only to stay within
   `points` (each value then the mean of its step's readings, and a `partial` warning says so). A hole longer than
   `GAP_SAMPLES` (3) spacings, in seconds between the two readings, stays empty and is listed in `gaps` as
   `[from, to]` (the first 200; any further holes stay empty too, and a `partial` warning says they are not listed); a
   shorter one is a straight line. The mask and the fill are one rule, so a listed hole is never drawn over, wherever
-  in their buckets its readings fall. Where only roll-ups cover the window it is refused (`only-rollups`); where they cover part of it, that
-  part is left empty and warned. More than 500,000 readings in the window is a `limit`. A metrics store whose raw
-  readings cannot be told from its roll-ups (VictoriaMetrics) is refused. A a data source's query is asked again at the
+  in their buckets its readings fall. More than 500,000 readings in the window is a `limit`. A a data source's query is asked again at the
   finest step 1,000 points allow; the answer warns `not-raw`, naming its range windows, which still smooth it.
   `pair(A, B)`, `psd(A)`, `spectrogram(A)` and `ccf(A, B)` (`query/spectra.py`) read each query only through that
-  re-read (a refusal of it, such as `only-rollups`, is theirs), never the values the panel drew; two signals are put on
+  re-read (a refusal of it is theirs), never the values the panel drew; two signals are put on
   one grid, the coarser of their steps, each bucket the mean of its values and empty where it holds none. The FFT,
   coarsening to at most 2,048 samples, detrending and the stretches between gaps are `query/frequency.py`'s.
   - `pair(A, B)`, no options: `points` with `order: "time"`, x from A, y from B, one per grid time where both hold a
@@ -1760,13 +1736,11 @@ reads the event log.
   each, and a panel's warning can depend on which request it was in. Windows the controller consumes (G3) need loop roles, and are not
   checked yet.
 - **The built-in source `ergostat`.** ergostat's own readings, as a `prometheus` source no model declares (one the model
-  declares under that name is its own instead). Over `victoriametrics` (section 4b) it asks the server that holds them,
-  with `extra_label=project=<state key>` on each query and suggestion, so the server answers only this project's series
+  declares under that name is its own instead). It asks the VictoriaMetrics that holds them (section 4b),
+  with `extra_label=project=<the project label>` on each query and suggestion, so the server answers only this project's series
   whatever the text says; the names and labels are section 4b's (*Names and labels in PromQL*), e.g. `gap_items`,
-  `gaps_approved`, and the engine's own `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It is listed in `datasources` and offered by the editor. Over
-  `sqlite` it is not listed, and a panel naming it is refused in its own result (`error_kind: refused`) with what it
-  needs: VictoriaMetrics, `storage: measurements: victoriametrics` and `ergostat migrate`; the page's other panels are
-  answered as before. **`rate()` and `increase()` differ from Prometheus's.** Prometheus takes the samples inside the
+  `gaps_approved`, and the engine's own `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It is listed in `datasources` and offered by the editor.
+  **`rate()` and `increase()` differ from Prometheus's.** Prometheus takes the samples inside the
   window, at least two, and extrapolates their change toward the window's edges (not past where a counter was zero), so
   an integer counter's increase can be fractional and a window with one sample has no answer. VictoriaMetrics counts
   from the last sample before the window and does not extrapolate, so the increase of an integer counter is a whole
@@ -2020,7 +1994,7 @@ reads the event log.
   `unreachable`, `refused`, `unknown`, `unanswerable`, `busy`, `reader`), `no-coherence`, `partial`, and the misuses
   `not-cumulative`, `many-histograms`, `open-top-bucket`, `averaged-percentiles` (an `avg` or `avg_over_time` of a
   `histogram_quantile`) and `quantile-in-bucket` (any `histogram_quantile`, whose value is interpolated inside its
-  bucket), and those of *Analysis* and *Sampling*: `only-rollups`, `not-raw`, `scrape-unknown` and `mixed-windows`. A refused answer holds nothing to draw (its `id`, `error` and `meta` only), except a frequency response
+  bucket), and those of *Analysis* and *Sampling*: `not-raw`, `scrape-unknown` and `mixed-windows`. A refused answer holds nothing to draw (its `id`, `error` and `meta` only), except a frequency response
   without coherence, which is sent with no curve. In the panel, a refused answer is drawn by no family: it says
   "Refused" when the source refused it ("Could not load" otherwise), the reason, and "Fix:". A warned one is drawn, with
   each reason and its fix under the plot. An answer from a model, a fit, a simulation or a hypothesis says so there
@@ -3470,47 +3444,28 @@ fit and `changes` flows read it as any reading:
 
 The measurements store keeps a **ledger** of them: each backfill (its id, series, `from`, when it
 was written, first, last, count) and each reading it wrote (series, `at`, the backfill's id). It is
-outside every tier's roll, every `keep` and `prune`, and `forget`, so a backfilled span stays
+outside every `keep` and `forget`, so a backfilled span stays
 distinguishable from live readings for as long as the store is kept. A reading whose series and
-`at` are in the ledger is skipped, whatever has rolled or been pruned since: the same file sent
+`at` are in the ledger is skipped, whatever has happened since: the same file sent
 twice writes nothing the second time, a day or a year later. Written and skipped are counted from
-the ledger, never by comparing with the buckets; a live reading at the same `at` is not in the
+the ledger, never by comparing with the readings; a live reading at the same `at` is not in the
 ledger, so it does not stop a backfilled one. The ledger is read and written in the transaction
-that writes the readings (on `victoriametrics`, held while they are sent; a refused import rolls it
-back). Each backfill records the event `sensor.backfilled` (`sensor`, `written`, `skipped`,
+that writes the readings (held while they are sent; a refused import rolls it back). Each backfill records the event `sensor.backfilled` (`sensor`, `written`, `skipped`,
 `repeated`, `first`, `last`, `from`, `backfill`: the ledger's id), which is pruned as any event
 without an item is; the ledger is what lasts.
 
-Readings older than the raw window are written raw and taken into the tiers at the next roll: into
-buckets already made where their span was rolled up (section 4b), and forgotten raw with the rest.
-A tier keeps a reading only as long as its `keep`, so a reading older than every tier's keep is gone
-after that roll (the ledger still names it, and it is still skipped). A bucket keeps the count,
-sum, minimum, maximum, and first and last reading of what fell in it, and a read of readings one by
-one gets each old bucket's last: two readings closer together than an old tier's bucket (two
-commits within the hour, in a tier of one-hour buckets) are one point there, the later one.
+Readings of any age are written as they are and kept by the server for its `-retentionPeriod` (a reading older than
+that is dropped by the server without a word; the ledger still names it, and it is still skipped).
 
 **Replacing a span.** Without `--replace`, a file of new values at the old times is all skipped,
 and the record keeps the old definition; old and new readings side by side would be read by
 `changes` flows as rises and falls that never happened. With it, the readings in the span are set
-aside as `forget` sets them (kept in the `forgotten` table, or `measurements.forgotten.json`, with
-when and why: the `--from` text), and so are readings waiting to be merged late there. Every
-tier's buckets that overlap the span are made again from what is left (the finest from the raw
-readings, each coarser from the next finer), or dropped where that is gone; the new readings reach
-them at the next roll. A late reading outside the span is dropped from the waiting list only where
-the finest bucket it falls in was made again from the raw readings (it is in that bucket, and so in
-the coarser ones made from it); every other waits for the next roll as before. Readings outside the span are untouched, though a bucket that overlaps the
-span's edge and is not made again (its raw readings, or for a coarser tier the finer tier's buckets,
-gone past their keep) loses that bucket's readings outside the span too. The
-ledger's entries in the span become this call's, and each earlier backfill reaching into the span
-is marked `replaced`, with when (also when it was replaced only in part). On `sqlite` this is one
-transaction with the ledger. `victoriametrics` deletes only whole series, so there the series is
-read out, the span removed, the file added and the whole written back, under the compaction lock
-and the ledger's transaction; a live reading the engine sends between the read and the delete is
-lost. The event `sensor.backfilled` says `replaced`: how many readings were set aside, each once:
-the raw ones, and those of every tier's buckets dropped and not made again, less what the source
-under it already counted (so a span older than the finest tier's keep counts the coarser buckets it
-drops). Only the raw ones are kept in `forgotten`: a bucket's readings are a count and a sum, not
-readings one by one.
+aside as `forget` sets them (kept in `measurements.forgotten.json`, with when and why: the `--from` text). Readings
+outside the span are untouched. The ledger's entries in the span become this call's, and each earlier backfill
+reaching into the span is marked `replaced`, with when (also when it was replaced only in part). VictoriaMetrics
+deletes only whole series, so the series is read out, the span removed, the file added and the whole written back,
+under the compaction lock and the ledger's transaction; a live reading the engine sends between the read and the
+delete is lost. The event `sensor.backfilled` says `replaced`: how many readings were set aside.
 
 `changes` measures a flow by what it did to its stock: a benchmark's score rising with a release
 is its inflow, a sudden fall its outflow. It is how a stock read by a script gets measured flows
@@ -3842,7 +3797,7 @@ goals:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `stock`, `flow`, `auxiliary` or `query` | name, or PromQL for `query` | required, exactly one | What it is about: a stock's level, a flow's rate, an auxiliary's value (`variable:`, its old name, is still read), or a query: PromQL read through `source:` (default the built-in `ergostat`, this project's own series, which needs `storage: measurements: victoriametrics`) every `every:` (15s), with its `unit:`. The query is the goal's process variable, made an auxiliary named for the goal, so it is drawn and read by blocks like any other; when another part reads it too, declare it as its own auxiliary and name it here |
+| `stock`, `flow`, `auxiliary` or `query` | name, or PromQL for `query` | required, exactly one | What it is about: a stock's level, a flow's rate, an auxiliary's value (`variable:`, its old name, is still read), or a query: PromQL read through `source:` (default the built-in `ergostat`, this project's own series) every `every:` (15s), with its `unit:`. The query is the goal's process variable, made an auxiliary named for the goal, so it is drawn and read by blocks like any other; when another part reads it too, declare it as its own auxiliary and name it here |
 | `hold` | setpoint | required | The setpoint |
 | `tolerance` | number | 0 | Hysteresis for the status: off past the setpoint by more than this; holding again only back within the setpoint (for `==`, within half of it) |
 | `critical` | bool | false | It guards against a cascade or an accumulating failure: watched for decay |

@@ -114,50 +114,47 @@ When a panel is slow (it says it is late, or answers *busy*):
 4. Fewer queries per panel (at most 12) and fewer panels; drop the panel with no decision first (section 1).
 5. Slow the refresh.
 
-## 6a. ergostat's own series in PromQL: turning on VictoriaMetrics
+## 6a. ergostat's own series in PromQL: VictoriaMetrics
 
 A panel can ask the built-in data source `ergostat` in PromQL, as it would ask any Prometheus, for ergostat's own
-series: sensors, valves, blocks' outputs and each run's cost, tokens, CPU, memory and seconds. That needs the readings
-kept in VictoriaMetrics, the recommended metrics store for dashboards. On SQLite such a panel says so, and what to do;
-the rest of the page works as before.
+series: sensors, valves, blocks' outputs and each run's cost, tokens, CPU, memory and seconds. Every reading ergostat
+keeps is kept in VictoriaMetrics, its only metrics store (NOTES.md, 2026-11-25), so every project can be asked this way.
 
-**Get it.** VictoriaMetrics is one binary with no dependencies: the single-node `victoria-metrics` from the project's
-releases (`victoria-metrics-<os>-<arch>-<version>.tar.gz`), or a package manager's (Homebrew's `victoriametrics`).
-Put it on your `PATH`.
+**Get it.** VictoriaMetrics is required: ergostat keeps no reading anywhere else. It is one binary with no
+dependencies: `brew install victoriametrics` on a Mac, or the single-node `victoria-metrics` from the project's
+releases (`victoria-metrics-<os>-<arch>-<version>.tar.gz`) on your `PATH`. Start it yourself:
 
-**Let ergostat run it.** In the model's main file:
+```sh
+victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data -retentionPeriod 100y
+```
+
+(or `brew services start victoriametrics`, after setting its `-retentionPeriod`). ergostat looks for it at
+`http://127.0.0.1:8428`, VictoriaMetrics' own default; another address is `storage: measurements: url:` in the model, or
+`ERGOSTAT_METRICS_URL` for every project. With none answering, `ergostat run` refuses to start, and a command that reads
+the readings fails, each saying how to start one: never a run whose readings go nowhere.
+
+**Or let ergostat run it.** In the model's main file:
 
 ```yaml
 storage:
   measurements:
-    backend: victoriametrics
     url: http://127.0.0.1:8428
-    run: victoria-metrics -storageDataPath $HOME/.ergostat/victoria -httpListenAddr 127.0.0.1:8428 -retentionPeriod 2y
+    run: victoria-metrics -storageDataPath $HOME/.ergostat/victoria-metrics-data -httpListenAddr 127.0.0.1:8428 -retentionPeriod 100y
 ```
 
 `run:` makes it a daemon ergostat supervises (SPEC §9.7): started with `ergostat run`, restarted if it exits, stopped
 with ergostat, listed with the daemons on the Agents page. It runs through the shell, in the model's folder, so give
 `-storageDataPath` an absolute path (or `$HOME/...`) to keep its data out of the repository. `-retentionPeriod` is how
-long the server keeps a reading: it is one month unless set, while SQLite keeps up to two years (730 days), so set it at
-least as long as the history you have. If you already run VictoriaMetrics yourself, leave `run:` out, and check its
-`-retentionPeriod` the same way. Several projects can share one server: each
-one's readings carry its own `project` label, and the built-in source only ever answers with this project's.
+long the server keeps a reading: one month unless set, and a reading older than that is dropped without a word, so set
+it at least as long as the history you want. If you run VictoriaMetrics yourself, leave `run:` out, and check its
+`-retentionPeriod` the same way. Several projects can share one server: each one's readings carry its own `project`
+label (its state key; a project under another `ERGOSTAT_HOME` than `~/.ergostat`, as scripts, demos and tests use, has
+a digest of where that home is added, so it never mixes with the install's), and the built-in source only ever answers
+with this project's. `ergostat reset --yes` deletes the project's series in the server too, so the record starts from
+nothing; with the server away it refuses, and deletes nothing.
 
-**Move the readings already kept.** Once it is running, `ergostat migrate --dry-run` says how many readings it would
-send, and `ergostat migrate` sends them: every reading SQLite holds, under the names and labels below. It then reads
-each series back. If the server did not keep some readings (it drops, without saying so, any reading older than its
-`-retentionPeriod`), it fails, naming each such series with how many readings it lost and the days they span. Then
-stay on SQLite, or raise `-retentionPeriod` and run it again. Once every reading is held, running it again sends
-nothing, so it is safe to repeat (after a crash, or to catch readings written before the switch). `measurements.db`
-is only read, so going back is removing those lines: the project reads SQLite again.
-
-**A new install** (a project whose record has no readings yet, and whose YAML names no backend) uses VictoriaMetrics by
-itself when one answers at `http://127.0.0.1:8428`, so its dashboard has data from the first reading; with none there
-it uses SQLite, as before. An existing SQLite install stays on SQLite until it migrates, and so does one that is
-`ergostat reset`. On VictoriaMetrics, `ergostat reset --yes` deletes the project's series in the server too, so the
-record starts from nothing; with the server away it refuses, and deletes nothing. This default is taken only for a project under the default home, `~/.ergostat`: with
-`ERGOSTAT_HOME` set elsewhere (as scripts, demos and benchmarks do), a new project uses SQLite unless its YAML names
-`victoriametrics` or `ERGOSTAT_DEFAULT_MEASUREMENTS=victoriametrics` is set.
+**A record from before** kept its readings in SQLite (`measurements.db`); ergostat no longer reads that file, and
+`ergostat reset` removes it with the rest of the record.
 
 **What to write.** What your model declares is a metric under its own name (SPEC §4b, *Names and labels in PromQL*),
 dashes written as underscores; only ergostat's own internals start `ergostat_`:
@@ -176,8 +173,8 @@ dashes written as underscores; only ergostat's own internals start `ergostat_`:
 A part whose name an item kind's metric already takes (a stock `gap-items` beside the kind `gap`) is written with its
 system first (`landing_gap_items`); with no system to keep them apart, `ergostat check` refuses the model and says to
 rename it or put it in a system. A record written under the old generic names (`ergostat_sensor{part="backlog"}`,
-`ergostat_items{kind="gap"}`) is moved to the new by `ergostat migrate`, and a saved panel still naming them asks both
-the new name and the old, so it answers as before whether or not the move has run, with a warning to write the new.
+`ergostat_items{kind="gap"}`) is still read, and a saved panel still naming them asks both the new name and the old,
+so it answers as before, with a warning to write the new.
 
 The item metrics (SPEC §4b, *Item metrics*) are written once a minute from the item index, backfilled from it when
 first turned on; an arrival is `from="(new)"` and an item forgotten after a prune `to="(gone)"`. So the items in a
