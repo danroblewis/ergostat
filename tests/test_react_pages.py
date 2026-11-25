@@ -26,7 +26,14 @@ playwright = pytest.importorskip("playwright.sync_api")
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = "first-loop"
 ITEM = "ticket/1"
-WAIT = 20_000                       # ms: a page's first answers on a busy machine
+KIND = """
+items:
+  ticket:
+    id: ticket/*
+    states: [opened, working, done]
+    on: {ticket.opened: opened, ticket.working: working, ticket.done: done}
+"""
+WAIT = 20_000                      # ms: a page's first answers on a busy machine
 
 pytestmark = pytest.mark.skipif(not (ws.STATIC / "app" / "index.html").is_file(), reason="the React page is not built")
 
@@ -34,6 +41,8 @@ pytestmark = pytest.mark.skipif(not (ws.STATIC / "app" / "index.html").is_file()
 def project_with_items(d: Path) -> Project:
     """The first loop, with a few readings and three tickets on its record (one finished)."""
     shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__", "inbox"))
+    f = d / "ergostat.yaml"
+    f.write_text(f.read_text() + KIND)
     p = Project(mdl.load(d))
     now = time.time()
     for i in range(6):

@@ -172,9 +172,11 @@ def test_an_equation_that_fits_worse_than_its_mean_is_a_finding_and_its_panel_sa
     assert [r for r, _ in got] == ["flow.served"] and "worse than holding it at its mean" in got[0][1]
     from ergostat.cli.spec_cmds import calibration
     assert [x.code for x in calibration(tmp_path / "ergostat.yaml")] == ["calibration-worse-than-mean"]
-    from ergostat.web.server import Live, api
-    # the Check page's row: its R², scaled error and points, as its message says them
-    row = next(x for x in api(Live(p), "exercised", {}) if x["code"] == "calibration-worse-than-mean")
+    from ergostat.web.numbers_api import exercised
+    from ergostat.web.server import Live
+    # the finding's row: its R², scaled error and points, as its message says them
+    live = Live(p)
+    row = next(x for x in exercised(live, p, live.snapshot(p, 3600.0, None)) if x["code"] == "calibration-worse-than-mean")
     assert row["about"] == "flow.served" and f"(R² {row['r2'] or 0:.2f}, scaled error {row['nmse']:.3g}," in row["message"]
     assert f"over {row['n']} points" in row["message"]
 

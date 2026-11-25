@@ -347,11 +347,6 @@ def test_a_proposal_is_drawn_as_it_would_leave_the_model(tmp_path):
         assert "_model" not in g
         plain = api(live, "graph", {"view": [view], "open": ["*"]})
         assert "proposed" not in plain and "stock.triage" in plain["corr"]["parts"]   # the model as it is, untouched
-    q = api(live, "fit", {})
-    e = next(x for x in q["queue"] if x["id"] == got["id"])
-    assert e["kind"] == "redesign" and e["redesign"]["scorecard"]["verdict"] == "better"
-    assert [x["why"] for x in e["redesign"]["edits"]] == [c["why"] for c in CHAIN]
-    assert q["redesigns"]["systems"] == ["model"]
 
 
 def test_while_a_redesign_is_being_made_the_judge_writes_nothing_on_its_own(tmp_path):

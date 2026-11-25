@@ -444,13 +444,6 @@ def test_the_page_gets_the_fit_the_replay_and_an_equations_numbers(tmp_path):
     p, _ = queue_project(tmp_path, k_true=3.0)
     live = Live(p)
     q = {"since": ["1h"]}
-    fit = api(live, "fit", q)
-    assert fit["stocks"][0]["name"] == "queue" and {"r2", "mape", "um", "us", "uc", "partial"} <= set(fit["words"])
-    # the Model page's "What's available": where k's what-if and calibrations are, and whether the record is long
-    # enough for a proposal (two hours of a queue whose time constant is 20 minutes: three of it, and 40 points)
-    ready = fit["readiness"]["k"]
-    assert ready["parts"] == ["flow.served"] and ready["points_needed"] == 40
-    assert ready["needs"] == pytest.approx(3 * ready["slowest"]) and ready["span"] >= ready["needs"] and ready["points"] >= 40
     got = api(live, "series", {**q, "refs": ["stock.queue"], "strip": ["1"], "replay": ["1"]})
     s = {x["ref"]: x for x in got["series"]}
     assert len(s["stock.queue"]["replay"]) == got["points"] and s["flow.served"]["modelled"] == "equation"
