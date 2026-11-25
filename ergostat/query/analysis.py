@@ -3,10 +3,9 @@ server. Its language is small and closed: a call's name, the ids of the queries 
 as in ``raw(A, points=2000)``. Text that does not parse is refused with its column; so is an unknown call or option, and
 a reference to a missing id, to itself, to another analysis query or to a query that was not answered.
 
-``raw(A)``, A an ergostat ``series`` query: A's readings, never its roll-ups, on one uniform grid whose step is their
+``raw(A)``, A an ergostat ``series`` query: A's readings, every one as kept, on one uniform grid whose step is their
 median spacing, coarsened only to stay within ``points``. A hole longer than ``GAP_SAMPLES`` spacings stays empty and is
-listed in ``gaps`` as ``[from, to]``; a shorter one is a straight line. Where only roll-ups cover the window it is
-refused (``only-rollups``). A a data source's query: asked again at the finest step the point bound allows, said to be
+listed in ``gaps`` as ``[from, to]``; a shorter one is a straight line. A a data source's query: asked again at the finest step the point bound allows, said to be
 not raw (``not-raw``): its range windows still smooth it.
 
 ``pair(A, B)``, ``psd(A, ...)``, ``spectrogram(A, ...)`` and ``ccf(A, B, ...)`` read their signals only through that
@@ -35,7 +34,6 @@ READINGS_MOST = 500_000                # readings one raw answer reads
 SCRAPE_READINGS = 2_000                # the newest readings an answer's scrape interval is read from
 MOST_GAPS = 200
 _TOKEN = re.compile(r"\s*(?:([A-Za-z0-9_.\-]+)|(\S))")
-_IN = "from samples where series = ? and time >= ? and time <= ?"
 
 
 @dataclass(frozen=True)
@@ -114,22 +112,17 @@ def _points(c: Call) -> int:
     return int(v)
 
 
-def spacing(c, series: str, since: float, until: float, most: int) -> float | None:
-    """The median spacing of a series' newest ``most`` raw readings in a window, or None."""
-    near = f"select time {_IN} order by time desc limit {int(most)}"
-    lag = f"select time - lag(time) over (order by time) d from ({near})"
-    n = c.execute(f"select count(*) from ({lag}) where d > 0", (series, since, until)).fetchone()[0]
-    got = c.execute(f"select d from ({lag}) where d > 0 order by d limit 1 offset ?", (series, since, until, (n - 1) // 2))
-    return (got.fetchone() or (None,))[0] if n else None
+def spacing(times: list[float]) -> float | None:
+    """The median spacing of readings at ``times`` (in order; the lower of two middles), apart from readings at one
+    time, or None."""
+    d = sorted(b - a for a, b in zip(times, times[1:], strict=False) if b > a)
+    return d[(len(d) - 1) // 2] if d else None
 
 
 def scrape(m, series: str, since: float, until: float) -> float | None:
-    """A series' scrape interval in a window (of its newest ``SCRAPE_READINGS``: every answer of a series pays it),
-    where its raw readings are kept there; None where it is not known."""
-    if not hasattr(m, "_sources"):
-        return None
-    with m._c() as c:
-        return spacing(c, series, since, until, SCRAPE_READINGS)
+    """A series' scrape interval in a window (of its newest ``SCRAPE_READINGS``: every answer of a series pays it);
+    None where it is not known."""
+    return spacing([t for t, _ in m.range(series, since, until, last=SCRAPE_READINGS)])
 
 
 def scrapes(m, qs, since: float, until: float) -> dict:
@@ -156,33 +149,27 @@ def raw(m, q: Query, since: float, until: float, c: Call) -> dict:
     if q.transform != "none":
         raise _bad(f"raw reads readings as they are; query {q.id!r} has the transform {q.transform}")
     most = _points(c)
-    if not hasattr(m, "_sources"):
-        raise _bad("this metrics store keeps no raw readings ergostat can tell from its roll-ups", kind="unknown")
-    span = (q.series, since, until)
-    with m._c() as db:
-        n = db.execute(f"select count(*) {_IN}", span).fetchone()[0]
-        if n > READINGS_MOST:
-            raise _bad(f"{n} readings, more than the {READINGS_MOST} one raw answer reads", kind="limit")
-        if n < 2 and db.execute("select count(*) from tiers where series = ? and t <= ? and t + every > ?",
-                                (q.series, until, since)).fetchone()[0]:
-            raise _bad(f"series {q.series!r} has only roll-ups in this window, and roll-ups are not raw", code="only-rollups")
-        each = spacing(db, *span, READINGS_MOST) if n >= 2 else None
-        if each is None:
-            raise _bad(f"series {q.series!r} has {n} readings in this window at distinct times; raw needs two",
-                       kind="unknown")
-        step = max(each, (until - since) / (most - 2))
-        start = math.floor(since / step) * step
-        g = Grid(since, until, step, start, max(1, math.ceil((until - start) / step)))
-        values: list = [None] * g.n
-        for b, v in db.execute(f"select min(max(cast((time - ?) / ? as integer), 0), ?), avg(value) {_IN} group by 1",
-                               (start, step, g.n - 1, *span)):
-            values[b] = v
-        gaps = db.execute(f"select a, t from (select lag(time) over (order by time) a, time t {_IN}) where t - a > ? "
-                          f"order by t", (*span, GAP_SAMPLES * each)).fetchall()
-        parts = m._sources(db, q.series, since, until)
-    said = [("partial", f"from {lo:.0f} to {hi:.0f} only roll-ups are kept: left empty, never read as raw")
-            for e, lo, hi in parts if e > 0]
-    said += [("partial", f"more than {MOST_GAPS} gaps: the first {MOST_GAPS} are listed")] if len(gaps) > MOST_GAPS else []
+    n = m.count(q.series, since, until)
+    if n > READINGS_MOST:
+        raise _bad(f"{n} readings, more than the {READINGS_MOST} one raw answer reads", kind="limit")
+    pts = m.ranges([q.series], since, until)[q.series] if n else []     # (every reading, never bucketed)
+    times = [t for t, _ in pts]
+    each = spacing(times) if len(pts) >= 2 else None
+    if each is None:
+        raise _bad(f"series {q.series!r} has {len(pts)} readings in this window at distinct times; raw needs two",
+                   kind="unknown")
+    step = max(each, (until - since) / (most - 2))
+    start = math.floor(since / step) * step
+    g = Grid(since, until, step, start, max(1, math.ceil((until - start) / step)))
+    sums: dict[int, list] = {}
+    for t, v in pts:
+        a = sums.setdefault(min(max(int((t - start) / step), 0), g.n - 1), [0.0, 0])
+        a[0], a[1] = a[0] + v, a[1] + 1
+    values: list = [None] * g.n
+    for b, (s, k) in sums.items():
+        values[b] = s / k
+    gaps = [(a, t) for a, t in zip(times, times[1:], strict=False) if t - a > GAP_SAMPLES * each]
+    said = [("partial", f"more than {MOST_GAPS} gaps: the first {MOST_GAPS} are listed")] if len(gaps) > MOST_GAPS else []
     said += [("partial", f"{n} readings {each:g} s apart are averaged into steps of {step:g} s, "
                          f"to stay within {most} points")] if step > each else []
     at = lambda t: min(max(int((t - start) / step), 0), g.n - 1)  # noqa: E731 - the bucket of a time, as the SQL above

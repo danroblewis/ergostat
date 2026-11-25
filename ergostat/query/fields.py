@@ -41,7 +41,7 @@ def _groupable(ix, k) -> list[str]:
 
 def _series(p) -> list[dict]:
     m = p.measurements
-    names = sorted(m.newest()) if hasattr(m, "newest") else [s["series"] for s in m.series()]
+    names = sorted(m.newest())
     return [{"name": n, "unit": _series_unit(p, n)} for n in names]
 
 

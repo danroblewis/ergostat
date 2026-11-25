@@ -14,7 +14,7 @@ is a metric named for itself, and only the engine's own keep ``ergostat_``.
 
 Labels stay bounded: a part's name is a metric, a sensor's a label value, both declared by the model; an item's id
 never is either. A record written under the old generic names (``ergostat_sensor{part}``, ``ergostat_items{kind}``) is
-moved by ``ergostat migrate``, and a saved query that names them is read as the new names (``convert``)."""
+still read (``Victoria._sel``), and a saved query that names them is read as the new names (``convert``)."""
 
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def convert(text: str, names: Names, both: bool = False) -> tuple[str, list[str]
     ``ergostat_item_...{kind="K", ...}`` selector whose part or kind is matched exactly. Returns the text and what was
     turned (``old -> new``); a selector without one (``sum by (kind) (ergostat_items)``) is left as written.
     ``both``: each selector asks the new name and the old (``{__name__=~"gap_items|ergostat_items",kind=~"gap|"}``), so
-    a record not yet moved by ``ergostat migrate`` answers as before, and one moved answers under the new."""
+    a record still under the old names answers as before, and one under the new answers too."""
     said: list[str] = []
 
     def one(m):

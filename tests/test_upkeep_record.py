@@ -192,53 +192,8 @@ def test_a_killed_compactor_releases_the_lock(tmp_path, monkeypatch, capsys):
     assert _folds(p) == {k: v for k, v in before.items() if k != "t/ancient"}, "rolled up: each item folds as before"
 
 
-@pytest.mark.parametrize("backend", ["sqlite", "segments"])
-def test_rollup_due_is_what_compact_would_roll(tmp_path, monkeypatch, capsys, backend):
-    root = tmp_path / "d"
-    p = _project(root, backend=backend)
-    now = time.time()
-    _old(p, now)
-    p.events.add("t.opened", item="t/single", at=now - 10 * DAY)    # old, but one event: the index's candidate, never rolled
-    for k in range(10):
-        p.measurements.add("sensor/x", float(k), at=now - 3 * DAY + k * 60)    # raw readings past raw (2d)
-    assert "t/single" in (rollup.candidates(p, now, p.model.keep) or [])
-    due = ms.measure(p, "ergostat.upkeep.rollup-due")
-    assert due == rollup.compact(p, cap=p.model.keep, dry=True)["items"] == 6     # (t/ancient: due too)
-    assert ms.measure(p, "ergostat.upkeep.events-past-keep") == 3
-    assert ms.measure(p, "ergostat.upkeep.measurements-due") == 10
-    assert p.events.count() == 21 and not _snapshots(p), "measured, nothing rolled"
-    assert _program(p, root, monkeypatch, "rollup", "--every", "1h") == 0
-    assert ms.measure(p, "ergostat.upkeep.rollup-due") == 0
-    assert ms.measure(p, "ergostat.upkeep.events-past-keep") == 0
-    assert ms.measure(p, "ergostat.upkeep.measurements-due") == 10, "the record's program leaves the measurements"
-    assert _program(p, root, monkeypatch, "retain", "--every", "1h") == 0
-    assert ms.measure(p, "ergostat.upkeep.measurements-due") == 0
-    lines = capsys.readouterr().out.strip().splitlines()
-    assert len(lines) == 2 and '"flow.measurements-forgotten"' in lines[1] and '"moved": 10' in lines[1], lines
-
-
-def test_measurements_due_is_0_straight_after_roll_with_tier_rows_at_the_edge(tmp_path):
-    """A source read each minute, its record older than the 1m and the 10m tiers' keeps: ``roll`` keeps the 1m rows
-    up to the 10m bucket edge, and the 10m rows up to the 1h edge. ``due`` counts by ``roll``'s own cut, so it is 0
-    straight after, though rows ending before each tier's keep remain (review round 1)."""
-    p = _project(tmp_path / "e")
-    m = p.measurements
-    assert [e for e, _ in m.tiers] == [60.0, 600.0, 3600.0]
-    now = 1_800_000_000.0 // 3600 * 3600 + 25 * 60 + 17          # neither keep falls on a 10m or 1h edge
-    m.add_many([("sensor/x", now - since + k * 60, 1.0)                 # each minute, two days around each keep
-                for since in (91 * DAY, 15 * DAY) for k in range(2 * 24 * 60)])
-    assert m.due(now) > 0
-    m.roll(now)
-    with m._c() as c:
-        strip = {e: c.execute("select count(*) from tiers where every = ? and t + ? <= ?", (e, e, now - k)).fetchone()[0]
-                 for e, k in m.tiers}
-    assert strip[60.0] > 0 and strip[600.0] > 0, f"rows past their keep that roll keeps: {strip}"
-    assert m.due(now) == 0, "what roll leaves is not due"
-    assert m.roll(now)["forgot"] == 0
-
-
 def test_a_store_that_cannot_count_gives_no_reading(tmp_path, capsys):
-    p = _project(tmp_path / "v", extra="  measurements: {backend: victoriametrics, url: 'http://127.0.0.1:9'}\n")
+    p = _project(tmp_path / "v", extra="  measurements: {url: 'http://127.0.0.1:9'}\n")
     assert type(p.measurements).__name__ == "Victoria"
     assert ms.measure(p, "ergostat.upkeep.measurements-due") is None
     assert "keeps its own retention" in capsys.readouterr().err
@@ -282,7 +237,8 @@ def test_events_past_keep_alone_starts_a_pruner_through_its_goal(tmp_path):
     e.machines = []                                      # the pass only: the blocks it turns on are run below
     for stock in ("rollup-due", "events-past-keep", "measurements-due"):
         for s in spec.stocks[stock].sensors.values():
-            p.measurements.add(s.series, ms.measure(p, f"ergostat.upkeep.{stock}"), at=now - 1)
+            if (x := ms.measure(p, f"ergostat.upkeep.{stock}")) is not None:    # (measurements-due: none, the server's)
+                p.measurements.add(s.series, x, at=now - 1)
     assert e.signals.get("stock.rollup-due") is None
     e.evaluate(full=True)
     assert e.signals["stock.rollup-due"] == 0.0 and e.signals["stock.events-past-keep"] == 2.0, e.signals

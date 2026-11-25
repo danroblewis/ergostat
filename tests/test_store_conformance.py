@@ -1,9 +1,7 @@
-"""One conformance suite for every backend of the two stores (Orchestra's design: tests/bus and
-tests/metrics there): each event backend and each measurement backend is held to the same
-behaviour. SQLite and the segmented log always run (the log with tiny segments, so every test
-crosses sealed segments and the head); VictoriaMetrics runs when ERGOSTAT_TEST_VM_URL is set
-(``victoria-metrics -storageDataPath DIR -httpListenAddr 127.0.0.1:8428``), each test under its own
-project label."""
+"""One conformance suite for the two stores (Orchestra's design: tests/bus and tests/metrics there): each event
+backend is held to the same behaviour, SQLite and the segmented log (with tiny segments, so every test crosses sealed
+segments and the head); and the measurements, VictoriaMetrics (the only metrics store, NOTES.md 2026-11-25), against
+this test process's own server (tests/conftest.py, ``vm``), each test under its own project label."""
 
 from __future__ import annotations
 
@@ -16,7 +14,8 @@ import uuid
 import pytest
 
 from ergostat.segments import Segments, _Head
-from ergostat.store import ChangesetError, Events, Measurements
+from ergostat.store import ChangesetError, Events
+from ergostat.victoria import Victoria
 
 T = 1_700_000_000.0
 
@@ -301,27 +300,12 @@ def test_a_head_rewritten_in_the_place_of_the_readers_inode_is_read_again(tmp_pa
 
 # ---- measurements
 
-VM = os.environ.get("ERGOSTAT_TEST_VM_URL")
 
-
-def _measurements(kind, d):
-    if kind == "sqlite":
-        return Measurements(d)
-    if kind == "tiers":
-        return Measurements(d, raw=3600.0, tiers=[(60.0, 86400.0), (600.0, 7 * 86400.0)])
-    from ergostat.victoria import Victoria
-    return Victoria(VM, d, project=f"test-{uuid.uuid4().hex[:10]}", raw=3600.0, tiers=[(60.0, 86400.0), (600.0, 7 * 86400.0)])
-
-
-@pytest.fixture(params=["sqlite", "tiers", "victoriametrics"])
-def me(request, tmp_path):
-    if request.param == "victoriametrics" and not VM:
-        pytest.skip("set ERGOSTAT_TEST_VM_URL to run VictoriaMetrics")
-    m = _measurements(request.param, tmp_path)
-    m.kind = request.param
+@pytest.fixture
+def me(tmp_path, vm):
+    m = Victoria(vm, tmp_path, project=f"test-{uuid.uuid4().hex[:10]}")
     yield m
-    if request.param == "victoriametrics":
-        m.drop()
+    m.drop()
 
 
 def test_write_read_latest_and_range(me):
@@ -336,6 +320,46 @@ def test_write_read_latest_and_range(me):
     assert me.count("sensor/a", T, T + 100) == 3
     assert [r["series"] for r in me.series()] == ["sensor/a", "sensor/b"]
     assert me.first_time() == T - 100
+    assert me.ranges(["sensor/a", "sensor/b", "sensor/none"], T, T + 10) == {
+        "sensor/a": [(T, 3), (T + 10, 4)], "sensor/b": [(T + 5, 9)], "sensor/none": []}
+
+
+def test_newest_and_changes_follow_every_write(me, vm, tmp_path):
+    """``newest`` is every series' ``latest``; ``changes`` names the series whose newest moved since a mark, whoever
+    wrote it (another process: another store on the same project), and a deletion reads every series afresh."""
+    me.add_many([("a", T, 1.0), ("a", T + 10, 2.0), ("b", T + 5, 3.0)])
+    got, changed, mark = me.changes(None)
+    assert got == {"a": (T + 10, 2.0), "b": (T + 5, 3.0)} and changed is None
+    other = Victoria(vm, tmp_path, project=me.project)
+    other.add_many([("b", T + 20, 4.0), ("a", T + 1, 9.0)])           # b moves; a's reading is older than its newest
+    got, changed, mark = me.changes(mark)
+    assert got == {"a": (T + 10, 2.0), "b": (T + 20, 4.0)} and changed == {"b"}
+    me.add("c", 5.0, at=T + 30)
+    got, changed, mark = me.changes(mark)
+    assert got["c"] == (T + 30, 5.0) and changed == {"c"}
+    assert me.changes(mark)[1] == set()
+    v = me.version()
+    assert me.version() == v
+    me.forget("c", above=1)
+    got, changed, _ = me.changes(mark)
+    assert "c" not in got and changed is None and me.version() != v
+    assert me.newest() == {s: me.latest(s) for s in ("a", "b")}
+
+
+def test_rollups_count_sum_min_max_and_last(me):
+    me.add_many([("s", T + i, float(i)) for i in range(100)])
+    got = me.rollups("s", T, T + 100, T, 25, 4)
+    assert got == [(0, 25, sum(range(25)), 0.0, 24.0, 24.0), (1, 25, sum(range(25, 50)), 25.0, 49.0, 49.0),
+                   (2, 25, sum(range(50, 75)), 50.0, 74.0, 74.0), (3, 25, sum(range(75, 100)), 75.0, 99.0, 99.0)]
+    assert me.rollups("s", T + 10, T + 30, T, 25, 4) == [(0, 15, sum(range(10, 25)), 10.0, 24.0, 24.0),
+                                                         (1, 6, sum(range(25, 31)), 25.0, 30.0, 30.0)]
+
+
+def test_rollups_of_many_readings_are_the_servers(me, monkeypatch):
+    me.add_many([("s", T + i, float(i % 10)) for i in range(400)])
+    small = me.rollups("s", T, T + 400, T, 100, 4)
+    monkeypatch.setattr(me, "RAW_MOST", 10)
+    assert me.rollups("s", T, T + 400, T, 100, 4) == small
 
 
 def test_bucketed_and_sampled(me):
@@ -355,46 +379,33 @@ def test_forget_sets_readings_aside(me):
     assert me.forget("s", above=100) == []
 
 
-def test_tiers_keep_old_readings_as_buckets(me, tmp_path):
-    if me.kind == "sqlite":
-        pytest.skip("no tiers")
+def test_a_long_span_is_read_in_buckets(me):
     now = T + 10 * 86400
     me.add_many([("s", now - 3 * 86400 + 6 * i, float(i % 50)) for i in range(3 * 86400 // 6)])   # three days, every 6s
     me.add("s", 7.0, at=now - 1)
-    me.roll(now)
-    me.roll(now)                                          # again: nothing more, nothing lost
     old = me.range("s", now - 3 * 86400, now - 2 * 86400)
-    if me.kind == "tiers":                                # kept: raw for the last hour, then buckets
-        assert me.count() < 3 * 86400 // 6 / 4
-        assert 120 < len(old) <= 145                       # ten-minute buckets, each its last reading
-    else:                                                 # kept by the server, compressed; read one by one when few
-        assert 0 < len(old) <= 20_000 and len(me.range("s", now - 3 * 86400, now)) <= 20_000 + 3600 // 6 + 1
+    assert 0 < len(old) <= 20_000 and len(me.range("s", now - 3 * 86400, now)) <= 20_000 + 1
     assert me.latest("s") == (now - 1, 7.0) and me.latest("s", now - 2 * 86400)[0] <= now - 2 * 86400
     got = me.bucketed("s", now - 3 * 86400, now, 72)      # an hour a bucket: every bucket's mean is the readings'
     assert len(got) == 72 and all(abs(mean - 24.5) < 1.5 for _, mean, _, _ in got[:-2])
     assert me.first("s", now - 4 * 86400, now) == (now - 3 * 86400, 0.0)
-    fine = me.bucketed("s", now - 1800, now, 30)         # the last half hour: raw
+    fine = me.bucketed("s", now - 1800, now, 30)
     assert len(fine) == 30 and fine[-1][3] == 7.0
     assert me.count("s", now - 3 * 86400, now) == 3 * 86400 // 6 + 1
 
 
-def test_late_readings_are_rolled_again(me):
-    if me.kind == "sqlite":
-        pytest.skip("no tiers")
+def test_late_readings_are_read(me):
     now = T + 10 * 86400
     me.add_many([("s", now - 7200 + i * 60, 1.0) for i in range(60)])
-    me.roll(now)
-    me.add_many([("s", now - 7200 + 30, 100.0)])           # late, into a bucket already made
-    me.roll(now)
+    me.add_many([("s", now - 7200 + 30, 100.0)])           # late, into a span read before
     assert me.bucketed("s", now - 7200, now - 3600, 1)[0][1] == pytest.approx((60 + 100) / 61)
 
 
-def test_backfill_ledger_and_late_merge(me, monkeypatch):
-    """A backfill writes what its ledger has not seen, says what it skipped by the ledger alone (whatever rolled or was
-    pruned since), and readings into a span already rolled up are merged into their buckets at the next roll."""
+def test_backfill_ledger(me, monkeypatch):
+    """A backfill writes what its ledger has not seen and says what it skipped by the ledger alone."""
     now = T + 10 * 86400
     with monkeypatch.context() as m:                     # a write that fails: nothing kept in the ledger either
-        m.setattr(me, "add_many" if me.kind == "victoriametrics" else "_write", lambda *a: (_ for _ in ()).throw(OSError("away")))
+        m.setattr(me, "add_many", lambda *a: (_ for _ in ()).throw(OSError("away")))
         with pytest.raises(OSError):
             me.backfill("s", [(now - 7000, 1.0)], "lost")
     assert me.backfills("s") == []
@@ -402,93 +413,53 @@ def test_backfill_ledger_and_late_merge(me, monkeypatch):
         with pytest.raises(ValueError):
             me.backfill("s", bad)
     me.add_many([("s", now - 7200 + i * 60, 1.0) for i in range(60)])
-    me.roll(now)                                         # (tiers: the span rolled up, so what follows is late)
     got = me.backfill("s", [(now - 7170, 100.0), (now - 7110, 100.0), (now - 7170, 61.0)], "test")
     assert (got["count"], got["skipped"], got["repeated"], got["first"], got["last"]) == (2, 0, 1, now - 7170, now - 7110)
-    me.roll(now)
     assert me.bucketed("s", now - 7200, now - 3600, 1)[0][1] == pytest.approx((60 + 61 + 100) / 62)
     again = me.backfill("s", [(now - 7170, 5.0), (now - 7050, 7.0)], "test")
     assert (again["count"], again["skipped"]) == (1, 1)
-    me.roll(now)
     assert me.bucketed("s", now - 7200, now - 3600, 1)[0][1] == pytest.approx((60 + 61 + 100 + 7) / 63)
-    me.prune(now)
     assert [(b["from"], b["count"], b["first"], b["last"]) for b in me.backfills("s")] == [
         ("test", 2, now - 7170, now - 7110), ("test", 1, now - 7050, now - 7050)]
     assert me.backfill("s", [(now - 7110, 3.0)])["count"] == 0 and me.backfills("other") == []
 
 
 def test_backfill_replace(me):
-    """A replacing backfill sets aside every reading of the series in its span (live, backfilled, late, or rolled into
-    buckets), writes the file, and leaves the rest alone; the ledger's entries there are its own."""
+    """A replacing backfill sets aside every reading of the series in its span (live or backfilled), writes the file,
+    and leaves the rest alone; the ledger's entries there are its own."""
     now = (T + 10 * 86400) // 3600 * 3600
     lo, hi = now - 6900, now - 6300
     me.add_many([("s", now - 7200 + i * 60, 1.0) for i in range(60)] + [("t", now - 6600, 4.0)])
     me.backfill("s", [(now - 7170 + i * 60, 50.0) for i in range(10)], "old")
-    me.roll(now)                                         # (tiers: rolled, raw forgotten: the span is in buckets)
     outside = [p for p in me.range("s", now - 7200, now - 3600) if not lo <= p[0] <= hi]
-    me.add("s", 77.0, at=now - 6500)                     # late, waiting for the next roll
+    me.add("s", 77.0, at=now - 6500)                     # late
     with pytest.raises(ValueError):
         me.backfill("s", [(lo, 9.0)], None, replace=True)
     new = [(lo + i * 60, 9.0) for i in range(11)]
     got = me.backfill("s", new, "redefined", replace=True)
     assert (got["count"], got["skipped"], got["replaced"]) == (11, 0, 11 + 5 + 1)
-    me.roll(now)
     after = me.range("s", now - 7200, now - 3600)
     assert [p for p in after if lo <= p[0] <= hi] == new
     assert [p for p in after if not lo <= p[0] <= hi] == outside
     assert me.range("t", 0, now) == [(now - 6600, 4.0)]
-    means = [m for _, m, _, _ in me.bucketed("s", now - 7200, now - 6030, 2)]   # (made from the 1m tier's buckets)
+    means = [m for _, m, _, _ in me.bucketed("s", now - 7200, now - 6030, 2)]
     assert means == pytest.approx([(5 * 1.0 + 5 * 50.0 + 5 * 9.0) / 15, (6 * 9.0 + 4 * 1.0) / 10])
-    if me.kind == "tiers":                               # the 10m tier's, made again from the 1m tier's and the late
-        assert [m for _, m, _, _ in me.bucketed("s", now - 7200, now - 6000, 2)] == pytest.approx(means)
     old, mine = me.backfills("s")
     assert old["replaced"] is not None and mine["replaced"] is None and mine["count"] == 11
     assert me.backfill("s", new, "again")["count"] == 0 and me.backfill("s", [(now - 6870, 5.0)])["count"] == 1
     assert me.backfill("s", [(now - 7170, 5.0)])["count"] == 0       # outside the span: the old backfill's still
 
 
-def test_backfill_replace_keeps_a_late_reading_outside_the_span(me):
-    """A late reading in a coarse bucket the span overlaps, but in a finest bucket it does not, reaches every tier."""
+def test_backfill_replace_keeps_what_is_outside_the_span(me):
     now = (T + 10 * 86400) // 3600 * 3600
     me.add_many([("s", now - 7200 + i * 60, 1.0) for i in range(60)])
-    me.roll(now)
-    me.add("s", 5.0, at=now - 7130)                      # late: the 1m bucket at now-7140, the 10m one at now-7200
+    me.add("s", 5.0, at=now - 7130)
     got = me.backfill("s", [(now - 6700, 9.0), (now - 6650, 9.0)], "redefined", replace=True)
-    n = 1 if me.kind == "sqlite" else 2                  # (now-6660; with tiers, also now-6720: its bucket's raw is gone)
-    assert got["replaced"] == n
-    me.roll(now)
+    assert got["replaced"] == 1                          # (now-6660)
     assert [m for _, m, _, _ in me.bucketed("s", now - 7140, now - 7081, 1)] == pytest.approx([3.0])
-    want = ((10 - n) * 1.0 + 5.0 + 2 * 9.0) / (10 - n + 3)
+    want = (9 * 1.0 + 5.0 + 2 * 9.0) / 12
     assert [m for _, m, _, _ in me.bucketed("s", now - 7200, now - 6601, 1)] == pytest.approx([want])
-
-
-def test_backfill_replace_past_the_finest_keep(me):
-    """A span older than the finest tier's keep is held by coarser buckets only: those it overlaps are dropped, and
-    every reading they held (in the span or beside it) is counted in ``replaced``; the buckets beside them are kept."""
-    now = (T + 10 * 86400) // 3600 * 3600
-    base = now - 3 * 86400
-    me.add_many([("s", base + i * 60, 1.0) for i in range(120)])
-    me.roll(now)                                         # (tiers: raw and the 1m tier forgotten, the 10m tier holds it)
-    got = me.backfill("s", [(base + 1230, 9.0), (base + 1290, 9.0)], "redefined", replace=True)
-    n = 10 if me.kind == "tiers" else 1                  # (tiers: the 10m bucket at base+1200, whole)
-    assert got["replaced"] == n
-    me.roll(now)
-    assert me.count("s", base, base + 7200) == 120 - n + 2
-    assert me.count("s", base + 600, base + 1199) == 10 and me.count("s", base + 1800, base + 2399) == 10
-    assert [m for _, m, _, _ in me.bucketed("s", base + 1200, base + 1799, 1)] == pytest.approx(
-        [9.0] if me.kind == "tiers" else [(9 * 1.0 + 2 * 9.0) / 11])
-
-
-def test_backfill_replace_counts_each_reading_once(me):
-    """A span still kept raw, and rolled into buckets wholly inside it: each reading is counted once, not again as a
-    bucket's."""
-    now = (T + 10 * 86400) // 3600 * 3600
-    me.add_many([("s", now - 1800 + i * 10, 1.0) for i in range(120)])
-    me.roll(now)
-    got = me.backfill("s", [(now - 1500, 9.0), (now - 1200, 9.0)], "redefined", replace=True)
-    assert got["replaced"] == 31
-    me.roll(now)
-    assert me.count("s", now - 1800, now) == 120 - 31 + 2
+    assert me.count("s", now - 7200, now) == 60 + 1 - 1 + 2
 
 
 def test_times_are_the_events_time_type_and_seq(ev):

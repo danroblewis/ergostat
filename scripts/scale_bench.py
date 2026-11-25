@@ -21,7 +21,6 @@ import json
 import os
 import re
 import signal
-import sqlite3
 import subprocess
 import sys
 import time
@@ -438,16 +437,20 @@ def record_stats(sd: Path) -> dict:
            "record_events": r["events"], "record_span_s": round(r["last"] - r["first"], 1), "event_types": r["types"],
            "items_seen": r["items"], "items_moves_done": r["done"],
            "events_mb": dir_mb(sd / "events") if (sd / "events").is_dir() else None,
-           "items_index_mb": dir_mb(sd / "items") if (sd / "items").is_dir() else None,
-           "measurements_db_mb": round((sd / "measurements.db").stat().st_size / 2**20, 2)}
-    try:
-        m = sqlite3.connect(f"file:{sd / 'measurements.db'}?mode=ro", uri=True, timeout=30)
-        out["readings"] = m.execute("select count(*) from samples").fetchone()[0]
-        n_, t0_, t1_ = m.execute("select count(*), min(time), max(time) from samples where series like 'sensor/%'").fetchone()
+           "items_index_mb": dir_mb(sd / "items") if (sd / "items").is_dir() else None}
+    from ergostat.storage import metrics_project, metrics_url
+    from ergostat.victoria import Victoria, VictoriaError
+    try:                                                    # (the readings: in VictoriaMetrics, NOTES.md 2026-11-25)
+        m = Victoria(metrics_url(None), sd, project=metrics_project(sd))
+        every = m.series()
+        sensors = [s for s in every if s["series"].startswith("sensor/")]
+        n_ = sum(s["n"] for s in sensors)
+        t0_, t1_ = m.first_time(), max((s["last"] for s in sensors if s["last"]), default=None)
+        out["readings"] = sum(s["n"] for s in every)
         out["sensor_readings"] = n_                         # the sensors' readings recorded, whatever took them
         out["sensor_readings_per_s"] = round(n_ / max(1.0, (t1_ or 0) - (t0_ or 0)), 2) if n_ else 0.0
-        out["series"] = m.execute("select count(distinct series) from samples").fetchone()[0]
-    except sqlite3.Error as e:
+        out["series"] = len(every)
+    except VictoriaError as e:
         out["readings_error"] = str(e)
     return out
 

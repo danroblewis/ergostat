@@ -19,7 +19,6 @@ from ergostat import model as mdl
 from ergostat.spec.itemindex import index_for
 from ergostat.store import Project
 from ergostat.victoria import Victoria, VictoriaError
-from tests.test_metrics_store_labels import vm  # noqa: F401  (the real-server fixture: skipped without a binary)
 
 T0 = 1_699_999_980.0          # a whole minute
 MODEL = """
@@ -397,7 +396,7 @@ def test_how_long_since_the_last_successful_merge(rec):
     assert _since_last_merge(rec.measurements, T0 + 480) == 150          # e merged at T0+330
 
 
-def test_how_long_since_the_last_merge_in_a_real_victoriametrics(rec, vm):  # noqa: F811
+def test_how_long_since_the_last_merge_in_a_real_victoriametrics(rec, vm):
     v = Victoria(vm, rec.dir, project=f"test-{uuid.uuid4().hex[:10]}")
     rec.measurements = v
     keep(rec, T0 + 250)

@@ -6,7 +6,7 @@ import textwrap
 from ergostat import model as mdl
 from ergostat.spec import engine, read
 
-VM = 'storage:\n  measurements: {backend: victoriametrics, url: "http://127.0.0.1:1"}\n'
+VM = 'storage:\n  measurements: {url: "http://127.0.0.1:1"}\n'
 GOAL = """
 goals:
   fast:
@@ -31,9 +31,9 @@ def test_a_goals_query_is_its_process_variable_an_auxiliary_named_for_it(tmp_pat
     assert spec.goals["fast"].of.kind == "auxiliary" and spec.goals["fast"].of.name == "fast"
 
 
-def test_the_built_in_source_needs_victoriametrics(tmp_path):
-    _, ps = model(tmp_path, GOAL)
-    assert any(p.level == "error" and "only from VictoriaMetrics" in str(p) for p in ps)
+def test_the_built_in_source_needs_no_storage_declared(tmp_path):
+    _, ps = model(tmp_path, GOAL)                    # (the readings are in VictoriaMetrics, wherever storage: says)
+    assert not [p for p in ps if p.level == "error"], [str(p) for p in ps if p.level == "error"]
 
 
 def test_a_goal_query_whose_name_is_taken_is_refused(tmp_path):

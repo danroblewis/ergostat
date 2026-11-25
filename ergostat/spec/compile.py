@@ -1875,10 +1875,7 @@ class Compiler:
                     self.err(f"stock {st.name} sensor {s.name} reads {s.unit}, but the stock is in {st.unit}", s.where, "units")
         for s in spec.sensors():
             own = s.query and s.query.get("source") == "ergostat" and "ergostat" not in spec.sources
-            if own and not (spec.storage is not None and spec.storage.measurements == "victoriametrics"):
-                self.err(f"sensor {s.of.name}.{s.name}: the built-in source ergostat answers PromQL only from VictoriaMetrics: "
-                         f"storage: measurements: {{backend: victoriametrics, url: ...}}", s.where, "unknown-ref")
-            elif own:
+            if own:
                 pass                                     # the built-in source: this project's readings (SPEC §4b)
             elif s.query and s.query.get("source") not in spec.sources:
                 self.err(f"sensor {s.of.name}.{s.name}: source {s.query.get('source')!r} is not under sources:", s.where,

@@ -3,6 +3,7 @@ import fcntl
 import json
 import multiprocessing.spawn
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -244,16 +245,82 @@ def _not_stopping():
     yield
 
 
+VM_BIN = shutil.which("victoria-metrics") or shutil.which("victoria-metrics-prod") or \
+    next((b for b in ("/opt/homebrew/bin/victoria-metrics", "/usr/local/bin/victoria-metrics") if os.access(b, os.X_OK)), None)
+_VM: dict = {}                 # this process's VictoriaMetrics: {"url": ...}, once started (clean_env passes it on)
+
+
+@contextlib.contextmanager
+def vm_server(d: Path, retention: str = "100y"):
+    """A VictoriaMetrics started from VM_BIN with its data in ``d``, keeping ``retention``, answering at the URL it
+    gives, stopped (and its data removed) after. The readings' only store (NOTES.md, 2026-11-25): none is a failure,
+    never a skip."""
+    from ergostat import storage
+    from tests.ports import free_port
+    if not VM_BIN:
+        pytest.fail("victoria-metrics is not installed (brew install victoriametrics; the dev image has it): every "
+                    "reading is kept there, and the suite starts its own", pytrace=False)
+    d.mkdir(parents=True, exist_ok=True)
+    port = free_port()
+    with open(d / "vm.log", "w") as log:
+        proc = subprocess.Popen([VM_BIN, f"-storageDataPath={d / 'data'}", f"-httpListenAddr=127.0.0.1:{port}",
+                                 f"-retentionPeriod={retention}", "-search.disableCache", "-search.latencyOffset=0s",
+                                 "-memory.allowedBytes=256MB", "-loggerLevel=ERROR"],
+                                stdout=subprocess.DEVNULL, stderr=log, start_new_session=True,
+                                env={**os.environ, "GOMAXPROCS": "2"})
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(300):
+            if storage.answers(url):
+                break
+            assert proc.poll() is None, (d / "vm.log").read_text()[-2000:]
+            time.sleep(0.1)
+        else:
+            pytest.fail("VictoriaMetrics did not answer within 30 s")
+        yield url
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(5)
+        shutil.rmtree(d / "data", ignore_errors=True)
+
+
+@pytest.fixture(scope="session")
+def vm(tmp_path_factory):
+    """This test process's one VictoriaMetrics (under xdist, each worker's own), its URL: every test's record keeps
+    its readings there, each under its own ``project`` label (its home's: storage.metrics_project)."""
+    with vm_server(Path(tempfile.mkdtemp(prefix="vm-", dir=tmp_path_factory.getbasetemp()))) as url:
+        _VM["url"] = url
+        try:
+            yield url
+        finally:
+            _VM.pop("url", None)
+
+
+def victoria(d: Path):
+    """A store of readings in this process's VictoriaMetrics under a project label of its own (a test's stand-alone
+    store, beside any Project's)."""
+    import uuid
+
+    from ergostat.victoria import Victoria
+    Path(d).mkdir(parents=True, exist_ok=True)
+    return Victoria(_VM["url"], Path(d), project=f"test-{uuid.uuid4().hex[:10]}")
+
+
 @pytest.fixture(autouse=True)
-def home(tmp_path, monkeypatch):
+def home(tmp_path, monkeypatch, vm):
     """Each test's own ergostat home, and nothing inherited from an ergostat running these tests: a suite run as a
     block of an engine (the factory's merge queue) inherits its ERGOSTAT_SOCKET, ERGOSTAT_RUN and the rest, and a
-    test's CLI would then talk to that engine instead of its own."""
+    test's CLI would then talk to that engine instead of its own. Its readings go to this process's VictoriaMetrics
+    (``vm``), under a project label of this home's alone."""
     for k in [k for k in os.environ if k.startswith("ERGOSTAT_") and k != "ERGOSTAT_FLAGS"]:   # (flags: as collected)
         monkeypatch.delenv(k)
     monkeypatch.setenv("ERGOSTAT_CALL_RETRY", "5")    # a run outliving its test's engine gives up soon (rs-calls)
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("ERGOSTAT_DEFAULT_MEASUREMENTS", "sqlite")   # a new record never reaches a VictoriaMetrics here
+    monkeypatch.setenv("ERGOSTAT_METRICS_URL", vm)
     return tmp_path / "home"
 
 
@@ -285,6 +352,9 @@ def here() -> Path:
     return Path(__file__).parent
 
 
+_FACTORY_READ: set = set()     # (record, VictoriaMetrics) whose readings this process has made sure of
+
+
 class FactoryState:
     """scripts/factory_fixture.py's state directory: ``model`` (the repository), ``home`` (its ERGOSTAT_HOME),
     ``record`` (its state directory), ``stats`` (what the script said it wrote), ``digests`` (each record file's
@@ -300,7 +370,21 @@ class FactoryState:
     def project(self):
         from ergostat import model
         from ergostat.store import Project
-        return Project(model.load(self.model), self.record, note=False)
+        p = Project(model.load(self.model), self.record, note=False)
+        self.readings(p)
+        return p
+
+    def readings(self, p) -> None:
+        """Its readings in this process's VictoriaMetrics (the build wrote them to its builder's: under xdist, maybe
+        another worker's), written once a process from what the build kept (readings.json.gz)."""
+        key = (str(self.record), _VM.get("url"))
+        if key in _FACTORY_READ or not (self.model.parent / "readings.json.gz").exists():
+            return
+        import gzip
+        if p.measurements.first_time() is None:
+            rows = json.loads(gzip.decompress((self.model.parent / "readings.json.gz").read_bytes()))
+            p.measurements.add_many([tuple(r) for r in rows])
+        _FACTORY_READ.add(key)
 
     @contextlib.contextmanager
     def serve(self):
@@ -320,7 +404,7 @@ def clean_env(**more: str) -> dict:
     """This process's environment without what an ergostat running the suite gave it (its socket, run, home: as the
     ``home`` fixture clears for a test), but the watchdog's tag; a session fixture is set up before ``home`` runs."""
     return {**{k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_") or k == "ERGOSTAT_SUITE_WATCH"},
-            "ERGOSTAT_DEFAULT_MEASUREMENTS": "sqlite", **more}
+            **({"ERGOSTAT_METRICS_URL": _VM["url"]} if "url" in _VM else {}), **more}
 
 
 def build_factory_state(out: Path, *args: str) -> dict:
@@ -330,7 +414,7 @@ def build_factory_state(out: Path, *args: str) -> dict:
 
 
 @pytest.fixture(scope="session")
-def factory_state(request, tmp_path_factory) -> FactoryState:
+def factory_state(request, tmp_path_factory, vm) -> FactoryState:
     """A factory-size state directory (seed 1, its record ending at this hour; tests/README.md), built once a run: under
     xdist by the first worker to ask, in the run's own temporary root, while the others wait on its lock, so a parallel
     run holds one copy, not one a worker. Its digests are taken as built. Skipped under a ``-m fast`` run."""

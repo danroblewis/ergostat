@@ -61,7 +61,7 @@ def cli(repo, *args, capsys):
 
 
 def test_past_readings_are_in_range(repo, tmp_path, capsys):
-    now = time.time()
+    now = float(int(time.time()))                    # (VictoriaMetrics keeps a time to the millisecond)
     rows = [(now - 3 * DAY, 1.0), (now - 2 * DAY, 4.0), (now - DAY, 9.0)]
     rc, out, _ = cli(repo, "sensor", "points.main", "--backfill", str(lines(tmp_path, rows)), "--from", "git log",
                      capsys=capsys)
@@ -70,7 +70,7 @@ def test_past_readings_are_in_range(repo, tmp_path, capsys):
 
 
 def test_twice_writes_nothing_new(repo, tmp_path, capsys):
-    now = time.time()
+    now = float(int(time.time()))                    # (VictoriaMetrics keeps a time to the millisecond)
     f = lines(tmp_path, [(now - 100, 1.0), (now - 50, 2.0)])
     assert cli(repo, "sensor", "points.main", "--backfill", str(f), capsys=capsys)[0] == 0
     rc, out, _ = cli(repo, "sensor", "points.main", "--backfill", str(f), "--json", capsys=capsys)
@@ -82,39 +82,11 @@ def test_twice_writes_nothing_new(repo, tmp_path, capsys):
     assert project(repo).measurements.range(SERIES, now - 200, now) == [(now - 100, 1.0), (now - 50, 2.0), (now - 10, 3.0)]
 
 
-def test_twice_after_the_roll_writes_nothing_new(repo, tmp_path, capsys):
-    now = time.time()
-    rows = [(now - 10 * DAY - i * 3600, float(i)) for i in (2, 1, 0)]
-    f = lines(tmp_path, rows)
-    assert cli(repo, "sensor", "points.main", "--backfill", str(f), capsys=capsys)[0] == 0
-    p = project(repo)
-    assert p.measurements.roll(now)["forgot"] >= 3                                # the raw readings are gone: buckets
-    with p.measurements._c() as c:
-        assert c.execute("select count(*) from samples where series = ?", (SERIES,)).fetchone()[0] == 0
-    rc, out, _ = cli(repo, "sensor", "points.main", "--backfill", str(f), capsys=capsys)
-    assert rc == 0 and "0 written, 3 skipped" in out
-    p.measurements.roll(now)
-    assert p.measurements.range(SERIES, now - 11 * DAY, now) == rows
-
-
-def test_two_readings_in_one_old_bucket_are_one_point(repo, tmp_path, capsys):
-    """SPEC §6: a bucket keeps the last of the readings in it, so two closer than an old tier's bucket are one point."""
-    now = time.time()
-    t = (now - 10 * DAY) // 60 * 60
-    f = lines(tmp_path, [(t + 10, 1.0), (t + 40, 2.0)])
-    rc, out, _ = cli(repo, "sensor", "points.main", "--backfill", str(f), capsys=capsys)
-    assert rc == 0 and "2 written" in out
-    p = project(repo)
-    p.measurements.roll(now)
-    assert p.measurements.range(SERIES, t - 60, t + 120) == [(t + 40, 2.0)]
-    assert [b["count"] for b in p.measurements.backfills(SERIES)] == [2]
-
-
 @pytest.mark.parametrize("bad", ["not json", '{"at": 1}', '{"at": "1", "value": 2}', '{"at": 1, "value": NaN}',
                                  '{"at": 1, "value": Infinity}', '{"at": 1e999, "value": 1}', '{"at": true, "value": 1}',
                                  "[1, 2]", "null", "FUTURE"])
 def test_future_or_malformed_refuses_all(repo, tmp_path, capsys, bad):
-    now = time.time()
+    now = float(int(time.time()))                    # (VictoriaMetrics keeps a time to the millisecond)
     bad = bad.replace("FUTURE", json.dumps({"at": now + 3600, "value": 1}))
     f = lines(tmp_path, [(now - 100, 1.0), bad, (now - 50, 2.0)])
     rc, _, err = cli(repo, "sensor", "points.main", "--backfill", str(f), capsys=capsys)
@@ -125,7 +97,7 @@ def test_future_or_malformed_refuses_all(repo, tmp_path, capsys, bad):
 
 
 def test_same_at_in_one_file_keeps_the_last(repo, tmp_path, capsys):
-    now = time.time()
+    now = float(int(time.time()))                    # (VictoriaMetrics keeps a time to the millisecond)
     f = lines(tmp_path, [(now - 100, 1.0), (now - 50, 2.0), (now - 100, 7.0)])
     rc, out, _ = cli(repo, "sensor", "points.main", "--backfill", str(f), capsys=capsys)
     assert rc == 0 and "2 written" in out and "1 at a time another line had (the last kept)" in out
@@ -144,13 +116,12 @@ def test_derived_sensors_refused(repo, tmp_path, capsys):
 
 
 def test_backfilled_lists_the_span_after_events_are_pruned(repo, tmp_path, capsys):
-    now = time.time()
+    now = float(int(time.time()))                    # (VictoriaMetrics keeps a time to the millisecond)
     f = lines(tmp_path, [(now - 5 * DAY, 1.0), (now - 4 * DAY, 2.0)])
     assert cli(repo, "sensor", "points.main", "--backfill", str(f), "--from", "git history", capsys=capsys)[0] == 0
     p = project(repo)
     p.events.add("noise", at=now + 10)
     p.events.prune(now + 5)
-    p.measurements.prune(now - 3 * DAY)                    # the readings themselves gone too: the ledger stays
     assert not p.events.query(n=None, type="sensor.backfilled")
     rc, out, _ = cli(repo, "sensor", "points.main", "--backfilled", "--json", capsys=capsys)
     (b,) = json.loads(out)
@@ -160,7 +131,7 @@ def test_backfilled_lists_the_span_after_events_are_pruned(repo, tmp_path, capsy
 
 
 def test_changes_flow_reads_backfilled_history(repo, tmp_path, capsys):
-    now = time.time()
+    now = float(int(time.time()))                    # (VictoriaMetrics keeps a time to the millisecond)
     f = lines(tmp_path, [(now - 7200, 0.0), (now - 1800, 10.0), (now - 1200, 16.0), (now - 600, 12.0)])
     assert cli(repo, "sensor", "points.main", "--backfill", str(f), capsys=capsys)[0] == 0
     from ergostat.spec.engine import changed

@@ -17,7 +17,7 @@ from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
-from .record import cmd_compact, cmd_event, cmd_held_up, cmd_item, cmd_migrate, cmd_reset, cmd_residual, cmd_why
+from .record import cmd_compact, cmd_event, cmd_held_up, cmd_item, cmd_reset, cmd_residual, cmd_why
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
 from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
@@ -346,21 +346,16 @@ def build() -> argparse.ArgumentParser:
     r.add_argument("--install", action="store_true", help="with --service: install and load it")
     r.add_argument("--uninstall", action="store_true", help="with --service: unload and remove it")
     topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
-    cp = topic("compact", cmd_compact, "Roll items' old events up into snapshots (archived), forget what is past keep, "
-                                       "roll measurements into their tiers: what the engine does every hour", named=False)
+    cp = topic("compact", cmd_compact, "Roll items' old events up into snapshots (archived) and forget what is past keep: "
+                                       "what the engine does every hour", named=False)
     cp.add_argument("--dry-run", action="store_true", help="say what would be rolled up, and change nothing")
     cp.add_argument("--projects", action="store_true", help="the record folders under ~/.ergostat whose repository is "
                                                            "gone (from each one's repo.json); --yes deletes those only")
     cp.add_argument("--yes", action="store_true", help="with --projects: delete them")
     cp.add_argument("--reindex", action="store_true", help="fold the item index again from the record (it is rebuilt "
                                                           "whenever it is missing; the record is the truth)")
-    mg = topic("migrate", cmd_migrate, "Copy this project's readings into VictoriaMetrics, under their names and labels "
-                                       "(PromQL reads them there); fails, naming them, on readings the server did not keep; "
-                                       "once all are held, run again, it sends nothing", named=False)
-    mg.add_argument("--url", help="the VictoriaMetrics (default: storage: measurements: url:, else http://127.0.0.1:8428)")
-    mg.add_argument("--dry-run", action="store_true", help="say what would be sent, and send nothing")
-    rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs; on VictoriaMetrics, its series "
-                                           "in the server) and start from nothing",
+    rs = topic("reset", cmd_reset, "Forget this project's record (events, items, logs, and its series "
+                                           "in VictoriaMetrics) and start from nothing",
                named=False)
     rs.add_argument("--yes", action="store_true", help="do it (without it, says what it would forget)")
     mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",
@@ -444,6 +439,7 @@ def _more_files() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     from ..goodmodel import ReadOnlyRecord
+    from ..victoria import VictoriaError
     _more_files()
     ap = build()
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -473,6 +469,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except BrokenPipeError:
         return 0
+    except VictoriaError as e:                          # the readings' store away: said, with how to start it
+        print(f"ergostat {args.topic or 'status'}: {e}", file=sys.stderr)
+        return 1
     except Exception as e:
         if args.topic == "check":                       # ergostat's own crash: drafted as a report (SPEC §12m)
             _crash(args, e)

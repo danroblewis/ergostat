@@ -194,7 +194,7 @@ def _version(p, q: Query) -> tuple:
     ev = p.events
     if q.source == "series":
         m = p.measurements
-        return ("m", m.version()) if hasattr(m, "version") else ("m", None)
+        return ("m", m.version())
     return ("e", ev.generation() if hasattr(ev, "generation") else None, ev.last_seq() if hasattr(ev, "last_seq") else ev.count())
 
 

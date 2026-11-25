@@ -1,8 +1,7 @@
 """metrics-named-for-the-model (dev/records/metrics-named-for-the-model.md): a model's item kinds and parts are
 top-level PromQL metrics under their own names (``gap_items``, ``gaps_approved``), and only the engine's internals keep
 ``ergostat_``. Each test that needs a server runs against a small Prometheus-compatible stand-in here (what it was sent,
-and the names it holds) and, where a real VictoriaMetrics is there, against that too (skipped when it is absent:
-tests/test_metrics_store_labels.py, ``vm``)."""
+and the names it holds) and against a real VictoriaMetrics too (this test process's own: tests/conftest.py, ``vm``)."""
 
 from __future__ import annotations
 
@@ -22,13 +21,11 @@ import pytest
 from ergostat import datasources
 from ergostat import itemmetrics as im
 from ergostat import model as mdl
-from ergostat.migrate import migrate
 from ergostat.promnames import Names, convert, item_labels
 from ergostat.query.buckets import grid
 from ergostat.spec import read
 from ergostat.store import Project
 from ergostat.victoria import Victoria
-from tests.test_metrics_store_labels import vm  # noqa: F401  (the real server: skipped without one)
 
 ROOT = Path(__file__).resolve().parent.parent
 OLD_GENERIC = {"ergostat_sensor", "ergostat_items", "ergostat_item_transitions_total", "ergostat_item_field_total",
@@ -148,7 +145,7 @@ def test_autocomplete_on_the_factory_lists_its_own_metrics(factory, prom, tmp_pa
     _lists_the_factory(factory, v)
 
 
-def test_autocomplete_on_the_factory_in_a_real_victoriametrics(factory, vm, tmp_path):  # noqa: F811
+def test_autocomplete_on_the_factory_in_a_real_victoriametrics(factory, vm, tmp_path):
     """Done item 1, in a real VictoriaMetrics."""
     v = _store(vm, tmp_path, factory)
     try:
@@ -177,7 +174,8 @@ stocks:
     unit: tickets
     sensor: {items: ticket, state: open, every: 1m}
 """
-T0 = 1_699_999_980.0
+T0 = float(int(time.time()) // 60 * 60 - 7200)          # (two hours ago, on a minute: within the day
+                                                       # VictoriaMetrics lists names from by default)
 
 
 def _two(tmp_path, url, req=None):
@@ -212,7 +210,7 @@ def test_two_kinds_and_a_sensor_are_each_their_own_metric(tmp_path, prom):
     _each_its_own(rec, v)
 
 
-def test_two_kinds_and_a_sensor_in_a_real_victoriametrics(tmp_path, vm):  # noqa: F811
+def test_two_kinds_and_a_sensor_in_a_real_victoriametrics(tmp_path, vm):
     """Done item 2: each its own metric, and each answers its own PromQL."""
     rec, v = _two(tmp_path, vm)
     try:
@@ -270,25 +268,6 @@ def test_a_kind_that_would_read_as_the_engines_is_refused(tmp_path):
     _, problems = read(tmp_path / "ergostat.yaml")
     [p] = [x for x in problems if x.level == "error"]
     assert p.code == "metric-clash" and "ergostat_jobs_items" in p.message and p.message.endswith("rename it")
-
-
-def test_migrate_moves_the_item_metrics_and_keeps_any_not_read_back(tmp_path):
-    """The old generic item metrics: written under the kind's own name, and the old deleted only once each sample is
-    read back; one not read back is missing, and the old is kept (lesson 3)."""
-    v = _store("http://127.0.0.1:9", tmp_path, None)
-    old = [({"__name__": im.ITEMS, "kind": "gap", "state": "open", "project": v.project}, [(T0, 2.0), (T0 + 60, 3.0)])]
-    for keep in (2, 1):                                   # every sample read back; then one lost
-        put, deleted = [], []
-        v.put = put.extend
-        v._rows = lambda sel, a=None, b=None: (old if "kind" in sel else [] if 'series!=""' in sel else [   # noqa: B023
-            ({**item_labels(lb), "project": v.project}, [(t, x)]) for lb, t, x in put[:keep]])     # noqa: B023
-        v._req = lambda path, params=None, body=None: deleted.append(params["match[]"]) or b""   # noqa: B023
-        got = migrate(tmp_path / "nothing", v)
-        assert [lb for lb, _, _ in put] == [{"__name__": im.ITEMS, "kind": "gap", "state": "open"}] * 2
-        if keep == 2:
-            assert got["renamed"] == 1 and got["missing"] == 0 and len(deleted) == 1 and "ergostat_items" in deleted[0]
-        else:
-            assert got["renamed"] == 0 and got["missing"] == 1 and deleted == [] and "(item metrics)" in got["lost"]
 
 
 @pytest.mark.parametrize("path", sorted(str(p.relative_to(ROOT)) for p in (ROOT / "examples").rglob("ergostat.yaml")))
@@ -370,8 +349,8 @@ def _selects(selector: str, labels: dict) -> bool:
 
 
 def test_a_saved_old_query_asks_the_record_under_either_name(tmp_path):
-    """A query saved under the old names reads the old record before ``ergostat migrate`` and the moved one after it,
-    and nothing of another part or kind (done item 4: it answers as before, migrated or not)."""
+    """A query saved under the old names reads the record under the old names and under the new, and nothing of
+    another part or kind (done item 4: it answers as before)."""
     n = Names(read_two(tmp_path))
     for old, before, after, other in [
         ('ergostat_sensor{part="backlog",sensor="main"}',
@@ -389,7 +368,7 @@ def test_a_saved_old_query_asks_the_record_under_either_name(tmp_path):
         sel, said = convert(old, n, both=True)
         assert said and _selects(sel, before) and _selects(sel, after), sel
         assert not _selects(sel, other), sel
-        new = convert(old, n)[0]                            # (the new name alone misses the record not yet moved)
+        new = convert(old, n)[0]                            # (the new name alone misses the record under the old)
         assert not _selects("{" + f'__name__="{new.partition("{")[0]}",' + new.partition("{")[2].rstrip("}") + "}", before)
         for k in {"state", "le"} & set(after):              # (its other matchers kept)
             assert not _selects(sel, {**after, k: "x"}), sel
@@ -406,8 +385,7 @@ def _one_series_under_two_names(v: Victoria, t: float, old_later: bool = False):
 
 
 def test_a_series_under_both_names_shows_its_latest_value(tmp_path):
-    """Before ``ergostat migrate``, a series' value is its latest reading's, under whichever name, not the one with more
-    labels (lesson 2): over a stand-in answering as VictoriaMetrics does, in either order."""
+    """A series' value is its latest reading's, under whichever name, not the one with more labels (lesson 2): over a stand-in answering as VictoriaMetrics does, in either order."""
     v = _store("http://127.0.0.1:9", tmp_path, read_two(tmp_path / "m"))
     t = 1_795_400_000.0
     for old_later, order in [(o, h) for o in (False, True) for h in (_one_series_under_two_names(v, t, o),
@@ -424,7 +402,7 @@ def test_a_series_under_both_names_shows_its_latest_value(tmp_path):
         assert v.series() == [{"series": "sensor/backlog.main", "n": 2, "last": t + 30, "value": 7.0 if old_later else 2.0}]
 
 
-def test_a_series_under_both_names_in_a_real_victoriametrics(tmp_path, vm):  # noqa: F811
+def test_a_series_under_both_names_in_a_real_victoriametrics(tmp_path, vm):
     v = _store(vm, tmp_path, read_two(tmp_path / "m"))
     t = time.time() - 600
     try:
@@ -443,35 +421,3 @@ def read_two(tmp_path):
     return spec
 
 
-def test_old_queries_answer_as_before_once_migrated(tmp_path, vm):  # noqa: F811
-    """Done item 4, in a real VictoriaMetrics: a record written under the old names answers the old queries; once
-    ``ergostat migrate`` moves it, the new queries (and the old, read as the new) answer the same, and the old names
-    hold nothing."""
-    spec = read_two(tmp_path / "m")
-    v = _store(vm, tmp_path, spec)
-    t = time.time() - 600
-    old = [{"metric": {"__name__": "ergostat_sensor", "part": "backlog", "sensor": "main", "project": v.project,
-                       "series": "sensor/backlog.main"},
-            "values": [1.0, 2.0, 3.0], "timestamps": [round((t + i) * 1000) for i in range(3)]},
-           {"metric": {"__name__": "ergostat_items", "kind": "ticket", "state": "open", "project": v.project},
-            "values": [4.0, 5.0], "timestamps": [round(t * 1000), round((t + 60) * 1000)]}]
-    try:
-        v._req("/api/v1/import", body="".join(json.dumps(x) + "\n" for x in old).encode())
-        v._req("/internal/force_flush")
-        g = grid(t - 60, t + 300, 6)
-        ask = lambda text: datasources.query(spec, "ergostat", text, g, store=v)["series"]   # noqa: E731
-        queries = ['max_over_time(ergostat_sensor{part="backlog",sensor="main"}[10m])',
-                   'sum(max_over_time(ergostat_items{kind="ticket",state="open"}[10m]))']
-        before = [[s["values"] for s in ask(q)] for q in queries]
-        raw = v.range("sensor/backlog.main", t - 60)
-        got = migrate(tmp_path / "nothing", v)
-        assert got["renamed"] == 2                                     # (the sensor's series and the item metric's)
-        for q, was in zip(queries, before, strict=True):
-            assert [s["values"] for s in ask(q)] == was                # the old text, read as the new
-            assert [s["values"] for s in ask(convert(q, Names(spec))[0])] == was
-        assert v.range("sensor/backlog.main", t - 60) == raw
-        for name in ("ergostat_sensor", "ergostat_items"):
-            assert v._query(f'count({name}{{project="{v.project}"}})', t + 120) == []
-        assert migrate(tmp_path / "nothing", v)["renamed"] == 0
-    finally:
-        v.drop()
