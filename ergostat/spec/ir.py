@@ -408,6 +408,21 @@ def action_kind() -> ItemKind:
                     final={"denied": {"ran": "ran despite denial", "failed": "ran despite denial"}})   # (SPEC §12r)
 
 
+SESSION = "session"              # the built-in item kind for AI sessions, unless the model declares its own (SPEC §12h)
+SESSION_STATES = ("running", "ran", "failed", "lost")
+
+
+def session_kind() -> ItemKind:
+    """Every AI session a run starts (``ergostat session``): its transcript, shown as the conversation, its cost and turns.
+    Built in so that an ``ai`` block's sessions are items without the model declaring a kind for them."""
+    on = {"session.started": "running", "session.ran": "ran", "session.failed": "failed", "session.lost": "lost"}
+    return ItemKind(SESSION, f"{SESSION}/*", list(SESSION_STATES), on, ["role", "model", "turns", "cost_usd", "seconds"],
+                    {"transcript": "claude-session"}, None,
+                    "an AI session a run started: its conversation, model, turns and cost (built in, SPEC §12h)",
+                    fold={"messages": "append", "tool_calls": "append", "tool_results": "append", "thinking": "append",
+                          "tokens_in": "sum", "tokens_out": "sum"}, finished=["ran", "failed", "lost"], lost=["failed", "lost"])
+
+
 BYPASS = "ergostat.bypass"        # the built-in item kind: the owner's bypass lease on a class (SPEC §12k)
 
 

@@ -102,7 +102,7 @@ def test_with_nothing_given_it_closes_its_loop_on_a_free_stand_in(tmp_path):
     b = spec.blocks["improver"]
     assert b.type == "ai" and "standin improver" in b.params["run"] and Path(b.params["prompt"]).is_file()
     assert spec.blocks["judge"].type == "judge" and set(spec.improve.accept.values()) == {"owner"}   # nothing automatic
-    assert "modelling" in spec.systems and "session" not in spec.items
+    assert "modelling" in spec.systems and spec.items["session"].formats == {"transcript": "claude-session"}   # the built-in session kind
     assert any(p.code == "template-stand-in" for p in ps)
 
 
