@@ -1,0 +1,9 @@
+/* The new app's own additions to style.css: only what the components add (tabs, page actions, the detail's close). */
+.page h1 .page-actions { float: right; display: inline-flex; gap: 6px; font-size: 13px; font-weight: normal; }
+.tabs { display: inline-flex; gap: 2px; margin: 0 0 10px; }
+.tabs button[aria-selected="true"] { font-weight: 600; }
+aside.detail > .close { float: right; font-size: 18px; line-height: 1; }
+.rung-letter { display: inline-block; min-width: 1.2em; text-align: center; font-weight: 600; border-radius: 50%; background: var(--rung, #ddd); }
+.chart { width: 100%; }
+/* the old layout grids body > header, main, aside: the React root takes no box of its own */
+#root { display: contents; }

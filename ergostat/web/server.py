@@ -1614,7 +1614,9 @@ def handler(project):
             if u.path.startswith("/file/"):                # the same, as a path: a Markdown file's relative links resolve
                 navigating = "text/html" in (self.headers.get("Accept") or "") and "raw" not in parse_qs(u.query)
                 return self._file(unquote(u.path.removeprefix("/file/")), page=navigating)
-            if is_page_path(u.path):
+            if u.path == "/ui" or u.path.startswith("/ui/"):   # the React page (web/ui, built into static/app)
+                name = "app/index.html"
+            elif is_page_path(u.path):
                 name = "index.html"
             elif u.path.startswith("/static/"):
                 name = u.path.removeprefix("/static/")
@@ -1623,8 +1625,11 @@ def handler(project):
             f = (STATIC / name).resolve()
             if STATIC.resolve() not in f.parents or not f.is_file():
                 return self._send(404, b"not found", "text/plain")
-            if name == "index.html":                       # the page carries this run's token for its writes, and its files' versions
-                body = with_versions(f.read_text()).replace('<meta charset="utf-8">',
+            if name in ("index.html", "app/index.html"):   # the page carries this run's token for its writes, and its files' versions
+                # (the React page's files are named by their hash already: a ?v= on its entry would load it twice,
+                # once as the page asks and once as its chunks import it)
+                page = f.read_text() if name.startswith("app/") else with_versions(f.read_text())
+                body = page.replace('<meta charset="utf-8">',
                                                             f'<meta charset="utf-8">\n<meta name="ergostat-token" content="{token}">', 1)
                 if who == self.READER:                     # said on the page: no token, and why its buttons do nothing
                     body = body.replace(f'content="{token}">', 'content="">\n<meta name="ergostat-public" content="read only">', 1)
