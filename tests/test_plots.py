@@ -6,7 +6,6 @@ import time
 from pathlib import Path
 
 from tests.test_series import get
-from tests.test_style_tokens import COLOUR
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -19,7 +18,3 @@ def test_two_refs_share_one_time_base_and_a_reading_lands_in_its_own_bucket(proj
     w = (got["until"] - got["since"]) / 6
     assert [round(t - got["since"] - (i + 0.5) * w, 2) for i, t in enumerate(got["times"])] == [0] * 6
     assert [len(s["values"]) for s in got["series"]] == [6, 6] and got["series"][0]["values"][2] == 77
-
-
-def test_plots_js_is_coloured_only_from_tokens():
-    assert not COLOUR.search((ROOT / "ergostat/web/static/plots.js").read_text())

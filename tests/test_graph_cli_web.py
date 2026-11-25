@@ -758,22 +758,14 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
 
 
 def test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock(project):
-    """What the side list's goal button reads (diagram.js goalButton/showGoal): an off goal's attention entry is
-    `loop NAME` and that loop names its stock. This is a stand-in without a browser, so the build collects a test.
-    The button's behaviour is checked in tests/test_diagram_rendering.py
-    (test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction)."""
-    import json as _json
-    import re as _re
-
-    from ergostat.web.snapshot import build
+    """What the side list's goal button reads: an off goal's attention entry names the goal, and its loop names its
+    stock."""
+    from ergostat.web.server import Live, api
     project.measurements.add("sensor/disk-usage", 95.0)
-    html = build(project)
-    data = _json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1).replace("<\\/", "</"))["data"]
-    st = data["status"]
+    st = api(Live(project), "status", {})
     assert st["loops"]["disk-under-80"]["status"] == "off" and st["loops"]["disk-under-80"]["stock"]
     off = [a for a in st["attention"] if a["what"] == "goal disk-under-80" and a["level"] == "bad"]
     assert off, st["attention"]
-    assert "function showGoal(" in html and "goalButton(goal, what)" in html
 
 
 def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_path, monkeypatch):
@@ -1012,55 +1004,6 @@ def test_a_person_records_what_they_did(repo, capsys):
     assert run_cli(repo, "valve", "delete-old-files", "--opened", "-1", capsys=capsys)[0] == 1  # refused, as for any agent
 
 
-def test_a_snapshot_is_one_file_holding_the_answers_the_page_asks_for(project):
-    import json as _json
-    import re as _re
-
-    from ergostat.web.snapshot import build, key
-    project.measurements.add("sensor/disk-usage", 70.0)
-    html = build(project)
-    assert '<script src="' not in html and '<link rel="stylesheet"' not in html      # nothing fetched
-    assert html.lower().count("<script") == html.lower().count("</script>")          # no script closed early
-    body = _re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1)
-    data = _json.loads(body.replace("<\\/", "</"))["data"]
-    for k in ("status", "graph", "graph?view=control", "graph?system=host&view=process", "loops/disk-under-80",
-              "agents/cleaner", "part/valve/delete-old-files", "part/disturbance/logs-written", "projects"):
-        assert k in data, k
-    assert key("graph", {"view": "control", "system": "", "around": "undefined", "since": "1h"}) == "graph?view=control"
-
-
-def test_a_snapshot_inlines_every_stylesheet_and_script_the_page_links(project, tmp_path, monkeypatch):
-    import shutil
-
-    from ergostat.web import snapshot
-    static = tmp_path / "static"
-    shutil.copytree(snapshot.STATIC, static)
-    (static / "second-sheet.css").write_text(".second-sheet { color: var(--ink); } /* </style><b>not a tag */")
-    (static / "second-script.js").write_text("window.secondScript = 1;")
-    page = (static / "index.html").read_text()
-    page = page.replace("</head>", '<link rel="stylesheet" href="/static/second-sheet.css">\n</head>', 1)
-    page = page.replace("</body>", '<script src="/static/second-script.js"></script>\n</body>', 1)
-    (static / "index.html").write_text(page)
-    monkeypatch.setattr(snapshot, "STATIC", static)
-    html = snapshot.build(project)
-    assert '<link rel="stylesheet"' not in html and '<script src="' not in html      # nothing fetched
-    assert ".second-sheet { color: var(--ink); }" in html and "window.secondScript = 1;" in html
-    assert "</style><b>" not in html                                                 # a stylesheet cannot close its element
-    assert html.count("<style>") == html.count("</style>") == page.count('rel="stylesheet"')
-
-
-def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
-    from ergostat.web.snapshot import build
-    project.events.add("note.made", item="note/fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
-    html = build(project)
-    assert "<!--<script" not in html and "alert(1)</script>" not in html
-    from ergostat.web.snapshot import STATIC
-    lib = html.find((STATIC / "elk.bundled.js").read_text()[:300])                  # ELK inlined (a file cannot fetch it),
-    assert -1 < html.find("window.SNAPSHOT") < lib < html.find("const elk = {")      # before util.js asks for it
-    assert '"items/note%2Ffix(1)"' in html                    # the key the page's encodeURIComponent asks for
-    assert html.count("</script>") == html.lower().count("<script")
-
-
 def test_the_service_text_runs_this_repositorys_watcher(project):
     import plistlib
 
@@ -1094,12 +1037,6 @@ def test_text_blocks_draw_an_open_loop_and_disturbances_both_ways(repo, capsys):
     assert "(−±)" in out and "not fed back" in out and "(Σ)" not in out
     rc, out = run_cli(repo, "status", capsys=capsys)                        # the alias
     assert rc == 0 and "disk-under-80" in out
-
-
-def test_a_snapshot_without_logs_carries_no_unread_lines(project):
-    from ergostat.web.snapshot import build
-    project.events.add("agent.ran", item="cleaner", source="ergostat", data={"exit": 0, "unread": 1, "unread_lines": ["{secret oops"]})
-    assert "secret oops" not in build(project) and "secret oops" in build(project, logs=True)
 
 
 def test_reset_forgets_the_record_and_nothing_else(project, capsys):
@@ -1164,126 +1101,9 @@ def related_project(tmp_path):
     return p
 
 
-def test_a_snapshot_holds_the_items_graph_the_page_asks_for(tmp_path):
-    import re as _re
-
-    from ergostat.web.snapshot import build, key
-    html = build(related_project(tmp_path))
-    data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1))["data"]
-    listed = data["items"]
-    # as pages.js: the kinds with relations or named by one, per system; and each alone (a kind chosen)
-    rel = {n for k in listed["kinds"] for ts in (k["relations"] or {}).values() for n in (k["name"], *ts)}
-    groups = {g["name"]: [n for n in g["kinds"] if n in rel] for g in listed["systems"]}
-    assert groups["planning"] == ["epic", "goal"] and groups["delivery"] == ["ticket"]      # notes: no relations
-    sys_ = {n: g["name"] for g in listed["systems"] for n in g["kinds"]}             # asked by its system
-    want = {key("items-graph", {"kinds": ",".join(ks), "system": g}) for g, ks in groups.items() if ks}
-    want |= {key("items-graph", {"kinds": k["name"], "system": sys_[k["name"]]}) for k in listed["kinds"]}   # one chosen
-    own = {k["name"] for k in listed["kinds"] if k["name"].startswith("ergostat.")}    # ergostat's own kinds, alone too
-    assert own and want == {"items-graph?kinds=epic,goal&system=planning", "items-graph?kinds=epic&system=planning",
-                            "items-graph?kinds=goal&system=planning", "items-graph?kinds=ticket&system=delivery",
-                            "items-graph?kinds=note&system=delivery",
-                            *(f"items-graph?kinds={k}&system={sys_[k]}" for k in own)}
-    got = {k for k in data if k.startswith("items-graph")}
-    assert got == want, got
-    tk = data["items-graph?kinds=ticket&system=delivery"]
-    t = {x["id"]: x for x in tk["items"]}
-    assert t["ticket/b"]["status"] == "blocked" and t["ticket/b"]["links"]["parent"] == ["epic/e1"]
-    assert t["ticket/a"]["status"] == "active"
-    assert "epic/e1" not in t and [x["id"] for x in tk["outside"]] == ["epic/e1"]   # another system's parent: a stub
-    both = {x["id"] for x in data["items-graph?kinds=epic,goal&system=planning"]["items"]}
-    assert {"epic/e1", "epic/e2", "goal/g"} <= both
-    assert data["items-graph?kinds=epic,goal&system=planning"]["asked"] == ["epic", "goal"]
-
-
-def test_a_snapshot_holds_the_timeline_of_a_system_without_relations(tmp_path):
-    # as pages.js: a system none of whose kinds has relations asks for its kinds that have items (the Timeline)
-    import re as _re
-
-    from ergostat import model as mdl
-    from ergostat.store import Project
-    from ergostat.web.snapshot import build
-    (tmp_path / "ergostat.yaml").write_text("systems:\n  desk: {description: the help desk}\nitems:\n"
-                                            "  ticket: {id: ticket/*, system: desk}\n  call: {id: call/*, system: desk}\n"
-                                            "  memo: {id: memo/*, system: desk}\n")
-    p = Project(mdl.load(tmp_path))
-    p.events.add("ticket.opened", item="ticket/a", data={"title": "printer"})
-    p.events.add("call.taken", item="call/c", data={"title": "a call"})
-    data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
-    got = data.get("items-graph?kinds=ticket,call&system=desk") or data.get("items-graph?kinds=call,ticket&system=desk")
-    assert got is not None, sorted(k for k in data if k.startswith("items-graph"))
-    assert {x["id"] for x in got["items"]} == {"ticket/a", "call/c"}                # memo: no items, not asked
-    assert not any("memo" in k and "," in k for k in data if k.startswith("items-graph"))
-
-
-def _snapshot_data(p) -> dict:
-    import re as _re
-
-    from ergostat.web.snapshot import build
-    return json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
-
-
 def _timeless(x):
     """An answer without what says when it was taken (the snapshot's moment is not the test's)."""
     return {k: v for k, v in x.items() if k not in ("now", "since", "at")} if isinstance(x, dict) else x
-
-
-def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monkeypatch):
-    from ergostat.web import server
-    from ergostat.web.server import Live, api
-    from ergostat.web.snapshot import key
-    # the completion estimates come from a background worker, so the snapshot and a later live call could differ only
-    # by when it finished (lesson-10): none in either, so the two answers are compared whole
-    monkeypatch.setattr(server, "_estimates", lambda *a, **k: None)
-    p = related_project(tmp_path)
-    data = _snapshot_data(p)
-    kinds = {k["name"]: k for k in data["items"]["kinds"]}
-    assert {"epic", "goal", "ticket", "note"} <= set(kinds)                       # and ergostat's own kinds
-    want = []
-    sys_ = {n: g["name"] for g in data["items"]["systems"] for n in g["kinds"]}
-    for name, k in kinds.items():
-        want += [("items", {"kind": name}), ("items-graph", {"kinds": name, "system": sys_[name]})]
-        want += [("items", {"kind": name, "state": s}) for s in k["states"]]
-    live = Live(p)
-    for path, params in want:
-        k = key(path, params)
-        assert k in data, k
-        every = {"finished": ["show"]} if path == "items" else {}   # a snapshot holds the finished too (SPEC §5a)
-        assert _timeless(data[k]) == _timeless(json.loads(json.dumps(
-            api(live, path, {"since": ["1h"], **every, **{a: [b] for a, b in params.items()}}), default=str))), k
-    ids = lambda k: sorted(i["id"] for i in data[k]["items"])                       # noqa: E731
-    assert ids("items?kind=ticket") == ["ticket/a", "ticket/b"]
-    assert ids("items?kind=ticket&state=doing") == ["ticket/a"]                     # ticket.started: doing
-    assert ids("items?kind=ticket&state=todo") == ["ticket/b"]
-    assert "note/n" in {i["id"] for i in data["items-graph?kinds=note&system=delivery"]["items"]}
-
-
-def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_path, monkeypatch):
-    from ergostat.web import snapshot
-    real = snapshot.api
-    every = {"finished": "show"}                                   # each items answer is asked with the finished too
-    broken = [("items", {"kind": "ticket", **every}), ("items", {"kind": "epic", "state": "underway", **every}),
-              ("items-graph", {"kinds": "note", "system": "delivery"})]
-
-    seen = []
-
-    def api(live, path, q):
-        asked = {k: v[0] for k, v in q.items() if k != "since"}
-        seen.append((path, asked))
-        if (path, asked) in broken:
-            raise RuntimeError("cannot be answered")
-        return real(live, path, q)
-    monkeypatch.setattr(snapshot, "api", api)
-    data = _snapshot_data(related_project(tmp_path))
-    for path, params in broken:
-        assert (path, params) in seen, (path, params)                     # asked, so its absence is the failure's
-        params = {k: v for k, v in params.items() if k != "finished"}                # held under the page's own key
-        assert snapshot.key(path, params) not in data                                # absent, not empty
-    assert ("items", {"kind": "ticket", "state": "doing", **every}) not in seen   # no states asked without the kind's own answer
-    assert not any(k.startswith("items?kind=ticket") for k in data)    # its states, from its own answer: none to be had
-    assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
-            "items-graph?kinds=ticket&system=delivery", "items-graph?kinds=epic,goal&system=planning", "status",
-            "graph"} <= set(data)
-    assert sorted(i["id"] for i in data["items?kind=epic"]["items"]) == ["epic/e1", "epic/e2"]
 
 
 def test_the_items_graph_says_when_its_finish_is_still_being_worked_out(tmp_path, monkeypatch):

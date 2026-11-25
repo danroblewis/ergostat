@@ -134,8 +134,6 @@ def test_each_type_of_block_says_what_it_is(tmp_path):
     assert b["files"] == [{"name": "bin/x.py", "role": "program", "format": "python"}] and b["own"] is None
     assert spec_of(p, "ex")["params"]["expr"] == "a * 2" and spec_of(p, "ex")["law"]["says"]
     assert spec_of(p, "lk")["params"]["table"] == {0: 0, 100: 10}
-    from ergostat.web.snapshot import _requests
-    assert ("agents/work/files", {}) in _requests(p) and ("agents/work", {}) in _requests(p)
     a = spec_of(p, "approve")
     assert a["params"]["ask"] == "Is this ticket ready to ship?" and a["type"] == "person"
 

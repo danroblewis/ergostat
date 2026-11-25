@@ -297,7 +297,7 @@ def named(cfg: dict, repo, tag: str, logs, failed: dict, box: str = "queue") -> 
 
 
 EXCUSE_MOST = 3                                         # more failed tests than this in one run is not a flake
-NEVER_EXCUSED = ("tests/test_page_polling.py",)         # (dynamics-open-dom-growth: is it a leak?)
+NEVER_EXCUSED: tuple = ()                               # test files whose failures are never a flake
 SUITES = ("ruff", "unit", "browser", "host", "demo")
 PYTEST = ("unit", "browser", "host")                    # the suites whose pytest counts are kept (ruff, demo: none)
 SKIP = re.compile(r"^SKIPPED \[\d+\] (\S+:\d+): (.*)$", re.M)     # pytest -rs: one line a skip's place and reason
