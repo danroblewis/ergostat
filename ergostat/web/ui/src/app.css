@@ -1,4 +1,4 @@
-/* The new app's own additions to style.css: only what the components add (tabs, page actions, the detail's close). */
+/* The app's own additions to styles/style.css: only what the components add (tabs, page actions, the detail's close). */
 .page h1 .page-actions { float: right; display: inline-flex; gap: 6px; font-size: 13px; font-weight: normal; }
 .tabs { display: inline-flex; gap: 2px; margin: 0 0 10px; }
 .tabs button[aria-selected="true"] { font-weight: 600; }
@@ -7,3 +7,7 @@ aside.detail > .close { float: right; font-size: 18px; line-height: 1; }
 .chart { width: 100%; }
 /* the old layout grids body > header, main, aside: the React root takes no box of its own */
 #root { display: contents; }
+/* the header's run state when the model file has errors: the errors in a small note under it */
+.menu-btn.runstate { border: 0; background: transparent; padding: 0; cursor: pointer; }
+.model-errors-note { max-width: 36em; white-space: normal; font-size: var(--text-sm); }
+.model-errors-note ul { margin: 6px 0; padding-left: 1.2em; }

@@ -62,7 +62,7 @@ function ItemBody({ d, why, changesOf, setChangesOf }: {
   const rest: string[] = (k?.states || []).filter((s: string) => !path.includes(s) && (!ended || fin.has(s)));
   const box = (st: string) => <span key={st} className={`stbox${st === d.state ? " on" : ""}${fin.has(st) ? " final" : ""}`}>{st}</span>;
   const counted = !!d.path?.some((st: any) => st.stock || st.flow || st.block);
-  const toDiagram = (view: string, by: string, v: string) => `/ui/diagram?view=${view}&${by}=${encodeURIComponent(v)}`;
+  const toDiagram = (view: string, by: string, v: string) => `/diagram?view=${view}&${by}=${encodeURIComponent(v)}`;
 
   // its kind's chosen fields first, in their order, then the rest by name; removed ones still have changes
   const counts: Record<string, number> = d.changes || {};
@@ -245,7 +245,7 @@ function Relations({ r, k }: { r: any; k: any }) {
           ))}
         </Table.Body>
       </Table>
-      {k && <Note>All of them in <a href={`/ui${kindHref(k.name, "view=graph")}`}>the graph</a>.</Note>}
+      {k && <Note>All of them in <a href={`${kindHref(k.name, "view=graph")}`}>the graph</a>.</Note>}
     </>
   );
 }

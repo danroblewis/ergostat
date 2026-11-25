@@ -61,7 +61,7 @@ export default function KindPage() {
           <button type="button" className={all ? "on" : ""} aria-pressed={all} onClick={() => set({ states: "all" }, true)}>Every state</button>
         </span>
         <NowChart flow={flow.data} fp={fp.data} all={all} />
-        <a className="pm-link" href={`/ui/diagram?view=process&kind=${encodeURIComponent(kind)}&mode=states`}
+        <a className="pm-link" href={`/diagram?view=process&kind=${encodeURIComponent(kind)}&mode=states`}
           title="Its process map: how many are in each state now, and how they moved">process map</a>
       </section>
 
@@ -195,7 +195,7 @@ function InModel({ fp }: { fp: any }) {
           {counted.map((c: any, i: number) => (
             <span key={c.part}>
               {i ? "; " : ""}
-              <a href={`/ui/diagram?view=dynamics&part=${encodeURIComponent(c.part)}`}>{c.kind} {c.name}</a>
+              <a href={`/diagram?view=dynamics&part=${encodeURIComponent(c.part)}`}>{c.kind} {c.name}</a>
               <span className="muted"> ({c.measure ? `${c.measure} of ` : ""}{c.states?.join(", ") || "every state"}{c.system ? `, in ${c.system}` : ""})</span>
             </span>
           ))}

@@ -6,7 +6,8 @@ import { StatusProvider } from "./state/status";
 import { TimeProvider } from "./state/time";
 
 /* The app: the shell, and a route for each page. Each page lives in pages/<name>/ and is loaded when first shown.
-   The paths are the old page's (/diagram, /items/KIND, /item/ID, /agent/NAME...), under /ui. */
+   The paths are the old page's (/diagram, /items/KIND, /item/ID, /agent/NAME...), served by
+   ergostat's server at each of them (web/server.py, UI_PAGES). */
 
 const Diagram = lazy(() => import("./pages/diagram"));
 const Dashboard = lazy(() => import("./pages/dashboard"));
@@ -17,9 +18,6 @@ const Items = lazy(() => import("./pages/items"));
 const Kind = lazy(() => import("./pages/items/KindPage"));
 const Item = lazy(() => import("./pages/items/ItemPage"));
 const Record = lazy(() => import("./pages/record"));
-const Model = lazy(() => import("./pages/model"));
-const Check = lazy(() => import("./pages/check"));
-const Guide = lazy(() => import("./pages/guide"));
 
 function KeepQuery({ to }: { to: string }) {
   const { search } = useLocation();
@@ -45,11 +43,6 @@ export default function App() {
                 <Route path="/items/:kind" element={<Kind />} />
                 <Route path="/item/:id" element={<Item />} />
                 <Route path="/record" element={<Record />} />
-                <Route path="/model" element={<Model />} />
-                <Route path="/fit" element={<KeepQuery to="/model" />} />
-                <Route path="/residuals" element={<KeepQuery to="/model" />} />
-                <Route path="/check" element={<Check />} />
-                <Route path="/guide" element={<Guide />} />
                 <Route path="*" element={<KeepQuery to="/diagram" />} />
               </Routes>
             </Suspense>

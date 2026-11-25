@@ -179,7 +179,7 @@ def _run(live, p, panel: Panel, q: dict, snap):
 
 def answer(live, p, name: str | None, q: dict, wait: bool = False) -> dict | None:
     """The dashboard and each panel's answer, of one moment. ``wait``: every panel worked out here, however long
-    (``ergostat snapshot``)."""
+    (a caller that cannot poll)."""
     from .server import _window
     d = find(p, name)
     if d is None:

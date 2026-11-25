@@ -13,7 +13,7 @@ from .store import home
 
 # A project's row is worked out again when its model's files or whether it runs change, and
 # otherwise when it is older than this: each one is a model loaded (a second or so) and a snapshot
-# of its record, and the page's header asks for the list while it is open.
+# of its record.
 RUNNING_FRESH = 60.0
 STOPPED_FRESH = 600.0
 _ROWS: dict = {}                 # state folder: (key, row, files, when, model kept when it runs)
@@ -47,7 +47,7 @@ def _row(d: Path, note: dict, pid: int | None, m=None) -> tuple[dict, list, obje
     return {"name": m.name, "repo": note["repo"], "running": bool(pid), "web": web_url(p) if pid else None,
             "loops": len(snap["loops"]), "off": sorted(g["system"] + g["open"]), "unknown": g["unknown"],
             "upkeep_off": sorted(n for v in g["own"].values() for n in v),
-            "goals_off": g["system"],          # the header's first figure: the system's goals off, upkeep apart
+            "goals_off": g["system"],          # the system's goals off, upkeep apart
             "goals": st.goals_off(snap),       # the same, counted (what `ergostat projects` prints)
             "attention": len([a for a in st.attention(snap, bool(pid), m) if a["level"] != "hint"])}, files, m
 
@@ -83,28 +83,6 @@ def _cached(d: Path, text: str, note: dict, pid, now: float, fresh: bool) -> dic
     row, files, m = _row(d, note, pid, was[4] if was and was[0] == key and pid and not fresh else None)
     _ROWS[d] = ((text, pid, _times(files)), row, files, now, m if pid else None)
     return row
-
-
-def running() -> dict:
-    """The header's list: each project whose engine runs (``running_pid``), with its row as ``known`` gives it (its page
-    from ``web.json``, its goals off; kept as ``known`` keeps it), and how many are stopped: those are counted by their
-    folders, no model loaded. Worked out off the request path (the page server's lister, ``web/server.py``)."""
-    from .runner import running_pid
-    rows, stopped = [], 0
-    with _ONE_AT_A_TIME:
-        for f in sorted(home().glob("*/repo.json")):
-            d = f.parent
-            pid = running_pid(SimpleNamespace(dir=d), wait=False)
-            if not pid:
-                stopped += 1
-                continue
-            try:
-                text = f.read_text()
-                row = _cached(d, text, json.loads(text), pid, time.monotonic(), False)
-            except Exception as e:                   # its note or its record unreadable: listed, with why
-                row = {"name": d.name, "repo": None, "error": f"{type(e).__name__}: {e}"}
-            rows.append(dict(row, running=True) if "error" in row else row)   # listed with why it has no page
-    return {"running": rows, "stopped": stopped, "at": time.time()}
 
 
 def orphans() -> list[dict]:

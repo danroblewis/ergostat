@@ -44,7 +44,7 @@ export function KindBar({ k, level = 3, state, onState, open, onOpen }: {
           <span key={st || "-"}>
             {i > 0 && <span className="arrow" aria-hidden="true">→</span>}
             <a
-              href={`/ui${kindHref(k.name, st ? `state=${encodeURIComponent(st)}` : "")}`}
+              href={`${kindHref(k.name, st ? `state=${encodeURIComponent(st)}` : "")}`}
               className={`stbox${counts[st] ? " some" : ""}${st && state === st ? " on" : ""}`}
               aria-pressed={!!st && state === st}
               onClick={(ev) => { ev.preventDefault(); onState?.(st && state === st ? null : st || null); }}

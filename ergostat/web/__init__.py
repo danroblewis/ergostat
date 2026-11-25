@@ -8,7 +8,7 @@ import socket
 import threading
 from http.server import ThreadingHTTPServer
 
-from .server import handler, start_lister, stop_lister
+from .server import handler
 
 DEFAULT_PORT = 8781
 
@@ -29,12 +29,12 @@ BUSY = b"HTTP/1.0 503 Service Unavailable\r\nRetry-After: 2\r\nContent-Length: 0
 
 
 def cheap(head: bytes) -> bool:
-    """A request (its first bytes) for the fast lane: a GET of a static file, of the page (``/``, ``/items``...) or of
-    an answer that needs no snapshot (``/api/projects``). Everything else goes to the API queue."""
+    """A request (its first bytes) for the fast lane: a GET of a static file or of the page (``/``, ``/items``...).
+    Everything else goes to the API queue."""
     from .server import is_page_path
     line = head.split(b"\r\n", 1)[0].decode("latin-1").split(" ")
     path = line[1].split("?", 1)[0] if len(line) > 1 and line[0] == "GET" else ""
-    return path.startswith("/static/") or path == "/api/projects" or (path[:1] == "/" and is_page_path(path))
+    return path.startswith("/static/") or (path[:1] == "/" and is_page_path(path))
 
 
 class PooledServer(ThreadingHTTPServer):
@@ -182,12 +182,10 @@ class PooledServer(ThreadingHTTPServer):
     def shutdown(self):
         super().shutdown()
         self._stop_mtls()
-        stop_lister(self)                          # the header's lister stops with the last page of this process
 
     def server_close(self):
         super().server_close()
         self._stop_mtls()
-        stop_lister(self)
         if getattr(self, "jobs", None) is None:     # (none yet when the port could not be bound: the bind error is the news)
             return
         import queue
@@ -207,7 +205,7 @@ class PooledServer(ThreadingHTTPServer):
 
 def record_fits(live, every: float = 300.0, stop: threading.Event | None = None) -> None:
     """Each version's fit kept in its history every few minutes, on the reference window, whether or
-    not anyone opens the Model page (so the history compares versions on like spans of record)."""
+    not anyone asks for the fit (so the history compares versions on like spans of record)."""
     import time
 
     from .numbers_api import reference, spec_of
@@ -246,7 +244,6 @@ def serve(project, port: int | None = None, mtls_port: int | None = None):
         server.mtls_port = server.mtls.server_address[1] if server.mtls else None
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=record_fits, args=(server.RequestHandlerClass.live,), name="ergostat-fit-history", daemon=True).start()
-    start_lister(server)                             # the header's project list, off the request path
     url = f"http://127.0.0.1:{port}"
     (project.dir / "web.json").write_text(json.dumps({"url": url}))
     return server, url

@@ -18,7 +18,7 @@ from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
 from .record import cmd_compact, cmd_event, cmd_held_up, cmd_item, cmd_migrate, cmd_reset, cmd_residual, cmd_why
-from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
+from .running import cmd_chat, cmd_projects, cmd_run, cmd_web
 from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
 from .system import cmd_loop, cmd_system
@@ -78,7 +78,6 @@ see it
   corrections    The owner's corrections: confirm, dismiss, retire; scan the record for them
   context        A session's starting context: context decisions --scope X, context corrections --kind Y
   event          The raw record (--follow to watch; --add TYPE records one from outside)
-  snapshot       The page, as of now, in one HTML file to send
 
 run it
   run            Run it here, in the background, with the web page (--stop)
@@ -373,12 +372,6 @@ def build() -> argparse.ArgumentParser:
                                      "(improving a model), improve-model (the skill for an AI agent reviewing one)")
     hp.add_argument("name", nargs="?")
     hp.set_defaults(fn=cmd_help)
-    sn = topic("snapshot", cmd_snapshot, "Write the page, with what it shows now, to one HTML file", named=False,
-               desc="Write the web page, with everything it shows now, to one HTML file that opens anywhere, offline, "
-                    "with no ergostat running: the diagrams to attach to a document or a ticket.")
-    sn.add_argument("-o", "--output", metavar="FILE", help="where (default: <name>-<date>-<time>.html here)")
-    sn.add_argument("--with-logs", action="store_true", help="also the end of each agent's log (left out by default: a log may "
-                                                            "hold what should not be sent on)")
     w = topic("web", cmd_web, "Serve the web page only", named=False)
     w.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     chat = sub.add_parser("chat", parents=[common], help="Talk to the Supervisor")
