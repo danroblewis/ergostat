@@ -261,13 +261,12 @@ The control diagram is the product's main view. Conventions:
   The ring for a part pointed at in the other pane takes its colours while they are shown.
 - **Export** (the zoom bar's Export menu): "SVG" and "PNG" write a standalone file with a header (project, system, view,
   when) and, for the control view, a one-line legend, every style resolved; "Design SVG" leaves out
-  what changes minute to minute (values, rates, status, decisions, trends) for a design document; `ergostat snapshot` writes the whole page and its answers as one
-  HTML file that opens offline (agents' logs only with `--with-logs`). The model behind the picture, as Markdown, for
+  what changes minute to minute (values, rates, status, decisions, trends) for a design document. The model behind the picture, as Markdown, for
   the system drawn: Dynamics' "Model (Markdown)" (a variable table: name, kind, unit, equation or sensor, now; the
   flows per stock; the feedback loops of the side list, with the goal each closes) and Blocks' "Loops (Markdown)" (a
   row per goal in the system drawn, the goal or the part it holds inside it at any depth: goal, reference, measured output, controller and its law in the panel's words, actuator,
   process, sensor and period, status). The server writes them (`GET /api/export?view=dynamics|blocks&system=S`,
-  `format=md` by default, `json` for the page), so `curl` gets the same file; a snapshot file says it cannot.
+  `format=md` by default, `json` for the page), so `curl` gets the same file.
 
 ## 7. The command line
 
@@ -298,12 +297,11 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded):
 `/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/agent/NAME` (what an agent is by its rung, its
 definition as written, its place, what it did; a row on `/agents` goes there), `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
-`%2F`), `/record?type=T`, `/model`, `/check`, `/guide?frame=N`. The server answers each with the page
-(`UI_PAGES` in `web/server.py` and `util.js`, one list); `/api/*`, `/static/*` and `/file/PATH` are never
-shadowed. The page routes with the History API: a plain click on one of its links draws the page in
-place; a ctrl-, cmd-, shift- or middle-click is the browser's. An old address, `#/items` or
-`/#/item/ID` from a bookmark, a brief or a message, is shown at its path. A snapshot, one file opened with no
-server, keeps its routes in the hash (`snapshot.html#/items`).
+`%2F`), `/record?type=T`, `/dashboard`. The server answers each with the page, the React app in `ergostat/web/ui`
+built into `static/app` (`UI_PAGES` in `web/server.py`, the routes in `web/ui/src/App.tsx`); `/api/*`, `/static/*`
+and `/file/PATH` are never shadowed. The page routes with the History API: a plain click on one of its links draws
+the page in place; a ctrl-, cmd-, shift- or middle-click is the browser's. The page knows one project, the one it
+serves: there is no project list in its header (`ergostat projects` lists them).
 
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
 owner's absence*), read only but for one kind of write: the owner's answer to a proposal (Accept,
@@ -313,31 +311,12 @@ only when addressed to the server by its own name (the Host header is `127.0.0.1
 `[::1]` with its port: a page on another site whose name was pointed at 127.0.0.1, DNS rebinding,
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
-page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and process views; the side panel:
+page can read. Pages: Dashboard (first in the header), Diagram (dynamics, blocks and process views; the side panel:
 attention, goals and their control loops, feedback loops or the process map's kinds, model changes, legend), Goals, Agents (one list, by rung), Items (the
-record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
-its old address `/fit` goes there; first **What's available**: each loop, whether its process is
-identified and what would identify it (loops identified alike said once, as a group: "12 loops: an
-integrator, from the model"), or that it closes through queues; each parameter to estimate,
-the parts it is in and whether the record is long enough yet; and where each model tool lives, every
-link choosing the part and opening its view and panel (a loop's: with only the systems its goal and stock
-are in open); `docs/MODEL-TOOLS.md` is the guide; then the
-review queue: every change waiting, read like a pull request, each with what kind of change it is, where
-(Show on diagram chooses its parts and opens both views), why, how it was found, its benefit, its effect
-simulated in memory and the exact diff Accept writes; Simulate all pending; what ergostat can and cannot
-propose yet; then, over the
-last day of record, whatever the window: the model fit, the stocks its equations move, with the
-total; each equation with its inputs as measured and replayed; accounting, the stocks moved only by
-measured flows; each with R², MAPE, Theil's U_M, U_S, U_C and what a large error says, or "too
-little record"; the total led by its scaled error; the fit's history across versions with the span each covered and
-each accepted change; Calibrate (each part alone, each system alone, or every stock integrated, with the
-loops a decision leaves open listed), the proposals waiting,
-and why the estimates not proposed were not; and the residuals),
-Check (each finding once; a kind that comes about many parts, as one table under its advice, said once,
-worst first, each part a link to the diagram; the notes as a list), and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
-the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
-it (why: what we control and what we want; system dynamics; control; then the project's own model,
-both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which
+record folded by id, by kind and state), Record (events, with runs hidden by default), and no more: the Model, Check and Guide pages were removed (owner, 2026-11-25); the model's fit, residuals,
+proposals and checks are the command line's (`ergostat fit`, `ergostat residual`, `ergostat proposals`, `ergostat
+accept`, `ergostat check`, `ergostat findings`) and the MCP tools'. When the model file has errors, the header's run
+state says "Model errors" and opens a small note with them. Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which
 takes the side panel's place. Behaviour over time sits beside the structure, never on a page of
 its own (`docs/proposals/charts.md`, drawn with uPlot, vendored): a part's panel in the dynamics
 view opens with its causes strip (it, then what drives it, on one time axis; where the model works a part

@@ -5,6 +5,12 @@ read and tune its loops. Each tool says what it is, what you get from it, where 
 clicks), what it needs before it appears, and how to use it. The screenshots are from a 20-minute run
 of `examples/image-squeeze` with its stand-in researcher and developer.
 
+> **The Model and Check pages are gone** (owner, 2026-11-25: the React page became the page, without them). What this
+> guide places on them is now the command line's and the MCP tools': the fit (`ergostat fit`), the residuals
+> (`ergostat residual`), the review queue and calibration (`ergostat proposals`, `--calibrate`, `--show ID`;
+> `ergostat accept ID`, `ergostat proposals --dismiss ID`), the checks and findings (`ergostat check`, `ergostat findings`,
+> the MCP tool `coherence`). The screenshots below are of the old page; the diagram's panels are being ported.
+
 Start on the **Model** page (the header's **Model**, `/model`; it was called Fit). Its first section,
 **What's available**, lists for this project each loop and whether it can be analysed yet, each
 parameter to estimate and whether the record is long enough yet, and a link into the panel where each

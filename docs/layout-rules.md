@@ -2,27 +2,18 @@
 
 Common-sense rules for how ergostat lays out its three diagrams: the stock-and-flow diagram (Dynamics), the block
 diagram (Blocks) and the process map (Process). Each rule is stated plainly, with why it matters and a measurable
-form. Each also has a detector in `tests/layout_rules.py`, which reads the drawn geometry off the page
-(`tests/layout_geometry.js`: every part's box, every line's points, every word as drawn, the loop markers, the
-open systems' frames, and in Blocks the take-off dots, the hops and the vectors' slashes).
+form. Each also has a detector in `tests/layout_rules.py`, over a diagram's drawn geometry (every part's box,
+every line's points, every word as drawn, the loop markers, the open systems' frames, and in Blocks the take-off
+dots, the hops and the vectors' slashes).
 
 The rules are ordered by how bad a violation looks, worst first. A **critical** violation is one a reader notices
 at once and reads wrongly: a flow that seems to go somewhere it does not, or a part hidden under another. A
 **major** one makes the drawing look careless. A **minor** one costs a reader a moment.
 
-How they are checked:
-
-- `tests/test_diagram_rendering.py` runs the fast detectors on every view of every example it draws, and fails on
-  any critical instance.
-- `tests/layout_corpus.py` runs every detector over the whole corpus: every example, plus several hundred
-  generated models from `tests/diagram_corpus.py` (chains, fan-outs, joins, rework, many clouds, systems linked
-  across, cascades, auxiliaries, mixes). Each model is drawn in each view: whole, everything open, each system
-  open, each system alone. The run writes counts per rule and crops of the worst instances.
-
-```
-uv run --with playwright==1.63.0 python -m tests.layout_corpus OUT --generated 300
-uv run --with playwright==1.63.0 python -m tests.layout_corpus OUT --engine ../other-checkout   # a before
-```
+How they are checked: the detectors are tested on geometry written by hand (`tests/test_layout_rules.py`). The
+geometry reader and the corpus run that measured the old page (`tests/layout_geometry.js`, `tests/layout_corpus.py`)
+were removed with it (2026-11-25), when the React page (`ergostat/web/ui`) became the page; reading the React
+diagram's geometry is not written yet.
 
 <!-- COUNTS -->
 
