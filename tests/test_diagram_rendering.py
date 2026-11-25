@@ -13,7 +13,7 @@ feeding the next and driving a flow two along: about 400 parts and 500 lines, dr
 
 It needs Playwright and the Chrome installed on this machine, so the usual run skips it:
 
-    uv run --with playwright python -m pytest tests/test_diagram_rendering.py -v -s
+    uv run --with playwright==1.63.0 python -m pytest tests/test_diagram_rendering.py -v -s
 """
 
 from __future__ import annotations
@@ -109,7 +109,11 @@ def page_of(request, tmp_path_factory):
     proc.wait(10)
 
 
-DRAWN_S = 240                 # the most a view may take to be drawn before a test gives up: a wait, not a check (the
+# the clean-drawing gate's browser, pinned: Playwright 1.63.0's own Chromium (chromium-1243), at one device pixel per
+# CSS pixel and one window size, whatever the machine's screen
+GATE_CHROMIUM = "153.0.8010.12"
+GATE_PAGE = {"viewport": {"width": 1600, "height": 1000}, "device_scale_factor": 1}
+DRAWN_S = 240               # the most a view may take to be drawn before a test gives up: a wait, not a check (the
                               # budgets that are checks are LAYOUT_BUDGET_MS and ROUTED_BOUND_MS), long for a loaded machine
 
 
@@ -120,7 +124,10 @@ def drawn(pg, url: str, view: str, n: int) -> None:
 
 def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     name, url = page_of
-    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    # the build the recorded faults and sizes come from: another draws (and is judged) otherwise
+    assert browser.version == GATE_CHROMIUM, f"Chromium {browser.version}: the gate is recorded on {GATE_CHROMIUM} " \
+                                             "(Playwright 1.63.0's own: uv run --with playwright==1.63.0)"
+    pg = browser.new_page(**GATE_PAGE)
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     drawn(pg, url, "", 0)
