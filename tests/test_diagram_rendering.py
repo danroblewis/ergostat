@@ -3,9 +3,11 @@ whole, everything open, each system opened, each drawn alone), draws no line thr
 is not one of its ends, no line on top of another (lines merging into or out of one end are a net),
 no line far longer than the way it covers, no two lines of one net crossing, no part on another or
 under an outline it is not in, no drawing bigger than recorded or far longer one way than the other
-when it does not fit the screen, and no page error;
+when it does not fit the screen, and no page error (drawn in the pinned setup: Playwright 1.63.0's
+Chromium, a 1600x1000 window at device scale 1, and the pages' text in Inter from tests/fixtures/fonts);
 draws within its time (ELK's layout, with ELK's lines), and has libavoid's lines within a
-generous bound (routed in a worker, after the first draw).
+generous bound (routed in a worker, after the first draw), judged against the routing of a generated
+model timed in the same browser just after it (ROUTED_PACES), so the machine's speed and load move both.
 
 And a generated model, 16 systems of 6 loops each (STRESS=systems,loops to change it), each
 feeding the next and driving a flow two along: about 400 parts and 500 lines, drawn in about
@@ -13,11 +15,12 @@ feeding the next and driving a flow two along: about 400 parts and 500 lines, dr
 
 It needs Playwright and the Chrome installed on this machine, so the usual run skips it:
 
-    uv run --with playwright python -m pytest tests/test_diagram_rendering.py -v -s
+    uv run --with playwright==1.63.0 python -m pytest tests/test_diagram_rendering.py -v -s
 """
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import math
@@ -49,7 +52,16 @@ TIMED = ("async () => { const t = performance.now(); const lay = await layoutGra
 LAYOUT_BUDGET_MS = 2500       # until the biggest view is first drawn, on a laptop; generous, to catch the layout going quadratic
 ROUTED_BOUND_MS = 20000       # until libavoid's lines replace ELK's (in a worker: the page is never held up meanwhile);
                               # the 24x8 model (STRESS=24,8: 1,030 lines) takes about 15s, nearly all of it libavoid's
-MAX_PIPE_BENDS = 6             # a flow that runs back (rework into a backlog) must turn; more is a pipe pushed about
+# the clean-drawing gate's routing bound, relative to the machine: a view of an example may take no longer to route than
+# ROUTED_PACES times the pace, libavoid's routing of the generated stress model (PACE_MODEL, everything open), timed in
+# the same browser just after the example's views, so a slower or busier machine moves both alike. (On the agents'
+# container: the pace 16.8 s, coordinator open=* 23.0-24.5 s, 1.37-1.46 paces, with system fonts or Inter alike; the
+# fixed 20 s was about 1.2 paces there.) An example whose slowest routing is under PACE_SKIP_MS is not paced: it is
+# under the bound wherever the pace is over PACE_SKIP_MS / ROUTED_PACES (2.3 s, 7x faster than that container).
+ROUTED_PACES = 1.75
+PACE_MODEL = (16, 6)
+PACE_SKIP_MS = 4000
+MAX_PIPE_BENDS = 6            # a flow that runs back (rework into a backlog) must turn; more is a pipe pushed about
 # compactness: each view's drawing as much on the screen as it was recorded (tests/fixtures/diagram_sizes.json, written
 # again with RECORD_SIZES=1 when a layout change is meant to make it so) and no longer one way than the other
 SIZES = ROOT / "tests" / "fixtures" / "diagram_sizes.json"
@@ -80,7 +92,7 @@ def browser():
         b.close()
 
 
-# the largest drawings route close to ROUTED_BOUND_MS on a quiet machine: under a parallel run they are run alone
+# the largest drawings take the longest to route: under a parallel run they are run alone (their pace too)
 HEAVY = {"coordinator"}
 
 
@@ -109,8 +121,82 @@ def page_of(request, tmp_path_factory):
     proc.wait(10)
 
 
-DRAWN_S = 240                 # the most a view may take to be drawn before a test gives up: a wait, not a check (the
-                              # budgets that are checks are LAYOUT_BUDGET_MS and ROUTED_BOUND_MS), long for a loaded machine
+# the clean-drawing gate's browser, pinned: Playwright 1.63.0's own Chromium (chromium-1243), at one device pixel per
+# CSS pixel and one window size, whatever the machine's screen
+GATE_CHROMIUM = "153.0.8010.12"
+GATE_PAGE = {"viewport": {"width": 1600, "height": 1000}, "device_scale_factor": 1}
+# and one font: the pages' own stack (system-ui, ...) is whatever the machine has (San Francisco on a Mac, WenQuanYi Zen
+# Hei in the agents' container), so the words' widths, the boxes around them and the drawing's size moved with it. The
+# gate's pages draw in Inter (tests/fixtures/fonts: latin, 400/600/700), registered from its bytes before any of the
+# page's scripts run (a FontFace made from bytes is loaded at once: nothing is measured in a fallback first), and named
+# as --font and --mono. The app keeps its system stack for users. Characters outside Inter's latin subset (the arrows,
+# ▾) still fall back to the machine's sans-serif.
+FONTS = ROOT / "tests" / "fixtures" / "fonts"
+GATE_FONT = "GateInter"
+INTER_SUBSET = [(0x0, 0xFF), (0x131, 0x131), (0x152, 0x153), (0x2BB, 0x2BC), (0x2C6, 0x2C6), (0x2DA, 0x2DA),
+                (0x2DC, 0x2DC), (0x304, 0x304), (0x308, 0x308), (0x329, 0x329), (0x2000, 0x206F), (0x20AC, 0x20AC),
+                (0x2122, 0x2122), (0x2191, 0x2191), (0x2193, 0x2193), (0x2212, 0x2212), (0x2215, 0x2215),
+                (0xFEFF, 0xFEFF), (0xFFFD, 0xFFFD)]    # @fontsource/inter's latin unicode-range
+OUTSIDE_INTER = "[^" + "".join(f"\\u{a:04x}-\\u{b:04x}" for a, b in INTER_SUBSET) + "]"
+FONT_SCRIPT = """(() => {
+  const faces = FACES.map(([weight, b64]) =>
+    new FontFace('GATE_FONT', Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), {weight: String(weight)}));
+  for (const f of faces) document.fonts.add(f);
+  window.__gateFonts = faces.map((f) => f.status);
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(':root { --font: GATE_FONT, sans-serif !important; --mono: GATE_FONT, monospace !important; }');
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+})()""".replace("GATE_FONT", GATE_FONT).replace("FACES", json.dumps(
+    [[w, base64.b64encode((FONTS / f"inter-latin-{w}-normal.woff2").read_bytes()).decode()] for w in (400, 600, 700)]))
+# every element with words of its own on the screen (its text and its ::before and ::after), in document order, and
+# whether its words are all in Inter's subset
+OWN_WORDS = """([sel, outside]) => [...document.querySelectorAll(sel)].map((e) => {
+  const made = ['::before', '::after'].map((p) => (getComputedStyle(e, p).content.match(/"[^"]*"/g) || []).join(''));
+  const own = [...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.data).join('').trim() +
+              made.join('').replace(/"/g, '');
+  const out = own.replace(/\\s/g, '').match(new RegExp(outside, 'g')) || [];
+  return own && e.getClientRects().length ?
+    [own.slice(0, 40), !out.length ? 'in' : out.length < own.replace(/\\s/g, '').length ? 'mixed' : 'out'] : null;
+})"""
+
+
+def gate_page(browser, **options):
+    """A page of the pinned setup: GATE_PAGE's window and device scale (options override them), drawn in Inter."""
+    pg = browser.new_page(**{**GATE_PAGE, **options})
+    pg.add_init_script(FONT_SCRIPT)
+    return pg
+
+
+def font_unpinned(pg, sel: str = "body *") -> list[str]:
+    """What on the page is not drawn in the served Inter: its faces not loaded, or words within its subset drawn in a
+    font of the machine's (by Chromium's own record of the fonts it drew each element's text with)."""
+    loaded = pg.evaluate("() => window.__gateFonts || []")
+    if loaded != ["loaded"] * 3:
+        return [f"Inter's faces are {loaded}, not loaded: the page draws in the machine's fonts"]
+    words = pg.evaluate(OWN_WORDS, [sel, OUTSIDE_INTER])
+    cdp = pg.context.new_cdp_session(pg)
+    cdp.send("DOM.enable")
+    cdp.send("CSS.enable")
+    root = cdp.send("DOM.getDocument", {"depth": -1})["root"]["nodeId"]
+    ids = cdp.send("DOM.querySelectorAll", {"nodeId": root, "selector": sel})["nodeIds"]
+    assert len(ids) == len(words), (len(ids), len(words))
+    wrong, seen = [], 0
+    for node, w in zip(ids, words, strict=True):
+        if not w:
+            continue
+        fonts = cdp.send("CSS.getPlatformFontsForNode", {"nodeId": node})["fonts"]
+        seen += bool(fonts)
+        others = [f["familyName"] for f in fonts if not (f["isCustomFont"] and f["familyName"].startswith("Inter"))]
+        # words all in its subset: in Inter alone; some outside it (▾ after a name): in Inter and a fallback for those;
+        # none in it (a ⋯ alone): whatever the machine has
+        if (w[1] == "in" and others) or (w[1] == "mixed" and fonts and len(others) == len(fonts)):
+            wrong.append(f"{w[0]!r} drawn in {others}")
+    cdp.detach()
+    return wrong[:10] + ([] if seen else ["no words drawn to check"])
+
+
+DRAWN_S = 240               # the most a view may take to be drawn before a test gives up: a wait, not a check (the
+                              # budgets that are checks are LAYOUT_BUDGET_MS and ROUTED_PACES), long for a loaded machine
 
 
 def drawn(pg, url: str, view: str, n: int) -> None:
@@ -118,12 +204,31 @@ def drawn(pg, url: str, view: str, n: int) -> None:
     pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
 
 
-def test_every_view_draws_cleanly_and_in_time(browser, page_of):
+def routing_pace(browser, tmp_path: Path) -> float:
+    """ROUTED_PACES' unit on this machine, now: libavoid's routing of the generated stress model (PACE_MODEL), everything
+    open, on the gate's page, in ms (timed as the examples' views are: TIMED, after the first draw)."""
+    d = tmp_path / "pace" / "stress"
+    d.mkdir(parents=True)
+    (d / "ergostat.yaml").write_text(big_model(*PACE_MODEL))
+    with served(d, tmp_path) as url:                   # (a copy of it, in tmp_path/stress)
+        pg = gate_page(browser)
+        drawn(pg, url, "open=*", 0)
+        pace = pg.evaluate(TIMED)[1]
+        pg.close()
+    return pace
+
+
+def test_every_view_draws_cleanly_and_in_time(browser, page_of, tmp_path):
     name, url = page_of
-    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    # the build the recorded faults and sizes come from: another draws (and is judged) otherwise
+    assert browser.version == GATE_CHROMIUM, f"Chromium {browser.version}: the gate is recorded on {GATE_CHROMIUM} " \
+                                             "(Playwright 1.63.0's own: uv run --with playwright==1.63.0)"
+    pg = gate_page(browser)
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     drawn(pg, url, "", 0)
+    # drawn in the served font, or the recorded faults and sizes judge another machine's fonts
+    assert not (unpinned := font_unpinned(pg)), f"{name}: " + "\n".join(unpinned)
     tree = pg.evaluate("() => S.graph.tree || {}")
     views = ["", "open=*", *(f"open={s}" for s in tree), *(f"system={s}" for s in tree)]
     problems, slowest, routed = [], (0.0, ""), (0.0, "")
@@ -167,12 +272,16 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     if os.environ.get("RECORD_SIZES"):
         everything = json.loads(SIZES.read_text()) if SIZES.exists() else {}
         SIZES.write_text(json.dumps({**everything, name: sizes}, indent=1, sort_keys=True) + "\n")
+    # the pace, timed now and here (only when the routing is long enough to be judged by it)
+    pace = routing_pace(browser, tmp_path) if routed[0] >= PACE_SKIP_MS else None
     print(f"{name}: {len(views)} views, slowest first draw {slowest[0]:.0f}ms ({slowest[1]}), "
-          f"slowest routing {routed[0]:.0f}ms ({routed[1]})")
+          f"slowest routing {routed[0]:.0f}ms ({routed[1]})" + (f", the pace {pace:.0f}ms" if pace else ""))
     assert not errors, errors
     assert not problems, f"{name}: " + "\n".join(problems)
     assert slowest[0] < LAYOUT_BUDGET_MS, f"{name}: drawing {slowest[1]} took {slowest[0]:.0f}ms"
-    assert routed[0] < ROUTED_BOUND_MS, f"{name}: routing {routed[1]} took {routed[0]:.0f}ms"
+    assert pace is None or routed[0] < ROUTED_PACES * pace, \
+        f"{name}: routing {routed[1]} took {routed[0]:.0f}ms, {routed[0] / pace:.2f} paces (the stress model's " \
+        f"{pace:.0f}ms here; the bound is {ROUTED_PACES})"
 
 
 # drawn and routed, or (the Process view of a project with no record yet) saying there is nothing to draw
@@ -6110,7 +6219,7 @@ def test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_sa
         p.write_text(p.read_text().replace("in: stock.bugs-live", "in: stock.users"))
     known = json.loads(KNOWN.read_text()).get("software-factory", {}) if KNOWN.exists() else {}
     with served("software-factory", tmp_path) as url:
-        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        pg = gate_page(browser)                            # (the known faults are recorded from the pinned setup)
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "system=product", 0)
@@ -6129,7 +6238,7 @@ def test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_sa
         assert "no feedback" not in pg.evaluate("() => sdLegend().textContent")
         pg.close()
     with served("software-factory", tmp_path / "unserved", unserved) as url:
-        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        pg = gate_page(browser)
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "system=product", 0)
         got = pg.evaluate(GOALS_DRAWN, ["no-live-bugs"])["no-live-bugs"]
