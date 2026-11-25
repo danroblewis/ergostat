@@ -64,7 +64,7 @@ def of(p, now: float | None = None) -> dict:
         parts.append(f"{len(held_ai)} held for the AI tier" + ("" if "modeller" in tiers else ", which is off (ai: true turns it on)"))
     ai_spent, ai_daily = _cap(p, spec, now, parts) if "modeller" in tiers else (None, None)
     if owner:
-        parts.append(f"{len(owner)} change{'s' if len(owner) != 1 else ''} waiting for the owner (the Model page's review queue)")
+        parts.append(f"{len(owner)} change{'s' if len(owner) != 1 else ''} waiting for the owner (ergostat proposals)")
     if waiting and len(waiting) > len(owner):
         parts.append(f"{len(waiting) - len(owner)} with the judge")
     if "redesigner" in spec.blocks:                      # the structural review, on its own or asked: its last run

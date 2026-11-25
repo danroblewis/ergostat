@@ -107,7 +107,7 @@ def test_named_tests_runs_named_files_only(tmp_path, monkeypatch):
     spec.loader.exec_module(named)
     monkeypatch.chdir(ROOT)
     every = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "tests").glob("test_*.py"))     # (what test_*.py expands to)
-    page = "tests/test_items_page.py"
+    page = "tests/test_react_pages.py"
     assert not [a for a in ([page], [f"{page}::test_a"], [page, "tests/test_agents.py::x[1-2]"]) if named.refused(a)]
     refused = [[], every, every[:4], ["tests"], ["tests/"], [page, "tests"], [page, "-qn4"], [page, "-n", "4"],
                [page, "-n4"], ["-n", "4", page], [page, "--numprocesses=auto"], ["tests/test_*.py"],

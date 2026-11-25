@@ -63,7 +63,7 @@ function Row({ to, onClick, className, children }: RowProps) {
   const clickable = !!(to || onClick);
   const open = (ev: MouseEvent) => {
     if ((ev.target as HTMLElement).closest("a, button, input, select")) return;
-    if (to && (ev.metaKey || ev.ctrlKey || ev.shiftKey)) { window.open(`/ui${to}`, "_blank"); return; }
+    if (to && (ev.metaKey || ev.ctrlKey || ev.shiftKey)) { window.open(`${to}`, "_blank"); return; }
     if (to) navigate(to);
     onClick?.();
   };

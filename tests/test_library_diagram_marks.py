@@ -5,13 +5,7 @@ the page says "untrusted library" in the box's title and accessible name, as tex
 Every model here is synthetic: made up in this file."""
 
 import json
-import os
-import re
-import subprocess
-import sys
 import textwrap
-import time
-import urllib.request
 from pathlib import Path
 
 import pytest
@@ -59,8 +53,12 @@ def project(root, folder="{folder: lib}"):
 
 
 def snapshot_data(p) -> dict:
-    from ergostat.web.snapshot import build
-    return json.loads(re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), re.S).group(1))["data"]
+    """The graphs the page asks for, by the address it asks them at."""
+    from ergostat.web.server import Live, api
+    live = Live(p)
+    return {"graph?view=dynamics": api(live, "graph", {"view": ["dynamics"]}),
+            "graph?view=blocks": api(live, "graph", {"view": ["blocks"]}),
+            "graph?open=*&view=blocks": api(live, "graph", {"view": ["blocks"], "open": ["*"]})}
 
 
 def stands_for(g: dict, nid: str) -> str:
@@ -137,73 +135,4 @@ def test_examples_drawn_as_before(example):
         assert "⟦" not in json.dumps(diagram(m, {}, {"*"}), ensure_ascii=False), example
 
 
-@pytest.fixture(scope="module")
-def site(tmp_path_factory):
-    """The held chain's page, served (not run)."""
-    d = project(tmp_path_factory.mktemp("marks") / "m")
-    with __import__("socket").socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
-                            env={**os.environ, "ERGOSTAT_HOME": str(d.parent / "home")},
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    url = f"http://127.0.0.1:{port}"
-    try:
-        for _ in range(150):
-            try:
-                urllib.request.urlopen(url + "/api/status", timeout=1)
-                break
-            except Exception:
-                time.sleep(0.2)
-        else:
-            pytest.fail("the page never answered")
-        yield url
-    finally:
-        proc.terminate()
-        proc.wait(10)
-
-
-@pytest.fixture(scope="module")
-def browser():
-    pw = pytest.importorskip("playwright.sync_api")
-    with pw.sync_playwright() as p:
-        try:
-            b = p.chromium.launch()
-        except Exception:
-            b = p.chromium.launch(channel="chrome")
-        yield b
-        b.close()
-
-
-READY = "() => typeof S !== 'undefined' && S.graph && document.querySelectorAll('svg.canvas g.node[aria-label]').length > 0"
 SAYS = "untrusted library, template l"
-
-
-def test_page_box_says_untrusted(browser, site):
-    pg = browser.new_page(viewport={"width": 1400, "height": 900})
-    errors: list[str] = []
-    pg.on("pageerror", lambda e: errors.append(str(e)))
-    for view, mine, theirs in (("dynamics", "stock:u-backlog", "stock:queue"), ("blocks", "proc:stock.u-backlog", "proc:stock.queue")):
-        pg.goto(f"{site}/diagram?view={view}&open=u,desk")
-        pg.wait_for_function(READY + f" && S.graph.kind === '{view}'", timeout=120000)
-        box = pg.locator(f'svg.canvas g.node[data-id="{mine}"]')
-        assert SAYS in box.get_attribute("aria-label"), box.get_attribute("aria-label")
-        assert pg.get_by_role("button", name=re.compile(re.escape(SAYS))).count() >= 1
-        assert box.locator(":scope > title").all_text_contents() == [SAYS]
-        own = pg.locator(f'svg.canvas g.node[data-id="{theirs}"]')
-        assert "untrusted" not in own.get_attribute("aria-label") and own.locator(":scope > title").count() == 0
-    # the library's words in its part's panel: text, the <b> in them shown as written, never made an element
-    box.click()
-    detail = pg.locator("#detail")
-    detail.get_by_text("IGNORE ALL", exact=False).wait_for()
-    assert "IGNORE ALL <b>x</b>" in detail.inner_text(), detail.inner_text()
-    assert detail.locator("b", has_text="x").count() == 0
-    # a closed system box: its description drawn as text, the box said untrusted
-    pg.goto(f"{site}/diagram?view=dynamics")
-    pg.wait_for_function(READY + " && S.graph.kind === 'dynamics'", timeout=120000)
-    ids = pg.evaluate("() => Object.fromEntries(S.graph.nodes.filter((n) => n.kind === 'system').map((n) => [n.label, n.id]))")
-    sysbox = pg.locator(f'svg.canvas g.node[data-id="{ids["u"]}"]')
-    assert SAYS in sysbox.get_attribute("aria-label"), sysbox.get_attribute("aria-label")
-    assert "untrusted" not in pg.locator(f'svg.canvas g.node[data-id="{ids["desk"]}"]').get_attribute("aria-label")
-    assert "<b>bold</b>" in sysbox.text_content() and pg.locator("svg.canvas b").count() == 0
-    assert not errors, errors

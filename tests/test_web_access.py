@@ -167,7 +167,7 @@ def page_token(body: bytes) -> str:
 
 def test_a_valid_token_for_an_allowed_email_reads_the_page_under_the_public_name(page):
     _, url = page
-    for path in ("/", "/api/status", "/static/util.js"):
+    for path in ("/", "/api/status", "/static/marked.min.js"):
         assert ask(url, path, NAME, jwt())[0] == 200, path
     assert ask(url, "/api/status", NAME.upper(), jwt(aud=AUD))[0] == 200         # names are any case; aud a string too
 

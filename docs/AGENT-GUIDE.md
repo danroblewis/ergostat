@@ -339,8 +339,7 @@ The first four are what `ergostat check`'s Coherence section checks for you, wit
 
 The Process view (what the items did), the Dynamics view (the chain you modelled) and the Blocks view
 (what moves the work) are one system drawn three ways, and they must agree. `ergostat check` holds
-them against each other over the record (SPEC §12l; the MCP tool `coherence`, the Check page's
-Coherence section): per kind a score, `ticket: 41 of 44 agree (93%)`, or how much more record it
+them against each other over the record (SPEC §12l; the MCP tool `coherence`): per kind a score, `ticket: 41 of 44 agree (93%)`, or how much more record it
 needs; and each mismatch with its file and line, its fix, the pair of views that disagrees, and the
 `check` finding it is linked to. This is your feedback loop: run, check, change the model (or the
 blocks), run again, until every kind reads `N of N agree`. How to read each:
@@ -1032,7 +1031,7 @@ or when the same question is asked of the page again and again (SPEC §4f):
    true` on a chart of stocks with equations).
 4. `ergostat check`: a name that is not the model's is **unknown-ref** at its line. When you rename or remove a part,
    check finds every dashboard that named it: fix them in the same change.
-5. Open `GET /api/dashboard/NAME` (or `ergostat snapshot`) and read each panel's answer: none should be empty
+5. Open `GET /api/dashboard/NAME` and read each panel's answer: none should be empty
    without a reason.
 
 A dashboards-only change alters no version and no replay: propose it with `kind: display` (SPEC §12e), and the

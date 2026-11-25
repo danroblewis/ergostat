@@ -1,17 +1,16 @@
 import { useState, type ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { apiGet } from "../lib/api";
 import { ago, clock, dur, recordedShort } from "../lib/format";
 import { goalsOff, useStatus, waitsOnYou } from "../state/status";
 import { WINDOW_WORDS, WINDOWS, type WindowKey, useTime } from "../state/time";
 import { Menu } from "./Menu";
 
-/* The app's frame: the header (brand, project, run state, what waits for the owner, the pages, the window) and the
+/* The app's frame: the header (brand, run state, what waits for the owner, the pages, the window) and the
    page beneath it. */
 
 const NAV: [string, string][] = [
-  ["/diagram", "Diagram"], ["/dashboard", "Dashboard"], ["/goals", "Goals"], ["/agents", "Agents"], ["/items", "Items"],
-  ["/record", "Record"], ["/model", "Model"], ["/check", "Check"], ["/guide", "Guide"],
+  ["/dashboard", "Dashboard"], ["/diagram", "Diagram"], ["/goals", "Goals"], ["/agents", "Agents"], ["/items", "Items"],
+  ["/record", "Record"],
 ];
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -22,7 +21,6 @@ export function Shell({ children }: { children: ReactNode }) {
       <header className="bar">
         <span className="where">
           <Link className="brand" to="/diagram">ergostat</Link>
-          <ProjectSelect />
           <RunState />
           <Waits />
         </span>
@@ -51,7 +49,23 @@ function RunState() {
     upkeep ? `model upkeep ${upkeep}` : "",
     ...names,
   ].filter(Boolean).join("\n");
-  return <Link id="running" className={cls} to={edited ? "/check" : "/goals"} title={tip || undefined}>{said}</Link>;
+  if (edited) return <ModelErrors cls={cls} said={said} banner={edited.banner} errors={edited.errors || []} />;
+  return <Link id="running" className={cls} to="/goals" title={tip || undefined}>{said}</Link>;
+}
+
+/* the model file's errors, said in a small note under the run state (`ergostat check` says the same in a terminal) */
+function ModelErrors({ cls, said, banner, errors }: { cls: string; said: string; banner: string; errors: string[] }) {
+  return (
+    <Menu label={said} buttonClassName={`${cls} model-errors`} title={banner}>
+      <Menu.Block>
+        <div id="model-errors" className="model-errors-note">
+          <strong>{banner}</strong>
+          <ul>{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
+          <span className="muted small">ergostat check says the same in a terminal.</span>
+        </div>
+      </Menu.Block>
+    </Menu>
+  );
 }
 
 function Waits() {
@@ -61,45 +75,6 @@ function Waits() {
     <span className="waits-said" aria-live="polite" aria-atomic="true">
       {n > 0 && <Link id="waits" className="waits" to="/diagram#waiting" title={`${n} wait for you`}>{n} for you</Link>}
     </span>
-  );
-}
-
-/* the other projects running on this machine, to switch to; listed when the reader comes to the list */
-function ProjectSelect() {
-  const { status } = useStatus();
-  const [list, setList] = useState<any>(null);
-  const [askedAt, setAskedAt] = useState(0);
-  const fresh = () => {
-    if (Date.now() - askedAt < 30000) return;
-    setAskedAt(Date.now());
-    apiGet("projects").then(setList).catch(() => {});
-  };
-  const name = status?.name || "";
-  const others = (list?.running || []).filter((p: any) => p.name !== name);
-  return (
-    <select
-      id="project"
-      title="Other projects on this machine"
-      value=""
-      onPointerEnter={fresh}
-      onFocus={fresh}
-      onChange={(e) => { if (e.target.value) location.href = e.target.value + location.pathname + location.search; }}
-    >
-      <option value="">{name}</option>
-      {others.map((p: any) => {
-        const bits = [
-          p.goals_off?.length ? `${p.goals_off.length} off` : "",
-          p.unknown?.length ? `${p.unknown.length} unknown` : "",
-          p.error ? "cannot load" : p.web ? "" : "no page",
-        ].filter(Boolean);
-        return (
-          <option key={p.name} value={p.web || ""} disabled={!p.web} title={p.error || undefined}>
-            {p.name}{bits.length ? ` (${bits.join(", ")})` : ""}
-          </option>
-        );
-      })}
-      {list?.stopped ? <option value="" disabled>{list.stopped} stopped (ergostat projects)</option> : null}
-    </select>
   );
 }
 

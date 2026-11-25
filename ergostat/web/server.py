@@ -1,6 +1,7 @@
 """The web page's HTTP server (standard library, bound to 127.0.0.1; read only but for the owner accepting or dismissing a
 proposal, or confirming, dismissing or superseding a decision, ``POST``). ``/`` is the page;
-``/api/*`` returns what the command line shows, as JSON; ``/static/*`` the page's files; ``/file/PATH`` a file
+``/api/*`` returns what the command line shows, as JSON; ``/static/*`` the page's files (the React app built
+into ``static/app``, web/ui); ``/file/PATH`` a file
 an item names; every other address of the page (``/items``, ``/item/ID``, ``/diagram?view=blocks``) is the page. The model is re-read when
 ``ergostat.toml`` changes, so the page follows the Supervisor's edits."""
 
@@ -33,13 +34,13 @@ EVENTS_MOST = 1000                   # the most events one answer carries (``n``
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
 KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
-# names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "dashboard", "goals", "loops", "agents", "agent", "items", "item", "record", "model", "check",
-            "guide", "fit", "residuals")
+# names; the same list as the page's routes (web/ui/src/App.tsx). /api, /static and /file are never among them
+UI_PAGES = ("diagram", "dashboard", "goals", "loops", "agents", "agent", "items", "item", "record")
+APP = "app/index.html"               # the page: the React app (web/ui), built into static/app
 
 
 _VERSIONS: dict = {}                 # a static file's version, by name: (mtime, size, hash of its content)
-_STATIC_REF = re.compile(r'((?:src|href)=")/static/([\w./-]+)(")')
+_APP_CSS = re.compile(r'<link rel="stylesheet"[^>]* href="(/static/app/[\w./-]+)">')
 FOREVER = "public, max-age=31536000, immutable"
 
 
@@ -102,16 +103,6 @@ def versioned(name: str) -> str:
     """The address of a static file, with its version."""
     v = asset_version(name)
     return f"/static/{name}?v={v}" if v else f"/static/{name}"
-
-
-def with_versions(page: str) -> str:
-    """A page with every ``/static/`` file it loads given its version, and the versions of the files the
-    scripts load themselves (ELK, on the first layout; libavoid's module and WebAssembly, in its worker) as a meta
-    tag they read."""
-    page = _STATIC_REF.sub(lambda m: m.group(1) + versioned(m.group(2)) + m.group(3), page)
-    late = {n: asset_version(n) for n in ("elk.bundled.js", "libavoid/libavoid.js", "libavoid/libavoid.wasm")}
-    meta = f'<meta name="ergostat-assets" content="{html.escape(json.dumps(late))}">'
-    return page.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n' + meta, 1)
 
 
 def is_page_path(path: str) -> bool:
@@ -177,14 +168,20 @@ def left(conn) -> bool:
 
 
 def md_page(name: str, text: str) -> bytes:
-    """A Markdown file opened in the browser, rendered with the page's own Markdown and styles: raw HTML in
-    it is shown as text, never run; its relative links stay relative, so they open the files beside it."""
+    """A Markdown file opened in the browser, rendered with the page's own styles (the app's stylesheet) and the
+    vendored marked and highlight.js: raw HTML in it is shown as text, never run; its relative links stay relative,
+    so they open the files beside it."""
     data = json.dumps(text).replace("<", "\\u003c")
+    try:
+        css = _APP_CSS.findall((STATIC / APP).read_text())
+    except OSError:                                   # (the app not built: the text, unstyled)
+        css = []
+    links = "".join(f'<link rel="stylesheet" href="{html.escape(c)}">' for c in css)
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(name)}</title>
-<link rel="stylesheet" href="/static/style.css"></head>
+{links}</head>
 <body class="file-page"><main class="md" id="doc"></main>
-<script src="/static/marked.min.js"></script><script src="/static/highlight.min.js"></script>
+<script src="{versioned('marked.min.js')}"></script><script src="{versioned('highlight.min.js')}"></script>
 <script>
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({{"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}})[c]);
 marked.use({{ renderer: {{ html: (t) => esc(typeof t === "string" ? t : t.text || "") }} }});
@@ -193,7 +190,7 @@ el.innerHTML = marked.parse({data});
 for (const a of el.querySelectorAll('a[href^="#/"]')) a.setAttribute("href", a.getAttribute("href").slice(1));   // an old page address
 for (const c of el.querySelectorAll("pre code")) {{ try {{ hljs.highlightElement(c); }} catch (e) {{}} }}
 </script></body></html>"""
-    return with_versions(page).encode()
+    return page.encode()
 
 
 class Live:
@@ -354,69 +351,6 @@ def _laws(p, spec) -> dict:
 
 
 _FITTING: set = set()   # the projects whose laws are being fitted
-
-# The header's project list (/api/projects): the running projects, worked out by one thread every LIST_EVERY seconds;
-# a request reads the last list and loads nothing. Until the first is made: none, and stopped unknown (None).
-LIST_EVERY = 60.0
-_LISTED: dict = {"running": [], "stopped": None, "at": None}
-_LISTER = threading.Lock()                     # held only to start or stop the one thread (per process)
-_LISTING: dict = {"servers": set(), "stop": None, "thread": None}   # the page servers that need it, its stop, itself
-
-
-def list_once(stop: threading.Event | None = None) -> None:
-    """One pass: ``projects.running()`` into ``_LISTED``, unless ``stop`` was set while it ran. A pass that fails is
-    logged and keeps the last list (the answer's ``age`` says how old it is, and the menu says so when it is old)."""
-    global _LISTED
-    from .. import projects
-    try:
-        got = projects.running()
-    except Exception:
-        import logging
-        logging.getLogger("ergostat").exception("listing the running projects failed; the last list is kept")
-        return
-    if stop is None or not stop.is_set():
-        _LISTED = got
-
-
-def list_projects(stop: threading.Event, every: float = LIST_EVERY) -> None:
-    """``list_once`` at once and then every ``every`` seconds, until ``stop``."""
-    while not stop.is_set():
-        list_once(stop)
-        if stop.wait(every):
-            return
-
-
-def start_lister(server) -> None:
-    """The one lister of this process runs while any of its page servers does (each calls ``stop_lister`` when it
-    shuts down)."""
-    with _LISTER:
-        _LISTING["servers"].add(id(server))
-        if _LISTING["thread"] is None:
-            _LISTING["stop"] = threading.Event()
-            _LISTING["thread"] = threading.Thread(target=list_projects, args=(_LISTING["stop"],),
-                                                  name="ergostat-projects", daemon=True)
-            _LISTING["thread"].start()
-
-
-def stop_lister(server=None, wait: float = 10.0) -> bool:
-    """``server`` no longer needs the lister (None: no server does). When none does, it is stopped and waited for: a
-    pass running then is not kept. True when no lister runs any more (False: one outlasted ``wait``, or others need
-    it)."""
-    with _LISTER:
-        if server is None:
-            _LISTING["servers"].clear()
-        else:
-            _LISTING["servers"].discard(id(server))
-        if _LISTING["servers"]:
-            return False
-        t, _LISTING["thread"] = _LISTING["thread"], None
-        if t is None:
-            return True
-        _LISTING["stop"].set()
-    if t is not threading.current_thread():
-        t.join(wait)
-    return not t.is_alive()
-
 
 def _window(q) -> float:
     from ..durations import parse_duration
@@ -741,7 +675,7 @@ def api(live: Live, path: str, q: dict, reader: bool = False):
         from ..correspond import table
         shown = got.pop("_model", None) or live.get().model       # a proposal drawn: its model's parts
         got["corr"] = table(got, shown)
-        from .snapshot import untrusted
+        from .untrusted import untrusted
         untrusted(got, shown)                         # what an untrusted template made, said on its box (SPEC §2a)
         if q.get("have"):                             # a page polling: only the values, when it holds this structure
             from .graph_poll import answer
@@ -796,9 +730,6 @@ def _suggest(p, q: dict, reader: bool) -> dict:
 
 def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     """``pinned``: the snapshot to answer from (a dashboard's panels, all of one moment), else the moment's own."""
-    if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
-        got = _LISTED
-        return dict(got, age=None if got["at"] is None else max(0.0, time.time() - got["at"]))
     p = project or live.get()
     m = p.model
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
@@ -880,15 +811,6 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                             for e in history.changes(p, snap["at"] - snap["window"])][-5:],
                 **({"web": w} if (w := live.web.recent()) else {}),
                 **({"compute": _compute(p, spec, running)} if getattr(spec, "compute", None) else {})}
-    if head == "coherence":                          # the three views held against each other (the Check page)
-        from .numbers_api import coherence
-        return coherence(live, p, snap, _window(q) if one("since") else None)
-    if head == "exercised":                          # the parts the record has not exercised: findings, for the Check page
-        from .numbers_api import exercised
-        return exercised(live, p, snap)
-    if head == "guide":                              # the Guide's frames: tiny models, the same for every project
-        from ..guide import frames
-        return frames()
     if head == "export":                             # the model behind the picture, as Markdown (export_api.py)
         from ..blockdiagram import _Diagram, identified, spec_of
         from .export_api import export, file_name
@@ -1218,9 +1140,6 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     if head == "impact":                          # a fix's or a change's impact report (SPEC §12n), on its item's page
         from .numbers_api import impact
         return impact(live, p, snap, one)
-    if head == "fit":                             # the Model page: the replay against the record, its history, the proposals
-        from .numbers_api import fit_page
-        return fit_page(live, p, snap)
     if head == "loop-control":                    # the loop as a control engineer reads it: identified, analysed, monitored
         from .control_api import get as control
         return control(live, p, snap, one("goal") or "")
@@ -1614,10 +1533,8 @@ def handler(project):
             if u.path.startswith("/file/"):                # the same, as a path: a Markdown file's relative links resolve
                 navigating = "text/html" in (self.headers.get("Accept") or "") and "raw" not in parse_qs(u.query)
                 return self._file(unquote(u.path.removeprefix("/file/")), page=navigating)
-            if u.path == "/ui" or u.path.startswith("/ui/"):   # the React page (web/ui, built into static/app)
-                name = "app/index.html"
-            elif is_page_path(u.path):
-                name = "index.html"
+            if is_page_path(u.path):                       # the page (web/ui, built into static/app)
+                name = APP
             elif u.path.startswith("/static/"):
                 name = u.path.removeprefix("/static/")
             else:
@@ -1625,17 +1542,17 @@ def handler(project):
             f = (STATIC / name).resolve()
             if STATIC.resolve() not in f.parents or not f.is_file():
                 return self._send(404, b"not found", "text/plain")
-            if name in ("index.html", "app/index.html"):   # the page carries this run's token for its writes, and its files' versions
-                # (the React page's files are named by their hash already: a ?v= on its entry would load it twice,
-                # once as the page asks and once as its chunks import it)
-                page = f.read_text() if name.startswith("app/") else with_versions(f.read_text())
-                body = page.replace('<meta charset="utf-8">',
-                                                            f'<meta charset="utf-8">\n<meta name="ergostat-token" content="{token}">', 1)
+            if name == APP:                                # the page carries this run's token for its writes
+                # (its files are named by their hash already: a ?v= on its entry would load it twice, once as the
+                # page asks and once as its chunks import it)
+                body = f.read_text().replace('<meta charset="utf-8">',
+                                             f'<meta charset="utf-8">\n<meta name="ergostat-token" content="{token}">', 1)
                 if who == self.READER:                     # said on the page: no token, and why its buttons do nothing
                     body = body.replace(f'content="{token}">', 'content="">\n<meta name="ergostat-public" content="read only">', 1)
                 return self._send(200, body.encode(), "text/html; charset=utf-8", True)   # never kept stale: no-cache, ETag
             asked = (parse_qs(u.query).get("v") or [""])[0]
-            cache = FOREVER if asked and asked == asset_version(name) else "no-cache"
+            hashed = name.startswith("app/assets/")        # the app's files: named by their content's hash
+            cache = FOREVER if hashed or (asked and asked == asset_version(name)) else "no-cache"
             self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", True, cache)
 
     Handler.live = live

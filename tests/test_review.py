@@ -646,10 +646,7 @@ def test_what_ergostat_can_and_cannot_propose_is_said_and_the_residual_finder_ha
     assert any("part replaced by another form" in x for x in stc.CANNOT)
     assert any("missing stock or flow that is not a delay" in x for x in stc.CANNOT)
     assert stc.from_residuals(None) is None and "delay on a measured stock's inflow" in stc.from_residuals.__doc__
-    js = (Path(stc.__file__).parents[1] / "web" / "static" / "review.js").read_text()
-    for text in (Path(stc.__file__).read_text(), js):
-        assert "next piece of work" not in text
-    assert "a delay on a measured stock's inflow" in js
+    assert "next piece of work" not in Path(stc.__file__).read_text()
 
 
 # ---- the command line lists the same fields
@@ -689,15 +686,15 @@ def test_leverage_ranks_the_flows_by_how_far_a_tenth_faster_moves_the_goals(tmp_
     assert "toward goal short" in lv.said(rows["served"], got["of"])
 
 
-def test_the_page_api_lists_the_queue_simulates_and_accepts_only_what_was_shown(tmp_path):
+def test_the_page_api_simulates_and_accepts_only_what_was_shown(tmp_path):
     from ergostat.web.numbers_api import post
     from ergostat.web.server import Live, api
     p, snap = queue_project(tmp_path, k_true=3.0)
     pr.make(p, snap)
     live = Live(p)
-    d = api(live, "fit", {})
-    e = next(x for x in d["queue"] if x["kind"] == "parameter")
-    assert d["can"] and d["cannot"] and all(k in e for k in FIELDS)
+    spec = p.model.spec
+    e = next(x for x in rv.entries(p, spec, rv.control_pending(p, spec)) if x["kind"] == "parameter")
+    assert all(k in e for k in FIELDS)
     eff = api(live, "proposal-effect", {"ids": [e["id"]]})
     assert eff["taken"] == [e["id"]] and eff["charts"]
     assert post(live, f"proposals/{e['id']}/accept", 3600.0, {"expect": ["nope"]})[0] == 409

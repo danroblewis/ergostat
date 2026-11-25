@@ -122,8 +122,9 @@ def test_the_finding_is_shown_by_ergostat_findings_and_the_page(tmp_path, capsys
     got = {x["about"]: x for x in json.loads(capsys.readouterr().out) if x["code"] == ex.CODE}
     assert "flow.flat-points-lost" in got and got["flow.flat-points-lost"]["line"]
     live = Live(p)
-    page = api(live, "exercised", {})
-    assert any(x["about"] == "flow.flat-points-lost" and x["level"] == "warn" for x in page)    # the Check page
+    from ergostat.web.numbers_api import exercised
+    page = exercised(live, p, live.snapshot(p, 3600.0, None))
+    assert any(x["about"] == "flow.flat-points-lost" and x["level"] == "warn" for x in page)    # the findings
     row = next(x for x in page if x["about"] == "flow.flat-points-lost")                   # with its numbers: a row
     assert row["why"] == "never-moved" and row["readings"] >= 20 and row["span"] >= 3.5 * 3600 and "never moved" in row["says"]
     panel = api(live, "part/flow/flat-points-lost", {})

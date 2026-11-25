@@ -1,6 +1,6 @@
 # Developing ergostat in a container
 
-Heavy development work (the benchmarks, load tests, the layout corpus, the Linux sandbox tests, and preferably
+Heavy development work (the benchmarks, load tests, the Linux sandbox tests, and preferably
 the routine suites) runs in a Docker container with hard limits, so a runaway test exhausts a Linux VM and not
 your computer's kernel. On macOS this matters: this project's load benchmarks have kernel-panicked a Mac twice by
 thread exhaustion (about 14,000 threads), and the watchdog (`scripts/suite_watch.py`), being a process on the same
@@ -51,13 +51,9 @@ build sees only `pyproject.toml` and `uv.lock`. Without a network, `uv` works fr
 ```sh
 # the unit suite
 scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal
-# the browser suite
+# the browser suite (the page's smoke tests: each page renders with no page errors)
 scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q \
-    -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py \
-    tests/test_page_refresh.py tests/test_keyboard_story.py tests/test_golden_pages.py
-# the golden files' references, regenerated after an intended change to a page (then read and commit
-# `git diff tests/golden`; tests/golden.py says how they are made)
-scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m tests.golden
+    -n 4 --dist worksteal tests/test_react_pages.py
 # every example, its pages checked with Playwright
 scripts/in_container.sh uv run --with playwright==1.63.0 python scripts/demo_check.py
 # the benchmarks (results under .out/, which git ignores)
@@ -66,8 +62,6 @@ scripts/in_container.sh uv run python scripts/latency_bench.py synth 1 50 100 50
 scripts/in_container.sh uv run python scripts/daemon_bench.py 20 170 --mode daemon --minutes 6.5 --work /work/.out/daemon
 # the Linux sandbox's attack suite (bubblewrap; needs --sandbox)
 scripts/in_container.sh --sandbox uv run python -m pytest -q tests/test_sandbox_attacks.py
-# the layout corpus
-scripts/in_container.sh uv run --with playwright==1.63.0 python -m tests.layout_corpus /work/.out/corpus --generated 300
 ```
 
 Write results under `/work` (here `/work/.out/`) to keep them: everything else in the container, `/tmp` included,

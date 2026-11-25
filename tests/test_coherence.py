@@ -268,9 +268,8 @@ def test_check_says_coherence_in_its_text_and_json(tmp_path, capsys):
     assert any(f["id"] == "acts-undeclared@block.worker" for f in j["coherence"]["findings"])
 
 
-def test_the_mcp_tool_and_the_api(tmp_path):
+def test_the_mcp_tool(tmp_path):
     from ergostat.mcp import TOOLS, Server
-    from ergostat.web.server import Live, api
     p = project(tmp_path)
     work(p, by={"ticket.merged": None})
     assert any(t["name"] == "coherence" for t in TOOLS)
@@ -278,8 +277,6 @@ def test_the_mcp_tool_and_the_api(tmp_path):
     got = json.loads(r["content"][0]["text"])
     assert any(f["id"] == "moved-without-its-block@flow.merge" for f in got["findings"])
     assert got["scores"][0].startswith("ticket: ")
-    a = api(Live(p), "coherence", {})
-    assert a["kinds"]["ticket"]["compared"] > 0 and a["findings"]
 
 
 @pytest.mark.parametrize("example", ["ticket-factory", "the-job", "small-requests", "coordinator"])

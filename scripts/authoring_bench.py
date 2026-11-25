@@ -294,29 +294,10 @@ def craft(copy: Path) -> dict:
 
 
 def audit(copy: Path, port: int) -> dict:
-    """The rendering audit (scripts/diagram_audit.py) of the Dynamics and Blocks views: lines through a part, lines on
-    top of another, detours."""
-    py = str(ROOT / ".venv" / "bin" / "python")
-    env = {**os.environ, "ERGOSTAT_HOME": str(copy.parent / "grade-home")}
-    web = subprocess.Popen([py, "-m", "ergostat", "-C", str(copy), "web", "--port", str(port)], env=env,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        time.sleep(4)
-        got = subprocess.run(["uv", "run", "--with", "playwright==1.63.0", "python", str(ROOT / "scripts" / "diagram_audit.py"),
-                              f"http://127.0.0.1:{port}", "view=dynamics", "view=blocks"], capture_output=True, text=True,
-                             timeout=300, cwd=ROOT)
-    except subprocess.TimeoutExpired:
-        return {"error": "timed out"}
-    finally:
-        web.terminate()
-        web.wait(10)
-    out = {}
-    for line in got.stdout.splitlines():
-        if line.startswith("[view="):
-            v = line[6:line.index("]")]
-            nums = [int(x.split()[-1]) for x in line[line.index("]") + 2:].split(", ")]
-            out[v] = dict(zip(("through", "overlap", "detour"), nums, strict=False))
-    return out or {"error": (got.stderr or got.stdout)[-300:]}
+    """The rendering audit of the Dynamics and Blocks views (lines through a part, lines on top of another, detours):
+    none now. scripts/diagram_audit.py measured the old page, removed when the React page became the page; the grade
+    says so instead of a number."""
+    return {"error": "no rendering audit: scripts/diagram_audit.py measured the old page, which is gone"}
 
 
 def coherent(copy: Path, seconds: float = 40) -> dict:

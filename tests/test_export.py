@@ -7,7 +7,6 @@ import os
 import re
 import subprocess
 import sys
-import textwrap
 import time
 import urllib.error
 import urllib.request
@@ -216,78 +215,3 @@ def test_the_endpoint_answers_markdown_for_curl_and_refuses_another_view(site):
         assert e.value.code == 400
 
 
-@pytest.fixture(scope="module")
-def browser():
-    pw = pytest.importorskip("playwright.sync_api")
-    with pw.sync_playwright() as p:
-        try:
-            b = p.chromium.launch()
-        except Exception:
-            b = p.chromium.launch(channel="chrome")
-        yield b
-        b.close()
-
-
-READY = "() => typeof S !== 'undefined' && S.graph && document.querySelectorAll('svg.canvas g.node').length > 0"
-
-
-def download(pg, entry: str) -> tuple[str, str]:
-    pg.locator(".zoom .menu-btn", has_text="Export").click()
-    with pg.expect_download() as d:
-        pg.locator(".menu-item", has_text=entry).click()
-    return d.value.suggested_filename, Path(d.value.path()).read_text()
-
-
-def test_the_export_menu_downloads_the_model_and_the_loops(browser, site):
-    url, _ = site
-    pg = browser.new_page(viewport={"width": 1400, "height": 900})
-    errors: list[str] = []
-    pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{url}/diagram?view=dynamics&system=desk")
-    pg.wait_for_function(READY, timeout=120000)
-    pg.wait_for_selector(".side .looprow")
-    name, md = download(pg, "Model (Markdown)")
-    assert re.fullmatch(r"small-desk-dynamics-\d{4}-\d\d-\d\d\.md", name), name
-    t = tables(md)
-    parts = pg.evaluate("() => S.graph.nodes.filter((n) => ['stock', 'auxiliary', 'valve', 'disturbance'].includes(n.kind))"
-                        ".map((n) => n.label).sort()")
-    assert sorted(r["name"] for r in t["Variables"]) == parts
-    side = pg.evaluate("() => [...document.querySelectorAll('.side .looprow[data-loop]')].map((r) => r.dataset.loop)")
-    assert [r["name"] for r in t["Feedback loops"] if r["drawn"] == "drawn"] == side and side
-    assert len(t["Feedback loops"]) == int(pg.locator(".side h3", has_text="Feedback loops").locator(".muted").inner_text())
-    pg.goto(f"{url}/diagram?view=blocks")
-    pg.wait_for_function(READY + " && S.graph.kind === 'blocks'", timeout=120000)
-    pg.wait_for_selector(".side .looprow")
-    name, md = download(pg, "Loops (Markdown)")
-    assert re.fullmatch(r"small-all-blocks-\d{4}-\d\d-\d\d\.md", name), name
-    rows = tables(md)["Control loops"]
-    assert [r["goal"] for r in rows] == pg.evaluate("() => [...document.querySelectorAll('.side .looprow')].map((r) => r.dataset.loop)")
-    pg.evaluate("() => openBlock(S.graph.nodes.find((n) => n.id === 'blk:keep-inbox-short'))")       # its panel (blocks.js)
-    law = " ".join(pg.locator("#detail p.what").first.inner_text().split())
-    # the panel's words, its y_inbox drawn as a subscript (rich(): y and a <sub>inbox</sub>, so "yinbox" as text)
-    assert rows[0]["controller and its law"].replace("y_", "y") == f"keep-inbox-short: {law}", (rows[0], law)
-    assert "y_inbox" in rows[0]["controller and its law"]
-    assert pg.locator(".menu-item", has_text="Model (Markdown)").count() == 0
-    assert not errors, errors
-    pg.close()
-
-
-def test_a_snapshot_file_says_it_cannot_export_the_model(browser, tmp_path):
-    from ergostat.web.snapshot import build
-    (tmp_path / "m").mkdir()
-    (tmp_path / "m" / "ergostat.yaml").write_text(textwrap.dedent(SMALL))
-    f = tmp_path / "snapshot.html"
-    f.write_text(build(Project(mdl.load(tmp_path / "m"))))
-    pg = browser.new_page(viewport={"width": 1400, "height": 900})
-    said: list[str] = []
-    pg.on("dialog", lambda d: (said.append(d.message), d.dismiss()))
-    pg.goto(f.as_uri() + "#/diagram?view=dynamics")
-    pg.wait_for_function(READY, timeout=120000)
-    pg.locator(".zoom .menu-btn", has_text="Export").click()
-    pg.locator(".menu-item", has_text="Model (Markdown)").click()
-    for _ in range(50):
-        if said:
-            break
-        pg.wait_for_timeout(100)
-    assert said and "snapshot file cannot export the model" in said[0], said
-    pg.close()

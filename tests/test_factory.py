@@ -3893,18 +3893,6 @@ def test_four_failed_tests_that_each_pass_alone_still_bisect(tmp_path):
     assert said.count("gap.merged") == 2 and len([i for i in g.db()["items"] if i.startswith("flake/")]) == 3
 
 
-def test_a_page_polling_failure_is_never_excused(tmp_path):
-    for n, tests in enumerate((["tests/test_page_polling.py::test_a_page_left_open_does_not_grow"],
-                               ["tests/test_b.py::test_b", "tests/test_page_polling.py::test_x[dynamics]"])):
-        f = flaky_stand_ins(tmp_path / str(n), tests)
-        approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
-        said, _ = f.run("queue.py", "gap/p")
-        assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
-        assert len(reruns(f)) == 3 and suite_runs(f) == 5      # (p..s, main, r+s) passing alone: split
-        assert f.item("gap/r")["fields"]["failed_tests"] == sorted(tests)
-        assert not [i for i in f.db()["items"] if i.startswith("flake/")]
-
-
 def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
     f = bisect_stand_ins(tmp_path, unit_names_tests=False)
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
@@ -5780,15 +5768,11 @@ def test_only_a_top_level_importorskip_of_playwright_makes_a_file_browser_only()
                  'import pytest\nyaml = pytest.importorskip("yaml")\n',
                  'x = (\n'):                                   # (unparsable: run, never left out)
         assert not whole(text), text
-    for name in ("test_agents_page.py", "test_dashboard_page.py", "test_export.py", "test_walk_scripts.py"):
+    for name in ("test_export.py", "test_walk_scripts.py"):
         assert not whole((ROOT / "tests" / name).read_text()), name   # (their API tests need no browser)
-    assert whole((ROOT / "tests" / "test_diagram_rendering.py").read_text())
+    assert whole((ROOT / "tests" / "test_react_pages.py").read_text())
     suite = m.in_browser_suite(str(ROOT / "dev" / "factory.toml"))       # (the shipped config: what the queue runs)
-    assert "tests/test_diagram_rendering.py" in suite
-    for name in ("test_inbox_page.py", "test_sql_editor.py", "test_promql_editor.py", "test_forecast_panel.py",
-                 "test_data_source_panels.py", "test_dashboard_keep_page.py", "test_dashboard_merge_queue.py"):
-        assert whole((ROOT / "tests" / name).read_text()), name           # browser files the browser suite never
-        assert f"tests/{name}" not in suite, name                          # runs: never left out of the build
+    assert "tests/test_react_pages.py" in suite
 
 
 def test_an_unreadable_diff_runs_the_full_suite(tmp_path):

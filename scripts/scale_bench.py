@@ -489,14 +489,14 @@ def serve(work: Path, n: int, port: int) -> subprocess.Popen:
                             start_new_session=True)
     for _ in range(600):
         try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/static/index.html", timeout=2)
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2)
             break
         except Exception:
             time.sleep(0.5)
     return proc
 
 
-APIS = [("loops", "loops"), ("items", "items"), ("exercised", "exercised"),          # cheapest first: an answer that
+APIS = [("loops", "loops"), ("items", "items"),                                    # cheapest first: an answer that
         ("graph-system", "graph?view=dynamics&system=sys-001"),                       # runs out of time keeps the server
         ("graph-opened", "graph?view=dynamics&open=org,area-01,sys-001"),              # busy for the next
         ("graph", "graph"), ("graph-dynamics", "graph?view=dynamics"), ("graph-all-open", "graph?view=dynamics&open=*"),
@@ -506,9 +506,8 @@ PAGES = [("diagram", "/diagram", True), ("diagram-system", "/diagram?system=sys-
          ("diagram-opened", "/diagram?open=org,area-01,sys-001", True), ("blocks", "/diagram?view=blocks", True),
          ("diagram-all-open", "/diagram?open=*", True),
          ("goals", "/goals", False), ("items", "/items", False), ("check", "/check", False)]
-READY = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && document.querySelectorAll('svg.canvas g.node').length > 0")
-ROUTED = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && !S.layout.routing && "
-          "document.querySelectorAll('svg.canvas g.node').length > 0")
+READY = "() => document.querySelectorAll('svg.canvas g.node').length > 0"     # the diagram drawn (web/ui)
+ROUTED = READY                                                                   # (the page lays out and routes at once)
 
 
 def cmd_api_alone(a) -> None:

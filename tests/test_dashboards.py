@@ -2,7 +2,6 @@
 served in one request whose panels say what their own endpoints say of the same snapshot."""
 
 import json
-import re
 import shutil
 import textwrap
 import time
@@ -373,13 +372,3 @@ def test_the_default_dashboard_is_each_top_system_s_measures_and_goals_and_answe
     # answered, not merely returned: a pending (or busy) panel would meet the time by the batch's own limit
     assert all("answer" in x and not x.get("pending") and "error" not in x for x in got["panels"]), got["panels"]
     assert took < 0.5, took
-
-
-def test_a_snapshot_holds_each_dashboard_s_answer_with_no_panel_pending(tmp_path):
-    from ergostat.web.snapshot import build, key
-    html = build(project(tmp_path))
-    data = json.loads(re.search(r"window\.SNAPSHOT = (.*?);</script>", html, re.S).group(1))["data"]
-    assert [d["name"] for d in data["dashboards"]] == ["default", "ops"]
-    for name in ("default", "ops"):
-        got = data[key(f"dashboard/{name}", {})]
-        assert got["panels"] and all("answer" in x for x in got["panels"]), got

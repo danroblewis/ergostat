@@ -3,6 +3,7 @@ import re
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from ergostat import graph, state
 from ergostat.cli import main
@@ -290,7 +291,7 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         assert [x["name"] for x in parts["valve"]] == ["delete-old-files"] and parts["sensor"][0]["reading"] == 70
         assert parts["system"][0]["name"] == "host" and parts["disturbance"][0]["name"] == "logs-written"
         assert json.loads(get("/api/loops/disk-under-80")[1])["status"] == "holding"
-        assert get("/")[0] == 200 and b"elk.bundled.js" in get("/")[1]
+        assert get("/")[0] == 200 and b'<div id="root"></div>' in get("/")[1]
         try:
             get("/api/part/stock/nope")
             raise AssertionError("404 expected")
@@ -299,42 +300,6 @@ def test_the_web_api_serves_what_the_cli_shows(project):
     finally:
         server.shutdown()
         server.server_close()
-
-
-def test_the_loops_row_writes_shares_through_share_text_and_names_flapping_at_twenty():
-    """Without a browser (the build's suite has none): the Loops row's time off goes through shareText, which writes
-    '<1%' for a share that rounds to 0, no literal "0%" remains there, and flapping is named from FLAP_AT = 20 through
-    the hysteresis (steadyWord). The behaviour itself is checked in the browser by
-    tests/test_diagram_rendering.py::test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named."""
-    import re
-
-    from ergostat.web.server import STATIC
-    util, pages = (STATIC / "util.js").read_text(), (STATIC / "pages.js").read_text()
-    assert re.search(r'const shareText = .*x > 0 && x < 0\.005 \? "<1%"', util), "shareText no longer writes '<1%'"
-    assert re.search(r"const FLAP_AT = 20;", util), "the flapping count is not 20"
-    loops = pages[pages.index("async function pageLoops"):]
-    loops = loops[:loops.index("\nasync function ", 1)]
-    row = (STATIC / "goalrow.js").read_text()   # the Loops row is drawn by goalRow
-    assert "shareText(g.off_share)" in row and '"0%"' not in row + loops, "time off is not written through shareText"
-    assert "behaviour: word(g.name, g)" in loops and "g.behaviour ??" in row, "the row's behaviour skips the hysteresis"
-    assert re.search(r"lp\.times_off >= FLAP_AT \? steadyWord\(n, `flapping \(", loops), "flapping not named in the row"
-
-
-def test_only_the_record_folds_runs_of_identical_events():
-    """Without a browser (the page test is tests/test_items_page.py::test_the_record_folds_runs_of_identical_events):
-    a run's key is the event's type, source, item and shown data, and only the Record (local and remote) asks for
-    the fold, so an item's own event list and a folded run's list show each event."""
-    import re
-
-    from ergostat.web.server import STATIC
-    details, pages = (STATIC / "details.js").read_text(), (STATIC / "pages.js").read_text()
-    assert "JSON.stringify([e.type, e.source, e.item, changeOf(e)])" in details
-    assert re.search(r"if \(fold && last && last\.sig === sig\)", details)
-    assert (details + pages).count("eventsTable(") == 6    # the definition, the Record's two, item, history, run
-    assert (details + pages).count(", false, true)") == 2 and "eventsTable(run.slice().reverse(), false)" in details
-    record = pages[pages.index("async function pageRecord"):]
-    record = record[:record.index("\n}\n")]
-    assert record.count("eventsTable(") == 2 and record.count(", false, true)") == 2
 
 
 def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_path, monkeypatch):
@@ -404,77 +369,6 @@ def test_status_of_one_system_counts_only_that_systems_goals(tmp_path, monkeypat
     assert whole["system"] > 1 and whole["own"] == {"modelling": 2}, whole     # the whole project's differs: a real narrowing
     rc, out = run_cli(ns, "--system", "shop", capsys=capsys)
     assert rc == 0 and "1 goal off · 1 open" in out.splitlines(), out
-
-
-def test_no_page_code_counts_goals_by_their_status():
-    """The page prints the server's count (state.goals_off) and never makes its own: every comparison of a goal's
-    status or state with 'off' in util.js, pages.js and diagram.js is one of the allowed lines (row grouping or styling),
-    and no filter by 'off' is counted (.length, reduce)."""
-    import re
-    from pathlib import Path
-    static = Path(__file__).resolve().parent.parent / "ergostat" / "web" / "static"
-    allowed = {                                          # the line, as it is; why it is not a count
-        'const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);',  # rows grouped
-        'const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");',  # whether suggestions start open
-        ': Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)'
-        '   // the goals the count counts',                  # the header's tooltip: the names, not a count
-    }
-    seen = []
-    for f in ("util.js", "pages.js", "diagram.js"):
-        for line in (static / f).read_text().splitlines():
-            if re.search(r"""[=!]==?\s*["']off["']|["']off["']\s*[=!]==?|\[[^\]]*["']off["'][^\]]*\]\.includes""", line):
-                seen.append(line.strip())
-            assert not re.search(r"""filter\([^;]*["']off["'][^;]*\)\s*\.length""", line), (f, line)
-    assert set(seen) <= allowed, set(seen) - allowed
-
-
-def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_it_under(project):
-    """The Agents page's group headings ('program · 1') and its summary line both count agents by their rung, named by
-    RUNG_NAMES in util.js: the answer's rung must be the index of the agent's kind there (the browser half of this
-    check is tests/test_agents_page.py)."""
-    import re
-    from pathlib import Path
-
-    from ergostat.model import KINDS
-    from ergostat.web import serve
-    util = (Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static" / "util.js").read_text()
-    names = json.loads(re.search(r"const RUNG_NAMES = (\[[^\]]*\]);", util).group(1))
-    assert names == list(KINDS)                                  # the page's columns are the model's rungs, in order
-    server, url = serve(project, free_port())
-    try:
-        with urllib.request.urlopen(url + "/api/agents", timeout=10) as r:
-            agents = json.loads(r.read())
-    finally:
-        server.shutdown()
-        server.server_close()
-    assert agents and all(names[a["rung"]] == a["kind"] for a in agents.values()), agents
-    assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
-
-
-def test_the_served_diagram_script_frames_what_is_drawn_and_its_edge_hint_names_the_way(project):
-    """A text check the build can run without a browser: the diagram script the server sends measures the drawing
-    itself (every part, wire and label) for Fit and the edge hint, frames a system after Open, and its hint is a
-    button that names a direction. The browser half: test_fit_shows_every_line_and_label_and_no_edge_hint and
-    test_open_frames_the_system_opened_or_says_which_way_the_rest_lies in tests/test_diagram_rendering.py."""
-    import re
-
-    from ergostat.web import serve
-    server, url = serve(project, free_port())
-    try:
-        with urllib.request.urlopen(url + "/static/diagram.js", timeout=10) as r:
-            js = r.read().decode()
-    finally:
-        server.shutdown()
-        server.server_close()
-    body = lambda name: re.search(r"\nfunction " + name + r"\(.*?\n}\n", js, re.S).group(0)   # noqa: E731
-    assert "getBBox()" in body("drawnBox")
-    wide = "\n".join(x for x in body("fit").splitlines() if "NARROW" not in x)        # (a phone's fit is fitNarrow's)
-    assert "drawnBox(svg, lay)" in wide and "lay.width" not in wide                   # the drawn box, not the layout's
-    hint = body("applyView")
-    assert "drawnBox(svg" in hint and all(w in hint for w in ("left", "right", "above", "below", '"to the "', "onclick"))
-    assert all(a in hint for a in "←→↑↓")                                             # and an arrow each way
-    assert 'h("button", { id: "panhint"' in js
-    assert js.count("showSystem(svg, opened)") == 2                                   # after Open in Blocks and Dynamics
 
 
 def test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_counted_whole():
@@ -548,89 +442,10 @@ def test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them
     assert not any("now" in x for x in other["nodes"]), other["nodes"]   # by events: no states, no count of now
 
 
-def test_needs_attention_and_the_actions_page_say_one_sentence_of_what_a_person_may_do():
-    """The sentence is defined once (pages.js MAY_DO); the Needs attention group shows that same constant, described
-    by it (aria-describedby), with its empty form when nothing waits (the browser half is test_diagram_rendering.py)."""
-    from pathlib import Path
-    static = Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static"
-    pages, diagram = (static / "pages.js").read_text(), (static / "diagram.js").read_text()
-    said = "You can look at everything. Approving or denying these is the only thing that changes the system."
-    assert f'const MAY_DO = "{said}";' in pages and said not in diagram
-    assert '"aria-describedby": "may-do"' in diagram and 'key: "may-do" }, MAY_DO)' in diagram
-    assert "Nothing waits for you. Looking never changes the system." in diagram
-
-
-def test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page(project):
-    """A pasted link's ?window= is S.since (main.js reads it only when it names one of WINDOWS) and goes to the API as
-    since=: each name must be a window the server reads as its seconds, never its 1h fallback. A link with ?select=,
-    ?window= and ?filter= is still the page (the browser half of this check is tests/test_diagram_rendering.py::
-    test_the_address_holds_what_is_chosen_and_the_window)."""
-    import re
-    from pathlib import Path
-
-    from ergostat.web import serve
-    main_js = (Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static" / "main.js").read_text()
-    windows = json.loads(re.search(r"const WINDOWS = (\{[^}]*\});", main_js).group(1))
-    assert {"1h", "6h"} <= set(windows)
-    server, url = serve(project, free_port())
-    try:
-        for name, secs in windows.items():
-            with urllib.request.urlopen(f"{url}/api/loops/disk-under-80?since={name}", timeout=10) as r:
-                lp = json.loads(r.read())
-            assert abs(lp["until"] - lp["since"] - secs) < 1, (name, lp["since"], lp["until"])
-        for path in ("/loops?select=disk-under-80&window=6h", "/diagram?view=dynamics&select=stock.disk-used&window=1d",
-                     "/record?filter=valve.*&window=10m"):
-            with urllib.request.urlopen(url + path, timeout=10) as r:
-                assert r.status == 200 and b'name="ergostat-token"' in r.read(), path
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
-def test_the_loop_answer_carries_what_the_panels_first_table_shows(tmp_path):
-    """A controller's and a process's panel start with loopTable (control.js): rows law, process, held-out fit, time
-    off, settling, saturation, the fit naming its measure. The image-squeeze tuner's loop answer holds every field
-    those rows read, and a fit is a signed share, never clamped at 0 (the browser half of this check is
-    tests/test_diagram_rendering.py::test_a_loops_controller_panel_starts_with_its_table_and_its_math_stays_inside)."""
-    import re
-    import shutil
-    from pathlib import Path
-
-    from ergostat import model
-    from ergostat.control import loop
-    from ergostat.store import Project
-    root = Path(__file__).resolve().parents[1]
-    js = (root / "ergostat" / "web" / "static" / "control.js").read_text()
-    table = js[js.index("function loopTable"):js.index("/* ---- what is known of the process")]
-    assert re.findall(r'\["([a-z -]+)", ', table) == ["law", "process", "held-out fit", "time off", "settling", "saturation"]
-    assert 'const FIT = "NRMSE fit, 100% is perfect, below 0 is worse than the mean"' in js and "(${FIT})" in table
-    rows = js[js.index("function identRows"):]
-    assert "not identified: needs a step of u" in table and "Math.max(0" not in rows[:rows.index("\n}\n")]
-    proc = js[js.index("function processSection"):]
-    proc = proc[:proc.index("\n}\n")]
-    assert not re.search(r"Math\.max\(0, Math\.round\([^)]*fit", proc) and "NRMSE fit ${pcFit(o.fit_val)} held out (${FIT})" in proc
-    # a controller's tables are its own loops' only (as controlBox's), not a loop whose path merely runs through it
-    blocks = (root / "ergostat" / "web" / "static" / "blocks.js").read_text()
-    assert "d.controller?.block === n.id.slice(4) || (d.controllers || []).includes(n.id.slice(4))" in blocks
-    assert "held.filter(own).map(loopTableBox)" in blocks
-    # the table is drawn again when a proposal of its loop is answered (a browser test accepts one and sees it change)
-    assert 'dispatchEvent(new CustomEvent("loop-answered", { detail: goal }))' in js and '"loop-answered", again' in js
-    # each loop settled on its own; a process's identification (procs) right after its tables, before its words
-    assert "mine.map((l) => loopControl(l).catch(" in blocks and "Promise.all(mine.map((l) => loopControl(l)))" not in blocks
-    assert 'h("h2", {}, title), top, ...(n.role === "process" ? [procs] : [])]' in blocks and "kids.push(procs)" not in blocks
-    shutil.copytree(root / "examples" / "image-squeeze", tmp_path / "x", ignore=shutil.ignore_patterns("run", "__pycache__"))
-    d = loop.analyse(Project(model.load(tmp_path / "x")), "quality-held")
-    assert d and not d.get("why"), d
-    assert {"says", "law", "block"} <= set(d["controller"]) and d["controller"]["block"] == "tuner", d["controller"]
-    assert "found" in d["identified"] and {"excursions", "saturation"} <= set(d["performance"]), d["performance"]
-    assert {"count", "settling"} <= set(d["performance"]["excursions"]) and d["how"] in ("setting", "valve")
-
-
 def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
     """big has no kinds of item: its Process answer is empty, so the page takes its empty branch, whose words give the
     reason and Dynamics, laid over the canvas (not below it). The browser half of this check, the text's box inside the
     canvas's, is tests/test_diagram_rendering.py::test_process_view_with_no_kinds_says_so_inside_the_canvas."""
-    import re
     import shutil
     from pathlib import Path
 
@@ -645,74 +460,13 @@ def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_ove
         def get(path):
             with urllib.request.urlopen(url + path, timeout=10) as r:
                 return r.read().decode()
-        g, js, css = json.loads(get("/api/graph?view=process")), get("/static/diagram.js"), get("/static/style.css")
+        g = json.loads(get("/api/graph?view=process"))
     finally:
         server.shutdown()
         server.server_close()
     assert not g["nodes"] and not g["kinds"], g                  # nothing to draw: the empty branch
-    assert "No kinds of item in ${here}: its parts are counted by sensors. See `" in js
-    assert re.search(r'go\(\{ view: "dynamics" \}\); \} \}, "Dynamics"\), "\."', js)    # where to look instead
-    rule = re.search(r"\.canvas-wrap > \.empty \{([^}]*)\}", css)
-    assert rule and all(p in rule.group(1) for p in ("position: absolute", "inset: 0", "align-items: center",
-                                                       "justify-content: center")), rule
-
-
-def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
-    """Each page's header carries 'N for you' (#waits) before its nav, a link to /diagram#waiting, and the
-    Diagram's side list gives its 'Waiting for you' heading that id (the browser half: tests/test_diagram_rendering.py)."""
-    import re
-    from http.server import ThreadingHTTPServer
-
-    from ergostat.web.server import STATIC, handler
-    diagram = (STATIC / "diagram.js").read_text()
-    assert re.search(r'h\("h3", \{[^}]*id: "waiting"[^}]*\}, "Waiting for you"', diagram), "the heading lost its id"
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{srv.server_address[1]}"
-    try:
-        for path in ("/items", "/agents", "/loops", "/record"):
-            with urllib.request.urlopen(url + path, timeout=10) as r:
-                header = r.read().decode().split("<header", 1)[1].split("</header>", 1)[0]
-            link = re.search(r'<a id="waits"[^>]*href="/diagram#waiting"', header)
-            assert link and link.start() < header.index("<nav"), path
-    finally:
-        srv.shutdown()
-        srv.server_close()
-
-
-def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():
-    """While a side-panel chart's numbers are asked for it says so in words: no element is made with the text '…' (or
-    '\\u2026'), which reads as a stuck load, and the four charts of the panels start from the one placeholder (the
-    browser half of this check is tests/test_diagram_rendering.py::test_no_panel_shows_a_leftover_ellipsis)."""
-    import re
-    from pathlib import Path
-
-    charts = (Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static" / "charts.js").read_text()
-    assert not re.findall(r'''["'`](?:…|\\u2026|[^"'`\n]* (?:…|\\u2026))["'`]''', charts)
-    assert 'const working = () => h("div", { class: "muted small" }, "being worked out");' in charts
-    for chart in ("causesStrip", "loopDominance", "moduleCharts", "loopScope"):
-        body = re.search(rf"\nfunction {chart}\(.*?\n}}\n", charts, re.S).group(0)
-        assert "working()" in body, chart
-
-
-def test_the_count_of_what_waits_sits_in_one_polite_live_region():
-    """The header's 'N for you' link is inside an always-present aria-live='polite' region (so a count appearing
-    from 0 is announced too), and the script writes its text through setText, which writes only a changed text. The
-    browser half (the text written only when N changes) is test_diagram_rendering's
-    test_a_changed_count_of_what_waits_is_announced."""
-    import re
-
-    from ergostat.web.server import STATIC
-    html = (STATIC / "index.html").read_text()
-    region = re.search(r'<span class="waits-said"([^>]*)>(.*?)</span>', html)
-    assert region, "the waits link has no wrapping region"
-    assert 'aria-live="polite"' in region.group(1) and 'aria-atomic="true"' in region.group(1)
-    assert re.search(r'<a id="waits"[^>]*\bhidden\b', region.group(2)), "the link, not the region, is hidden at 0"
-    util = (STATIC / "util.js").read_text()
-    assert "setText(waits, `${n} for you`)" in util
-    body = re.search(r"\nfunction setText\((\w+), (\w+)\) \{(.*?)\n\}", util, re.S)
-    assert body and re.search(rf"if \({body.group(1)}\.textContent !== {body.group(2)}\)", body.group(3)), \
-        "setText must write only a changed text"
+    app = (root / "ergostat" / "web" / "ui" / "src" / "pages" / "diagram" / "index.tsx").read_text()
+    assert "No kinds of item here: its parts are counted by sensors." in app
 
 
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
@@ -721,9 +475,10 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
     import re
     from http.server import ThreadingHTTPServer
 
-    from ergostat.web.server import STATIC, UI_PAGES, handler
-    js = re.search(r"const UI_PAGES = \[([^\]]*)\]", (STATIC / "util.js").read_text()).group(1)
-    assert tuple(re.findall(r'"([^"]+)"', js)) == UI_PAGES, "the page's and the server's lists of addresses differ"
+    from ergostat.web.server import UI_PAGES, handler
+    app = (Path(__file__).resolve().parent.parent / "ergostat" / "web" / "ui" / "src" / "App.tsx").read_text()
+    routes = {r.split("/")[1] for r in re.findall(r'<Route path="(/[^"]*)"', app) if r not in ("/", "*")}
+    assert routes == set(UI_PAGES), "the page's routes and the server's addresses differ"
     (project.dir / "notes.md").write_text("# Notes\n")
     srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -739,18 +494,18 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
         for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/goals", "/loops", "/agents", "/items?kind=ticket&state=open",
                      "/items/ticket", "/items/ticket?state=in-review&view=timeline",   # a kind's page
                      "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
-                     "/record?type=x.y", "/model", "/check", "/guide?frame=3", "/fit", "/residuals"):
+                     "/record?type=x.y", "/dashboard"):
             code, ctype, body = get(path)
             assert code == 200 and ctype.startswith("text/html") and b'name="ergostat-token"' in body, path
-            assert b'src="/static/util.js?v=' in body, path          # its scripts by absolute path: a deep address loads them
+            assert b'src="/static/app/assets/' in body, path          # its scripts by absolute path: a deep address loads them
         code, ctype, body = get("/api/status")
         assert code == 200 and ctype == "application/json" and "loops" in json.loads(body)
         assert get("/api/nope/nope")[0] == 404 and get("/api/items/ticket%2F7")[1] == "application/json"
-        assert get("/static/util.js")[0] == 200 and get("/static/nope.js")[0] == 404
+        assert get("/static/marked.min.js")[0] == 200 and get("/static/nope.js")[0] == 404
         assert get("/file/notes.md")[2] == b"# Notes\n"
         code, ctype, body = get("/file/notes.md", Accept="text/html")
         assert code == 200 and b"marked.parse" in body and b"ergostat-token" not in body
-        for path in ("/favicon.ico", "/nope", "/itemsx", "/util.js", "/static"):
+        for path in ("/favicon.ico", "/nope", "/itemsx", "/util.js", "/static", "/model", "/check", "/guide", "/ui"):
             assert get(path)[0] == 404, path
     finally:
         srv.shutdown()
@@ -758,36 +513,24 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
 
 
 def test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock(project):
-    """What the side list's goal button reads (diagram.js goalButton/showGoal): an off goal's attention entry is
-    `loop NAME` and that loop names its stock. This is a stand-in without a browser, so the build collects a test.
-    The button's behaviour is checked in tests/test_diagram_rendering.py
-    (test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction)."""
-    import json as _json
-    import re as _re
-
-    from ergostat.web.snapshot import build
+    """What the side list's goal button reads: an off goal's attention entry names the goal, and its loop names its
+    stock."""
+    from ergostat.web.server import Live, api
     project.measurements.add("sensor/disk-usage", 95.0)
-    html = build(project)
-    data = _json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1).replace("<\\/", "</"))["data"]
-    st = data["status"]
+    st = api(Live(project), "status", {})
     assert st["loops"]["disk-under-80"]["status"] == "off" and st["loops"]["disk-under-80"]["stock"]
     off = [a for a in st["attention"] if a["what"] == "goal disk-under-80" and a["level"] == "bad"]
     assert off, st["attention"]
-    assert "function showGoal(" in html and "goalButton(goal, what)" in html
 
 
-def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_path, monkeypatch):
-    """After an update the browser runs the new scripts without a manual reload: every file the page loads is
-    referenced with its content's version, a file asked for with its version is kept for good, and the page
-    itself is always asked again (no-cache, with an ETag)."""
+def test_static_files_are_versioned_and_the_page_is_revalidated(project):
+    """After an update the browser runs the new scripts without a manual reload: the app's files are named by their
+    content's hash and kept for good, a vendored file asked for with its current version is kept for good, and the
+    page itself is always asked again (no-cache, with an ETag)."""
     import re
-    import shutil
     from http.server import ThreadingHTTPServer
 
     from ergostat.web import server
-    static = tmp_path / "static"
-    shutil.copytree(server.STATIC, static)
-    monkeypatch.setattr(server, "STATIC", static)
     srv = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(project))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -803,25 +546,14 @@ def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_pat
         assert code == 200 and headers["Cache-Control"] == "no-cache" and headers["ETag"]
         assert get("/diagram", **{"If-None-Match": headers["ETag"]})[0] == 304       # revalidated, not kept stale
         refs = re.findall(rb'(?:src|href)="(/static/[^"]+)"', page)
-        assert refs and all(b"?v=" in r for r in refs), refs                          # every script and stylesheet
-        assert re.search(rb'name="ergostat-assets" content="[^"]*libavoid/libavoid\.wasm', page)   # the worker's files
-        assert re.search(rb'name="ergostat-assets" content="[^"]*elk\.bundled\.js', page)   # ELK, loaded late
-        assert not any(r.startswith(b"/static/elk.bundled.js") for r in refs), refs     # (not by the page itself)
-        util = next(r.decode() for r in refs if r.startswith(b"/static/util.js"))
-        code, headers, _ = get(util)
-        assert code == 200 and "immutable" in headers["Cache-Control"] and "max-age=31536000" in headers["Cache-Control"]
-        assert get("/static/util.js")[1]["Cache-Control"] == "no-cache"              # unversioned: asked again each time
-        assert get("/static/util.js?v=old")[1]["Cache-Control"] == "no-cache"
-        (static / "util.js").write_text((static / "util.js").read_text() + "\n// an update\n")
-        code, headers2, page2 = get("/diagram", **{"If-None-Match": headers["ETag"]})
-        assert code == 200 and page2 != page                                          # the page names the new version
-        util2 = next(r.decode() for r in re.findall(rb'(?:src|href)="(/static/[^"]+)"', page2) if r.startswith(b"/static/util.js"))
-        assert util2 != util and get(util)[1]["Cache-Control"] == "no-cache"
-        other = next(r for r in refs if r.startswith(b"/static/main.js"))
-        assert other in page2                                                         # an unchanged file keeps its address
+        assert refs and all(r.startswith(b"/static/app/assets/") for r in refs), refs  # every script and stylesheet
+        assert get(refs[0].decode())[1]["Cache-Control"] == server.FOREVER          # named by its hash: kept for good
         (project.dir / "notes.md").write_text("# N\n")
-        code, headers, body = get("/file/notes.md", Accept="text/html")          # a Markdown file's page: the same
-        assert code == 200 and b'href="/static/style.css?v=' in body
+        code, headers, body = get("/file/notes.md", Accept="text/html")          # a Markdown file's page
+        marked = re.search(rb'src="(/static/marked\.min\.js\?v=[^"]+)"', body).group(1).decode()
+        assert code == 200 and get(marked)[1]["Cache-Control"] == server.FOREVER
+        assert get("/static/marked.min.js")[1]["Cache-Control"] == "no-cache"      # unversioned: asked again each time
+        assert get("/static/marked.min.js?v=old")[1]["Cache-Control"] == "no-cache"
     finally:
         srv.shutdown()
         srv.server_close()
@@ -1012,55 +744,6 @@ def test_a_person_records_what_they_did(repo, capsys):
     assert run_cli(repo, "valve", "delete-old-files", "--opened", "-1", capsys=capsys)[0] == 1  # refused, as for any agent
 
 
-def test_a_snapshot_is_one_file_holding_the_answers_the_page_asks_for(project):
-    import json as _json
-    import re as _re
-
-    from ergostat.web.snapshot import build, key
-    project.measurements.add("sensor/disk-usage", 70.0)
-    html = build(project)
-    assert '<script src="' not in html and '<link rel="stylesheet"' not in html      # nothing fetched
-    assert html.lower().count("<script") == html.lower().count("</script>")          # no script closed early
-    body = _re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1)
-    data = _json.loads(body.replace("<\\/", "</"))["data"]
-    for k in ("status", "graph", "graph?view=control", "graph?system=host&view=process", "loops/disk-under-80",
-              "agents/cleaner", "part/valve/delete-old-files", "part/disturbance/logs-written", "projects"):
-        assert k in data, k
-    assert key("graph", {"view": "control", "system": "", "around": "undefined", "since": "1h"}) == "graph?view=control"
-
-
-def test_a_snapshot_inlines_every_stylesheet_and_script_the_page_links(project, tmp_path, monkeypatch):
-    import shutil
-
-    from ergostat.web import snapshot
-    static = tmp_path / "static"
-    shutil.copytree(snapshot.STATIC, static)
-    (static / "second-sheet.css").write_text(".second-sheet { color: var(--ink); } /* </style><b>not a tag */")
-    (static / "second-script.js").write_text("window.secondScript = 1;")
-    page = (static / "index.html").read_text()
-    page = page.replace("</head>", '<link rel="stylesheet" href="/static/second-sheet.css">\n</head>', 1)
-    page = page.replace("</body>", '<script src="/static/second-script.js"></script>\n</body>', 1)
-    (static / "index.html").write_text(page)
-    monkeypatch.setattr(snapshot, "STATIC", static)
-    html = snapshot.build(project)
-    assert '<link rel="stylesheet"' not in html and '<script src="' not in html      # nothing fetched
-    assert ".second-sheet { color: var(--ink); }" in html and "window.secondScript = 1;" in html
-    assert "</style><b>" not in html                                                 # a stylesheet cannot close its element
-    assert html.count("<style>") == html.count("</style>") == page.count('rel="stylesheet"')
-
-
-def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
-    from ergostat.web.snapshot import build
-    project.events.add("note.made", item="note/fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
-    html = build(project)
-    assert "<!--<script" not in html and "alert(1)</script>" not in html
-    from ergostat.web.snapshot import STATIC
-    lib = html.find((STATIC / "elk.bundled.js").read_text()[:300])                  # ELK inlined (a file cannot fetch it),
-    assert -1 < html.find("window.SNAPSHOT") < lib < html.find("const elk = {")      # before util.js asks for it
-    assert '"items/note%2Ffix(1)"' in html                    # the key the page's encodeURIComponent asks for
-    assert html.count("</script>") == html.lower().count("<script")
-
-
 def test_the_service_text_runs_this_repositorys_watcher(project):
     import plistlib
 
@@ -1094,12 +777,6 @@ def test_text_blocks_draw_an_open_loop_and_disturbances_both_ways(repo, capsys):
     assert "(−±)" in out and "not fed back" in out and "(Σ)" not in out
     rc, out = run_cli(repo, "status", capsys=capsys)                        # the alias
     assert rc == 0 and "disk-under-80" in out
-
-
-def test_a_snapshot_without_logs_carries_no_unread_lines(project):
-    from ergostat.web.snapshot import build
-    project.events.add("agent.ran", item="cleaner", source="ergostat", data={"exit": 0, "unread": 1, "unread_lines": ["{secret oops"]})
-    assert "secret oops" not in build(project) and "secret oops" in build(project, logs=True)
 
 
 def test_reset_forgets_the_record_and_nothing_else(project, capsys):
@@ -1164,126 +841,9 @@ def related_project(tmp_path):
     return p
 
 
-def test_a_snapshot_holds_the_items_graph_the_page_asks_for(tmp_path):
-    import re as _re
-
-    from ergostat.web.snapshot import build, key
-    html = build(related_project(tmp_path))
-    data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1))["data"]
-    listed = data["items"]
-    # as pages.js: the kinds with relations or named by one, per system; and each alone (a kind chosen)
-    rel = {n for k in listed["kinds"] for ts in (k["relations"] or {}).values() for n in (k["name"], *ts)}
-    groups = {g["name"]: [n for n in g["kinds"] if n in rel] for g in listed["systems"]}
-    assert groups["planning"] == ["epic", "goal"] and groups["delivery"] == ["ticket"]      # notes: no relations
-    sys_ = {n: g["name"] for g in listed["systems"] for n in g["kinds"]}             # asked by its system
-    want = {key("items-graph", {"kinds": ",".join(ks), "system": g}) for g, ks in groups.items() if ks}
-    want |= {key("items-graph", {"kinds": k["name"], "system": sys_[k["name"]]}) for k in listed["kinds"]}   # one chosen
-    own = {k["name"] for k in listed["kinds"] if k["name"].startswith("ergostat.")}    # ergostat's own kinds, alone too
-    assert own and want == {"items-graph?kinds=epic,goal&system=planning", "items-graph?kinds=epic&system=planning",
-                            "items-graph?kinds=goal&system=planning", "items-graph?kinds=ticket&system=delivery",
-                            "items-graph?kinds=note&system=delivery",
-                            *(f"items-graph?kinds={k}&system={sys_[k]}" for k in own)}
-    got = {k for k in data if k.startswith("items-graph")}
-    assert got == want, got
-    tk = data["items-graph?kinds=ticket&system=delivery"]
-    t = {x["id"]: x for x in tk["items"]}
-    assert t["ticket/b"]["status"] == "blocked" and t["ticket/b"]["links"]["parent"] == ["epic/e1"]
-    assert t["ticket/a"]["status"] == "active"
-    assert "epic/e1" not in t and [x["id"] for x in tk["outside"]] == ["epic/e1"]   # another system's parent: a stub
-    both = {x["id"] for x in data["items-graph?kinds=epic,goal&system=planning"]["items"]}
-    assert {"epic/e1", "epic/e2", "goal/g"} <= both
-    assert data["items-graph?kinds=epic,goal&system=planning"]["asked"] == ["epic", "goal"]
-
-
-def test_a_snapshot_holds_the_timeline_of_a_system_without_relations(tmp_path):
-    # as pages.js: a system none of whose kinds has relations asks for its kinds that have items (the Timeline)
-    import re as _re
-
-    from ergostat import model as mdl
-    from ergostat.store import Project
-    from ergostat.web.snapshot import build
-    (tmp_path / "ergostat.yaml").write_text("systems:\n  desk: {description: the help desk}\nitems:\n"
-                                            "  ticket: {id: ticket/*, system: desk}\n  call: {id: call/*, system: desk}\n"
-                                            "  memo: {id: memo/*, system: desk}\n")
-    p = Project(mdl.load(tmp_path))
-    p.events.add("ticket.opened", item="ticket/a", data={"title": "printer"})
-    p.events.add("call.taken", item="call/c", data={"title": "a call"})
-    data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
-    got = data.get("items-graph?kinds=ticket,call&system=desk") or data.get("items-graph?kinds=call,ticket&system=desk")
-    assert got is not None, sorted(k for k in data if k.startswith("items-graph"))
-    assert {x["id"] for x in got["items"]} == {"ticket/a", "call/c"}                # memo: no items, not asked
-    assert not any("memo" in k and "," in k for k in data if k.startswith("items-graph"))
-
-
-def _snapshot_data(p) -> dict:
-    import re as _re
-
-    from ergostat.web.snapshot import build
-    return json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
-
-
 def _timeless(x):
     """An answer without what says when it was taken (the snapshot's moment is not the test's)."""
     return {k: v for k, v in x.items() if k not in ("now", "since", "at")} if isinstance(x, dict) else x
-
-
-def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monkeypatch):
-    from ergostat.web import server
-    from ergostat.web.server import Live, api
-    from ergostat.web.snapshot import key
-    # the completion estimates come from a background worker, so the snapshot and a later live call could differ only
-    # by when it finished (lesson-10): none in either, so the two answers are compared whole
-    monkeypatch.setattr(server, "_estimates", lambda *a, **k: None)
-    p = related_project(tmp_path)
-    data = _snapshot_data(p)
-    kinds = {k["name"]: k for k in data["items"]["kinds"]}
-    assert {"epic", "goal", "ticket", "note"} <= set(kinds)                       # and ergostat's own kinds
-    want = []
-    sys_ = {n: g["name"] for g in data["items"]["systems"] for n in g["kinds"]}
-    for name, k in kinds.items():
-        want += [("items", {"kind": name}), ("items-graph", {"kinds": name, "system": sys_[name]})]
-        want += [("items", {"kind": name, "state": s}) for s in k["states"]]
-    live = Live(p)
-    for path, params in want:
-        k = key(path, params)
-        assert k in data, k
-        every = {"finished": ["show"]} if path == "items" else {}   # a snapshot holds the finished too (SPEC §5a)
-        assert _timeless(data[k]) == _timeless(json.loads(json.dumps(
-            api(live, path, {"since": ["1h"], **every, **{a: [b] for a, b in params.items()}}), default=str))), k
-    ids = lambda k: sorted(i["id"] for i in data[k]["items"])                       # noqa: E731
-    assert ids("items?kind=ticket") == ["ticket/a", "ticket/b"]
-    assert ids("items?kind=ticket&state=doing") == ["ticket/a"]                     # ticket.started: doing
-    assert ids("items?kind=ticket&state=todo") == ["ticket/b"]
-    assert "note/n" in {i["id"] for i in data["items-graph?kinds=note&system=delivery"]["items"]}
-
-
-def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_path, monkeypatch):
-    from ergostat.web import snapshot
-    real = snapshot.api
-    every = {"finished": "show"}                                   # each items answer is asked with the finished too
-    broken = [("items", {"kind": "ticket", **every}), ("items", {"kind": "epic", "state": "underway", **every}),
-              ("items-graph", {"kinds": "note", "system": "delivery"})]
-
-    seen = []
-
-    def api(live, path, q):
-        asked = {k: v[0] for k, v in q.items() if k != "since"}
-        seen.append((path, asked))
-        if (path, asked) in broken:
-            raise RuntimeError("cannot be answered")
-        return real(live, path, q)
-    monkeypatch.setattr(snapshot, "api", api)
-    data = _snapshot_data(related_project(tmp_path))
-    for path, params in broken:
-        assert (path, params) in seen, (path, params)                     # asked, so its absence is the failure's
-        params = {k: v for k, v in params.items() if k != "finished"}                # held under the page's own key
-        assert snapshot.key(path, params) not in data                                # absent, not empty
-    assert ("items", {"kind": "ticket", "state": "doing", **every}) not in seen   # no states asked without the kind's own answer
-    assert not any(k.startswith("items?kind=ticket") for k in data)    # its states, from its own answer: none to be had
-    assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
-            "items-graph?kinds=ticket&system=delivery", "items-graph?kinds=epic,goal&system=planning", "status",
-            "graph"} <= set(data)
-    assert sorted(i["id"] for i in data["items?kind=epic"]["items"]) == ["epic/e1", "epic/e2"]
 
 
 def test_the_items_graph_says_when_its_finish_is_still_being_worked_out(tmp_path, monkeypatch):
@@ -1333,15 +893,3 @@ NOT_A_GOAL = {  # (file, what the line says): states that are not a goal's
     ("details.js", "exceptional(n.status) ? statusEl(n.status)"),   # a system box's own state (openSystem)
     ("pages.js", 'x.how || "holding"'),                             # a lease still held
 }
-
-
-def test_no_page_script_words_a_goals_state_but_goalrow():
-    """Every surface printing a goal's state asks goalWord or goalRow; a page mapping status to a word itself fails."""
-    from pathlib import Path
-    static = Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static"
-    vendored = {"elk.bundled.js", "marked.min.js", "highlight.min.js", "goalrow.js"}
-    found = [(f.name, line.strip()) for f in sorted(static.rglob("*.js")) if f.name not in vendored and "uplot" not in f.parts
-             for line in f.read_text().splitlines() if any(r.search(line) for r in GOAL_TEXT)
-             and not any(f.name == n and s in line for n, s in NOT_A_GOAL)]
-    assert not found, found
-    assert '<script src="/static/goalrow.js">' in (static / "index.html").read_text()

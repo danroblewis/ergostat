@@ -23,7 +23,6 @@ from ergostat.web.server import Live, api
 
 ROOT = Path(__file__).resolve().parent.parent
 DOC = ROOT / "docs" / "DASHBOARDS.md"
-PANELS_JS = ROOT / "ergostat" / "web" / "static" / "panels.js"
 MARK = re.compile(r"^<!-- (?:panel: ([\w-]+)(?:, (fix|bad: ([\w-]+)))?|(example model)) -->$")
 FENCE = re.compile(r"^```(\w*)")
 T = 1_795_400_000.0          # the window's end: the record below is the day before it
@@ -59,27 +58,28 @@ BLOCKS = blocks()
 PANELS = [b for b in BLOCKS if b["name"]]
 
 
-def registry() -> dict[str, dict]:
-    """The options panels.js declares for each of the four forms: key -> allowed values, or (min, max)."""
-    js = PANELS_JS.read_text(encoding="utf-8")
-    out = {}
-    for form in FORMS:
-        start = js.index(f'registerPlotForm("{form}"')
-        nxt = js.find("registerPlotForm(", start + 1)
-        seg = js[start:nxt if nxt != -1 else js.index("function normalizeForm")]
-        assert "ask:" not in seg, f"{form} now rewrites its queries: the test must send them as panels.js does"
-        opts: dict = {k: [x.strip(' "') for x in v.split(",")] for k, v in re.findall(r'choice\("(\w+)", "[^"]*", \[([^\]]*)\]', seg)}
-        for key, body in re.findall(r'\{ key: "(\w+)"([^}]*)\}', seg):
-            if 'type: "number"' in body:
-                opts[key] = (float(re.search(r"min: ([\d.]+)", body)[1]), float(re.search(r"max: ([\d.]+)", body)[1]))
-            elif "multiple: true" in body:
-                opts[key] = ("many", [x.strip(' "') for x in re.search(r"choices: \[([^\]]*)\]", body)[1].split(",")])
-        assert opts, form
-        out[form] = opts
-    return out
-
-
-REGISTRY = registry()
+# The options each of the four forms offers, as the old page's panels.js declared them (registerPlotForm): key -> allowed
+# values, or (min, max), or ("many", values). Kept here as data since that page was removed (2026-11-25).
+REGISTRY: dict[str, dict] = {
+    "line": {"style": ["linear", "smooth", "step-after", "step-before", "step-middle"],
+             "fill": ["none", "area", "gradient"],
+             "stack": ["none", "stacked", "percent"],
+             "points": ["auto", "always", "never"],
+             "nulls": ["gap", "connect", "zero"],
+             "width": (1.0, 4.0)},
+    "bar": {"orientation": ["vertical", "horizontal"],
+            "stack": ["none", "stacked", "percent"],
+            "grouping": ["grouped", "overlaid"],
+            "sort": ["none", "value-desc", "value-asc"],
+            "values": ["off", "on"]},
+    "stat": {"value": ["last", "avg", "min", "max", "sum"],
+             "sparkline": ["on", "off"],
+             "delta": ["on", "off"],
+             "color": ["none", "thresholds"]},
+    "table": {"sort": ["none", "name", "last", "avg", "min", "max"],
+              "bars_in_cells": ["off", "on"],
+              "columns": ("many", ["last", "avg", "min", "max"])},
+}
 
 
 def seeded(tmp_path) -> Project:

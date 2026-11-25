@@ -1,4 +1,4 @@
-"""Listing the projects on this machine (``ergostat projects``, the page's header) is read only: it never writes
+"""Listing the projects on this machine (``ergostat projects``) is read only: it never writes
 another project's repo.json, nor touches its record's files."""
 
 import json

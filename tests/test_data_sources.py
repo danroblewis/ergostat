@@ -234,10 +234,9 @@ def test_a_new_type_is_one_module_and_panels_do_not_change(tmp_path, fake):
     assert r["series"] == [{"name": "t1:count it", "values": [0.0, 2.0, 4.0, 6.0]}]
     assert api(Live(p), "query/fields", {})["datasources"] == [datasources.ANALYSIS,
                                                                {"name": "f", "type": "fake", "language": "FakeQL"}, OWN]
-    static = ROOT / "ergostat" / "web" / "static"
-    for js in ("panels.js", "panel-editor.js", "dashboard.js"):              # nothing in the page names a type
-        text = (static / js).read_text().lower()
-        assert "prometheus" not in text and "promql" not in text and "fakeql" not in text
+    for ts in sorted((ROOT / "ergostat" / "web" / "ui" / "src" / "pages" / "dashboard").rglob("*.ts*")):
+        text = ts.read_text().lower()                                       # nothing in the page names a type
+        assert "prometheus" not in text and "fakeql" not in text, ts
 
 
 def test_a_fake_type_over_the_series_bound_is_refused_whatever_its_type(tmp_path, fake, monkeypatch):

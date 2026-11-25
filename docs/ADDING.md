@@ -306,8 +306,8 @@ uses:
   near it. Both propose ordinary changes; the judge decides by class (SPEC §12e).
 - **Redesign:** with `ai: true`, the `redesigner` block reviews the structure on its own (`when: auto`), a system at a
   time: when its replay is worse than its mean, a finding says the structure is wrong, refinement stalled, on the
-  first run and once a day; or when the owner asks (`ergostat improve --redesign [SYSTEM]`, the Model page's Redesign
-  button). It proposes one change set (renames, rewiring, removals, equations, descriptions), worked a few `rounds` on
+  first run and once a day; or when the owner asks (`ergostat improve --redesign [SYSTEM]`). It proposes one change set
+  (renames, rewiring, removals, equations, descriptions), worked a few `rounds` on
   a scratch copy within `budget` dollars a run and `daily` dollars a day, judged as a whole by a scorecard. **It is
   never written without the owner's approval** (the review queue and the inbox) unless `accept: {redesign: auto}`, and
   even then not one that takes a part away, rewires a chain or changes control. Once a day (with `when: auto`), one

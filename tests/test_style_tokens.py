@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-CSS = Path(__file__).resolve().parent.parent / "ergostat" / "web" / "static" / "style.css"
+CSS = Path(__file__).resolve().parent.parent / "ergostat" / "web" / "ui" / "src" / "styles" / "style.css"
 END = "/* end of tokens */"
 
 COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(")
@@ -91,20 +91,6 @@ def test_the_gate_catches_what_it_should():
         assert hit == caught, decl
 
 
-def test_the_items_lists_wrap_their_fields_and_keep_three_columns_on_a_phone():
-    """The static half of tests/test_items_page.py::test_the_items_table_fits_at_1440_px, which needs a browser: in
-    the kinds' lists a field's cell wraps and is never cut, and at phone width only the item, state and 'in state'
-    (.keep) stay; pages.js gives the lists their class and the 'in state' header and cells their .keep."""
-    _, rules = split()
-    cell = dict(declarations(" ".join(re.findall(r"table\.kind-items td\.cell\s*(\{[^{}]*\})", rules))))
-    assert cell.get("white-space") == "normal" and cell.get("overflow") == "visible", cell
-    assert "text-overflow" not in cell, "a field's text is wrapped, not cut with an ellipsis"
-    assert re.search(r"@media \(max-width: 700px\) \{\s*table\.kind-items tr > :nth-child\(n\+3\):not\(\.keep\) "
-                     r"\{ display: none; \}", rules), "the phone rule keeps item, state and .keep"
-    js = (CSS.parent / "pages.js").read_text()
-    assert '"items kind-items",' in js and '["in state", "num keep"]' in js and 'class: "num nowrap keep"' in js
-
-
 def test_below_760_px_the_tabs_wrap_and_never_scroll_sideways():
     """The narrow-width half of tests/test_items_page.py's phone/200% check, readable without a browser: below 760 px
     the nav wraps onto its own rows, nothing in the sheet makes it scroll sideways, and the current page keeps its
@@ -142,26 +128,6 @@ def _luminance(lab: list[float]) -> float:
            -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_]
     r, g, b = (min(max(c, 0.0), 1.0) for c in rgb)
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
-def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
-    """WCAG's 3:1 for graphics: every correspondence colour in the dark theme, the hue and its repeats toward the ink
-    and toward the paper (colours.js's color-mix in oklab), against the dark paper."""
-    head, _ = split()
-    dark = dict(re.findall(r"(--[\w-]+):\s*([^;]+);", head.split("prefers-color-scheme: dark", 1)[1]))
-    js = (CSS.parent / "colours.js").read_text()
-    assert "${hue} var(--g-fade), var(--bg)" in js and "${hue} 62%, var(--ink)" in js
-    bg, ink, fade = _oklab(dark["--bg"].strip()), _oklab(dark["--ink"].strip()), float(dark["--g-fade"].strip(" %")) / 100
-    low = []
-    for i in range(10):
-        hue = _oklab(dark[f"--g{i}"].strip())
-        for step, lab in (("hue", hue), ("toward the ink", [0.62 * h + 0.38 * k for h, k in zip(hue, ink, strict=True)]),
-                          ("toward the paper", [fade * h + (1 - fade) * p for h, p in zip(hue, bg, strict=True)])):
-            ya, yb = _luminance(lab), _luminance(bg)
-            ratio = (max(ya, yb) + 0.05) / (min(ya, yb) + 0.05)
-            if ratio < 3:
-                low.append(f"--g{i} {step}: {ratio:.2f}")
-    assert not low, low
 
 
 def _ratio(x: str, y: str) -> float:
@@ -249,21 +215,6 @@ def test_the_diagrams_keyboard_focus_ring_is_the_accent_and_stands_3_to_1_in_bot
     assert not low, low
 
 
-def test_the_first_level_note_sits_on_the_canvas_and_stacks_with_the_toolbar_on_a_narrow_screen():
-    """'Open all' on a model too big to read opens the first level and says so in a note diagram.js draws as
-    .open-level: it has its rule, sits over the canvas in small text, and goes static with .toolbar and .zoom."""
-    js = (CSS.parent / "diagram.js").read_text()
-    assert 'class: "open-level"' in js, "diagram.js no longer draws the first-level note as .open-level"
-    _, rules = split()
-    own = re.search(r"(?:^|\})\s*\.open-level\s*\{([^{}]*)\}", rules)
-    assert own, "style.css has no rule of its own for .open-level"
-    decls = dict(declarations("{" + own.group(1) + "}"))
-    assert decls.get("position") == "absolute" and decls.get("font-size") == "var(--text-sm)", decls
-    narrow = [sel for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
-              if "position: static" in body and ".toolbar" in sel]
-    assert any(".open-level" in sel for sel in narrow), "on a narrow screen the note stays absolute over the toolbar"
-
-
 def test_the_diagram_left_while_another_opens_is_dimmed_and_cannot_be_clicked():
     """Into, Open (ui-open-into-and-every-panel-link-show-that-somethi): the diagram left stays on the screen, dimmed,
     under 'Opening …', with its side list; neither may take a click meant for the diagram being opened."""
@@ -275,27 +226,3 @@ def test_the_diagram_left_while_another_opens_is_dimmed_and_cannot_be_clicked():
         decl = dict(declarations("{" + block + "}"))
         assert float(decl.get("opacity", "1")) < 1, f"{sel} is not dimmed"
         assert decl.get("pointer-events") == "none", f"{sel} still takes clicks"
-
-
-def test_a_blocks_loop_state_is_bold_when_off_and_never_a_colour():
-    """Blocks has no status colour (docs/DESIGN.md's colour rules): the state blocks.js prints on a loop's error label
-    (.bd-state, .bd-off when the server's word is off) is set in ink, the off one only bolder, and no rule naming
-    either class gives it a colour, a fill or a stroke. The browser half is in tests/test_diagram_rendering.py."""
-    js = (CSS.parent / "blocks.js").read_text()
-    assert 'st.word === "off" ? " bd-off"' in js, "blocks.js no longer marks the off word with .bd-off"
-    _, rules = split()
-    found = [(sel.strip(), dict(declarations("{" + body + "}")))
-             for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules) if "bd-state" in sel or "bd-off" in sel]
-    assert any("bd-off" in s and d.get("font-weight") == "600" for s, d in found), found
-    painted = [(s, p) for s, d in found for p in d if p in ("color", "fill", "stroke", "background", "opacity")]
-    assert not painted, painted
-
-
-def test_the_dark_tokens_stand_aside_while_a_picture_is_exported():
-    """A saved picture is drawn light whatever the theme: each dark-theme rule excludes the class export.js sets on
-    <html> while it reads the drawing's styles, and export.js sets and then clears that very class."""
-    head, _ = split()
-    selectors = [s.strip() for s in re.findall(r"([^{}]+)\{[^{}]*\}", head.split("prefers-color-scheme: dark", 1)[1])]
-    assert selectors and all(s.endswith(":not(.export-light)") for s in selectors), selectors
-    js = (CSS.parent / "export.js").read_text()
-    assert 'classList.add("export-light")' in js and 'classList.remove("export-light")' in js

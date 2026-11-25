@@ -2127,9 +2127,6 @@ top system, a `chart` of its `show:` measures (else its goals' measures, at most
   answers a panel whose stamp is unchanged as `{"same": true, "stamp": S}` without its answer.
 - A panel whose answer raised says `{"error": ...}`; the others are answered.
 
-`ergostat snapshot` holds `dashboards` and each dashboard's answer under `dashboard/NAME`, every panel worked out
-(none pending), at the snapshot's window.
-
 ## 5. Stocks
 
 A quantity with memory: its value persists when nothing happens, and changes only through its
@@ -2697,10 +2694,7 @@ not there, and one made again since under its id shows its earlier self. They ar
 item changed since folded again from the record up to then (`spec/asof.py`; when more than a tenth of the items, and more than 50, changed since,
 the whole record up to then is folded instead), and each kind's time per state counts only the moves by then. Three things
 stay of now: which states a kind counts as finished (as the item index says now, unless `messages: done:` says),
-the completion estimates (none at a moment travelled to), and the status's list of relation cycles. A snapshot
-(`ergostat snapshot`) holds the Items page's overview and its list with no kind chosen; each kind chosen alone, its list (the
-first 500 of its items, as `items?kind=K` answers) and its list in each state it declares or counts; and the
-Graph and the Timeline of each system's related kinds together and of each kind alone, related or not. An
+the completion estimates (none at a moment travelled to), and the status's list of relation cycles. An
 answer that could not be got is left out, and the page says it is not in the snapshot. It also holds the item sets its own panels link to: each part's (a stock's, a
 flow's, a sensor's side-panel set) and each node's and line's of every process map it holds (a node's `through`, a
 related line's first end's `through`, a caused line's `caused`, any other line's `followed`, with the map's `by` and
@@ -8621,7 +8615,7 @@ moves of 20,000 items), the moves from the item index, and each finding's chain 
 window's moves.
 
 **Where.** `ergostat check` (after the findings; `--json`: `coherence`; `--no-coherence` leaves it out), the MCP tool
-`coherence` (`since`), `GET /api/coherence`, and the Check page's Coherence section.
+`coherence` (`since`). (The Check page and its `GET /api/coherence` were removed, 2026-11-25.)
 
 ## 12m. Reports upstream: when ergostat itself is wrong
 

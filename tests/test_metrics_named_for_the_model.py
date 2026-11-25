@@ -333,7 +333,8 @@ def test_the_default_dashboards_ask_no_old_name(factory):
     from ergostat.web.dashboard_api import default
     d = default(factory)                                   # the model's default: its systems' measures and goals, by ref
     assert d.panels and all(p.panel in ("chart", "goals") for p in d.panels)
-    texts = json.dumps([p.params for p in d.panels]) + (ROOT / "ergostat" / "web" / "static" / "dashboard.js").read_text()
+    texts = json.dumps([p.params for p in d.panels]) + "".join(
+        x.read_text() for x in sorted((ROOT / "ergostat" / "web" / "ui" / "src" / "pages" / "dashboard").rglob("*.ts*")))
     texts += "".join(x.read_text() for x in (ROOT / "dev" / "model").glob("*.yaml"))
     assert not [x for x in OLD_GENERIC if x in texts]
     docs = (ROOT / "docs" / "DASHBOARDS.md").read_text()

@@ -5,10 +5,8 @@ needs, and a block's proposal of such a value is held the same way and remembere
 
 from __future__ import annotations
 
-import re
 import textwrap
 import time
-from pathlib import Path
 
 from ergostat import model as mdl
 from ergostat.numbers import estimate as es
@@ -112,16 +110,3 @@ def test_a_blocks_value_from_too_short_a_record_is_held_inconclusive_and_remembe
     assert again["status"] == "not-proposed" and "held back" in again["why"]
     held = pr.stored(p)[got["id"]]
     assert held["held_until"] >= (x.get("decided") or x.get("made") or 0) + x["needs"] - 1   # at least what it said it needs
-
-
-def test_the_words_the_calibration_page_rewrites_are_the_words_the_record_writes():
-    """The calibration table (equations.js calNote) rewrites 'Nothing says the value written is wrong' into 'the
-    record so far rejects <declared> but cannot yet settle a value' when the value written lies outside the estimate
-    ± 3σ. It finds the words by a pattern; reworded here, the page would keep the old claim with nothing failing. So
-    the pattern is read from the page and matched against each note that writes those words."""
-    js = (Path(__file__).parents[1] / "ergostat/web/static/equations.js").read_text()
-    pat = re.search(r"c\.note\.replace\(/(.+?)/,", js).group(1)                   # the page's own pattern
-    short = idf.too_short({"value": 0.4, "se": 0.1, "n": 3, "window": 600.0})["says"]
-    unmoved = es.judged({"value": 0.4, "se": 0.1, "not_exercised": {"says": "it held one value", "span": 600.0}}, 2.0)
-    for note in (short, unmoved):
-        assert re.search(pat, note), (pat, note)

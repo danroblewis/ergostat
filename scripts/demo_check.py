@@ -56,12 +56,12 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
         pg = b.new_page(viewport={"width": 1500, "height": 950})
         pg.on("pageerror", lambda e: errs.append(str(e)))
         kind = None
-        for route in ("diagram", "diagram?view=blocks", "diagram?view=process", "loops", "agents", "items",
-                      "kind?view=graph", "kind?view=timeline", "record", "residuals", "check", "guide"):
-            if route.startswith("kind"):      # the Graph and the Timeline: on the first kind's page (the overview's card)
+        for route in ("dashboard", "diagram", "diagram?view=blocks", "diagram?view=process", "goals", "agents", "items",
+                      "kind", "record"):
+            if route == "kind":               # the first kind's page (the overview's card)
                 if not kind:
                     continue
-                route = kind.lstrip("/") + route[4:]
+                route = kind.lstrip("/")
             pg.goto(f"{url}/{route}")
             pg.wait_for_timeout(1800)
             if route == "items":
@@ -71,32 +71,6 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
                 pg.screenshot(path=str(shot.with_name(f"{shot.stem}-{route.replace('?view=', '-')}.png")))
             if route == "diagram" and pg.locator(".node").count() == 0:
                 errs.append("the diagram drew no parts")
-        b.close()
-    return errs
-
-
-def snapshot_errors(demo: Path) -> list[str]:
-    """The snapshot, opened with every request refused: it must draw and ask for nothing."""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return []
-    out = demo.parent / "snapshot.html"
-    r = sh("-C", str(demo), "snapshot", "-o", str(out))
-    if r.returncode != 0:
-        return [f"snapshot failed: {r.stderr}"]
-    errs: list[str] = []
-    with sync_playwright() as p:
-        b = p.chromium.launch()
-        pg = b.new_page(viewport={"width": 1500, "height": 950})
-        pg.on("pageerror", lambda e: errs.append(f"snapshot: {e}"))
-        pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith("file:")
-                 else (errs.append(f"snapshot asked for {rt.request.url}"), rt.abort()))
-        for route in ("diagram", "diagram?view=blocks", "diagram?view=process", "loops", "agents", "items", "record", "residuals", "guide"):
-            pg.goto(f"file://{out}#/{route}")
-            pg.wait_for_timeout(1200)
-            if route == "diagram" and pg.locator(".node").count() == 0:
-                errs.append("the snapshot's diagram drew no parts")
         b.close()
     return errs
 
@@ -261,7 +235,6 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
             for g in spec.goals:
                 get(f"{url}/api/loop-control?goal={quote(g)}")
         problems += page_errors(url, shots / demo.name if shots else None)
-        problems += snapshot_errors(demo)
     finally:
         sh("-C", str(demo), "run", "--stop")
         if remote:

@@ -93,7 +93,6 @@ def hold_all(s, n: int | None = None) -> list[socket.socket]:
 def test_cheap_requests_take_the_fast_lane():
     assert web.cheap(b"GET /static/style.css?v=1 HTTP/1.1\r\n")
     assert web.cheap(b"GET / HTTP/1.1\r\n") and web.cheap(b"GET /items?x=1 HTTP/1.1\r\n")
-    assert web.cheap(b"GET /api/projects HTTP/1.1\r\n")
     assert not web.cheap(b"GET /api/status HTTP/1.1\r\n") and not web.cheap(b"POST /static/x HTTP/1.1\r\n")
     assert not web.cheap(b"GET /file/a.md HTTP/1.1\r\n") and not web.cheap(b"GE") and not web.cheap(b"\r\n")
 
@@ -197,7 +196,7 @@ def test_a_get_that_waited_too_long_is_dropped(site, monkeypatch, capfd):
 def test_with_every_api_worker_held_static_answers_fast_and_a_full_queue_is_503_at_once(site):
     held = hold_all(site)
     t0 = time.monotonic()
-    got = answer_of(ask(site.port, "/static/style.css"))
+    got = answer_of(ask(site.port, "/static/marked.min.js"))
     assert b"200 OK" in got and time.monotonic() - t0 < 0.2, f"{time.monotonic() - t0:.3f}s"
     queued = [ask(site.port, f"/api/hold-q{i}") for i in range(site.server.queue_most)]
     until(lambda: site.server.jobs.qsize() == site.server.queue_most, what="the queue full")
@@ -206,7 +205,7 @@ def test_with_every_api_worker_held_static_answers_fast_and_a_full_queue_is_503_
     assert busy.startswith(b"HTTP/1.0 503") and b"Retry-After: 2" in busy, busy
     assert time.monotonic() - t0 < 0.5
     t0 = time.monotonic()                              # the fast lane still answers past a full API queue
-    assert b"200 OK" in answer_of(ask(site.port, "/static/style.css")) and time.monotonic() - t0 < 0.2
+    assert b"200 OK" in answer_of(ask(site.port, "/static/marked.min.js")) and time.monotonic() - t0 < 0.2
     site.release.set()
     for c in held + queued:
         c.close()

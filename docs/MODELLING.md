@@ -25,8 +25,8 @@ The format is `docs/SPEC.md`; the five structure checks below are what `ergostat
 | A link between two things counted in different units | a converting **auxiliary** (so many of one per one of the other) | `units-mismatch` |
 | A cause far from its effect in time (a change that breaks things days later) | a **delay**: one stock or more holding what is on its way | `rate-driven-by-rate` when it is drawn rate to rate |
 | An auxiliary that changes for no reason the model gives | its **causes**, or the word that it comes from outside (`exogenous: true`) | `auxiliary-without-causes` |
-| A stock whose readings move more than its flows explain | a **flow** the model does not have (or a sensor reading wrongly) | the Model page's residuals |
-| A replay that runs high or low (U_M), or swings too much or too little (U_S) | a wrong constant or gain; a missing flow or delay | the Model page (`ergostat fit`) |
+| A stock whose readings move more than its flows explain | a **flow** the model does not have (or a sensor reading wrongly) | `ergostat residual` |
+| A replay that runs high or low (U_M), or swings too much or too little (U_S) | a wrong constant or gain; a missing flow or delay | `ergostat fit` |
 
 ## 1. A rate driven by a rate: a missing stock
 
@@ -395,9 +395,9 @@ and the `check` finding it is the same as. Too little record says how much more 
 model where the record is right; fix the blocks (their events, what they declare) where the model is
 right; and run again until every kind agrees.
 
-## Reading the Model page: the model against the record
+## Reading the fit: the model against the record
 
-The Model page (and `ergostat fit`) runs the model over the last day of record at most, whatever the
+`ergostat fit` runs the model over the last day of record at most, whatever the
 window above it shows, and reads it the way the record was made: a stock at its reading's moment,
 a counted flow by what it moved in each bucket, a rate a sensor averages over ten minutes by the
 model's own ten-minute average. It shows three things, each as itself:
@@ -436,7 +436,7 @@ and has no total.
 
 A stock's **residual** is the change its readings show minus the change its known flows explain.
 The model's flows say how much should have come in and gone out; the sensor says what happened;
-the difference is what the model does not explain (`ergostat residual`, and the Model page's residuals).
+the difference is what the model does not explain (`ergostat residual`).
 
 - **A persistent positive residual** (the stock rises more than its inflows explain): an inflow is
   missing, or an outflow is overestimated. Ask what else brings things in.
@@ -469,7 +469,7 @@ equally well. The model's structure is still a claim people make and data tests.
 `equation: base + k * stock.unreviewed-ramps-live`, each parameter with its value and unit, and
 `estimate: true` on the ones to fit. ergostat replays the model over the record (each stock
 integrated from its flows, each equation worked out, everything else as measured), and says how
-well the replay fits (`ergostat fit`, the Model page). It estimates the parameters marked to fit, by
+well the replay fits (`ergostat fit`). It estimates the parameters marked to fit, by
 weighted least squares on the partial-model test of each equation they appear in and the replay of
 each stock they move, with a standard error for each and the correlation of those fitted together,
 on the record but its last fifth. It proposes a value only when the record supports it: the record
@@ -486,7 +486,7 @@ fifth better. It fits a coefficient to each declared cause of a measured flow th
 by least squares on what was measured; an outflow as its stock over a time (first-order control),
 only when it names its stock as a cause; a one-way flow never below 0. Each is a **proposal**, with
 its reason, the fit before and after, and the YAML edit: nothing changes until the owner accepts it
-(`ergostat accept ID`, or Accept beside the part on the page, or in the Model page's review queue).
+(`ergostat accept ID`, or Accept beside the part on the page).
 It also proposes **structure** where a check or an estimate gives a concrete fix (SPEC §12b): a stock
 between a rate and the rate that follows it, an outflow for a stock nothing drains (sized by Little's
 law), a converting auxiliary, a sign flipped, a guard, an auxiliary marked exogenous, a term with no
@@ -522,7 +522,7 @@ Once the structure reads right and the replay follows the record, system dynamic
 then uses it (Sterman ch. 21). ergostat does each where the model already is, and none of them
 changes it by itself.
 
-- **Calibrate** (the Model page's Calibrate; `ergostat proposals --calibrate`). Three ways, and they
+- **Calibrate** (`ergostat proposals --calibrate`). Three ways, and they
   answer different questions. *Each part alone* fits a parameter to what it touches with everything
   else as measured: the sharpest test of one equation, and where a wrong equation elsewhere cannot
   pull it off. *Each system alone* is Homer's partial model: the system's stocks integrated, what
@@ -628,7 +628,7 @@ above; `docs/ADDING.md` gives the rest).
 4. For each link: is it signed, and do its units convert?
 5. For each decision: what does the decision maker actually see, and how late?
 6. For each long delay between cause and effect: is the stock of what is in transit in the model?
-7. On the Model page: which stocks the replay does not follow, and how (Theil's U_M, U_S, U_C); which
+7. In `ergostat fit`: which stocks the replay does not follow, and how (Theil's U_M, U_S, U_C); which
    are not explained (the residuals), which way, and what moves with them?
 8. For each auxiliary: is it explained by the model, or declared as coming from outside?
 9. Calibrate each part alone and the whole model: do the values agree? Where they do not, look at the

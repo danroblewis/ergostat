@@ -91,7 +91,7 @@ function Overview() {
                   </p>
                 )}
                 {d.unkinded > 0 && <Note>{plural(d.unkinded, "item")} match no kind of the model's.</Note>}
-                {!d.kinds.length && <Empty>No items yet. An item is what events with an id like ticket/12 are about; see the Guide.</Empty>}
+                {!d.kinds.length && <Empty>No items yet. An item is what events with an id like ticket/12 are about (ergostat help spec).</Empty>}
               </>
             );
           }}
@@ -110,7 +110,7 @@ function KindCard({ k, d, all }: { k: any; d: any; all: boolean }) {
         {k.title || k.name}
         <span className="mono">{k.title ? k.name : k.id}</span>
       </Link>
-      <a className="pm-link" href={`/ui/diagram?view=process&kind=${encodeURIComponent(k.name)}&mode=states`}
+      <a className="pm-link" href={`/diagram?view=process&kind=${encodeURIComponent(k.name)}&mode=states`}
         title="Its process map: how many are in each state now, and how they moved">process map</a>
       {k.why ? (
         <div className="kind-counts muted small">{k.why}</div>
@@ -171,7 +171,7 @@ function EveryKindBody({ d, needle, showFin }: { d: any; needle: string; showFin
     <>
       {needle && <p className="muted search-hits" aria-live="polite">{hitsN ? `${hitsN} match${hitsN === 1 ? "" : "es"}` : "nothing matches"}</p>}
       {d.unkinded > 0 && <Note>{plural(d.unkinded, "item")} match no kind of the model's; shown with their fields, no state.</Note>}
-      {!d.kinds.length && !d.unkinded && <Empty>No items yet. An item is what events with an id like ticket/12 are about; see the Guide.</Empty>}
+      {!d.kinds.length && !d.unkinded && <Empty>No items yet. An item is what events with an id like ticket/12 are about (ergostat help spec).</Empty>}
       {systems.map((g: any) => {
         const names: string[] = [...g.kinds, ...(g.name === "other" && d.unkinded ? [""] : [])];
         if (hits && !names.some((n) => hits[n] > 0)) return null;

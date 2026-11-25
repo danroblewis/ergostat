@@ -137,7 +137,6 @@ ergostat loop [NAME]         the loops, or one part by part
 ergostat event [--follow]    the raw record;  ergostat item [NAME]: events folded by id, each a changeset
 ergostat item NAME --history every change to each field, with the event that made it (--at: as it stood then)
 ergostat sensor STOCK.SENSOR --read V    a person's reading of a manual sensor
-ergostat snapshot            the page, as of now, in one HTML file that opens offline
 ergostat message "TEXT"      tell the work in flight something (--about ITEM|PART); routed to what it concerns,
                              delivered to a running session as its next turn; ergostat messages: what became of each
 ergostat projects            every project on this machine, which are running, and their pages
@@ -187,7 +186,7 @@ running Claude Code session as its next turn, followed up on finished work, and 
 [docs/MESSAGES.md](docs/MESSAGES.md), "Messages and interruptions".
 
 Improving a model, for someone new to system dynamics: [docs/MODELLING.md](docs/MODELLING.md) (the
-tells of a wrong structure, what `check`'s structure findings and the Model page are evidence
+tells of a wrong structure, what `check`'s structure findings and `ergostat fit` are evidence
 of, and what to write instead, each with its source in Sterman's *Business Dynamics* or Forrester).
 
 The ideas: [docs/CONCEPTS.md](docs/CONCEPTS.md) (the factory as a control system), why controllers
@@ -222,12 +221,12 @@ negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d
 plant, y, the sensor H feeding ym back, and feedforward when a controller measures d itself);
 `ergostat system --blocks` prints the same in text.
 The Export menu's "SVG" and "PNG" write the diagram as a standalone file, with a header and a legend; "Design SVG" writes only
-the structure (parts, flows, roles and schedules, no live values or status), for a design document. `ergostat snapshot` writes the whole page, with
-what it shows now, to one HTML file that opens anywhere with no ergostat running (every view, page and part, the Items
-page's Graph and Timeline and each kind chosen among them, as of then; a set chosen on the Items page is not). The process view draws the process map of each
-kind of item from the record (a directly-follows graph: states or events, how often, what came next, rework), and where work on one kind caused work on another. Goals, Agents (by rung), Items, Record, Model and Check show
-what the command line shows; the Guide steps through tiny models, drawn by the same renderers, that introduce system dynamics and control, then shows your own model both ways. The header's "Last 1h" menu sets the window and looks at any past moment; "Back to live"
-returns.
+the structure (parts, flows, roles and schedules, no live values or status), for a design document. The process view draws the process map of each
+kind of item from the record (a directly-follows graph: states or events, how often, what came next, rework), and where work on one kind caused work on another. The Dashboard
+(first in the header), Goals, Agents (by rung), Items and Record show what the command line shows; the model's fit, proposals and
+checks are the command line's (`ergostat fit`, `ergostat proposals`, `ergostat check`). The header's "Last 1h" menu sets the window and
+looks at any past moment; "Back to live" returns. The page is a React app (`ergostat/web/ui`, its README.md), built into
+`ergostat/web/static/app` and committed, so Python needs nothing more at runtime.
 
 ## Examples
 
@@ -246,10 +245,9 @@ uv run python -m pytest -q
 uv run ruff check
 ```
 
-The diagram is tested in a real browser (it drives the Chrome on this machine): every example, in
-every view, must draw no line through a part, none on top of another, none far round, and lay out
-in time, as must a generated model of about 500 lines. After any change to the diagram:
+The page is checked in a real browser (Playwright's Chromium): each page renders its heading and content with no page
+errors. After any change to the page (`cd ergostat/web/ui && npm run build` first):
 
 ```bash
-uv run --with playwright python -m pytest tests/test_diagram_rendering.py -s
+uv run --with playwright==1.63.0 python -m pytest -q tests/test_react_pages.py
 ```

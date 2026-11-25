@@ -7,7 +7,6 @@ from __future__ import annotations
 import math
 import random
 import time
-from pathlib import Path
 
 import pytest
 
@@ -563,23 +562,3 @@ def test_off_block_items_unscheduled(tmp_path, monkeypatch):
     on.blocks[0].off = "gate"
     _unscheduled(on)
     assert on.items["t/0"].unscheduled == "waits for dev and dev2, switched off"
-
-
-def test_a_failed_simulation_is_said(tmp_path, monkeypatch):
-    from collections import OrderedDict
-
-    from ergostat.web import eta_api
-    p = take_project(tmp_path)
-    p.events.add("ticket.opened", item="ticket/a", at=time.time() - 60)
-
-    def boom(*a, **k):
-        raise KeyError("how")
-    monkeypatch.setattr(eta, "simulate", boom)
-    monkeypatch.setattr(eta_api, "_CACHE", OrderedDict())     # (none kept past the test under a reused id)
-    est = eta_api.estimates(p, p.model, wait=10.0)
-    assert est["error"] == "KeyError: 'how'"                  # kept, not None (was: a silent unlevelled Timeline)
-    got = eta_api.merge({"items": [{"id": "ticket/a"}], "edges": []}, est)
-    assert got["eta"] is None and got["eta_error"] == "KeyError: 'how'"
-    assert eta_api.merge({"items": []}, None)["eta_error"] is None
-    js = (Path(eta_api.__file__).parent / "static" / "relations.js").read_text()
-    assert "the simulation failed: ${d.eta_error}" in js and "Working out the schedule: a simulation of" in js

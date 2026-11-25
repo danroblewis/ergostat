@@ -1,5 +1,5 @@
 """The page's view of the model's numbers: the replay and projection drawn on the causes strip, an
-equation and its parameters in a valve's or an auxiliary's panel, the Model page, and the one thing
+equation and its parameters in a valve's or an auxiliary's panel, and the one thing
 the page may change: a proposal the owner accepts or dismisses (``POST``)."""
 
 from __future__ import annotations
@@ -20,10 +20,8 @@ from ..numbers import proposals as pr
 from ..numbers import review as rv
 from ..numbers import sensitivity as sens
 from ..numbers import simulate as sim
-from ..numbers import version as ver
 from ..numbers.simulate import horizon_of  # noqa: F401  (the page's and the command line's horizon)
 from ..spec import equation as eq
-from ..spec.ir import MODELLING_REQUEST
 from ..webaccess import who
 
 ESTIMATING = threading.Lock()     # one estimate at a time: each is a few hundred replays
@@ -469,25 +467,6 @@ def exercised(live, p, snap: dict) -> list[dict]:
     return got
 
 
-def coherence(live, p, snap: dict, window: float | None = None) -> dict:
-    """The coherence check (``coherence.py``) as of the page's moment, over the last day (or ``window``); kept a
-    minute."""
-    from .. import coherence as co
-    spec = spec_of(p)
-    if spec is None:
-        return {"kinds": {}, "findings": [], "pairs": co.PAIRS}
-    key = ("coherence", snap["at"] if not snap.get("live", True) else round(snap["at"] / 60), live.mtime, window)
-    got = live.cached(key)
-    if got is None:
-        try:
-            got = co.of_project(p, spec, window or co.WINDOW, None if snap.get("live", True) else snap["at"])
-        except Exception as e:                       # a record that cannot be read says nothing here
-            got = {"kinds": {}, "findings": [], "pairs": co.PAIRS, "error": f"{type(e).__name__}: {e}"}
-        got["scores"] = {k: co.score_line(k, x) for k, x in got["kinds"].items()}
-        live.keep(key, got)
-    return got
-
-
 def part_numbers(live, p, snap: dict, kind: str, name: str) -> dict:
     """What a valve's (flow's) or an auxiliary's panel shows of its numbers."""
     spec = spec_of(p)
@@ -517,149 +496,6 @@ def part_numbers(live, p, snap: dict, kind: str, name: str) -> dict:
                stock_fit=ft._slim((fit.get("stocks") or {}).get((fit.get("judged_by_stock") or {}).get(ref) or "")),
                invalid=fit.get("invalid") or [])
     return out
-
-
-def fit_page(live, p, snap: dict) -> dict | None:
-    spec = spec_of(p)
-    if spec is None:
-        return None
-    rf = reference(live, p, snap)
-    fit = rf["fit"]
-    if snap.get("live", True):
-        ft.record(p, fit)
-    units = {f"stock.{n}": s.unit for n, s in spec.stocks.items()} | {f"flow.{n}": f.unit for n, f in spec.flows.items()} | \
-            {f"auxiliary.{n}": a.unit for n, a in spec.auxiliaries.items()}
-
-    def rows(part):
-        return [{"ref": r, "name": r.split(".", 1)[1], "unit": units.get(r, ""), **(ft._slim(s) or {"n": None})}
-                for r, s in sorted(fit[part].items())]
-    kept = es.load_all(p, spec)
-    names = sorted(n for n, x in spec.parameters.items() if x.estimate and not x.table)
-    not_proposed = {}
-    for which in es.SCOPES:
-        for k, e in sorted(kept.get(which, {}).items()):
-            n = e.get("parameter", k)
-            if n in spec.parameters and (e.get("refused") or e.get("why")):
-                label = es.label(k, e)
-                not_proposed[label] = e.get("refused") or e.get("why")
-    from ..numbers import memory as mem
-    for x in reversed(mem.turned(p, spec)):                 # turned away by the gate or the judge, newest last: it wins
-        for t in str(x.get("target") or "").split(", "):
-            if t.startswith("parameter.") and t[10:] in names:
-                not_proposed[t[10:]] = f"{x['state']}: {x['why']}" + (f"; {x['held_back']}" if x.get("held_back") else "")
-    return {"version": ver.version(spec), "structure": ver.structure(spec), "since": rf["data"].grid.since,
-            "until": rf["data"].grid.until, "total": ft._slim(fit["total"]), "stocks": rows("stocks"),
-            "accounting": rows("accounting"), "equations": rows("equations"), "partial": rows("partial"),
-            "judged_by_stock": fit["judged_by_stock"], "invalid": fit["invalid"],
-            "notes": rf["run"].notes, "words": ft.WORDS, "min_points": ft.MIN_POINTS,
-            "history": ft.versions(p), "accepted": pr.accepted(p), "proposals": pr.pending(p, spec),
-            "modelling": _modelling(p),
-            "estimated_at": max((e.get("when") or 0 for got in kept.values() for e in got.values()), default=None) or None,
-            "to_estimate": names,
-            "open_loops": es.open_loops(spec), "open_said": es.open_said(es.open_loops(spec)),
-            "calibrations": [{"key": w, "words": es.scope_words(spec, w), "count": len(es.scopes(spec, names, w)) if names else 0,
-                              "when": max((e.get("when") or 0 for e in kept.get(w, {}).values()), default=None) or None}
-                             for w in es.SCOPES],
-            "not_proposed": not_proposed, "readiness": readiness(spec, rf, names),
-            "residuals": snap.get("residuals", {}), **queue(live, p, snap)}
-
-
-def readiness(spec, rf: dict, names: list[str]) -> dict:
-    """For the Model page's "What's available": each parameter to estimate, the parts whose equations use it
-    (where its what-if and calibrations are), and whether the reference window is long enough yet for a
-    proposal: three of the slowest time constant it touches, and forty points fitted (``estimate.judged``);
-    the rest (independent errors, told apart, held out) is said once it is calibrated."""
-    out = {}
-    data = rf["data"]
-    span = data.grid.until - data.grid.since
-    cut = max(1, int(round(data.grid.n * (1 - es.HOLD_OUT))))
-    for n in names:
-        owners, stocks = es.touched(spec, {n})
-        tc = es.slowest(spec, rf["run"], owners, stocks, rf["data"])
-        uses = sorted(r for r in owners if (r.startswith("flow.") and r[5:] in spec.flows and spec.flows[r[5:]].equation
-                                              and n in spec.flows[r[5:]].equation.parameters)
-                      or (r.startswith("auxiliary.") and r[10:] in spec.auxiliaries and spec.auxiliaries[r[10:]].equation
-                          and n in spec.auxiliaries[r[10:]].equation.parameters))
-        refs = owners | {f"stock.{s}" for s in stocks}
-        points = sum(1 for r in refs for i, v in enumerate(data.values.get(r) or []) if v is not None and i < cut)
-        out[n] = {"parts": uses, "span": span, "points": points, "points_needed": es.PROPOSE, "slowest": tc * 3600 if tc else None,
-                  "needs": ft.COVER * tc * 3600 if tc else None, "range": bool(spec.parameters[n].range)}
-    return out
-
-
-def _modelling(p) -> dict | None:
-    try:
-        from ..numbers import modelling_status as mst
-        return mst.of(p)
-    except Exception:
-        return None
-
-
-def _structural(live, p, snap: dict) -> list[dict]:
-    """The structural proposals looked for again (at most every few minutes, or when the model changes):
-    what was found and could not be made."""
-    spec = spec_of(p)
-    key = ("structural", live.mtime, round(snap["at"] / rv.STRUCTURAL_EVERY))
-    got = live.cached(key)
-    if got is None:
-        got = rv.refresh(p, spec, None if snap.get("live", True) else snap["at"]) if snap.get("live", True) else []
-        live.keep(key, got)
-    return got
-
-
-LOOPS = threading.Lock()
-LOOPS_SEEN: dict = {}            # goal → (model mtime, when analysed)
-
-
-def _analyse_loops(live) -> None:
-    """Each loop analysed in turn, in the background, so its proposals (a process, a gain) join the queue."""
-    if not LOOPS.acquire(blocking=False):
-        return
-
-    def work():
-        try:
-            from .control_api import get as control
-            p = live.get()
-            spec = spec_of(p)
-            for g in list(spec.goals) if spec else []:
-                seen = LOOPS_SEEN.get(g)
-                if seen and seen[0] == live.mtime and time.time() - seen[1] < 300:
-                    continue
-                try:
-                    control(live, p, {"at": time.time(), "live": True}, g)
-                except Exception:                       # a loop that cannot be analysed offers nothing
-                    pass
-                LOOPS_SEEN[g] = (live.mtime, time.time())
-        finally:
-            LOOPS.release()
-    threading.Thread(target=work, name="ergostat-loops", daemon=True).start()
-
-
-def queue(live, p, snap: dict) -> dict:
-    """The review queue (``numbers/review.py``): every change waiting, each with what, where, why, how it
-    was found, its benefit and the exact diff; and what ergostat can and cannot propose yet."""
-    spec = spec_of(p)
-    not_made = _structural(live, p, snap)
-    if snap.get("live", True):
-        _analyse_loops(live)
-    control = rv.control_pending(p, spec)
-    goals = list(spec.goals)
-    from ..numbers import improve as im
-    from ..numbers import memory as mem
-    not_made = list(not_made) + [{"title": f"{x['title']} (proposed by {x['by']})", "why": x["why"] + (
-                                      f"; {x['held_back']}" if x.get("held_back") else ""), "code": "proposed",
-                                  "by": x["by"]} for x in im.not_proposed(p)[:12]]
-    not_made += [{"title": x["title"], "why": f"{x['state']}: {x['why']}" + (f"; {x['held_back']}" if x["held_back"] else ""),
-                  "code": "turned-away", "by": x["by"], "item": x["item"]}
-                 for x in mem.turned(p, spec) if x["by"] == "ergostat"][:12]
-    from ..numbers import redesign as rd
-    from ..numbers import requests as rq
-    return {"queue": rv.entries(p, spec, control), "not_made": not_made,      # and the modelling requests held (the inbox's)
-            "held": sum(r["state"] == "held" for r in rq.stored(p).values()) if MODELLING_REQUEST in spec.items else 0,
-            "redesigns": {"systems": ["model", *sorted(spec.systems)], "asked": rd.asked(p), "last": rd.last(p),
-                          "settings": rd.settings(spec), "on": "redesigner" in spec.blocks},
-            "loops_analysed": sum(1 for g in goals if (LOOPS_SEEN.get(g) or (None,))[0] == live.mtime), "loops": len(goals),
-            "can": [{"what": a, "how": b} for a, b in rv.stc.CAN], "cannot": rv.stc.CANNOT}
 
 
 _PROPOSED: dict = {}             # (change, model files' mtime) → the model it would leave

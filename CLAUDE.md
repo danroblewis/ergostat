@@ -65,12 +65,10 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
 - **Testing.** Both suites run in parallel (pytest-xdist), under the watchdog (`scripts/suite_watch.py`: kills the run
   past 1,500 threads or 6 GB, and one worker past 2 GB), one suite at a time, never both at once:
   - unit (about 2 min; 12 serial): `uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`
-  - browser (about 6 min; 21 serial): `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m
-    pytest -q -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py
-    tests/test_page_refresh.py tests/test_keyboard_story.py tests/test_golden_pages.py`
-  - golden files: a page's rendered structure is compared with its reference in `tests/golden/` (`tests/golden.py`);
-    an intended change regenerates them with `uv run python scripts/suite_watch.py -- uv run --with
-    playwright==1.63.0 python -m tests.golden`, and `git diff tests/golden` is reviewed and committed with it.
+  - browser (the page's smoke suite: each page renders with no page errors): `uv run python scripts/suite_watch.py --
+    uv run --with playwright==1.63.0 python -m pytest -q -n 4 --dist worksteal tests/test_react_pages.py`
+  - the page is the React app in `ergostat/web/ui` (its README.md): `npm run build` there writes the committed build
+    in `ergostat/web/static/app`, and `npm run check` (tsc) must be clean.
   - the serial fallback (a test that fails only in parallel, or a busy machine): the same without `-n ... --dist
     worksteal`, e.g. `uv run python -m pytest -q`.
 
@@ -90,8 +88,8 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
   processes and threads, 12 GB, half the CPUs, no network but localhost): `scripts/in_container.sh CMD ...`, e.g.
   `scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`
   (docs/DEVELOPMENT.md has every standard run). **Preferred** there: the benchmarks (`scale_bench`, `latency_bench`,
-  `daemon_bench`, `loadtest`), load and soak tests, the layout corpus, the unit and browser suites and `demo_check`
-  (the benchmarks and the corpus are documented but not yet measured inside). The Linux sandbox's tests need
+  `daemon_bench`, `loadtest`), load and soak tests, the unit and browser suites and `demo_check`
+  (the benchmarks are documented but not yet measured inside). The Linux sandbox's tests need
   `scripts/in_container.sh --sandbox` (Docker's syscall filter off, for bwrap; only for them). On Linux no test is
   expected to fail: a failure there is real. **When Docker is down:** the same commands on the host, under `scripts/suite_watch.py`
   as always. **On the host only:** the macOS sandbox tests (`tests/test_sandbox_attacks.py` exercises `sandbox-exec`
