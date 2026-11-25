@@ -60,3 +60,9 @@ the-job pass.
 3. *Timing.* coordinator's routing bound (21.9 s against 20 s here) is load- and machine-dependent; the definition's
    "same result" includes it. Not changed here (lesson 10: not only raising a bound); a review should say whether it
    belongs in this gap or its own.
+
+## Where it stopped
+
+Parked by the factory (review/diagram-gate-same-everywhere-1, 2026-11-24 16:13).
+
+Done: the cause found and measured (system-ui is drawn as WenQuanYi Zen Hei with FreeSans in the agents' container, 0.71-1.02x of the CH width the layout assumes; San Francisco on the Mac); the gate test pins Playwright 1.63.0's Chromium (153.0.8010.12, checked by an assert that was seen to fail), a 1600x1000 window and device scale 1. Left: a font file in ergostat/web/static/fonts/ with @font-face (font-display: block) named first in --font/--mono; text measured from the loaded face in place of CH; the gate test waiting for document.fonts.ready and checking the drawn text's platform font is the served one; RECORD_LAYOUT=1 and RECORD_SIZES=1 once over all examples with before/after lists; coordinator's routing time judged (load or code); three runs in each of the three places. Why it stops: the tree holds no font file and the agents' container has no network, so the font cannot be brought in honestly from here.
