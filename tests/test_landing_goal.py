@@ -25,7 +25,7 @@ from tests.test_factory_times import FAKE, load
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "dev" / "bin"
 H = 3600.0
-T0 = 1_800_000_000.0
+T0 = 1_787_904_000.0
 NOW = T0 + 10 * H
 landing = load("landing")
 

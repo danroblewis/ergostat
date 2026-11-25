@@ -122,13 +122,9 @@ keeps is kept in VictoriaMetrics, its only metrics store (NOTES.md, 2026-11-25),
 
 **Get it.** VictoriaMetrics is required: ergostat keeps no reading anywhere else. It is one binary with no
 dependencies: `brew install victoriametrics` on a Mac, or the single-node `victoria-metrics` from the project's
-releases (`victoria-metrics-<os>-<arch>-<version>.tar.gz`) on your `PATH`. Start it yourself:
-
-```sh
-victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data -retentionPeriod 100y
-```
-
-(or `brew services start victoriametrics`, after setting its `-retentionPeriod`). ergostat looks for it at
+releases (`victoria-metrics-<os>-<arch>-<version>.tar.gz`) on your `PATH`. Start it yourself,
+`victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data -retentionPeriod 100y` (or
+`brew services start victoriametrics`, after setting its `-retentionPeriod`). ergostat looks for it at
 `http://127.0.0.1:8428`, VictoriaMetrics' own default; another address is `storage: measurements: url:` in the model, or
 `ERGOSTAT_METRICS_URL` for every project. With none answering, `ergostat run` refuses to start, and a command that reads
 the readings fails, each saying how to start one: never a run whose readings go nowhere.

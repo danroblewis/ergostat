@@ -288,16 +288,24 @@ def vm_server(d: Path, retention: str = "100y"):
         shutil.rmtree(d / "data", ignore_errors=True)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def vm(tmp_path_factory):
     """This test process's one VictoriaMetrics (under xdist, each worker's own), its URL: every test's record keeps
-    its readings there, each under its own ``project`` label (its home's: storage.metrics_project)."""
+    its readings there, each under its own ``project`` label (its home's: storage.metrics_project). Started before any
+    other fixture and named in the environment (ERGOSTAT_METRICS_URL), so a module's fixture, and every process a
+    test starts, writes there too."""
     with vm_server(Path(tempfile.mkdtemp(prefix="vm-", dir=tmp_path_factory.getbasetemp()))) as url:
         _VM["url"] = url
+        was = os.environ.get("ERGOSTAT_METRICS_URL")
+        os.environ["ERGOSTAT_METRICS_URL"] = url
         try:
             yield url
         finally:
             _VM.pop("url", None)
+            if was is None:
+                os.environ.pop("ERGOSTAT_METRICS_URL", None)
+            else:
+                os.environ["ERGOSTAT_METRICS_URL"] = was
 
 
 def victoria(d: Path):

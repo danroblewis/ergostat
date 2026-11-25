@@ -87,7 +87,7 @@ def test_built_ins_decide_exactly_as_the_engine_does(tmp_path):
     e = Engine(p, say=lambda s: None)
     signals: dict = {}
     sh = cl.Shadow(spec, signals)
-    t0 = 1_800_000_000.0
+    t0 = 1_787_904_000.0
     levels = [0, 5, 12, 18, 23, 27, 24, 19, 14, 9, 6, 11, 16, 22, 30, 21, 13, 8, 4, 2]
     for i, q in enumerate(levels * 3):
         now = t0 + i * 7.0

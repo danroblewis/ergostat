@@ -167,7 +167,7 @@ def test_a_failing_event_write_changes_nothing_that_lands(tmp_path):
 def batches_module(monkeypatch, tmp_path):
     sys.modules.setdefault("fac", module("fac"))
     b = module("batches")
-    clock, out = [1_800_000_000.0], []
+    clock, out = [1_787_904_000.0], []
     monkeypatch.setattr(b, "time", types.SimpleNamespace(time=lambda: clock[0]))
     monkeypatch.setattr(b, "_say", lambda event, item, **data: out.append((event, item, data, clock[0])))
     return b, clock, out, {"paths": {"run": str(tmp_path / "run")}}

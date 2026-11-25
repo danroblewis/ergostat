@@ -18,7 +18,7 @@ from ergostat.spec.engine import Engine, every_pass
 from ergostat.store import Project
 
 DAY = 86400.0
-T0 = 1_800_000_000.0
+T0 = 1_787_904_000.0
 
 MODEL = """\
 name: eb

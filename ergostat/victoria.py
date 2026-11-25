@@ -64,6 +64,12 @@ def promql_name(series: str, names: Names | None = None) -> dict[str, str]:
     return (names or Names()).labels(series)
 
 
+def _newer(x: tuple[float, float], old: tuple[float, float] | None) -> bool:
+    """Whether reading ``x`` stands for its series over ``old``: the later; of two at one time, the greater, as
+    VictoriaMetrics' own deduplication keeps (it holds both, in no order a reader can rely on)."""
+    return old is None or x[0] > old[0] or (x[0] == old[0] and x[1] > old[1])
+
+
 def _refused(e: OSError) -> bool:
     """A connection no server took (refused, reset, no route): not one that was too slow."""
     why = getattr(e, "reason", e)
@@ -187,10 +193,10 @@ class Victoria:
         self._req("/api/v1/import", body="".join(json.dumps(g) + "\n" for g in groups.values()).encode())
         self._req("/internal/force_flush")
         last: dict[str, tuple[float, float]] = {}
-        for s, t, v in rows:                               # (each series' latest sent; of one time, the later row)
-            t = round(float(t) * 1000) / 1000
-            if s not in last or t >= last[s][0]:
-                last[s] = (t, float(v))
+        for s, t, v in rows:                               # (each series' latest sent: ``_newer``)
+            x = (round(float(t) * 1000) / 1000, float(v))
+            if _newer(x, last.get(s)):
+                last[s] = x
         self._wrote(last)
 
     def _peers(self) -> list[Victoria]:
@@ -211,7 +217,7 @@ class Victoria:
                     continue
                 for s, x in last.items():
                     old = got.get(s)
-                    if old is None or x[0] > old[0] or (x[0] == old[0] and x[1] != old[1]):
+                    if _newer(x, old):
                         got = dict(got) if got is v._newest else got   # (a dict handed out is never changed)
                         got[s] = x
                         v._log.append(s)
@@ -222,8 +228,8 @@ class Victoria:
         params: dict = {"match[]": sel}
         if start is not None:
             params["start"] = f"{start:.3f}"
-        if end is not None:
-            params["end"] = f"{end:.3f}"
+        # (an end unsaid is the server's a moment ago, which leaves out what was just written)
+        params["end"] = f"{end if end is not None else time.time() + 2 * 86400:.3f}"
         return [(r["metric"], [(t / 1000, float(v)) for t, v in zip(r["timestamps"], r["values"], strict=True)])
                 for line in self._req("/api/v1/export", params).decode().splitlines() if line.strip()
                 for r in [json.loads(line)]]
@@ -233,8 +239,9 @@ class Victoria:
         out: dict[str, list] = {}
         for metric, pts in self._rows(sel or self._sel(series), start, end):
             out.setdefault(metric.get("series", ""), []).extend(pts)
-        for pts in out.values():
+        for s, pts in out.items():                     # (of readings at one time, the greater: ``_newer``)
             pts.sort()
+            out[s] = [p for i, p in enumerate(pts) if i + 1 == len(pts) or pts[i + 1][0] != p[0]]
         return out
 
     def _query(self, q: str, at: float) -> list[tuple[dict, float]]:
@@ -244,6 +251,14 @@ class Victoria:
         return [(r["metric"], float(r["value"][1])) for r in d["data"]["result"]]
 
     def _range(self, q: str, start: float, end: float, step: float) -> dict[float, float]:
+        """``q`` at ``start`` and each ``step`` after it to ``end``: the step is sent in whole milliseconds, so the end is
+        moved to the last point's (never a point lost to the rounding), a moment past it."""
+        k = max(0, int((end - start) / step + 1e-6))
+        step = max(round(step, 3), 0.001)
+        end = start + k * step + 0.0005
+        ahead = end - (time.time() - 0.005)
+        if 0 < ahead < 0.05:              # (the server answers no point past its now: one a moment ahead, waited for)
+            time.sleep(ahead)
         d = json.loads(self._req("/api/v1/query_range", {"query": q, "start": f"{start:.3f}", "end": f"{end:.3f}",
                                                           "step": f"{step:.3f}s", "nocache": "1", "latency_offset": "1ms"}))
         if d.get("status") != "success":
@@ -345,6 +360,9 @@ class Victoria:
             got, (full_at, recent_at) = self._newest, self._newest_read
             if got is None or self._deleted or now - full_at > self.FULL:
                 fresh = self._latest_all(FOREVER, at)
+                for s, x in (got or {}).items() if not self._deleted else ():
+                    if s in fresh and fresh[s][0] == x[0] and _newer(x, fresh[s]):
+                        fresh[s] = x                       # (of one time, the greater, whichever the server answered)
                 if got is None or self._deleted:
                     self._log, self._log_at = [], (self._log_at[0] + 1, 0)
                 else:
@@ -354,7 +372,7 @@ class Victoria:
                 window = at - recent_at + self.LATE
                 for s, x in self._latest_all(f"{window:.3f}s", at).items():
                     old = got.get(s)
-                    if old is None or x[0] > old[0]:
+                    if _newer(x, old):
                         got = dict(got) if got is self._newest else got   # (a dict handed out is never changed)
                         got[s] = x
                         self._log.append(s)
@@ -373,7 +391,7 @@ class Victoria:
         when = {key(m): t for m, t in self._query(f"tlast_over_time({sel}[{window}]) keep_metric_names", at)}
         for m, v in self._query(f"last_over_time({sel}[{window}]) keep_metric_names", at):
             t = when.get(key(m))
-            if t is not None and (m["series"] not in out or t >= out[m["series"]][0]):
+            if t is not None and _newer((t, v), out.get(m["series"])):
                 out[m["series"]] = (t, v)
         return out
 
@@ -446,8 +464,20 @@ class Victoria:
         return int(got[0][1]) if got else 0
 
     def bucketed(self, series: str, since: float, until: float, n: int) -> list[tuple[int, float, float, float]]:
+        """The readings in ``n`` equal buckets over ``[since, until]``: ``(bucket, mean, the last reading's time, its
+        value)`` for each that has a reading (one at ``until`` in the last). Few readings: worked out from them; many:
+        by the server, each bucket a window."""
         self._sync_reads()
-        w = (until - since) / max(n, 1) or 1.0
+        w = max((until - since) / max(n, 1), 0.001)        # (a bucket of a millisecond at least: the server's finest)
+        if self.count(series, since, until) <= self.RAW_MOST:
+            acc: dict[int, list] = {}
+            for t, v in self._export(series, since, until).get(series) or []:
+                if since <= t <= until:
+                    a = acc.setdefault(min(max(int((t - since) / w), 0), n - 1), [0.0, 0, t, v])
+                    a[0], a[1] = a[0] + v, a[1] + 1
+                    if t >= a[2]:
+                        a[2], a[3] = t, v
+            return [(b, a[0] / a[1], a[2], a[3]) for b, a in sorted(acc.items())]
         sel, win = self._sel(series), f"{w:.3f}s"
         start, end = since + w - EPS, since + n * w - EPS
         mean = self._range(f"avg_over_time({sel}[{win}])", start, end, w)
@@ -550,5 +580,7 @@ class Victoria:
         return bad
 
     def drop(self) -> None:
-        """Every series of this project, gone (``ergostat reset``; the conformance suite's clean-up)."""
+        """Every series of this project, gone (``ergostat reset``; the conformance suite's clean-up), with what this
+        process had yet to send."""
+        self._sync_reads()
         self._delete(self._sel())

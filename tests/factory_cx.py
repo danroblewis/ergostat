@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "dev" / "bin"
-T0 = 1_800_000_000
+T0 = 1_787_904_000
 
 FILES = {
     "ergostat/__init__.py": "",
