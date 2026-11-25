@@ -66,3 +66,105 @@ the-job pass.
 Parked by the factory (review/diagram-gate-same-everywhere-1, 2026-11-24 16:13).
 
 Done: the cause found and measured (system-ui is drawn as WenQuanYi Zen Hei with FreeSans in the agents' container, 0.71-1.02x of the CH width the layout assumes; San Francisco on the Mac); the gate test pins Playwright 1.63.0's Chromium (153.0.8010.12, checked by an assert that was seen to fail), a 1600x1000 window and device scale 1. Left: a font file in ergostat/web/static/fonts/ with @font-face (font-display: block) named first in --font/--mono; text measured from the loaded face in place of CH; the gate test waiting for document.fonts.ready and checking the drawn text's platform font is the served one; RECORD_LAYOUT=1 and RECORD_SIZES=1 once over all examples with before/after lists; coordinator's routing time judged (load or code); three runs in each of the three places. Why it stops: the tree holds no font file and the agents' container has no network, so the font cannot be brought in honestly from here.
+
+## Where it stopped
+
+Round 2, 2026-11-25 (unparked: the coordinator added Inter on this branch, baaf79282, and decided that the font is for
+the browser tests only and the app keeps its system stack). **The font, Chromium build, window and device scale are
+pinned, and the fixtures are re-recorded. Left: coordinator's routing time, which depends on the machine's speed, and
+the runs in the queue's container and a plain local run, which only the queue and the owner can do.**
+
+**Built (tests and fixtures only: 0 lines outside tests/ and dev/).** tests/test_diagram_rendering.py:
+- `gate_page(browser)`: a page with `GATE_PAGE` (1600x1000, device scale 1) and an init script (`FONT_SCRIPT`) that,
+  before any of the page's scripts run, makes `FontFace`s named GateInter from the bytes of
+  tests/fixtures/fonts/inter-latin-{400,600,700}-normal.woff2 (inlined as base64, so nothing is fetched and no route
+  can miss), adds them to `document.fonts`, and adds a stylesheet setting `--font: GateInter, sans-serif` and
+  `--mono: GateInter, monospace` (`!important`) on `:root`. Every font-family in the app's CSS goes through these two
+  variables (style.css, plots.css, panel-editor.css; buttons, inputs and selects `font: inherit`), and the canvases
+  read `--font` too. A FontFace made from bytes has its status set at once: the script records the three statuses as
+  it makes them, and they read `loaded`, so no text is measured in a fallback font first. This is why
+  `document.fonts.ready` is not awaited.
+- `font_unpinned(pg)`: the faces must be `loaded`, and for every element on the page with words of its own
+  (its text and its `::before`/`::after` content), Chromium's own record of the fonts it drew them in
+  (CDP `CSS.getPlatformFontsForNode`) must be Inter alone when all the characters are in Inter's latin subset, and
+  must include Inter when only some are (`Last 1h ▾`). Words with no character in the subset (`⋯`, `⤓`) may be drawn
+  in any font.
+- The gate test opens its page with `gate_page` and asserts `font_unpinned` is empty after the first draw. It still
+  asserts the Chromium build (`GATE_CHROMIUM`). test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_same
+  also reads layout_known.json, so it uses `gate_page` too (passes).
+- Text measurement: the layout's own width estimate is `CH` (6.7 px a character), a constant that does not depend on
+  the machine. What the page measures (`getBBox`, `getComputedTextLength`, the side list's width, the canvas's size)
+  is now measured in Inter. The app's code is unchanged, as the coordinator decided.
+- Choices, all reversible: the other page tests in the four browser files still draw in the machine's fonts, because
+  only the gate and the test above read the recorded fixtures (`gate_page` is the one call to switch any of them).
+  Weight 500, which the diagram uses, is drawn with the 400 face (the CSS matching rule; no 500 file was supplied).
+  Characters outside Inter's latin subset (▾, the arrows, ⋯) still fall back to the machine's sans-serif. They are a
+  few single glyphs, and the check above names any text that is wrongly in a fallback font.
+
+**Seen to fail (lesson 9).** With the stylesheet line disabled, the autoscaler case failed: `'ergostat' drawn in
+['WenQuanYi Zen Hei']`, and 9 more texts were listed. With the font bytes cut (a broken file), it failed: `Inter's faces are
+['error', 'error', 'error'], not loaded`. Both breaks were then removed. Round 1's Chromium assert was seen to fail then.
+
+**Before (this container, pinned setup with Inter, the fixtures as on main 617734422, each example once):** 22 of 23
+pass; coordinator fails only on `routing open=* took 21579ms` (bound 20000). main's fixtures (recorded in system fonts)
+still pass here under Inter, because the size rule judges only drawings too big to fit (fit < 1), and no
+ceiling was exceeded.
+
+**Re-recorded once** (RECORD_LAYOUT=1 RECORD_SIZES=1, every example, this container, pinned setup).
+layout_known.json, the ceilings that changed (all the others are the same; known critical faults are the same, one:
+small-requests `[system=regressions] flow-excursion` on regressions-draft-revert-taken):
+
+| example | satellite-far before -> after | valve-orientation-mismatch before -> after |
+|---|---|---|
+| big | 18 -> 16 | 4 -> 0 |
+| coordinator | 30 -> 30 | 4 -> 1 |
+| image-squeeze | 27 -> 27 | 3 -> 1 |
+| small-requests | 31 -> 27 | 5 -> 1 |
+| ticket-factory | 15 -> 15 | 2 -> 0 |
+| daemon-demo, todo-list | (absent, read as 0) -> 0 | (absent) -> 0 |
+
+No ceiling rose. diagram_sizes.json, per example (the ratio of each view's area and fit, new over old; `whole` is
+[width, height, fit]):
+
+| example | views | area ratio | fit ratio | whole before -> after |
+|---|---|---|---|---|
+| alert-triage | 8 | 0.81-1.14 | 0.94-1.00 | [599, 292, 2.072] -> [599, 296, 2.072] |
+| autoscaler | 0 -> 6 | (new) | | |
+| backups | 4 | 1.00 | 1.00 | unchanged |
+| big | 16 | 0.69-1.02 | 0.98-1.16 | [520, 504, 1.71] -> [520, 512, 1.684] |
+| coordinator | 16 | 1.00-1.09 | 0.89-1.00 | [572, 312, 2.168] -> [572, 320, 2.168] |
+| daemon-demo | 0 -> 2 | (new) | | |
+| deps | 6 | 1.00 | 1.00 | unchanged |
+| disk-space | 4 | 1.00 | 1.00 | unchanged |
+| docs-fresh | 6 | 1.00-1.02 | 1.00 | [640, 571, 1.509] -> [651, 571, 1.509] |
+| file-queue | 4 | 1.00 | 1.00 | unchanged |
+| first-loop | 4 | 1.00 | 1.00 | unchanged |
+| git-hygiene | 4 | 1.00 | 1.00 | unchanged |
+| image-squeeze | 12 -> 14 | 1.00-1.28 | 0.92-1.02 | [955, 597, 1.298] -> [1038, 704, 1.194] |
+| ops | 10 | 0.96-1.92 | 0.75-1.00 | [552, 232, 2.246] -> [552, 368, 2.246] |
+| plain-crontab | 4 | 1.00-1.09 | 0.99-1.00 | [2003, 1184, 0.619] -> [2032, 1274, 0.61] |
+| roadmap | 6 | 1.00 | 1.00 | unchanged |
+| small-requests | 16 | 0.83-1.58 | 0.88-1.21 | [576, 574, 1.502] -> [587, 574, 1.502] |
+| software-factory | 12 | 0.89-1.44 | 0.68-1.05 | [553, 332, 2.243] -> [553, 344, 2.243] |
+| talking-scripts | 4 | 1.00-1.02 | 0.98-1.00 | [2003, 1184, 0.619] -> [2035, 1191, 0.609] |
+| the-job | 26 | 0.71-1.58 | 0.82-1.67 | [884, 710, 1.214] -> [905, 718, 1.201] |
+| this-mac | 4 | 1.00 | 1.00 | unchanged |
+| ticket-factory | 16 | 1.00-1.05 | 0.97-1.00 | [552, 352, 2.246] -> [552, 368, 2.246] |
+| todo-list | 0 -> 6 | (new) | | |
+
+**After: three runs in the agents' container** (every example, from the committed fixtures, each run in 8 calls of at
+most 3 examples): each run gave the same result. 22 of 23 pass. coordinator draws with no layout, size or font fault
+and fails only on its routing time: `routing open=* took` 20945, 21970 and 22746 ms (bound 20000; 21579 and 20958 ms in
+the before and record runs).
+
+**Left.**
+1. *coordinator's routing time.* It is past ROUTED_BOUND_MS in every run here (20.9-22.7 s, with coordinator run alone
+   in its call), and under it on the Mac. This is libavoid's routing in a worker, so the time depends on the machine's
+   speed, not on fonts or the drawing. As a bound in wall time, it cannot give the same answer on a slower machine.
+   Not changed here: raising the bound alone is what lesson 10 rules out, and the reversible choice is to leave it.
+   The options for the owner: (a) a bound relative to a calibration workload timed on the same machine; (b) a larger
+   bound for HEAVY examples only, with a separate perf gap to bring coordinator's `open=*` routing down; or (c) routing
+   time judged in its own test, apart from the clean-drawing gate. Until one is chosen, the gate's layout answer is the
+   same here as on the Mac, but its time answer for coordinator is not.
+2. *The other two places.* Three runs each in the merge queue's container and in a plain local run were not run.
+   They cannot be run from here, and the queue and the owner run them. The definition's Done needs them.
