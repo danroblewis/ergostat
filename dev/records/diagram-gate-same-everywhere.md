@@ -168,3 +168,72 @@ the before and record runs).
    same here as on the Mac, but its time answer for coordinator is not.
 2. *The other two places.* Three runs each in the merge queue's container and in a plain local run were not run.
    They cannot be run from here, and the queue and the owner run them. The definition's Done needs them.
+
+## Where it stopped
+
+Round 3, 2026-11-25. **The routing bound is now relative to the machine, and the gate passes on all 23 examples in
+three runs here. Left: the measurement in the other two places, asked for by name below; it can only be run by the
+coordinator and the owner.**
+
+**The findings of review 2, each answered (lesson 12).**
+1. *coordinator's routing time against a fixed 20 s (tests/test_diagram_rendering.py:52,256).* Fixed in the branch, as
+   the review suggested: the bound is relative to a calibration workload timed on the same machine (below).
+2. *The queue's and a local run are not asked for by name.* Asked for below.
+
+**What the time depended on, measured first** (this container, Playwright 1.63.0's Chromium, the gate's page, two
+routings each, `TIMED`'s full routing in ms):
+
+| workload | routing (ms) | parts / lines |
+|---|---|---|
+| stress model 16x6 (`big_model(16, 6)`), `open=*` | 16814, 16765 | 417 / 526 |
+| stress model 24x8, `open=*` | 118056, 122098 | 817 / 1030 |
+| coordinator, `open=*`, in Inter (the gate's font) | 24493, 22987 | 129 / 188 |
+| coordinator, `open=*`, in the system fonts | 23569, 24213 | 129 / 188 |
+
+So the font plays no part in coordinator's routing time. The time follows the machine and its load: the fixed 20 s was
+about 1.2 times the stress model's routing here. On the Mac it held coordinator just under it, and records of other gaps
+show 20-44 s under parallel load. coordinator is also costly for its size: 1.4 times the stress model's time with a third
+of its lines. A perf gap of its own could bring that down. That is not this gap's.
+
+**Built (tests only: 0 lines outside tests/ and dev/).** tests/test_diagram_rendering.py:
+- `routing_pace(browser, tmp_path)`: the *pace*, libavoid's routing of the generated stress model `PACE_MODEL` (16x6,
+  everything open) on the gate's pinned page. It is timed with `TIMED`, the same as each example's views, in the same
+  browser, just after the example's views. A slower machine, or a busier one (the queue's `-n 4`), slows both alike.
+- The gate test asserts the slowest view's routing is under `ROUTED_PACES` (1.75) paces, in place of
+  `ROUTED_BOUND_MS`. The failure names the time, the paces and the pace. An example whose slowest routing is under
+  `PACE_SKIP_MS` (4 s) is not paced, which saves about 17 s for each of the small ones. That gives the same answer
+  wherever the pace is over 4 / 1.75 = 2.3 s, which is 7 times faster than this container.
+- Why 1.75 (a choice, reversible as one constant): coordinator routes in 1.31-1.46 paces here (two measurements above
+  and the break below), and the fixed 20 s was about 1.2 paces here. 1.75 leaves about 20% above coordinator's highest.
+  Only a doubling of an example's routing relative to the stress model fails it. That is what the bound was for: "to
+  catch the layout going quadratic", now for one drawing's structure rather than for the machine. Said plainly
+  (lesson 8): a change that slows *all* routing alike (the stress model too) passes this gate. The stress test
+  (`test_a_big_tangled_model_lays_out_in_time_and_cleanly`, still on `ROUTED_BOUND_MS`, 16.8 s here against 20 s)
+  is what would show that. It and the other test that reads `ROUTED_BOUND_MS` (line 7746) are outside this gate and
+  unchanged.
+- `LAYOUT_BUDGET_MS` (the first draw, 2.5 s) is still absolute. It passed in every run here. Its margin was not read
+  (the runs print only on failure), so it is not claimed to hold the same everywhere.
+
+**Seen to fail (lesson 9).** With `ROUTED_PACES` at 1.2 (the old 20 s here), coordinator failed:
+`coordinator: routing open=* took 22429ms, 1.31 paces (the stress model's 17142ms here; the bound is 1.2)`. Restored
+to 1.75.
+
+**After: three runs in the agents' container** (every example, the fixtures as committed in round 2, each run in 8
+calls of at most 3 examples, `named_tests.py` under `suite_watch.py`): **23 of 23 pass in each run.** Which examples were paced was not printed (the runs print
+only on failure). The three calls that hold coordinator, image-squeeze and the-job took 110-143 s, and the other five took 32-50 s,
+which suggests those three were paced. main has nothing newer than this
+branch's base (`git log factory/diagram-gate-same-everywhere..main` is empty), so there was nothing to merge.
+
+**Left: the measurement in the other two places (the definition's Done), asked for by name.**
+- The merge queue's container, from the coordinator, on this branch's head:
+  `python3 dev/bin/manage.py measure-runs gap/diagram-gate-same-everywhere --runs 3 --load 4 --tests "-n 4 tests/test_diagram_rendering.py::test_every_view_draws_cleanly_and_in_time"`
+  (`-n 4` and the load as the queue's browser suite runs it; coordinator stays `serial`, and its pace with it).
+- A plain local run, by the owner on the Mac, three times:
+  `uv run --with playwright==1.63.0 python -m pytest -q tests/test_diagram_rendering.py::test_every_view_draws_cleanly_and_in_time`.
+  On the Mac, `GATE_CHROMIUM` asserts the same Chromium build, so a run on another build fails at once rather than
+  judging other drawings.
+Not run here: these two, the unit suite, and the four browser files whole (the queue runs them).
+
+**The entry.** This record has no `## Entry`. The rules allow only this section to be appended, and the change is in
+the tests alone, with nothing a user sees. So no line for docs/GAPS.md was written. If the queue needs one, the
+coordinator can add it.
