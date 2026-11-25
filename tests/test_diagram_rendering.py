@@ -6,7 +6,8 @@ under an outline it is not in, no drawing bigger than recorded or far longer one
 when it does not fit the screen, and no page error (drawn in the pinned setup: Playwright 1.63.0's
 Chromium, a 1600x1000 window at device scale 1, and the pages' text in Inter from tests/fixtures/fonts);
 draws within its time (ELK's layout, with ELK's lines), and has libavoid's lines within a
-generous bound (routed in a worker, after the first draw).
+generous bound (routed in a worker, after the first draw), judged against the routing of a generated
+model timed in the same browser just after it (ROUTED_PACES), so the machine's speed and load move both.
 
 And a generated model, 16 systems of 6 loops each (STRESS=systems,loops to change it), each
 feeding the next and driving a flow two along: about 400 parts and 500 lines, drawn in about
@@ -51,7 +52,16 @@ TIMED = ("async () => { const t = performance.now(); const lay = await layoutGra
 LAYOUT_BUDGET_MS = 2500       # until the biggest view is first drawn, on a laptop; generous, to catch the layout going quadratic
 ROUTED_BOUND_MS = 20000       # until libavoid's lines replace ELK's (in a worker: the page is never held up meanwhile);
                               # the 24x8 model (STRESS=24,8: 1,030 lines) takes about 15s, nearly all of it libavoid's
-MAX_PIPE_BENDS = 6             # a flow that runs back (rework into a backlog) must turn; more is a pipe pushed about
+# the clean-drawing gate's routing bound, relative to the machine: a view of an example may take no longer to route than
+# ROUTED_PACES times the pace, libavoid's routing of the generated stress model (PACE_MODEL, everything open), timed in
+# the same browser just after the example's views, so a slower or busier machine moves both alike. (On the agents'
+# container: the pace 16.8 s, coordinator open=* 23.0-24.5 s, 1.37-1.46 paces, with system fonts or Inter alike; the
+# fixed 20 s was about 1.2 paces there.) An example whose slowest routing is under PACE_SKIP_MS is not paced: it is
+# under the bound wherever the pace is over PACE_SKIP_MS / ROUTED_PACES (2.3 s, 7x faster than that container).
+ROUTED_PACES = 1.75
+PACE_MODEL = (16, 6)
+PACE_SKIP_MS = 4000
+MAX_PIPE_BENDS = 6            # a flow that runs back (rework into a backlog) must turn; more is a pipe pushed about
 # compactness: each view's drawing as much on the screen as it was recorded (tests/fixtures/diagram_sizes.json, written
 # again with RECORD_SIZES=1 when a layout change is meant to make it so) and no longer one way than the other
 SIZES = ROOT / "tests" / "fixtures" / "diagram_sizes.json"
@@ -82,7 +92,7 @@ def browser():
         b.close()
 
 
-# the largest drawings route close to ROUTED_BOUND_MS on a quiet machine: under a parallel run they are run alone
+# the largest drawings take the longest to route: under a parallel run they are run alone (their pace too)
 HEAVY = {"coordinator"}
 
 
@@ -186,7 +196,7 @@ def font_unpinned(pg, sel: str = "body *") -> list[str]:
 
 
 DRAWN_S = 240               # the most a view may take to be drawn before a test gives up: a wait, not a check (the
-                              # budgets that are checks are LAYOUT_BUDGET_MS and ROUTED_BOUND_MS), long for a loaded machine
+                              # budgets that are checks are LAYOUT_BUDGET_MS and ROUTED_PACES), long for a loaded machine
 
 
 def drawn(pg, url: str, view: str, n: int) -> None:
@@ -194,7 +204,21 @@ def drawn(pg, url: str, view: str, n: int) -> None:
     pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
 
 
-def test_every_view_draws_cleanly_and_in_time(browser, page_of):
+def routing_pace(browser, tmp_path: Path) -> float:
+    """ROUTED_PACES' unit on this machine, now: libavoid's routing of the generated stress model (PACE_MODEL), everything
+    open, on the gate's page, in ms (timed as the examples' views are: TIMED, after the first draw)."""
+    d = tmp_path / "pace" / "stress"
+    d.mkdir(parents=True)
+    (d / "ergostat.yaml").write_text(big_model(*PACE_MODEL))
+    with served(d, tmp_path) as url:                   # (a copy of it, in tmp_path/stress)
+        pg = gate_page(browser)
+        drawn(pg, url, "open=*", 0)
+        pace = pg.evaluate(TIMED)[1]
+        pg.close()
+    return pace
+
+
+def test_every_view_draws_cleanly_and_in_time(browser, page_of, tmp_path):
     name, url = page_of
     # the build the recorded faults and sizes come from: another draws (and is judged) otherwise
     assert browser.version == GATE_CHROMIUM, f"Chromium {browser.version}: the gate is recorded on {GATE_CHROMIUM} " \
@@ -248,12 +272,16 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     if os.environ.get("RECORD_SIZES"):
         everything = json.loads(SIZES.read_text()) if SIZES.exists() else {}
         SIZES.write_text(json.dumps({**everything, name: sizes}, indent=1, sort_keys=True) + "\n")
+    # the pace, timed now and here (only when the routing is long enough to be judged by it)
+    pace = routing_pace(browser, tmp_path) if routed[0] >= PACE_SKIP_MS else None
     print(f"{name}: {len(views)} views, slowest first draw {slowest[0]:.0f}ms ({slowest[1]}), "
-          f"slowest routing {routed[0]:.0f}ms ({routed[1]})")
+          f"slowest routing {routed[0]:.0f}ms ({routed[1]})" + (f", the pace {pace:.0f}ms" if pace else ""))
     assert not errors, errors
     assert not problems, f"{name}: " + "\n".join(problems)
     assert slowest[0] < LAYOUT_BUDGET_MS, f"{name}: drawing {slowest[1]} took {slowest[0]:.0f}ms"
-    assert routed[0] < ROUTED_BOUND_MS, f"{name}: routing {routed[1]} took {routed[0]:.0f}ms"
+    assert pace is None or routed[0] < ROUTED_PACES * pace, \
+        f"{name}: routing {routed[1]} took {routed[0]:.0f}ms, {routed[0] / pace:.2f} paces (the stress model's " \
+        f"{pace:.0f}ms here; the bound is {ROUTED_PACES})"
 
 
 # drawn and routed, or (the Process view of a project with no record yet) saying there is nothing to draw
