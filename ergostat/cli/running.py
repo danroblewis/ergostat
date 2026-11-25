@@ -82,6 +82,18 @@ def _stop_runs(p, rc: int) -> int:
     return rc
 
 
+def _metrics_answer(p) -> bool:
+    """Whether the VictoriaMetrics that keeps the readings answers; when it does not, said, with how to start one (the
+    readings are kept nowhere else: never a run that loses them)."""
+    from ..victoria import VictoriaError
+    try:
+        p.measurements.check()
+    except VictoriaError as e:
+        print(f"ergostat run: {e}", file=sys.stderr)
+        return False
+    return True
+
+
 def cmd_run(args) -> int:
     from .. import runner
     if args.foreground and os.environ.get("ERGOSTAT_LOCK_FD") and not args.stop:
@@ -104,6 +116,8 @@ def cmd_run(args) -> int:
         for e in errors:
             print("  " + e, file=sys.stderr)
         return 2
+    if not p.storage.run and not _metrics_answer(p):    # (with run:, the engine starts it: the daemon victoriametrics)
+        return 1
     if not args.foreground:
         if pid:
             print(f"already running ({pid})" + (f" · {runner.web_url(p)}" if runner.web_url(p) else ""))

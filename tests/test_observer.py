@@ -21,7 +21,7 @@ from ergostat.spec.engine import Engine
 from ergostat.store import Project
 from tests.test_rollup import EXAMPLES
 
-T0 = 1_800_000_000.0
+T0 = 1_787_904_000.0
 
 QUEUE = """
 name: t

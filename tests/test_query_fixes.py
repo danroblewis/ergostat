@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 
 import pytest
 
@@ -11,7 +12,7 @@ from ergostat.query import engine, sources
 from ergostat.query import transforms as tf
 from ergostat.query.buckets import grid
 from ergostat.query.sources import series_grid
-from ergostat.store import Measurements
+from ergostat.victoria import Victoria
 from ergostat.web.server import Live, api
 from tests.test_query_engine import T, _ask, _q, _record, _series
 
@@ -19,24 +20,22 @@ DAY = 86400.0
 BASE = 20_000 * DAY
 
 
-def _rolled(tmp_path) -> tuple[Measurements, list]:
-    """A reading every 37 s for a day, rolled into 600 s rows, the raw readings gone."""
-    m = Measurements(tmp_path, raw=60.0, tiers=[(600.0, 1e9)])
+def _store(tmp_path, vm) -> tuple[Victoria, list]:
+    """A reading every 37 s for a day."""
+    m = Victoria(vm, tmp_path, project=f"test-{uuid.uuid4().hex[:10]}")
     rows = [("s", BASE + i * 37.0, float(i % 50)) for i in range(int(DAY // 37))]
     m.add_many(rows)
-    m.roll(now=BASE + DAY + 1200)
-    m._marks = (0.0, {})
     return m, rows
 
 
-def test_a_series_step_is_a_multiple_of_the_tier_that_answers_it(tmp_path):
-    m, _ = _rolled(tmp_path)
+def test_a_series_keeps_the_asked_step(tmp_path, vm):
+    m, _ = _store(tmp_path, vm)
     assert grid(BASE, BASE + DAY, 120).step == 720
-    assert series_grid(m, "s", BASE, BASE + DAY, 120, None).step == 1200
+    assert series_grid(m, "s", BASE, BASE + DAY, 120, None).step == 720
 
 
-def test_rolled_buckets_match_the_raw_readings_they_came_from(tmp_path):
-    m, rows = _rolled(tmp_path)
+def test_buckets_match_the_raw_readings_they_came_from(tmp_path, vm):
+    m, rows = _store(tmp_path, vm)
     g = series_grid(m, "s", BASE, BASE + DAY, 120, None)
     got = {r[0]: r for r in m.rollups("s", g.since, g.until, g.start, g.step, g.n)}
     want: dict[int, list] = {}
@@ -45,26 +44,11 @@ def test_rolled_buckets_match_the_raw_readings_they_came_from(tmp_path):
             a = want.setdefault(g.at(t), [0, 0.0])
             a[0] += 1
             a[1] += v
-    whole = [b for b in want if g.spans[b] == g.step and b in got]
-    assert len(whole) > 60
-    assert all(got[b][1] == want[b][0] and got[b][2] == want[b][1] for b in whole)
-
-
-def test_a_first_bucket_holding_a_roll_up_from_before_the_window_has_no_count(tmp_path):
-    m, _ = _rolled(tmp_path)
-    since = BASE + 900.0                 # halfway through a 600 s row
-    g = series_grid(m, "s", since, since + 6 * 3600, 120, None)
-    assert sources.overhangs(m, "s", g)
-    assert not sources.overhangs(m, "s", series_grid(m, "s", BASE + 1200, BASE + 1200 + 6 * 3600, 120, None))
+    assert len(got) == len(want) > 100
+    assert all(got[b][1] == want[b][0] and got[b][2] == want[b][1] for b in want)
     q = engine.Query(id="a", source="series", agg="sum", series="s")
     read = sources.series(type("P", (), {"measurements": m, "model": type("M", (), {"stocks": {}, "flows": {}})()})(), None, q, g)
-    assert read.levels["s"][0] is None and read.levels["s"][1] is not None and "first bucket" in read.note
-
-
-def test_a_store_with_nothing_rolled_keeps_the_asked_step(tmp_path):
-    m = Measurements(tmp_path, raw=DAY, tiers=[(600.0, 1e9)])
-    m.add("s", 1.0, at=BASE)
-    assert series_grid(m, "s", BASE, BASE + DAY, 120, None).step == 720
+    assert read.levels["s"][0] == want[0][1] and read.note is None
 
 
 def test_a_counters_rate_in_a_cut_first_bucket_is_over_the_time_it_built_up():

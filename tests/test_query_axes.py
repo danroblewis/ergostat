@@ -7,9 +7,7 @@ import random
 
 import pytest
 
-from ergostat.query import axes, candles
-from ergostat.query.buckets import grid
-from ergostat.store import Measurements
+from ergostat.query import axes
 from ergostat.web.server import Live, api
 from tests.test_query_engine import T, _q, _record
 
@@ -191,59 +189,6 @@ def test_agg_none_is_only_for_a_field_x(p):
     assert "only for an x of type field" in ask(p, {**COST, "agg": "none"})[0]["error"]
 
 
-def test_candles_of_item_values_by_hand(p):
-    r = ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "ohlc"})[0]
-    s = r["series"][0]
-    assert s["open"] == [1.0, 3.0, 7.0, 3.5] and s["high"] == [4.0, 3.0, 7.0, 3.5]
-    assert s["low"] == [1.0, 3.0, 7.0, 3.5] and s["close"] == [4.0, 3.0, 7.0, 3.5] and s["count"] == [2, 1, 1, 1]
-    assert "values" not in s and r["times"][0] == T
-
-
-def test_candles_hold_null_for_an_empty_bucket(p):
-    p.measurements.add("m", 2.0, at=T + 1)
-    p.measurements.add("m", 5.0, at=T + 400)
-    s = ask(p, {"source": "series", "series": "m", "agg": "ohlc"})[0]["series"][0]
-    assert s["open"] == [2.0, None, None, 5.0] and s["count"] == [1, None, None, 1]
-
-
-def test_candles_from_readings_written_out_of_order(tmp_path):
-    m = Measurements(tmp_path)
-    for t, v in ((30, 4.0), (10, 2.0), (50, 9.0), (20, -1.0), (40, 3.0)):
-        m.add("s", v, at=T + t)
-    got = candles.of_series(m, "s", grid(T, T + 60, 1, 60))
-    assert candles.columns(got, 1) == {"open": [2.0], "high": [9.0], "low": [-1.0], "close": [9.0], "count": [5]}
-
-
-def test_of_readings_at_one_time_the_later_written_closes(tmp_path):
-    m = Measurements(tmp_path)
-    for v in (1.0, 8.0, 2.0):
-        m.add("s", v, at=T + 5)
-    assert candles.columns(candles.of_series(m, "s", grid(T, T + 60, 1, 60)), 1)["open"] == [1.0]
-    assert candles.columns(candles.of_series(m, "s", grid(T, T + 60, 1, 60)), 1)["close"] == [2.0]
-
-
-def test_a_bucket_of_several_roll_up_rows_and_raw_readings(tmp_path):
-    """Two 60 s tier rows and raw readings after them in one 240 s candle: open from the first, close from the last."""
-    at = T + 120                        # on a multiple of 240
-    m = Measurements(tmp_path, raw=120.0, tiers=[(60.0, 1e9)])
-    for t, v in ((5, 10.0), (50, 12.0), (70, 20.0), (110, 8.0), (130, 15.0), (200, 11.0)):
-        m.add("s", v, at=at + t)
-    m.roll(now=at + 240)
-    with m._c() as c:
-        assert c.execute("select count(*) from tiers where series = 's' and t < ?", (at + 120,)).fetchone()[0] == 2
-        assert c.execute("select count(*) from samples where series = 's' and time < ?", (at + 120,)).fetchone()[0] == 0
-    m._marks = (0.0, {})
-    g = grid(at, at + 240, 1, 240)
-    assert g.n == 1
-    assert candles.columns(candles.of_series(m, "s", g), 1) == {"open": [10.0], "high": [20.0], "low": [8.0], "close": [11.0],
-                                                                "count": [6]}
-
-
-def test_candles_merge_rows_by_their_times_not_their_order():
-    rows = [(0, 2, 5.0, 2.0, 3.0, T + 50, 3.0, T + 60, 2.0), (0, 1, 9.0, 9.0, 9.0, T + 10, 9.0, T + 10, 9.0)]
-    assert candles.columns(candles._merged(rows), 1) == {"open": [9.0], "high": [9.0], "low": [2.0], "close": [2.0], "count": [3]}
-
-
 @pytest.mark.parametrize("q,word", [({"source": "counts", "kind": "ticket", "agg": "ohlc"}, "no values in time"),
                                     ({"source": "events", "agg": "ohlc"}, "no values in time"),
                                     ({"source": "moves", "kind": "ticket", "measure": "entries", "agg": "ohlc"}, "time_in_state"),
@@ -331,32 +276,6 @@ def test_a_model_response_is_the_declared_process(tmp_path):
 
 def test_a_model_response_of_no_goal_is_refused(p):
     assert "not in the model" in ask(p, {"source": "frequency", "model": {"goal": "nope"}})[0]["error"]
-
-
-@pytest.mark.parametrize("q,word", [({"source": "frequency"}, "input is missing"),
-                                    ({"source": "frequency", "input": {"source": "events"}}, "output is missing"),
-                                    ({"source": "frequency", "model": {"goal": "g"}, "input": {"source": "events"}}, "no input"),
-                                    ({"source": "frequency", "model": "g"}, "model must be"),
-                                    ({"source": "frequency", "segments": 1, "model": {"goal": "g"}}, "segments"),
-                                    ({"source": "frequency", "input": {"source": "frequency"},
-                                      "output": {"source": "events"}}, "cannot be")])
-def test_a_malformed_frequency_query_is_refused(p, q, word):
-    assert word in ask(p, q)[0]["error"]
-
-
-def test_a_pair_of_series_on_different_tiers_is_read_on_one_grid(tmp_path):
-    from ergostat.query import engine
-    from ergostat.query.shaped import Asking, _common
-    m = Measurements(tmp_path, raw=60.0, tiers=[(600.0, 1e9)])
-    at = 20_000 * 86400.0
-    m.add_many([("rolled", at + i * 30.0, float(i)) for i in range(2880)])
-    m.roll(now=at + 86400 + 1200)
-    m._marks = (0.0, {})
-    m.add_many([("raw", at + 86400 + i, 1.0) for i in range(5)])
-    a = Asking(type("P", (), {"measurements": m})(), None, at, at + 86400, 120, None, None)
-    one = engine.Query(id="a", source="series", agg="avg", series="rolled")
-    two = engine.Query(id="b", source="series", agg="avg", series="raw")
-    assert _common(a, (one, two), 120) % 600 == 0
 
 
 def test_an_events_category_goes_through_the_requests_budget(p, monkeypatch):

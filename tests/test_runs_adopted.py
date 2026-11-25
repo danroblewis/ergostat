@@ -249,7 +249,7 @@ def test_a_run_that_ended_while_no_engine_was_up_is_ended_at_the_time_it_ended(t
     begun = p.events.get(run)
     assert end["data"]["taken_up"] is True and end["data"]["seconds"] == round(at - begun["time"], 3)
     got = p.measurements.range("run/worker/seconds", at - 0.001, at + 0.001)
-    assert len(got) == 1 and got[0][0] == at, "its metrics at the time it ended, once"
+    assert len(got) == 1 and abs(got[0][0] - at) < 0.001, "its metrics at the time it ended (to the ms), once"
 
 
 STEPS = {"save": (adopt, "save"), "costs": (costs_record, "write_series"),

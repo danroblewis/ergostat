@@ -191,7 +191,7 @@ def recorded(tmp_path, made: float, declared: float, n: int = 480, seed: int = 0
     model(tmp_path, f"law: {{kind: kubernetes-hpa, target: {declared}, min: 2, max: 10}}\n", text)
     p = Project(mdl.load(tmp_path))
     law = laws.law(laws.check({"kind": "kubernetes-hpa", "target": made, "min": 2, "max": 10})[0])
-    rng, u, now = random.Random(seed), 4.0, time.time()
+    rng, u, now = random.Random(seed), 4.0, float(int(time.time()))
     st, rows = el.start(law, u, 0.5), []
     for k in range(n):
         x = (2.5 + 1.5 * math.sin(2 * math.pi * k / 120) + rng.gauss(0, 0.1)) / u
@@ -286,7 +286,7 @@ def kube(tmp_path, law: str, loads, reps, dt=15.0, text: str = KUBE):
     tmp_path.mkdir(exist_ok=True)
     model(tmp_path, law, text)
     p = Project(mdl.load(tmp_path))
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     rows = []
     for i, (x, u) in enumerate(zip(loads, reps, strict=True)):
         t = now - (len(loads) - 1 - i) * dt

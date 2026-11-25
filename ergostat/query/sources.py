@@ -3,7 +3,6 @@ aggregated in their buckets) or ``Levels`` (one value per bucket already). Only 
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 from ..spec import items as its
@@ -211,29 +210,8 @@ def counts(p, spec, q: Query, g: Grid) -> Read:
 
 
 def series_grid(m, name: str, since: float, until: float, points: int, asked: float | None) -> Grid:
-    """The grid for a series: its step a whole multiple of every roll-up tier that answers the window, so that each
-    roll-up row lies wholly in one bucket (a 600 s row cannot be shared out among 720 s buckets: it holds no times)."""
-    g = grid(since, until, points, asked)
-    if not hasattr(m, "_sources"):
-        return g
-    for _ in range(4):
-        with m._c() as c:
-            parts = m._sources(c, name, g.since, g.until, fine=g.step)
-        tiers = {int(e) for e, _, _ in parts if e > 0}     # (one wider than the step asked for is the finest the record holds)
-        if not tiers or g.step % (unit := math.lcm(*tiers)) == 0:
-            return g
-        g = grid(since, until, points, float(math.ceil(g.step / unit) * unit))
-    return g
-
-
-def overhangs(m, name: str, g: Grid) -> bool:
-    """Whether the first bucket is answered by a roll-up row that began before the window: it holds readings from
-    outside it, which cannot be told apart from those inside."""
-    if not hasattr(m, "_sources"):
-        return False
-    with m._c() as c:
-        parts = m._sources(c, name, g.since, g.until, fine=g.step)
-    return bool(parts) and parts[0][0] > 0 and parts[0][1] < g.since
+    """The grid for a series: every reading is kept (VictoriaMetrics), so any step answers it."""
+    return grid(since, until, points, asked)
 
 
 def series(p, spec, q: Query, g: Grid) -> Read:
@@ -248,25 +226,14 @@ def series(p, spec, q: Query, g: Grid) -> Read:
         rows = [(t, v, v) for t, v in m.sampled(q.series, g.since, g.until, points=READINGS_MOST // 2)]
         return Read(rows={q.series: rows} if rows else {}, unit=unit, before=before and before[1], before_t=before and before[0],
                     note="percentiles over rolled-up spans read their buckets' means")
-    row = _rolled(m, q, g)
-    note = None
-    if q.agg in ("count", "sum") and row[0] is not None and overhangs(m, q.series, g):
-        row[0] = None
-        note = "the first bucket is left empty: its roll-up began before the window, so its count and sum are not this window's"
-    return Read(levels={q.series: row}, unit=unit, before=before and before[1], before_t=before and before[0], note=note)
+    return Read(levels={q.series: _rolled(m, q, g)}, unit=unit, before=before and before[1], before_t=before and before[0])
 
 
 def _rolled(m, q: Query, g: Grid) -> list:
     row: list = [None] * g.n
-    if hasattr(m, "rollups"):
-        pick = {"count": 1, "sum": 2, "min": 3, "max": 4, "last": 5}
-        for r in m.rollups(q.series, g.since, g.until, g.start, g.step, g.n):
-            row[r[0]] = r[2] / r[1] if q.agg == "avg" else float(r[pick[q.agg]])
-        return row
-    if q.agg not in ("avg", "last"):
-        raise Unanswerable(f"this metrics store answers avg and last for a series, not {q.agg}")
-    for b, mean, _, last in m.bucketed(q.series, g.start, g.start + g.n * g.step, g.n):
-        row[b] = mean if q.agg == "avg" else last
+    pick = {"count": 1, "sum": 2, "min": 3, "max": 4, "last": 5}
+    for r in m.rollups(q.series, g.since, g.until, g.start, g.step, g.n):
+        row[r[0]] = r[2] / r[1] if q.agg == "avg" else float(r[pick[q.agg]])
     return row
 
 

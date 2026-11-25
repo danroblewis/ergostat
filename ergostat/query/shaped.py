@@ -11,7 +11,7 @@ from . import frequency as fr
 from . import transforms as tf
 from .buckets import Grid, aggregate, grid
 from .parse import NO_AGG, RATE_PER, Query
-from .sources import OHLC_SOURCES, READERS, Unanswerable, overhangs, series_grid
+from .sources import OHLC_SOURCES, READERS, Unanswerable, series_grid
 
 FINE = 4096                 # buckets a frequency response reads its two signals on, before resampling
 MOST_GROUPS = 12
@@ -355,9 +355,6 @@ def ohlc(a: Asking, q: Query, first_time) -> dict:
             got_rows = candles.of_series(a.p.measurements, q.series, g)
         except candles.TooMany as e:
             raise Unanswerable(str(e)) from e
-        if 0 in got_rows and overhangs(a.p.measurements, q.series, g):
-            del got_rows[0]                           # its open is from before the window
-            notes.append("the first bucket is left empty: its roll-up began before the window")
         rows = {q.series: got_rows}
         folded, order, unit, log_read = 0, [q.series], read.unit, False
     else:

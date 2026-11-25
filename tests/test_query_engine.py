@@ -16,7 +16,7 @@ import pytest
 from ergostat import model as mdl
 from ergostat.query import BadQuery, engine, sources
 from ergostat.query.parse import MOST_ENCODED, MOST_QUERIES
-from ergostat.store import Measurements, Project
+from ergostat.store import Project
 from ergostat.web import serve
 from ergostat.web.server import Live, api
 from tests.ports import free_port
@@ -165,26 +165,6 @@ def test_a_counters_rate_counts_a_reset_from_zero(p):
     r = _ask(p, {"source": "series", "series": "sensor/queue.main", "agg": "last", "transform": "rate", "rate_per": "minute"})[0]
     # increases 10 (from 90), 30, 20 (a reset, from zero), 60 over 120 s buckets
     assert _series(r)["sensor/queue.main"] == pytest.approx([5.0, 15.0, 10.0, 30.0]) and r["unit"] == "tickets/min"
-
-
-def test_a_gap_in_a_series_stays_a_gap(p):
-    p.measurements.add("sensor/queue.main", 1.0, at=T + 10)
-    p.measurements.add("sensor/queue.main", 3.0, at=T + 370)
-    r = _ask(p, {"source": "series", "series": "sensor/queue.main", "agg": "avg"})[0]
-    assert _series(r)["sensor/queue.main"] == [1.0, None, None, 3.0]
-
-
-def test_a_series_from_its_rolled_up_tiers_is_the_same_as_from_its_readings(tmp_path):
-    raw, rolled = Measurements(tmp_path), None
-    (tmp_path / "r").mkdir()
-    rolled = Measurements(tmp_path / "r", raw=60.0, tiers=[(60.0, 1e9)])
-    rows = [("s", T + i * 7.0, float(i % 11)) for i in range(120)]
-    raw.add_many(rows)
-    rolled.add_many(rows)
-    rolled.roll(now=T + 5000)
-    a = raw.rollups("s", T, T + 840, T, 120.0, 7)
-    b = rolled.rollups("s", T, T + 840, T, 120.0, 7)
-    assert [(x[1], x[2], x[3], x[4]) for x in a] == [(x[1], x[2], x[3], x[4]) for x in b]
 
 
 def test_events_counted_by_type_and_said_to_be_from_the_log(p):

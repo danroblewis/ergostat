@@ -10,30 +10,29 @@ import urllib.request
 
 import pytest
 
-from ergostat.storage import RAW, TIERS, Storage, parse
+from ergostat.storage import Storage, parse
 from tests.ports import free_port
 
 
 def test_storage_defaults_and_what_it_says():
     s = parse(None, [])
-    assert s == Storage() and s.raw == RAW and s.tiers == TIERS and s.horizon("x") == 7 * 86400
+    assert s == Storage() and s.url is None and s.run is None and s.horizon("x") == 7 * 86400
     wrong: list[str] = []
-    s = parse({"events": "sqlite", "measurements": {"backend": "victoriametrics", "raw": "never", "tiers": {"5m": "1d", "1h": "30d"}},
+    s = parse({"events": "sqlite", "measurements": {"url": "http://h:1", "run": "victoria-metrics"},
                "rollup": {"after": "2d", "kinds": {"session": "1h", "case": "never"}, "every": "10m"}}, wrong)
     assert not wrong
-    assert (s.events, s.measurements, s.url, s.raw, s.tiers) == ("sqlite", "victoriametrics", "http://127.0.0.1:8428", None,
-                                                                 ((300.0, 86400.0), (3600.0, 30 * 86400.0)))
+    assert (s.events, s.url, s.run) == ("sqlite", "http://h:1", "victoria-metrics")
     assert (s.horizon("session"), s.horizon("case"), s.horizon("other"), s.every) == (3600.0, None, 2 * 86400, 600.0)
     parse({"events": "kafka", "measurements": {"tiers": {"7m": "1d", "10m": "2d"}}, "rollup": {"after": "soon"}, "x": 1}, wrong)
-    assert len(wrong) == 4 and any("multiple" in w for w in wrong) and any("kafka" in w for w in wrong)
+    assert len(wrong) == 4 and any("no longer" in w for w in wrong) and any("kafka" in w for w in wrong)
 
 
 def test_storage_in_the_yaml_chooses_the_backends(tmp_path):
     from ergostat import model as mdl
     from ergostat.store import Project
-    (tmp_path / "ergostat.yaml").write_text("storage:\n  events: sqlite\n  measurements: {raw: 1h, tiers: {1m: 1d}}\n")
+    (tmp_path / "ergostat.yaml").write_text("storage:\n  events: sqlite\n  measurements: {url: 'http://127.0.0.1:9'}\n")
     p = Project(mdl.load(tmp_path))
-    assert p.events.name == "sqlite" and p.measurements.raw == 3600.0 and p.measurements.tiers == [(60.0, 86400.0)]
+    assert p.events.name == "sqlite" and p.measurements.name == "victoriametrics" and p.measurements.base == "http://127.0.0.1:9"
     (tmp_path / "ergostat.yaml").write_text("storage:\n  events: segments\n")
     assert Project(mdl.load(tmp_path)).events.name == "segments"
     (tmp_path / "ergostat.yaml").write_text("storage:\n  events: nope\n")

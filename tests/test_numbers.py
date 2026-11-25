@@ -70,7 +70,7 @@ def queue_project(tmp_path, k_true: float = 3.0, text: str = QUEUE, minutes: int
     """The queue model, and a record of it as the world ran it with k_true: a reading every 30 s."""
     write(tmp_path, text)
     p = Project(mdl.load(tmp_path))
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     q = 0.0
     for i in range(minutes * 2 + 1):
         t = now - minutes * 60 + i * 30
@@ -386,7 +386,7 @@ def test_a_flow_with_causes_and_no_equation_is_proposed_one_by_least_squares(tmp
     text = QUEUE.replace("    equation: k * stock.queue\n", "    sensor:\n      manual: true\n")
     write(tmp_path, text.replace("    estimate: true\n", ""))
     p = Project(mdl.load(tmp_path))
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     q = 0.0
     for i in range(121):
         t = now - 3600 + i * 30
@@ -464,7 +464,7 @@ def test_the_page_gets_the_fit_the_replay_and_an_equations_numbers(tmp_path):
 def test_a_projection_holds_its_inputs_or_carries_them_on_along_their_trend(tmp_path):
     write(tmp_path, QUEUE)
     p = Project(mdl.load(tmp_path))
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     for i in range(121):
         p.measurements.add("sensor/queue.main", 5.0, at=now - 3600 + i * 30)
         p.measurements.add("sensor/arrivals.main", 10 + i * 0.1, at=now - 3600 + i * 30)      # rising, 12 an hour
@@ -578,7 +578,7 @@ def test_a_time_constant_in_workdays_sets_the_step_and_the_replay_stays_at_its_e
     A step from units alone (only "h") went 1 → 1473 → 3.7e6; the step from the dynamics holds 0.41."""
     write(tmp_path, STIFF)
     p = Project(mdl.load(tmp_path))
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     span = hours * 3600.0
     for i in range(int(span // 600) + 1):
         t = now - span + i * 600
@@ -598,7 +598,7 @@ def test_a_replay_that_blows_up_is_clamped_noted_and_not_valid(tmp_path):
     text = STIFF.replace("workdays-per-hour * stock.live / ramp-time-live", "0 - workdays-per-hour * stock.live * 1000")
     write(tmp_path, text.replace("driven-by: +stock.live", "driven-by: -stock.live"))
     p = Project(mdl.load(tmp_path))
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     for i in range(121):
         p.measurements.add("sensor/live.main", 1.0, at=now - 3600 + i * 30)
         p.measurements.add("sensor/went-ahead.main", 60.0, at=now - 3600 + i * 30)
@@ -631,7 +631,7 @@ def test_the_job_replays_at_a_day_and_a_week_without_blowing_up(tmp_path, hours)
     shutil.copytree(src, tmp_path / "job", ignore=shutil.ignore_patterns("run", "__pycache__"))
     p = Project(mdl.load(tmp_path / "job"))
     rnd = random.Random(4)
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     span, day = hours * 3600.0, 60.0
     per_hour = 20 if hours == 24 else 3
     live = []
@@ -716,7 +716,7 @@ def tickets_project(tmp_path, minutes=60, seed=3):
     write(tmp_path, TICKETS)
     p = Project(mdl.load(tmp_path))
     rnd = random.Random(seed)
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     since = now - minutes * 60
     life = []
     t = since - 120                                 # some opened before the record's first reading
@@ -833,7 +833,7 @@ def test_two_parameters_fitted_together_carry_their_correlation(tmp_path):
 def _equation_project(tmp_path, text, rows):
     write(tmp_path, text)
     p = Project(mdl.load(tmp_path))
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     for i, row in enumerate(rows):
         for name, v in row.items():
             p.measurements.add(f"sensor/{name}.main", v, at=now - 3600 + i * 30)

@@ -474,7 +474,7 @@ UNREAD = EXAMPLE.replace("      room: {}", "      room: {unknown-after: 60s}")
 def test_unknown_after_trips_on_record_clock(tmp_path):
     p, e, _ = setup(tmp_path, UNREAD, n=0)
     s = e.spec
-    t0 = time.time() - 5000
+    t0 = int(time.time()) - 5000.0           # (whole seconds: VictoriaMetrics keeps a time to the millisecond)
     for x in ("a", "b"):
         p.measurements.add(f"sensor/disk.{x}", 1, at=t0)
     trips.check(p, s, now=t0 + 59)
@@ -505,7 +505,7 @@ def test_a_sensor_left_silent_never_hides_another_going_silent(tmp_path):
     then b, still reading, goes silent too. a is still the oldest, yet b's silence is a spell of its own and trips."""
     p, e, _ = setup(tmp_path, UNREAD, n=0)
     s = e.spec
-    t0 = time.time() - 5000
+    t0 = int(time.time()) - 5000.0           # (whole seconds: VictoriaMetrics keeps a time to the millisecond)
     p.measurements.add("sensor/disk.a", 1, at=t0)
     for k in range(0, 200, 30):
         p.measurements.add("sensor/disk.b", 1, at=t0 + k)
@@ -523,7 +523,7 @@ def test_a_sensor_left_silent_never_hides_another_going_silent(tmp_path):
     write(other, UNREAD)
     p = Project(mdl.load(other))
     e = Engine(p, say=lambda s: None)
-    t = time.time() - 5000
+    t = int(time.time()) - 5000.0           # (whole seconds: VictoriaMetrics keeps a time to the millisecond)
     trips.check(p, e.spec, now=t)                               # (the watching event: a's clock)
     p.measurements.add("sensor/disk.b", 1, at=t + 50)
     trips.check(p, e.spec, now=t + 61)
@@ -546,7 +546,7 @@ def test_rolled_up_and_pruned_record_still_answers_its_spells(tmp_path, events):
           + f"storage: {{events: {events}}}\n")
     p = Project(mdl.load(tmp_path))
     s = p.model.spec
-    t0 = time.time() - 100
+    t0 = int(time.time()) - 100.0
     p.measurements.add("sensor/disk.a", 1, at=t0)                # b never read
     trips.check(p, s, now=t0)
     assert len(p.events.query(n=None, type=WATCHING)) == 2      # two states trip on room: two on goal.room
@@ -592,7 +592,7 @@ def test_restart_neither_reenters_nor_resets_clock(tmp_path):
     # (b) read at t0, the engine restarted at t0+50, unknown-after 60s: it trips at t0+61, not t0+110
     other = tmp_path / "b"
     other.mkdir()
-    t0 = time.time() - 50
+    t0 = int(time.time()) - 50.0
     write(other, UNREAD)
     p = Project(mdl.load(other))
     for x in ("a", "b"):

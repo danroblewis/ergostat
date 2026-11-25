@@ -1,5 +1,5 @@
-"""Acceptance (analysis-source-and-window-1): the ``analysis`` source's ``raw(A)``, read from the readings and never
-their roll-ups, on one grid with its gap mask; the window ledger (``meta.sampling``) on every answer, its observable
+"""Acceptance (analysis-source-and-window-1): the ``analysis`` source's ``raw(A)``, read from the readings one by
+one, on one grid with its gap mask; the window ledger (``meta.sampling``) on every answer, its observable
 band and its nulls; the warning of a request whose answers differ in step or range windows; and the refusals and bounds
 of the call language. A stub Prometheus (tests/test_data_sources.py) stands in for a source."""
 
@@ -9,30 +9,26 @@ import base64
 import json
 import types
 
-import pytest
-
 from ergostat import datasources
 from ergostat import model as mdl
 from ergostat.query import analysis, engine, sampling
 from ergostat.query import parse as parsing
-from ergostat.store import Measurements, Project
+from ergostat.store import Project
 from ergostat.web.server import Live, api
 from tests import test_data_sources as ds
+from tests.conftest import victoria
 
 T = ds.T                                       # a multiple of 600
 prom = ds.prom                                 # (a fixture)
 HOUR = 3600.0
 
 
-def record(tmp_path, readings, raw=None) -> Project:
-    """A model whose metrics store holds ``readings`` of ``s`` and their 600 s roll-ups (``raw``: how long the
-    readings are kept; rolled long after, so they are past it)."""
+def record(tmp_path, readings) -> Project:
+    """A model whose metrics store holds ``readings`` of ``s``."""
     (tmp_path / "ergostat.yaml").write_text("name: an\nstocks:\n  queue: {unit: tickets}\n")
     p = Project(mdl.load(tmp_path))
-    (tmp_path / "m").mkdir()
-    p.measurements = Measurements(tmp_path / "m", raw=raw, tiers=[(600.0, 1e9)])
+    p.measurements = victoria(tmp_path / "m")
     p.measurements.add_many([("s", t, v) for t, v in readings])
-    p.measurements.roll(now=T + 3 * HOUR + (raw or 0) * 2)
     return p
 
 
@@ -43,19 +39,17 @@ def ask(p, *queries, since=2 * HOUR, until=T + 2 * HOUR, points=120) -> list[dic
 
 
 A = ("A", {"source": "series", "series": "s"})
-SAW = [(T + 10 * i, float(i % 7)) for i in range(720)]           # 10 s apart; each 600 s roll-up's mean is about 3
+SAW = [(T + 10 * i, float(i % 7)) for i in range(720)]           # 10 s apart; each 600 s bucket's mean is about 3
 
 
 def codes(r: dict) -> list[str]:
     return [x["code"] for x in r["meta"]["verdict"]["reasons"]]
 
 
-def test_raw_reads_readings_not_rollups(tmp_path):
+def test_raw_reads_every_reading_not_buckets(tmp_path):
     p = record(tmp_path, SAW)
-    with p.measurements._c() as c:                    # roll-ups unlike the readings: reading them cannot pass for raw
-        c.execute("update tiers set sum = n * 100.0, min = 100, max = 100, first_v = 100, last_v = 100")
     a, r = ask(p, A, ("R", {"source": "analysis", "text": "raw(A)"}), points=12)
-    assert a["step"] == 600 and set(a["series"][0]["values"]) == {100}                # A at 600 s: the roll-ups
+    assert a["step"] == 600 and all(2.5 < x < 3.5 for x in a["series"][0]["values"] if x is not None)   # A: buckets
     assert "error" not in r and r["shape"] == "series" and r["step"] == 10, r
     assert r["times"] == [t for t, _ in SAW] and r["series"][0]["values"] == [v for _, v in SAW]
     assert r["meta"]["sampling"]["scrape_s"] == 10 and r["meta"]["source"] == "analysis" and r["gaps"] == []
@@ -71,38 +65,6 @@ def test_raw_masks_a_gap(tmp_path):
     v = r["series"][0]["values"]
     assert all(x is None for x in v[121:150]) and v[120] is not None and v[150] is not None
     assert v[250] == (v[249] + v[251]) / 2                                          # a short hole is a straight line
-
-
-def test_raw_never_draws_over_a_listed_gap(tmp_path):
-    """Readings 1 s into their 10 s buckets: a hole just over GAP_SAMPLES spacings (31 s) is three buckets wide, as a
-    hole of exactly 30 s is. The first is listed and stays empty; the second is not listed and is a straight line."""
-    near = {i: T + 1 + 10 * i for i in range(720) if i not in (101, 102, 201, 202)}
-    near[103], near[203] = T + 1001 + 31, T + 2001 + 30
-    p = record(tmp_path, [(t, float(i % 7)) for i, t in sorted(near.items())])
-    [r] = ask(p, A, ("R", {"source": "analysis", "text": "raw(A)"}))[1:]
-    assert r["step"] == 10 and r["gaps"] == [[T + 1001, T + 1032]], r["gaps"]
-    v = r["series"][0]["values"]
-    assert v[101] is None and v[102] is None and v[100] is not None and v[103] is not None   # listed: never filled
-    assert v[201] is not None and v[202] is not None                                      # not listed: a line
-
-
-def test_raw_refuses_when_only_rollups_remain(tmp_path):
-    p = record(tmp_path, SAW, raw=60.0)
-    assert p.measurements.count("s", T, T + 2 * HOUR) == len(SAW)                   # (in the roll-ups, n of each)
-    a, r = ask(p, A, ("R", {"source": "analysis", "text": "raw(A)"}))
-    assert "error" not in a and a["series"][0]["values"][0] is not None              # A still answers, from roll-ups
-    assert "series" not in r and "only roll-ups" in r["error"] and codes(r) == ["only-rollups"]
-    assert r["meta"]["verdict"]["level"] == "refuse"
-    assert codes(a) == ["scrape-unknown"] and a["meta"]["sampling"]["scrape_s"] is None    # never read as fine
-    (tmp_path / "half").mkdir()
-    p = record(tmp_path / "half", SAW)
-    p.measurements.raw = HOUR                         # the first hour's readings forgotten, its roll-ups kept
-    p.measurements.roll(now=T + 2 * HOUR + 60)
-    [r] = ask(p, A, ("R", {"source": "analysis", "text": "raw(A)"}))[1:]
-    assert set(r["series"][0]["values"][:360]) == {None} and r["series"][0]["values"][360:] == [v for _, v in SAW[360:]]
-    assert f"from {T:.0f} to {T + HOUR:.0f} only roll-ups are kept" in str(r["meta"]["verdict"])
-    with pytest.raises(datasources.SourceError, match="no raw readings"):        # a store that cannot tell them apart
-        analysis.raw(object(), parsing.Query("A", "series", "avg", series="s"), T, T + HOUR, analysis.call("raw(A)"))
 
 
 def test_ledger_records_promql_range_windows(tmp_path, prom):
@@ -143,9 +105,6 @@ def test_shaped_answers_carry_their_scrape(tmp_path, monkeypatch):
     shaped = [("O", {**sig, "agg": "ohlc"}), ("F", {"source": "frequency", "input": sig, "output": sig})]
     for r in ask(record(tmp_path, SAW), *shaped):
         assert "error" not in r and r["meta"]["sampling"]["scrape_s"] == 10 and "scrape-unknown" not in codes(r), r
-    (tmp_path / "gone").mkdir()                       # readings pruned: unknown, and warned (a frequency is then
-    [r] = ask(record(tmp_path / "gone", SAW, raw=60.0), shaped[0])                # refused: 12 roll-ups are too few)
-    assert "error" not in r and r["meta"]["sampling"]["scrape_s"] is None and "scrape-unknown" in codes(r), r
     (tmp_path / "late").mkdir()                       # 10 s apart, then the newest 40 readings 30 s apart
     p = record(tmp_path / "late", [*SAW[:600], *((SAW[599][0] + 30 * i, 1.0) for i in range(1, 41))])
     monkeypatch.setattr(analysis, "SCRAPE_READINGS", 30)
@@ -211,11 +170,11 @@ def test_bounds_hold(tmp_path, monkeypatch):
 
 def test_analysis_is_offered_and_reserved(tmp_path, prom):
     p = record(tmp_path, SAW)
-    assert api(Live(p), "query/fields", {})["datasources"] == [datasources.ANALYSIS, ds.OWN]   # (and the model's own)
+    assert api(Live(p), "query/fields", {})["datasources"] == [datasources.ANALYSIS, ds.OWN, {"name": "ergostat", "type": "prometheus", "language": "PromQL"}]
     assert datasources.ANALYSIS["name"] == parsing.ANALYSIS
     (tmp_path / "q").mkdir()
     q = ds.project(tmp_path / "q", f'analysis: {{type: prometheus, url: "{prom}"}}')     # declared: never listed, never asked
-    assert api(Live(q), "query/fields", {})["datasources"] == [datasources.ANALYSIS, ds.OWN]
+    assert api(Live(q), "query/fields", {})["datasources"] == [datasources.ANALYSIS, ds.OWN, {"name": "ergostat", "type": "prometheus", "language": "PromQL"}]
     ds.Stub.seen.clear()
     [r] = ask(q, ("R", {"source": "analysis", "text": "up"}))
     assert ds.Stub.seen == [] and "'up' is not a call" in r["error"] and r["error_at"] == [1, 1]

@@ -379,7 +379,8 @@ def cmd_residual(args) -> int:
     return 0
 
 
-RECORD = ("events.db", "events.db-shm", "events.db-wal", "measurements.db", "measurements.db-shm", "measurements.db-wal",
+RECORD = ("events.db", "events.db-shm", "events.db-wal",
+          "measurements.db", "measurements.db-shm", "measurements.db-wal", "measurements.backend",   # (an old record's)
           "events", "archive", "measurements.forgotten.json", "run.log", "transcripts.json",   # events/: segments.py
           "items",                                                                        # items/: the item index
           "measurements.backfilled.db", "measurements.backfilled.db-shm", "measurements.backfilled.db-wal",
@@ -390,8 +391,8 @@ def cmd_reset(args) -> int:
     """``ergostat reset``: forget this project's record (every event, item and measurement, and the
     agents' logs) and start from nothing. Only what ergostat wrote there is deleted, by name; the
     project's own files (and anything its programs keep, like an example's run/) are not touched.
-    On VictoriaMetrics, this project's series in the server are deleted first; a server that is away
-    refuses the reset, and nothing is deleted."""
+    This project's series in VictoriaMetrics are deleted first; a server that is away refuses the reset, and
+    nothing is deleted."""
     import shutil
 
     from ..runner import running_pid
@@ -402,24 +403,21 @@ def cmd_reset(args) -> int:
         return 2
     gone = [p.dir / n for n in RECORD if (p.dir / n).exists()]
     logs = p.dir / "logs"
-    vm = p.measurements if getattr(p.measurements, "name", "") == "victoriametrics" else None
+    vm = p.measurements
     if not args.yes:
         what = ", ".join(x.name for x in gone) + (", logs/" if logs.is_dir() else "")
         print(f"this forgets {p.model.name}'s record in {p.dir}: {what or 'nothing is there'}"
-              + (f"; and every reading of project {vm.project} in VictoriaMetrics at {vm.base}" if vm else "")
+              + f"; and every reading of project {vm.project} in VictoriaMetrics at {vm.base}"
               + ".\nergostat reset --yes to do it")
         return 0
-    if vm is not None:
-        try:
-            vm.drop()
-        except VictoriaError as e:
-            print(f"ergostat reset: this record's readings are in VictoriaMetrics, which did not delete them ({e}); "
-                  "nothing was reset: start the server and reset again", file=sys.stderr)
-            return 1
+    try:
+        vm.drop()
+    except VictoriaError as e:
+        print(f"ergostat reset: this record's readings are in VictoriaMetrics, which did not delete them ({e}); "
+              "nothing was reset: start the server and reset again", file=sys.stderr)
+        return 1
     for f in gone:
         shutil.rmtree(f) if f.is_dir() else f.unlink()
-    if p.dir / "measurements.db" in gone:          # a SQLite record stays SQLite: the mark storage reads (never re-asked)
-        (p.dir / "measurements.backend").write_text("sqlite\n")
     if logs.is_dir():
         shutil.rmtree(logs)
     print(f"forgot {p.model.name}'s record ({p.dir}); the next run starts from nothing")
@@ -427,44 +425,10 @@ def cmd_reset(args) -> int:
 
 
 
-def cmd_migrate(args) -> int:
-    """``ergostat migrate``: this project's readings copied into VictoriaMetrics (ergostat/migrate.py), each series read
-    back; a reading the server did not keep fails it, named. Once all are held, run again, it sends nothing."""
-    from ..migrate import migrate
-    from ..storage import VM_URL
-    from ..victoria import Victoria, VictoriaError
-    p = open_project(args)
-    url = args.url or p.storage.url or VM_URL
-    dst = Victoria(url, p.dir)
-    dst.spec_of = lambda: getattr(p.model, "spec", None)    # (each series moved to the name the model gives it)
-    try:
-        got = migrate(p.dir, dst, list(p.storage.tiers), dry=args.dry_run)
-    except VictoriaError as e:
-        print(f"ergostat migrate: {e}", file=sys.stderr)
-        return 1
-    if args.json:
-        out_json({"url": url, **got, "dry_run": args.dry_run})
-        return 1 if got["missing"] else 0
-    verb = "would send" if args.dry_run else "sent"
-    print(f"{got['series']} series, {got['readings']} readings read from SQLite; {verb} {got['sent']} to {url}"
-          + (f"; {got['renamed']} series moved from an old name to the model's" if got["renamed"] else ""))
-    if got["missing"]:
-        day = lambda t: time.strftime("%Y-%m-%d", time.gmtime(t))   # noqa: E731
-        print(f"ergostat migrate: {got['missing']} readings sent were not kept by the server (older than its "
-              "-retentionPeriod, one month unless set, or too far ahead); keep SQLite, or raise -retentionPeriod and "
-              "run it again:", file=sys.stderr)
-        for s, x in sorted(got["lost"].items()):
-            print(f"  {s}: {x['n']} readings, {day(x['first'])} to {day(x['last'])}", file=sys.stderr)
-        return 1
-    if not args.dry_run and p.storage.measurements != "victoriametrics":
-        print("To read them from there, set storage: measurements: {backend: victoriametrics, url: " + url + "}")
-    return 0
-
-
 def cmd_compact(args) -> int:
     """``ergostat compact``: now, what the engine does every hour (SPEC §4b): items' events older than
-    their horizon rolled up into snapshots and archived, what is older than ``keep`` forgotten, the
-    measurements rolled into their tiers."""
+    their horizon rolled up into snapshots and archived, what is older than ``keep`` forgotten (the readings are
+    VictoriaMetrics', kept for its own -retentionPeriod)."""
     from ..rollup import Archive, compact, upkeep, vacuum
     if getattr(args, "projects", False):
         return _compact_projects(args)
@@ -494,9 +458,7 @@ def cmd_compact(args) -> int:
     verb = "would roll up" if args.dry_run else "rolled up"
     print(f"{verb} {ro['events']} events of {ro['items']} items into snapshots ({ro['seconds']:.1f}s)")
     if not args.dry_run:
-        me = got.get("measurements") or {}
         print(f"forgot {got['pruned']} events older than {human(p.model.keep)}, {got['archive_forgot']} archive segments; "
-              f"measurements: {me.get('rolled', 0)} buckets made, {me.get('forgot', 0)} rows forgotten; "
               f"{got['vacuumed'] / 1e6:.1f} MB given back")
     print(c(f"archive: {got['archive_bytes'] / 1e6:.1f} MB in {p.dir / 'archive'}", "dim"))
     return 0

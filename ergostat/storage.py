@@ -1,15 +1,15 @@
-"""Where the record is kept (SPEC §4b, ``storage:``): which backend holds the events and which the
-measurements, how long raw readings are kept and the tiers they are rolled up into, and when an
-item's older events are rolled up into a snapshot (``rollup.py``). Every backend has the same
-interface as the SQLite ones in ``store.py`` (``Events``, ``Measurements``), and one conformance
-suite holds them all to it (``tests/test_store_conformance.py``).
+"""Where the record is kept (SPEC §4b, ``storage:``): which backend holds the events, the VictoriaMetrics that
+holds every reading (the only metrics store: each reading is a sample PromQL reads, ``victoria.py``), and when an
+item's older events are rolled up into a snapshot (``rollup.py``). Every events backend has the same interface as
+the SQLite one in ``store.py`` (``Events``), and one conformance suite holds every store to it
+(``tests/test_store_conformance.py``).
 
     storage:
       events: segments                 # or sqlite; segments: compressed segments with an index (segments.py)
       measurements:
-        backend: sqlite                # or victoriametrics (url: http://127.0.0.1:8428)
-        raw: 2d                        # raw readings kept this long
-        tiers: {1m: 14d, 10m: 90d, 1h: 2y}   # then buckets of each width, each kept this long
+        url: http://127.0.0.1:8428     # the VictoriaMetrics (else ERGOSTAT_METRICS_URL, else this)
+        run: victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data -retentionPeriod 100y
+                                       # optional: the command ergostat supervises (the daemon victoriametrics)
       rollup:
         after: 7d                      # an item's events older than this become one snapshot
         kinds: {session: 1d}           # per item kind
@@ -23,7 +23,8 @@ suite holds them all to it (``tests/test_store_conformance.py``).
         threads: 1MB                   # threads.txt (kill -USR1's stacks) past this is cut to its last fifth
         transcripts: 30d               # a transcript unchanged this long is forgotten by transcripts.json, never read again
 
-The defaults run on a laptop with no services."""
+The readings need a VictoriaMetrics answering (``brew install victoriametrics``, or ``run:``); none answering is
+said, never covered by another store (NOTES.md, 2026-11-25)."""
 
 from __future__ import annotations
 
@@ -35,11 +36,9 @@ from pathlib import Path
 from .durations import DurationError, parse_duration
 
 EVENT_BACKENDS = ("sqlite", "segments")
-MEASUREMENT_BACKENDS = ("sqlite", "victoriametrics")
 DEFAULT_EVENTS = "segments"
 VM_URL = "http://127.0.0.1:8428"                  # VictoriaMetrics' own default address
-RAW = 2 * 86400.0
-TIERS = ((60.0, 14 * 86400.0), (600.0, 90 * 86400.0), (3600.0, 730 * 86400.0))
+URL_ENV = "ERGOSTAT_METRICS_URL"                  # the VictoriaMetrics a record without url: uses (before VM_URL)
 ROLLUP_AFTER = 7 * 86400.0
 EVERY = 3600.0
 ITEM_IDLE = 86400.0
@@ -52,12 +51,8 @@ RUNS_MOST = 1000                                   # (runs: a count of files, he
 class Storage:
     events: str = DEFAULT_EVENTS
     events_set: bool = False                       # the YAML named the events backend (else: an existing record decides)
-    measurements: str = "sqlite"
-    measurements_set: bool = False                 # the YAML named it (else: a new record's default, measurements_backend)
-    url: str | None = None                         # victoriametrics
-    run: str | None = None                         # victoriametrics: the command ergostat supervises (daemon victoriametrics)
-    raw: float | None = RAW
-    tiers: tuple[tuple[float, float], ...] = TIERS
+    url: str | None = None                         # the VictoriaMetrics (None: metrics_url's default)
+    run: str | None = None                         # the command ergostat supervises to run it (daemon victoriametrics)
     rollup_after: float | None = ROLLUP_AFTER      # None: never rolled up
     rollup_kinds: dict[str, float] = field(default_factory=dict)
     every: float = EVERY
@@ -105,38 +100,25 @@ def parse(raw, problems: list[str]) -> Storage:
         me = {"backend": me}
     if me is not None:
         if not isinstance(me, dict):
-            problems.append("storage.measurements: a backend's name, or a map (backend:, url:, raw:, tiers:)")
+            problems.append("storage.measurements: a map (url:, run:)")
             me = {}
         for k in me:
-            if k not in ("backend", "url", "raw", "tiers", "run"):
-                problems.append(f"storage.measurements: unknown key {k!r} (known: backend, url, raw, tiers, run)")
-        b = me.get("backend", "sqlite")
-        if b not in MEASUREMENT_BACKENDS:
-            problems.append(f"storage.measurements.backend: {b!r} is not a backend ({', '.join(MEASUREMENT_BACKENDS)})")
-        else:
-            s.measurements, s.measurements_set = b, True
-        if b == "victoriametrics":
-            s.url = str(me.get("url") or VM_URL)
+            if k in ("raw", "tiers"):
+                problems.append(f"storage.measurements.{k}: no longer: every reading is kept in VictoriaMetrics, for its "
+                                "own -retentionPeriod (NOTES.md, 2026-11-25); remove it")
+            elif k not in ("backend", "url", "run"):
+                problems.append(f"storage.measurements: unknown key {k!r} (known: url, run)")
+        b = me.get("backend", "victoriametrics")
+        if b != "victoriametrics":
+            problems.append(f"storage.measurements.backend: {b!r}: the readings are kept in VictoriaMetrics only "
+                            "(NOTES.md, 2026-11-25); remove backend:")
+        if me.get("url") is not None:
+            s.url = str(me["url"])
         if "run" in me:
-            if b != "victoriametrics" or not isinstance(me["run"], str) or not me["run"].strip():
-                problems.append("storage.measurements.run: the command that runs VictoriaMetrics (backend: victoriametrics)")
+            if not isinstance(me["run"], str) or not me["run"].strip():
+                problems.append("storage.measurements.run: the command that runs VictoriaMetrics")
             else:
                 s.run = me["run"]
-        if "raw" in me:
-            s.raw = _dur(me["raw"], "storage.measurements.raw", problems)
-        if "tiers" in me:
-            t = me["tiers"]
-            if t in (None, False, {}, []):
-                s.tiers = ()
-            elif not isinstance(t, dict):
-                problems.append("storage.measurements.tiers: a map of bucket width to how long it is kept ({1m: 14d})")
-            else:
-                got = [(_dur(e, "storage.measurements.tiers", problems), _dur(k, "storage.measurements.tiers", problems))
-                       for e, k in t.items()]
-                if all(e and k for e, k in got):
-                    s.tiers = tuple(sorted(got))        # type: ignore[arg-type]
-                    if any(b % a for (a, _), (b, _) in zip(s.tiers, s.tiers[1:], strict=False)):
-                        problems.append("storage.measurements.tiers: each bucket width a multiple of the one before (1m, 10m, 1h)")
     ro = raw.get("rollup")
     if ro is not None:
         if not isinstance(ro, dict):
@@ -224,58 +206,53 @@ def open_events(cfg: Storage, directory: Path):
     return Events(directory)
 
 
-def _answers(url: str) -> bool:
-    """A VictoriaMetrics answering at ``url`` now (``/health``, within half a second)."""
+def answers(url: str, wait: float = 0.5) -> bool:
+    """A VictoriaMetrics answering at ``url`` now (``/health``, within ``wait`` seconds)."""
     import urllib.request
     try:
-        with urllib.request.urlopen(url.rstrip("/") + "/health", timeout=0.5) as r:
+        with urllib.request.urlopen(url.rstrip("/") + "/health", timeout=wait) as r:
             return r.status == 200 and r.read(16).strip() == b"OK"
     except (OSError, ValueError):
         return False
 
 
+def metrics_url(cfg: Storage | None) -> str:
+    """The VictoriaMetrics this record's readings are in: ``url:``, else ``ERGOSTAT_METRICS_URL``, else VM_URL."""
+    return ((cfg.url if cfg is not None else None) or os.environ.get(URL_ENV) or VM_URL).rstrip("/")
+
+
 def in_default_home(directory: Path) -> bool:
-    """A record under the default home, ``~/.ergostat``: an install's own. A record under any other home (a script's,
-    a demo's, a benchmark's, a trial's throwaway ``ERGOSTAT_HOME``) is not, whatever answers at VM_URL."""
+    """A record under the default home, ``~/.ergostat``: an install's own."""
     try:
         return Path(directory).resolve().parent == (Path.home() / ".ergostat").resolve()
     except (OSError, RuntimeError):
         return False
 
 
-def measurements_backend(cfg: Storage, directory: Path) -> str:
-    """The measurements backend: the one the YAML names; else a record that has one keeps it (``measurements.db``,
-    an existing SQLite install, until it migrates; or the mark a new record's choice left, or ``reset`` kept); else,
-    for a new record under the default home, VictoriaMetrics when one answers at VM_URL (the default for new installs,
-    so a fresh dashboard's PromQL has data), and SQLite when none does or the record is under another home (so a
-    throwaway home never writes into a live server). ``ERGOSTAT_DEFAULT_MEASUREMENTS`` (sqlite or victoriametrics)
-    decides instead, for any home."""
+def metrics_project(directory: Path) -> str:
+    """The ``project`` label of a record's readings: its state key under the default home; under any other home (a
+    script's, a demo's, a benchmark's, a test's throwaway ``ERGOSTAT_HOME``) the key and a digest of where that home
+    is, so two homes sharing one VictoriaMetrics never read or delete each other's series."""
     d = Path(directory)
-    if cfg.measurements_set:
-        return cfg.measurements
-    if (d / "measurements.db").exists():
-        return "sqlite"
-    mark = d / "measurements.backend"
-    if mark.exists():                              # (unreadable: read as the default it chose, never as sqlite)
-        try:
-            got = mark.read_text().strip()
-        except OSError:
-            got = ""
-        return got if got in MEASUREMENT_BACKENDS else "victoriametrics"
-    env = os.environ.get("ERGOSTAT_DEFAULT_MEASUREMENTS")
-    got = (env if env in MEASUREMENT_BACKENDS else
-           "victoriametrics" if in_default_home(d) and _answers(VM_URL) else "sqlite")
-    if got == "victoriametrics":
-        try:
-            mark.write_text(got + "\n")
-        except OSError:
-            pass
-    return got
+    if in_default_home(d):
+        return d.name
+    import hashlib
+    try:
+        where = str(d.resolve().parent)
+    except (OSError, RuntimeError):
+        where = str(d.parent)
+    return f"{d.name}@{hashlib.sha256(where.encode()).hexdigest()[:10]}"
+
+
+def not_answering(url: str) -> str:
+    """What to do when no VictoriaMetrics answers at ``url``: every reading is kept there, and nothing else holds them."""
+    return (f"no VictoriaMetrics answers at {url}, and ergostat keeps every reading there. Start one: "
+            "brew install victoriametrics, then victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data "
+            "-retentionPeriod 100y (or brew services start victoriametrics); or have ergostat run it with "
+            "storage: measurements: run: <that command> in the model; or point storage: measurements: url: (or "
+            f"{URL_ENV}) at one that runs (docs/DASHBOARDS.md, VictoriaMetrics)")
 
 
 def open_measurements(cfg: Storage, directory: Path):
-    if measurements_backend(cfg, directory) == "victoriametrics":
-        from .victoria import Victoria
-        return Victoria(cfg.url or VM_URL, directory, raw=cfg.raw, tiers=list(cfg.tiers))
-    from .store import Measurements
-    return Measurements(directory, raw=cfg.raw, tiers=list(cfg.tiers))
+    from .victoria import Victoria
+    return Victoria(metrics_url(cfg), directory, project=metrics_project(directory))

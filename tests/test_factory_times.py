@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "dev" / "bin"
 H = 3600.0
-T0 = 1_800_000_000.0
+T0 = 1_787_904_000.0
 
 FAKE = r'''
 import json, sys

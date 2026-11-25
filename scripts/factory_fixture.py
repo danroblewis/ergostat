@@ -2,7 +2,9 @@
 live factory (tests/README.md says what it holds): `scripts/factory_fixture.py OUT [--seed 1] [--end EPOCH]`.
 
 OUT/model is the model (an item kind each of scale_model.py's plain workflows, measures, `use: modelling`, `upkeep`),
-OUT/home its ERGOSTAT_HOME, holding its record: the 24 h before --end. Prints what it wrote, as JSON."""
+OUT/home its ERGOSTAT_HOME, holding its record: the 24 h before --end; its readings are written to the VictoriaMetrics
+the record uses (ERGOSTAT_METRICS_URL), and kept in OUT/readings.json.gz too, so another server can be given them
+(tests/conftest.py, one VictoriaMetrics a test process). Prints what it wrote, as JSON."""
 
 import argparse
 import gzip
@@ -140,6 +142,7 @@ class Record:
                     y = h.value + 1 + 2 * g.tolerance if "<" in h.op else h.value - 1 - 2 * g.tolerance
                 rows.append((f"sensor/{s.name}", at, round(y, 3)))
         p.measurements.add_many(rows)
+        self.rows = rows
         blocks, seal = machine(spec), p.events.seal   # the rest: the machine blocks' runs, evenly over the day
         pairs = (SEGMENTS * seal + seal // 2 - len(self.evs)) // 2
         started = ({"id": f"r{k:07d}a", "at": t0 + (k + 0.5) * DAY / pairs, "type": "agent.started",
@@ -168,7 +171,8 @@ def build(out: Path, seed: int = 1, end: float = END) -> dict:
     with mock.patch.object(uuid, "uuid4", lambda: uuid.UUID(int=ids.getrandbits(128))), \
             mock.patch.object(gzip, "compress", partial(gzip.compress, mtime=0)):
         p = Project(m := mdl.load(out / "model"))
-        said = Record(seed, end).write(p, spec, m)
+        said = (rec := Record(seed, end)).write(p, spec, m)
+        (out / "readings.json.gz").write_bytes(gzip.compress(json.dumps(rec.rows).encode()))
     return {**counts(spec), **said, "seed": seed, "end": end, "record": str(p.dir)}
 
 

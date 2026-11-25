@@ -57,7 +57,7 @@ def slow_world(tmp_path, seed: int, k_true: float, k_written: float, base: float
     (tmp_path / "ergostat.yaml").write_text(SLOW.format(k=k_written))
     p = Project(mdl.load(tmp_path))
     rng = random.Random(seed)
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     t0 = now - (BEFORE + hours) * 3600
     q, arrived, t, nxt = int(base / k_true), 0, t0, t0
     rows = []

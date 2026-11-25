@@ -51,7 +51,7 @@ def pile_project(tmp_path, open_of, minutes: int = 120, rate: float = 6.0, dead:
     image-squeeze's images compared, in small."""
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(PILE))
     p = Project(mdl.load(tmp_path))
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     pile, opened, was = 0.0, None, 0
     for i in range(minutes * 2 + 1):
         t = now - minutes * 60 + i * 30

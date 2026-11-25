@@ -1,6 +1,6 @@
 """Rolling up the record (SPEC §4b): an item's events older than a horizon replaced by one
 ``ergostat.item.snapshot`` event, the originals moved to a compressed archive, and the record kept
-to its ``keep``; the measurements rolled into their tiers. The engine does it every ``storage:
+to its ``keep`` (the readings are VictoriaMetrics', kept for its own -retentionPeriod). The engine does it every ``storage:
 rollup: every`` (an hour, or the ``use: upkeep`` blocks instead), and ``ergostat compact`` now, under ``compaction``.
 
 A snapshot is a ``set`` (SPEC §5a: the whole document at once) of the item's document as of the
@@ -323,8 +323,9 @@ def record(p, now: float | None = None) -> dict:
 
 
 def measurements(p, now: float | None = None) -> dict | None:
-    """The measurements rolled into their tiers (the caller holds ``compaction``); None for a store without tiers to roll."""
-    return p.measurements.roll(now if now is not None else time.time()) if hasattr(p.measurements, "roll") else None
+    """The measurements' upkeep: none (VictoriaMetrics keeps and compresses every reading for its -retentionPeriod),
+    so None. Kept for ``use: upkeep``'s measurement retainer, which then moves nothing."""
+    return None
 
 
 def upkeep(p, now: float | None = None) -> dict:
@@ -333,11 +334,10 @@ def upkeep(p, now: float | None = None) -> dict:
     with compaction(p) as held:
         if not held:
             return {"busy": True}
-        out, me = record(p, now), measurements(p, now)         # (in that order)
-        return {**out, **({"measurements": me} if me is not None else {})}
+        return record(p, now)
 
 
 def vacuum(p) -> int:
-    """``ergostat compact``: the SQLite stores' files made as small as what they hold."""
+    """``ergostat compact``: the events' SQLite file made as small as what it holds."""
     from .store import vacuum as one
-    return one(p.events) + one(p.measurements)
+    return one(p.events)

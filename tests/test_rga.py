@@ -70,7 +70,7 @@ def record_tests(p, tests, G=G0, compensate=False, tau=30.0, noise=0.003, gap=20
     for t in tests:
         spans.append(k)
         k += 2 * t["hold"] + gap
-    t0 = time.time() - k - 30
+    t0 = int(time.time()) - k - 30.0                     # (whole seconds: the store keeps a time to the ms)
     u, x, hist = [25.0] * m, None, []
     a, ac = math.exp(-1 / tau), math.exp(-1 / 20.0)
     for s in range(k):

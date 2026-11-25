@@ -130,7 +130,7 @@ def with_storage(copy: Path, storage: str | None) -> None:
 
 
 def compact(copy: Path, home: Path) -> dict:
-    """``ergostat compact``, timed: the roll-up, keep, and the measurements' tiers."""
+    """``ergostat compact``, timed: the roll-up and keep."""
     t = time.time()
     r = sh("-C", str(copy), "compact", "--json", env=env_with(home), timeout=7200)
     if r.returncode != 0:

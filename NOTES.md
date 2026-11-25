@@ -79,6 +79,10 @@ a disturbance is added to the model.
 - **Item**: a fold-up of the events about one id.
 - **Metrics**: time-series measurements. Kept in a store of their own, separate from events,
   because there will be few events and many metrics.
+- **Every metric goes through PromQL, recorded in VictoriaMetrics** (2026-11-25, the owner's decision). VictoriaMetrics
+  is the only metrics store and is required: the SQLite readings store, its roll-up tiers and `ergostat migrate` are
+  gone. With none answering, ergostat says how to start one and does not run; it never keeps readings anywhere else.
+  The events and the item index stay in the state directory.
 - Pub/sub may be how ergostat runs its own processes and their communication. The event bus is how
   the relationships between agents are read off.
 

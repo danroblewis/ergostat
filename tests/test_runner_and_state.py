@@ -240,12 +240,9 @@ def test_a_goal_feeding_one_that_is_off_is_a_hint_about_that_goal_by_its_field()
     assert hint["goal"] == "up" and hint["says"].startswith("goal up keeps feeding s (2/h) while goal down is off 70%"), hint
 
 
-def test_a_week_of_readings_is_sampled_in_sql_and_the_ends_kept_exact(project):
-    import sqlite3
-    t0 = time.time() - 7 * 86400
-    with sqlite3.connect(project.measurements.path) as c:
-        c.executemany("insert into samples(series, time, value) values (?,?,?)",
-                      [("sensor/disk-usage", t0 + i * 5, 50 + (i % 40)) for i in range(120000)])
+def test_a_week_of_readings_is_sampled_by_the_store_and_the_ends_kept_exact(project):
+    t0 = float(int(time.time() - 7 * 86400))
+    project.measurements.add_many([("sensor/disk-usage", t0 + i * 5, 50 + (i % 40)) for i in range(120000)])
     t = time.time()
     snap = state.snapshot(project, window=8 * 86400)
     assert time.time() - t < 3
@@ -259,7 +256,7 @@ def test_pruning_forgets_old_record_but_not_the_model_history(project):
     project.events.add("x.y.z", at=old)
     project.events.add("model.changed", at=old, data={"parts": {}, "added": [], "removed": [], "changed": []})
     project.measurements.add("sensor/disk-usage", 1, at=old)
-    assert project.events.prune(time.time() - 30 * 86400) == 1 and project.measurements.prune(time.time() - 30 * 86400) == 1
+    assert project.events.prune(time.time() - 30 * 86400) == 1           # (the readings: the server's own retention)
     assert [e["type"] for e in project.events.query(n=None)] == ["model.changed"]
 
 
@@ -603,6 +600,7 @@ def test_forgetting_a_reading_forgets_the_crossing_it_caused(project, repo):
         project.measurements.add("sensor/disk-usage", v)
         runner.edges(project, None, sensor="disk-usage")
     assert state.snapshot(project)["loops"]["disk-under-80"]["status"] == "off"      # the 9999 crossed, 82 is in the band
+    project.measurements.flush()                         # (sent, as the engine's are within FLUSH, before the next process)
     env = {**os.environ}
     r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(repo.path), "sensor", "disk-usage", "--forget-above", "1000"],
                        capture_output=True, text=True, env=env)

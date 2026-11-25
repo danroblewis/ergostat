@@ -186,7 +186,7 @@ def test_an_unreadable_test_command_is_stale_and_off(tmp_path, monkeypatch):
     t0 = time.monotonic()
     assert regressions.counts(0.5) == (None, "no answer within 0.5s") and time.monotonic() - t0 < 10
     assert not alive(p.model.spec.root / "pid"), "the run past its time is killed with its group"
-    clock = [1_800_000_000.0]
+    clock = [1_787_904_000.0]
     monkeypatch.setattr(time, "time", lambda: clock[0])
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     e = Engine(p, say=lambda s: None)

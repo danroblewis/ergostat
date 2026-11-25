@@ -5,6 +5,7 @@ here, never sent."""
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -599,7 +600,11 @@ def test_ergostat_sends_nothing_for_a_for_remote_proposal(tmp_path, monkeypatch,
         def __exit__(self, *a):
             return False
 
+    real, vm = urllib.request.urlopen, os.environ["ERGOSTAT_METRICS_URL"]
+
     def urlopen(req, timeout=None):
+        if req.full_url.startswith(vm):                # (the readings' store: this test's own VictoriaMetrics)
+            return real(req, timeout=timeout)
         asked.append(req)
         return R(json.dumps({**body} if req.full_url.split("?")[0].endswith("/model") else {}).encode())
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)

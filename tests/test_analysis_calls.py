@@ -13,8 +13,9 @@ from ergostat import datasources
 from ergostat import model as mdl
 from ergostat.query import spectra
 from ergostat.query.frequency import Refused
-from ergostat.store import Measurements, Project
+from ergostat.store import Project
 from tests import test_data_sources as ds
+from tests.conftest import victoria
 from tests.test_analysis_source import HOUR, T, ask, codes
 
 prom = ds.prom                                 # (a fixture)
@@ -24,8 +25,7 @@ def store(tmp_path, **series) -> Project:
     """A model whose metrics store holds each named series' readings ``[(t, v)]``."""
     (tmp_path / "ergostat.yaml").write_text("name: calls\nstocks:\n  queue: {unit: tickets}\n")
     p = Project(mdl.load(tmp_path))
-    (tmp_path / "m").mkdir()
-    p.measurements = Measurements(tmp_path / "m", tiers=[(600.0, 1e9)])
+    p.measurements = victoria(tmp_path / "m")
     p.measurements.add_many([(n, t, v) for n, rs in series.items() for t, v in rs])
     return p
 
@@ -85,12 +85,6 @@ def test_psd_refuses_a_windowed_signal_without_raw(tmp_path, prom, monkeypatch):
         assert "series" not in x and "rows" not in x and codes(x) == ["windowed"], x   # never the windowed values
         assert "(G1)" in x["error"] and "300 s" in x["error"] and x["meta"]["verdict"]["level"] == "refuse"
     assert "error" not in f and {"not-raw", "scrape-unknown"} <= set(codes(f)), f   # no window: answered, warned
-    (tmp_path / "gone").mkdir()                       # a series whose raw readings are pruned: refused, not roll-ups
-    q = store(tmp_path / "gone", s=sine())
-    q.measurements.raw = 60.0
-    q.measurements.roll(now=T + 3 * HOUR + 120)
-    [r] = ask(q, ("A", series("s")), ("P", call("psd(A)")))[1:]
-    assert "series" not in r and codes(r) == ["only-rollups"], r
 
 
 def test_psd_marks_periods_below_twice_the_step_unobservable(tmp_path):

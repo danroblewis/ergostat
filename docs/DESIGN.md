@@ -43,20 +43,21 @@ disturbance; an agent with nothing to do, no roles, or a command that is not fou
 (Where the record is kept, rolled up and downsampled, and its backends: SPEC §4b. What follows is
 the SQLite backend of each.)
 
-Two stores, kept apart because there are few events and many measurements, both SQLite files in
+Two stores, kept apart because there are few events and many measurements: the events in
 `$ERGOSTAT_HOME/<name>-<8 hex of the repository's path>/` (default home `~/.ergostat`;
-*decided in the owner's absence*). Each thread keeps its own connection open (opening and closing
+*decided in the owner's absence*), and the measurements in VictoriaMetrics, the only metrics store (2026-11-25, the
+owner's decision: every metric through PromQL; NOTES.md). Each thread keeps its own connection open (opening and closing
 connections from many threads deadlocked inside SQLite's file locking).
 
 - **`events.db`**: `events(seq, id, time, type, item, source, causedby, data)`, append-only,
   indexed by item, type, time and cause. An event's `item` is what it is about; an item is the fold
   of its events.
-- **`measurements.db`**: `samples(series, time, value)`. A sensor's readings are the series
-  `sensor/<name>`; a valve's position, `valve/<name>`. A long span is averaged into buckets by
-  SQLite (the first and last readings kept exact), so a week of readings never reaches Python one
-  by one.
+- **Measurements** (`ergostat/victoria.py`): each reading a sample in VictoriaMetrics. A sensor's readings are the
+  series `sensor/<name>`; a valve's position, `valve/<name>`, each under its PromQL name and labels. A long span is
+  averaged into buckets by the server (the first and last readings kept exact), so a week of readings never reaches
+  Python one by one.
 - **Keeping**: the top-level `keep = "30d"` (the default) says how long the record is kept; the
-  runner forgets older events and measurements hourly, except the model's history (`model.changed`),
+  runner forgets older events hourly (the readings are kept for VictoriaMetrics' own `-retentionPeriod`), except the model's history (`model.changed`),
   which is kept whole.
 
 ergostat's own event types (agents may not publish them): `agent.started`, `agent.ran`,

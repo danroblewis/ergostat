@@ -110,9 +110,6 @@ def types() -> dict[str, ModuleType]:
 
 
 OWN = "ergostat"          # the built-in source: ergostat's own readings, as PromQL (a model's source of this name wins)
-NEEDS = ("ergostat's own series answer PromQL only from VictoriaMetrics, and this project keeps its readings in SQLite: "
-         "run VictoriaMetrics, set storage: measurements: victoriametrics, and copy the readings over with "
-         "ergostat migrate (docs/DASHBOARDS.md, Turning on VictoriaMetrics)")
 
 
 def sources(spec, store=None) -> dict:
@@ -120,15 +117,13 @@ def sources(spec, store=None) -> dict:
     connection is the project's own model and record, datasources/model.py, so it needs no declaring); and with the
     project's measurements (``store``) the built-in ``ergostat``: a Prometheus-compatible source over the
     VictoriaMetrics that holds them, asked only for this project's series (its ``extra_label``, which the server
-    enforces whatever the text says); over SQLite, one that says what it needs."""
+    enforces whatever the text says)."""
     from ..spec.ir import Source
     got = dict(getattr(spec, "sources", None) or {})
     if spec is not None and OWN_NAME not in got:
         got[OWN_NAME] = Source(OWN_NAME, OWN_TYPE)
     if store is not None and OWN not in got:
-        vm = getattr(store, "name", "") == "victoriametrics"
-        got[OWN] = Source(OWN, "prometheus", getattr(store, "base", "") if vm else "",
-                          options={"extra_label": f"project={store.project}"} if vm else {"needs": NEEDS})
+        got[OWN] = Source(OWN, "prometheus", store.base, options={"extra_label": f"project={store.project}"})
     return got
 
 
@@ -139,8 +134,8 @@ def _needs(src) -> None:
 
 def listed(spec, store=None, own_only: bool = False) -> list[dict]:
     """The sources a panel can query: ergostat's own ``analysis`` first (reserved, never declared, and a declared source
-    of that name is never listed), then the rest (the built-in ``ergostat`` when it answers: on VictoriaMetrics): name,
-    type and language, and never their connection. A panel naming it over SQLite is answered with what it needs.
+    of that name is never listed), then the rest (the built-in ``ergostat``, over the VictoriaMetrics that holds the
+    readings): name, type and language, and never their connection.
     ``own_only``: only those that read nothing outside the project (what anyone under a public name may ask; an
     analysis re-asks only a source its reader may ask)."""
     every = types()

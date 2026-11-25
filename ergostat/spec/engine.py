@@ -2581,12 +2581,10 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
     if s.query is not None:
         src = spec.sources.get(s.query["source"])
         if src is None and s.query["source"] == "ergostat":     # the built-in source: this project's own readings
-            st = getattr(spec, "storage", None)
-            if st is None or st.measurements != "victoriametrics" or not st.url:
-                return None, "the built-in source ergostat answers PromQL only from VictoriaMetrics (storage: measurements)"
+            from ..storage import metrics_project, metrics_url
             from ..store import state_dir
-            return prometheus(st.url, str(s.query.get("promql", "")), s.timeout,
-                              extra_label=f"project={state_dir(spec.name, spec.root).name}")
+            return prometheus(metrics_url(getattr(spec, "storage", None)), str(s.query.get("promql", "")), s.timeout,
+                              extra_label=f"project={metrics_project(state_dir(spec.name, spec.root))}")
         if src.type == "prometheus":
             return prometheus(src.url, str(s.query.get("promql", "")), s.timeout)
         if src.type == "ergostat":                           # a remote ergostat's reading (SPEC §4c)

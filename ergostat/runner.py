@@ -550,8 +550,7 @@ class Runner:
 
     def _prune(self) -> None:
         """Every ``storage: rollup: every`` (an hour): roll items' old events up into snapshots, forget
-        what is older than the model's ``keep`` (default 30 days), and roll the measurements into their
-        tiers (``rollup.upkeep``, under the compaction lock). Under ``use: upkeep`` only the logs: the template's
+        what is older than the model's ``keep`` (default 30 days) (``rollup.upkeep``, under the compaction lock). Under ``use: upkeep`` only the logs: the template's
         record-compactor and measurement-retainer do the rest (SPEC §4b)."""
         while not self.stop.wait(60):                      # not at once: a start is busy enough
             prune_once(self.p, self.say)          # (a module function: the spec engine runs _prune as its own)
@@ -664,11 +663,10 @@ def prune_once(p, say) -> None:
     if got.get("busy"):
         say("rolling up: busy (another process holds the compaction lock); nothing done")
         return
-    ro, me = got["rollup"], got.get("measurements") or {}
-    if ro["items"] or got["pruned"] or me.get("forgot"):
+    ro = got["rollup"]
+    if ro["items"] or got["pruned"]:
         say(f"rolled up {ro['events']} events of {ro['items']} items; kept {p.model.keep / 86400:g} days: "
-            f"forgot {got['pruned']} events; measurements: {me.get('rolled', 0)} buckets made, "
-            f"{me.get('forgot', 0)} rows forgotten")
+            f"forgot {got['pruned']} events")
 
 
 def pid_file(project) -> Path:

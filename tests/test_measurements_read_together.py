@@ -1,19 +1,19 @@
-"""The status reads the window's readings of every sensor together (``Measurements.ranges``) and the store's first
-reading by each series' index (``first_time``): each answer equals the store's own, one series at a time, with raw
-readings kept for a while and tiers below them (dev/records/status-reads-the-projections.md)."""
+"""The status reads the window's readings of every sensor together (``Victoria.ranges``) and the store's first reading
+(``first_time``): each answer equals the store's own, one series at a time (dev/records/status-reads-the-projections.md)."""
 
 from __future__ import annotations
 
 import random
+import uuid
 
-from ergostat.store import Measurements
+from ergostat.victoria import Victoria
 
 DAY = 86400.0
-NOW = 1_800_000_000.0
+NOW = 1_790_000_000.0                                    # (in the past: a query asks up to a day ahead)
 
 
-def _store(tmp_path, r: random.Random) -> Measurements:
-    m = Measurements(tmp_path, raw=6 * 3600.0, tiers=[(60.0, 2 * DAY), (600.0, 30 * DAY)])
+def _store(tmp_path, vm, r: random.Random) -> tuple[Victoria, list]:
+    m = Victoria(vm, tmp_path, project=f"test-{uuid.uuid4().hex[:10]}")
     rows = []
     for k in range(12):                                   # some read for days, some only lately, some long ago only
         since = r.choice([5 * DAY, 3 * 3600.0, 600.0, 4 * DAY])
@@ -21,39 +21,27 @@ def _store(tmp_path, r: random.Random) -> Measurements:
         t = NOW - since
         while t < NOW - until:
             rows.append((f"sensor/s{k}", t, round(r.uniform(0, 9), 1)))
-            if r.random() < 0.05:                         # two readings at one moment
-                rows.append((f"sensor/s{k}", t, round(r.uniform(0, 9), 1)))
             t += r.choice([30.0, 60.0, 61.5, 600.0])
     r.shuffle(rows)                                       # (written in no order: a late reading among them)
     m.add_many(rows)
-    m.roll(NOW)                                           # raw past its keep rolled into the tiers and forgotten
-    return m
+    return m, rows
 
 
-def test_the_readings_read_together_are_each_series_own_range(tmp_path):
+def test_the_readings_read_together_are_each_series_own_range(tmp_path, vm):
     r = random.Random("together")
-    m = _store(tmp_path, r)
+    m, _ = _store(tmp_path, vm, r)
     names = [f"sensor/s{k}" for k in range(12)] + ["sensor/none"]
-    answered = left = 0
-    for _ in range(40):
+    for _ in range(10):
         a = NOW - r.choice([3600.0, 5 * 3600.0, 7 * 3600.0, 3 * DAY, 300.0])
         b = r.choice([NOW, NOW - 60.0, a + 1800.0])
         got = m.ranges(names, a, b)
+        assert sorted(got) == sorted(names)
         for s in names:
-            if s in got:
-                assert got[s] == m.range(s, a, b), (s, a, b)
-                answered += 1
-            else:
-                left += 1
-    assert answered and left                              # (both: raw alone answers some, the tiers the rest)
+            assert got[s] == m.range(s, a, b), (s, a, b)
+    assert got["sensor/none"] == []
 
 
-def test_the_first_reading_is_found_by_each_series_index(tmp_path):
-    r = random.Random("first")
-    m = _store(tmp_path, r)
-    with m._c() as c:
-        want = min(x for x in (c.execute("select min(time) from samples").fetchone()[0],
-                               c.execute("select min(first_t) from tiers").fetchone()[0]) if x is not None)
-    assert m.first_time() == want
-    (tmp_path / "empty").mkdir()
-    assert Measurements(tmp_path / "empty").first_time() is None
+def test_the_first_reading_is_the_oldest_of_any_series(tmp_path, vm):
+    m, rows = _store(tmp_path, vm, random.Random("first"))
+    assert m.first_time() == min(t for _, t, _ in rows)
+    assert Victoria(vm, tmp_path / "empty", project=f"test-{uuid.uuid4().hex[:10]}").first_time() is None

@@ -25,6 +25,8 @@ working on it in [CLAUDE.md](CLAUDE.md).
 ```bash
 uv tool install git+ssh://git@github.com/danroblewis/ergostat   # private: needs your GitHub SSH key
 # (update later with: uv tool upgrade ergostat)
+brew install victoriametrics   # required: every reading is kept there (Linux: the single-node release binary)
+victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data -retentionPeriod 100y &   # at 127.0.0.1:8428
 cd <your repository>
 $EDITOR ergostat.yaml          # the model (below); examples/first-loop is the smallest whole one
 ergostat check                 # errors with file:line, then findings (missing feedback, ...)
@@ -196,14 +198,14 @@ and control engineering compared ([docs/vocabulary.md](docs/vocabulary.md)).
 
 ## The record
 
-What happened (events) and what the sensors read (measurements), in `~/.ergostat/<name>-<hash>/`,
-with no services: the events in an append-only log of compressed segments (or SQLite), the readings
-in SQLite. Under a long, heavy load it stays bounded: an item's events older than a week are rolled
-up into one snapshot event (its state as of then; the originals archived, compressed, behind the
-item page's "Show the full history"), readings older than two days are kept as 1-minute, 10-minute and
-hourly buckets, and nothing older than `keep:` (30 days) is kept. The engine does this hourly;
-`ergostat compact` does it now. VictoriaMetrics can hold the readings instead. The `storage:`
-section ([SPEC §4b](docs/SPEC.md)) sets all of it; `scripts/loadtest.py` measures it on the demos run
+What happened (events), in `~/.ergostat/<name>-<hash>/`: an append-only log of compressed segments (or SQLite).
+What the sensors read (measurements): in VictoriaMetrics, which is required (`brew install victoriametrics`, then run
+it, or let ergostat run it with `storage: measurements: run:`; with none answering, `ergostat run` says how and does
+not start), so every one of ergostat's metrics is PromQL ([docs/DASHBOARDS.md](docs/DASHBOARDS.md) §6a). Under a long,
+heavy load the record stays bounded: an item's events older than a week are rolled up into one snapshot event (its
+state as of then; the originals archived, compressed, behind the item page's "Show the full history"), and no event
+older than `keep:` (30 days) is kept; the readings are kept for the server's `-retentionPeriod`. The engine does this
+hourly; `ergostat compact` does it now. The `storage:` section ([SPEC §4b](docs/SPEC.md)) sets all of it; `scripts/loadtest.py` measures it on the demos run
 for days. How a running ergostat works inside (the loop, the sensor pool, leases, the watchdog):
 [docs/RUNTIME.md](docs/RUNTIME.md). Many sensors or many items, served by one long-lived program instead of a
 process each: [docs/DAEMONS.md](docs/DAEMONS.md).

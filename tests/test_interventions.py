@@ -54,7 +54,7 @@ def test_interventions_carry_class_and_cause_from_every_kind(tmp_path):
     got = {x["class"]: x for x in iv.read(p, p.model.spec, now - DAY, time.time())}
     assert set(got) == {"outward", "person:reviewer", "advise:pusher", "steptest", "change:parameter", "alarm:hot"}
     assert got["outward"]["cause"] == "block pusher" and got["person:reviewer"]["cause"] == "block reviewer"
-    assert got["alarm:hot"]["cause"] == "flow.arrivals" and got["alarm:hot"]["answered"] == now - 3600 + 300
+    assert got["alarm:hot"]["cause"] == "flow.arrivals" and got["alarm:hot"]["answered"] == pytest.approx(now - 3600 + 300, abs=1e-3)
     assert got["steptest"]["cause"] == "goal queue-short"                       # a notification is not one of its own
     assert got["outward"]["answered"] is None
 

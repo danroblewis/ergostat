@@ -28,6 +28,7 @@ from tests.ports import free_port
 
 T = 1_795_400_400.0         # a multiple of 120
 OWN = {"name": "model", "type": "model", "language": "model"}     # the model's own source, there undeclared
+ERGO = {"name": "ergostat", "type": "prometheus", "language": "PromQL"}   # the built-in source: this project's readings
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -213,7 +214,7 @@ def test_a_source_query_takes_only_source_and_text(p):
 def test_the_fields_list_a_source_by_name_type_and_language_never_its_address(p, prom):
     got = api(Live(p), "query/fields", {})["datasources"]
     assert got == [datasources.ANALYSIS, {"name": "prom", "type": "prometheus", "language": "PromQL"},
-                   {"name": "down", "type": "prometheus", "language": "PromQL"}, OWN]
+                   {"name": "down", "type": "prometheus", "language": "PromQL"}, OWN, ERGO]
     assert prom not in json.dumps(api(Live(p), "query/fields", {}))
 
 
@@ -233,7 +234,7 @@ def test_a_new_type_is_one_module_and_panels_do_not_change(tmp_path, fake):
     [r] = ask(p, {"source": "f", "text": "count it"})
     assert r["series"] == [{"name": "t1:count it", "values": [0.0, 2.0, 4.0, 6.0]}]
     assert api(Live(p), "query/fields", {})["datasources"] == [datasources.ANALYSIS,
-                                                               {"name": "f", "type": "fake", "language": "FakeQL"}, OWN]
+                                                               {"name": "f", "type": "fake", "language": "FakeQL"}, OWN, ERGO]
     for ts in sorted((ROOT / "ergostat" / "web" / "ui" / "src" / "pages" / "dashboard").rglob("*.ts*")):
         text = ts.read_text().lower()                                       # nothing in the page names a type
         assert "prometheus" not in text and "fakeql" not in text, ts
@@ -294,7 +295,7 @@ def test_an_anonymous_public_reader_is_refused_a_source_and_nothing_is_sent(tmp_
         src, _ = get(f"/api/query?q={q}")["results"]                          # the owner, on this machine, as before
         assert "error" not in src and len(Stub.seen) == 1
         assert get("/api/query/fields")["datasources"] == [datasources.ANALYSIS,
-                                                           {"name": "prom", "type": "prometheus", "language": "PromQL"}, OWN]
+                                                           {"name": "prom", "type": "prometheus", "language": "PromQL"}, OWN, ERGO]
     finally:
         server.shutdown()
         server.server_close()

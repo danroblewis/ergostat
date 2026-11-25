@@ -1181,7 +1181,7 @@ def test_main_green_stale_is_off(tmp_path, monkeypatch):
     p = guarantees_project(tmp_path, "1m")
     assert observer.stale_by(next(iter(p.model.spec.stocks["main-failing-tests"].sensors.values())), 0.0) is None
     monkeypatch.setattr(observer, "stale_by", lambda s, last: last + observer.STALE_AFTER * s.every)
-    clock = [1_800_000_000.0]
+    clock = [1_787_904_000.0]
     monkeypatch.setattr(time, "time", lambda: clock[0])
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     e = Engine(p, say=lambda s: None)

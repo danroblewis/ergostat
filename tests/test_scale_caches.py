@@ -220,36 +220,32 @@ def test_a_wire_changed_in_place_is_seen_once_the_model_is_reindexed():
 
 
 def all_latest(m) -> dict:
-    with m._c() as c:
-        names = [r[0] for r in c.execute("select distinct series from samples")]
-        names += [r[0] for r in c.execute("select distinct series from tiers")]
-    return {n: m.latest(n) for n in dict.fromkeys(names) if m.latest(n) is not None}
+    return {n: x for n in (r["series"] for r in m.series()) if (x := m.latest(n)) is not None}
 
 
-def test_the_newest_readings_are_the_latest_through_writes_ties_deletes_and_another_process(tmp_path):
-    from ergostat.store import Measurements
-    m = Measurements(tmp_path, raw=120.0, tiers=[(60.0, 86400.0)])
-    other = Measurements(tmp_path, raw=120.0, tiers=[(60.0, 86400.0)])      # another process on the same record
-    t0 = 1_000_000.0
+def test_the_newest_readings_are_the_latest_through_writes_deletes_and_another_process(tmp_path, vm):
+    import uuid
+
+    from ergostat.victoria import Victoria
+    m = Victoria(vm, tmp_path, project=f"test-{uuid.uuid4().hex[:10]}")
+    other = Victoria(vm, tmp_path, project=m.project)                       # another process on the same record
+    t0 = 1_000_000_000.0
     assert m.newest() == {} == all_latest(m)
     for i in range(20):
         m.add("a", i, t0 + 10 * i)
         m.add("b", -i, t0 + 10 * i)
     assert m.newest() == all_latest(m)
     m.add("a", 99.0, t0 + 50)                                                # back-dated: not the newest
-    m.add("b", 7.0, t0 + 190)                                                # a tie with b's newest: the later row
+    m.add("b", 7.0, t0 + 195)
     other.add("c", 3.0, t0 + 5)
     other.add_many([("a", t0 + 400, 1.5), ("d", t0 + 1, 2.0)])
     assert m.newest() == all_latest(m)
-    assert m.newest()["b"] == (t0 + 190, 7.0) and m.newest()["a"] == (t0 + 400, 1.5)
-    other.forget("a", above=1.0)                                             # set aside elsewhere: read afresh
+    assert m.newest()["b"] == (t0 + 195, 7.0) and m.newest()["a"] == (t0 + 400, 1.5)
+    m.forget("a", above=1.0)                                                 # set aside here: read afresh
     assert m.newest() == all_latest(m) and m.newest()["a"][1] <= 1.0
-    m.roll(now=t0 + 10_000)                                                  # raw rows go, the newest among them
-    assert m.newest() == all_latest(m)
-    m.add("e", 1.0, t0 + 20_000)                                             # (a row number given again)
+    m.add("e", 1.0, t0 + 20_000)
     other.add("a", 5.0, t0 + 20_001)
-    assert m.newest() == all_latest(m)
-    other.prune(t0 + 20_001)
+    other.flush()                                                            # (sent: another process's own FLUSH)
     assert m.newest() == all_latest(m)
 
 
