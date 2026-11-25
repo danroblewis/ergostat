@@ -3,7 +3,8 @@ whole, everything open, each system opened, each drawn alone), draws no line thr
 is not one of its ends, no line on top of another (lines merging into or out of one end are a net),
 no line far longer than the way it covers, no two lines of one net crossing, no part on another or
 under an outline it is not in, no drawing bigger than recorded or far longer one way than the other
-when it does not fit the screen, and no page error;
+when it does not fit the screen, and no page error (drawn in the pinned setup: Playwright 1.63.0's
+Chromium, a 1600x1000 window at device scale 1, and the pages' text in Inter from tests/fixtures/fonts);
 draws within its time (ELK's layout, with ELK's lines), and has libavoid's lines within a
 generous bound (routed in a worker, after the first draw).
 
@@ -18,6 +19,7 @@ It needs Playwright and the Chrome installed on this machine, so the usual run s
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import math
@@ -113,6 +115,76 @@ def page_of(request, tmp_path_factory):
 # CSS pixel and one window size, whatever the machine's screen
 GATE_CHROMIUM = "153.0.8010.12"
 GATE_PAGE = {"viewport": {"width": 1600, "height": 1000}, "device_scale_factor": 1}
+# and one font: the pages' own stack (system-ui, ...) is whatever the machine has (San Francisco on a Mac, WenQuanYi Zen
+# Hei in the agents' container), so the words' widths, the boxes around them and the drawing's size moved with it. The
+# gate's pages draw in Inter (tests/fixtures/fonts: latin, 400/600/700), registered from its bytes before any of the
+# page's scripts run (a FontFace made from bytes is loaded at once: nothing is measured in a fallback first), and named
+# as --font and --mono. The app keeps its system stack for users. Characters outside Inter's latin subset (the arrows,
+# ▾) still fall back to the machine's sans-serif.
+FONTS = ROOT / "tests" / "fixtures" / "fonts"
+GATE_FONT = "GateInter"
+INTER_SUBSET = [(0x0, 0xFF), (0x131, 0x131), (0x152, 0x153), (0x2BB, 0x2BC), (0x2C6, 0x2C6), (0x2DA, 0x2DA),
+                (0x2DC, 0x2DC), (0x304, 0x304), (0x308, 0x308), (0x329, 0x329), (0x2000, 0x206F), (0x20AC, 0x20AC),
+                (0x2122, 0x2122), (0x2191, 0x2191), (0x2193, 0x2193), (0x2212, 0x2212), (0x2215, 0x2215),
+                (0xFEFF, 0xFEFF), (0xFFFD, 0xFFFD)]    # @fontsource/inter's latin unicode-range
+OUTSIDE_INTER = "[^" + "".join(f"\\u{a:04x}-\\u{b:04x}" for a, b in INTER_SUBSET) + "]"
+FONT_SCRIPT = """(() => {
+  const faces = FACES.map(([weight, b64]) =>
+    new FontFace('GATE_FONT', Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), {weight: String(weight)}));
+  for (const f of faces) document.fonts.add(f);
+  window.__gateFonts = faces.map((f) => f.status);
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(':root { --font: GATE_FONT, sans-serif !important; --mono: GATE_FONT, monospace !important; }');
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+})()""".replace("GATE_FONT", GATE_FONT).replace("FACES", json.dumps(
+    [[w, base64.b64encode((FONTS / f"inter-latin-{w}-normal.woff2").read_bytes()).decode()] for w in (400, 600, 700)]))
+# every element with words of its own on the screen (its text and its ::before and ::after), in document order, and
+# whether its words are all in Inter's subset
+OWN_WORDS = """([sel, outside]) => [...document.querySelectorAll(sel)].map((e) => {
+  const made = ['::before', '::after'].map((p) => (getComputedStyle(e, p).content.match(/"[^"]*"/g) || []).join(''));
+  const own = [...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.data).join('').trim() +
+              made.join('').replace(/"/g, '');
+  const out = own.replace(/\\s/g, '').match(new RegExp(outside, 'g')) || [];
+  return own && e.getClientRects().length ?
+    [own.slice(0, 40), !out.length ? 'in' : out.length < own.replace(/\\s/g, '').length ? 'mixed' : 'out'] : null;
+})"""
+
+
+def gate_page(browser, **options):
+    """A page of the pinned setup: GATE_PAGE's window and device scale (options override them), drawn in Inter."""
+    pg = browser.new_page(**{**GATE_PAGE, **options})
+    pg.add_init_script(FONT_SCRIPT)
+    return pg
+
+
+def font_unpinned(pg, sel: str = "body *") -> list[str]:
+    """What on the page is not drawn in the served Inter: its faces not loaded, or words within its subset drawn in a
+    font of the machine's (by Chromium's own record of the fonts it drew each element's text with)."""
+    loaded = pg.evaluate("() => window.__gateFonts || []")
+    if loaded != ["loaded"] * 3:
+        return [f"Inter's faces are {loaded}, not loaded: the page draws in the machine's fonts"]
+    words = pg.evaluate(OWN_WORDS, [sel, OUTSIDE_INTER])
+    cdp = pg.context.new_cdp_session(pg)
+    cdp.send("DOM.enable")
+    cdp.send("CSS.enable")
+    root = cdp.send("DOM.getDocument", {"depth": -1})["root"]["nodeId"]
+    ids = cdp.send("DOM.querySelectorAll", {"nodeId": root, "selector": sel})["nodeIds"]
+    assert len(ids) == len(words), (len(ids), len(words))
+    wrong, seen = [], 0
+    for node, w in zip(ids, words, strict=True):
+        if not w:
+            continue
+        fonts = cdp.send("CSS.getPlatformFontsForNode", {"nodeId": node})["fonts"]
+        seen += bool(fonts)
+        others = [f["familyName"] for f in fonts if not (f["isCustomFont"] and f["familyName"].startswith("Inter"))]
+        # words all in its subset: in Inter alone; some outside it (▾ after a name): in Inter and a fallback for those;
+        # none in it (a ⋯ alone): whatever the machine has
+        if (w[1] == "in" and others) or (w[1] == "mixed" and fonts and len(others) == len(fonts)):
+            wrong.append(f"{w[0]!r} drawn in {others}")
+    cdp.detach()
+    return wrong[:10] + ([] if seen else ["no words drawn to check"])
+
+
 DRAWN_S = 240               # the most a view may take to be drawn before a test gives up: a wait, not a check (the
                               # budgets that are checks are LAYOUT_BUDGET_MS and ROUTED_BOUND_MS), long for a loaded machine
 
@@ -127,10 +199,12 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     # the build the recorded faults and sizes come from: another draws (and is judged) otherwise
     assert browser.version == GATE_CHROMIUM, f"Chromium {browser.version}: the gate is recorded on {GATE_CHROMIUM} " \
                                              "(Playwright 1.63.0's own: uv run --with playwright==1.63.0)"
-    pg = browser.new_page(**GATE_PAGE)
+    pg = gate_page(browser)
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     drawn(pg, url, "", 0)
+    # drawn in the served font, or the recorded faults and sizes judge another machine's fonts
+    assert not (unpinned := font_unpinned(pg)), f"{name}: " + "\n".join(unpinned)
     tree = pg.evaluate("() => S.graph.tree || {}")
     views = ["", "open=*", *(f"open={s}" for s in tree), *(f"system={s}" for s in tree)]
     problems, slowest, routed = [], (0.0, ""), (0.0, "")
@@ -6117,7 +6191,7 @@ def test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_sa
         p.write_text(p.read_text().replace("in: stock.bugs-live", "in: stock.users"))
     known = json.loads(KNOWN.read_text()).get("software-factory", {}) if KNOWN.exists() else {}
     with served("software-factory", tmp_path) as url:
-        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        pg = gate_page(browser)                            # (the known faults are recorded from the pinned setup)
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "system=product", 0)
@@ -6136,7 +6210,7 @@ def test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_sa
         assert "no feedback" not in pg.evaluate("() => sdLegend().textContent")
         pg.close()
     with served("software-factory", tmp_path / "unserved", unserved) as url:
-        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        pg = gate_page(browser)
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "system=product", 0)
         got = pg.evaluate(GOALS_DRAWN, ["no-live-bugs"])["no-live-bugs"]
