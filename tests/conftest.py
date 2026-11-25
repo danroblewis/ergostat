@@ -125,6 +125,7 @@ def pytest_configure(config):
     if os.environ.get("ERGOSTAT_COVERAGE"):            # the line tracer, only when asked for (dev/README.md, Coverage)
         from tests import coverage_lines
         coverage_lines.register(config)
+    _vm_start(config)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -247,7 +248,8 @@ def _not_stopping():
 
 VM_BIN = shutil.which("victoria-metrics") or shutil.which("victoria-metrics-prod") or \
     next((b for b in ("/opt/homebrew/bin/victoria-metrics", "/usr/local/bin/victoria-metrics") if os.access(b, os.X_OK)), None)
-_VM: dict = {}                 # this process's VictoriaMetrics: {"url": ...}, once started (clean_env passes it on)
+VM_ENV = "VM_FOR_ERGOSTAT_TESTS"   # the run's VictoriaMetrics, for its workers (not ERGOSTAT_: the home fixture clears those)
+_VM: dict = {}                 # this process's VictoriaMetrics: {"url": ...} (clean_env passes it on); the run's: "stop"
 
 
 @contextlib.contextmanager
@@ -258,16 +260,16 @@ def vm_server(d: Path, retention: str = "100y"):
     from ergostat import storage
     from tests.ports import free_port
     if not VM_BIN:
-        pytest.fail("victoria-metrics is not installed (brew install victoriametrics; the dev image has it): every "
-                    "reading is kept there, and the suite starts its own", pytrace=False)
+        raise pytest.UsageError("victoria-metrics is not installed (brew install victoriametrics; the dev image has it): "
+                                "every reading is kept there, and the suite starts its own")
     d.mkdir(parents=True, exist_ok=True)
     port = free_port()
     with open(d / "vm.log", "w") as log:
         proc = subprocess.Popen([VM_BIN, f"-storageDataPath={d / 'data'}", f"-httpListenAddr=127.0.0.1:{port}",
                                  f"-retentionPeriod={retention}", "-search.disableCache", "-search.latencyOffset=0s",
-                                 "-memory.allowedBytes=256MB", "-loggerLevel=ERROR"],
+                                 "-memory.allowedBytes=512MB", "-loggerLevel=ERROR"],
                                 stdout=subprocess.DEVNULL, stderr=log, start_new_session=True,
-                                env={**os.environ, "GOMAXPROCS": "2"})
+                                env={**os.environ, "GOMAXPROCS": "4"})
     url = f"http://127.0.0.1:{port}"
     try:
         for _ in range(300):
@@ -276,7 +278,7 @@ def vm_server(d: Path, retention: str = "100y"):
             assert proc.poll() is None, (d / "vm.log").read_text()[-2000:]
             time.sleep(0.1)
         else:
-            pytest.fail("VictoriaMetrics did not answer within 30 s")
+            raise pytest.UsageError("VictoriaMetrics did not answer within 30 s")
         yield url
     finally:
         proc.terminate()
@@ -285,27 +287,48 @@ def vm_server(d: Path, retention: str = "100y"):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(5)
-        shutil.rmtree(d / "data", ignore_errors=True)
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _vm_start(config) -> None:
+    """One VictoriaMetrics for the whole run, started by the process that runs it (under xdist, the controller,
+    before its workers start, so they inherit its address in VM_ENV): one server, not one a worker, keeps a parallel
+    run within the watchdog's memory bound. Each test's record has a project label of its own there."""
+    if os.environ.get("PYTEST_XDIST_WORKER") or os.environ.get(VM_ENV):
+        return
+    cm = vm_server(Path(tempfile.mkdtemp(prefix="ergostat-tests-vm-")))
+    os.environ[VM_ENV] = cm.__enter__()
+    _VM["stop"] = cm
+
+
+def _vm_stop() -> None:
+    cm = _VM.pop("stop", None)
+    if cm is not None:
+        os.environ.pop(VM_ENV, None)
+        cm.__exit__(None, None, None)
+
+
+def pytest_unconfigure(config):
+    _vm_stop()
 
 
 @pytest.fixture(scope="session", autouse=True)
-def vm(tmp_path_factory):
-    """This test process's one VictoriaMetrics (under xdist, each worker's own), its URL: every test's record keeps
-    its readings there, each under its own ``project`` label (its home's: storage.metrics_project). Started before any
-    other fixture and named in the environment (ERGOSTAT_METRICS_URL), so a module's fixture, and every process a
-    test starts, writes there too."""
-    with vm_server(Path(tempfile.mkdtemp(prefix="vm-", dir=tmp_path_factory.getbasetemp()))) as url:
-        _VM["url"] = url
-        was = os.environ.get("ERGOSTAT_METRICS_URL")
-        os.environ["ERGOSTAT_METRICS_URL"] = url
-        try:
-            yield url
-        finally:
-            _VM.pop("url", None)
-            if was is None:
-                os.environ.pop("ERGOSTAT_METRICS_URL", None)
-            else:
-                os.environ["ERGOSTAT_METRICS_URL"] = was
+def vm():
+    """This run's VictoriaMetrics (``_vm_start``), its URL: every test's record keeps its readings there, each under
+    its own ``project`` label (its home's: storage.metrics_project). Named in the environment (ERGOSTAT_METRICS_URL)
+    before any other fixture, so a module's fixture, and every process a test starts, writes there too."""
+    url = os.environ[VM_ENV]
+    _VM["url"] = url
+    was = os.environ.get("ERGOSTAT_METRICS_URL")
+    os.environ["ERGOSTAT_METRICS_URL"] = url
+    try:
+        yield url
+    finally:
+        _VM.pop("url", None)
+        if was is None:
+            os.environ.pop("ERGOSTAT_METRICS_URL", None)
+        else:
+            os.environ["ERGOSTAT_METRICS_URL"] = was
 
 
 def victoria(d: Path):

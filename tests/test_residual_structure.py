@@ -155,7 +155,7 @@ def world(tmp_path, text: str, chain: bool = False, order: int = 3, tau: float =
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text))
     p = Project(mdl.load(tmp_path))
-    now = time.time()
+    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
     start = now - minutes * 60
     dt = 1.0 / 3600.0
     k, r = 2.0, 3.0

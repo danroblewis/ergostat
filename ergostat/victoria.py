@@ -91,6 +91,7 @@ class Victoria:
         self.project = project or directory.name
         self._pending: list[tuple[str, float, float]] = []    # written here, not yet sent: sent within FLUSH
         self._lock = threading.Lock()
+        self._sending = threading.Lock()                     # held while readings taken from _pending are sent
         self._flusher: threading.Thread | None = None
         self.spec_of = lambda: None   # the model whose names a reading is written under (Project sets it)
         self._newest: dict[str, tuple[float, float]] | None = None   # series → its newest reading (``newest``)
@@ -108,16 +109,18 @@ class Victoria:
     FLUSH = 0.5                   # seconds a reading waits before it is sent (one import for many)
 
     def flush(self) -> None:
-        """Send what is pending, now (every read does first: what was written here is read here)."""
-        with self._lock:
-            rows, self._pending = self._pending, []
-        if rows:
-            try:
-                self._import(rows)
-            except VictoriaError:
-                with self._lock:                       # the server away: kept, and sent with the next
-                    self._pending[:0] = rows
-                raise
+        """Send what is pending, now (every read does first: what was written here is read here), after what another
+        thread is sending already."""
+        with self._sending:
+            with self._lock:
+                rows, self._pending = self._pending, []
+            if rows:
+                try:
+                    self._import(rows)
+                except VictoriaError:
+                    with self._lock:                   # the server away: kept, and sent with the next
+                        self._pending[:0] = rows
+                    raise
 
     def _later(self) -> None:
         """Sends what is pending every ``FLUSH``, and ends once nothing is (the next ``add`` starts another): a store
@@ -274,7 +277,7 @@ class Victoria:
     def _sync_reads(self) -> None:
         """What this process wrote to this project, sent before it is read (by any of its stores here)."""
         for v in self._peers():
-            if v._pending:
+            if v._pending or v._sending.locked():    # (one being sent by the flushing thread: waited for)
                 v.flush()
 
     def add(self, series: str, value: float, at: float | None = None) -> None:
