@@ -237,3 +237,9 @@ Not run here: these two, the unit suite, and the four browser files whole (the q
 **The entry.** This record has no `## Entry`. The rules allow only this section to be appended, and the change is in
 the tests alone, with nothing a user sees. So no line for docs/GAPS.md was written. If the queue needs one, the
 coordinator can add it.
+
+## Where it stopped
+
+Parked by the factory (review/diagram-gate-same-everywhere-3, 2026-11-24 18:05).
+
+Done: the cause found and measured (system-ui is drawn in WenQuanYi Zen Hei in the agents' container and in San Francisco on the Mac). The gate pins Playwright 1.63.0's Chromium (153.0.8010.12), a 1600x1000 window, device scale 1 and Inter loaded from tests/fixtures/fonts. Each of these checks was seen to fail. The fault ceilings and sizes are re-recorded once from the pinned setup, with the before and after lists. The routing bound is now relative to the stress model's routing on the same machine, and was seen to fail at 1.2. In the agents' container, 23 of 23 examples pass in each of three runs. Left: the Done's three runs in the merge queue's container and three in a plain local run. They cannot be made from the agents' container, and the gate's 'same answer everywhere' claim (and the 1.75 margin for examples paced under -n 4) cannot be judged without them.
