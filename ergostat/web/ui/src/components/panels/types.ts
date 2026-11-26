@@ -10,6 +10,8 @@ export type PanelDef = {
   note?: string;
   size?: "s" | "m" | "l" | "full";
   tall?: boolean;
+  /** as tall as what it shows, not the grid's fixed height (a page made of panels: an item's fields, a list) */
+  fit?: boolean;
   [param: string]: any;
 };
 

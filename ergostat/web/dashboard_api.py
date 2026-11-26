@@ -17,6 +17,7 @@ import json
 import threading
 import time
 from collections import OrderedDict
+from urllib.parse import quote
 
 from ..spec.dashboards import MOST, names, plain, plain_panel, query, sent
 from ..spec.ir import Dashboard, Panel
@@ -178,7 +179,10 @@ def _run(live, p, panel: Panel, q: dict, snap):
             by = {r.get("id"): r for r in got["results"] if isinstance(r, dict)}
             got = {**got, "results": [{**by[went], "id": mine} for mine, went in wanted if went in by]}
         return got
-    got =_answer(live, PATHS[panel.panel], {**q, **query({k: v for k, v in panel.params.items() if k != "goals"})}, p, snap)
+    path, asked = PATHS[panel.panel], {k: v for k, v in panel.params.items() if k not in ("goals", "fit")}
+    for k in [k for k in asked if "{" + k + "}" in path]:   # a path naming one thing (agents/{agent}): it, not a query
+        path = path.replace("{" + k + "}", quote(str(asked.pop(k)), safe=""))
+    got = _answer(live, path, {**q, **query(asked)}, p, snap)
     if panel.panel == "goals" and isinstance(got, dict) and panel.params.get("goals"):
         got = {g: got[g] for g in names(panel.params["goals"]) if g in got}
     return got

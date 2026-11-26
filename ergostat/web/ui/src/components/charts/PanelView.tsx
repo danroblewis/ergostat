@@ -95,7 +95,7 @@ export function PanelView({ panel, results, loading, error, tools }: Props) {
 /** A panel's frame, whatever it draws: its size, its head (title, note, the tools a page puts there) and its body. */
 export function PanelFrame({ panel, tools, className, children }: { panel: Panel; tools?: ReactNode; className?: string; children: ReactNode }) {
   return (
-    <article className={`panel panel-${panel.size || "m"}${className ? ` ${className}` : ""}${panel.tall ? " panel-tall" : ""}`} data-panel={panel.id} aria-label={panel.title}>
+    <article className={`panel panel-${panel.size || "m"}${className ? ` ${className}` : ""}${panel.tall ? " panel-tall" : ""}${(panel as any).fit ? " panel-fit" : ""}`} data-panel={panel.id} aria-label={panel.title}>
       <header className="panel-head">
         <div className="panel-names">
           <h3 className="panel-title" title={panel.title}>{panel.title}</h3>

@@ -14,7 +14,7 @@ from .load import Map, Problem
 MOST = 24                          # panels in one dashboard (docs/proposals/dashboard.md, section 6, rule 5)
 SIZES = ("s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall")
 DASHBOARD_KEYS = {"title", "description", "window", "panels"}
-PANEL_KEYS = {"panel", "title", "size", "note"}
+PANEL_KEYS = {"panel", "title", "size", "note", "fit"}     # fit: as tall as what it shows (a page made of panels)
 ITEM_SET = {"kind", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"}
 # each kind of panel → the parameters it takes (those of its endpoint, by the same names)
 KINDS = {
@@ -147,6 +147,12 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
         return None
     params: dict = {}
     ok = True
+    if "fit" in x:
+        if not isinstance(x["fit"], bool):
+            c.err(f"{what}.fit: true or false", at("fit"), "bad-dashboard")
+            ok = False
+        elif x["fit"]:
+            params["fit"] = True
     for k in sorted(KINDS[kind] & set(x)):
         v, w = x[k], at(k)
         if k in LISTS:                     # kept as written (a round trip); read as a list for the checks

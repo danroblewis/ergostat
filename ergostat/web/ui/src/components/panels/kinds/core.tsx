@@ -29,7 +29,7 @@ const listOf = (v: unknown): string[] | null =>
 
 /** A query panel's declaration as the query engine's own Panel (lib/query.ts). */
 export const asQueryPanel = (def: PanelDef): Panel => ({
-  id: def.id || "", title: def.title || "", note: def.note, size: def.size, tall: def.tall, form: def.form || "line",
+  id: def.id || "", title: def.title || "", note: def.note, size: def.size, tall: def.tall, fit: def.fit, form: def.form || "line",
   queries: def.queries || [], display: def.display, options: def.options, layout: def.layout,
 });
 

@@ -10,6 +10,8 @@ export interface Panel {
   form: string;
   size?: "s" | "m" | "l" | "full";
   tall?: boolean;
+  /** as tall as what it shows (components/panels: PanelDef.fit) */
+  fit?: boolean;
   queries: Query[];
   display?: Record<string, any>;
   options?: Record<string, any>;

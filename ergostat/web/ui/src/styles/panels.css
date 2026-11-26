@@ -5,6 +5,8 @@
   background: var(--bg); border: var(--hair) solid var(--line); border-radius: var(--radius-menu); color: var(--ink); }
 .panel[hidden], .panel [hidden] { display: none; }
 .panel-tall { --panel-h: calc(var(--sp-7) * 9); }
+.panel.panel-fit { height: auto; }                                          /* as tall as what it shows */
+.panel.panel-fit .panel-body { overflow: visible; }
 .panel.panel-form-diagram { --panel-h: calc(var(--sp-7) * 9); }            /* a diagram is taller than a chart */
 .panel.panel-form-diagram.panel-tall { --panel-h: calc(var(--sp-7) * 13); }
 .panel-form-stat:not(.panel-tall) { --panel-h: calc(var(--sp-7) * 4); }
