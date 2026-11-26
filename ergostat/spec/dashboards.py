@@ -42,8 +42,41 @@ NEEDS_ITEMS: dict[str, str] = {}      # KIND → the parameter it cannot do with
 
 # ---- the record group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/record.tsx): KIND → its parameters
 KINDS.update({
+    # GET /api/events: the record's events, newest first (the Record page's own); remote: a remote's, read there
+    "events": {"match", "item", "about", "machine", "runs", "window", "from", "to", "n", "remote"},
+    "goal-crossings": {"goal"},                           # GET /api/loops/{goal}: its crossings in the window
+    "goal-decisions": {"goal"},                           # GET /api/loops/{goal}: its controller's decisions, alike
 })
-NEEDS_RECORD: dict[str, str] = {}      # KIND → the parameter it cannot do without
+NEEDS_RECORD: dict[str, str] = {"goal-crossings": "goal", "goal-decisions": "goal"}   # KIND → the parameter it cannot do without
+
+
+def _check_record(c, spec, kind: str, x, at, what: str) -> bool:
+    """An events panel's own parameters: text, a flag, a time; ``about`` a goal and ``remote`` a remote of the model's
+    (each wrong one an error at its line). ``n`` is checked with every kind's."""
+    if kind != "events":
+        return True
+    ok = True
+    remotes = getattr(spec, "remotes", None) or {}
+    for k in sorted(KINDS["events"] & set(x)):
+        v, w = x[k], at(k)
+        if k in ("match", "item", "about", "machine", "remote") and (not isinstance(v, str) or not v.strip()):
+            c.err(f"{what}.{k}: text", w, "bad-dashboard")
+        elif k in ("runs", "window") and not isinstance(v, bool):
+            c.err(f"{what}.{k}: true or false", w, "bad-dashboard")
+        elif k in ("from", "to") and (isinstance(v, bool) or not isinstance(v, int | float) or not 0 <= v < 1e11):
+            c.err(f"{what}.{k}: a time, in seconds since 1970", w, "bad-dashboard")
+        elif k == "about" and v not in spec.goals:
+            c.err(f"{what}.about: {v!r} is not a goal" + c.suggest(v, spec.goals), w, "unknown-ref", str(Ref("goal", v)))
+        elif k == "remote" and v not in remotes:
+            c.err(f"{what}.remote: {v!r} is not one of the model's remotes" + c.suggest(v, remotes), w, "unknown-ref",
+                  f"remote.{v}")
+        else:
+            continue
+        ok = False
+    if ok and isinstance(x.get("from"), int | float) and isinstance(x.get("to"), int | float) and x["from"] > x["to"]:
+        c.err(f"{what}.to: before from", at("to"), "bad-dashboard")
+        ok = False
+    return ok
 
 # ---- the attention group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/attention.tsx): KIND → its parameters
 KINDS.update({
@@ -200,6 +233,7 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
         except BadSet as e:
             c.err(f"{what}: {e}", at("panel"), "bad-dashboard")
             ok = False
+    ok = _check_record(c, spec, kind, x, at, what) and ok
     if not ok:
         return None
     return Panel(kind, str(x.get("title") or ""), size if size in SIZES else "m", str(x.get("note") or ""), params,
