@@ -37,7 +37,10 @@ PATHS = {"goals": "loops", "chart": "series", "items": "items", "states": "items
 PATHS.update({})   # agents
 PATHS.update({})   # items
 PATHS.update({})   # record
-PATHS.update({})   # attention
+PATHS.update({"attention": "status", "feedback-loops": "graph", "control-loops": "graph", "quiet-systems": "systems",
+              "goal-runbook": "loops/{goal}", "goal-parts": "loops/{goal}", "goal-control": "loop-control"})   # attention
+# a kind whose endpoint is asked with words of its own, besides its parameters (KIND → query)
+FIXED = {"feedback-loops": {"view": ["dynamics"]}, "control-loops": {"view": ["blocks"]}}
 
 
 def default(spec) -> Dashboard:
@@ -179,10 +182,12 @@ def _run(live, p, panel: Panel, q: dict, snap):
             by = {r.get("id"): r for r in got["results"] if isinstance(r, dict)}
             got = {**got, "results": [{**by[went], "id": mine} for mine, went in wanted if went in by]}
         return got
-    path, asked = PATHS[panel.panel], {k: v for k, v in panel.params.items() if k not in ("goals", "fit")}
+    if panel.panel not in PATHS:                   # drawn by the page from its parameters alone (a legend)
+        return {k: v for k, v in panel.params.items() if k != "fit"}
+    path, asked = PATHS[panel.panel], {k: v for k, v in panel.params.items() if k not in ("goals", "fit", "show")}
     for k in [k for k in asked if "{" + k + "}" in path]:   # a path naming one thing (agents/{agent}): it, not a query
         path = path.replace("{" + k + "}", quote(str(asked.pop(k)), safe=""))
-    got = _answer(live, path, {**q, **query(asked)}, p, snap)
+    got = _answer(live, path, {**q, **FIXED.get(panel.panel, {}), **query(asked)}, p, snap)
     if panel.panel == "goals" and isinstance(got, dict) and panel.params.get("goals"):
         got = {g: got[g] for g in names(panel.params["goals"]) if g in got}
     return got

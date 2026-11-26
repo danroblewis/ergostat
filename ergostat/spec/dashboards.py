@@ -47,13 +47,27 @@ NEEDS_RECORD: dict[str, str] = {}      # KIND → the parameter it cannot do wit
 
 # ---- the attention group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/attention.tsx): KIND → its parameters
 KINDS.update({
+    "attention": {"show"},                                # GET /api/status (its attention), these parts or all
+    "legend": {"view"},                                   # drawn by the page: how to read that view's drawing
+    "feedback-loops": {"system"},                         # GET /api/graph?view=dynamics: its feedback loops
+    "control-loops": {"system"},                          # GET /api/graph?view=blocks: its control loops
+    "quiet-systems": set(),                               # GET /api/systems: each quiet system's sentence
+    "goal-runbook": {"goal"},                             # GET /api/loops/GOAL: runbook, remedy, numbers
+    "goal-parts": {"goal"},                               # GET /api/loops/GOAL: its parts along the loop
+    "goal-control": {"goal"},                             # GET /api/loop-control: its control loop, and proposals
 })
-NEEDS_ATTENTION: dict[str, str] = {}      # KIND → the parameter it cannot do without
+NEEDS_ATTENTION: dict[str, str] = {"legend": "view", "goal-runbook": "goal", "goal-parts": "goal",
+                                   "goal-control": "goal"}
+CHOICES_ATTENTION = {"view": ("dynamics", "blocks", "process"),             # a parameter → the words it may be
+                     "show": ("waiting", "off", "housekeeping", "suggestions")}
+LISTS_ATTENTION = {"show"}
 
 NEEDS = {"query": "queries", "diagram": "address", "chart": "refs", "states": "kind", "cycle-time": "kind", "scope": "goal", "items": "kind", "note": "text"}
 NEEDS.update({**NEEDS_AGENTS, **NEEDS_ITEMS, **NEEDS_RECORD, **NEEDS_ATTENTION})
 TEXTS = {"text", "address", "moved", "moved_since", "moved_until", "through", "followed", "search"}
 LISTS = {"refs", "goals", "kinds", "state", "where"}     # a list, or one string (comma-separated as the address writes it)
+LISTS |= LISTS_ATTENTION
+CHOICES: dict[str, tuple] = {**CHOICES_ATTENTION}       # a parameter whose every word is one of these
 
 
 def take(doc, data: Map, defaults: dict) -> None:
@@ -186,6 +200,14 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
             continue
         elif k == "form" and (not isinstance(v, str) or not v):
             c.err(f"{what}.{k}: text", w, "bad-dashboard")
+            ok = False
+            continue
+        elif k in CHOICES and not isinstance(v, str):
+            c.err(f"{what}.{k}: one of {', '.join(CHOICES[k])}", w, "bad-dashboard")
+            ok = False
+            continue
+        if k in CHOICES and (wrong := [x for x in ([v] if isinstance(v, str) else v) if x not in CHOICES[k]]):
+            c.err(f"{what}.{k}: {wrong[0]!r} is not one of {', '.join(CHOICES[k])}", w, "bad-dashboard")
             ok = False
             continue
         params.setdefault(k, v)
