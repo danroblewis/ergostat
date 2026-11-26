@@ -1,0 +1,162 @@
+"""The items group's panels in the page (SPEC §4f): each draws on a declared dashboard with no page error, and the
+Items, Kind and Item pages, now drawn from them, still draw what they did, their filters in the address still work,
+and their links lead where the page reads them.
+
+    uv run --with playwright==1.63.0 python -m pytest -q tests/test_react_panels_items.py
+"""
+
+from __future__ import annotations
+
+from urllib.parse import quote
+
+import pytest
+
+from ergostat import model as mdl
+from ergostat import web
+from ergostat.spec import read
+from ergostat.store import Project
+from tests.test_react_pages import EXAMPLE, ITEM, WAIT, browser, heading, opened, project_with_items, settled, site  # noqa: F401
+
+pytestmark = pytest.mark.skipif(not __import__("ergostat.web.server", fromlist=["STATIC"]).STATIC.joinpath(
+    "app", "index.html").is_file(), reason="the React page is not built")
+
+KINDS = ("kinds", "items-by-kind", "kind-now", "kind-model", "kind-definition", "item-list", "item-summary", "item-why",
+         "item-path", "item-relations", "item-fields", "item-refused", "item-moves", "item-events", "item-changes")
+BOARD = """
+dashboards:
+  tickets:
+    title: Tickets board
+    panels:
+      - {panel: kinds, size: full}
+      - {panel: items-by-kind, q: ticket, size: full}
+      - {panel: kind-now, kind: ticket, states: all}
+      - {panel: kind-model, kind: ticket}
+      - {panel: kind-definition, kind: ticket}
+      - {panel: item-list, kind: ticket, n: 25, size: full}
+      - {panel: item-summary, item: ticket/1}
+      - {panel: item-why, item: ticket/1}
+      - {panel: item-path, item: ticket/1}
+      - {panel: item-relations, item: ticket/1}
+      - {panel: item-fields, item: ticket/1}
+      - {panel: item-refused, item: ticket/1}
+      - {panel: item-moves, item: ticket/1}
+      - {panel: item-events, item: ticket/1}
+      - {panel: item-changes, item: ticket/1, history: all}
+"""
+COUNTED = {"stocks:\n": "stocks:\n  open-tickets:\n    sensor: {items: ticket, state: [opened, working]}\n",
+           "goals:\n": "goals:\n  few-tickets: {stock: open-tickets, hold: \"< 10\"}\n",   # a stock that counts tickets
+           "    states: [opened, working, done]\n": "    states: [opened, working, done]\n    show: [title]\n"}
+
+
+def counted(text: str) -> str:
+    for old, new in COUNTED.items():
+        text = text.replace(old, new, 1)
+    return text
+
+
+@pytest.fixture(scope="module")
+def board(tmp_path_factory):
+    p = project_with_items(tmp_path_factory.mktemp("panels-items") / EXAMPLE)
+    p.model.path.write_text(counted(p.model.path.read_text()) + BOARD)
+    assert [x for x in read(p.model.path)[1] if x.level == "error"] == []
+    p = Project(mdl.load(p.model.path.parent))
+    server, url = web.serve(p, 0)
+    try:
+        yield url
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_every_items_kind_draws_on_a_declared_dashboard(browser, board):
+    pg = opened(browser, board + "/dashboard?name=tickets")
+    pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('Tickets board')", timeout=WAIT)
+    for kind in KINDS:
+        pg.locator(f".panel.panel-kind-{kind}").first.wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-kinds .kind-card[data-kind=ticket]").wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-list table tbody tr").first.wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-events table tbody tr").first.wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-path .track .stbox.on").wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-kind-definition pre, .panel-kind-kind-definition code").first.wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-changes table.history tbody tr").first.wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-why .why").wait_for(timeout=WAIT)                     # ticket/1 is working
+    assert "Nothing is recorded" not in pg.locator("#main").inner_text()
+    assert settled(pg, 2500) == []
+    pg.close()
+
+
+def test_the_items_page_draws_its_overview_and_its_list_from_the_address(browser, board):
+    pg = opened(browser, board + "/items")
+    assert heading(pg) == "Items"
+    pg.locator(".panel-kind-kinds .kind-card[data-kind=ticket]").wait_for(timeout=WAIT)
+    pm = pg.locator(".kind-card[data-kind=ticket] a.pm-link").get_attribute("href")
+    assert pm == "/diagram?view=process&kinds=ticket"
+    pg.close()
+    pg = opened(browser, board + "/items?states=all")                 # each state, not their groups
+    pg.locator(".panel-kind-kinds .kind-card[data-kind=ticket]").wait_for(timeout=WAIT)
+    assert pg.locator("[aria-label=States] button[aria-pressed=true]").inner_text() == "Every state"
+    pg.close()
+    pg = opened(browser, board + "/items?q=ticket%202")               # a search lists every kind's, matched
+    pg.locator(".panel-kind-items-by-kind table tbody tr").first.wait_for(timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector('.search-hits')?.textContent.includes('1 match')", timeout=WAIT)
+    assert settled(pg) == []
+    pg.close()
+
+
+def test_the_kind_page_draws_its_panels_and_keeps_its_filters_in_the_address(browser, board):
+    pg = opened(browser, board + "/items/ticket")
+    pg.locator(".kind-bar h1").wait_for(timeout=WAIT)
+    for kind in ("kind-now", "kind-model", "kind-definition", "item-list"):
+        pg.locator(f".panel-kind-{kind}").wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-list table tbody tr").first.wait_for(timeout=WAIT)
+    assert pg.locator(".panel-kind-item-list table tbody tr").count() == 2          # ticket/3 is done: hidden
+    # the links: the goal as the Goals page reads it, the part as the Diagram page reads it, the process map
+    goal = pg.locator(".kind-goals a").first
+    goal.wait_for(timeout=WAIT)
+    assert goal.get_attribute("href") == "/goals?select=few-tickets"
+    assert pg.locator(".kind-model a[href^='/diagram']").first.get_attribute("href") == "/diagram?around=stock%2Fopen-tickets"
+    assert pg.locator(".panel-kind-kind-now a.pm-link").get_attribute("href") == "/diagram?view=process&kinds=ticket"
+    # the finished shown, from the panel's own note: into the address
+    pg.locator(".finished-flip").click()
+    pg.wait_for_url("**finished=show**", timeout=WAIT)
+    pg.wait_for_function("() => document.querySelectorAll('.panel-kind-item-list table tbody tr').length === 3", timeout=WAIT)
+    # a sort, by the header: into the address as KIND:field
+    pg.get_by_role("button", name="Sort by title").click()
+    pg.wait_for_url("**sort=ticket%3Atitle**", timeout=WAIT)
+    assert settled(pg) == []
+    pg.close()
+    # from the address: a state, a search, a page size, each state
+    pg = opened(browser, board + "/items/ticket?state=opened")
+    pg.locator(".panel-kind-item-list table tbody tr").first.wait_for(timeout=WAIT)
+    pg.wait_for_function("() => [...document.querySelectorAll('.panel-kind-item-list tbody tr')].map((r) => r.innerText)"
+                         ".join('|').includes('ticket/2')", timeout=WAIT)
+    assert pg.locator(".panel-kind-item-list tbody tr").count() == 1
+    assert "state opened" in pg.locator(".set-chip").inner_text()
+    pg.close()
+    pg = opened(browser, board + "/items/ticket?q=ticket%201&states=all&size=100")
+    pg.wait_for_function("() => document.querySelector('.search-said')?.textContent.startsWith('1 match')", timeout=WAIT)
+    assert pg.locator("[aria-label=States] button[aria-pressed=true]").inner_text() == "Every state"
+    assert pg.locator("select[aria-label='Rows a page']").first.input_value() == "100"
+    assert settled(pg) == []
+    pg.close()
+
+
+def test_the_item_page_draws_its_parts_and_opens_its_changes(browser, board):
+    pg = opened(browser, f"{board}/item/{quote(ITEM, safe='')}")
+    assert heading(pg) == ITEM
+    for kind in ("item-summary", "item-path", "item-fields", "item-moves", "item-events", "item-changes"):
+        pg.locator(f".panel-kind-{kind}").wait_for(timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector('#main').innerText.includes('working')", timeout=WAIT)
+    assert pg.locator(".panel-kind-item-refused").count() == 0                     # nothing refused: not drawn
+    assert pg.locator(".panel-kind-item-relations").count() == 0                   # no relations: not drawn
+    assert pg.locator(".panel-kind-item-path a", has_text="what every ticket touches").get_attribute("href") == \
+        "/diagram?kind=ticket"
+    assert pg.locator(".panel-kind-item-changes table.history").count() == 0       # folded: not asked for
+    pg.locator("#changes > summary").click()
+    pg.locator(".panel-kind-item-changes table.history tbody tr").first.wait_for(timeout=WAIT)
+    assert settled(pg) == []
+    pg.close()
+    pg = opened(browser, f"{board}/item/{quote('ticket/nope', safe='')}")
+    pg.wait_for_function("() => document.querySelector('#main').innerText.includes('Nothing is recorded about this id')",
+                         timeout=WAIT)
+    pg.close()

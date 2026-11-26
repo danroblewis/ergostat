@@ -36,7 +36,11 @@ PATHS = {"goals": "loops", "chart": "series", "items": "items", "states": "items
 # each group's kinds of panel → the endpoint that answers them (the path after /api/; a group's own block)
 PATHS.update({"ladder": "agents", "agents": "agents", "daemons": "daemons", **{k: "agents/{agent}" for k in (
     "agent-what", "agent-definition", "agent-place", "agent-runs", "agent-log")}})   # agents
-PATHS.update({})   # items
+PATHS.update({"kinds": "items-overview", "items-by-kind": "items", "kind-now": "items-flow", "kind-model": "kinds/{kind}",
+              "kind-definition": "kinds/{kind}", "item-list": "items", "item-why": "why", "item-summary": "items/{item}",
+              "item-path": "items/{item}", "item-relations": "items/{item}", "item-fields": "items/{item}",
+              "item-refused": "items/{item}", "item-moves": "items/{item}", "item-events": "items/{item}",
+              "item-changes": "items/{item}"})   # items
 PATHS.update({"events": "events", "goal-crossings": "loops/{goal}", "goal-decisions": "loops/{goal}"})   # record
 PATHS.update({"attention": "status", "feedback-loops": "graph", "control-loops": "graph", "quiet-systems": "systems",
               "goal-runbook": "loops/{goal}", "goal-parts": "loops/{goal}", "goal-control": "loop-control"})   # attention

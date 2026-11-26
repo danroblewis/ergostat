@@ -45,9 +45,45 @@ NEEDS_AGENTS: dict[str, str] = {k: "agent" for k in ("agent-what", "agent-defini
                                                      "agent-log")}      # KIND → the parameter it cannot do without
 
 # ---- the items group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/items.tsx): KIND → its parameters
+_ITEM = {"item"}                      # one item, by its id (any id: it need not be recorded yet)
+_ONE_ITEM = ("item-summary", "item-why", "item-path", "item-relations", "item-fields", "item-refused", "item-moves",
+             "item-events", "item-changes")
 KINDS.update({
+    "kinds": {"states"},                                  # GET /api/items-overview: each system's kinds, a card each
+    "items-by-kind": {"q", "finished", "per_kind"},       # GET /api/items: each kind's newest, under its system
+    "kind-now": {"kind", "points", "states"},             # GET /api/items-flow (and /api/kinds/KIND): its states
+    "kind-model": {"kind"},                               # GET /api/kinds/KIND: what counts it, its goals and loops
+    "kind-definition": {"kind"},                          # GET /api/kinds/KIND: its definition
+    "item-list": {"kind", "state", "q", "sort", "finished", "n"},   # GET /api/items: one kind's, paged, searched, sorted
+    **{k: _ITEM for k in _ONE_ITEM},                      # GET /api/items/ITEM (item-why: GET /api/why?item=ITEM)
+    "item-changes": _ITEM | {"history"},                  # GET /api/items/ITEM?history=FIELD|all: each field's changes
 })
-NEEDS_ITEMS: dict[str, str] = {}      # KIND → the parameter it cannot do without
+NEEDS_ITEMS: dict[str, str] = {"kind-now": "kind", "kind-model": "kind", "kind-definition": "kind", "item-list": "kind",
+                               **{k: "item" for k in _ONE_ITEM}}
+
+
+def _one_of(*words):
+    return lambda v: None if v in words else f"one of {', '.join(words)}"
+
+
+def _text(v):
+    return None if isinstance(v, str) and v.strip() else "text"
+
+
+def _whole(low: int, top: int):
+    return lambda v: None if not isinstance(v, bool) and isinstance(v, int) and low <= v <= top else \
+        f"a whole number from {low} to {top}"
+
+
+# KIND → {parameter: its check, None or what it must be}: read before the shared checks (which then check its names)
+CHECKS_ITEMS = {
+    "kinds": {"states": _one_of("all", "groups")},
+    "items-by-kind": {"q": _text, "finished": _one_of("hide", "waits", "show"), "per_kind": _whole(1, 500)},
+    "kind-now": {"states": _one_of("all", "groups")},
+    "item-list": {"state": _text, "q": _text, "sort": _text, "finished": _one_of("hide", "waits", "show")},
+    **{k: {"item": _text} for k in _ONE_ITEM},
+    "item-changes": {"item": _text, "history": _text},
+}
 
 # ---- the record group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/record.tsx): KIND → its parameters
 KINDS.update({
@@ -106,6 +142,7 @@ LISTS_ATTENTION = {"show"}
 
 NEEDS = {"query": "queries", "diagram": "address", "chart": "refs", "states": "kind", "cycle-time": "kind", "scope": "goal", "items": "kind", "note": "text"}
 NEEDS.update({**NEEDS_AGENTS, **NEEDS_ITEMS, **NEEDS_RECORD, **NEEDS_ATTENTION})
+CHECKS = {**CHECKS_ITEMS}      # KIND → {parameter: its check}: a group's kinds' own parameters
 TEXTS = {"text", "address", "moved", "moved_since", "moved_until", "through", "followed", "search"}
 LISTS = {"refs", "goals", "kinds", "state", "where"}     # a list, or one string (comma-separated as the address writes it)
 LISTS |= LISTS_ATTENTION
@@ -211,6 +248,10 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
             params["fit"] = True
     for k in sorted(KINDS[kind] & set(x)):
         v, w = x[k], at(k)
+        if (own := CHECKS.get(kind, {}).get(k)) is not None and (why := own(v)) is not None:
+            c.err(f"{what}.{k}: {why}", w, "bad-dashboard")
+            ok = False
+            continue
         if k in LISTS:                     # kept as written (a round trip); read as a list for the checks
             v = names(v) if not (k == "where" and isinstance(v, str)) else [v]
             params[k] = x[k]
