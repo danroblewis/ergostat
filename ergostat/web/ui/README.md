@@ -31,6 +31,9 @@ header's project list and `ergostat snapshot`.
         goals.tsx            GoalCells: one goal's row in the columns asked for
         charts/              Chart (uPlot), Plot, PanelView (a query's panel from its answer), QueryPanel and
                              usePanelResults (a panel that asks for its own answer), Spark, FlowChart
+        panels/              a panel of every kind, by its name in the model's dashboards: (SPEC §4f): KINDS (query,
+                             diagram, note, goals, chart, items, states, cycle-time...), PanelBox (one, framed),
+                             DashboardView (a grid of them); each asks its own endpoint with exactly its parameters
         diagram/             imported from "components/diagram" (it brings ELK): Diagram (asks for its own graph:
                              <Diagram view="blocks" system="x" />), DiagramCanvas (draws a graph a page has), the
                              three drawings, useDiagramLayout, usePanZoom, a part's panels (usePartPanels)

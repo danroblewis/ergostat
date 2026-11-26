@@ -5,7 +5,7 @@ import { apiGet } from "../../lib/api";
 import { useTime } from "../../state/time";
 import { encodeQuery, type Answer, type Panel, type Query } from "../../lib/query";
 import { useStatus } from "../../state/status";
-import { DashboardPanel } from "./DashboardPanel";
+import { PanelBox, normalizePanel } from "../../components/panels";
 
 /* The panel editor (panel-editor.js, in part): a panel's title, note, form and size, and its queries. ergostat has two
    data sources, promql (every metric) and sql (all item data), and /api/query/fields lists exactly those two under
@@ -119,7 +119,7 @@ function DiagramFields({ p, set }: { p: Panel; set: (patch: Partial<Panel>) => v
 }
 
 function PreviewPanel({ panel }: { panel: Panel }) {
-  if (panel.form === "diagram") return <DashboardPanel panel={saved(panel)} />;
+  if (panel.form === "diagram") return <PanelBox def={normalizePanel(saved(panel))} />;
   return <QueryPreview panel={panel} />;
 }
 

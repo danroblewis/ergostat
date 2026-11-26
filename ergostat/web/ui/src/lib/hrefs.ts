@@ -12,3 +12,14 @@ export function diagramHref(at: { view?: "dynamics" | "blocks" | "process"; syst
   const s = q.toString();
   return `/diagram${s ? `?${s}` : ""}`;
 }
+
+/** A Diagram address read back: what diagramHref writes (a dashboard's diagram panel keeps its address). */
+export function diagramOf(address: string): { view: "dynamics" | "blocks" | "process"; system: string; item: string; kind: string; around: string; kinds: string } {
+  const q = new URLSearchParams(address.split("?")[1] || "");
+  const v = q.get("view");
+  return {
+    view: v === "blocks" || v === "process" ? v : "dynamics",
+    system: q.get("system") || "", item: q.get("item") || "", kind: q.get("kind") || "", around: q.get("around") || "",
+    kinds: q.get("kinds") || "",
+  };
+}

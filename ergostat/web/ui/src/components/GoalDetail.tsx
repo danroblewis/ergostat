@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { AgentLink, AppLink, Async, Button, Dl, Muted, Rich, StatusWord } from "../../components";
-import { useApi } from "../../hooks/useApi";
-import { apiPost, isPublic } from "../../lib/api";
-import { ago, dur, FLAP_AT, fmt, holdText, op, rateText, shareText, stamp } from "../../lib/format";
-import { useStatus } from "../../state/status";
-import { useTime } from "../../state/time";
-import { exceptional, goalBound, goalOffFor, goalWord, performanceWord } from "../../lib/goals";
+import { AgentLink, ItemLink } from "./links";
+import { AppLink, Async, Button, Dl, Muted, Rich, StatusWord } from "./ui";
+import { useApi } from "../hooks/useApi";
+import { apiPost, isPublic } from "../lib/api";
+import { ago, dur, FLAP_AT, fmt, holdText, op, rateText, shareText, stamp } from "../lib/format";
+import { useStatus } from "../state/status";
+import { useTime } from "../state/time";
+import { exceptional, goalBound, goalOffFor, goalWord, performanceWord } from "../lib/goals";
 
 /* A goal's detail, in the side panel (details.js openLoopNow): its runbook (four lines), the remedy, its numbers, its
    parts along the loop, crossings and decisions, then its control loop (control.js): the process identified, its
@@ -194,7 +195,7 @@ export function GoalDetail({ name }: { name: string }) {
                 <h3>{`Breaking it: ${lp.breaking_n} ${lp.per}${lp.breaking_n === 1 ? "" : "s"}`}</h3>
                 <table><tbody>{lp.breaking.map((b: any, i: number) => {
                   const id = String(b.item ?? b.group);
-                  return <tr key={i}><td>{id.includes("/") ? <AppLink to={`/item/${encodeURIComponent(id)}`}>{id}</AppLink> : id}</td><td className="num">{fmt(b.value)}</td></tr>;
+                  return <tr key={i}><td>{id.includes("/") ? <ItemLink id={id} /> : id}</td><td className="num">{fmt(b.value)}</td></tr>;
                 })}</tbody></table>
               </>
             )}

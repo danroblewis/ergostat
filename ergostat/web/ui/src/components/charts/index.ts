@@ -6,3 +6,4 @@ export { PanelView, PanelFrame } from "./PanelView";
 export { QueryPanel, usePanelResults } from "./QueryPanel";
 export { Spark } from "./Spark";
 export { FlowChart } from "./FlowChart";
+export { KindStates } from "./KindStates";

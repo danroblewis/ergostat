@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Async, Button, Code, Empty, ErrorNote, Filters, FlowChart, Fold, ItemsTable, KindBar, Loading, Page, Select, StatusWord, hiddenStates } from "../../components";
+import { Async, Button, Code, Empty, ErrorNote, Filters, Fold, ItemsTable, KindBar, KindStates, Loading, Page, Select, StatusWord, hiddenStates } from "../../components";
 import { useApi } from "../../hooks/useApi";
-import { dur, plural } from "../../lib/format";
+import { plural } from "../../lib/format";
 
 /* /items/KIND (pages.js pageItems with ``only``, kindpage.js): its bar as the page's heading (a state chip filters
    the list), Now (its states over the window and how long its finished took), In the model (what counts it, the
@@ -59,7 +59,7 @@ export default function KindPage() {
           <button type="button" className={!all ? "on" : ""} aria-pressed={!all} onClick={() => set({ states: null }, true)}>State groups</button>
           <button type="button" className={all ? "on" : ""} aria-pressed={all} onClick={() => set({ states: "all" }, true)}>Every state</button>
         </span>
-        <NowChart flow={flow.data} fp={fp.data} all={all} />
+        <KindStates flow={flow.data} fp={fp.data} all={all} />
         <a className="pm-link" href={`/diagram?view=process&kind=${encodeURIComponent(kind)}&mode=states`}
           title="Its process map: how many are in each state now, and how they moved">process map</a>
       </section>
@@ -150,33 +150,6 @@ function Pager({ at, d, shown, size, pg, what, onPage, onSize }: {
       {" · "}<Button variant="ghost" disabled={pg >= last} onClick={() => onPage(pg + 1)}>Next</Button>{" "}
       <Select aria-label="Rows a page" value={String(size)} onChange={(ev) => onSize(+ev.target.value)}
         options={SIZES.map((x) => ({ value: String(x), label: `${x} a page` }))} />
-    </div>
-  );
-}
-
-/** Its states over the window, as groups (waiting, working, stopped, done) or each state; and its cycle time. */
-function NowChart({ flow, fp, all }: { flow: any; fp: any; all: boolean }) {
-  if (!flow) return <Loading />;
-  const any = Object.values(flow.counts || {}).some((c: any) => c.some((x: number) => x));
-  if (!any) return <p className="muted">Nothing of this kind in the window.</p>;
-  let states: string[] = flow.states, counts: Record<string, number[]> = flow.counts;
-  if (!all && fp?.group) {
-    const grouped: Record<string, number[]> = {};
-    for (const [s, c] of Object.entries<number[]>(flow.counts)) {
-      const g = fp.group[s] || s;
-      grouped[g] = (grouped[g] || flow.times.map(() => 0)).map((x: number, i: number) => x + (c[i] || 0));
-    }
-    states = (fp.groups || Object.keys(grouped)).filter((g: string) => g in grouped);
-    counts = grouped;
-  }
-  return (
-    <div className="kind-flow">
-      <FlowChart key={all ? "all" : "groups"} times={flow.times} states={states} counts={counts} height={140} />
-      {flow.finished_total > 0 && (
-        <p className="muted small">
-          {flow.finished_total} finished in the window{flow.median != null ? `, the median took ${dur(flow.median)}` : ""}.
-        </p>
-      )}
     </div>
   );
 }

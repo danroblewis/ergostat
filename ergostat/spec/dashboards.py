@@ -28,9 +28,10 @@ KINDS = {
     "items-graph": {"kinds", "system"},                   # GET /api/items-graph
     "timeline": {"kinds", "system"},                      # GET /api/items-graph
     "query": {"form", "queries", "display", "layout"},   # the page's own panel, as a kept draft holds it (GET /api/query)
+    "diagram": {"address"},                               # a Diagram address, drawn by the page (it asks GET /api/graph)
 }
-NEEDS = {"query": "queries","chart": "refs", "states": "kind", "cycle-time": "kind", "scope": "goal", "items": "kind", "note": "text"}
-TEXTS = {"text", "moved", "moved_since", "moved_until", "through", "followed", "search"}
+NEEDS = {"query": "queries", "diagram": "address", "chart": "refs", "states": "kind", "cycle-time": "kind", "scope": "goal", "items": "kind", "note": "text"}
+TEXTS = {"text", "address", "moved", "moved_since", "moved_until", "through", "followed", "search"}
 LISTS = {"refs", "goals", "kinds", "state", "where"}     # a list, or one string (comma-separated as the address writes it)
 
 
@@ -162,6 +163,9 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
             continue
         params.setdefault(k, v)
         ok = _refs(c, spec, exists, k, v, params, what, w) and ok
+    if ok and kind == "diagram" and not str(params.get("address", "")).startswith("/diagram"):
+        c.err(f"{what}.address: a Diagram address, like /diagram?view=blocks&system=NAME", at("address"), "bad-dashboard")
+        ok = False
     if ok and kind == "items":
         from .item_sets import BadSet, parse
         try:

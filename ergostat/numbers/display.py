@@ -51,6 +51,12 @@ def beside(texts: dict[str, str]) -> list[str]:
 
 
 def _panel(x) -> dict:
+    from ..spec.dashboards import KINDS, PANEL_KEYS
+    kind = x.get("panel") if isinstance(x, dict) else None
+    if kind in KINDS and kind != "query":          # any other kind of panel: its own keys, as dashboards: declares it
+        size = x.get("size") if x.get("size") in SIZES else "m"
+        out = {k: v for k, v in x.items() if k in (PANEL_KEYS | KINDS[kind]) - {"size"} and v not in (None, "")}
+        return {**out, "size": size + ("-tall" if x.get("tall") is True else "")}
     if not isinstance(x, dict) or not isinstance(x.get("queries"), list):
         raise pr.ProposalError("not kept: a panel is a map with its queries")
     size = x.get("size") if x.get("size") in SIZES else "m"

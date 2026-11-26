@@ -12,4 +12,6 @@ export { AgentLink, ItemLink, KindLink } from "./links";
 export { EventsTable, EventDetail, useShowEvent, changeOf, type RecordEvent } from "./events";
 export { KindBar, ItemsTable, FieldValue, isShort, hiddenStates } from "./items";
 export { GoalCells, type GoalColumn } from "./goals";
-export { Chart, Plot, PanelView, PanelFrame, QueryPanel, usePanelResults, Spark, FlowChart, valueText, type Series, type PlotSeries } from "./charts";
+export { Chart, Plot, PanelView, PanelFrame, QueryPanel, usePanelResults, Spark, FlowChart, KindStates, valueText, type Series, type PlotSeries } from "./charts";
+export { GoalDetail } from "./GoalDetail";
+export { GoalsTable, ALL_COLUMNS, PANEL_COLUMNS } from "./GoalsTable";

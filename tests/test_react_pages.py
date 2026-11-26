@@ -238,3 +238,64 @@ def test_model_errors_are_said_in_a_note_under_the_run_state(browser, tmp_path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+DECLARED = """
+dashboards:
+  ops:
+    title: Ops board
+    panels:
+      - {panel: note, title: Read me, text: "What this board is **for**", size: s}
+      - {panel: goals, title: Goals, size: m}
+      - {panel: chart, title: Inbox, refs: [stock.inbox], size: m}
+      - {panel: states, title: Ticket states, kind: ticket, size: m}
+      - {panel: cycle-time, title: Ticket cycle time, kind: ticket, size: m}
+      - {panel: items, title: Open tickets, kind: ticket, size: full}
+      - {panel: diagram, title: Blocks, address: "/diagram?view=blocks", size: full}
+"""
+
+
+@pytest.fixture
+def declared(tmp_path):
+    p = project_with_items(tmp_path / EXAMPLE)
+    p.model.path.write_text(p.model.path.read_text() + DECLARED)
+    p = Project(mdl.load(p.model.path.parent))
+    server, url = web.serve(p, 0)
+    try:
+        yield p, url
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_declared_dashboard_draws_a_panel_of_every_kind(browser, declared):
+    _, url = declared
+    pg = opened(browser, url + "/dashboard?name=ops")
+    assert heading(pg).startswith("Ops board")
+    for kind in ("note", "goals", "chart", "states", "cycle-time", "items"):
+        pg.locator(f".panel.panel-kind-{kind}").wait_for(timeout=WAIT)
+    assert "for" in pg.locator(".panel-kind-note strong").inner_text()
+    pg.locator(".panel-kind-goals table.loops tbody tr").first.wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-chart canvas, .panel-kind-chart p.muted").first.wait_for(timeout=WAIT)   # drawn, or said empty
+    pg.locator(".panel-kind-items table tbody tr").first.wait_for(timeout=WAIT)
+    pg.locator(".panel.panel-form-diagram svg.canvas.bd g.node").first.wait_for(timeout=WAIT)
+    assert pg.locator("select[aria-label='Dashboard'] option").all_inner_texts()[:1] == ["This browser's draft"]
+    assert "Ops board" in pg.locator("select[aria-label='Dashboard'] option").all_inner_texts()
+    assert settled(pg, 2500) == []
+    pg.close()
+
+
+def test_keep_sends_the_draft_and_accept_writes_it_to_the_model(browser, declared):
+    p, url = declared
+    pg = opened(browser, url + "/dashboard")
+    pg.wait_for_selector("#main .page.dash .panel", timeout=WAIT)
+    pg.get_by_role("button", name="Keep").click()
+    box = pg.locator("[aria-label='Keep this dashboard']")
+    box.locator(".diff").wait_for(timeout=WAIT)                                  # the dashboards: entry, shown first
+    assert "dashboards" in p.model.path.read_text() and "overview:" not in p.model.path.read_text()   # nothing yet
+    box.get_by_role("button", name="Accept").click()
+    pg.wait_for_url("**/dashboard?name=overview", timeout=WAIT)
+    assert "overview:" in p.model.path.read_text()
+    pg.locator(".panel").first.wait_for(timeout=WAIT)
+    assert settled(pg) == []
+    pg.close()

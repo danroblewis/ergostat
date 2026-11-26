@@ -163,6 +163,8 @@ def _run(live, p, panel: Panel, q: dict, snap):
     from .server import _answer
     if panel.panel == "note":
         return {"text": panel.params.get("text", "")}
+    if panel.panel == "diagram":                   # drawn by the page, which asks for its graph itself
+        return {"address": panel.params.get("address", "")}
     if panel.panel == "query":                     # a kept draft's panel: its queries, as the page asks them
         flat, wanted = sent(panel.params["queries"])
         asked = {"queries": flat, "since": float((q.get("since") or [86400])[0])}
