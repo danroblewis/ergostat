@@ -131,10 +131,6 @@ def _varies(v: list[float]) -> bool:
     return size > 0 and statistics.pstdev(v) > FLAT * size
 
 
-# what the analysis calls reuse (query/spectra.py), unchanged, under public names
-runs, windows, stretch, cells, detrended, varies, smooth = _runs, _windows, _length, _cells, _detrended, _varies, _smooth
-
-
 def floor(windows: int) -> float:
     """The coherence unrelated signals stay under 95% of the time, for Hann windows overlapping by half: each window
     is worth 9/11 of an independent one (Welch 1967)."""

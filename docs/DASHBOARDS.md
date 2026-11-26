@@ -93,14 +93,23 @@ Percent stacking (`stack: percent`) answers "what share", never "how many": say 
 
 ## 6. What a panel costs, and when one is slow
 
-Each source reads a different store:
+ergostat has exactly two data sources, and every panel asks one of them (NOTES.md, 2026-11-25):
 
-- `items`, `moves` and `counts` read the **item index**, the fold of the record into items (a projection, in the event
-  log's sense; not the model's projection forward from now, which the query API does not chart). Cheap: an indexed
-  read per query.
-- `series` reads the **metrics store**'s roll-ups. Cheap, and a long window reads coarser roll-ups, not more rows.
-- `events` reads the **event log** itself: at most the latest 20,000 events of a window of at most 31 days, four reads
-  per request and two at once in all, its answer marked `read_log` (and `truncated` when cut). It is the dear one.
+- `promql`: every metric, recorded in VictoriaMetrics (section 6a).
+- `sql`: all item data, projected into SQLite: the item views over the **item index**, the fold of the record into
+  items (a projection, in the event log's sense; not the model's projection forward from now, which the query API does
+  not chart). SPEC §4e, *The SQL source*, lists the views.
+
+The panel editor's Source lists exactly these two; one that cannot be asked now (no VictoriaMetrics answering, say) is
+shown disabled, with why and how to make it available. The shortcuts under Query (item fields, item moves, items per
+state, events, a metric series) are not sources of their own: each writes one SQL or PromQL query and asks it, and the
+answer carries what it asked (`compiled`), shown under the editor's preview. That text is a query like any other: ask
+it of the source yourself, and change it, when the shortcut does not say what you want.
+
+- `items`, `moves`, `counts` and `events` write SQL over the item views (`item_numbers`, `transitions`, `events`).
+  Cheap: an indexed read per query. `events` counts what the index folded per minute, so it never reads the event log.
+- `series` writes PromQL (`avg_over_time({series="..."}[STEP])`, by its `agg`), bucketed by VictoriaMetrics. Cheap,
+  and a long window reads no more rows.
 - A request stops starting queries after 10 s; what is left answers *busy*, and the page asks again shortly.
 
 Answers are kept by query and by the version of the data they read, so a refresh with nothing new costs nothing, and a
@@ -108,7 +117,7 @@ window ending now moves in 5 s steps so panels asked together share one answer.
 
 When a panel is slow (it says it is late, or answers *busy*):
 
-1. Ask the same thing of a cheaper source: entries to a state from `moves` rather than counting `events` by type.
+1. Ask the same thing more cheaply: entries to a state from `moves` rather than counting `events` by type.
 2. Shorten the window, or set a coarser `bucket`; fewer `points` in the page.
 3. Merge panels that ask the same query: an identical query on two panels is asked once, so reuse beats near copies.
 4. Fewer queries per panel (at most 12) and fewer panels; drop the panel with no decision first (section 1).
@@ -116,7 +125,7 @@ When a panel is slow (it says it is late, or answers *busy*):
 
 ## 6a. ergostat's own series in PromQL: VictoriaMetrics
 
-A panel can ask the built-in data source `ergostat` in PromQL, as it would ask any Prometheus, for ergostat's own
+A panel can ask the data source `promql` in PromQL, as it would ask any Prometheus, for ergostat's own
 series: sensors, valves, blocks' outputs and each run's cost, tokens, CPU, memory and seconds. Every reading ergostat
 keeps is kept in VictoriaMetrics, its only metrics store (NOTES.md, 2026-11-25), so every project can be asked this way.
 
@@ -145,7 +154,7 @@ long the server keeps a reading: one month unless set, and a reading older than 
 it at least as long as the history you want. If you run VictoriaMetrics yourself, leave `run:` out, and check its
 `-retentionPeriod` the same way. Several projects can share one server: each one's readings carry its own `project`
 label (its state key; a project under another `ERGOSTAT_HOME` than `~/.ergostat`, as scripts, demos and tests use, has
-a digest of where that home is added, so it never mixes with the install's), and the built-in source only ever answers
+a digest of where that home is added, so it never mixes with the install's), and `promql` only ever answers
 with this project's. `ergostat reset --yes` deletes the project's series in the server too, so the record starts from
 nothing; with the server away it refuses, and deletes nothing.
 
@@ -181,8 +190,8 @@ counts were taken afresh, and the two need not agree, so read no leak into it. A
 comparing it, as a move between milestones is not a transition.
 
 `count by(__name__)({__name__=~".+"})` lists them all. VictoriaMetrics computes `rate()` and `increase()`
-without Prometheus's extrapolation, so an integer counter's increase is a whole number (SPEC §4e, *The built-in source
-`ergostat`*).
+without Prometheus's extrapolation, so an integer counter's increase is a whole number (SPEC §4e, *The `promql`
+source*).
 
 ## 7. Recipes
 

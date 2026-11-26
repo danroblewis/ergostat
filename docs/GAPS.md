@@ -376,7 +376,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   progress, `redesign`; the stated behaviour done on `extremes`: each change's effect states the closed-loop projection
   of the stocks it touches in one sentence above the strip, accepting records it as `predicted`, and the judge's pass
   records `observed` beside it once the horizon has passed; `docs/roadmap/overnight/extremes.md`).
-- **Bode, Nyquist and pole-zero from a model** (done; `model-data-source`, `dev/records/model-data-source.md`): a data
+- **Bode, Nyquist and pole-zero from a model** (done; `model-data-source`, `dev/records/model-data-source.md`; the
+  source removed 2026-11-25, NOTES.md: ergostat has two sources, `promql` and `sql`, and a goal's declared process is
+  `{"source": "frequency", "model": {"goal": NAME}}`; what follows is history): a data
   source of type `model` (one named `model` is there undeclared; `ergostat/datasources/model.py`) answers a `response`
   frame in a one-line language: `goal NAME` (declared process, else the one its record identifies), `goal NAME
   declared|identified`, `fopdt gain= tau= delay=`, `ipdt gain= delay=`, each with an optional `dt=`. The frequency

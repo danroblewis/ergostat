@@ -24,6 +24,29 @@ _RANGE = re.compile(r"\[\s*((?:\d+(?:\.\d+)?(?:ms|[smhdwy]))+)\s*(?::[^\]]*)?\]"
 _PART = re.compile(r"(\d+(?:\.\d+)?)(ms|[smhdwy])")
 
 
+SCRAPE_READINGS = 2_000                # the newest readings an answer's scrape interval is read from
+
+
+def spacing(times: list[float]) -> float | None:
+    """The median spacing of readings at ``times`` (in order; the lower of two middles), apart from readings at one
+    time, or None."""
+    d = sorted(b - a for a, b in zip(times, times[1:], strict=False) if b > a)
+    return d[(len(d) - 1) // 2] if d else None
+
+
+def scrape(m, series: str, since: float, until: float) -> float | None:
+    """A series' scrape interval in a window (of its newest ``SCRAPE_READINGS``: every answer of a series pays it);
+    None where it is not known."""
+    return spacing([t for t, _ in m.range(series, since, until, last=SCRAPE_READINGS)])
+
+
+def scrapes(m, qs, since: float, until: float) -> dict:
+    """``{"scrape_s": ...}`` of an answer built from the readings of the ``series`` queries among ``qs``: the coarsest
+    of their scrapes, None if any is unknown; ``{}`` where none is a series (not sampled)."""
+    got = [scrape(m, q.series, since, until) for q in qs if getattr(q, "source", None) == "series"]
+    return {"scrape_s": None if None in got else max(got)} if got else {}
+
+
 def windows(text: str) -> list[float]:
     """The range windows of a PromQL text, in seconds, each once (strings and comments are not read)."""
     plain = _QUOTED.sub('""', text)

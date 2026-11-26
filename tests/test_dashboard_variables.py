@@ -92,9 +92,7 @@ def test_a_value_with_quotes_or_regex_characters_cannot_change_a_querys_meaning(
     for template, quotes, comment, lang in [
             ('sum(rate(ergostat_items{kind="$kind", state="review"}[5m]))', "\"'`", "#", "PromQL"),
             ("up{kind='${kind}'} # $kind", "\"'`", "#", "PromQL"),
-            ('label_replace(up, "dst", "$kind", "src", "(.*)")', "\"'`", "#", "PromQL"),
-            ('psd(A, detrend="$kind")', "\"'", None, "analysis"),
-            ("fan(stock='$kind', h=8h)", "\"'", None, "analysis")]:
+            ('label_replace(up, "dst", "$kind", "src", "(.*)")', "\"'`", "#", "PromQL")]:
         got = interpolate(lang, template, g)
         shape, lits = lex(got, quotes, comment)
         want_shape, want_lits = lex(template, quotes, comment)
@@ -121,11 +119,10 @@ def test_a_value_with_quotes_or_regex_characters_cannot_change_a_querys_meaning(
 def test_a_value_that_cannot_go_where_it_is_used_is_refused():
     refused = [("sum by ($l) (up)", ["a) or (b"]), ("sum by ($l) (up)", ["or"]), ("up offset $l", ["5m or up"]),
                ('up{k="$l"}', ["a", "b"]), ('up{k="$l"}', []), ("up{k=`$l`}", ["a`b"]), ("up{k=~`$l`}", ["`"]),
-               ('psd(A, detrend="$l")', ["a", "b"]), ("psd($l)", ["A, evil()"]),
                ('label_replace(up, "d", "$l", "s", "(.*)")', ["a", "b"])]
     for text, values in refused:
         with pytest.raises(datasources.SourceError) as e:
-            interpolate("PromQL" if "psd" not in text else "analysis", text, {"l": values})
+            interpolate("PromQL", text, {"l": values})
         assert e.value.kind == "refused", text
     assert interpolate("PromQL", "sum by ($l) (up[$w]) offset ${w}", {"l": ["job"], "w": ["5m"]}) == \
         "sum by (job) (up[5m]) offset 5m"
@@ -134,26 +131,6 @@ def test_a_value_that_cannot_go_where_it_is_used_is_refused():
     lr = 'label_replace(up, "$l", "$l-$1", "s", "$l(.*)") + label_join(up, "d", "$l", "s")'
     assert interpolate("PromQL", lr, {"l": ["a.$b"]}) == \
         'label_replace(up, "a.$b", "a.$$b-$1", "s", "a\\\\.\\\\$b(.*)") + label_join(up, "d", "a.$b", "s")'
-
-
-@pytest.mark.parametrize("value", HOSTILE + ["x dt=1s", "x\tdeclared", "gain=9", "1 tau=1y"])
-def test_a_model_query_takes_a_value_only_as_one_word_its_parser_reads_as_written(value):
-    """The model source's language has no strings (a quote is part of a word), so a hostile value is refused wherever
-    it is put, quoted or not; a plain one is the one word it replaces, as model.py's parser reads it."""
-    from ergostat.datasources import model as source
-    for template in ("goal $g", 'goal "$g"', "goal '${g}' declared", "fopdt gain=$g tau=30s", "ipdt gain=1 delay=$g"):
-        with pytest.raises(datasources.SourceError) as e:
-            interpolate("model", template, {"g": [value]})
-        assert e.value.kind == "refused", (template, value)
-    for template, good, parsed in [("goal $g declared", "queue_wait", ("goal", "queue_wait", {"how": "declared"})),
-                                   ("fopdt gain=$g tau=${g}m", "2", ("fopdt", None, {"gain": 2.0, "tau": 120.0})),
-                                   ("ipdt gain=1 delay=$g dt=5s", "30s", ("ipdt", None, {"gain": 1.0, "delay": 30.0,
-                                                                                         "dt": 5.0}))]:
-        got = interpolate("model", template, {"g": [good]})
-        assert got == template.replace("${g}", good).replace("$g", good)
-        assert source._parsed(got)[:3] == parsed, got
-    with pytest.raises(datasources.SourceError):
-        interpolate("model", "goal $g", {"g": ["a", "b"]})          # several values where one word goes
 
 
 def test_a_language_with_no_rules_refuses_every_variable():
@@ -173,6 +150,12 @@ class Stub(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         a = {k: v[0] for k, v in parse_qs(u.query).items()}
         type(self).seen.append((u.path, a))
+        if u.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"OK")
+            return
         if u.path == "/api/v1/query_range":
             data = {"resultType": "matrix", "result": [{"metric": {"q": a["query"]}, "values": [[float(a["start"]), "1"]]}]}
         elif u.path == "/api/v1/label/kind/values":
@@ -197,12 +180,11 @@ def prom():
 
 @pytest.fixture
 def p(tmp_path, prom):
-    (tmp_path / "ergostat.yaml").write_text("name: dv\nstocks:\n  queue: {unit: tickets}\nsources:\n" + textwrap.indent(
-        f'prom: {{type: prometheus, url: "{prom}"}}\nf: {{type: fake, table: t}}\n', "  "))
-    datasources.register(types.SimpleNamespace(TYPE="fake", KEYS={"table"}, LANGUAGE="FakeQL",
-                                               query=lambda src, text, w: [(text, [(w.start, 1.0)])]))
-    yield Project(mdl.load(tmp_path))
-    datasources.unregister("fake")
+    """A project whose readings are on a stub VictoriaMetrics: what ``promql`` asks."""
+    (tmp_path / "ergostat.yaml").write_text("name: dv\nstocks:\n  queue: {unit: tickets}\n")
+    got = Project(mdl.load(tmp_path))
+    got.measurements.base = prom
+    return got
 
 
 def enc(body: dict) -> list:
@@ -211,9 +193,10 @@ def enc(body: dict) -> list:
 
 def test_the_source_is_sent_the_text_with_its_variables_written_in_safely(p):
     Stub.seen.clear()
-    queries = [{"id": "a", "source": "prom", "text": 'sum(up{kind=~"$kind"})', "vars": {"kind": ['b"c', "a.b"]}},
-               {"id": "b", "source": "prom", "text": "sum by ($l) (up)", "vars": {"l": ["x) or vector(1"]}},
-               {"id": "c", "source": "f", "text": "count where kind = $kind", "vars": {"kind": ["a"]}}]
+    queries = [{"id": "a", "source": "promql", "text": 'sum(up{kind=~"$kind"})', "vars": {"kind": ['b"c', "a.b"]}},
+               {"id": "b", "source": "promql", "text": "sum by ($l) (up)", "vars": {"l": ["x) or vector(1"]}},
+               {"id": "c", "source": "sql", "text": "select count(*) as n from transitions where kind = '$kind'",
+                "vars": {"kind": ["a"]}}]
     got = api(Live(p), "query", {"q": enc({"since": 480, "until": T + 480, "points": 4, "queries": queries})})["results"]
     assert [q for path, a in Stub.seen for q in [a["query"]]] == ['sum(up{kind=~"(?:b\\"c|a\\\\.b)"})']
     assert "error" not in got[0], got[0]
@@ -223,7 +206,7 @@ def test_the_source_is_sent_the_text_with_its_variables_written_in_safely(p):
 
 def test_a_variable_from_a_query_lists_its_labels_values_from_the_source(p):
     Stub.seen.clear()
-    ask = lambda **b: api(Live(p), "query/values", {"q": enc({"source": "prom", "since": 3600, "until": T, **b})})  # noqa: E731
+    ask = lambda **b: api(Live(p), "query/values", {"q": enc({"source": "promql", "since": 3600, "until": T, **b})})  # noqa: E731
     assert ask(text='label_values(ergostat_items{state="$s"}, kind)', vars={"s": ['re"view']}) == \
         {"values": ["a", 'b"c', "ticket"]}
     [(path, a)] = Stub.seen
@@ -234,9 +217,9 @@ def test_a_variable_from_a_query_lists_its_labels_values_from_the_source(p):
     assert over["error_kind"] == "limit" and "201 values" in over["error"]
     bad = ask(text="sum(up)")
     assert bad["error_kind"] == "refused" and "label_values" in bad["error"]
-    fake = api(Live(p), "query/values", {"q": enc({"source": "f", "text": "label_values(kind)"})})
+    fake = api(Live(p), "query/values", {"q": enc({"source": "sql", "text": "label_values(kind)"})})
     assert fake["error_kind"] == "refused" and "cannot list" in fake["error"]
     Stub.seen.clear()
     from ergostat.web.server import _query
-    refused = _query(Live(p), p, ["query", "values"], {"q": enc({"source": "prom", "text": "label_values(kind)"})}, True)
+    refused = _query(Live(p), p, ["query", "values"], {"q": enc({"source": "promql", "text": "label_values(kind)"})}, True)
     assert refused["error_kind"] == "refused" and Stub.seen == []                # a reader: nothing is sent

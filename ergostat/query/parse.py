@@ -19,8 +19,6 @@ MEASURES = ("entries", "exits", "time_in_state")
 RATE_PER = {"second": 1.0, "minute": 60.0, "hour": 3600.0, "day": 86400.0}
 MOST_ENCODED = 48_000       # characters of ``q`` (an address must stay an address)
 MOST_QUERIES = 64           # a page of 24 panels, a few queries each
-ANALYSIS = "analysis"       # the reserved source of calls over the request's other queries (analysis.py)
-MOST_ANALYSIS = 8           # of those, in one request: each reads up to analysis.READINGS_MOST readings
 MOST_POINTS = 1000
 POINTS = 120
 MOST_WINDOW = 400 * 86400.0
@@ -83,7 +81,7 @@ class Query:
 
 @dataclass(frozen=True)
 class SourceQuery:
-    """A query in a data source's own language (``{"source": name, "text": ...}``; ergostat/datasources)."""
+    """A query in a data source's own language (``{"source": "promql" | "sql", "text": ...}``; ergostat/datasources)."""
     id: str
     source: str
     text: str
@@ -117,7 +115,7 @@ def _source_query(d: dict, id_: str, who: str, depth: int) -> SourceQuery:
         raise BadQuery(f"{who}: {extra[0]!r} is not a key of a data source's query (source, text and vars)")
     source, text = d.get("source"), d.get("text")
     if not isinstance(source, str) or not source or len(source) > 200:
-        raise BadQuery(f"{who}: source is missing (the name of a source under sources:)")
+        raise BadQuery(f"{who}: source is missing (promql or sql)")
     if not isinstance(text, str):
         raise BadQuery(f"{who}: text must be the query, in the source's own language")
     return SourceQuery(id_, source, text, source_vars(d.get("vars"), who))
@@ -353,16 +351,12 @@ def parse(d: dict) -> Asked:
         raise BadQuery("query: queries must be a list of at least one")
     got: list[Query | SourceQuery | Refused] = []
     seen: set[str] = set()
-    calls = 0
     for i, x in enumerate(qs):
         id_ = _id_of(x, i)
-        calls += isinstance(x, dict) and x.get("source") == ANALYSIS
         if i >= MOST_QUERIES:
             got.append(Refused(id_, f"query {id_}: not answered, past the {MOST_QUERIES} queries one request may ask"))
         elif id_ in seen:
             got.append(Refused(id_, f"query {id_}: two queries have the same id"))
-        elif isinstance(x, dict) and x.get("source") == ANALYSIS and calls > MOST_ANALYSIS:
-            got.append(Refused(id_, f"query {id_}: not answered, past the {MOST_ANALYSIS} analysis queries one request may ask"))
         else:
             try:
                 got.append(_query(x, i))

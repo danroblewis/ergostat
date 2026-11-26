@@ -83,6 +83,15 @@ a disturbance is added to the model.
   is the only metrics store and is required: the SQLite readings store, its roll-up tiers and `ergostat migrate` are
   gone. With none answering, ergostat says how to start one and does not run; it never keeps readings anywhere else.
   The events and the item index stay in the state directory.
+- **Two data sources: `promql` and `sql`** (2026-11-25, the owner's decision). ergostat has exactly two: `promql`, every
+  metric, recorded in VictoriaMetrics, and `sql`, all item data, projected into SQLite (the item views). "All things
+  that are not external systems are stored in promql or sql." The built-in shortcuts (item fields, item moves, items
+  per state, events, metric series, a frequency response) are query generators, syntactic sugar in YAML and on the
+  dashboard: each writes a PromQL or SQL query and asks it, and the answer shows what it asked. "They are query
+  generators. They are not data sources, not at all." The listing always shows both, an unavailable one with its
+  reason, never dropping one silently. Removed: the `model` and `analysis` sources, the external Prometheus and SQL
+  data sources, and declaring a dashboard source under `sources:` (a model error that says why). Sensors that read
+  external systems stay: they are sensors, and `sources:` holds only their connections.
 - Pub/sub may be how ergostat runs its own processes and their communication. The event bus is how
   the relationships between agents are read off.
 

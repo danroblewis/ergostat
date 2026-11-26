@@ -993,28 +993,15 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
 To read a rate, a level or a duration without scanning the record, use `GET /api/query?q=<base64url of JSON>` and see what
 exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per hour by state is
 `{"since": 86400, "queries": [{"id": "a", "source": "items", "kind": "KIND", "field": "ai_cost_usd", "agg": "sum",
-"transform": "rate", "rate_per": "hour", "group_by": "state"}]}`. Prefer `items`, `moves`, `counts` and `series`; the
-`events` source reads the log, bounded, and says so.
+"transform": "rate", "rate_per": "hour", "group_by": "state"}]}`.
 
-To look at how signals move, add a query of the reserved `analysis` source over the request's other queries, by id.
-Each call reads raw readings (an ergostat `series` with no transform, or a data source asked again at its finest step)
-on one grid, never the values the panel drew:
-
-| Call | Options (bound) | Answer |
-|---|---|---|
-| `raw(A)` | `points` (16 to 5,000) | `series`, with its gap mask |
-| `pair(A, B)` | none | `points` in time order: x from A, y from B, one per grid time both hold |
-| `psd(A)` | `detrend=linear\|mean\|none`, `segments` (1 to 64; 4) | `points` by period (s): Welch power, `lower`/`upper` a 95% band per period |
-| `spectrogram(A)` | `length` (a duration: 16 to 1,024 samples), `detrend`, `cells` (1 to 5,000) | `table`: stretch `start` × `frequency` → `power` |
-| `ccf(A, B)` | `most_lag` (a duration: 1 to 256 samples) | `points` by lag (s); positive: B moves after A; ±1.96/√n band |
-
-Read the refusals as the answer, never as zero: a record too short, holding a NaN or ±inf, with no stretch of 16
-samples between its gaps, or flat (for psd and spectrogram: every stretch a straight line once detrended) is
-`unanalysable`; one flat stretch in a varying signal is a true zero, counted in `flat_segments`; a spectrum of a data source's query with a range window (`rate(x[5m])`)
-is `windowed` (G1: ask an ergostat series, or the source without the window). A period under `not_observable_s` (twice
-the scrape or step) is never answered. The ccf band holds only for two independent white signals: a peak past it in
-autocorrelated signals is not evidence of a link. `pair` and `ccf` of signals read at different steps or windows warn
-`mixed-windows`.
+ergostat has exactly two data sources, `promql` (every metric, in VictoriaMetrics) and `sql` (all item data, projected
+into SQLite); `datasources` in `/api/query/fields` lists both, each saying whether it can be asked now and, when not,
+why. `items`, `moves`, `counts`, `events`, `series` and `frequency` are shortcuts, not sources: each writes one SQL or
+PromQL query, and the answer's `compiled` is that text. When a shortcut does not say what you want, ask the source
+itself: `{"id": "b", "source": "sql", "text": "select ... from transitions where at >= :since and at <= :until"}`, or
+`{"id": "c", "source": "promql", "text": "sum by (state) (gap_items)"}`. Declare no source: a `sources:` entry is
+only an external system a sensor reads.
 
 ## 3l. A shared dashboard: declared by you, never by a person
 
@@ -1280,7 +1267,7 @@ Model it so ergostat can answer (SPEC §5a, *Stages*):
    time limit plus slack): a recorder that dies leaves the stage `unfinished`, never running forever. Stages that run
    at once overlap; a stage run again is a new span. `run` is the attempt the stage belongs to and `run_kind` what kind
    of run it is (`full`, a retry, an isolation round): estimates compare like with like.
-4. **Declare a `sql` source** (`sources: {record: {type: sql}}`): the views `item_stages`, `stage_estimates` and
+4. **Ask the `sql` source** (always there, never declared): the views `item_stages`, `stage_estimates` and
    `item_progress` answer the questions, and the default Dashboard's row is built from them. Each estimate needs 3
    normal runs; until then it says there is none, and so does the time left. After a stage fails, the time left is
    unknown (the remaining path depends on what fails), and the row says so.

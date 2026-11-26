@@ -2017,8 +2017,7 @@
           "enum": [
             "prometheus",
             "command",
-            "ergostat",
-            "sql"
+            "ergostat"
           ]
         },
         "url": {

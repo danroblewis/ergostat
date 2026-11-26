@@ -37,8 +37,6 @@ MODEL = """
         pipeline:
           title: Deploys
           stages: [build, canary-a, canary-b, rollout]
-    sources:
-      record: {type: sql}
     """
 
 

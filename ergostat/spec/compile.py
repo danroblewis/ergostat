@@ -89,6 +89,11 @@ STAGES_MOST = 32                                     # stage names a pipeline de
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file", "tls"}}
+DASHBOARD_SOURCES = ("sql", "model", "analysis", "promql")   # once declared for panels: now ergostat's own, never declared
+NOT_DECLARED = ("a dashboard's data sources are not declared: ergostat has exactly two, promql (every metric, in "
+                "VictoriaMetrics) and sql (all item data, projected into SQLite), always there, and a panel asks them by "
+                "name (NOTES.md, 2026-11-25). sources: holds only the external systems a sensor reads (prometheus, "
+                "command, ergostat); remove this entry, and ask source: sql or source: promql in a panel")
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on", "runs-on"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
@@ -1097,21 +1102,22 @@ class Compiler:
                 self.err(f"system {name}.within: {parent} is within {name}: systems nest, they do not go round", w,
                          "system-cycle")
                 del spec.within[name]
-        panel_types = datasources.types()                    # the types a panel can query (ergostat/datasources)
-        for name, m, what in self.named("sources"):
+        for name, m, what in self.named("sources"):         # the external systems sensors read; never a panel's
             t = m.get("type")
-            if not isinstance(t, str) or (t not in SOURCE_TYPES and t not in panel_types):
-                self.err(f"{what}.type: one of {', '.join(sorted({*SOURCE_TYPES, *panel_types}))}", m.at("type"), "bad-type")
+            if isinstance(t, str) and t in DASHBOARD_SOURCES or name in datasources.NAMES:
+                self.err(f"{what}: {NOT_DECLARED}", m.at("type") or m.where, "dashboard-source")
                 continue
-            keys = {"type", *(panel_types[t].KEYS if t in panel_types else ())}
-            self.keys(m, SOURCE_TYPES.get(t, set()) | keys, what)
+            if not isinstance(t, str) or t not in SOURCE_TYPES:
+                self.err(f"{what}.type: one of {', '.join(sorted(SOURCE_TYPES))} (an external system a sensor reads)",
+                         m.at("type"), "bad-type")
+                continue
+            self.keys(m, SOURCE_TYPES[t], what)
             if t in ("prometheus", "ergostat") and not m.get("url"):
                 self.err(f"{what}: a {t} source needs url:", m.where, "missing-key")
             if m.get("tls") is not None and not isinstance(m["tls"], dict):
                 self.err(f"{what}.tls: a map of cert:, key: and (optional) ca:", m.at("tls"), "bad-remote")
             spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"),
-                                        dict(m["tls"]) if isinstance(m.get("tls"), dict) else None,
-                                        {k: m[k] for k in sorted(keys - {"type"}) if m.get(k) is not None})
+                                        dict(m["tls"]) if isinstance(m.get("tls"), dict) else None)
         for name, m, _ in self.named("items"):
             k = self.item_kind(name, m, f"item kind {name}")
             if k.id.startswith("ergostat."):
@@ -1874,7 +1880,7 @@ class Compiler:
                 if s.unit and st.unit and s.unit != st.unit:
                     self.err(f"stock {st.name} sensor {s.name} reads {s.unit}, but the stock is in {st.unit}", s.where, "units")
         for s in spec.sensors():
-            own = s.query and s.query.get("source") == "ergostat" and "ergostat" not in spec.sources
+            own = s.query and s.query.get("source") in ("ergostat", "promql") and s.query["source"] not in spec.sources
             if own:
                 pass                                     # the built-in source: this project's readings (SPEC §4b)
             elif s.query and s.query.get("source") not in spec.sources:

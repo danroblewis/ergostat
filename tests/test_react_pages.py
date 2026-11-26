@@ -151,6 +151,29 @@ def test_a_diagram_panel_is_added_in_the_editor_and_kept(browser, site):
     pg.close()
 
 
+def test_the_panel_editor_offers_exactly_the_two_sources_and_shows_what_a_shortcut_asked(browser, site):
+    """The Source select lists promql and sql and nothing else (NOTES.md, 2026-11-25); a shortcut's preview shows the
+    SQL it wrote."""
+    pg = opened(browser, site + "/dashboard")
+    pg.wait_for_selector("#main .page.dash", timeout=WAIT)
+    pg.get_by_role("button", name="Edit", exact=True).first.click()
+    pg.get_by_role("button", name="Add panel").click()
+    pg.wait_for_selector("[aria-label='Edit panel']", timeout=WAIT)
+    pg.get_by_role("button", name="Add query").click()
+    source = pg.locator("select[aria-label='Source']").first
+    source.wait_for(timeout=WAIT)
+    pg.wait_for_function("() => document.querySelectorAll(\"select[aria-label='Source'] option\").length >= 2",
+                         timeout=WAIT)
+    assert source.locator("option").evaluate_all("os => os.map(o => o.value)") == ["promql", "sql"]
+    source.select_option("sql")
+    pg.locator("select[aria-label='Query']").first.select_option("counts")
+    pg.get_by_role("button", name="Preview").click()
+    pg.wait_for_selector(".pe-compiled code", timeout=WAIT)
+    assert "from transitions" in pg.locator(".pe-compiled code").first.inner_text()
+    assert settled(pg) == []
+    pg.close()
+
+
 @pytest.mark.parametrize("view, caption, nodes", [
     ("dynamics", "Stock-and-flow diagram", True),
     ("blocks", "Block diagram", True),

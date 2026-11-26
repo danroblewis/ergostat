@@ -112,25 +112,19 @@ def project(tmp_path, more: str = "") -> Project:
     return Project(mdl.load(tmp_path))
 
 
-def test_over_victoriametrics_the_builtin_source_asks_for_this_project_only(tmp_path, stub):
+def test_over_victoriametrics_the_promql_source_asks_for_this_project_only(tmp_path, stub):
     p = project(tmp_path, f"storage:\n  measurements: {{url: '{stub}'}}\n")
     assert isinstance(p.measurements, Victoria)
-    assert {"name": "ergostat", "type": "prometheus", "language": "PromQL"} in datasources.listed(p.model.spec, p.measurements)
-    assert not datasources.own(p.model.spec, "ergostat")             # (it reads a server: never asked for a public reader)
+    datasources._ANSWERS.clear()
+    assert {"name": "promql", "type": "promql", "language": "PromQL", "available": True} in \
+        datasources.listed(p.measurements, p)
     Stub.seen.clear()
     g = grid(1_795_400_000.0, 1_795_400_400.0, 4)
-    got = datasources.query(p.model.spec, "ergostat", 'ergostat_sensor{project="another"}', g, store=p.measurements)
-    assert [s["name"] for s in got["series"]] == ['ergostat_sensor{part="queue"}']
-    [(path, a)] = Stub.seen
+    for name in ("promql", "ergostat"):                              # (a saved panel's old name for it: the same source)
+        got = datasources.query(p.model.spec, name, 'ergostat_sensor{project="another"}', g, store=p.measurements)
+        assert [s["name"] for s in got["series"]] == ['ergostat_sensor{part="queue"}']
+    (path, a), _ = Stub.seen
     assert path == "/api/v1/query_range" and a["extra_label"] == [f"project={p.measurements.project}"]   # (the server holds it to one)
-
-
-def test_a_model_source_named_ergostat_is_its_own(tmp_path, stub):
-    p = project(tmp_path, f"sources:\n  ergostat: {{type: prometheus, url: '{stub}'}}\n")
-    Stub.seen.clear()
-    datasources.query(p.model.spec, "ergostat", "up", grid(1_795_400_000.0, 1_795_400_400.0, 4), store=p.measurements)
-    [(_, a)] = Stub.seen
-    assert "extra_label" not in a
 
 
 # ---- one store, each home's own labels, and the supervised process

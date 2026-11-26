@@ -11,9 +11,9 @@ LEVELS = ("ok", "warn", "refuse")
 # code: (level, fix). The fix is said after the reason, as one imperative clause
 REASONS: dict[str, tuple[str, str]] = {
     "limit": ("refuse", "narrow the window, or aggregate the query (sum by, topk)"),
-    "unreachable": ("refuse", "check the source's url under sources:, and that the source is up"),
+    "unreachable": ("refuse", "start VictoriaMetrics, or point storage: measurements: url: at one that answers"),
     "refused": ("refuse", "correct the query in its source's language"),
-    "unknown": ("refuse", "name a source that is listed under sources:"),
+    "unknown": ("refuse", "ask one of ergostat's two sources, promql or sql"),
     "unanswerable": ("refuse", "correct the query; if it could not be read, the server's log says why"),
     "busy": ("refuse", "try again in a moment"),
     "reader": ("refuse", "sign in as the owner, or as a login the owner listed, to ask a data source"),
@@ -25,11 +25,8 @@ REASONS: dict[str, tuple[str, str]] = {
     "averaged-percentiles": ("warn", "add the buckets first and take one quantile: "
                                      "histogram_quantile(0.99, sum by (le) (rate(NAME_bucket[5m])))"),
     "quantile-in-bucket": ("warn", "draw the buckets themselves (a heatmap of NAME_bucket by le) to see the bounds"),
-    "not-raw": ("warn", "read an ergostat series with raw(A) to see its readings; a source's range windows smooth them"),
-    "scrape-unknown": ("warn", "read the readings with raw(A), or treat periods near twice the step as not seen"),
+    "scrape-unknown": ("warn", "treat periods near twice the step as not seen"),
     "mixed-windows": ("warn", "ask the queries compared at one step and one range window"),
-    "windowed": ("refuse", "take the spectrum of an ergostat series, read raw, or ask the source with no range window"),
-    "unanalysable": ("refuse", "widen the window, or pick a signal that moves, is finite and has fewer gaps"),
     "graph-over-budget": ("warn", "draw it as a matrix (the Heatmap chart), or ask for one kind or a shorter window"),
     "graph-truncated": ("warn", "ask for one kind or a shorter window, so the whole graph is read"),
     "graph-cycle": ("warn", "change one of the relations that go round, so the cycle is broken"),

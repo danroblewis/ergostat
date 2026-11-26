@@ -1,7 +1,9 @@
-"""A Prometheus-compatible source: PromQL, asked as a range query (``GET /api/v1/query_range``) by the server, so the
-browser never holds the source's address or credentials; its metadata (``/api/v1/labels``, ``/api/v1/label/<name>/values``)
-gives the names an editor completes, and ``/api/v1/label/<name>/values`` also a dashboard variable's values. GETs of
-those paths are the only requests it makes, each ended at its time bound however slowly the source answers."""
+"""The ``promql`` source: every metric ergostat records, in the VictoriaMetrics that holds them (victoria.py), asked in
+PromQL as a range query (``GET /api/v1/query_range``) by the server, held to this project's series by VictoriaMetrics
+itself (``extra_label=project=<key>``, whatever the text says). Its metadata (``/api/v1/labels``,
+``/api/v1/label/<name>/values``) gives the names an editor completes, and ``/api/v1/label/<name>/values`` also a
+dashboard variable's values. GETs of those paths are the only requests it makes, each ended at its time bound however
+slowly the server answers. It never asks any other server: a sensor reads an external Prometheus, a panel never does."""
 
 from __future__ import annotations
 
@@ -16,8 +18,7 @@ import urllib.parse
 
 from . import SourceError
 
-TYPE = "prometheus"
-KEYS = {"url"}
+TYPE = "promql"
 LANGUAGE = "PromQL"
 _PATH = "/api/v1/query_range"
 _LABELS = "/api/v1/label/{}/values"     # a dashboard variable's label_values

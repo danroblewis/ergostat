@@ -1,5 +1,7 @@
-"""One request answered: each query read from its source, grouped and capped, aggregated into the grid, transformed,
-and kept under the query and the version of the data it read."""
+"""One request answered: each query asked of one of ergostat's two sources (``promql`` or ``sql``), the built-in kinds
+through the query each generates (sources.py), grouped and capped, aggregated into the grid, transformed, and kept
+under the query and the version of the data it read. Each answer of a built-in kind carries what it asked
+(``compiled``: ``[{"source", "text"}]``)."""
 
 from __future__ import annotations
 
@@ -12,8 +14,7 @@ from dataclasses import replace
 
 from .. import datasources
 from ..datasources._interpolate import interpolate
-from . import analysis, frames, graphs, sampling, shaped, sources
-from . import parse as parsing
+from . import frames, graphs, sampling, shaped
 from . import transforms as tf
 from .buckets import Grid, grid
 from .parse import RATE_PER, Query, Refused, SourceQuery, decode, parse
@@ -24,7 +25,7 @@ OTHER = "other"
 LIVE_EVERY = 5.0            # a window ending now ends on a multiple of this: requests in between share an answer
 MOST_CELLS = 400_000        # values kept in the cache, in all
 REQUEST_SECONDS = 10.0      # a request stops starting queries after this: what is left answers that it was not read
-LOG_READS = 4               # distinct reads of the event log one request may make
+LOG_READS = 4               # distinct reads of the event log one request may make (graphs.py)
 LOG_AT_ONCE = 2             # reads of the event log at once, in all: the web server's workers are never all held by them
 log = logging.getLogger("ergostat")
 
@@ -64,8 +65,7 @@ class Kept:
 
 
 class Work:
-    """One request's budget: a deadline, and a few reads of the event log, the same read shared by its queries. A read
-    that would wait for another is refused at once, so abandoned requests cannot hold the server's workers."""
+    """One request's budget: a deadline, and a few reads of the event log (by ergostat's own graphs: graphs.py)."""
 
     def __init__(self, kept: Kept):
         self.deadline = time.monotonic() + REQUEST_SECONDS
@@ -85,19 +85,8 @@ class Work:
                 raise Unanswerable(f"busy: this request already read the event log {LOG_READS} times; ask for fewer event charts")
             self.read[key] = None
 
-    def log(self, p, n, type_, since, until, skip) -> list:
-        key = (n, type_, since, until, skip)
-        if key in self.read:
-            return self.read[key]
-        if len(self.read) >= LOG_READS:
-            raise Unanswerable(f"busy: this request already read the event log {LOG_READS} times; ask for fewer event charts")
-        if not self.gate.acquire(blocking=False):
-            raise Unanswerable("busy: the event log is being read for other charts; try again shortly")
-        try:
-            got = self.read[key] = p.events.moments(n=n, type=type_, since=since, until=until, skip=skip)
-        finally:
-            self.gate.release()
-        return got
+    def seconds(self) -> float:
+        return self.deadline - time.monotonic()
 
 
 _KEPT: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -161,13 +150,14 @@ def _transformed(q: Query, read: Read, values: list, g: Grid) -> list:
 
 def _result(q: Query, read: Read, g: Grid, first: float | None) -> dict:
     groups, folded = capped(read)
-    zero_fills = read.rows is not None and q.agg in ("count", "sum")
+    agg = read.agg or q.agg
+    zero_fills = read.rows is not None and agg in ("count", "sum")
     names = _ordered(groups, read.order)
     if not names and not q.group_by and read.levels is None:
         names, groups = [q.field or q.measure or q.type or q.source], {q.field or q.measure or q.type or q.source: []}
     out = []
     for n in names:
-        values = bucketed(groups[n], q.agg, g) if read.rows is not None else list(groups[n])
+        values = bucketed(groups[n], agg, g) if read.rows is not None else list(groups[n])
         if zero_fills:                                # nothing happened in a bucket: a sum of none is 0
             values = [0.0 if v is None else v for v in values]
         if zero_fills or q.source == "counts":
@@ -182,7 +172,7 @@ def _result(q: Query, read: Read, g: Grid, first: float | None) -> dict:
         out = [(n, [None if x is None else x * scale for x in v]) for n, v in out]
         unit = f"{unit}/{tf.SHORT[per]}" if unit else f"/{tf.SHORT[per]}"
     got = {"id": q.id, "times": g.times, "step": g.step, "series": [{"name": n, "values": v} for n, v in out],
-           "unit": unit, "capped": folded, "read_log": read.read_log}
+           "unit": unit, "capped": folded, "read_log": read.read_log, "compiled": read.compiled}
     if read.truncated:
         got["truncated"] = True
     if read.note:
@@ -199,9 +189,8 @@ def _version(p, q: Query) -> tuple:
 
 
 def _read(p, spec, q: Query, g: Grid, work: Work) -> Read:
-    if q.source == "events":
-        return sources.events(p, spec, q, g, lambda n, ty, a, b, skip: work.log(p, n, ty, a, b, skip))
-    return READERS[q.source](p, spec, q, g)
+    """What the query's generator asks of its source (sources.py), within what is left of the request's budget."""
+    return READERS[q.source](p, spec, q, g, work.seconds())
 
 
 def _one(live, p, q: Query, since: float, until: float, points: int, first: float | None,
@@ -219,13 +208,12 @@ def _one(live, p, q: Query, since: float, until: float, points: int, first: floa
     spec = getattr(p.model, "spec", None)
     try:
         got = _result(q, _read(p, spec, q, g, work), g, first)
-        got.update(analysis.scrapes(p.measurements, (q,), g.since, g.until))   # readings: sampled, known or not
+        got.update(sampling.scrapes(p.measurements, (q,), g.since, g.until))   # readings: sampled, known or not
     except Unanswerable as e:
-        return {"id": q.id, "error": f"{q.source}: {e}", "read_log": q.source == "events"}
+        return {"id": q.id, "error": f"{q.source}: {e}", "read_log": False}
     except Exception as e:                            # one query's failure is its own: the others still answer
         log.warning("ergostat: query %s (%s) failed: %s", q.id, q.source, e)
-        return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__}: {e})",
-                "read_log": q.source == "events"}
+        return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__}: {e})", "read_log": False}
     kept.put(key, got)
     return got
 
@@ -269,10 +257,8 @@ def _build(a: shaped.Asking, q: Query, first) -> dict:
 def _shaped(live, p, q: Query, by_id: dict, refused: set, since: float, until: float, points: int, first: float | None,
             work: Work) -> dict:
     """A query that is not one value per time bucket: kept like the rest, and failing alone."""
-    uses_log = "events" in (q.source, getattr(q.input, "source", None), getattr(q.output, "source", None))
     try:
         q = _resolved(q, by_id, refused)
-        uses_log = uses_log or getattr(getattr(q.x, "query", None), "source", None) == "events"
         kept = _kept(live)
         key = ("shaped", q, since, until, points, getattr(live, "mtime", None), _versions(p, q))
         if (got := kept.get(key)) is not None:
@@ -281,24 +267,25 @@ def _shaped(live, p, q: Query, by_id: dict, refused: set, since: float, until: f
             raise Unanswerable(f"busy: this request ran past {REQUEST_SECONDS:g} s; try again")
         spec = getattr(p.model, "spec", None)
         a = shaped.Asking(p, spec, since, until, points, lambda sub, n: _one(live, p, sub, since, until, n, first, work),
-                          lambda sub, g: _read(p, spec, sub, g, work))
+                          lambda sub, g: _read(p, spec, sub, g, work), work.seconds)
         got = _build(a, q, first)
+        if a.compiled:                                # (asked here, not through a time answer: said all the same)
+            got = {**got, "compiled": [*got.get("compiled", ()), *a.compiled]}
         if not q.model:                               # its values from series readings: sampled, known or not
-            got = {**got, **analysis.scrapes(p.measurements, (q, q.input, q.output, getattr(q.x, "query", None)),
+            got = {**got, **sampling.scrapes(p.measurements, (q, q.input, q.output, getattr(q.x, "query", None)),
                                              since, until)}
     except Unanswerable as e:
-        return {"id": q.id, "error": f"{q.source}: {e}", "read_log": uses_log}
+        return {"id": q.id, "error": f"{q.source}: {e}", "read_log": False}
     except Exception as e:                            # one query's failure is its own: the others still answer
         log.warning("ergostat: query %s (%s) failed: %s", q.id, q.source, e)
-        return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__}: {e})", "read_log": uses_log}
+        return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__}: {e})", "read_log": False}
     kept.put(key, got)
     return got
 
 
 def _from_source(p, q: SourceQuery, since: float, until: float, points: int, work: Work, public: bool = False) -> dict:
-    """A query in a data source's own language, asked of it through the server; never kept, its data having no version.
-    Its scrape interval is not known (a ``model`` source's is not sampled at all); its range windows are read from a
-    PromQL text."""
+    """A query in a data source's own language (``promql`` or ``sql``), asked of it through the server; never kept, its
+    data having no version. Its scrape interval is not known; its range windows are read from a PromQL text."""
     spec, store = getattr(p.model, "spec", None), getattr(p, "measurements", None)
     try:
         got = datasources.query(spec, q.source, q.text, grid(since, until, points), work.deadline - time.monotonic(),
@@ -308,52 +295,15 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
     except Exception as e:                            # (its type only: the words may hold the source's address)
         log.warning("ergostat: query %s (source %s) failed: %s", q.id, q.source, type(e).__name__)
         return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__})", "read_log": False}
-    promql = datasources.language(spec, q.source, store) == "PromQL"
-    unsampled = datasources.own(spec, q.source)       # the model's own: worked out, never read from readings
-    return {"id": q.id, **got, **({} if unsampled else {"scrape_s": None}),
-            "range_windows_s": sampling.windows(interpolate("PromQL", q.text, q.given)) if promql else
-            [] if unsampled else None}                # (read from the text as sent: a window may be a variable)
+    promql = datasources.language(q.source) == "PromQL"
+    return {"id": q.id, **got, "scrape_s": None,
+            "range_windows_s": sampling.windows(interpolate("PromQL", q.text, q.given)) if promql else None}
+    #                                                   (read from the text as sent: a window may be a variable)
 
 
 def _refused(q, e: datasources.SourceError) -> dict:
     return {"id": q.id, "error": f"{q.source}: {e}", "error_kind": e.kind, "read_log": False,
             **({"error_at": list(e.at)} if e.at else {}), **({"error_code": e.code} if e.code else {})}
-
-
-def _analysis(p, q: SourceQuery, queries: dict, answered: dict, since: float, until: float, work: Work, n: int,
-              reader: bool = False) -> dict:
-    """A call over another query of this request (analysis.py), refused alone; never kept."""
-    try:
-        if n > parsing.MOST_ANALYSIS:                 # (parse refuses these: held again here, as they run)
-            raise datasources.SourceError("limit", f"not answered, past the {parsing.MOST_ANALYSIS} analysis queries "
-                                                   "one request may ask")
-        c = analysis.call(q.text)
-        refs = analysis.referenced(c, q, queries, answered)
-        ref = refs[0]
-        if work.late():
-            raise datasources.SourceError("limit", f"busy: this request ran past {REQUEST_SECONDS:g} s; try again")
-        if c.name != "raw":                           # pair, psd, spectrogram, ccf: on the raw re-reads alone
-            return {"id": q.id, **analysis.called(c, [_reread(p, r, since, until, work, reader, c) for r in refs], refs)}
-        if isinstance(ref, SourceQuery):
-            got = _from_source(p, ref, since, until, datasources.MOST_POINTS, work, reader)
-            return {**got, "id": q.id} if got.get("error") else {**analysis.reasked(got, ref), "id": q.id}
-        return {"id": q.id, **analysis.raw(p.measurements, ref, since, until, c)}
-    except datasources.SourceError as e:
-        return _refused(q, e)
-    except Exception as e:                            # one query's failure is its own: the others still answer
-        log.warning("ergostat: query %s (analysis) failed: %s", q.id, e)
-        return {"id": q.id, "error": f"analysis: could not be read ({type(e).__name__}: {e})", "read_log": False}
-
-
-def _reread(p, ref, since: float, until: float, work: Work, reader: bool, c) -> dict:
-    """``raw`` of one query a call reads: a refusal of it is the call's."""
-    if not isinstance(ref, SourceQuery):
-        return analysis.raw(p.measurements, ref, since, until, c)
-    got = _from_source(p, ref, since, until, datasources.MOST_POINTS, work, reader)
-    if got.get("error"):
-        raise datasources.SourceError(got.get("error_kind") or "unanswerable", f"query {ref.id!r}: {got['error']}",
-                                      None, got.get("error_code"))
-    return analysis.reasked(got, ref)
 
 
 def _graph(p, q: Query, since: float, until: float, past: bool, work: Work) -> dict:
@@ -367,15 +317,14 @@ def _graph(p, q: Query, since: float, until: float, past: bool, work: Work) -> d
         return {"id": q.id, "error": f"graph: could not be read ({type(e).__name__}: {e})", "read_log": False}
 
 
-READER_REFUSED = "a data source is not asked for anyone under a public name (web: open: read); the owner or a login may ask"
+READER_REFUSED = datasources.READER
 
 
 def answer(live, p, raw: str | None, reader: bool = False) -> dict:
     """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or unanswerable says so in its
-    result. ``reader``: anyone under a public name, whose data source queries are each refused, never sent, but for the
-    model's own (datasources/model.py), which reads only what the reader's other queries read (SPEC §4d, §4e)."""
+    result. ``reader``: anyone under a public name, whose queries in a source's own language are each refused, never
+    sent; the built-in kinds still answer, each asking only the query it writes itself (SPEC §4d, §4e)."""
     asked = parse(decode(raw))
-    spec = getattr(p.model, "spec", None)
     now = time.time()
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY
     since = until - asked.since
@@ -384,23 +333,15 @@ def answer(live, p, raw: str | None, reader: bool = False) -> dict:
     refused = {q.id for q in asked.queries if isinstance(q, Refused)}
     work = Work(_kept(live))
     plain = lambda q: q.x is None and q.source != "frequency" and q.agg != "ohlc"   # noqa: E731
-    queries, answered, out, calls = {}, {}, {}, []
-    for i, q in enumerate(asked.queries):             # the analysis queries last: they read the others' answers
-        queries.setdefault(q.id, q)
-        if analysis.of(q):
-            calls.append(i)
-            continue
+    out = {}
+    for i, q in enumerate(asked.queries):
         out[i] = frames.framed(
             {"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
-            else _reader_refused(q) if isinstance(q, SourceQuery) and reader and not datasources.own(spec, q.source)
+            else _reader_refused(q) if isinstance(q, SourceQuery) and reader
             else _from_source(p, q, since, until, asked.points, work, reader) if isinstance(q, SourceQuery)
             else _graph(p, q, since, until, asked.until is not None, work) if q.source == "graph"
             else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
             else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work), q, until - since)
-        answered.setdefault(q.id, out[i])
-    for n, i in enumerate(calls, 1):
-        q = asked.queries[i]
-        out[i] = frames.framed(_analysis(p, q, queries, answered, since, until, work, n, reader), q, until - since)
     results = [out[i] for i in range(len(asked.queries))]
     sampling.mixed(results)
     return {"now": now, "since": since, "until": until, "step": grid(since, until, asked.points).step, "results": results}

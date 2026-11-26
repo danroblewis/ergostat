@@ -183,22 +183,18 @@ def fake_sql(src, text, w):
             "series": [{"key": k, "values": [v for _, job, v in rows if f'up{{job="{job}"}}' == k]} for k in keys]}
 
 
-FAKE_SQL = "fake-sql"   # a type name of the test's own: the real ergostat/datasources/sql.py is type ``sql``
-
-
 @pytest.fixture
-def sql():
-    datasources.types()     # the package's own types found first, so none of them is registered over the fake later
-    datasources.register(types.SimpleNamespace(TYPE=FAKE_SQL, KEYS={"database"}, LANGUAGE="SQL", query=fake_sql))
-    yield
-    datasources.unregister(FAKE_SQL)
+def sql(monkeypatch):
+    """The ``sql`` source answering from a table of the test's own (``fake_sql``), as it answers a typed frame."""
+    from ergostat.datasources import sql as real
+    monkeypatch.setattr(real, "query", fake_sql)
 
 
 def same_shape_answers(tmp_path, prom_url: str) -> tuple[dict, dict]:
-    """``sum by (job) (up)`` asked of a (stub) Prometheus, and its SQL equal asked of a SQL source, over one window."""
-    p = project(tmp_path, f"prom: {{type: prometheus, url: '{prom_url}'}}\nwarehouse: {{type: {FAKE_SQL}, database: metrics}}")
-    a = ask_source(p, {"source": "prom", "text": "sum by (job) (up)"}, until=PT + 480)[0]
-    b = ask_source(p, {"source": "warehouse", "text": "SELECT t, job, up FROM up_by_job"}, until=PT + 480)[0]
+    """``sum by (job) (up)`` asked of ``promql`` (a stub VictoriaMetrics), and its SQL equal asked of ``sql``."""
+    p = project(tmp_path, prom_url)
+    a = ask_source(p, {"source": "promql", "text": "sum by (job) (up)"}, until=PT + 480)[0]
+    b = ask_source(p, {"source": "sql", "text": "SELECT t, job, up FROM up_by_job"}, until=PT + 480)[0]
     return a, b
 
 
@@ -207,7 +203,7 @@ def test_a_promql_and_a_sql_answer_of_one_shape_are_the_same_answer(tmp_path, pr
     assert "error" not in a and "error" not in b, (a, b)
     assert a["shape"] == b["shape"] == "series" and a["series"][0]["values"] == [0.0, 1.0, 2.0, 3.0]
     assert {k: v for k, v in a.items() if k != "meta"} == {k: v for k, v in b.items() if k != "meta"}
-    assert (a["meta"]["source"], b["meta"]["source"]) == ("prom", "warehouse")
+    assert (a["meta"]["source"], b["meta"]["source"]) == ("promql", "sql")
 
 
 def test_two_signals_from_a_source_are_drawn_one_against_the_other():

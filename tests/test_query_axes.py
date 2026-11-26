@@ -278,15 +278,6 @@ def test_a_model_response_of_no_goal_is_refused(p):
     assert "not in the model" in ask(p, {"source": "frequency", "model": {"goal": "nope"}})[0]["error"]
 
 
-def test_an_events_category_goes_through_the_requests_budget(p, monkeypatch):
-    from ergostat.query import engine
-    gate = engine._kept(live := Live(p)).log_gate
-    for _ in range(engine.LOG_AT_ONCE):
-        gate.acquire(blocking=False)
-    r = api(live, "query", {"q": [_q({"source": "events", "x": {"type": "category", "by": "type"}})]})["results"][0]
-    assert "busy" in r["error"]
-
-
 def test_the_fields_say_what_each_source_can_take(p):
     got = api(Live(p), "query/fields", {})
     assert got["sources"]["items"]["x"] == ["time", "query", "field", "category", "bins"]

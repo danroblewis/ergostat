@@ -1135,7 +1135,7 @@ one that still collides is refused by `ergostat check` (`metric-clash`), which s
 A part the model no longer declares keeps its own name, with its sensor's as a label. A record written under an earlier
 name (the one old `ergostat_reading{project, series}`, the old generic `ergostat_sensor{part, sensor}`, or a part's
 name before the model changed) is still read, as every selector takes any name with the series' `series` label. A
-query to the built-in source naming the old generic metrics with an exact `part=` or `kind=` (`ergostat_items{kind="gap"}`)
+query to the `promql` source naming the old generic metrics with an exact `part=` or `kind=` (`ergostat_items{kind="gap"}`)
 asks the new name and the old together (`{__name__=~"gap_items|ergostat_items",kind=~"gap|"}`), so it answers alike
 over either, with an `old-name` warning naming the new (`gap_items`). A series held under two names shows the value of
 its latest reading, whichever name holds it.
@@ -1586,9 +1586,9 @@ web:
 `open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
 login: anyone who reaches the name reads everything the page shows, and nothing is changed there. Such a reader may
 not ask a data source (section 4e, *Data sources*): each of their `{source, text}` queries is refused with
-`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists to them only the `model` source,
-which reads nothing outside the project and which they may ask; the owner, and a login under a name with `access:`,
-may ask any. The tunnel must
+`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists both sources to them as not
+available, saying why; the built-in kinds, which write their own queries, still answer them. The owner, and a login
+under a name with `access:`, may ask either. The tunnel must
 keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
 
 The token is verified with the standard library: RS256 only, against the team's keys
@@ -1615,8 +1615,16 @@ name can use it). `GET /api/query/fields` lists what can be charted (each kind u
 finished states and its `queue`, the states its work waits in to be taken, as the Graph gives them: the default
 Dashboard reads them there, and asks `GET /api/items` with `eta=0`, which leaves out the completion estimates and so
 never starts their simulation, so neither holds back its panels on a cold server; it asks first for the panels whose
-cell begins above the fold, then the rest at the same `until`). Nothing here writes, and only the `events` source
-reads the event log.
+cell begins above the fold, then the rest at the same `until`). Nothing here writes, and nothing here reads the event
+log.
+
+ergostat has exactly two data sources (NOTES.md, 2026-11-25, the owner's decision): `promql`, every metric, recorded in
+VictoriaMetrics (section 4b), and `sql`, all item data, projected into SQLite (the item views, *The SQL source* below).
+Everything that is not an external system is stored in one of them. The built-in query kinds below (`items`, `moves`,
+`counts`, `events`, `series`, `frequency`) are not sources: each is a query generator, syntactic sugar that writes the
+dashboard's or the YAML's shortcut as one SQL or PromQL query and asks it of `sql` or `promql`
+(`ergostat/query/sources.py`). Each answer says what it asked, `compiled: [{"source", "text"}]`, so a reader sees it is
+just SQL or PromQL and can ask the same text of the source itself (`:since` and `:until` are the window, as there).
 
 ```json
 {"since": 86400, "until": null, "points": 120,
@@ -1625,10 +1633,16 @@ reads the event log.
               "agg": "sum", "transform": "rate", "rate_per": "hour", "bucket": "auto"}]}
 ```
 
-- **Sources.** `items`: a numeric field of a kind, from the item index's `number_log`. `moves` (`measure`: `entries`,
-  `exits` or `time_in_state`, with `state`). `counts`: items per state, the level at each bucket's end. `series` (`series`:
-  a metric's name), bucketed by VictoriaMetrics. `events` (`type`, which may end in `*`): counts by type, at most the
-  latest 20,000 events of the window, marked `read_log` (and `truncated` when cut).
+- **The built-in kinds** (each a generator; what it writes is its `compiled`). `items`: a numeric field of a kind, SQL over
+  `item_numbers`. `moves` (`measure`: `entries`, `exits` or `time_in_state`, with `state`): SQL over `transitions`.
+  `counts`: items per state, the level at each bucket's end: SQL over `transitions` giving each move into a state (+1)
+  and out of it (−1), those before the window summed in the SQL, their running total the level. `events` (`type`,
+  which may end in `*`, or several joined by commas): counts by type, SQL over `events`, the item index's count of each
+  type's events per minute (each minute's count is read at the minute's start, so a bucket under a minute says so in
+  its `note`). `series` (`series`: a metric's name): PromQL, `<agg>_over_time({series="NAME"}[STEP])` (a percentile
+  `quantile_over_time`), evaluated by VictoriaMetrics at each bucket's end. Grouping and filtering by `state`,
+  `state_group` or a field are joins in the SQL (`item_list`, `item_state_groups`, `item_labels`). A built-in kind's
+  answer carries `read_log: false`; none reads the log.
 - **Numbers of an item.** A value is a plain number at the top of its document: not a boolean, a numeric string, an id
   or a timestamp. Each change is kept with the value and how much it moved: for `items`, `sum` adds the moves (what a cost
   rose by in the bucket), and the other aggregations read the values taken.
@@ -1642,9 +1656,13 @@ reads the event log.
   item, or `state_group` (§5a, *Progress per group*), at most 12 groups, the rest added up as `other` (`capped` says
   how many).
 - **Frequency responses.** `frequency` with an `input` and an `output` estimates the response from the record (Welch's
-  method, `segments` averages, 4 by default); it takes the input and the output explicitly, never a guess at them. With
-  `model: {goal}` it gives the goal's declared process instead, answered as the `model` data source answers
-  `goal NAME declared` (below). A response from the record is drawn only where the record supports one. The coherence floor (`coherence_floor`) is
+  method, `segments` averages, 4 by default); it takes the input and the output explicitly, never a guess at them. It is
+  a transform of its input's and output's answers (each a generated query: their `compiled` is its own). With
+  `model: {goal}` it gives the goal's declared `process:` instead, worked out from the model, not read: the exact
+  frequency response, which Bode and Nyquist draw, and `system` (`form`, `gain`, `tau`, `delay`, `poles`, `zeros`),
+  which pole-zero draws, a process with dead time sampled through a zero-order hold at the goal's controller period or a
+  quarter of the dead time, lengthened to keep the delay within 64 periods. A response from the record is drawn only
+  where the record supports one. The coherence floor (`coherence_floor`) is
   corrected for the number of frequencies looked at (Bonferroni over the per-frequency floor, `coherence_floor_each`).
   When no frequency reaches the corrected floor, the answer is `supported: false` with `refused` saying why, and it
   carries no curve. Unrelated signals are refused this way in at least 95% of records. The page marks the points under
@@ -1652,75 +1670,28 @@ reads the event log.
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
   refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
-- **Data sources.** A query `{"id": "a", "source": "prom", "text": "sum by (job) (rate(http_requests_total[5m]))"}` names
-  a source under the model's `sources:` (section 11) and is text in that source's own language (PromQL for `prometheus`);
-  it takes no other key and cannot be an X, an input or an output. The server asks the source (the browser never holds
-  its address or credentials) over the request's window, one value per bucket, and answers in the same shape as the rest
-  (`times`, `step`, `series`). It is bounded whatever the source's type: at most 4,000 characters of text, 50 series, 1,000
-  points, a 400-day window and 10 s (less what the request has used); past one it is refused with `error` naming the bound
-  and `error_kind: limit`. The time bound is the whole request's: connecting, the TLS handshake of an `https` source,
-  waiting for the answer and reading it, over http or https, however slowly the source sends (the connection, or its
-  TLS socket, is cut at the bound). Only looking up the source's host name is left
-  to the system's resolver, which ergostat cannot interrupt. An unreachable source is `error_kind: unreachable` (never with its address), a query the source
-  refuses `refused` with the source's own words. It is asked again each time, nothing kept. `/api/query/fields` lists these
-  sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
-  A refusal the source places in the text (Prometheus's `2:3: parse error: ...`, or `at char 5`) also has `error_at`,
-  `[line, column]` from 1, the column in UTF-8 bytes as Prometheus counts it (the page turns it into a place in the text).
-- **Analysis.** `analysis` is a reserved source, never declared under `sources:` (a source declared by that name is not
-  listed, and is never asked). `/api/query/fields` lists it first among `datasources`, its language `ergostat analysis`.
-  A query `{"id": "r", "source": "analysis", "text": "raw(A)"}` is answered on the server over another query of the same
-  request, named by its id. The language is small and closed: a call's name, the ids of the queries it reads, then
-  `key=value` options. The calls are `raw`, `pair`, `psd`, `spectrogram` and `ccf` (below); `raw` reads one query,
-  with one option, `points` (16 to 5,000; 5,000 by default). Refused, each in its own result while the others answer:
-  an unknown call or option, an id after an option, text that does not parse (with `error_at`, `[1, column]`), and a
-  reference to an id not in the request, to itself, to another analysis query, or to a query whose answer failed (a
-  failed answer is never read as an empty one). At most 8 analysis queries a request, refused past that at parse and
-  again as they run.
-  `raw(A)`, A an ergostat `series` query with no transform, reads A's readings one by one, and answers a
-  `series` on one uniform grid whose step is the readings' median spacing (`scrape_s`), coarsened only to stay within
-  `points` (each value then the mean of its step's readings, and a `partial` warning says so). A hole longer than
-  `GAP_SAMPLES` (3) spacings, in seconds between the two readings, stays empty and is listed in `gaps` as
-  `[from, to]` (the first 200; any further holes stay empty too, and a `partial` warning says they are not listed); a
-  shorter one is a straight line. The mask and the fill are one rule, so a listed hole is never drawn over, wherever
-  in their buckets its readings fall. More than 500,000 readings in the window is a `limit`. A a data source's query is asked again at the
-  finest step 1,000 points allow; the answer warns `not-raw`, naming its range windows, which still smooth it.
-  `pair(A, B)`, `psd(A)`, `spectrogram(A)` and `ccf(A, B)` (`query/spectra.py`) read each query only through that
-  re-read (a refusal of it is theirs), never the values the panel drew; two signals are put on
-  one grid, the coarser of their steps, each bucket the mean of its values and empty where it holds none. The FFT,
-  coarsening to at most 2,048 samples, detrending and the stretches between gaps are `query/frequency.py`'s.
-  - `pair(A, B)`, no options: `points` with `order: "time"`, x from A, y from B, one per grid time where both hold a
-    value, `t` ascending. Signals read at different steps or range windows warn `mixed-windows`, naming each one's step
-    and windows (G4); so does `ccf`.
-  - `psd(A, detrend=linear|mean|none, segments=N)` (linear and 4 by default; `segments` 1 to 64): `points` with
-    `order: "x"`, period in seconds against Welch power (one-sided, Hann stretches overlapping by half, the signal's
-    unit squared per Hz). Each value has `lower` and `upper`: an approximate 95% interval for that period alone, from
-    chi-square with `dof` = 2 × round(9/11 × the stretches), at least 2 (each half-overlapping stretch counted as 9/11
-    of an independent one, as the coherence floor counts them); it assumes the signal is stationary noise about that
-    period, and is not a band for all periods at once. A period under `not_observable_s` `[0, 2 × max(scrape,
-    step)]` (G2; the step after coarsening) is not answered. On a raw grid, whose step is never under its scrape, that
-    bound is the FFT's own shortest period; it cuts more only when the scrape is the longer. A data source's query with
-    a range window, or whose windows are not read, is refused (`windowed`, G1), never computed on the windowed values;
-    one with none is answered from its re-read, with its `not-raw` and `scrape-unknown` warnings.
-  - `spectrogram(A, length=D, detrend=..., cells=N)`: a `table` of dims `start` (time) and `frequency` (Hz) and the
-    measure `power`, with psd's guards. `length` is a duration (`90`, `90s`, `10m`, `2h`, `1d`), 16 to 1,024 samples
-    (by default an eighth of the record within those), cut to the longest length not over it with no prime factor
-    past 5. `cells`
-    (1 to 5,000; 5,000 by default) bounds stretches × frequencies: past it the stretches are thinned evenly and a
-    `partial` warning says so; one stretch with more frequencies than `cells` is refused.
-  - `ccf(A, B, most_lag=D)`: `points` with `order: "x"`, the lag in seconds against the correlation of A at t with B at
-    t + lag, so a positive lag means B moves after A. `most_lag` is a duration, 1 to 256 samples (by default a quarter
-    of the record, at most 256); a `most_lag` that leaves any lag fewer than 32 pairs is refused. `lower` and `upper` are ∓1.96/√n, n the
-    lag's pairs: 95% of lags of two independent white signals fall inside it. It holds for nothing else: two
-    autocorrelated signals cross it often with no link between them.
-  - Each refuses, as `unanalysable` and in words naming the cause, a record where the signals hold a value together at
-    fewer than 32 samples, one holding a NaN or ±inf, one that does not vary (or, for psd and spectrogram, one whose every
-    stretch is a straight line once detrended), and one with no unbroken stretch of 16 samples between its gaps (for psd, too
-    few for its `segments`). A refusal holds no curve, table or zeros. Each count above its maximum is refused, naming
-    the bound. A single stretch that is a straight line once detrended, inside a signal that varies (a queue idle at 0,
-    then oscillating), holds a true zero power: psd averages it in and spectrogram answers its rows as 0, and each
-    counts such stretches in `flat_segments`.
+- **Data sources.** A query `{"id": "a", "source": "promql", "text": "sum by (block) (increase(ergostat_run_cost_usd[1d]))"}`
+  names one of the two sources, `promql` or `sql` (any other name is refused, `error_kind: unknown`, saying there are
+  two; `ergostat`, the name the built-in PromQL source had before, is read as `promql`), and is text in that source's
+  language (PromQL or SQL); it takes no other key and cannot be an X, an input or an output. The server asks the source
+  over the request's window, one value per bucket, and answers in the same shape as the rest (`times`, `step`,
+  `series`). It is bounded whatever the source: at most 4,000 characters of text, 50 series, 1,000 points, a 400-day
+  window and 10 s (less what the request has used); past one it is refused with `error` naming the bound and
+  `error_kind: limit`. The time bound is the whole request's: connecting, waiting for the answer and reading it, however
+  slowly the server sends (the connection is cut at the bound). A VictoriaMetrics that does not answer is
+  `error_kind: unreachable` (never with its address), a query it refuses `refused` with its own words. It is asked
+  again each time, nothing kept. `/api/query/fields` lists the sources as `datasources`, always exactly the two, in
+  order: `{name, type, language, available}`, and, when `available` is false, `reason`: why it cannot be asked now and
+  what would make it so (no VictoriaMetrics answering at its URL, with how to start one; a record kept nowhere on disk,
+  so no item index; a reader under a public name). Nothing is left out of the listing. The panel editor offers exactly
+  these two under Source, an unavailable one shown disabled with its reason, each with a text field and the shortcuts
+  that write its queries. A refusal the source places in the text (`2:3: parse error: ...`, or `at char 5`) also has
+  `error_at`, `[line, column]` from 1, the column in UTF-8 bytes (the page turns it into a place in the text). No
+  source is declared: a model's `sources:` holds only the external systems a sensor reads (section 11), and an entry of
+  a dashboard source's type (`sql`, `model`, `analysis`, `promql`) or named `promql` or `sql` is a model error saying
+  why.
 - **Sampling.** Every answer carries `meta.sampling`: `step_s`; `scrape_s`, the readings' median spacing where they are
-  read (an ergostat `series`, from the newest 2,000 raw readings in the window, and `raw`, from all it reads; an answer
+  read (an ergostat `series`, from the newest 2,000 raw readings in the window; an answer
   built from series readings, such as candles, an X-paired or binned series or a frequency response, carries the
   coarsest scrape of its series, null if any is not known), null where it is not known (a data source's; a series
   whose raw readings are gone); `range_windows_s`, every `[d]` and `[d:r]` of a PromQL text (its
@@ -1728,18 +1699,17 @@ reads the event log.
   `observable_period_s`, `[lo, hi]` with `lo = 2 × max(scrape, step)` (G2) and `hi` half the window; and `nulls_s`,
   each period `W/k` of a range window inside that band, where an average over `W` shows nothing (G1), at most 50, the
   longest of all the windows' first. An unknown scrape never counts as fine: `lo` is then from the step alone and the answer warns
-  `scrape-unknown`. The sources that record each change at its time (`items`, `moves`, `counts`, `events`) are not
-  sampled: their `scrape_s` is null with no warning. Nor is a `model` source's answer, worked out from the model and
-  never read from readings (`scrape_s` null, `range_windows_s` `[]`, no warning). When a request's answers (refused ones aside) differ in step or in
+  `scrape-unknown`. The kinds that record each change at its time (`items`, `moves`, `counts`, `events`) are not
+  sampled: their `scrape_s` is null with no warning. Nor is a goal's declared response, worked out from the model. When a request's answers (refused ones aside) differ in step or in
   range windows, each warns `mixed-windows`, naming every step and window (G4). It compares one request's answers: the
   page asks the panels above the fold in one request and the rest in another, so it compares across the panels of
   each, and a panel's warning can depend on which request it was in. Windows the controller consumes (G3) need loop roles, and are not
   checked yet.
-- **The built-in source `ergostat`.** ergostat's own readings, as a `prometheus` source no model declares (one the model
-  declares under that name is its own instead). It asks the VictoriaMetrics that holds them (section 4b),
+- **The `promql` source.** Every metric ergostat records. It asks the VictoriaMetrics that holds them (section 4b),
   with `extra_label=project=<the project label>` on each query and suggestion, so the server answers only this project's series
   whatever the text says; the names and labels are section 4b's (*Names and labels in PromQL*), e.g. `gap_items`,
-  `gaps_approved`, and the engine's own `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It is listed in `datasources` and offered by the editor.
+  `gaps_approved`, and the engine's own `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It asks no other server:
+  an external Prometheus is read by a sensor (section 11), never by a panel.
   **`rate()` and `increase()` differ from Prometheus's.** Prometheus takes the samples inside the
   window, at least two, and extrapolates their change toward the window's edges (not past where a counter was zero), so
   an integer counter's increase can be fractional and a window with one sample has no answer. VictoriaMetrics counts
@@ -1759,21 +1729,20 @@ reads the event log.
   asks the preview again at once. Its starting hint is `count by(__name__)({__name__=~".+"})`, every metric and how many series
   it has. It is ergostat's own JavaScript, with no library and no build step. Its names come from
   `GET /api/query/suggest?source=&what=metrics|labels|values&prefix=&metric=&label=`, answered `{suggestions, more}`
-  through the server from the source's metadata (for `prometheus`, GETs of `/api/v1/label/__name__/values`,
+  through the server from the source's metadata (for `promql`, GETs of `/api/v1/label/__name__/values`,
   `/api/v1/labels` and `/api/v1/label/<label>/values`, narrowed by the source with `match[]` and `limit`). It is bounded
   whatever the type: at most 100 names, each starting with what is typed (`more` says others were not sent), 3 s, a
-  `metric` and a `label` that are names, and a prefix of 200 characters at most. A `prometheus` answer is read one name at
+  `metric` and a `label` that are names, and a prefix of 200 characters at most. A `promql` answer is read one name at
   a time to 256 KB at most, so a source that ignores `limit` and `match[]` still costs no more (shown on 100,000 series).
   A refusal is `error` and `error_kind`, as for a query, and a reader under an `open: read` name is refused it, with
   nothing sent.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
-  is never sent, and `datasources` lists to them only `analysis` and the `model` source below (an analysis of a
-  data source's query they may not ask is refused, as that query is); their other queries are answered as
-  before.
+  is never sent, and `datasources` lists both sources to them as not available, the reason saying so; their
+  queries of the built-in kinds, which write their own SQL and PromQL, are answered as before.
 - **Variables.** A Dashboard draft's `vars` names at most 8 variables (`$kind`, `${kind}`): a custom list
   (`{"type": "custom", "values": [...], "multi": true}`, or a bare list, which takes several), a constant
-  (`{"type": "constant", "value": "prod"}`), or a query (`{"type": "query", "source": "prom", "text":
+  (`{"type": "constant", "value": "prod"}`), or a query (`{"type": "query", "source": "promql", "text":
   "label_values(ergostat_items, kind)", "multi": false}`; `label_values(label)` lists every series'). Each but a constant
   is a choice at the top of the Dashboard, and what is chosen is kept in the address (`var-kind=a&var-kind=b`); a
   variable not chosen takes its first value, or every value when it takes several. A query variable's text may name
@@ -1792,10 +1761,8 @@ reads the event log.
   backtick); in PromQL a string after `=~` or `!~`, and `label_replace`'s regex (its 5th argument), takes each value
   escaped as a literal regular expression, several as `(?:a|b)`; `label_replace`'s replacement (3rd) takes one value
   with each `$` written `$$`, so it names no group; and any other string exactly one value; outside a string a value must be one plain name or number or
-  duration (never a keyword), else the query is refused (`error_kind: refused`); a comment is left as written. The
-  `analysis` call language has the same rules without regular expressions. The `model` source's language (below) has
-  no strings, a quote being part of a word, so a value there is always one plain name, number or duration, one word,
-  else refused. A language with no rules (`sql` among them) refuses every variable used in it. In the older query forms a field takes a variable's one value, and a list element
+  duration (never a keyword), else the query is refused (`error_kind: refused`); a comment is left as written. A
+  language with no rules (`sql`, so far) refuses every variable used in it. In the older query forms a field takes a variable's one value, and a list element
   that is the variable alone takes every value; with several chosen, a field is left as written (`$kind`), which
   matches nothing. Changing a variable asks again only the panels whose queries then
   change (those that use it, and the copies of a panel repeated by it); each panel takes only the answer of the last
@@ -1807,29 +1774,9 @@ reads the event log.
   200 characters, all chosen, is about 41,000) is never sent: its panel says how long it is and asks for fewer values,
   nothing is asked again for it, and the other panels still answer. A multi-value choice left empty is not kept in
   the address, so a reload takes the default again.
-- **The model as a data source.** A source of type `model` is the project's own model and record, so one named `model`
-  is there without declaring it (a source declared under that name takes the name; another may be declared
-  `{type: model}`, with no connection keys). It reads nothing outside the project, so a reader under `open: read` may ask
-  it, except that identifying a process from the record is not done for such a reader (it reads the whole fine record;
-  they are refused, and may ask the declared or a written process). Identifications are done one at a time, waited for
-  no longer than the query's bound, and kept by project, model, goal, time and the record's version. Its language is one
-  line: `goal NAME` (the goal's declared `process:`, or, when it declares none, the process its
-  record identifies, section 12c), `goal NAME declared`, `goal NAME identified`, `fopdt gain=K tau=DURATION
-  delay=DURATION` (K e^(−θs)/(τs + 1)) or `ipdt gain=K delay=DURATION` (K e^(−θs)/s, K per second), each optionally ending
-  `dt=DURATION`; a written `tau`, `delay` or `dt` past a year is refused at its word, and the phase is worked out in
-  closed form (the rational part's less θω), so an answer costs the same for any delay. It answers a `response` with `system` (`form`, `gain`, `tau`, `delay`, `poles`, `zeros`) and the exact
-  frequency response, which Bode, Nyquist and pole-zero draw. A process with dead time has its poles and zeros from its
-  model sampled through a zero-order hold every `dt` (on the z-plane; a continuous delay has no finite set of poles), at
-  the goal's controller period or a quarter of the dead time when no `dt` is given, lengthened when needed to keep the
-  delay within 64 periods, and the answer and the map state that `dt`; a `dt` written so short that the delay is past 64
-  periods is refused, asking for a longer `dt`. An identified process is answered only when the
-  record tells it apart (section 12c), with `fit`: the share of the record held out it follows, the standard errors of its
-  numbers, whether it came from step tests, and why it is not yet proposable if it is not; otherwise the query is refused
-  with the record's reasons and draws no curve. Its `provenance` is `declared` for a declared or written process and
-  `derived` for an identified one. A malformed query is refused with `error_at` at the word that is wrong. The default
-  dashboard's Bode, Nyquist and pole-zero examples ask it for the first goal that declares a process.
-- **The SQL source.** A `sql` source answers what PromQL cannot: which items, one item against another, exact medians,
-  cohorts. A query is one SQLite SELECT over these documented, stable views of the project's items, and nothing else
+- **The SQL source.** `sql` holds all item data, projected into SQLite: which items, one item against another, exact
+  medians, cohorts, and every built-in item kind's query. It is always there and never declared. A query is one SQLite
+  SELECT over these documented, stable views of the project's items, and nothing else
   (`ergostat/datasources/_itemviews.py`). Times are Unix seconds, and `:since`, `:until` and `:step` are the panel's window.
   - `transitions(id, kind, at, from_state, to_state, event, type)`: every move of every item. An arrival has no
     `from_state`, and a lease's moves into and out of `leased` are moves like any other.
@@ -1840,6 +1787,16 @@ reads the event log.
     - `reason` is the finished state the item ended in (the kind's finished states, as the Items listing reckons
       them), and null while the item is open.
     - Write `left` quoted (`"left"`) where SQL would read it as a join.
+  - `item_list(id, kind, state, first, last, entered, events)`: every item of every kind, as it is now.
+  - `item_numbers(id, kind, field, at, value, delta)`: each change of an item's numeric field: when, the value it took
+    and by how much it moved (what `items` reads).
+  - `item_labels(id, kind, label, value)`: what each item is labelled by for a filter or a group: its `state`, and each
+    top-level field as a word (an empty or missing one `none`, a boolean `true` or `false`, a whole number without its
+    `.0`, a list or a map `many`).
+  - `item_state_groups(id, kind, state_group)`: each item's stage in its group's progress (section 5a, *Progress per
+    group*), made in Python when the text names it.
+  - `events(type, source, at, n)`: how many events of each type and source the item index folded in each minute ending
+    `at` (what `events` reads; kept when events are taken out).
   - One view per item kind, named for the kind with `-` read as `_`: `(id, state, first, last, entered, events, ...)`,
     then the kind's `show:` fields that are plain words. A kind whose name is not then a plain word, or that is named
     like a view above, has none.
@@ -1897,7 +1854,7 @@ reads the event log.
 
   Bounds:
   - Time: the data source's time bound (a progress handler stops it).
-  - Rows: 5,000.
+  - Rows: 5,000 (a built-in kind's generated query: 2,000,000 and 64 MB, bucketed on the server, never sent as rows).
   - Bytes: 8 MB of text and blobs in the answer.
   - Values: 16 MB for any value the query makes.
   - Medians: 1,000,000 numbers in one median or percentile.
@@ -1994,7 +1951,7 @@ reads the event log.
   `unreachable`, `refused`, `unknown`, `unanswerable`, `busy`, `reader`), `no-coherence`, `partial`, and the misuses
   `not-cumulative`, `many-histograms`, `open-top-bucket`, `averaged-percentiles` (an `avg` or `avg_over_time` of a
   `histogram_quantile`) and `quantile-in-bucket` (any `histogram_quantile`, whose value is interpolated inside its
-  bucket), and those of *Analysis* and *Sampling*: `not-raw`, `scrape-unknown` and `mixed-windows`. A refused answer holds nothing to draw (its `id`, `error` and `meta` only), except a frequency response
+  bucket), and those of *Sampling*: `scrape-unknown` and `mixed-windows`. A refused answer holds nothing to draw (its `id`, `error` and `meta` only), except a frequency response
   without coherence, which is sent with no curve. In the panel, a refused answer is drawn by no family: it says
   "Refused" when the source refused it ("Could not load" otherwise), the reason, and "Fix:". A warned one is drawn, with
   each reason and its fix under the plot. An answer from a model, a fit, a simulation or a hypothesis says so there
@@ -5559,7 +5516,8 @@ Which blocks an agent runs is looked up from the blocks' `agent:`.
 
 ## 11. Sources
 
-Where existing measurements live. Read only.
+The external systems a sensor reads. Read only. These are sensors' connections, never a dashboard's data sources:
+a panel asks only ergostat's own two, `promql` and `sql` (section 4e, *Data sources*), which are never declared.
 
 ```yaml
 sources:
@@ -5574,25 +5532,13 @@ sources:
 | `command` | none | (the same as `run`) |
 | `ergostat` | `url`, `token-file`, `tls` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
-A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
-(`GET /api/v1/query_range`) through the server (section 4e, *Data sources*); its editor's names come from GETs of its
-metadata API (section 4e, *The query editor*), and a dashboard variable's `label_values` is
-`GET /api/v1/label/NAME/values` (section 4e, *Variables*). It makes no other request. A `model` source (no fields) is a
-dashboard data source only: the project's own model and record as transfer functions (section 4e, *The model as a data
-source*); one named `model` is there undeclared.
+A sensor (or a goal's `query:`) with `source: ergostat` or `source: promql`, not declared here, reads this project's
+own readings in PromQL, from the VictoriaMetrics that holds them, held to this project's series.
 
-A `sql` source (no keys: `record: {type: sql}`) is a dashboard data source only. Its connection is the asking project's
-own record: a panel's query is a SQLite SELECT over the item views (section 4e, *The SQL source*).
-
-More types (Datadog, CloudWatch) can follow the same shape. A type that reads the asking project's own record (`sql`)
-finds it in `datasources.ASKING` while it answers. A panel data source type is one module in
-`ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
-`sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points, and
-optionally `suggest(source, what, prefix, metric, label, seconds, most)`, the names its editor completes, and
-`values(source, selector, label, window)`, a label's values, for a variable; a type offering any other public function
-or class is refused, so the only operations ergostat can call on a source are `query`, `suggest` and `values` (each
-must itself only read; the `prometheus` ones send only GETs). Panels need no change for a new type (the
-model's JSON schema lists the types by name, so a new one is added there too).
+An entry of a type that was once a dashboard data source (`sql`, `model`, `analysis`, `promql`), or named `promql` or
+`sql`, is a model error (`dashboard-source`) that says why: ergostat has exactly two data sources, always there, and a
+panel asks them by name (NOTES.md, 2026-11-25). Remove the entry, and write `source: sql` or `source: promql` in the
+panel.
 
 ## 12. What ergostat derives and checks
 

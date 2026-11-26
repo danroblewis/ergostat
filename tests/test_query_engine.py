@@ -167,18 +167,37 @@ def test_a_counters_rate_counts_a_reset_from_zero(p):
     assert _series(r)["sensor/queue.main"] == pytest.approx([5.0, 15.0, 10.0, 30.0]) and r["unit"] == "tickets/min"
 
 
-def test_events_counted_by_type_and_said_to_be_from_the_log(p):
+def test_events_counted_by_type_from_the_item_index_not_the_log(p):
     r = _ask(p, {"source": "events", "type": "ticket.*", "group_by": "type"})[0]
     assert _series(r) == {"ticket.note": [2.0, 0.0, 1.0, 0.0], "ticket.started": [0.0, 2.0, 0.0, 0.0],
                           "ticket.done": [0.0, 0.0, 0.0, 1.0]}
-    assert r["read_log"] is True and r["unit"] == "events"
+    assert r["read_log"] is False and r["unit"] == "events"
+    assert r["compiled"] == [{"source": "sql", "text": r["compiled"][0]["text"]}]
+    assert "from events where" in r["compiled"][0]["text"] and "type glob 'ticket.*'" in r["compiled"][0]["text"]
 
 
-def test_events_are_bounded_and_say_so(p, monkeypatch):
-    monkeypatch.setattr(sources, "EVENTS_MOST", 2)
-    r = _ask(p, {"source": "events", "type": "ticket.*"})[0]
-    assert r["truncated"] is True and "latest 2" in r["note"]
-    assert _series(r)["ticket.*"] == [None, None, None, 1.0]    # read from 250: the bucket from 240 is part read, so unknown
+@pytest.mark.parametrize("ask,source,words", [
+    ({"source": "items", "kind": "ticket", "field": "ai_cost_usd", "group_by": "size"}, "sql", "from item_numbers"),
+    ({"source": "moves", "kind": "ticket", "measure": "entries", "state": "doing"}, "sql", "from transitions"),
+    ({"source": "counts", "kind": "ticket"}, "sql", "from transitions"),
+    ({"source": "events"}, "sql", "from events"),
+    ({"source": "series", "series": "sensor/queue.main"}, "promql", 'avg_over_time({series="sensor/queue.main"}[120s])'),
+])
+def test_each_built_in_kind_is_a_query_generator_and_says_what_it_asked(p, ask, source, words):
+    """Each shortcut is just SQL or PromQL (NOTES.md, 2026-11-25): the answer carries the query it wrote."""
+    p.measurements.add("sensor/queue.main", 1.0, at=T + 10)
+    r = _ask(p, ask)[0]
+    assert "error" not in r, r
+    assert [c["source"] for c in r["compiled"]] == [source] and words in r["compiled"][0]["text"]
+
+
+def test_a_generated_sql_query_asked_of_the_sql_source_answers_the_same_rows(p):
+    """What a shortcut asked is a query anyone may ask: the same text, asked of ``sql``, reads the same moves."""
+    r = _ask(p, {"source": "moves", "kind": "ticket", "measure": "entries", "state": "open"})[0]
+    text = r["compiled"][0]["text"]
+    got = _ask(p, {"source": "sql", "text": f"select count(*) as n from ({text})"})[0]
+    assert "error" not in got, got
+    assert got["rows"][0][-1] == 3            # the three arrivals in the window: 2 in the first bucket, 1 in the third
 
 
 @pytest.mark.parametrize("transform,want", [("delta", [None, -3.0, -2.0, 0.5]), ("cumulative", [5.0, 7.0, 7.0, 7.5]),

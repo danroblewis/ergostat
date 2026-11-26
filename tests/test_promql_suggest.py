@@ -9,14 +9,13 @@ import json
 import re
 import threading
 import time
-import types
 from http.server import ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from ergostat import datasources
-from ergostat.datasources import prometheus
+from ergostat.datasources import promql
 from ergostat.web.server import Live, api
 from tests.test_data_sources import Stub, ask, project
 
@@ -106,12 +105,24 @@ def metas():
 
 @pytest.fixture
 def p(tmp_path, metas):
-    return project(tmp_path, "\n".join(f'{n}: {{type: prometheus, url: "{u}"}}' for n, (u, _) in metas.items()))
+    return project(tmp_path, metas["small"][0])
 
 
-def suggest(p, source, what, prefix="", metric="", label=""):
+def suggest(p, on, what, prefix="", metric="", label="", source="promql"):
+    """Names suggested by ``promql``, its VictoriaMetrics the stub ``on`` (small, big or rude)."""
+    if on in METAS:
+        p.measurements.base = METAS[on][0]
     q = {"source": [source], "what": [what], "prefix": [prefix], "metric": [metric], "label": [label]}
     return api(Live(p), "query/suggest", q)
+
+
+METAS: dict = {}
+
+
+@pytest.fixture(autouse=True)
+def _metas(metas):
+    METAS.update(metas)
+    yield
 
 
 def test_metrics_labels_and_values_are_suggested_from_the_source_narrowed_by_what_is_typed(p, metas):
@@ -138,8 +149,8 @@ def test_what_is_typed_is_escaped_in_the_selector_it_is_asked_with(p, metas):
 @pytest.mark.parametrize("source", ["big", "rude"])
 def test_autocomplete_stays_bounded_on_a_source_of_100000_series(p, metas, source, monkeypatch):
     read = []
-    real = prometheus._ask
-    monkeypatch.setattr(prometheus, "_ask", lambda *a: read.append(len((got := real(*a))[1])) or got)
+    real = promql._ask
+    monkeypatch.setattr(promql, "_ask", lambda *a: read.append(len((got := real(*a))[1])) or got)
     t0 = time.monotonic()
     every = suggest(p, source, "metrics", "m_")
     some = suggest(p, source, "metrics", "m_123")
@@ -150,23 +161,18 @@ def test_autocomplete_stays_bounded_on_a_source_of_100000_series(p, metas, sourc
     assert len(ids["suggestions"]) == datasources.MOST_SUGGESTIONS and ids["more"] is True
     assert all(n.startswith("m_123") for n in some["suggestions"]) and some["suggestions"][:1] == ["m_12300"]
     assert len(json.dumps([every, some, ids])) < 30_000                         # what reaches the page
-    assert max(read) <= prometheus._MOST_NAME_BYTES + 1, read                   # what is read of the source
+    assert max(read) <= promql._MOST_NAME_BYTES + 1, read                   # what is read of the source
     assert took < 5, took
 
 
-def test_a_type_that_answers_too_many_names_is_cut_to_the_bound_and_one_with_none_says_so(tmp_path):
+def test_a_source_that_answers_too_many_names_is_cut_to_the_bound_and_one_with_none_says_so(p, monkeypatch):
     every = lambda src, what, prefix, metric, label, seconds, most: ([f"n{i:05d}" for i in range(SERIES)], False)  # noqa: E731
-    datasources.register(types.SimpleNamespace(TYPE="many", KEYS=set(), LANGUAGE="M", query=lambda *a: [], suggest=every))
-    datasources.register(types.SimpleNamespace(TYPE="mute", KEYS=set(), LANGUAGE="M", query=lambda *a: []))
-    try:
-        p = project(tmp_path, "a: {type: many}\nb: {type: mute}")
-        got = suggest(p, "a", "metrics", "n0")
-        assert len(got["suggestions"]) == datasources.MOST_SUGGESTIONS and got["more"] is True
-        assert suggest(p, "a", "metrics", "n00001")["suggestions"] == ["n00001"]
-        assert suggest(p, "b", "metrics")["error_kind"] == "refused"
-    finally:
-        datasources.unregister("many")
-        datasources.unregister("mute")
+    monkeypatch.setattr(promql, "suggest", every)
+    got = suggest(p, "small", "metrics", "n0")
+    assert len(got["suggestions"]) == datasources.MOST_SUGGESTIONS and got["more"] is True
+    assert suggest(p, "small", "metrics", "n00001")["suggestions"] == ["n00001"]
+    monkeypatch.delattr(promql, "suggest")
+    assert suggest(p, "small", "metrics")["error_kind"] == "refused"
 
 
 def test_a_source_that_trickles_its_names_is_cut_off_at_the_suggestion_time_bound(p, monkeypatch):
@@ -181,7 +187,7 @@ def test_a_source_that_trickles_its_names_is_cut_off_at_the_suggestion_time_boun
 def test_a_suggestion_asks_nothing_but_a_name_and_says_why_it_is_refused(p, metas):
     metas["small"][1].seen.clear()
     bad = [suggest(p, "small", "labels", metric='up"}) or vector(1'), suggest(p, "small", "series"),
-           suggest(p, "small", "values", "x"), suggest(p, "nowhere", "metrics"),
+           suggest(p, "small", "values", "x"), suggest(p, "small", "metrics", source="nowhere"),
            suggest(p, "small", "metrics", "x" * 201)]
     assert [b["error_kind"] for b in bad] == ["refused", "refused", "refused", "unknown", "limit"]
     assert all(b["suggestions"] == [] for b in bad)
@@ -191,19 +197,19 @@ def test_a_suggestion_asks_nothing_but_a_name_and_says_why_it_is_refused(p, meta
 def test_a_reader_under_a_public_name_is_refused_suggestions(p, metas):
     from ergostat.web.server import _query
     metas["small"][1].seen.clear()
-    got = _query(Live(p), p, ["query", "suggest"], {"source": ["small"], "what": ["metrics"]}, reader=True)
+    got = _query(Live(p), p, ["query", "suggest"], {"source": ["promql"], "what": ["metrics"]}, reader=True)
     assert got["error_kind"] == "refused" and got["suggestions"] == [] and metas["small"][1].seen == []
-    got = api(Live(p), "query/suggest", {"source": ["small"], "what": ["metrics"]}, reader=True)
+    got = api(Live(p), "query/suggest", {"source": ["promql"], "what": ["metrics"]}, reader=True)
     assert got["error_kind"] == "refused" and metas["small"][1].seen == []
 
 
 def test_a_parse_error_says_where_the_source_said_it_is(p):
-    [one, two, old] = ask(p, {"source": "small", "text": "sum(up) $ 2"}, {"source": "small", "text": "sum(\n  up $ 2)"},
-                          {"source": "small", "text": "sum(up"})
+    [one, two, old] = ask(p, {"source": "promql", "text": "sum(up) $ 2"}, {"source": "promql", "text": "sum(\n  up $ 2)"},
+                          {"source": "promql", "text": "sum(up"})
     assert one["error_kind"] == "refused" and one["error_at"] == [1, 9] and "unexpected character" in one["error"]
     assert two["error_at"] == [2, 6]
     assert old["error_at"] == [1, 5]                       # (the old stub's words: "1:5: parse error: ...")
-    [wide] = ask(p, {"source": "small", "text": 'up{job="café"} $'})
+    [wide] = ask(p, {"source": "promql", "text": 'up{job="café"} $'})
     assert wide["error_at"] == [1, 17]                     # a column in bytes, as Prometheus says it: "é" is two
-    assert prometheus._at("parse error at char 7: unexpected") == (1, 7)
-    assert prometheus._at("bad_data: no place said") is None
+    assert promql._at("parse error at char 7: unexpected") == (1, 7)
+    assert promql._at("bad_data: no place said") is None

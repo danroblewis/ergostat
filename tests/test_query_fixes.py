@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import threading
-import time
 import uuid
 
 import pytest
@@ -62,77 +60,18 @@ def p(tmp_path):
     return _record(tmp_path)
 
 
-def _counting(p, monkeypatch):
-    calls = []
-    real = p.events.moments
-    monkeypatch.setattr(p.events, "moments", lambda **k: calls.append(k) or real(**k))
-    return calls
-
-
-def test_many_event_charts_of_one_window_share_one_read(p, monkeypatch):
-    calls = _counting(p, monkeypatch)
-    got = _ask(p, *[{"source": "events", "type": "ticket.*", "bucket": 120 + i} for i in range(40)])
-    assert len(calls) == 1 and all("error" not in r for r in got)
-
-
-def test_a_request_reads_the_log_a_few_times_and_says_busy_past_that(p, monkeypatch):
-    calls = _counting(p, monkeypatch)
-    got = _ask(p, *[{"source": "events", "type": f"ticket.{i}"} for i in range(engine.LOG_READS + 3)])
-    assert len(calls) == engine.LOG_READS
-    assert all("busy" in r["error"] for r in got[engine.LOG_READS:]) and all("error" not in r for r in got[:engine.LOG_READS])
-
-
-def test_a_log_read_never_waits_behind_others(p):
-    live = Live(p)
-    gate = engine._kept(live).log_gate
-    for _ in range(engine.LOG_AT_ONCE):
-        assert gate.acquire(blocking=False)
-    t = time.perf_counter()
-    r = api(live, "query", {"q": [_q({"source": "events"}, {"source": "counts", "kind": "ticket"})]})["results"]
-    assert time.perf_counter() - t < 2 and "busy" in r[0]["error"] and "error" not in r[1]
+def test_an_events_chart_is_sql_over_the_item_index_and_never_reads_the_log(p, monkeypatch):
+    """Events are counted from the item index's per-minute counts (the ``events`` view), never by reading the log."""
+    monkeypatch.setattr(p.events, "moments", lambda **k: (_ for _ in ()).throw(AssertionError("read the log")))
+    got = _ask(p, *[{"source": "events", "type": "ticket.*", "bucket": 120 + i} for i in range(8)])
+    assert all("error" not in r and r["read_log"] is False for r in got)
+    assert all(r["compiled"][0]["source"] == "sql" for r in got)
 
 
 def test_a_request_past_its_deadline_starts_nothing_more(p, monkeypatch):
     monkeypatch.setattr(engine, "REQUEST_SECONDS", -1.0)
     r = _ask(p, {"source": "counts", "kind": "ticket"})[0]
     assert "busy" in r["error"]
-
-
-def test_an_events_window_is_bounded_in_words(p):
-    r = _ask(p, {"source": "events"}, since=sources.EVENTS_WINDOW + 86400, until=T + 480)[0]
-    assert "31 days" in r["error"]
-
-
-def test_the_gate_is_released_after_a_failed_read(p, monkeypatch):
-    live = Live(p)
-    monkeypatch.setattr(p.events, "moments", lambda **k: (_ for _ in ()).throw(OSError("gone")))
-    assert "could not be read" in api(live, "query", {"q": [_q({"source": "events"})]})["results"][0]["error"]
-    gate = engine._kept(live).log_gate
-    assert all(gate.acquire(blocking=False) for _ in range(engine.LOG_AT_ONCE))
-
-
-def test_abandoned_requests_cannot_hold_more_than_the_gate(p, monkeypatch):
-    live = Live(p)
-    hold, inside = threading.Event(), []
-    real = p.events.moments
-
-    def slow(**k):
-        inside.append(1)
-        hold.wait(5)
-        return real(**k)
-    monkeypatch.setattr(p.events, "moments", slow)
-    out: list = []
-    ts = [threading.Thread(target=lambda i=i: out.append(api(live, "query", {"q": [_q({"source": "events", "bucket": 200 + i})]})))
-          for i in range(10)]
-    for x in ts:
-        x.start()
-    deadline = time.monotonic() + 3
-    while len(out) < 8 and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert len(inside) <= engine.LOG_AT_ONCE and len(out) >= 8      # the rest answered busy at once
-    hold.set()
-    for x in ts:
-        x.join(5)
 
 
 def test_two_queries_with_one_id_the_second_says_so(p):

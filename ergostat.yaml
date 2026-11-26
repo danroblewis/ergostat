@@ -17,9 +17,6 @@
 name: ergostat-factory
 include:
   - dev/model/*.yaml
-sources:
-  record: {type: sql}             # the item views, read only: the dashboard's Merge queue row asks them (SPEC §5a, Stages)
-
 systems:
   factory:
     description: ergostat's own development - gaps in, merged and running changes out

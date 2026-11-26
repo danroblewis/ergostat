@@ -258,15 +258,15 @@ def histogram():
 
 
 def asked(tmp_path, url, *texts) -> list[dict]:
-    p = project(tmp_path, f"prom: {{type: prometheus, url: '{url}'}}")
-    return ask(p, *({"source": "prom", "text": t} for t in texts))
+    p = project(tmp_path, url)
+    return ask(p, *({"source": "promql", "text": t} for t in texts))
 
 
 def test_a_latency_heatmaps_query_through_prometheus_is_the_hand_worked_distribution(tmp_path, histogram):   # chart 16
     [got] = asked(tmp_path, histogram, "sum by (le) (increase(wait_seconds_bucket[2m]))")
     assert (got["shape"], got["form"]) == ("distribution", "bins") and got["x"]["label"] == "wait_seconds"
     assert got["over_time"]["counts"] == [[2, 3, 1], [0, 4, 5], None, [1, 0, 0]] and got["series"][0]["values"] == [3, 7, 6]
-    assert got["meta"]["verdict"]["level"] == "warn" and got["meta"]["source"] == "prom"
+    assert got["meta"]["verdict"]["level"] == "warn" and got["meta"]["source"] == "promql"
     assert [r["code"] for r in got["meta"]["verdict"]["reasons"]] == ["open-top-bucket", "scrape-unknown"]
 
 
