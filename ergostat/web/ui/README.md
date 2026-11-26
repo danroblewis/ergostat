@@ -16,20 +16,31 @@ header's project list and `ergostat snapshot`.
       main.tsx, App.tsx      the router: one route per page, each page loaded lazily
       styles/                the page's styles (style.css, panels.css, plots.css, panel-editor.css, dashboard.css)
       lib/                   pure functions: api.ts (apiGet, apiPost, apiSend), format.ts (fmt, dur, ago, stamp,
-                             rateText, op, holdText...), rung.ts
+                             rateText, op, holdText, windowNote, plural...), rung.ts, hrefs.ts (itemHref, kindHref,
+                             agentHref, diagramHref), goals.ts (a goal in words), query.ts (what a panel asks /api/query)
       state/                 app-wide context: time.tsx (window and moment, in the address), status.tsx (/api/status
                              every 5 s: useStatus())
       hooks/                 usePoll (a refresh that never overlaps, pauses while hidden), useApi (an answer, with
                              the window, polled when asked: { data, error, loading, refresh })
-      components/            the core components (index.ts): Page, Section, Table/DataTable/Fields, Menu, Tabs,
-                             Detail (the side panel: useDetail().open(key, node)), Markdown, Code, Chart (uPlot),
-                             StatusWord, Rung, Button, Select, Check, Filters, Fold, Async, Empty, Note, ErrorNote...
-      pages/<page>/          one folder per page; index.tsx is the page. A page's own parts stay in its folder.
+      components/            the components any page is composed of (index.ts):
+        ui.tsx, Table, Menu,   Page, Section, Table/DataTable/Fields, Dl, Menu, Tabs, Detail (the side panel:
+        Detail, Markdown       useDetail().open(key, node)), Markdown, Code, StatusWord, Rung, Button, Select...
+        links.tsx            AgentLink, ItemLink (here or on a remote), KindLink
+        events.tsx           EventsTable (compact, fold), EventDetail, useShowEvent(), changeOf
+        items.tsx            KindBar, ItemsTable, FieldValue
+        goals.tsx            GoalCells: one goal's row in the columns asked for
+        charts/              Chart (uPlot), Plot, PanelView (a query's panel from its answer), QueryPanel and
+                             usePanelResults (a panel that asks for its own answer), Spark, FlowChart
+        diagram/             imported from "components/diagram" (it brings ELK): Diagram (asks for its own graph:
+                             <Diagram view="blocks" system="x" />), DiagramCanvas (draws a graph a page has), the
+                             three drawings, useDiagramLayout, usePanZoom, a part's panels (usePartPanels)
+      pages/<page>/          one folder per page; index.tsx is the page, composed of components/.
 
 ## Rules
 
-- Compose pages from `components/`; a part used by one page lives in that page's folder. A part two pages need moves
-  to `components/`.
+- Compose pages from `components/`. Anything another page could show (a table, a chart, a link, a drawing) is a
+  component there, taking its data as props or asking for it itself; a page's folder keeps only what is that page's
+  alone: its layout, its toolbar, what it keeps in the address.
 - Data comes from `useApi(path, params, { every })`, never from fetch in a component. Writes use `apiPost`/`apiSend`
   from `lib/api.ts`, then `refresh()`.
 - No global mutable state. The window and moment are `useTime()`; the status is `useStatus()`.
@@ -56,6 +67,5 @@ Every page has a route and draws from the real API; none is at parity with the o
   (claims, decisions, messages, gated actions, reports), notes, Impact, leases, remote items.
 - **Record:** its `window=1` scope shares the `window` parameter with the header's window, as on the old page.
 
-Parts written in more than one page, to move into `components/`: an events table (record/, items/), a segmented
-toggle, a sparkline, a dialog (dashboard/Editor), a goal panel (goals/GoalDetail, diagram/Side), a link to a part
-on the diagram, a chart that fills its parent's height (dashboard/Plot).
+Still to move into `components/`: a segmented toggle, a dialog (dashboard/Editor), a goal panel (goals/GoalDetail,
+diagram/Side).

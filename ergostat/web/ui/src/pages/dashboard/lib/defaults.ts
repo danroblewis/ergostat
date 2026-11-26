@@ -1,7 +1,7 @@
 /* The dashboard a project opens on, built from what the record holds (dashboard.js dashDefault): the lead kind's
    numbers in a row, its charts, then the next kinds'; with no kinds, the first series. Pure. The worked examples of
    each plot family (dashboard-examples.js) and the pipelines' SQL rows are not ported yet. */
-import type { Dashboard, Panel, Query } from "./query";
+import type { Dashboard, Panel, Query } from "../../../lib/query";
 
 const MONEY = /^(usd|eur|gbp|\$)/i, COST = /(^|[._-])(cost|spend|usd)([._-]|$)/i;
 const REWORK = /fix|redo|rework|retry|replan/i;
@@ -135,14 +135,8 @@ export function defaultDashboard(fields: any, infos: any[] = [], queues: Record<
       panels.push({ title: x.name, form: "line", size: "m", queries: [{ id: "a", source: "series", series: x.name, agg: "last", transform: "none" }],
         display: { unit: x.unit || "", ...legend() } });
   }
+  panels.unshift({ title: "The system", note: "", form: "diagram", size: "full", queries: [], diagram: { view: "dynamics" } });
   return { title: "Overview", since: null, panels: panels.slice(0, MOST).map((p, i) => ({ note: "", tall: false, ...p, id: `p${i + 1}` })) };
 }
 
 /** A rate's number read as the average of the last ``n`` buckets, so it does not say 0/h between bursts. */
-export function recent(values: (number | null)[], n: number): (number | null)[] {
-  return values.map((_, i) => {
-    let sum = 0, weight = 0;
-    for (let k = Math.max(0, i - n + 1); k <= i; k++) if (values[k] != null) { sum += values[k]!; weight++; }
-    return weight ? sum / weight : null;
-  });
-}

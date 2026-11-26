@@ -1,22 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Async, Fields, Menu, Tabs, useDetail } from "../../components";
+import { DiagramCanvas, graphOf, usePartPanels, type Acts, type ViewKey } from "../../components/diagram";
 import { useApi } from "../../hooks/useApi";
 import { useStatus } from "../../state/status";
-import { BlocksDrawing } from "./Blocks";
-import { DynamicsDrawing, type Acts } from "./Dynamics";
-import { layoutBlocks, layoutDynamics, layoutProcess, structureKey, type Layout } from "./lib/layout";
-import { BlockPanel, ProcessPanel, SdPartPanel, SystemPanel } from "./PartDetail";
-import { pmLabel, ProcessDrawing } from "./Process";
 import { Side } from "./Side";
-import { usePanZoom } from "./usePanZoom";
-import "./diagram.css";
 
 /* The Diagram page (diagram.js's pageDiagram): one control system, drawn three ways (Dynamics, Blocks, Process), the
    view and what is drawn in the address (?view=, system=, open=, around=, item=, kind=; the Process view's kinds=,
-   by=, paths=, show=), asked again every 2.5 s; a click opens a part's panel, the side lists what needs the owner. */
+   by=, paths=, show=), asked again every 2.5 s; a click opens a part's panel, the side lists what needs the owner.
+   The drawing is components/diagram's DiagramCanvas, as on any page; this page adds the toolbar, the side and the
+   address. */
 
-type ViewKey = "dynamics" | "blocks" | "process";
 const VIEWS: { key: ViewKey; label: React.ReactNode; title: string }[] = [
   { key: "dynamics", label: <>Dynamics<span className="what"> · what is</span></>, title: "The stock-and-flow diagram, as system dynamics draws it" },
   { key: "blocks", label: <>Blocks<span className="what"> · what is controlled</span></>, title: "The control system as a block diagram" },
@@ -40,24 +35,6 @@ function GoalPanel({ name }: { name: string }) {
       </Async>
     </>
   );
-}
-
-function exportSvg(svg: SVGSVGElement | null, file: string) {
-  if (!svg) return;
-  const copy = svg.cloneNode(true) as SVGSVGElement;
-  const vp = svg.querySelector<SVGGElement>("#viewport");
-  const b = vp?.getBBox();
-  copy.querySelector("#viewport")?.removeAttribute("transform");
-  if (b) copy.setAttribute("viewBox", `${b.x - 14} ${b.y - 14} ${b.width + 28} ${b.height + 28}`);
-  copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  const css = [...document.styleSheets].flatMap((s) => { try { return [...s.cssRules].map((r) => r.cssText); } catch { return []; } }).join("\n");
-  const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
-  style.textContent = css;
-  copy.prepend(style);
-  const url = URL.createObjectURL(new Blob([copy.outerHTML], { type: "image/svg+xml" }));
-  const a = Object.assign(document.createElement("a"), { href: url, download: file });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export default function DiagramPage() {
@@ -87,44 +64,7 @@ export default function DiagramPage() {
     ...(view === "process" ? { kinds: q.get("kinds") || "", by: q.get("by") || "", paths: q.get("paths") || "" } : {}),
   };
   const st = useApi<any>("graph", params, { every: 2500 });
-  const g = st.data && st.data.kind && (view === "process" ? st.data.kind === "process" : view === "blocks" ? st.data.kind === "blocks" : st.data.kind !== "process" && st.data.kind !== "blocks") ? st.data : undefined;
-
-  // the layout: made again only when the structure changes; new values are drawn where the parts already are
-  const key = useMemo(() => (g ? structureKey(g) + (view === "process" ? JSON.stringify([show, g.nodes.map((n: any) => n.count)]) : "") : ""), [g, view, show]);
-  const [laid, setLaid] = useState<{ key: string; lay: Layout } | null>(null);
-  const [layErr, setLayErr] = useState<string | null>(null);
-  useEffect(() => {
-    if (!g || !key || laid?.key === key) return;
-    let gone = false;
-    const run = view === "blocks" ? layoutBlocks(g) : view === "process" ? layoutProcess(g, (e) => pmLabel(e, show)) : layoutDynamics(g);
-    run.then((lay) => { if (!gone) { setLaid({ key, lay }); setLayErr(null); } })
-      .catch((e) => { if (!gone) setLayErr(String(e?.message || e)); });
-    return () => { gone = true; };
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const svgRef = useRef<SVGSVGElement>(null);
-  const pz = usePanZoom(svgRef);
-  const fittedFor = useRef("");
-  const lay = laid && g ? laid.lay : null;
-  useEffect(() => {
-    if (!lay || !laid) return;
-    // a new view or system: shown whole; the same one laid out again keeps what the reader moved
-    const scope = `${view}|${system}|${around}|${item}|${kind}`;
-    if (fittedFor.current !== scope || !pz.moved.current) {
-      const xs = [...lay.children, ...lay.hulls];
-      const x0 = Math.min(...xs.map((c) => c.x)), y0 = Math.min(...xs.map((c) => c.y));
-      const x1 = Math.max(...xs.map((c) => c.x + c.width)), y1 = Math.max(...xs.map((c) => c.y + c.height + 30));
-      pz.fit(xs.length ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null);
-      fittedFor.current = scope;
-    }
-  }, [laid?.key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const fitNow = () => {
-    if (!lay) return;
-    const xs = [...lay.children, ...lay.hulls];
-    if (!xs.length) return;
-    const x0 = Math.min(...xs.map((c) => c.x)), y0 = Math.min(...xs.map((c) => c.y));
-    pz.fit({ x: x0, y: y0, width: Math.max(...xs.map((c) => c.x + c.width)) - x0, height: Math.max(...xs.map((c) => c.y + c.height + 30)) - y0 });
-  };
+  const g = graphOf(view, st.data);
 
   const toggleSystem = useCallback((name: string) => {
     const now = new Set<string>(g?.open || []);
@@ -133,16 +73,8 @@ export default function DiagramPage() {
     go({ open: [...now].join(",") || "-" });
   }, [g, go]);
   const drill = useCallback((name: string) => go({ system: name, open: "", around: "", item: "", kind: "" }), [go]);
-  const sysActs = { toggleSystem, drill };
-
-  const pick = useCallback((n: any) => {
-    if (!g) return;
-    const k = n.id;
-    if (view === "process") detail.open(k, <ProcessPanel n={n} g={g} />);
-    else if (view === "blocks") detail.open(k, <BlockPanel n={n} acts={sysActs} />);
-    else if (n.kind === "system") detail.open(k, <SystemPanel n={n} acts={sysActs} />);
-    else detail.open(k, <SdPartPanel n={n} g={g} />);
-  }, [g, view, detail]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sysActs = useMemo(() => ({ toggleSystem, drill }), [toggleSystem, drill]);
+  const pick = usePartPanels(g, view, sysActs);
   const onGoal = useCallback((name: string) => detail.open(`goal:${name}`, <GoalPanel name={name} />), [detail]);
   const acts: Acts = { pick, toggleSystem, drill, sel: detail.key };
 
@@ -163,23 +95,12 @@ export default function DiagramPage() {
 
   const caption = `${view === "dynamics" ? "Stock-and-flow diagram (system dynamics)" : view === "blocks" ? "Block diagram (control)" : "Process map (from the record)"} · ${status?.name || ""}${system ? ` · ${system}` : ""}`;
   const file = `${status?.name || "ergostat"}-${system || "all"}-${view}.svg`;
-  const empty = !g ? null : !g.nodes.length
-    ? view === "process"
-      ? (g.kinds || []).length ? `Nothing on the record in the window for ${g.kinds.map((k: any) => k.name).join(", ")}.` : "No kinds of item here: its parts are counted by sensors."
-      : g.subset ? `${g.subset.says}.` : view === "blocks" ? "No control system here: no goal, and no block that acts." : "Nothing to draw: the model is empty."
-    : null;
 
   return (
     <div className="diagram">
-      <div className="canvas-wrap">
-        <svg ref={svgRef} className={`canvas${view === "dynamics" ? " sd" : view === "blocks" ? " bd" : ""}`} aria-labelledby="diagram-caption" {...pz.handlers}
-          onClick={(ev) => { if (ev.target === ev.currentTarget) detail.close(); }}>
-          <g id="viewport" transform={`translate(${pz.view.x},${pz.view.y}) scale(${pz.view.k})`}>
-            {lay && g && !empty && (view === "blocks" ? <BlocksDrawing g={g} lay={lay} acts={acts} />
-              : view === "process" ? <ProcessDrawing g={g} lay={lay} acts={acts} show={show} />
-                : <DynamicsDrawing g={g} lay={lay} acts={acts} />)}
-          </g>
-        </svg>
+      <DiagramCanvas g={g} view={view} show={show} acts={acts} scope={`${view}|${system}|${around}|${item}|${kind}`}
+        labelledBy="diagram-caption" file={file} onBackground={detail.close}
+        waiting={st.error ? <>The server is not answering. Is ergostat still running? ({st.error.message})</> : "Loading…"}>
         <div className="toolbar">
           <Tabs label="View" tabs={VIEWS} value={view} onChange={(v) => go({ view: v })} />
           <span className="sep" />
@@ -225,18 +146,7 @@ export default function DiagramPage() {
           )}
           <h1 id="diagram-caption" className="caption" title={caption}>{caption}</h1>
         </div>
-        <div className="zoom">
-          <button type="button" className="z" title="Zoom out" aria-label="Zoom out" onClick={() => pz.zoomBy(1 / 1.2)}>−</button>
-          <button type="button" title="Show it whole" onClick={fitNow}>Fit</button>
-          <button type="button" className="z" title="Zoom in" aria-label="Zoom in" onClick={() => pz.zoomBy(1.2)}>+</button>
-          <span className="sep" />
-          <button type="button" title="Save the diagram as an SVG file" onClick={() => exportSvg(svgRef.current, file)}>Export SVG</button>
-        </div>
-        {!g && !st.error && <div className="empty loading">Loading…</div>}
-        {st.error && !g && <div className="empty">The server is not answering. Is ergostat still running? ({st.error.message})</div>}
-        {empty && <div className="empty">{empty}</div>}
-        {layErr && <div className="empty">The layout failed: {layErr}</div>}
-      </div>
+      </DiagramCanvas>
       <aside className="side" aria-label="About the diagram">
         <Side g={g} view={view} onGoal={onGoal} onPick={pick} />
       </aside>

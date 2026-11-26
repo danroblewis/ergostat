@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { AppLink, Async, Button, Muted, Rich, StatusWord } from "../../components";
+import { AgentLink, AppLink, Async, Button, Dl, Muted, Rich, StatusWord } from "../../components";
 import { useApi } from "../../hooks/useApi";
 import { apiPost, isPublic } from "../../lib/api";
 import { ago, dur, FLAP_AT, fmt, holdText, op, rateText, shareText, stamp } from "../../lib/format";
 import { useStatus } from "../../state/status";
 import { useTime } from "../../state/time";
-import { exceptional, goalBound, goalOffFor, goalWord, performanceWord } from "./goalRow";
-import { AgentA, Dl } from "./parts";
+import { exceptional, goalBound, goalOffFor, goalWord, performanceWord } from "../../lib/goals";
 
 /* A goal's detail, in the side panel (details.js openLoopNow): its runbook (four lines), the remedy, its numbers, its
    parts along the loop, crossings and decisions, then its control loop (control.js): the process identified, its
@@ -34,7 +33,7 @@ function Runbook({ lp, at }: { lp: any; at: number | null }) {
       <p className="runbook-line">{off ? `${off.charAt(0).toUpperCase()}${off.slice(1)}; ${usual}.` : `${exceptional(word) ? `Not known to be off (${word})` : "Not off now"}; when off, ${usual}.`}</p>
       <p className="runbook-line">
         {acts.length ? acts.map((a: any, i: number) => (
-          <span key={a.name}>{i ? "; " : ""}<span className="actor-line"><b><AgentA name={a.name} /></b>
+          <span key={a.name}>{i ? "; " : ""}<span className="actor-line"><b><AgentLink name={a.name} /></b>
             {`: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, ` + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")}
           </span></span>
         )) : lp.open_loop ? "It acts on its schedule and reads nothing" : unlisted(lp)}.
@@ -53,7 +52,7 @@ function PartsTable({ name, lp }: { name: string; lp: any }) {
           <tr key={i}>
             <td>{pt.kind}</td>
             <td><b>{pt.name}</b>{pt.kind === "valve" && <Muted>{` ${pt.mode}${pt.max ? `, ≤ ${fmt(pt.max)} a run` : ""}`}</Muted>}</td>
-            <td>{pt.agent ? <span><AgentA name={pt.agent.name} /><Muted>{` ${pt.agent.kind}`}</Muted></span> : !pt.last ? <span className="s-open">unfilled</span> : ""}</td>
+            <td>{pt.agent ? <span><AgentLink name={pt.agent.name} /><Muted>{` ${pt.agent.kind}`}</Muted></span> : !pt.last ? <span className="s-open">unfilled</span> : ""}</td>
             <td>
               {pt.kind === "sensor" ? (pt.last ? `read ${ago(pt.last.time)}: ${fmt(pt.last.value)}` : <Muted>no reading yet</Muted>)
                 : pt.kind === "controller" ? (pt.last ? `decided ${ago(pt.last.time)}: ${pt.last.data.decision}` : <Muted>{pt.open_loop ? "acts on its schedule, reads nothing" : "no decision yet"}</Muted>)

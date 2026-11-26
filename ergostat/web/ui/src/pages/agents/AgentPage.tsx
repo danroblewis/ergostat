@@ -1,11 +1,10 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
-import { AppLink, Code, ErrorNote, Loading, Markdown, Muted, Page, Rich, Rung, StatusWord } from "../../components";
+import { AgentLink, AppLink, Code, Dl, ErrorNote, Loading, Markdown, Muted, Page, Rich, Rung, StatusWord } from "../../components";
 import { useApi } from "../../hooks/useApi";
 import { ApiError } from "../../lib/api";
 import { ago, bytesText, costText, cpuText, op, tokensText } from "../../lib/format";
-import { goalWord } from "../goals/goalRow";
-import { AgentA, Dl } from "../goals/parts";
+import { goalWord } from "../../lib/goals";
 import { agentTally, engagedText, rolesText } from "./agentParts";
 
 /* An agent's own page (/agent/NAME, agent.js pageAgent): what it is, by its rung; its definition as written; its place
@@ -64,7 +63,7 @@ function LawPart({ sp }: { sp: any }) {
       {["table", "points", "schedule"].filter((k) => P[k] && typeof P[k] === "object").map((k) => (
         <div key={k}><h3>{k}</h3><Code code={JSON.stringify(P[k], null, 2)} lang="json" /></div>
       ))}
-      {sp?.implied_by && <p className="implied-by">implied by <AgentA name={sp.implied_by} />'s goal</p>}
+      {sp?.implied_by && <p className="implied-by">implied by <AgentLink name={sp.implied_by} />'s goal</p>}
     </>
   );
 }
@@ -132,7 +131,7 @@ function WhatItIs({ a, sp, files }: { a: any; sp: any; files: any[] }) {
 
 function Definition({ sp }: { sp: any }) {
   if (!sp) return <p className="muted">Its block is not in the model's YAML.</p>;
-  if (sp.implied) return <p className="implied">not written: ergostat put it in{sp.implied_by && <> front of <AgentA name={sp.implied_by} /></>}.</p>;
+  if (sp.implied) return <p className="implied">not written: ergostat put it in{sp.implied_by && <> front of <AgentLink name={sp.implied_by} /></>}.</p>;
   return (
     <>
       {sp.where && <p className="muted file-name">{`${sp.where.file}:${sp.where.line}`}</p>}
@@ -149,7 +148,7 @@ function Serves({ a, sp, loops }: { a: any; sp: any; loops: any }) {
   return <>{gs.map((g, i) => <span key={g}>{i ? ", " : ""}<AppLink to={`/goals?select=${encodeURIComponent(g)}`} className="goal">{g}</AppLink> <StatusWord status={goalWord(loops[g])} /></span>)}</>;
 }
 
-const list = (xs: string[]) => xs.map((x, i) => <span key={x}>{i ? ", " : ""}<AgentA name={x} /></span>);
+const list = (xs: string[]) => xs.map((x, i) => <span key={x}>{i ? ", " : ""}<AgentLink name={x} /></span>);
 function rungsText(sp: any): string | null {
   const s = sp?.means?.spans || [];
   const name = (x: any) => (x.first == null ? "the model now" : x.first === x.last ? `v${x.first}` : `v${x.first} to v${x.last}`);

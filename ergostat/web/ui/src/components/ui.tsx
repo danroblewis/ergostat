@@ -1,4 +1,4 @@
-import { type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes } from "react";
+import { Fragment, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes } from "react";
 import { Link, type LinkProps } from "react-router-dom";
 import { RUNG_HINT, RUNG_LETTER, rungName } from "../lib/rung";
 
@@ -32,6 +32,17 @@ export function Section({ title, note, children, id, className }: { title: React
 
 /** A link to one of the app's own pages ("/items"), drawn in place with no reload. */
 export const AppLink = (props: LinkProps) => <Link {...props} />;
+
+/** A definition list that leaves out empty values; nothing at all when every value is empty. */
+export function Dl({ rows, className }: { rows: [ReactNode, ReactNode][]; className?: string }) {
+  const kept = rows.filter(([, v]) => v != null && v !== "" && v !== false);
+  if (!kept.length) return null;
+  return (
+    <dl className={className}>
+      {kept.map(([k, v], i) => <Fragment key={i}><dt>{k}</dt><dd>{v}</dd></Fragment>)}
+    </dl>
+  );
+}
 
 export const Muted = ({ children, small }: { children: ReactNode; small?: boolean }) => (
   <span className={small ? "muted small" : "muted"}>{children}</span>

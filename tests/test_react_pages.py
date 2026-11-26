@@ -116,6 +116,41 @@ def test_the_dashboard_draws_its_panels(browser, site):
     pg.close()
 
 
+def test_the_default_dashboard_draws_the_diagram_and_each_query_panel_its_own_answer(browser, site):
+    pg = opened(browser, site + "/dashboard")
+    pg.wait_for_selector("#main .page.dash", timeout=WAIT)
+    diagram = pg.locator(".panel.panel-form-diagram").first
+    diagram.wait_for(timeout=WAIT)
+    assert diagram.locator(".panel-title").inner_text() == "The system"
+    diagram.locator("svg.canvas g.node").first.wait_for(timeout=WAIT)           # the model's parts, laid out and drawn
+    assert diagram.locator("svg.canvas g.node").count() > 1
+    assert diagram.get_by_role("link", name="Open on the Diagram page").get_attribute("href") == "/diagram"
+    assert pg.locator(".panel:not(.panel-form-diagram)").count() >= 1            # the query panels beside it
+    assert settled(pg, 2500) == []
+    pg.close()
+
+
+def test_a_diagram_panel_is_added_in_the_editor_and_kept(browser, site):
+    pg = opened(browser, site + "/dashboard")
+    pg.wait_for_selector("#main .page.dash", timeout=WAIT)
+    pg.get_by_role("button", name="Edit", exact=True).first.click()
+    pg.get_by_role("button", name="Add panel").click()
+    editor = pg.locator("[aria-label='Edit panel']")
+    editor.wait_for(timeout=WAIT)
+    editor.get_by_label("Title").fill("Control")
+    editor.get_by_label("Chart").select_option("diagram")
+    editor.get_by_label("View").select_option("blocks")
+    assert editor.get_by_role("button", name="Add query").count() == 0           # a diagram asks no query
+    editor.get_by_role("button", name="Save panel").click()
+    added = pg.locator(".panel.panel-form-diagram[aria-label='Control']")
+    added.locator("svg.canvas.bd g.node").first.wait_for(timeout=WAIT)          # drawn as a block diagram
+    assert settled(pg) == []
+    pg.reload()                                                                 # kept in this browser
+    pg.locator(".panel.panel-form-diagram[aria-label='Control']").wait_for(timeout=WAIT)
+    pg.evaluate("() => Object.keys(localStorage).filter(k => k.startsWith('ergostat.dashboard.')).forEach(k => localStorage.removeItem(k))")
+    pg.close()
+
+
 @pytest.mark.parametrize("view, caption, nodes", [
     ("dynamics", "Stock-and-flow diagram", True),
     ("blocks", "Block diagram", True),

@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Async, Muted, Note, Page, Table, useDetail } from "../../components";
+import { Async, GoalCells, Muted, Note, Page, Table, useDetail, type GoalColumn } from "../../components";
 import { useApi } from "../../hooks/useApi";
-import { dur, FLAP_AT } from "../../lib/format";
+import { dur, FLAP_AT, windowNote } from "../../lib/format";
 import { goalsOff, useStatus } from "../../state/status";
 import { WINDOWS, useTime } from "../../state/time";
-import { GoalCells, goalPerf, goalRank, steadyWord, type GoalColumn } from "./goalRow";
+import { goalPerf, goalRank, steadyWord } from "../../lib/goals";
 import { GoalDetail } from "./GoalDetail";
-import { windowNote } from "./parts";
 
 /* Goals (the old pages.js pageLoops): every goal, those that need someone first; a click opens its detail beside the
    page, the goal chosen kept in the address (?select=NAME). */

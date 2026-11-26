@@ -1,11 +1,11 @@
 import { Fragment } from "react";
 import { AppLink, Async, Muted, Note, Page, Table } from "../../components";
 import { useApi } from "../../hooks/useApi";
-import { ago, bytesText, costText, cpuText, op, tokensText, usd } from "../../lib/format";
+import { ago, bytesText, costText, cpuText, op, tokensText, usd, windowNote } from "../../lib/format";
 import { RUNG_HINT, RUNG_NAMES } from "../../lib/rung";
 import { useStatus } from "../../state/status";
 import { WINDOW_WORDS, useTime } from "../../state/time";
-import { agentHref, windowNote } from "../goals/parts";
+import { agentHref } from "../../lib/hrefs";
 import { exception, lastText, rolesText } from "./agentParts";
 
 /* Agents (pages.js pageAgents): the ladder, one list by rung from the most general agent to none, what each costs in

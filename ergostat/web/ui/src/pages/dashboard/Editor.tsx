@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, ErrorNote, Select } from "../../components";
+import { Button, ErrorNote, PanelView, Select } from "../../components";
+import { useStatus } from "../../state/status";
+import { DashboardPanel } from "./DashboardPanel";
 import { useApi } from "../../hooks/useApi";
 import { apiGet } from "../../lib/api";
 import { useTime, WINDOWS } from "../../state/time";
-import { encodeQuery, type Answer, type Panel, type Query } from "./lib/query";
-import { PanelView } from "./PanelView";
+import { encodeQuery, type Answer, type Panel, type Query } from "../../lib/query";
 
 /* The panel editor (panel-editor.js, in part): a panel's title, note, form and size, and its queries. A query's source
    is chosen from what the server offers: its built-in ones (item fields, moves, counts, series, events) where
@@ -12,11 +13,12 @@ import { PanelView } from "./PanelView";
    model's own sources: PromQL, SQL...), each asked in its own language in a text box. The built-in PromQL source
    (``ergostat``) is left out of that list when the project's readings are on SQLite; it is asked once here, and
    when the server refuses it, it is shown, not chosen, with the server's words for what it needs. A preview asks the
-   query as it stands. */
+   query as it stands. A diagram panel has no queries: it names a view, and the system, item or kind drawn. */
 
 const BUILT_IN: [string, string][] = [["items", "Item fields"], ["moves", "Item moves"], ["counts", "Items per state"], ["series", "Metric series"], ["events", "Events"]];
 const OWN_PROMQL = "ergostat";
-const FORMS: [string, string][] = [["line", "Line"], ["area", "Area"], ["stacked", "Stacked area"], ["step", "Step"], ["bar", "Bar"], ["stat", "Stat"], ["table", "Table"]];
+const FORMS: [string, string][] = [["line", "Line"], ["area", "Area"], ["stacked", "Stacked area"], ["step", "Step"], ["bar", "Bar"], ["stat", "Stat"], ["table", "Table"], ["diagram", "Diagram"]];
+const VIEWS: [string, string][] = [["dynamics", "Dynamics (stocks and flows)"], ["blocks", "Blocks (the control system)"], ["process", "Process (how items moved)"]];
 const SIZES: [string, string][] = [["s", "Small (a third)"], ["m", "Medium (half)"], ["l", "Large (two thirds)"], ["full", "Full width"]];
 const AGGS = ["count", "sum", "avg", "min", "max", "last", "p50", "p90", "p95", "p99"];
 const TRANSFORMS: [string, string][] = [["none", "None"], ["rate", "Rate"], ["delta", "Change per step"], ["cumulative", "Running total"], ["moving_avg", "Moving average"]];
@@ -47,6 +49,7 @@ export function Editor({ panel, onSave, onCancel }: { panel: Panel; onSave: (p: 
   const [preview, setPreview] = useState<Panel | null>(null);
 
   const set = (patch: Partial<Panel>) => setP((x) => ({ ...x, ...patch }));
+  const isDiagram = p.form === "diagram";
   const setQuery = (i: number, q: Query) => set({ queries: p.queries.map((x, n) => (n === i ? q : x)) });
   const addQuery = () => {
     const id = "abcdefghijkl"[p.queries.length] || `q${p.queries.length}`;
@@ -75,38 +78,73 @@ export function Editor({ panel, onSave, onCancel }: { panel: Panel; onSave: (p: 
           <label>Note<br /><input value={p.note || ""} onChange={(e) => set({ note: e.target.value })} style={{ width: "100%" }} /></label>
           <label>Chart<br /><Select value={p.form} onChange={(e) => set({ form: e.target.value })} options={FORMS.map(([value, label]) => ({ value, label }))} /></label>
           <label>Size<br /><Select value={p.size || "m"} onChange={(e) => set({ size: e.target.value as Panel["size"] })} options={SIZES.map(([value, label]) => ({ value, label }))} /></label>
-          <label>Unit<br /><input value={p.display?.unit ?? ""} onChange={(e) => set({ display: { ...(p.display || {}), unit: e.target.value } })} placeholder="from the answer" /></label>
+          {!isDiagram && <label>Unit<br /><input value={p.display?.unit ?? ""} onChange={(e) => set({ display: { ...(p.display || {}), unit: e.target.value } })} placeholder="from the answer" /></label>}
         </div>
         <ErrorNote error={fields.error} />
-        {needs && (
-          <p className="note" role="status">
-            <strong>PromQL over ergostat's own readings is unavailable here.</strong> {needs}
-          </p>
+        {isDiagram ? <DiagramFields p={p} set={set} /> : (
+          <>
+            {needs && (
+              <p className="note" role="status">
+                <strong>PromQL over ergostat's own readings is unavailable here.</strong> {needs}
+              </p>
+            )}
+            <h3 style={{ margin: 0 }}>Queries</h3>
+            {p.queries.map((q, i) => (
+              <QueryRow key={i} q={q} fields={fields.data} sources={sourceOptions} listed={listed || []}
+                onChange={(x) => setQuery(i, x)} onRemove={() => set({ queries: p.queries.filter((_, n) => n !== i) })} />
+            ))}
+            <div><Button onClick={addQuery} disabled={p.queries.length >= 12}>Add query</Button></div>
+          </>
         )}
-        <h3 style={{ margin: 0 }}>Queries</h3>
-        {p.queries.map((q, i) => (
-          <QueryRow key={i} q={q} fields={fields.data} sources={sourceOptions} listed={listed || []}
-            onChange={(x) => setQuery(i, x)} onRemove={() => set({ queries: p.queries.filter((_, n) => n !== i) })} />
-        ))}
-        <div><Button onClick={addQuery} disabled={p.queries.length >= 12}>Add query</Button></div>
         <div>
           <Button onClick={() => setPreview({ ...p, id: `${p.id}-preview` })}>Preview</Button>
           {preview && <div className="panel-grid" style={{ marginTop: "var(--sp-2)" }}><PreviewPanel panel={{ ...preview, size: "full" }} /></div>}
         </div>
         <div style={{ display: "flex", gap: "var(--sp-2)", justifyContent: "flex-end" }}>
           <Button onClick={onCancel}>Cancel</Button>
-          <Button className="primary" onClick={() => onSave({ ...p, title: p.title.trim() || "Untitled" })} disabled={!p.queries.length}>Save panel</Button>
+          <Button className="primary" onClick={() => onSave(saved(p))} disabled={!isDiagram && !p.queries.length}>Save panel</Button>
         </div>
       </div>
     </div>
   );
 }
 
+/** A panel as saved: titled, and only what its form reads (a diagram keeps no queries, a chart no diagram). */
+function saved(p: Panel): Panel {
+  const title = p.title.trim() || (p.form === "diagram" ? "Diagram" : "Untitled");
+  if (p.form === "diagram") return { ...p, title, queries: [], diagram: { view: "dynamics", ...(p.diagram || {}) } };
+  const { diagram: _d, ...rest } = p;
+  return { ...rest, title };
+}
+
+/** A diagram panel's own fields: the view, and what is drawn (a system, or what an item or a kind passed through). */
+function DiagramFields({ p, set }: { p: Panel; set: (patch: Partial<Panel>) => void }) {
+  const { status } = useStatus();
+  const d = p.diagram || {};
+  const put = (patch: Partial<NonNullable<Panel["diagram"]>>) => set({ diagram: { ...d, ...patch } });
+  const systems: string[] = status?.systems || [];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(14rem, 1fr))", gap: "var(--sp-2) var(--sp-3)" }}>
+      <label>View<br /><Select aria-label="View" value={d.view || "dynamics"} onChange={(e) => put({ view: e.target.value as "dynamics" })}
+        options={VIEWS.map(([value, label]) => ({ value, label }))} /></label>
+      <label>System<br /><Select aria-label="System" value={d.system || ""} onChange={(e) => put({ system: e.target.value })}
+        options={[{ value: "", label: "Everything" }, ...systems.map((x) => ({ value: x, label: x }))]} /></label>
+      <label>Only what an item passed through<br /><input value={d.item || ""} onChange={(e) => put({ item: e.target.value })} placeholder="an item's id" /></label>
+      <label>Only what a kind touches<br /><input value={d.kind || ""} onChange={(e) => put({ kind: e.target.value })} placeholder="a kind's name" /></label>
+    </div>
+  );
+}
+
 function PreviewPanel({ panel }: { panel: Panel }) {
+  if (panel.form === "diagram") return <DashboardPanel panel={saved(panel)} />;
+  return <QueryPreview panel={panel} />;
+}
+
+function QueryPreview({ panel }: { panel: Panel }) {
   const { seconds, at } = useTime();
   const q = encodeQuery({ since: seconds, until: at, points: 120, queries: panel.queries.map((x, n) => ({ ...x, label: undefined, hidden: undefined, id: x.id ?? String(n) })) });
   const got = useApi<Answer>("query", { q }, { window: false });
-  return <PanelView panel={panel} results={got.data?.results} loading={got.loading} editing={false} onEdit={() => {}} onRemove={() => {}} onMove={() => {}} />;
+  return <PanelView panel={panel} results={got.data?.results} loading={got.loading} />;
 }
 
 function QueryRow({ q, fields, sources, listed, onChange, onRemove }: {

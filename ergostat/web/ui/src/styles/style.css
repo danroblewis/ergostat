@@ -284,6 +284,15 @@ table.kind-items td.cell { white-space: normal; overflow: visible; overflow-wrap
 body:has(#detail:not([hidden])) .diagram { grid-template-columns: minmax(0, 1fr) 0; }
 body:has(#detail:not([hidden])) .diagram > .side { display: none; }
 .canvas-wrap { position: relative; min-width: 0; min-height: 0; }
+/* a diagram on another page (components/diagram/Diagram.tsx): a box of its own height, the canvas filling it */
+.diagram-embed { margin: 0 0 var(--sp-3); border: var(--hair) solid var(--line); border-radius: var(--radius-menu); overflow: hidden; }
+.diagram-embed > .canvas-wrap { height: 100%; }
+/* in a dashboard's panel: the panel is its frame and sets its height (a diagram's is taller than a chart's) */
+.diagram-embed.in-panel { flex: 1 1 auto; min-height: 0; margin: 0; border: 0; border-radius: 0; }
+.panel.panel-form-diagram { --panel-h: calc(var(--sp-7) * 9); }
+.panel.panel-form-diagram.panel-tall { --panel-h: calc(var(--sp-7) * 13); }
+.panel-form-diagram > .panel-body { padding: 0; }
+.diagram-embed .toolbar .caption { margin: 0; padding: 0 var(--sp-1); font-weight: 600; }
 .canvas-wrap svg { user-select: none; -webkit-user-select: none; }
 /* nothing to draw: said in the middle of the canvas, not below it */
 .canvas-wrap > .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }

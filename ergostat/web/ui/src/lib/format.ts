@@ -122,3 +122,11 @@ export const holdText = (sp: string, band = "", st?: any): string =>
 
 /** A goal that went off this many times in the window or more is flapping. */
 export const FLAP_AT = 20;
+
+/** The window, as the header measures it: "over the 3m recorded" or "over the last 1h". */
+export function windowNote(st: any): string {
+  const recorded = recordedShort(st);
+  return st?.window ? (recorded != null ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
+}
+
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;

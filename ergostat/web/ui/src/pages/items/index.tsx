@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { Async, Empty, Filters, Note, Page } from "../../components";
+import { Async, Empty, Filters, FlowChart, ItemsTable, Note, Page, hiddenStates } from "../../components";
+import { plural } from "../../lib/format";
+import { kindHref } from "../../lib/hrefs";
 import { useApi } from "../../hooks/useApi";
-import { FlowChart, ItemsTable, KindBar, hiddenStates, kindHref, plural } from "./parts";
 
 /* /items: the overview of kinds (kinds.js pageKinds) when the address has only ?states= or the window; /items?kind=K
    goes to the kind's page; a search or any other filter lists every kind's items (pages.js pageItems). */

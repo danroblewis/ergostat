@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Async, Empty, Fields, Loading, Note, Page, Table, useDetail } from "../../components";
+import { Async, Empty, EventsTable, FieldValue, Loading, Note, Page, Table, isShort, useShowEvent } from "../../components";
+import { itemHref, kindHref } from "../../lib/hrefs";
 import { useApi } from "../../hooks/useApi";
 import { ago, dur, nowS, stamp } from "../../lib/format";
 import { useTime } from "../../state/time";
-import { EventsTable, FieldValue, changeOf, isShort, itemHref, kindHref } from "./parts";
 
 /* /item/ID (pages.js pageItem): why it is not done, its kind, state, age and events; the path it took through its
    states; its relations both ways; its fields (its kind's chosen first, a long one as Markdown); how it moved; its
@@ -36,18 +36,9 @@ export default function ItemPage() {
 function ItemBody({ d, why, changesOf, setChangesOf }: {
   d: any; why: any; changesOf: string | null; setChangesOf: (f: string | null) => void;
 }) {
-  const detail = useDetail();
   const k = d.kind_of;
   const now = nowS();
-  const showEvent = (e: any) =>
-    detail.open(`event:${e.id}`, (
-      <>
-        <div className="kind">Event</div>
-        <h2>{e.type}</h2>
-        <Fields caption="The event" fields={[["item", e.item], ["source", e.source], ["when", stamp(e.time)], ["id", e.id], ["caused by", e.causedby]]} />
-        <pre>{JSON.stringify(changeOf(e), null, 2)}</pre>
-      </>
-    ));
+  const showEvent = useShowEvent();
   const eventLink = (eid: string, type: string) => {
     const e = (d.record || []).find((x: any) => x.id === eid);
     return e ? <a href="#" className="plain" title={`event ${eid}`} onClick={(ev) => { ev.preventDefault(); showEvent(e); }}>{type}</a> : <span>{type}</span>;
@@ -198,7 +189,7 @@ function ItemBody({ d, why, changesOf, setChangesOf }: {
       {d.rollup && (
         <Note>Its {d.rollup.archived?.events} oldest events, up to {stamp(d.rollup.last)}, are rolled up into one snapshot and archived.</Note>
       )}
-      {d.record?.length ? <EventsTable events={d.record} onEvent={showEvent} /> : <Empty>No events.</Empty>}
+      {d.record?.length ? <EventsTable events={d.record} compact /> : <Empty>No events.</Empty>}
 
       <details className="history changes" id="changes" open={changesOf != null}
         onToggle={(ev) => { const open = (ev.target as HTMLDetailsElement).open; if (open !== (changesOf != null)) setChangesOf(open ? "" : null); }}>

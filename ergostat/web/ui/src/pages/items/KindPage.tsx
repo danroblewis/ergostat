@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Async, Button, Code, Empty, ErrorNote, Filters, Fold, Loading, Page, Select, StatusWord } from "../../components";
+import { Async, Button, Code, Empty, ErrorNote, Filters, FlowChart, Fold, ItemsTable, KindBar, Loading, Page, Select, StatusWord, hiddenStates } from "../../components";
 import { useApi } from "../../hooks/useApi";
-import { dur } from "../../lib/format";
-import { FlowChart, ItemsTable, KindBar, hiddenStates, plural } from "./parts";
+import { dur, plural } from "../../lib/format";
 
 /* /items/KIND (pages.js pageItems with ``only``, kindpage.js): its bar as the page's heading (a state chip filters
    the list), Now (its states over the window and how long its finished took), In the model (what counts it, the

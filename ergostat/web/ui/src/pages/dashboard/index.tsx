@@ -1,17 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, ErrorNote, Loading, Note, Page, Select } from "../../components";
-import { useApi } from "../../hooks/useApi";
+import { DashboardPanel } from "./DashboardPanel";
 import { apiGet } from "../../lib/api";
 import { useStatus } from "../../state/status";
-import { useTime } from "../../state/time";
 import { defaultDashboard, MOST, queuesOf } from "./lib/defaults";
-import { encodeQuery, plan, split, type Answer, type Dashboard, type Panel } from "./lib/query";
+import { type Dashboard, type Panel } from "../../lib/query";
 import { Editor } from "./Editor";
-import { PanelView } from "./PanelView";
 
-/* The Dashboard (dashboard.js pageDashboard): a grid of panels, kept in this browser (the old page's key, so the
-   same browser shows the same draft on both pages) and never written to the server. With none kept, the default is
-   built from what the record holds. Every panel's queries go in one request, asked again on the refresh chosen. */
+/* The Dashboard (dashboard.js pageDashboard): a grid of panels, kept in this browser and never written to the server.
+   With none kept, the default is built from what the record holds. Each panel is a component any page can show: a
+   QueryPanel asking for its own answer on the refresh chosen, or a DiagramPanel drawing the diagram it names (loaded
+   only when one is on the dashboard: it brings ELK). */
 
 const EVERY: Record<string, number> = { Off: 0, "10s": 10000, "30s": 30000, "1m": 60000, "5m": 300000 };
 const keyOf = (name: string) => `ergostat.dashboard.${name}`;
@@ -51,11 +50,7 @@ export default function DashboardPage() {
   const change = (next: Dashboard) => { setD(next); if (name != null) store(name, next); };
   const panels = d?.panels || [];
 
-  const { seconds, at } = useTime();
-  const { queries, wanted } = useMemo(() => plan(panels), [panels]);
-  const q = queries.length ? encodeQuery({ since: seconds, until: at, points: 120, queries }) : null;
-  const answer = useApi<Answer>(q ? "query" : null, { q }, { window: false, every: EVERY[every] || null });
-  const byPanel = useMemo(() => split(panels, answer.data, wanted), [panels, answer.data, wanted]);
+  const [refreshed, setRefreshed] = useState(0);
 
   const save = (p: Panel) => {
     if (!d) return;
@@ -80,7 +75,7 @@ export default function DashboardPage() {
   const actions = (
     <span className="dash-actions">
       <label className="muted small">Refresh <Select value={every} onChange={(e) => setEvery(e.target.value)} options={Object.keys(EVERY)} /></label>
-      <Button onClick={() => answer.refresh()}>Refresh now</Button>
+      <Button onClick={() => setRefreshed((n) => n + 1)}>Refresh now</Button>
       {editing && <Button onClick={() => setOpen(fresh())} disabled={panels.length >= MOST}>Add panel</Button>}
       {editing && d && name != null && (
         <Button onClick={() => { store(name, null); setD(null); }} title="Forget this browser's dashboard and build the default again">Reset to default</Button>
@@ -92,16 +87,27 @@ export default function DashboardPage() {
   return (
     <Page title={d?.title || "Dashboard"} actions={actions} className="dash">
       <ErrorNote error={failed} />
-      {answer.error && <ErrorNote error={answer.error} />}
       {!d && !failed && <Loading />}
       {d && !panels.length && <Note>No panels. Choose Edit, then Add panel.</Note>}
       <div className="panel-grid">
         {panels.map((p) => (
-          <PanelView key={p.id} panel={p} results={byPanel.get(p.id)} loading={answer.loading} editing={editing}
-            onEdit={() => setOpen(p)} onRemove={() => remove(p.id)} onMove={(by) => move(p.id, by)} />
+          <DashboardPanel key={p.id} panel={p} every={EVERY[every] || null} refreshKey={refreshed}
+            tools={editing && <EditTools panel={p} onEdit={() => setOpen(p)} onRemove={() => remove(p.id)} onMove={(by) => move(p.id, by)} />} />
         ))}
       </div>
       {open && <Editor panel={open} onSave={save} onCancel={() => setOpen(null)} />}
     </Page>
+  );
+}
+
+/** A panel's buttons while the dashboard is edited: move it, edit it, remove it. */
+function EditTools({ panel, onEdit, onRemove, onMove }: { panel: Panel; onEdit: () => void; onRemove: () => void; onMove: (by: -1 | 1) => void }) {
+  return (
+    <span style={{ display: "flex", gap: "var(--sp-0)" }}>
+      <Button variant="ghost" onClick={() => onMove(-1)} title="Move earlier" aria-label={`Move ${panel.title} earlier`}>←</Button>
+      <Button variant="ghost" onClick={() => onMove(1)} title="Move later" aria-label={`Move ${panel.title} later`}>→</Button>
+      <Button variant="ghost" onClick={onEdit}>Edit</Button>
+      <Button variant="ghost" onClick={onRemove} aria-label={`Remove ${panel.title}`}>Remove</Button>
+    </span>
   );
 }

@@ -1,10 +1,9 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { AppLink, Button, Check, Filters, Page } from "../../components";
+import { AppLink, Button, Check, EventsTable, Filters, Page, type RecordEvent } from "../../components";
 import { useApi } from "../../hooks/useApi";
 import { ApiError } from "../../lib/api";
 import { dur, stamp } from "../../lib/format";
-import { EventsTable, type RecordEvent } from "./EventsTable";
 
 /* The Record: the events, newest first, a run of identical ones folded. The filter (match=: an event's type, item or
    source) and the scope (machine=, item=, about=, from=, to=, remote=, and window=1: only the page's window) stay in
