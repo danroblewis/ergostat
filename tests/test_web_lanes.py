@@ -94,7 +94,7 @@ def test_cheap_requests_take_the_fast_lane():
     assert web.cheap(b"GET /static/style.css?v=1 HTTP/1.1\r\n")
     assert web.cheap(b"GET / HTTP/1.1\r\n") and web.cheap(b"GET /items?x=1 HTTP/1.1\r\n")
     assert not web.cheap(b"GET /api/status HTTP/1.1\r\n") and not web.cheap(b"POST /static/x HTTP/1.1\r\n")
-    assert not web.cheap(b"GET /file/a.md HTTP/1.1\r\n") and not web.cheap(b"GE") and not web.cheap(b"\r\n")
+    assert not web.cheap(b"GET /api/file/a.md HTTP/1.1\r\n") and not web.cheap(b"GE") and not web.cheap(b"\r\n")
 
 
 def test_a_client_that_asked_and_left_while_every_worker_was_busy_is_never_answered(site, capfd):

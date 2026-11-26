@@ -1,6 +1,7 @@
-"""Pages that are dashboards (SPEC §4f): a dashboard with ``nav:`` in the header at /d/NAME; one with ``page:`` drawn in
-that page's place, an agent's page bound to the address's agent; ?builtin=1 for ergostat's own page; the Goals page a
-list of panels; and a draft started from a copy of a page."""
+"""Pages that are dashboards (SPEC §4f): a dashboard at its name, /NAME, in the header with ``nav:``; one named as
+ergostat's page drawn there instead; one named as a kind that kind's page; ``page: agent`` drawn on every agent's page,
+bound to the address's agent; ?builtin=1 for ergostat's own page; the Goals page a list of panels; and a draft
+started from a copy of a page, kept under its name."""
 
 from __future__ import annotations
 
@@ -20,9 +21,8 @@ dashboards:
     nav: Crew
     panels:
       - {panel: ladder, size: full, fit: true}
-  my-goals:
+  goals:
     title: My goals
-    page: goals
     panels:
       - {panel: goals, title: Just some, columns: [goal, status], size: full, fit: true}
   one-agent:
@@ -30,6 +30,10 @@ dashboards:
     page: agent
     panels:
       - {panel: agent-what, agent: $agent, size: full, fit: true}
+  ticket:
+    title: Tickets, my way
+    panels:
+      - {panel: kind-now, kind: $kind, size: full, fit: true}
 """
 
 
@@ -50,9 +54,9 @@ def test_a_nav_dashboard_is_in_the_header_at_its_own_address(browser, boards):
     _, url = boards
     pg = opened(browser, url + "/diagram")
     pg.wait_for_function("() => [...document.querySelectorAll('#nav a')].some((a) => a.textContent === 'Crew')", timeout=WAIT)
-    assert pg.locator("#nav a").all_inner_texts() == ["Dashboard", "Diagram", "Goals", "Agents", "Items", "Record", "Crew"]
+    assert pg.locator("#nav a").all_inner_texts() == ["Dashboard", "Diagram", "Goals", "Agents", "Record", "Crew"]
     pg.locator("#nav a", has_text="Crew").click()
-    pg.wait_for_url("**/d/crew", timeout=WAIT)
+    pg.wait_for_url("**/crew", timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('The crew')", timeout=WAIT)
     pg.locator(".panel.panel-kind-ladder").wait_for(timeout=WAIT)
     assert pg.locator("#nav a.on").inner_text() == "Crew"
@@ -107,6 +111,21 @@ def test_a_draft_starts_from_a_copy_of_a_page(browser, boards):
     pg.locator(".panel.panel-kind-agents").wait_for(timeout=WAIT)
     pg.get_by_role("button", name="Keep").click()
     box = pg.locator("[aria-label='Keep this dashboard']")
-    assert box.locator("select[aria-label='In place of a page']").input_value() == "agents"
+    assert box.locator("input[aria-label='Its name']").input_value() == "agents"        # kept as /agents, in its place
+    assert settled(pg) == []
+    pg.close()
+
+
+def test_a_dashboard_named_as_a_kind_is_its_page_and_its_items_stay_under_it(browser, boards):
+    _, url = boards
+    pg = opened(browser, url + "/ticket")
+    pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('Tickets, my way')", timeout=WAIT)
+    pg.locator(".panel.panel-kind-kind-now").wait_for(timeout=WAIT)
+    pg.close()
+    pg = opened(browser, url + "/ticket/1")                          # its items: the item page, under the kind's address
+    assert heading(pg) == "ticket/1"
+    pg.close()
+    pg = opened(browser, url + "/big-board")                         # nothing of the model's there
+    pg.wait_for_function("() => document.querySelector('#main h1')?.textContent === 'Nothing here'", timeout=WAIT)
     assert settled(pg) == []
     pg.close()

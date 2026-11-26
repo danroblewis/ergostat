@@ -14,9 +14,15 @@ from .load import Map, Problem
 MOST = 24                          # panels in one dashboard (docs/proposals/dashboard.md, section 6, rule 5)
 SIZES = ("s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall")
 DASHBOARD_KEYS = {"title", "description", "window", "panels", "nav", "page"}
-# the web page's own pages a dashboard may be drawn in place of (``page:``) → the address's word it binds, if any: a
-# panel's parameter written ``$WORD`` (``agent: $agent``) takes it from the page's address (/agent/NAME)
-PAGES = {"goals": None, "agents": None, "items": None, "record": None, "agent": "agent", "item": "item", "kind": "kind"}
+# the server's own first parts of a path: nothing of the model's is drawn at them (every other path is the page's)
+RESERVED = ("api", "static", "remote")
+# ergostat's own pages, each a dashboard drawn at its name until the model's own dashboard or kind of that name takes
+# the address (web/ui/src/lib/routes.ts): a kind of item is at /KIND, and its items at /KIND/ID
+BUILTIN = ("diagram", "dashboard", "goals", "agents", "agent", "record", "item")
+# the pages of one thing a dashboard may be drawn for (``page:``) → the address's word it binds: a panel's parameter
+# written ``$WORD`` (``agent: $agent``) takes it from the address (/agent/NAME, /KIND/ID, /KIND). A dashboard named
+# as a kind is that kind's page and binds ``$kind`` too
+PAGES = {"agent": "agent", "item": "item", "kind": "kind"}
 PANEL_KEYS = {"panel", "title", "size", "note", "fit", "quiet"}   # fit: as tall as what it shows (a page made of panels);
 #                                                  quiet: not drawn while it has nothing to say (an item's part, quiet systems)
 ITEM_SET = {"kind", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"}
@@ -171,6 +177,10 @@ def take(doc, data: Map, defaults: dict) -> None:
                                         "with a letter", w, "bad-name"))
             continue
         full = f"{system}.{name}" if system else name
+        if full in RESERVED:
+            doc.problems.append(Problem("error", f"dashboard {full}: /{full} is the server's own address; name this one "
+                                        "otherwise", w, "bad-name"))
+            continue
         if full == "default":
             doc.problems.append(Problem("error", "dashboard default: is the model's own (each top system's measures and "
                                         "goals); name this one otherwise", w, "bad-name"))
@@ -215,14 +225,21 @@ def check(c, spec, exists) -> None:
                 window = None
         nav = _nav(c, m, what)
         page = m.get("page")
-        if page is not None and (not isinstance(page, str) or page not in PAGES):
-            c.err(f"{what}.page: one of the pages {', '.join(PAGES)}", m.at("page"), "bad-dashboard")
+        if isinstance(page, str) and page in BUILTIN and page not in PAGES:
+            c.err(f"{what}.page: {page} is drawn by the dashboard named {page}: name this one {page} to draw it at "
+                  f"/{page}", m.at("page"), "bad-dashboard")
+            page = None
+        elif page is not None and (not isinstance(page, str) or page not in PAGES):
+            c.err(f"{what}.page: one of {', '.join(PAGES)} (every agent's, item's or kind's page)", m.at("page"),
+                  "bad-dashboard")
             page = None
         elif page is not None and nav is not None:
             c.err(f"{what}.nav: a dashboard in place of a page is reached by that page's own link", m.at("nav"),
                   "bad-dashboard")
             nav = None
         binds = PAGES.get(page or "")                    # its panels read as that page's, though the page is taken
+        if binds is None and name in spec.items:          # named as a kind: that kind's page, its $kind the kind
+            binds = "kind"
         if page is not None and (other := next((x for x in spec.dashboards.values() if x.page == page), None)):
             c.err(f"{what}.page: the {page} page is drawn by dashboard {other.name} already", m.at("page"),
                   "defined-twice", f"dashboard.{other.name}")
@@ -241,6 +258,19 @@ def check(c, spec, exists) -> None:
             if got is not None:
                 d.panels.append(got)
         spec.dashboards[name] = d
+
+
+def routes(c, spec) -> None:
+    """Each kind of item is at /KIND: a kind named as the server's own address has no page, and one named as one of
+    ergostat's own pages takes its address (ergostat's at ?builtin=1). Findings, never errors: the model runs."""
+    for name, k in spec.items.items():
+        w = getattr(k, "where", None)
+        if name in RESERVED:
+            c.problems.append(Problem("finding", f"kind {name}: /{name} is the server's own address, so its items have "
+                                      "no page; rename it to have one", w, "unrouted-kind", f"items.{name}"))
+        elif name in BUILTIN and name not in spec.dashboards:
+            c.problems.append(Problem("finding", f"kind {name} is at /{name}, in place of ergostat's own {name} page "
+                                      f"(still at /{name}?builtin=1)", w, "kind-takes-page", f"items.{name}"))
 
 
 def _nav(c, m, what: str) -> str | None:

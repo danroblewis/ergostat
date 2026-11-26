@@ -40,10 +40,15 @@ def test_the_page_is_served_with_the_token_at_every_page_path(url, path):
     assert "?v=" not in body        # its files are named by their hash; a ?v= would load its entry twice
 
 
-@pytest.mark.parametrize("path", ["/ui", "/ui/goals", "/model", "/check", "/guide", "/fit", "/static/index.html",
-                                  "/static/util.js", "/static/style.css"])
-def test_the_old_page_and_the_pages_removed_are_gone(url, path):
+@pytest.mark.parametrize("path", ["/static/index.html", "/static/util.js", "/static/style.css"])
+def test_the_old_pages_files_are_gone(url, path):
     assert get(url + path)[0] == 404
+
+
+@pytest.mark.parametrize("path", ["/ui", "/ui/goals", "/model", "/check", "/guide", "/fit"])
+def test_the_pages_removed_are_addresses_the_model_may_name(url, path):
+    code, body, _ = get(url + path)            # the page, which says nothing is there unless the model names it
+    assert code == 200 and 'name="ergostat-token"' in body
 
 
 @pytest.mark.parametrize("path", ["/api/projects", "/api/coherence", "/api/exercised", "/api/guide", "/api/fit"])
@@ -58,7 +63,7 @@ def test_the_apps_files_are_kept_for_good_and_a_markdown_file_is_drawn_with_its_
     code, _, headers = get(url + asset)
     assert code == 200 and headers.get("Cache-Control") == ws.FOREVER
     (project.model.path.parent / "notes.md").write_text("# Notes\n\nSome *words*.\n")
-    req = urllib.request.Request(url + "/file/notes.md", headers={"Accept": "text/html"})
+    req = urllib.request.Request(url + "/api/file/notes.md", headers={"Accept": "text/html"})
     with urllib.request.urlopen(req, timeout=10) as r:
         page = r.read().decode()
     assert re.search(r'<link rel="stylesheet" href="/static/app/assets/[^"]+\.css">', page)

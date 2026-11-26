@@ -1,8 +1,8 @@
 """The web page's HTTP server (standard library, bound to 127.0.0.1; read only but for the owner accepting or dismissing a
 proposal, or confirming, dismissing or superseding a decision, ``POST``). ``/`` is the page;
 ``/api/*`` returns what the command line shows, as JSON; ``/static/*`` the page's files (the React app built
-into ``static/app``, web/ui); ``/file/PATH`` a file
-an item names; every other address of the page (``/items``, ``/item/ID``, ``/diagram?view=blocks``) is the page. The model is re-read when
+into ``static/app``, web/ui); ``/api/file/PATH`` a file
+an item names; every other address (``/goals``, ``/ticket/7``, a dashboard's ``/NAME``) is the page. The model is re-read when
 ``ergostat.toml`` changes, so the page follows the Supervisor's edits."""
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from .. import state as st
 from ..remote.items import RemoteRefused
 from ..reports.crash import noted as crash_noted
 from ..series import off_stretches
+from ..spec.dashboards import RESERVED
 from ..spec.item_sets import BadSet
 
 STATIC = Path(__file__).parent / "static"
@@ -33,9 +34,9 @@ GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)    # the 
 EVENTS_MOST = 1000                   # the most events one answer carries (``n``); page through with ``after``
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
 KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
-# the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
-# names; the same list as the page's routes (web/ui/src/App.tsx). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "dashboard", "d", "goals", "loops", "agents", "agent", "items", "item", "record")
+# every path but the server's own (/api, /static, /remote: spec/dashboards.py RESERVED) is the page, whose routes the
+# model names: its dashboards, its kinds and their items, then ergostat's own pages (web/ui/src/lib/routes.ts, SPEC §4f)
+NOT_PAGES = ("/favicon.ico", "/robots.txt")   # what browsers and crawlers ask for by themselves: never the page
 APP = "app/index.html"               # the page: the React app (web/ui), built into static/app
 
 
@@ -106,8 +107,8 @@ def versioned(name: str) -> str:
 
 
 def is_page_path(path: str) -> bool:
-    """``path`` (as sent, still encoded) is one of the page's own addresses: the root, or under one of UI_PAGES."""
-    return path in ("", "/") or path.split("/")[1] in UI_PAGES
+    """``path`` (as sent, still encoded) is one of the page's own addresses: anything not under the server's own."""
+    return path in ("", "/") or (path[:1] == "/" and path.split("/")[1] not in RESERVED and path not in NOT_PAGES)
 
 
 def went_away(path: str, size: int, e: BaseException) -> None:
@@ -494,7 +495,7 @@ def _items_of(p, m, kind: str, name: str, snap: dict) -> dict | None:
 
 
 def _sizes(p, fields: dict, most: int = 200) -> dict:
-    """How big each file the fields name (``file:PATH``) is, found where ``/file/`` finds it but never in the state
+    """How big each file the fields name (``file:PATH``) is, found where ``/api/file/`` finds it but never in the state
     folder: the page names a closed file by it without asking for the file. One not found is left out."""
     found: list[str] = []
 
@@ -757,6 +758,13 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     if head == "stages" and name == "metrics":     # the pipelines' stage histograms, for Prometheus (SPEC §5a, Stages)
         from ..datasources._itemviews import stage_metrics
         return {"text": stage_metrics(p)}
+    if head == "routes":                           # what the page's addresses name (SPEC §4f): the model's dashboards,
+        from . import dashboard_api                # its kinds with the globs their ids match, in order (the first
+        from ..spec.dashboards import BUILTIN       # kind that matches an id is its kind), and ergostat's own pages
+        spec = getattr(m, "spec", None)
+        return {"dashboards": dashboard_api.listing(p), "reserved": list(RESERVED), "builtin": list(BUILTIN),
+                "kinds": [{"name": k.name, "id": k.id, "declared": getattr(k, "where", None) is not None}
+                          for k in (spec.items.values() if spec else [])]}      # declared: the model's, not ergostat's own
     if head in ("dashboards", "dashboard"):         # the declared dashboards; one's every panel in one answer (SPEC §4f)
         from . import dashboard_api
         return dashboard_api.listing(p) if head == "dashboards" else dashboard_api.answer(live, p, name, q)
@@ -1509,6 +1517,11 @@ def handler(project):
             who = self._gate()
             if who is None:                                # another site's name, or no login under a public one
                 return None
+            if u.path == "/api/file":                      # a file an item names (file:PATH), from inside the project only
+                return self._file((parse_qs(u.query).get("path") or [""])[0])
+            if u.path.startswith("/api/file/"):            # the same, as a path: a Markdown file's relative links resolve
+                navigating = "text/html" in (self.headers.get("Accept") or "") and "raw" not in parse_qs(u.query)
+                return self._file(unquote(u.path.removeprefix("/api/file/")), page=navigating)
             if u.path.startswith("/api/"):
                 try:
                     q = parse_qs(u.query)                   # (a blank search kept, to be refused: never "list all")
@@ -1528,11 +1541,6 @@ def handler(project):
                 if u.path == "/api/stages/metrics":         # Prometheus's text format, for a scrape
                     return self._send(200, data["text"].encode(), "text/plain; version=0.0.4; charset=utf-8")
                 return self._send(200, json.dumps(data, default=str).encode(), "application/json", True)
-            if u.path == "/file":                          # a file an item names (file:PATH), from inside the project only
-                return self._file((parse_qs(u.query).get("path") or [""])[0])
-            if u.path.startswith("/file/"):                # the same, as a path: a Markdown file's relative links resolve
-                navigating = "text/html" in (self.headers.get("Accept") or "") and "raw" not in parse_qs(u.query)
-                return self._file(unquote(u.path.removeprefix("/file/")), page=navigating)
             if is_page_path(u.path):                       # the page (web/ui, built into static/app)
                 name = APP
             elif u.path.startswith("/static/"):

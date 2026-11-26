@@ -30,7 +30,7 @@ export function Section({ title, note, children, id, className }: { title: React
   );
 }
 
-/** A link to one of the app's own pages ("/items"), drawn in place with no reload. */
+/** A link to one of the app's own pages ("/goals"), drawn in place with no reload. */
 export const AppLink = (props: LinkProps) => <Link {...props} />;
 
 /** A definition list that leaves out empty values; nothing at all when every value is empty. */

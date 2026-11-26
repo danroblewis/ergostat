@@ -6,6 +6,7 @@ import { apiGet, apiPost, apiSend, isPublic } from "../../lib/api";
 import { diagramOf } from "../../lib/hrefs";
 import type { Panel } from "../../lib/query";
 import { PAGES, pageDashboard, type PageName } from "../../lib/pages";
+import { BUILTIN } from "../../lib/routes";
 import { dashboardHref, useDashboards } from "../../state/dashboards";
 import { useStatus } from "../../state/status";
 import { Editor } from "./Editor";
@@ -46,7 +47,7 @@ function Chooser({ name, onDraft }: { name: string | null; onDraft?: (d: Dashboa
     if (!v.startsWith("copy:")) return navigate(v ? `/dashboard?name=${encodeURIComponent(v)}` : "/dashboard");
     if (status?.name == null || (stored(status.name) && !confirm("Replace this browser's draft with a copy of the page?"))) return;
     const page = v.slice(5) as PageName;
-    const d = normalizeDashboard({ ...pageDashboard(page), page });
+    const d = normalizeDashboard({ ...pageDashboard(page), name: page });   // kept under its name: drawn at /goals...
     store(status.name, d);
     if (onDraft) onDraft(d);              // the draft is on the page already: it is this now
     else navigate("/dashboard?edit=1");
@@ -161,27 +162,40 @@ function Draft() {
   );
 }
 
-/** Where a kept dashboard is shown, besides /dashboard?name=: in the header's navigation (its own address, /d/NAME),
- *  or in the place of one of ergostat's own pages. */
+/** A dashboard's name from its title, as the server names a kept draft (numbers/display.py): lowercase, - between. */
+const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "dashboard";
+/** The pages of one thing a dashboard may be drawn for (`page:`). */
+const FOR = (Object.keys(PAGES) as PageName[]).filter((k) => PAGES[k].binds);
+
+/** Its name, which is its address (/NAME: a page's or a kind's name draws it there instead), whether it is in the
+ *  header's navigation, and whether it is drawn for every agent, item or kind instead. */
 function KeepWhere({ d, onPropose, onClose }: { d: DashboardDef; onPropose: (d: DashboardDef) => void; onClose: () => void }) {
+  const { kinds } = useDashboards();
+  const [name, setName] = useState(d.name || slug(d.title));
   const [nav, setNav] = useState(d.nav != null);
   const [page, setPage] = useState(d.page || "");
   const binds = page ? PAGES[page as PageName]?.binds : undefined;
   const bound = d.panels.some((x) => Object.values(x).some((v) => typeof v === "string" && v.startsWith("$")));
+  const isKind = (kinds || []).some((k) => k.name === name);
+  const own = (BUILTIN as readonly string[]).includes(name);
   return (
     <>
-      <p className="muted small">
-        {d.name ? <>Kept as dashboard <b>{d.name}</b>, in place of the one declared under that name.</> : <>Kept under its title, {d.title}.</>}
-      </p>
       <span style={{ display: "flex", gap: "var(--sp-3)", flexWrap: "wrap", alignItems: "center" }}>
-        <Check label="In the navigation, at its own address" checked={nav && !page} disabled={!!page} onChange={(e) => setNav(e.target.checked)} />
-        <label className="muted small">In place of <Select aria-label="In place of a page" value={page} onChange={(e) => setPage(e.target.value)}
-          options={[{ value: "", label: "no page" }, ...(Object.keys(PAGES) as PageName[]).map((k) => ({ value: k, label: `the ${PAGES[k].title} page` }))]} /></label>
+        <label className="muted small">Name <input aria-label="Its name" value={name}
+          onChange={(e) => setName(e.target.value.toLowerCase())} /></label>
+        <Check label="In the navigation" checked={nav && !page} disabled={!!page} onChange={(e) => setNav(e.target.checked)} />
+        <label className="muted small">Drawn for <Select aria-label="Drawn for" value={page} onChange={(e) => setPage(e.target.value)}
+          options={[{ value: "", label: "itself, at its name" }, ...FOR.map((k) => ({ value: k, label: `every ${k}'s page` }))]} /></label>
       </span>
-      {binds && <p className="muted small">Its panels may write {binds}: ${binds}, taken from the page's address.</p>}
-      {bound && !binds && <p className="lvl-error small">A panel takes $agent, $item or $kind from an address: choose the page it is for.</p>}
+      <p className="muted small">
+        {page ? `Drawn on every ${page}'s page, in place of ergostat's own; its panels may write ${binds}: $${binds}.`
+          : isKind ? `At /${name}: the ${name} kind's page, in place of ergostat's own; its panels may write kind: $kind.`
+          : own ? `At /${name}, in place of ergostat's own ${name} page.` : `At /${name}.`}
+      </p>
+      {bound && !binds && !isKind && <p className="lvl-error small">A panel takes $agent, $item or $kind from an address: choose what it is drawn for.</p>}
       <span style={{ display: "flex", gap: "var(--sp-2)" }}>
-        <Button className="primary" onClick={() => onPropose({ ...d, nav: nav && !page ? (d.nav || true) as any : null, page: page || null })}>Propose</Button>
+        <Button className="primary" disabled={!/^[a-z][a-z0-9-]*$/.test(name)}
+          onClick={() => onPropose({ ...d, name, nav: nav && !page ? (d.nav || true) as any : null, page: page || null })}>Propose</Button>
         <Button variant="ghost" onClick={onClose}>Close</Button>
       </span>
     </>

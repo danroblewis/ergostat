@@ -312,7 +312,7 @@ stocks:
 
 NOT_SERVED = ["/remote/v1x/status", "/remote/v1/../../api/status", "/remote/v1/%2e%2e/%2e%2e/api/status",
               "/remote/v1/status/../../../api/status", "/remote//v1/status", "/api/status", "/", "/static/app.js",
-              "/file?path=ergostat.yaml", "/remote/v1/status%2F..%2F..%2Fapi%2Fstatus", "/remote/v1/", "/remote/v2/status"]
+              "/api/file?path=ergostat.yaml", "/remote/v1/status%2F..%2F..%2Fapi%2Fstatus", "/remote/v1/", "/remote/v2/status"]
 
 
 def test_only_get_of_the_remote_api_is_served(page, monkeypatch):

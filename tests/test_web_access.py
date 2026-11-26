@@ -301,9 +301,9 @@ def test_web_as_written_is_checked(tmp_path):
 def test_files_under_the_public_name_never_include_the_state(page):
     p, url = page
     assert (p.dir / "intake.token").exists()
-    assert ask(url, "/file/intake.token", NAME, jwt())[0] == 404                     # the push token stays here
-    assert ask(url, "/file/ergostat.yaml", NAME, jwt())[0] == 200                     # the model's files are served
-    assert ask(url, "/file/intake.token")[0] == 200                                   # and on this machine, as before
+    assert ask(url, "/api/file/intake.token", NAME, jwt())[0] == 404                     # the push token stays here
+    assert ask(url, "/api/file/ergostat.yaml", NAME, jwt())[0] == 200                     # the model's files are served
+    assert ask(url, "/api/file/intake.token")[0] == 200                                   # and on this machine, as before
 
 
 def _calls(monkeypatch):
@@ -400,7 +400,7 @@ def test_a_name_declared_open_is_read_without_a_login_and_says_so(open_page):
         code, body = ask(url, "/", NAME, None, **hdr)
         assert code == 200 and b'name="ergostat-public" content="read only"' in body
         assert page_token(body) == ""                                                  # no token for writes
-    assert ask(url, "/file/intake.token", NAME)[0] == 404                              # the state is never served
+    assert ask(url, "/api/file/intake.token", NAME)[0] == 404                              # the state is never served
     said = [x for x in p.model.problems if "web-public" in str(getattr(x, "code", "")) or "public and read only" in str(x)]
     assert said, p.model.problems
 

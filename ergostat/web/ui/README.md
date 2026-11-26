@@ -1,7 +1,8 @@
 # ergostat's page, in React
 
-ergostat's page. It is built into `../static/app/` and served by ergostat's own server at `/` and at each page's path
-(`UI_PAGES` in `../server.py`, one per route in `src/App.tsx`). Python needs nothing at runtime: the built files are
+ergostat's page. It is built into `../static/app/` and served by ergostat's own server at every path but `/api`,
+`/static` and `/remote`; the page resolves the path itself (`src/lib/routes.ts`, `src/Resolve.tsx`): the model's
+dashboards at `/NAME`, its kinds at `/KIND` and their items at `/KIND/REST`, then ergostat's own pages. Python needs nothing at runtime: the built files are
 committed. The old vanilla-JS page it was ported from is gone (2026-11-25), with its Model, Check and Guide pages, the
 header's project list and `ergostat snapshot`.
 
@@ -13,7 +14,8 @@ header's project list and `ergostat snapshot`.
 ## Layout
 
     src/
-      main.tsx, App.tsx      the router: one route per page, each page loaded lazily
+      main.tsx, App.tsx      the shell around Resolve.tsx: every address resolved by what the model names there, each
+                             page loaded lazily
       styles/                the page's styles (style.css, panels.css, plots.css, panel-editor.css, dashboard.css)
       lib/                   pure functions: api.ts (apiGet, apiPost, apiSend), format.ts (fmt, dur, ago, stamp,
                              rateText, op, holdText, windowNote, plural...), rung.ts, hrefs.ts (itemHref, kindHref,

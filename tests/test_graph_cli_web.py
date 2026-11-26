@@ -470,15 +470,16 @@ def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_ove
 
 
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
-    """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
-    whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""
-    import re
+    """Every path but the server's own is the page, which resolves what the model names there (/ticket/7, /goals, a
+    dashboard's /NAME, an old /item/ID): the server answers each with the page, whatever the id holds (its / as %2F),
+    and /api (a file at /api/file/PATH), /static and /remote stay what they were."""
     from http.server import ThreadingHTTPServer
 
-    from ergostat.web.server import UI_PAGES, handler
-    app = (Path(__file__).resolve().parent.parent / "ergostat" / "web" / "ui" / "src" / "App.tsx").read_text()
-    routes = {r.split("/")[1] for r in re.findall(r'<Route path="(/[^"]*)"', app) if r not in ("/", "*")}
-    assert routes == set(UI_PAGES), "the page's routes and the server's addresses differ"
+    from ergostat.spec.dashboards import BUILTIN, RESERVED
+    from ergostat.web.server import handler
+    resolve = (Path(__file__).resolve().parent.parent / "ergostat" / "web" / "ui" / "src" / "lib" / "routes.ts").read_text()
+    assert all(f'"{x}"' in resolve for x in BUILTIN), "the page's own pages and the model's check differ"
+    assert RESERVED == ("api", "static", "remote")
     (project.dir / "notes.md").write_text("# Notes\n")
     srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -494,7 +495,8 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
         for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/goals", "/loops", "/agents", "/items?kind=ticket&state=open",
                      "/items/ticket", "/items/ticket?state=in-review&view=timeline",   # a kind's page
                      "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
-                     "/record?type=x.y", "/dashboard"):
+                     "/record?type=x.y", "/dashboard", "/ticket", "/ticket/7", "/mission/a/b", "/big-dashboard",
+                     "/nope", "/itemsx", "/util.js", "/model", "/file/notes.md", "/d/x"):
             code, ctype, body = get(path)
             assert code == 200 and ctype.startswith("text/html") and b'name="ergostat-token"' in body, path
             assert b'src="/static/app/assets/' in body, path          # its scripts by absolute path: a deep address loads them
@@ -502,10 +504,11 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
         assert code == 200 and ctype == "application/json" and "loops" in json.loads(body)
         assert get("/api/nope/nope")[0] == 404 and get("/api/items/ticket%2F7")[1] == "application/json"
         assert get("/static/marked.min.js")[0] == 200 and get("/static/nope.js")[0] == 404
-        assert get("/file/notes.md")[2] == b"# Notes\n"
-        code, ctype, body = get("/file/notes.md", Accept="text/html")
+        assert get("/api/file/notes.md")[2] == b"# Notes\n"
+        assert get("/api/file?path=notes.md")[2] == b"# Notes\n"
+        code, ctype, body = get("/api/file/notes.md", Accept="text/html")
         assert code == 200 and b"marked.parse" in body and b"ergostat-token" not in body
-        for path in ("/favicon.ico", "/nope", "/itemsx", "/util.js", "/static", "/model", "/check", "/guide", "/ui"):
+        for path in ("/favicon.ico", "/robots.txt", "/static", "/static/x", "/api"):
             assert get(path)[0] == 404, path
     finally:
         srv.shutdown()
@@ -549,7 +552,7 @@ def test_static_files_are_versioned_and_the_page_is_revalidated(project):
         assert refs and all(r.startswith(b"/static/app/assets/") for r in refs), refs  # every script and stylesheet
         assert get(refs[0].decode())[1]["Cache-Control"] == server.FOREVER          # named by its hash: kept for good
         (project.dir / "notes.md").write_text("# N\n")
-        code, headers, body = get("/file/notes.md", Accept="text/html")          # a Markdown file's page
+        code, headers, body = get("/api/file/notes.md", Accept="text/html")      # a Markdown file's page
         marked = re.search(rb'src="(/static/marked\.min\.js\?v=[^"]+)"', body).group(1).decode()
         assert code == 200 and get(marked)[1]["Cache-Control"] == server.FOREVER
         assert get("/static/marked.min.js")[1]["Cache-Control"] == "no-cache"      # unversioned: asked again each time

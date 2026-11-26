@@ -1,4 +1,4 @@
-import { useParams, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { ErrorNote, Filters, FinishedToggle, KindBar, Page, PAGE_SIZES, SearchBox, StatesChoice } from "../../components";
 import { DashboardView } from "../../components/panels/DashboardView";
 import { itemListParams } from "../../components/panels/kinds/items";
@@ -18,8 +18,7 @@ const SIZES = PAGE_SIZES;
 const TOP: PanelDef[] = KIND_PANELS.filter((d) => d.panel !== "item-list");
 const LIST: PanelDef = KIND_PANELS.find((d) => d.panel === "item-list")!;
 
-export default function KindPage() {
-  const { kind = "" } = useParams();
+export default function KindPage({ kind }: { kind: string }) {
   const [q, setQ] = useSearchParams();
   // a value for another kind (page=gap:3) is not this one's
   const ofKind = (v: string | null) => { const s = v || ""; const i = s.indexOf(":"); return i < 0 ? s : s.slice(0, i) === kind ? s.slice(i + 1) : ""; };

@@ -295,12 +295,15 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 
 ## 8. The web page
 
-Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded):
-`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/agent/NAME` (what an agent is by its rung, its
-definition as written, its place, what it did; a row on `/agents` goes there), `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
-`%2F`), `/record?type=T`, `/dashboard`. The server answers each with the page, the React app in `ergostat/web/ui`
-built into `static/app` (`UI_PAGES` in `web/server.py`, the routes in `web/ui/src/App.tsx`); `/api/*`, `/static/*`
-and `/file/PATH` are never shadowed. The page routes with the History API: a plain click on one of its links draws
+Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded). The addresses are the
+model's: only `/api` (a project file at `/api/file/PATH`), `/static` and `/remote` are the server's, and the server
+answers every other path with the page, the React app in `ergostat/web/ui` built into `static/app`. The page resolves
+a path (`web/ui/src/lib/routes.ts`) in this order: a dashboard the model declares, at `/NAME`; a kind of item, at
+`/KIND` (its list) and `/KIND/REST` (one item: REST is what the kind's id glob's `*` matched, so `ticket/1` is at
+`/ticket/1`); then ergostat's own pages, each a dashboard of its own at its name: `/diagram?view=blocks`, `/dashboard`,
+`/goals`, `/agents`, `/agent/NAME`, `/record?type=T`, and `/item/ID` (any id, a kind's or not, the id encoded). The
+model's names come first, so a dashboard or kind named `goals` is drawn at `/goals`; `?builtin=1` shows ergostat's own
+page all the same. Old addresses (`/items/KIND`, `/item/ID` of a kind, `/d/NAME`, `/loops`) lead to the new ones. The page routes with the History API: a plain click on one of its links draws
 the page in place; a ctrl-, cmd-, shift- or middle-click is the browser's. The page knows one project, the one it
 serves: there is no project list in its header (`ergostat projects` lists them).
 

@@ -1479,7 +1479,7 @@ remotes' owners (above). For agents, the MCP tool `remotes` (`name`, `proposals`
 framed and marked *remote NAME · URL*: the remote's counts by kind and state and its newest 25 items, each linking
 to `/item/ID?remote=NAME` (its fields, moves and events read there, marked remote, read only: no message box, no
 actions) and to the remote's own page (`URL/item/ID`). A remote item's `file:PATH` value names a file in the
-remote's project, so it is shown as its text, never read from this ergostat's `/file/` or drawn inline. It is asked
+remote's project, so it is shown as its text, never read from this ergostat's `/api/file/` or drawn inline. It is asked
 by its own call, so a slow remote never delays the local listing. The Record page's filter bar links to each
 remote's events (`/record?remote=NAME`), listed as local events are, their items linking to the remote's. Nothing
 of them reaches the local record or fold.
@@ -1599,7 +1599,7 @@ that fails keeps the keys there were), `aud` holding the tag, `iss` the team's `
 `nbf` reached (30 s of leeway). A write under the public name needs, besides the page's own token, `Origin`
 `https://NAME`, and what it records says the email where a write from this machine says `owner` (who accepted a
 proposal, approved an action, answered the inbox, sent a message); the inbox counts it as the owner's own answer,
-never an agent's. Under a public name `/file/` never serves the state directory (its tokens). The push paths (`/api/events`, `/api/hooks/`,
+never an agent's. Under a public name `/api/file/` never serves the state directory (its tokens). The push paths (`/api/events`, `/api/hooks/`,
 section 5c) and the remote API (`/remote/`, section 4c) keep their own tokens. Requests still come only from this
 machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**), and names without `access`.
 
@@ -1992,7 +1992,7 @@ dashboards:
     title: The factory, this week          # optional
     description: where tickets wait        # optional
     window: 7d                             # optional: the one window of all its panels; at most keep:
-    nav: This week                         # optional: in the page's navigation, at /d/week (true: its title)
+    nav: This week                         # optional: in the header; the dashboard is at /week (true: its title)
     panels:                                # 1 to 24
       - {panel: goals, size: full}
       - {panel: states, kind: ticket, size: l, note: Where tickets wait}
@@ -2043,16 +2043,26 @@ reference to a stock, flow or auxiliary (or a sensor of one), a goal, an item ki
 system that the model does not have (**unknown-ref**), each at its line. More than 24 panels, or a `window` longer
 than `keep:`, is **bad-dashboard**. The name `default` is the model's own (below), so it cannot be declared.
 
-**In the navigation, and in a page's place.** `nav: true` (or the link's words, at most 40 characters) puts a
-dashboard in the page's navigation, after the page's own, at its own address `/d/NAME`. `page:` draws it in place of
-one of the page's own pages: `goals`, `agents`, `items`, `record`, or `agent`, `item` and `kind`, the pages of one
-thing (`/agent/NAME`, `/item/ID`, `/items/KIND`). A panel of one of those three may write its parameter `$agent`,
-`$item` or `$kind` (`{panel: agent-runs, agent: $agent}`): taken from the address, and checked there rather than
-against the model. `?builtin=1` on the page's address shows ergostat's own page all the same. Each of the page's
-own pages is itself made of these panels (`web/ui/src/lib/pages.ts`), so the Dashboard page offers a copy of
-Goals, Agents, Items or Record to start a draft from. `check` refuses a `page:` not in that list, `nav:` and `page:`
-together, a `$WORD` the dashboard's page does not take (**bad-dashboard**), and a second dashboard for one page
-(**defined-twice**). The Diagram and the Dashboard page are not replaced: the diagram is primary.
+**Its address is its name.** The page's addresses are the model's (section 8 of DESIGN.md): `/api`, `/static` and
+`/remote` are the server's, and every other path is resolved in this order. A dashboard is at `/NAME`
+(`/big-dashboard`; `/delivery.review` for one named by its file). A kind of item is at `/KIND`, its list, and each of
+its items at `/KIND/REST`, REST being what its id glob's `*` matched (`ticket/1` at `/ticket/1`; a kind whose glob is
+not `PREFIX*` writes the whole id). Then ergostat's own pages, each a dashboard of panels at its name: `diagram`,
+`dashboard`, `goals`, `agents`, `record`, `agent/NAME` and `item/ID`. What the model names comes first: a dashboard
+named `goals` is drawn at `/goals` in place of ergostat's Goals page, and a dashboard named as a kind is that kind's
+page, its panels' `$kind` the kind. `?builtin=1` on any address shows ergostat's own page all the same. Each of
+ergostat's pages is made of these panels (`web/ui/src/lib/pages.ts`), so the Dashboard page offers a copy of Goals,
+Agents or Record to start a draft from, kept under that page's name.
+
+`nav: true` (or the link's words, at most 40 characters) puts a dashboard in the header, after ergostat's pages and
+the menu of the model's kinds. `page: agent`, `page: item` or `page: kind` draws a dashboard on every agent's, item's
+or kind's page instead (`/agent/NAME`, `/KIND/REST`, `/KIND`); its panels may write their parameter `$agent`, `$item`
+or `$kind` (`{panel: agent-runs, agent: $agent}`), taken from the address and checked there rather than against the
+model. `check` refuses a dashboard named `api`, `static` or `remote` (**bad-name**); a `page:` not one of those three
+(naming one of ergostat's own pages says to name the dashboard so instead), `nav:` and `page:` together, and a
+`$WORD` the dashboard does not take (**bad-dashboard**); and a second dashboard for one `page:` (**defined-twice**). A
+kind named `api`, `static` or `remote` has no page (**unrouted-kind**), and one named as one of ergostat's pages is
+drawn in its place (**kind-takes-page**): findings, not errors.
 
 **Namespaced by its file.** A dashboard written in a file whose `defaults:` sets a system is named `SYSTEM.NAME`
 (`delivery.review` in `factory/delivery.yaml`), so two systems' files may each have an `overview`.
@@ -2402,7 +2412,7 @@ on the overview and on the kind's own page, draws a compact row a group under it
 two columns wide): its name and title, a bar (done, in progress, waiting, stopped), done of
 its total, its state and what it waits on. The active ones and the row for none are shown, the rest folded behind one
 button that says how many and in which states. A row's click opens its set (from the overview, on the kind's own
-page, `/items/KIND?where=REL:ID`): the list, and the Graph and the Timeline,
+page, `/KIND?where=REL:ID`): the list, and the Graph and the Timeline,
 which narrow to a set's `where` on a relation of the kinds asked (its items, and what they wait on).
 The query engine (dashboard panels) reads the same: the group relation's field (`milestone`) and `state_group`, each
 item's stage as its progress counts it (one of the four, or `left`, `summary`, `odd`: out of the total; under the
@@ -2870,7 +2880,7 @@ is within 0.1 of its mean score, and the failure rate rises with the band. The A
 
 **The overview.** `/items` is an overview of the item kinds: under each system's heading, one small card per kind in
 a dense grid (at 1440x900, sixteen or more in view on a record of the factory's shape), each with the kind's name (a link to its own page,
-`/items/KIND`) and a "process map" link to its map in States (`/diagram?view=process&kind=KIND&mode=states`, §5b),
+`/KIND`) and a "process map" link to its map in States (`/diagram?view=process&kind=KIND&mode=states`, §5b),
 how many of its items are unfinished (not in a finished state) and how many in all, its states over the
 window as a small stacked chart with its legend at its right (under it on a phone), and its rate in (items that
 arrived in the window, per hour) and out (items that first reached a finished state in it, per hour: the same finished states the unfinished count uses, so
@@ -2886,11 +2896,11 @@ read from the item index: its counts, its moves and its arrivals, and no replay 
 catches up on the events recorded since it last read, as for every indexed answer, and an item with an event after
 the moment shown is folded again from its own events). Where the
 index cannot answer for a kind (no index, or a moment so long past that most of its items changed since), the card
-says so instead of its numbers. `/items?kind=KIND` goes to `/items/KIND`, which is the list, graph and timeline below
-for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, with no view switch:
+says so instead of its numbers. A kind's own page is `/KIND` (section 4f; the old `/items?kind=KIND` and
+`/items/KIND` lead there), the list, graph and timeline below for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, with no view switch:
 the Graph and the Timeline are a kind's page's alone (an old `/items?view=graph` is that list and asks for no graph).
 
-**A kind's page's list.** `/items/KIND`'s list (the kind's page, below) is a page of the kind's items, 25 rows by default (100 or 300 by choice), with
+**A kind's page's list.** `/KIND`'s list (the kind's page, below) is a page of the kind's items, 25 rows by default (100 or 300 by choice), with
 a pager in the kind's bar and under its table: *1-25 of 1200 · Prev · Next* (*of 3 matches* with a search, *of 77
 review* with a state chosen). Each page is asked of the server, `GET /api/items?kind=KIND` with `state` (one, when
 chosen), `offset`, `n` (1..500) and, when given, `q` and `sort` (`items.kind_page`, read from the item index: the ids,
@@ -2909,7 +2919,7 @@ and the sort are in the address, the page and sort named by their kind (`page=ga
 snapshot (no server) the kind's list is the snapshot's, as before. A set (`where`, `moved` and the process map's
 filters) is listed as before, its newest 300.
 
-**The Items page's views.** Beside **List** (its items, newest first), a kind's page (`/items/K`) shows that kind
+**The Items page's views.** Beside **List** (its items, newest first), a kind's page (`/K`) shows that kind
 and its system's own dependency network (`GET /api/items-graph?kinds=K&system=NAME`, NAME the kind's system;
 `kinds=A,B`, or `system=NAME` alone, the system's kinds, are still answered; worked out again only when the record
 changes). With `system=` the Graph follows only precedence and parent relations, and only to items of the system's
@@ -3023,7 +3033,7 @@ A field whose value is `file:PATH` names a file in the project (a picture a prog
 an agent's transcript): the page shows it where the item is shown, as what it is (`formats`, or its
 extension: an image as an image, Markdown rendered, code highlighted, a Claude Code transcript as the
 conversation, re-read while it grows; raw HTML in Markdown is shown as text, never run), and serves
-only files inside the project and its state directory, at `/file/PATH` (a path, so a Markdown file's
+only files inside the project and its state directory, at `/api/file/PATH` (a path, so a Markdown file's
 relative links open the files beside it: opened in the browser, a Markdown file is shown rendered). A file is kept apart from the record: the
 record holds what happened, the file what was said.
 
@@ -3126,9 +3136,9 @@ rework is a repeated step; a state nothing counts has `says`. The k-th move into
 lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
 answer.
 
-**The kind's page.** `/items/K` is the Items page with that one kind chosen (no nav entry of its own: *Items* stays
-lit). `/items?kind=K` ends there, its other parameters kept (`/items?kind=K&state=S&view=graph` becomes
-`/items/K?state=S&view=graph`), and every link to a whole kind points there: the item page's *Kind*, the Items page's
+**The kind's page.** `/K` is the kind's own page (section 4f: its address is its name, listed in the header's *Kinds*
+menu; each of its items is at `/K/REST`). The old `/items/K` and `/items?kind=K` end there, their other parameters
+kept (`/items?kind=K&state=S` becomes `/K?kind=K&state=S`), and every link to a whole kind points there: the item page's *Kind*, the Items page's
 bar titles, the process map's kind names, a side panel's set when it is a whole kind (a set with a state or a move
 keeps its `/items?kind=K&…` address and ends on the same page). It asks for that kind's items alone. Its sections, in
 order:
@@ -3138,11 +3148,11 @@ order:
    title (its name small), id pattern, description, `finishes: S, …` or `lives on` (where that came from on hover),
    the state chips with their counts, the total, and `in SYSTEM` (why on hover). The Items page draws these bars in
    every kind's list (`/items?view=list`, a search); its bare overview draws cards, whose name links here too. A chip
-   filters the list in place (`/items/K?state=S` in the address, a second click clears it), the same on both pages;
+   filters the list in place (`/K?state=S` in the address, a second click clears it), the same on both pages;
    the title links to the kind's page; in every kind's list the disclosure hides or shows that kind's list in place.
 2. *Now*: the kind's cumulative flow chart, drawn as the overview's: its state groups by default (from
    `/api/kinds/K`'s `group`, the overview's rule), its legend at its right, and the overview's one switch, *State
-   groups* or *Every state*, kept in the address (`/items/K?states=all`); then its cycle times.
+   groups* or *Every state*, kept in the address (`/K?states=all`); then its cycle times.
 3. *In the model*, from `GET /api/kinds/K`: a row each for the parts that count it (*counted in*: the stock or
    auxiliary, its states, how many are there now), the flows counted from its moves (*moved by*: the state entered or
    left and the events that move an item there), the blocks that take it (*taken by*: what it takes, to where, its
@@ -8777,7 +8787,7 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   everything. Approving or denying these is the only thing that changes the system." The list is a group described by
   that sentence (`aria-describedby`), so a screen reader reads it once on entering the list, not on each poll. With
   nothing waiting, the same place says "Nothing waits for you. Looking never changes the system." The gated actions'
-  own page (`/items/ergostat.action`, and `/items?kind=ergostat.action`) opens with the first sentence.
+  own page (`/ergostat.action`) opens with the first sentence.
 
 **The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
 you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process

@@ -101,7 +101,10 @@ def settled(pg, ms: int = 1500) -> list[str]:
 def test_the_header_names_the_pages_dashboard_first_and_no_project_list(browser, site):
     pg = opened(browser, site + "/goals")
     pg.wait_for_selector("#nav a", timeout=WAIT)
-    assert pg.locator("#nav a").all_inner_texts() == ["Dashboard", "Diagram", "Goals", "Agents", "Items", "Record"]
+    assert pg.locator("#nav a").all_inner_texts() == ["Dashboard", "Diagram", "Goals", "Agents", "Record"]
+    pg.get_by_role("button", name="Kinds").click()                       # the model's kinds, each at /KIND
+    pg.locator(".menu-pop [role^=menuitem]", has_text="ticket").first.click()
+    pg.wait_for_url("**/ticket", timeout=WAIT)
     assert pg.locator("select#project").count() == 0
     pg.wait_for_selector("#running", timeout=WAIT)          # the run state, from /api/status
     assert settled(pg) == []
@@ -192,7 +195,7 @@ def test_each_view_of_the_diagram_draws(browser, site, view, caption, nodes):
 @pytest.mark.parametrize("path, title, content", [
     ("/goals", "Goals", "inbox-short"),
     ("/agents", "Agents", "worker"),
-    ("/items", "Items", "ticket"),
+    ("/ticket", "ticket", "ticket/2"),                    # a kind of item: its page at /KIND
     ("/record", "Record", "ticket"),
 ])
 def test_each_list_page_draws_its_heading_and_its_rows(browser, site, path, title, content):
@@ -203,19 +206,25 @@ def test_each_list_page_draws_its_heading_and_its_rows(browser, site, path, titl
     pg.close()
 
 
-def test_an_item_page_draws_the_item(browser, site):
-    pg = opened(browser, f"{site}/item/{quote(ITEM, safe='')}")
+@pytest.mark.parametrize("path", ["/ticket/1", f"/item/{quote(ITEM, safe='')}", "/items/ticket"])
+def test_an_item_page_draws_the_item_at_its_kinds_address(browser, site, path):
+    pg = opened(browser, site + path)
+    if path == "/items/ticket":                             # an old address: the kind's own
+        pg.wait_for_url("**/ticket", timeout=WAIT)
+        pg.close()
+        return
+    pg.wait_for_url("**/ticket/1", timeout=WAIT)            # /item/ID of a kind: at the kind's address
     assert heading(pg) == ITEM
     pg.wait_for_function("() => document.querySelector('#main').innerText.includes('working')", timeout=WAIT)
     assert settled(pg) == []
     pg.close()
 
 
-def test_a_removed_page_goes_to_the_diagram(browser, site):
+def test_an_address_the_model_names_nothing_at_says_so(browser, site):
     pg = opened(browser, site + "/diagram")
     heading(pg, "#diagram-caption")
     pg.evaluate("() => { history.pushState(null, '', '/check'); dispatchEvent(new PopStateEvent('popstate')); }")
-    pg.wait_for_url("**/diagram", timeout=WAIT)              # (the server has no /check: the app routes it away)
+    pg.wait_for_function("() => document.querySelector('#main h1')?.textContent === 'Nothing here'", timeout=WAIT)
     assert settled(pg) == []
     pg.close()
 

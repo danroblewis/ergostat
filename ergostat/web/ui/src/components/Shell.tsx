@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ago, clock, dur, recordedShort } from "../lib/format";
 import { dashboardHref, useDashboards } from "../state/dashboards";
 import { goalsOff, useStatus, waitsOnYou } from "../state/status";
@@ -10,14 +10,13 @@ import { Menu } from "./Menu";
    page beneath it. */
 
 const NAV: [string, string][] = [
-  ["/dashboard", "Dashboard"], ["/diagram", "Diagram"], ["/goals", "Goals"], ["/agents", "Agents"], ["/items", "Items"],
-  ["/record", "Record"],
+  ["/dashboard", "Dashboard"], ["/diagram", "Diagram"], ["/goals", "Goals"], ["/agents", "Agents"], ["/record", "Record"],
 ];
 
 export function Shell({ children }: { children: ReactNode }) {
   const { since } = useTime();
   const carried = since === "1h" ? "" : `?window=${since}`;   // the window chosen, carried to the page gone to
-  const { list } = useDashboards();     // the model's dashboards with nav:, each at its own address, after the pages
+  const { list, kinds } = useDashboards();   // the model's kinds (each at /KIND) and dashboards with nav: (at /NAME)
   const navDashboards: [string, string][] = (list || []).filter((d) => d.nav != null)
     .map((d) => [dashboardHref(d.name), d.nav || d.title || d.name]);
   return (
@@ -29,7 +28,11 @@ export function Shell({ children }: { children: ReactNode }) {
           <Waits />
         </span>
         <nav id="nav">
-          {[...NAV, ...navDashboards].map(([to, label]) => (
+          {NAV.map(([to, label]) => (
+            <NavLink key={to} to={to + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
+          ))}
+          {kinds?.some((k) => k.declared) && <KindsMenu kinds={kinds.filter((k) => k.declared).map((k) => k.name)} carried={carried} />}
+          {navDashboards.map(([to, label]) => (
             <NavLink key={to} to={to + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
           ))}
         </nav>
@@ -37,6 +40,17 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
       <main id="main">{children}</main>
     </>
+  );
+}
+
+/** The model's kinds of item, each at its own address (/KIND): its list, and its items under it. */
+function KindsMenu({ kinds, carried }: { kinds: string[]; carried: string }) {
+  const navigate = useNavigate();
+  const head = decodeURIComponent(useLocation().pathname.split("/")[1] || "");
+  return (
+    <Menu label="Kinds" buttonClassName={`kinds-menu${kinds.includes(head) ? " on" : ""}`} title="Each kind of item, at its own address">
+      {kinds.map((k) => <Menu.Item key={k} checked={k === head} onSelect={() => navigate(`/${encodeURIComponent(k)}${carried}`)}>{k}</Menu.Item>)}
+    </Menu>
   );
 }
 

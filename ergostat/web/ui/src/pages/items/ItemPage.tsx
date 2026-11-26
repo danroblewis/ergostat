@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
 import { Page } from "../../components";
 import { DashboardView } from "../../components/panels/DashboardView";
 import { SharedAnswers } from "../../components/panels/shared";
@@ -12,8 +11,7 @@ import { ITEM_PANELS as PANELS } from "../../lib/pages";
    The page asks the item's answer once and hands it to every panel; a part with nothing to say is not drawn. */
 
 
-export default function ItemPage() {
-  const { id = "" } = useParams();
+export default function ItemPage({ id }: { id: string }) {
   const [changesOf, setChangesOf] = useState<string | null>(null);   // null: Changes folded; "": every field's
   const asked = changesOf != null ? { history: changesOf || "all" } : {};
   const item = usePanelApi<any>(`items/${encodeURIComponent(id)}`, asked, 4000);

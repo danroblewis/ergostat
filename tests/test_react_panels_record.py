@@ -25,7 +25,7 @@ playwright = pytest.importorskip("playwright.sync_api")
 GOAL = "inbox-short"
 DECLARED = f"""
 dashboards:
-  record:
+  events-board:
     title: Record board
     panels:
       - {{panel: events, title: Tickets done, match: ticket.done, size: m}}
@@ -59,7 +59,7 @@ def rows_text(pg, panel) -> str:
 
 def test_each_record_kind_draws_on_a_declared_dashboard(browser, recorded):  # noqa: F811
     _, url = recorded
-    pg = opened(browser, url + "/dashboard?name=record")
+    pg = opened(browser, url + "/dashboard?name=events-board")
     heading(pg)
     pg.wait_for_function("() => document.querySelector('#main h1').textContent.startsWith('Record board')", timeout=WAIT)
     done = pg.locator(".panel.panel-kind-events[aria-label='Tickets done']")

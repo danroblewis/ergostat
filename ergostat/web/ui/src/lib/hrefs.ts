@@ -1,8 +1,12 @@
+import { itemPath } from "./routes";
+
 /* The page's addresses, built in one place: every link to an item, a kind, an agent or a part of the diagram. */
 
+/** An item's page: /KIND/REST (lib/routes.ts), else /item/ID (one on a remote, or no kind of this model's matches). */
 export const itemHref = (id: string, remote?: string) =>
-  `/item/${encodeURIComponent(id)}${remote ? `?remote=${encodeURIComponent(remote)}` : ""}`;
-export const kindHref = (name: string, q = "") => `/items/${encodeURIComponent(name)}${q ? `?${q}` : ""}`;
+  remote ? `/item/${encodeURIComponent(id)}?remote=${encodeURIComponent(remote)}` : itemPath(id) || `/item/${encodeURIComponent(id)}`;
+/** A kind's page: /KIND. */
+export const kindHref = (name: string, q = "") => `/${encodeURIComponent(name)}${q ? `?${q}` : ""}`;
 export const agentHref = (name: string) => `/agent/${encodeURIComponent(name)}`;
 
 /** The diagram, drawn the way asked: a view, a system, or only what an item or a kind passed through (the Process

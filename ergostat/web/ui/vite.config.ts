@@ -9,5 +9,5 @@ export default defineConfig(({ command }) => ({
   base: command === "build" ? "/static/app/" : "/",
   plugins: [react()],
   build: { outDir: process.env.UI_OUT || "../static/app", emptyOutDir: true, chunkSizeWarningLimit: 4000 },
-  server: { proxy: { "/api": target, "/file": target } },
+  server: { proxy: { "/api": target, "/remote": target } },
 }));

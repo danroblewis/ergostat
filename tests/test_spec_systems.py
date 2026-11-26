@@ -196,7 +196,7 @@ def test_the_page_shows_files_items_name_from_inside_the_project_only(tmp_path):
     os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
     srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(Project(mdl.load(tmp_path))))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{srv.server_address[1]}/file?path="
+    url = f"http://127.0.0.1:{srv.server_address[1]}/api/file?path="
     try:
         with urllib.request.urlopen(url + "run/a.png") as r:
             assert r.headers["Content-Type"] == "image/png" and r.read().startswith(b"\x89PNG")
@@ -209,7 +209,7 @@ def test_the_page_shows_files_items_name_from_inside_the_project_only(tmp_path):
         # as a path, so a Markdown file's relative links open the files beside it: raw to the page's fetch,
         # rendered (its HTML never run) when the browser opens it
         (tmp_path / "run" / "brief.md").write_text("# Brief\n\n[the draft](draft.md) <script>alert(1)</script>\n")
-        base = f"http://127.0.0.1:{srv.server_address[1]}/file/"
+        base = f"http://127.0.0.1:{srv.server_address[1]}/api/file/"
         with urllib.request.urlopen(base + "run/brief.md") as r:
             assert r.read().startswith(b"# Brief")
         req = urllib.request.Request(base + "run/brief.md", headers={"Accept": "text/html"})

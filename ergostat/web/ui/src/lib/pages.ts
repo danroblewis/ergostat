@@ -1,10 +1,10 @@
 import type { DashboardDef, PanelDef } from "../components/panels/types";
 
-/* The web page's own pages as the dashboards they are: each one's panels, as a dashboard under `dashboards:` would
+/* ergostat's own pages as the dashboards they are: each one's panels, as a dashboard under `dashboards:` would
    declare them (SPEC §4f). A page draws these (with its own head and filters around them); the Dashboard page offers
-   each as a copy to start a draft from; and a dashboard declared with `page: NAME` is drawn in that page's place.
-   A page that shows one thing (an agent, an item, a kind) writes it `$agent`, `$item` or `$kind`: taken from the
-   address. */
+   each as a copy to start a draft from; a dashboard the model declares under a page's name is drawn at its address
+   instead (lib/routes.ts), and one declared with `page: agent|item|kind` is drawn for every agent, item or kind. A
+   page that shows one thing writes it `$agent`, `$item` or `$kind`: taken from the address. */
 
 export const full = (d: PanelDef): PanelDef => ({ size: "full", fit: true, ...d });
 
@@ -19,8 +19,6 @@ export const AGENTS_PANELS: PanelDef[] = [
   { panel: "daemons", id: "daemons", title: "Daemons" },
 ].map(full);
 
-export const ITEMS_PANELS: PanelDef[] = [{ panel: "kinds", id: "kinds", title: "Kinds of item" }].map(full);
-export const EVERY_KIND_PANELS: PanelDef[] = [{ panel: "items-by-kind", id: "items-by-kind", title: "Each kind's newest" }].map(full);
 
 export const RECORD_PANELS: PanelDef[] = [{ panel: "events", id: "record", title: "Events, newest first" }].map(full);
 
@@ -54,13 +52,12 @@ export const KIND_PANELS: PanelDef[] = [
   full({ panel: "item-list", id: "items", title: "Items", kind: "$kind" }),
 ];
 
-export type PageName = "goals" | "agents" | "items" | "record" | "agent" | "item" | "kind";
+export type PageName = "goals" | "agents" | "record" | "agent" | "item" | "kind";
 
-/** Each page a dashboard may be drawn in place of (`page:`), and the address's word it takes, if any. */
+/** ergostat's own pages made of panels, and the address's word one of one thing takes (`page:` names those). */
 export const PAGES: Record<PageName, { title: string; panels: PanelDef[]; binds?: "agent" | "item" | "kind" }> = {
   goals: { title: "Goals", panels: GOALS_PANELS },
   agents: { title: "Agents", panels: AGENTS_PANELS },
-  items: { title: "Items", panels: ITEMS_PANELS },
   record: { title: "Record", panels: RECORD_PANELS },
   agent: { title: "An agent", panels: AGENT_PANELS, binds: "agent" },
   item: { title: "An item", panels: ITEM_PANELS, binds: "item" },

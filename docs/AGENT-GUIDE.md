@@ -301,7 +301,7 @@ engine took, with one line on stderr naming the first error; anything that acts 
 4. **Run it briefly with stand-ins** (scripts that print plausible events) before connecting real
    systems, and watch items move through the chain on the Items page: `/items` is an overview, a card per kind with
    its unfinished count, its states over the window (grouped as waiting, working, stopped and done, or every state)
-   and its rate in and out; a kind's name opens its own page, `/items/KIND`, with its list, graph and timeline.
+   and its rate in and out; a kind's name opens its own page, `/KIND`, with its list, graph and timeline.
 5. **Check that the work moves as modelled, in the Process view.** The Diagram page's Process view
    (SPEC §5b) is the process map the record draws: for each kind, the states its items really
    entered and the moves between them, how often, and the median time each took. Hold it against

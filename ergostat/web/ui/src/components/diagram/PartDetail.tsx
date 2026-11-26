@@ -1,4 +1,5 @@
 import { useCallback, type ReactNode } from "react";
+import { kindHref } from "../../lib/hrefs";
 import { Chart } from "../charts/Chart";
 import { useDetail } from "../Detail";
 import { Fields } from "../Table";
@@ -160,7 +161,7 @@ export function ProcessPanel({ n, g }: { n: any; g: any }) {
       <Fields caption="Counts" fields={rows([["times", n.count], ["items", n.items], ["now in it", n.now]])} />
       <h3>Came from</h3>{lines(into, (e) => e.source)}
       <h3>Went on to</h3>{lines(out, (e) => e.target)}
-      <p><AppLink to={`/items/${encodeURIComponent(n.itemKind)}`}>The {n.itemKind} items</AppLink></p>
+      <p><AppLink to={kindHref(n.itemKind)}>The {n.itemKind} items</AppLink></p>
     </>
   );
 }

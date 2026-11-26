@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
 import { AppLink, ErrorNote, Loading, Meta, Page, Rung } from "../../components";
 import { engagedText } from "../../components/agents/agentParts";
 import { noSpec, Serves } from "../../components/agents/AgentSections";
@@ -14,8 +13,7 @@ import { AGENT_PANELS } from "../../lib/pages";
 
 const EVERY = 4000;
 
-export default function AgentPage() {
-  const { name = "" } = useParams();
+export default function AgentPage({ name }: { name: string }) {
   const path = `agents/${encodeURIComponent(name)}`;
   const ag = useApi<any>(path, {}, { every: EVERY });
   const loops = useApi<any>("loops", {}, { every: EVERY });

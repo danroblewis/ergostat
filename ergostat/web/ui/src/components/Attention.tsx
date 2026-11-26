@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { itemHref } from "../lib/hrefs";
 import { dur } from "../lib/format";
 import { goalsOff, waitsOnYou, type Status } from "../state/status";
 import { AppLink, Fold } from "./ui";
@@ -15,7 +16,7 @@ export type AttentionPart = typeof ATTENTION_PARTS[number];
 function Row({ a, onGoal }: { a: any; onGoal: (goal: string) => void }) {
   const word = a.state || (a.kind === "request" ? "request" : waitsOnYou(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
   const what = <b className={a.level === "bad" ? "lvl-bad" : "lvl-warn"}>{a.what}</b>;
-  const href = a.item ? `/item/${encodeURIComponent(a.item)}` : null;
+  const href = a.item ? itemHref(a.item) : null;
   return (
     <div data-row={a.what}>
       <span className="att-word">{word} · </span>

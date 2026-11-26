@@ -85,26 +85,21 @@ def test_every_items_kind_draws_on_a_declared_dashboard(browser, board):
     pg.close()
 
 
-def test_the_items_page_draws_its_overview_and_its_list_from_the_address(browser, board):
-    pg = opened(browser, board + "/items")
-    assert heading(pg) == "Items"
+def test_the_old_items_addresses_lead_to_each_kinds_own(browser, board):
+    for old, new in (("/items/ticket?state=opened", "**/ticket?state=opened"), ("/items?kind=ticket", "**/ticket?kind=ticket"),
+                     ("/items", "**/diagram")):
+        pg = opened(browser, board + old)
+        pg.wait_for_url(new, timeout=WAIT)
+        assert settled(pg, 500) == []
+        pg.close()
+    pg = opened(browser, board + "/tickets")                         # the board's kinds panel: a card links to /KIND
     pg.locator(".panel-kind-kinds .kind-card[data-kind=ticket]").wait_for(timeout=WAIT)
-    pm = pg.locator(".kind-card[data-kind=ticket] a.pm-link").get_attribute("href")
-    assert pm == "/diagram?view=process&kinds=ticket"
-    pg.close()
-    pg = opened(browser, board + "/items?states=all")                 # each state, not their groups
-    pg.locator(".panel-kind-kinds .kind-card[data-kind=ticket]").wait_for(timeout=WAIT)
-    assert pg.locator("[aria-label=States] button[aria-pressed=true]").inner_text() == "Every state"
-    pg.close()
-    pg = opened(browser, board + "/items?q=ticket%202")               # a search lists every kind's, matched
-    pg.locator(".panel-kind-items-by-kind table tbody tr").first.wait_for(timeout=WAIT)
-    pg.wait_for_function("() => document.querySelector('.search-hits')?.textContent.includes('1 match')", timeout=WAIT)
-    assert settled(pg) == []
+    assert pg.locator(".kind-card[data-kind=ticket] a.pm-link").get_attribute("href") == "/diagram?view=process&kinds=ticket"
     pg.close()
 
 
 def test_the_kind_page_draws_its_panels_and_keeps_its_filters_in_the_address(browser, board):
-    pg = opened(browser, board + "/items/ticket")
+    pg = opened(browser, board + "/ticket")
     pg.locator(".kind-bar h1").wait_for(timeout=WAIT)
     for kind in ("kind-now", "kind-model", "kind-definition", "item-list"):
         pg.locator(f".panel-kind-{kind}").wait_for(timeout=WAIT)
@@ -126,14 +121,14 @@ def test_the_kind_page_draws_its_panels_and_keeps_its_filters_in_the_address(bro
     assert settled(pg) == []
     pg.close()
     # from the address: a state, a search, a page size, each state
-    pg = opened(browser, board + "/items/ticket?state=opened")
+    pg = opened(browser, board + "/ticket?state=opened")
     pg.locator(".panel-kind-item-list table tbody tr").first.wait_for(timeout=WAIT)
     pg.wait_for_function("() => [...document.querySelectorAll('.panel-kind-item-list tbody tr')].map((r) => r.innerText)"
                          ".join('|').includes('ticket/2')", timeout=WAIT)
     assert pg.locator(".panel-kind-item-list tbody tr").count() == 1
     assert "state opened" in pg.locator(".set-chip").inner_text()
     pg.close()
-    pg = opened(browser, board + "/items/ticket?q=ticket%201&states=all&size=100")
+    pg = opened(browser, board + "/ticket?q=ticket%201&states=all&size=100")
     pg.wait_for_function("() => document.querySelector('.search-said')?.textContent.startsWith('1 match')", timeout=WAIT)
     assert pg.locator("[aria-label=States] button[aria-pressed=true]").inner_text() == "Every state"
     assert pg.locator("select[aria-label='Rows a page']").first.input_value() == "100"
@@ -142,7 +137,7 @@ def test_the_kind_page_draws_its_panels_and_keeps_its_filters_in_the_address(bro
 
 
 def test_the_item_page_draws_its_parts_and_opens_its_changes(browser, board):
-    pg = opened(browser, f"{board}/item/{quote(ITEM, safe='')}")
+    pg = opened(browser, f"{board}/ticket/1")
     assert heading(pg) == ITEM
     for kind in ("item-summary", "item-path", "item-fields", "item-moves", "item-events", "item-changes"):
         pg.locator(f".panel-kind-{kind}").wait_for(timeout=WAIT)
@@ -156,7 +151,7 @@ def test_the_item_page_draws_its_parts_and_opens_its_changes(browser, board):
     pg.locator(".panel-kind-item-changes table.history tbody tr").first.wait_for(timeout=WAIT)
     assert settled(pg) == []
     pg.close()
-    pg = opened(browser, f"{board}/item/{quote('ticket/nope', safe='')}")
+    pg = opened(browser, f"{board}/ticket/nope")
     pg.wait_for_function("() => document.querySelector('#main')?.innerText.includes('Nothing is recorded about this id')",
                          timeout=WAIT)
     pg.close()

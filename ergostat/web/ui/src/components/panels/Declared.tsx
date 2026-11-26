@@ -6,7 +6,7 @@ import { normalizeDashboard } from "./normalize";
 import type { DashboardDef } from "./types";
 
 /* A dashboard the model declares (`dashboards:`, SPEC §4f), drawn as declared, each panel asking for its own answer:
-   at /dashboard?name=NAME, at its own address (/d/NAME, with `nav:`), and in a page's place (`page:`), where `bind`
+   at /dashboard?name=NAME, at its own address (/NAME), and for each agent, item or kind (`page:`), where `bind`
    gives the address's word (agent, item or kind) its panels' `$WORD` stands for. */
 
 export const EVERY: Record<string, number> = { Off: 0, "10s": 10000, "30s": 30000, "1m": 60000, "5m": 300000 };

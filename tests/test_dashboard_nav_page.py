@@ -1,6 +1,7 @@
-"""A dashboard in the page's navigation (``nav:``, at /d/NAME) and one drawn in place of one of the page's own pages
-(``page:``), its panels' ``$agent``, ``$item`` or ``$kind`` taken from the page's address (SPEC §4f): checked, listed,
-answered bound, and kept by Keep with them."""
+"""A dashboard's address is its name (SPEC §4f): one named as ergostat's own page or as a kind is drawn there (a kind's
+binds ``$kind``); ``nav:`` puts it in the header; ``page: agent|item|kind`` draws it for every one, its panels'
+``$agent``, ``$item`` or ``$kind`` taken from the address. Checked, listed (/api/routes too), answered bound, and kept
+by Keep with them; a kind named as the server's address or one of ergostat's pages is a finding."""
 
 from __future__ import annotations
 
@@ -32,9 +33,8 @@ dashboards:
     nav: On watch
     panels:
       - {panel: goals, columns: [goal, status, value], size: full}
-  goals-mine:
+  goals:
     title: My goals
-    page: goals
     panels:
       - {panel: quiet-systems, quiet: true}
       - {panel: goals, columns: all, fit: true}
@@ -44,6 +44,15 @@ dashboards:
     panels:
       - {panel: agent-what, agent: $agent}
       - {panel: agent-runs, agent: $agent}
+  ticket:
+    title: Tickets, my way
+    panels:
+      - {panel: kind-now, kind: $kind}
+items:
+  ticket:
+    id: ticket/*
+    states: [opened, done]
+    on: {ticket.opened: opened, ticket.done: done}
 """
 
 
@@ -65,23 +74,33 @@ def test_nav_and_page_are_checked_kept_and_listed(tmp_path, capsys):
     assert main(["-C", str(d), "check"]) == 0, capsys.readouterr().out
     spec, _ = read(d / "ergostat.yaml")
     ds = spec.dashboards
-    assert [(ds[n].nav, ds[n].page) for n in ("crew", "watch", "goals-mine", "one-agent")] == [
-        ("", None), ("On watch", None), (None, "goals"), (None, "agent")]
+    assert [(ds[n].nav, ds[n].page) for n in ("crew", "watch", "goals", "one-agent", "ticket")] == [
+        ("", None), ("On watch", None), (None, None), (None, "agent"), (None, None)]
     assert ds["watch"].panels[0].params == {"columns": ["goal", "status", "value"]}
-    assert ds["goals-mine"].panels[0].params == {"quiet": True}
+    assert ds["goals"].panels[0].params == {"quiet": True}
     assert ds["one-agent"].panels[0].params == {"agent": "$agent"}
-    listed = {x["name"]: (x["nav"], x["page"]) for x in dashboard_api.listing(Project(mdl.load(d)))}
+    assert ds["ticket"].panels[0].params == {"kind": "$kind"}          # named as a kind: its page, $kind the kind
+    p = Project(mdl.load(d))
+    listed = {x["name"]: (x["nav"], x["page"]) for x in dashboard_api.listing(p)}
     assert listed == {"default": (None, None), "crew": ("", None), "watch": ("On watch", None),
-                      "goals-mine": (None, "goals"), "one-agent": (None, "agent")}
+                      "goals": (None, None), "one-agent": (None, "agent"), "ticket": (None, None)}
+    from ergostat.web import server
+    routes = server.api(server.Live(p), "routes", {})
+    assert [x for x in routes["kinds"] if x["declared"]] == [{"name": "ticket", "id": "ticket/*", "declared": True}]
+    assert {"name": "session", "id": "session/*", "declared": False} in routes["kinds"]      # ergostat's own: linked
+    assert routes["reserved"] == ["api", "static", "remote"]
+    assert "goals" in routes["builtin"] and [x["name"] for x in routes["dashboards"]] == list(listed)
 
 
 @pytest.mark.parametrize("old, new, code", [
     ("    nav: true\n", "    nav: 3\n", "bad-dashboard"),
     ("    nav: On watch\n", "    nav: " + "x" * 41 + "\n", "bad-dashboard"),
-    ("    page: goals\n", "    page: home\n", "bad-dashboard"),
-    ("    page: goals\n", "    page: [goals]\n", "bad-dashboard"),
-    ("    page: goals\n", "    page: goals\n    nav: true\n", "bad-dashboard"),
-    ("    nav: true\n", "    page: goals\n", "defined-twice"),           # crew first: goals-mine is the second
+    ("    title: My goals\n", "    title: My goals\n    page: goals\n", "bad-dashboard"),   # named goals instead
+    ("    title: My goals\n", "    title: My goals\n    page: [kind]\n", "bad-dashboard"),
+    ("    page: agent\n", "    page: agent\n    nav: true\n", "bad-dashboard"),
+    ("    nav: true\n", "    page: agent\n", "defined-twice"),           # crew first: one-agent is the second
+    ("  crew:\n", "  api:\n", "bad-name"),
+    ("      - {panel: kind-now, kind: $kind}", "      - {panel: kind-now, kind: $item}", "bad-dashboard"),
     ("    page: agent\n", "    page: item\n", "bad-dashboard"),        # $agent: not the item page's word
     ("    page: agent\n", "", "bad-dashboard"),                     # $agent taken from no address
     ("columns: [goal, status, value]", "columns: [goal, nope]", "bad-dashboard"),
@@ -121,9 +140,17 @@ def test_keep_writes_nav_and_page_and_keeps_them_in_place(tmp_path):
     assert main(["-C", str(d), "check"]) == 0
     spec = Project(mdl.load(d)).model.spec
     assert (spec.dashboards["crew-board"].nav, spec.dashboards["crew-board"].page) == ("Crew", None)
-    again = display.keep(Project(mdl.load(d)), {"title": "Crew Board", "name": "crew-board", "page": "agents",
-                                                "panels": draft["panels"]})
+    again = display.keep(Project(mdl.load(d)), {"title": "Crew Board", "name": "crew-board", "page": "agent",
+                                                "panels": [{"panel": "agent-runs", "agent": "$agent"}]})
     pr.accept(Project(mdl.load(d)), again["id"], {"at": time.time(), "window": 3600.0}, by="owner")
     spec = Project(mdl.load(d)).model.spec
-    assert (spec.dashboards["crew-board"].nav, spec.dashboards["crew-board"].page) == (None, "agents")
+    assert (spec.dashboards["crew-board"].nav, spec.dashboards["crew-board"].page) == (None, "agent")
     assert (d / "ergostat.yaml").read_text().count("crew-board:") == 1
+
+
+@pytest.mark.parametrize("kind, code", [("api", "unrouted-kind"), ("record", "kind-takes-page")])
+def test_a_kind_named_as_the_servers_address_or_ergostats_page_is_a_finding(tmp_path, kind, code):
+    d = write(tmp_path, BOARD.replace("items:\n", f"items:\n  {kind}:\n    id: {kind}/*\n    states: [a]\n"))
+    _, problems = read(d / "ergostat.yaml")
+    assert [(x.level, x.code) for x in problems if x.about == f"items.{kind}" and "kind" in x.code] == [("finding", code)]
+    assert not [x for x in problems if x.level == "error"]
