@@ -1979,8 +1979,8 @@ declared under `dashboards:`, compiled and checked as a system's `show:` is (sec
 error at its line instead of a blank panel. The design is `docs/proposals/dashboard.md`. People do not write it by
 hand: the Supervisor, or an agent on the owner's behalf, adds it (`docs/AGENT-GUIDE.md`).
 
-A reader's panel may be a diagram, `{form: diagram, display: {address}}`, where the address is a Diagram address
-(`/diagram?view=...&system=...&open=...`) or an Items Graph address (`/items?kinds=...`, `system=`, or `/items/KIND`).
+A panel may be a diagram, `{panel: diagram, address: /diagram?view=...&system=...}`, where the address is a Diagram
+address (it must begin `/diagram`).
 It is drawn read-only, at its own size or larger, so no text is under 11 px. When it does not fit, its systems are
 closed, and if it still does not fit the panel says to open it on the Diagram. Nothing is asked until the panel is on
 screen. Only one model diagram on a page is drawn; any other is drawn when clicked. Its values come with each refresh
@@ -2000,7 +2000,9 @@ dashboards:
 ```
 
 Each panel is its kind (`panel:`), its words (`title`, `note`), its `size` (`s`, `m`, `l` or `full`, each with
-`-tall` too; default `m`), and **exactly the parameters its endpoint takes**, by the same names:
+`-tall` too; default `m`), `fit: true` to be as tall as what it shows (a page made of panels: an item's fields, a
+list), and **exactly the parameters its endpoint takes**, by the same names. Every page of the web page is drawn
+from these same panels, so a section seen on one page can be put on any dashboard:
 
 | `panel` | Answered by | Its parameters |
 |---|---|---|
@@ -2012,6 +2014,26 @@ Each panel is its kind (`panel:`), its words (`title`, `note`), its `size` (`s`,
 | `scope` | `GET /api/loop-scope` | `goal` (needed), `points` |
 | `items-graph`, `timeline` | `GET /api/items-graph` (with its estimates) | `kinds`, `system` |
 | `query` | `GET /api/query`: the Dashboard page's own panel, as a kept draft holds it | `queries` (needed: 1 to 64, checked by the query engine's parser in the shape the page's `send` gives them: their own `id`, `label` and `hidden` left out, an `input` or `output` naming another query by id replaced by that query as written (one level), an `x.query` by id sent as a query of its own, a reference that leads nowhere or back along its path refused, queries asked alike sent once; every query is checked, a hidden one too, and no form's own adjustment is applied; a query's `kind` must be the model's), `form`, `display`, `layout` |
+| `diagram` | nothing: the page asks `GET /api/graph` itself | `address` (needed: a Diagram address, `/diagram?view=...`) |
+| `ladder` | `GET /api/agents`: how many agents fill each rung, and how many stand out (last run failed, never ran, behind) | none |
+| `agents` | `GET /api/agents`: every agent by rung, its roles, runs, schedule and what its runs cost in the window | none |
+| `daemons` | `GET /api/daemons`: the long-lived processes runs and readings are handed to | none |
+| `agent-what`, `agent-definition`, `agent-place`, `agent-runs`, `agent-log` | `GET /api/agents/AGENT`: what it is by its rung; its block as written; its place (goals served, roles, who commands it); its runs and their cost; its log's end | `agent` (needed: a block of the model's) |
+| `kinds` | `GET /api/items-overview`: each system's kinds as cards | `states` (`all` or `groups`) |
+| `items-by-kind` | `GET /api/items`: each kind's newest under its system | `q`, `finished` (`hide`, `waits`, `show`), `per_kind` (1 to 500) |
+| `kind-now` | `GET /api/items-flow`: a kind's states over the window and how long its finished took | `kind` (needed), `points`, `states` |
+| `kind-model`, `kind-definition` | `GET /api/kinds/KIND`: what in the model counts it, its goals and loops; its definition | `kind` (needed) |
+| `item-list` | `GET /api/items`: one kind's items, paged, searched and sorted by the server | `kind` (needed), `state` (one of its states), `q`, `sort` (`FIELD` or `-FIELD`), `finished`, `n` |
+| `item-summary`, `item-path`, `item-relations`, `item-fields`, `item-refused`, `item-moves`, `item-events` | `GET /api/items/ITEM`: one part of an item | `item` (needed: any id) |
+| `item-why` | `GET /api/why`: why it is not done (as the record is now) | `item` (needed) |
+| `item-changes` | `GET /api/items/ITEM?history=`: each field's changes | `item` (needed), `history` (a field, or `all`) |
+| `events` | `GET /api/events`: the record's events, newest first; with `remote`, that remote's, read there (section 4c) | `match` (a type as a glob, an item or a source), `item`, `about` (a goal), `machine`, `runs`, `window`, `from`, `to` (seconds since 1970), `n` (1 to 500), `remote` (a remote of the model's) |
+| `goal-crossings`, `goal-decisions` | `GET /api/loops/GOAL`: its crossings, each a link to the Record; its controller's decisions, alike when only their numbers differ | `goal` (needed) |
+| `attention` | `GET /api/status`: what asks for the owner | `show` (any of `waiting`, `off`, `housekeeping`, `suggestions`; all when left out) |
+| `legend` | nothing: how to read a view's drawing | `view` (needed: `dynamics`, `blocks` or `process`) |
+| `feedback-loops`, `control-loops` | `GET /api/graph`: the feedback loops of the stock and flow diagram; the control loops of the block diagram | `system` |
+| `quiet-systems` | `GET /api/systems`: each system whose every goal holds | none |
+| `goal-runbook`, `goal-parts`, `goal-control` | `GET /api/loops/GOAL`, `GET /api/loop-control`: its runbook, remedy and numbers; the parts along its loop; its control loop, with the proposals the owner accepts or dismisses | `goal` (needed) |
 
 A list may be written as one string, as the address writes it (`refs: stock.a,stock.b`). `check` refuses an unknown
 kind of panel, size or a value of the wrong type (**bad-dashboard**), an unknown key (**unknown-key**), and a

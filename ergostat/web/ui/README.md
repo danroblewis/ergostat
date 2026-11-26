@@ -31,9 +31,13 @@ header's project list and `ergostat snapshot`.
         goals.tsx            GoalCells: one goal's row in the columns asked for
         charts/              Chart (uPlot), Plot, PanelView (a query's panel from its answer), QueryPanel and
                              usePanelResults (a panel that asks for its own answer), Spark, FlowChart
-        panels/              a panel of every kind, by its name in the model's dashboards: (SPEC §4f): KINDS (query,
-                             diagram, note, goals, chart, items, states, cycle-time...), PanelBox (one, framed),
-                             DashboardView (a grid of them); each asks its own endpoint with exactly its parameters
+        controls.tsx         Segmented, SearchBox, Pager, FinishedToggle, FinishedNote, Meta, SystemGroup
+        panels/              a panel of every kind, by its name in the model's dashboards: (SPEC §4f), one file a
+                             group in kinds/ (core, agents, items, record, attention), checked by spec/dashboards.py
+                             and answered by dashboard_api.py; PanelBox (one, framed), DashboardView (a grid). Each
+                             asks its own endpoint with exactly its parameters; GETs of one address under way at once
+                             are one request (lib/api.ts). A new kind: its component, its KINDS entry here and in
+                             spec/dashboards.py, then `uv run python scripts/panel_schema.py` for the schema.
         diagram/             imported from "components/diagram" (it brings ELK): Diagram (asks for its own graph:
                              <Diagram view="blocks" system="x" />), DiagramCanvas (draws a graph a page has), the
                              three drawings, useDiagramLayout, usePanZoom, a part's panels (usePartPanels)
@@ -41,6 +45,8 @@ header's project list and `ergostat snapshot`.
 
 ## Rules
 
+- A page is a dashboard: its sections are panels (components/panels), drawn with `fit: true`; only what is the
+  page's own (its title, filters bound to the address) is written on the page.
 - Compose pages from `components/`. Anything another page could show (a table, a chart, a link, a drawing) is a
   component there, taking its data as props or asking for it itself; a page's folder keeps only what is that page's
   alone: its layout, its toolbar, what it keeps in the address.

@@ -50,3 +50,36 @@ def test_a_diagram_panel_answers_its_address_and_one_not_a_diagram_address_is_re
         assert "Diagram address" in str(e)
     else:
         raise AssertionError("a diagram panel that is not a Diagram address was kept")
+
+
+def test_the_schema_knows_every_kind_of_panel_and_each_kind_s_keys():
+    """schema/ergostat.schema.json's panel part is written from spec/dashboards.py (scripts/panel_schema.py): a kind
+    added to one and not the other is caught here."""
+    import json
+    from pathlib import Path
+
+    from ergostat.spec import dashboards as d
+    s = json.loads((Path(__file__).parent.parent / "schema" / "ergostat.schema.json").read_text())["$defs"]["panel"]
+    assert s["properties"]["panel"]["enum"] == list(d.KINDS)
+    by = {r["if"]["properties"]["panel"]["const"]: r["then"] for r in s["allOf"]}
+    assert set(by) == set(d.KINDS)
+    for kind, keys in d.KINDS.items():
+        assert set(by[kind]["propertyNames"]["enum"]) == d.PANEL_KEYS | keys, kind
+        assert by[kind].get("required", [None])[0] == d.NEEDS.get(kind), kind
+
+
+def test_a_dashboard_of_the_newer_kinds_is_valid_against_the_schema():
+    import json
+    from pathlib import Path
+
+    jsonschema = __import__("pytest").importorskip("jsonschema")
+    s = json.loads((Path(__file__).parent.parent / "schema" / "ergostat.schema.json").read_text())
+    v = jsonschema.Draft202012Validator({"$schema": s["$schema"], "$defs": s["$defs"], "$ref": "#/$defs/panel"})
+    good = [{"panel": "diagram", "address": "/diagram?view=blocks", "fit": True}, {"panel": "agent-runs", "agent": "worker"},
+            {"panel": "item-fields", "item": "ticket/1"}, {"panel": "events", "match": "valve.*", "runs": True},
+            {"panel": "attention", "show": ["waiting", "off"]}, {"panel": "legend", "view": "blocks"}]
+    for x in good:
+        assert not list(v.iter_errors(x)), x
+    for x in ({"panel": "agent-runs"}, {"panel": "legend", "view": "sideways"}, {"panel": "diagram", "address": "http://x"},
+              {"panel": "events", "agent": "worker"}):
+        assert list(v.iter_errors(x)), x

@@ -664,7 +664,55 @@
       "type": "object",
       "required": ["panel"],
       "properties": {
-        "panel": {"enum": ["note", "goals", "chart", "items", "states", "cycle-time", "scope", "items-graph", "timeline", "query"]},
+        "panel": {
+          "enum": [
+            "note",
+            "goals",
+            "chart",
+            "items",
+            "states",
+            "cycle-time",
+            "scope",
+            "items-graph",
+            "timeline",
+            "query",
+            "diagram",
+            "ladder",
+            "agents",
+            "daemons",
+            "agent-what",
+            "agent-definition",
+            "agent-place",
+            "agent-runs",
+            "agent-log",
+            "kinds",
+            "items-by-kind",
+            "kind-now",
+            "kind-model",
+            "kind-definition",
+            "item-list",
+            "item-summary",
+            "item-why",
+            "item-path",
+            "item-relations",
+            "item-fields",
+            "item-refused",
+            "item-moves",
+            "item-events",
+            "item-changes",
+            "events",
+            "goal-crossings",
+            "goal-decisions",
+            "attention",
+            "legend",
+            "feedback-loops",
+            "control-loops",
+            "quiet-systems",
+            "goal-runbook",
+            "goal-parts",
+            "goal-control"
+          ]
+        },
         "title": {"type": "string"},
         "form": {"type": "string", "minLength": 1},
         "queries": {"type": "array", "minItems": 1, "items": {"type": "object"}},
@@ -673,7 +721,16 @@
         "size": {"enum": ["s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall"]},
         "note": {"type": "string"},
         "text": {"type": "string"},
-        "refs": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^(stock|flow|auxiliary)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$"}}]},
+        "refs": {
+          "oneOf": [
+            {"type": "string"},
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "pattern": "^(stock|flow|auxiliary)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$"}
+            }
+          ]
+        },
         "goals": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/name"}}]},
         "goal": {"$ref": "#/$defs/name"},
         "kind": {"type": "string", "minLength": 1},
@@ -685,18 +742,275 @@
         "n": {"type": "integer", "minimum": 1, "maximum": 500},
         "replay": {"type": "boolean"},
         "fan": {"type": "boolean"},
-        "moved": {"type": "string"}, "moved_since": {"type": "string"}, "moved_until": {"type": "string"},
-        "through": {"type": "string"}, "followed": {"type": "string"}, "search": {"type": "string"}
+        "moved": {"type": "string"},
+        "moved_since": {"type": "string"},
+        "moved_until": {"type": "string"},
+        "through": {"type": "string"},
+        "followed": {"type": "string"},
+        "search": {"type": "string"},
+        "fit": {"type": "boolean"},
+        "address": {"type": "string", "pattern": "^/diagram"},
+        "agent": {"$ref": "#/$defs/name"},
+        "item": {"type": "string", "minLength": 1},
+        "q": {"type": "string", "minLength": 1},
+        "sort": {"type": "string", "minLength": 1},
+        "history": {"type": "string", "minLength": 1},
+        "match": {"type": "string", "minLength": 1},
+        "about": {"$ref": "#/$defs/name"},
+        "machine": {"type": "string", "minLength": 1},
+        "remote": {"type": "string", "minLength": 1},
+        "runs": {"type": "boolean"},
+        "window": {"type": "boolean"},
+        "from": {"type": "number", "minimum": 0},
+        "to": {"type": "number", "minimum": 0},
+        "finished": {"enum": ["hide", "waits", "show"]},
+        "states": {"enum": ["all", "groups"]},
+        "per_kind": {"type": "integer", "minimum": 1, "maximum": 500},
+        "view": {"enum": ["dynamics", "blocks", "process"]},
+        "show": {
+          "oneOf": [
+            {"enum": ["waiting", "off", "housekeeping", "suggestions"]},
+            {"type": "array", "minItems": 1, "items": {"enum": ["waiting", "off", "housekeeping", "suggestions"]}}
+          ]
+        }
       },
       "allOf": [
-        {"if": {"properties": {"panel": {"const": "note"}}}, "then": {"required": ["text"], "propertyNames": {"enum": ["panel", "title", "size", "note", "text"]}}},
-        {"if": {"properties": {"panel": {"const": "goals"}}}, "then": {"propertyNames": {"enum": ["panel", "title", "size", "note", "goals"]}}},
-        {"if": {"properties": {"panel": {"const": "chart"}}}, "then": {"required": ["refs"], "propertyNames": {"enum": ["panel", "title", "size", "note", "refs", "points", "replay", "fan"]}}},
-        {"if": {"properties": {"panel": {"const": "items"}}}, "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "title", "size", "note", "kind", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"]}}},
-        {"if": {"properties": {"panel": {"enum": ["states", "cycle-time"]}}}, "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "title", "size", "note", "kind", "points"]}}},
-        {"if": {"properties": {"panel": {"const": "scope"}}}, "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "title", "size", "note", "goal", "points"]}}},
-        {"if": {"properties": {"panel": {"enum": ["items-graph", "timeline"]}}}, "then": {"propertyNames": {"enum": ["panel", "title", "size", "note", "kinds", "system"]}}},
-        {"if": {"properties": {"panel": {"const": "query"}}}, "then": {"required": ["queries"], "propertyNames": {"enum": ["panel", "title", "size", "note", "form", "queries", "display", "layout"]}}}
+        {
+          "if": {"properties": {"panel": {"const": "note"}}},
+          "then": {"required": ["text"], "propertyNames": {"enum": ["panel", "fit", "note", "size", "text", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "goals"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "goals", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "chart"}}},
+          "then": {
+            "required": ["refs"],
+            "propertyNames": {"enum": ["panel", "fan", "fit", "note", "points", "refs", "replay", "size", "title"]}
+          }
+        },
+        {
+          "if": {"properties": {"panel": {"const": "items"}}},
+          "then": {
+            "required": ["kind"],
+            "propertyNames": {
+              "enum": [
+                "panel",
+                "fit",
+                "followed",
+                "kind",
+                "moved",
+                "moved_since",
+                "moved_until",
+                "n",
+                "note",
+                "search",
+                "size",
+                "state",
+                "through",
+                "title",
+                "where"
+              ]
+            }
+          }
+        },
+        {
+          "if": {"properties": {"panel": {"const": "states"}}},
+          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "cycle-time"}}},
+          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "scope"}}},
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "points", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "items-graph"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "size", "system", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "timeline"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "size", "system", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "query"}}},
+          "then": {
+            "required": ["queries"],
+            "propertyNames": {"enum": ["panel", "display", "fit", "form", "layout", "note", "queries", "size", "title"]}
+          }
+        },
+        {
+          "if": {"properties": {"panel": {"const": "diagram"}}},
+          "then": {"required": ["address"], "propertyNames": {"enum": ["panel", "address", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "ladder"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "agents"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "daemons"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "agent-what"}}},
+          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "agent-definition"}}},
+          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "agent-place"}}},
+          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "agent-runs"}}},
+          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "agent-log"}}},
+          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "kinds"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "states", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "items-by-kind"}}},
+          "then": {"propertyNames": {"enum": ["panel", "finished", "fit", "note", "per_kind", "q", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "kind-now"}}},
+          "then": {
+            "required": ["kind"],
+            "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "size", "states", "title"]}
+          }
+        },
+        {
+          "if": {"properties": {"panel": {"const": "kind-model"}}},
+          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "kind-definition"}}},
+          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-list"}}},
+          "then": {
+            "required": ["kind"],
+            "propertyNames": {"enum": ["panel", "finished", "fit", "kind", "n", "note", "q", "size", "sort", "state", "title"]}
+          }
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-summary"}}},
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-why"}}},
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-path"}}},
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-relations"}}},
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-fields"}}},
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-refused"}}},
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-moves"}}},
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-events"}}},
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "item-changes"}}},
+          "then": {
+            "required": ["item"],
+            "propertyNames": {"enum": ["panel", "fit", "history", "item", "note", "size", "title"]}
+          }
+        },
+        {
+          "if": {"properties": {"panel": {"const": "events"}}},
+          "then": {
+            "propertyNames": {
+              "enum": [
+                "panel",
+                "about",
+                "fit",
+                "from",
+                "item",
+                "machine",
+                "match",
+                "n",
+                "note",
+                "remote",
+                "runs",
+                "size",
+                "title",
+                "to",
+                "window"
+              ]
+            }
+          }
+        },
+        {
+          "if": {"properties": {"panel": {"const": "goal-crossings"}}},
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "goal-decisions"}}},
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "attention"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "show", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "legend"}}},
+          "then": {"required": ["view"], "propertyNames": {"enum": ["panel", "fit", "note", "size", "title", "view"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "feedback-loops"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "system", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "control-loops"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "system", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "quiet-systems"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "goal-runbook"}}},
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "goal-parts"}}},
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "goal-control"}}},
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+        }
       ]
     },
     "duration": {

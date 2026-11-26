@@ -3,7 +3,7 @@ import { GoalControlBox, GoalParts, GoalRunbook } from "./GoalParts";
 import { ItemLink } from "./links";
 import { AppLink, Async, StatusWord } from "./ui";
 import { useApi } from "../hooks/useApi";
-import { fmt, op, stamp } from "../lib/format";
+import { fmt, op } from "../lib/format";
 import { exceptional, goalWord } from "../lib/goals";
 
 /* A goal's detail, in the side panel (details.js openLoopNow), composed of the goal panels' parts (GoalParts.tsx): its
@@ -17,7 +17,6 @@ export function GoalDetail({ name }: { name: string }) {
     <Async state={lp} what="Goal">
       {(lp) => {
         const word = goalWord(lp);
-        const next = (i: number) => lp.crossings[i + 1]?.time ?? lp.until;
         return (
           <>
             <div className="kind">{lp.open_loop ? "Goal, open loop" : "Goal"}</div>

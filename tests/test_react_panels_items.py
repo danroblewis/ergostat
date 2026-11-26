@@ -146,7 +146,7 @@ def test_the_item_page_draws_its_parts_and_opens_its_changes(browser, board):
     assert heading(pg) == ITEM
     for kind in ("item-summary", "item-path", "item-fields", "item-moves", "item-events", "item-changes"):
         pg.locator(f".panel-kind-{kind}").wait_for(timeout=WAIT)
-    pg.wait_for_function("() => document.querySelector('#main').innerText.includes('working')", timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector('#main')?.innerText.includes('working')", timeout=WAIT)
     assert pg.locator(".panel-kind-item-refused").count() == 0                     # nothing refused: not drawn
     assert pg.locator(".panel-kind-item-relations").count() == 0                   # no relations: not drawn
     assert pg.locator(".panel-kind-item-path a", has_text="what every ticket touches").get_attribute("href") == \
@@ -157,6 +157,6 @@ def test_the_item_page_draws_its_parts_and_opens_its_changes(browser, board):
     assert settled(pg) == []
     pg.close()
     pg = opened(browser, f"{board}/item/{quote('ticket/nope', safe='')}")
-    pg.wait_for_function("() => document.querySelector('#main').innerText.includes('Nothing is recorded about this id')",
+    pg.wait_for_function("() => document.querySelector('#main')?.innerText.includes('Nothing is recorded about this id')",
                          timeout=WAIT)
     pg.close()

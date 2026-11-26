@@ -84,7 +84,7 @@ def test_each_record_kind_draws_on_a_declared_dashboard(browser, recorded):  # n
     assert settled(pg, 2500) == []
     link.click()                                                          # a crossing's link: the Record, scoped
     pg.wait_for_url(re.compile(r".*/record\?about="), timeout=WAIT)
-    pg.wait_for_function("() => document.querySelector('#main').innerText.includes('loop.off')", timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector('#main')?.innerText.includes('loop.off')", timeout=WAIT)
     assert f"of goal {GOAL}" in pg.locator(".filters").inner_text()
     assert settled(pg) == []
     pg.close()
@@ -109,7 +109,7 @@ def test_the_record_page_is_an_events_panel_and_filters_by_its_address(browser, 
     pg.close()
 
     pg = opened(browser, url + "/record?item=" + quote("ticket/2", safe=""))           # a scope: its words, its events
-    pg.wait_for_function("() => document.querySelector('.filters').innerText.includes('about ticket/2')", timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector('.filters')?.innerText.includes('about ticket/2')", timeout=WAIT)
     pg.locator(".panel-kind-events tbody tr").first.wait_for(timeout=WAIT)
     assert set(pg.locator(".panel-kind-events tbody tr td:nth-child(3)").all_inner_texts()) == {"ticket/2"}
     assert settled(pg) == []

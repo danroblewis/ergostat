@@ -30,13 +30,32 @@ export function apiUrl(path: string, params: Params = {}): string {
   return `/api/${path}${q ? `?${q}` : ""}`;
 }
 
+/* GETs of the same address under way at once are one request: a page of panels reading the same answer (an agent's
+   sections, an item's) asks the server once. Each caller may still stop waiting (its signal); the request itself goes
+   on for the others, and is forgotten when it ends. */
+const inFlight = new Map<string, Promise<unknown>>();
+
 export async function apiGet<T = any>(path: string, params: Params = {}, signal?: AbortSignal): Promise<T> {
-  const r = await fetch(apiUrl(path, params), { signal });
-  if (!r.ok) {
-    const body = await r.json().catch(() => ({}));
-    throw new ApiError(body.error || `${path}: ${r.status}`, r.status);
+  const url = apiUrl(path, params);
+  let asked = inFlight.get(url) as Promise<T> | undefined;
+  if (!asked) {
+    asked = (async () => {
+      const r = await fetch(url);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new ApiError(body.error || `${path}: ${r.status}`, r.status);
+      }
+      return r.json() as Promise<T>;
+    })().finally(() => inFlight.delete(url));
+    inFlight.set(url, asked);
   }
-  return r.json();
+  if (!signal) return asked;
+  if (signal.aborted) throw new DOMException("aborted", "AbortError");
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(new DOMException("aborted", "AbortError"));
+    signal.addEventListener("abort", stop, { once: true });
+    asked!.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
+  });
 }
 
 /** A write whose arguments are in the query (the owner's answers, proposals). */
