@@ -53,6 +53,12 @@ def _at_exit() -> None:
 atexit.register(_at_exit)
 
 
+def _ms(t: float | None) -> float | None:
+    """A time as the server keeps it, to the nearest millisecond (``_import``): a span's bounds are read this way, so a
+    reading written at exactly a bound is in the span."""
+    return None if t is None else round(float(t) * 1000) / 1000
+
+
 def _q(s: str) -> str:
     return json.dumps(s)
 
@@ -315,6 +321,7 @@ class Victoria:
 
         from .rollup import LOCK
         self._sync_reads()
+        lo, hi = _ms(lo), _ms(hi)
         with open(self.dir / LOCK, "a") as f:
             fcntl.flock(f, fcntl.LOCK_EX)                 # (let go when the file is closed)
             pts = self._export(series, 0).get(series) or []
@@ -423,6 +430,7 @@ class Victoria:
         that, each bucket of the finest of ``WIDTHS`` that keeps them to ``RAW_MOST`` as its last reading."""
         self._sync_reads()
         until = until if until is not None else time.time() + 1
+        since, until = _ms(since), _ms(until)
         if last:
             got: list[tuple[float, float]] = []
             for back in (3600, 86400, 30 * 86400, None):
@@ -449,6 +457,7 @@ class Victoria:
         """``range(s, since, until)`` of each of ``series``, read together (one export for many), every reading one by
         one; a series with none in the span is there, empty."""
         self._sync_reads()
+        since, until = _ms(since), _ms(until)
         out: dict[str, list] = {s: [] for s in series}
         names = sorted(out)
         for i in range(0, len(names), 100):
@@ -471,6 +480,7 @@ class Victoria:
         value)`` for each that has a reading (one at ``until`` in the last). Few readings: worked out from them; many:
         by the server, each bucket a window."""
         self._sync_reads()
+        since, until = _ms(since), _ms(until)
         w = max((until - since) / max(n, 1), 0.001)        # (a bucket of a millisecond at least: the server's finest)
         if self.count(series, since, until) <= self.RAW_MOST:
             acc: dict[int, list] = {}
@@ -498,6 +508,7 @@ class Victoria:
         max, the last reading)`` for each that has a reading (one before ``start`` counted in the first, one past the
         last bucket in the last). Few readings: worked out from them; many: by the server, each bucket a window."""
         self._sync_reads()
+        since, until = _ms(since), _ms(until)
         acc: dict[int, list] = {}
         if self.count(series, since, until) <= self.RAW_MOST:
             for t, v in self._export(series, since, until).get(series) or []:
@@ -530,6 +541,7 @@ class Victoria:
 
     def first(self, series: str, since: float, until: float) -> tuple[float, float] | None:
         self._sync_reads()
+        since, until = _ms(since), _ms(until)
         step = 3600.0
         lo = since
         while lo <= until:
