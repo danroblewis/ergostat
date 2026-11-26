@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { themedAxis, useScheme } from "./theme";
 
 /* A time series chart (uPlot): ``times`` in epoch seconds, each series its values at those times (null: no reading).
    It fills its box's width and redraws on resize; the options are built by the caller for anything beyond a line. */
@@ -33,6 +34,7 @@ const colour = (i: number) => {
 export function Chart({ times, series, height = 180, title, options, className }: ChartProps) {
   const box = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
+  const scheme = useScheme();
 
   useEffect(() => {
     const el = box.current;
@@ -43,8 +45,8 @@ export function Chart({ times, series, height = 180, title, options, className }
       title,
       legend: { show: series.length > 1 },
       series: [{}, ...series.map((s, i) => ({ label: s.label, stroke: s.stroke ?? colour(i), dash: s.dash, fill: s.fill, width: 1.5, spanGaps: false }))],
-      axes: [{}, { size: 50 }],
       ...options,
+      axes: (options?.axes || [{}, { size: 50 }]).map((a) => themedAxis(a)),   // the caller's axes, in the theme
     };
     const data = [times, ...series.map((s) => s.values)] as uPlot.AlignedData;
     plot.current = new uPlot(opts, data, el);
@@ -57,7 +59,7 @@ export function Chart({ times, series, height = 180, title, options, className }
     };
     // a new chart when its shape changes; new data alone is set in place (below)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [series.length, height, title, options]);
+  }, [series.length, height, title, options, scheme]);
 
   useEffect(() => {
     plot.current?.setData([times, ...series.map((s) => s.values)] as uPlot.AlignedData);

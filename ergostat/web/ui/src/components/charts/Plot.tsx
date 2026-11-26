@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { dur, fmt } from "../../lib/format";
+import { themedAxes, useScheme } from "./theme";
 
 /* A panel's plot over time (uPlot), filling its box in both directions (the shared Chart takes a fixed height):
    lines, areas, areas stacked, steps and bars, its Y axis in the panel's unit. */
@@ -42,7 +43,8 @@ export function Plot({ times, series, kind, fill, stacked, step, unit = "", yMin
   const box = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
   const shown = stacked ? stack(series) : series;
-  const shape = JSON.stringify([series.map((s) => s.label), kind, fill, stacked, step, unit, yMin, legend]);
+  const scheme = useScheme();
+  const shape = JSON.stringify([series.map((s) => s.label), kind, fill, stacked, step, unit, yMin, legend, scheme]);
 
   useEffect(() => {
     const el = box.current;
@@ -67,7 +69,7 @@ export function Plot({ times, series, kind, fill, stacked, step, unit = "", yMin
           };
         }),
       ],
-      axes: [{}, { size: 76, values: (_u, vals) => vals.map((v) => valueText(v, unit)) }],
+      axes: themedAxes({}, { size: 76, values: (_u, vals) => vals.map((v) => valueText(v, unit)) }),
     };
     // later series drawn first, so a stacked area's lower bands lie over the upper ones
     const order = stacked ? [...shown].reverse() : shown;
