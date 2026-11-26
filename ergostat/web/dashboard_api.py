@@ -36,7 +36,7 @@ PATHS = {"goals": "loops", "chart": "series", "items": "items", "states": "items
 # each group's kinds of panel → the endpoint that answers them (the path after /api/; a group's own block)
 PATHS.update({})   # agents
 PATHS.update({})   # items
-PATHS.update({})   # record
+PATHS.update({"events": "events", "goal-crossings": "loops/{goal}", "goal-decisions": "loops/{goal}"})   # record
 PATHS.update({})   # attention
 
 

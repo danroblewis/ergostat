@@ -1,19 +1,35 @@
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { AppLink, Button, Check, EventsTable, Filters, Page, type RecordEvent } from "../../components";
+import { AppLink, Button, Check, Filters, Page } from "../../components";
+import { DashboardView, type PanelDef } from "../../components/panels";
 import { useApi } from "../../hooks/useApi";
-import { ApiError } from "../../lib/api";
-import { dur, stamp } from "../../lib/format";
+import { stamp } from "../../lib/format";
 
-/* The Record: the events, newest first, a run of identical ones folded. The filter (match=: an event's type, item or
-   source) and the scope (machine=, item=, about=, from=, to=, remote=, and window=1: only the page's window) stay in
-   the address, so a link opens the same view; a sensor's observations and a goal's crossing link here. The old page's
-   pageRecord (pages.js).
+/* The Record, a dashboard made by ergostat: one events panel (panels/kinds/record.tsx) as tall as what it shows, its
+   parameters the address's. The filter (match=: an event's type, item or source), the scope (machine=, item=, about=,
+   from=, to=, remote=, and window=1: only the page's window) and runs=1 stay in the address, so a link opens the same
+   view; a sensor's observations and a goal's crossing link here. The filter bar, the scope's words, the remotes'
+   links and "Show runs" are the page's own, around the panel.
 
    window=1 is the old page's own "in the window" mode: the shared time window is ``window=`` too, so with window=1 the
    window shown is the default hour, and choosing another window in the header replaces the scope. */
 
 const SCOPE = ["about", "from", "to", "machine", "item", "remote"] as const;
+const EVERY = 3000;          // ms: the record is asked again this often
+
+/** The Record's one panel, from the address's words. */
+function recordPanel(match: string, runs: boolean, inWindow: boolean, scope: Record<string, string>): PanelDef {
+  const { remote, from, to, ...rest } = scope;
+  const named = Object.fromEntries(Object.entries(rest).filter(([, v]) => v));
+  const time = (v: string) => (v && Number.isFinite(+v) ? +v : undefined);
+  return remote
+    ? { panel: "events", id: "record", title: `The events of remote ${remote}, newest first`, size: "full", fit: true, remote, ...(match ? { match } : {}) }
+    : {
+      panel: "events", id: "record", title: "Events, newest first", size: "full", fit: true, ...named,
+      ...(match ? { match } : {}), ...(runs ? { runs: true } : {}), ...(inWindow ? { window: true } : {}),
+      ...(time(from) != null ? { from: time(from) } : {}), ...(time(to) != null ? { to: time(to) } : {}),
+    };
+}
 
 export default function RecordPage() {
   const [q, setQ] = useSearchParams();
@@ -48,6 +64,8 @@ export default function RecordPage() {
     scope.from && `from ${stamp(+scope.from)}`,
     scope.to && `to ${stamp(+scope.to)}`,
   ].filter(Boolean);
+  const key = JSON.stringify([match, runs, inWindow, scope]);
+  const panels = useMemo(() => [recordPanel(match, runs, inWindow, scope)], [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Page title="Record">
@@ -85,49 +103,7 @@ export default function RecordPage() {
           onChange={(ev) => set({ runs: ev.target.checked ? "1" : "" })}
         />
       </Filters>
-      {scope.remote ? (
-        <RemoteEvents remote={scope.remote} match={match} onClear={() => apply("")} />
-      ) : (
-        <LocalEvents match={match} runs={runs} inWindow={inWindow} scope={scope} onClear={() => apply("")} />
-      )}
+      <DashboardView panels={panels} every={EVERY} />
     </Page>
   );
-}
-
-function Nothing({ match, onClear }: { match: string; onClear: () => void }) {
-  if (!match) return <p className="muted">Nothing recorded yet.</p>;
-  return (
-    <p className="muted">
-      {`Nothing matches “${match}” · `}
-      <a href="#" className="clear-filter" onClick={(ev) => { ev.preventDefault(); onClear(); }}>clear</a>
-    </p>
-  );
-}
-
-function LocalEvents({ match, runs, inWindow, scope, onClear }: {
-  match: string; runs: boolean; inWindow: boolean; scope: Record<string, string>; onClear: () => void;
-}) {
-  const { remote: _r, ...asked } = scope;
-  const params = Object.fromEntries(
-    Object.entries({ match, runs: runs ? "1" : "", window: inWindow ? "1" : "", ...asked }).filter(([, v]) => v),
-  );
-  const evs = useApi<RecordEvent[]>("events", { n: 80, ...params }, { every: 3000 });
-  if (evs.data === undefined) return evs.error ? <p className="muted">{evs.error.message}</p> : <p className="muted">Loading…</p>;
-  if (evs.error) return <p className="muted">{evs.error.message}</p>;
-  return evs.data.length ? <EventsTable events={evs.data} fold /> : <Nothing match={match} onClear={onClear} />;
-}
-
-/* a remote's events (SPEC §4c), read there: what failed said, with how old what is shown is; never "nothing" */
-function RemoteEvents({ remote, match, onClear }: { remote: string; match: string; onClear: () => void }) {
-  const r = useApi<any>("events", { remote, n: 80, ...(match ? { type: match } : {}) }, { every: 3000, window: false });
-  if (r.data === undefined && !r.error) return <p className="muted">Loading…</p>;
-  const d = r.error
-    ? { failed: true, code: r.error instanceof ApiError ? r.error.status : undefined, why: r.error.message }
-    : r.data;
-  const old = d.read != null ? `; these were read ${dur(d.age)} ago` : "";
-  const said = d.failed || !d.ok
-    ? <p className="note remote-says bad">{d.code === 503 ? `${remote}: ${d.why}` : `${remote} does not answer (${d.why})${old}`}</p>
-    : d.why ? <p className="note remote-says">{`${d.why}${old}`}</p> : null;
-  const list = d.failed ? null : d.events?.length ? <EventsTable events={d.events} fold /> : d.ok ? <Nothing match={match} onClear={onClear} /> : null;
-  return <>{said}{list}</>;
 }

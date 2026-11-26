@@ -1003,7 +1003,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         if name is not None:
             from ..remote.items import RemoteRefused
             raise RemoteRefused(400, "a remote's events are listed, never opened one by one here")
-        return _remote_events(getattr(m, "spec", None), one("remote"), one("n"), one("type"))
+        return _remote_events(getattr(m, "spec", None), one("remote"), one("n"), one("type") or one("match"))
     if head == "items" and "remote" in q:         # a remote's, asked there within its budget (remote/items.py)
         from ..remote import items as remote_items
         spec = getattr(m, "spec", None)

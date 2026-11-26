@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { crossingsTitle, decisionsTitle, GoalCrossings, GoalDecisions } from "./goalRecord";
 import { AgentLink, ItemLink } from "./links";
 import { AppLink, Async, Button, Dl, Muted, Rich, StatusWord } from "./ui";
 import { useApi } from "../hooks/useApi";
 import { apiPost, isPublic } from "../lib/api";
-import { ago, dur, FLAP_AT, fmt, holdText, op, rateText, shareText, stamp } from "../lib/format";
+import { ago, dur, FLAP_AT, fmt, holdText, op, rateText, shareText } from "../lib/format";
 import { useStatus } from "../state/status";
 import { useTime } from "../state/time";
 import { exceptional, goalBound, goalOffFor, goalWord, performanceWord } from "../lib/goals";
@@ -162,7 +163,6 @@ export function GoalDetail({ name }: { name: string }) {
         const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
         const word = goalWord(lp);
         const remedies = (lp.hints || []).filter((x: any) => x.about === "loop").map((x: any) => op(x.says));
-        const next = (i: number) => lp.crossings[i + 1]?.time ?? lp.until;
         return (
           <>
             <div className="kind">{lp.open_loop ? "Goal, open loop" : "Goal"}</div>
@@ -204,25 +204,14 @@ export function GoalDetail({ name }: { name: string }) {
             {(lp.hints || []).filter((x: any) => x.about !== "loop").map((x: any, i: number) => <p key={`h${i}`}><b>Suggestion: </b>{op(x.says)}</p>)}
             {lp.crossings?.length > 0 && (
               <>
-                <h3>{`Crossings${lp.crossings_total > lp.crossings.length ? `, the newest ${lp.crossings.length} of ${lp.crossings_total}` : ""}`}</h3>
-                <table className="crossings"><tbody>
-                  {lp.crossings.map((e: any, i: number) => [e, next(i)] as const).reverse().map(([e, to]: any) => (
-                    <tr key={e.id}>
-                      <td className="nowrap"><AppLink to={`/record?about=${encodeURIComponent(name)}&from=${e.time}${to != null ? `&to=${to}` : ""}`} title="What the goal, its controller and its valves recorded from this crossing to the next">{stamp(e.time)}</AppLink></td>
-                      <td><StatusWord status={e.type.split(".")[1]} /></td>
-                      <td className="num">{fmt(e.data.value)}</td>
-                      <td className="muted">{e.type === "loop.off" ? e.off_by_words || "" : ""}</td>
-                    </tr>
-                  ))}
-                </tbody></table>
+                <h3>{crossingsTitle(lp)}</h3>
+                <GoalCrossings goal={name} lp={lp} />
               </>
             )}
             {lp.decisions?.count > 0 && (
               <>
-                <h3>{`Decisions (${lp.decisions.count})`}</h3>
-                <div className="note">Alike when only their numbers differ.</div>
-                <table><tbody>{lp.decisions.kinds.slice(0, 6).map(([w, n]: [string, number], i: number) => (
-                  <tr key={i}><td className="num">{n}</td><td>{w.replaceAll("#", "N")}</td></tr>))}</tbody></table>
+                <h3>{decisionsTitle(lp)}</h3>
+                <GoalDecisions goal={name} lp={lp} />
               </>
             )}
             <p><AppLink to={`/diagram?around=loop/${encodeURIComponent(name)}`}>Draw this loop alone</AppLink></p>
