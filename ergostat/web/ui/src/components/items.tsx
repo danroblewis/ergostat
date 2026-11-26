@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ago, dur, fmt, nowS, plural, stamp, timeField } from "../lib/format";
 import { itemHref, kindHref } from "../lib/hrefs";
+import { Segmented } from "./controls";
 import { Markdown } from "./Markdown";
 import { Table } from "./Table";
 
@@ -137,5 +138,15 @@ export function ItemsTable({ items, show, sort, onSort, caption }: {
         ))}
       </Table.Body>
     </Table>
+  );
+}
+
+/** A kind's states as their groups (waiting, working, stopped, done) or each its own. */
+export function StatesChoice({ all, onChange }: { all: boolean; onChange: (all: boolean) => void }) {
+  return (
+    <Segmented label="States" value={all ? "all" : "groups"} onChange={(v) => onChange(v === "all")} options={[
+      { value: "groups", label: "State groups", title: "Each kind's states as waiting, working, stopped and done" },
+      { value: "all", label: "Every state", title: "Each kind's own states" },
+    ]} />
   );
 }

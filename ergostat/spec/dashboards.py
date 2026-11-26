@@ -30,7 +30,28 @@ KINDS = {
     "query": {"form", "queries", "display", "layout"},   # the page's own panel, as a kept draft holds it (GET /api/query)
     "diagram": {"address"},                               # a Diagram address, drawn by the page (it asks GET /api/graph)
 }
+# ---- the agents group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/agents.tsx): KIND → its parameters
+KINDS.update({
+})
+NEEDS_AGENTS: dict[str, str] = {}      # KIND → the parameter it cannot do without
+
+# ---- the items group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/items.tsx): KIND → its parameters
+KINDS.update({
+})
+NEEDS_ITEMS: dict[str, str] = {}      # KIND → the parameter it cannot do without
+
+# ---- the record group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/record.tsx): KIND → its parameters
+KINDS.update({
+})
+NEEDS_RECORD: dict[str, str] = {}      # KIND → the parameter it cannot do without
+
+# ---- the attention group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/attention.tsx): KIND → its parameters
+KINDS.update({
+})
+NEEDS_ATTENTION: dict[str, str] = {}      # KIND → the parameter it cannot do without
+
 NEEDS = {"query": "queries", "diagram": "address", "chart": "refs", "states": "kind", "cycle-time": "kind", "scope": "goal", "items": "kind", "note": "text"}
+NEEDS.update({**NEEDS_AGENTS, **NEEDS_ITEMS, **NEEDS_RECORD, **NEEDS_ATTENTION})
 TEXTS = {"text", "address", "moved", "moved_since", "moved_until", "through", "followed", "search"}
 LISTS = {"refs", "goals", "kinds", "state", "where"}     # a list, or one string (comma-separated as the address writes it)
 

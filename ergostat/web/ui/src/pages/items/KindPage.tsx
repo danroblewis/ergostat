@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Async, Button, Code, Empty, ErrorNote, Filters, Fold, ItemsTable, KindBar, KindStates, Loading, Page, Select, StatusWord, hiddenStates } from "../../components";
+import { Async, Code, Empty, ErrorNote, Filters, FinishedNote, FinishedToggle, Fold, ItemsTable, KindBar, KindStates, Loading, Page, PAGE_SIZES, Pager, SearchBox, StatesChoice, StatusWord, hiddenStates } from "../../components";
 import { useApi } from "../../hooks/useApi";
 import { plural } from "../../lib/format";
 
@@ -9,7 +8,7 @@ import { plural } from "../../lib/format";
    goals and loops it is in), its definition, then its items, a page at a time, searched and sorted by the server.
    Every choice is in the address: state=, q=, finished=show, sort=KIND:field, page=KIND:N, size=, states=all. */
 
-const SIZES = [25, 100, 300];
+const SIZES = PAGE_SIZES;
 
 export default function KindPage() {
   const { kind = "" } = useParams();
@@ -40,8 +39,6 @@ export default function KindPage() {
   const flow = useApi<any>("items-flow", { kind, points: 60 }, { every: 30000 });
 
   const k = list.data?.kinds?.find((x: any) => x.name === kind);
-  const [text, setText] = useState(needle);
-  useEffect(() => setText(needle), [kind]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="page kind-page">
@@ -55,10 +52,7 @@ export default function KindPage() {
 
       <section className="kind-sect">
         <h2>Now</h2>
-        <span className="seg" role="group" aria-label="States">
-          <button type="button" className={!all ? "on" : ""} aria-pressed={!all} onClick={() => set({ states: null }, true)}>State groups</button>
-          <button type="button" className={all ? "on" : ""} aria-pressed={all} onClick={() => set({ states: "all" }, true)}>Every state</button>
-        </span>
+        <StatesChoice all={all} onChange={(v) => set({ states: v ? "all" : null }, true)} />
         <KindStates flow={flow.data} fp={fp.data} all={all} />
         <a className="pm-link" href={`/diagram?view=process&kind=${encodeURIComponent(kind)}&mode=states`}
           title="Its process map: how many are in each state now, and how they moved">process map</a>
@@ -75,20 +69,13 @@ export default function KindPage() {
 
       <h2 className="kind-sect">Items</h2>
       <Filters>
-        <input type="search" placeholder="Search ids and fields" aria-label="Search" value={text}
-          onChange={(ev) => { setText(ev.target.value); set({ q: ev.target.value.trim() || null }); }} />
+        <SearchBox value={needle} live placeholder="Search ids and fields" onSearch={(w) => set({ q: w || null })} />
         {needle && list.data && (
           <span className="muted search-said" aria-live="polite">
             {list.data.total} match{list.data.total === 1 ? "" : "es"}, {list.data.finished ?? 0} finished
           </span>
         )}
-        <span className="fin-choice">
-          <span className="muted">Finished items:</span>
-          <span className="seg fin-seg" role="group" aria-label="Finished items">
-            <button type="button" className={!showFin ? "on" : ""} aria-pressed={!showFin} onClick={() => set({ finished: null })}>Hidden</button>
-            <button type="button" className={showFin ? "on" : ""} aria-pressed={showFin} onClick={() => set({ finished: "show" })}>Shown</button>
-          </span>
-        </span>
+        <FinishedToggle shown={showFin} onChange={(v) => set({ finished: v ? "show" : null })} />
         {state && (
           <span className="set-chip">
             state {state}{" "}
@@ -103,7 +90,7 @@ export default function KindPage() {
             const left = hiddenStates(k).filter((s) => k?.counts?.[s]);
             const nLeft = left.reduce((a, s) => a + k.counts[s], 0);
             const pager = (at: "top" | "foot") => (
-              <Pager at={at} d={d} shown={its.length} size={size} pg={pg} what={needle ? "matches" : state || ""}
+              <Pager at={at} total={d.total} offset={d.offset} cut={d.cut} shown={its.length} size={size} what={needle ? "matches" : state || ""}
                 onPage={(n) => set({ page: n > 1 ? `${kind}:${n}` : null })}
                 onSize={(n) => set({ size: n === 25 ? null : String(n) })} />
             );
@@ -119,37 +106,12 @@ export default function KindPage() {
                 ) : (
                   <Empty>{needle ? "Nothing matches." : state ? `No ${kind} items in ${state}.` : "No items to show."}</Empty>
                 )}
-                {nLeft > 0 && !showFin && !state && !needle && (
-                  <p className="note finished-note">
-                    {nLeft} finished ({left.join(", ")}) not shown ·{" "}
-                    <a href="#" className="finished-flip" onClick={(ev) => { ev.preventDefault(); set({ finished: "show" }); }}>show</a>
-                  </p>
-                )}
+                {!showFin && !state && !needle && <FinishedNote n={nLeft} states={left} onShow={() => set({ finished: "show" })} />}
               </section>
             );
           }}
         </Async>
       </div>
-    </div>
-  );
-}
-
-function Pager({ at, d, shown, size, pg, what, onPage, onSize }: {
-  at: "top" | "foot"; d: any; shown: number; size: number; pg: number; what: string;
-  onPage: (n: number) => void; onSize: (n: number) => void;
-}) {
-  const reach = d.cut ? Math.min(d.total, d.cut) : d.total;
-  const last = Math.max(1, Math.ceil(reach / size));
-  return (
-    <div className={`pager ${at}`} role="navigation" aria-label={`Pages, ${at}`}>
-      <span className="pager-says">
-        {d.offset + 1}-{d.offset + shown} of {d.total}{what ? ` ${what}` : ""}
-        {d.cut && <span className="muted">, sorted among the newest {d.cut}</span>}
-      </span>
-      {" · "}<Button variant="ghost" disabled={pg <= 1} onClick={() => onPage(pg - 1)}>Prev</Button>
-      {" · "}<Button variant="ghost" disabled={pg >= last} onClick={() => onPage(pg + 1)}>Next</Button>{" "}
-      <Select aria-label="Rows a page" value={String(size)} onChange={(ev) => onSize(+ev.target.value)}
-        options={SIZES.map((x) => ({ value: String(x), label: `${x} a page` }))} />
     </div>
   );
 }

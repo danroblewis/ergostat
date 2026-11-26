@@ -32,6 +32,11 @@ MOMENTS = 8           # moments kept at once
 JOBS_KEPT = 256       # finished panels kept at once (the oldest go first)
 PATHS = {"goals": "loops", "chart": "series", "items": "items", "states": "items-flow", "cycle-time": "items-flow",
          "scope": "loop-scope", "items-graph": "items-graph", "timeline": "items-graph"}
+# each group's kinds of panel → the endpoint that answers them (the path after /api/; a group's own block)
+PATHS.update({})   # agents
+PATHS.update({})   # items
+PATHS.update({})   # record
+PATHS.update({})   # attention
 
 
 def default(spec) -> Dashboard:

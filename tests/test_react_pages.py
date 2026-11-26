@@ -271,7 +271,8 @@ def declared(tmp_path):
 def test_a_declared_dashboard_draws_a_panel_of_every_kind(browser, declared):
     _, url = declared
     pg = opened(browser, url + "/dashboard?name=ops")
-    assert heading(pg).startswith("Ops board")
+    heading(pg)
+    pg.wait_for_function("() => document.querySelector('#main h1').textContent.startsWith('Ops board')", timeout=WAIT)
     for kind in ("note", "goals", "chart", "states", "cycle-time", "items"):
         pg.locator(f".panel.panel-kind-{kind}").wait_for(timeout=WAIT)
     assert "for" in pg.locator(".panel-kind-note strong").inner_text()

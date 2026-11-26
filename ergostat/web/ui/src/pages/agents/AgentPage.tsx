@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
-import { AgentLink, AppLink, Code, Dl, ErrorNote, Loading, Markdown, Muted, Page, Rich, Rung, StatusWord } from "../../components";
+import { AgentLink, AppLink, Code, Dl, ErrorNote, Loading, Markdown, Meta, Muted, Page, Rich, Rung, StatusWord } from "../../components";
 import { useApi } from "../../hooks/useApi";
 import { ApiError } from "../../lib/api";
 import { ago, bytesText, costText, cpuText, op, tokensText } from "../../lib/format";
@@ -222,18 +222,17 @@ export default function AgentPage() {
   const a = ag.data, sp = a.spec, r = a.rung ?? a.agent?.rung, files = fs.data?.files || [];
   const jump = (id: string, text: string) => <a href={`#${id}`} onClick={(ev) => { ev.preventDefault(); document.getElementById(id)?.scrollIntoView(); }}>{text}</a>;
   const pl = a.place || {}, w = pl.working;
-  const pair = (label: string, value: ReactNode) => (value == null || value === "" || value === false ? null : <span key={label}><span>{label}</span>{value}</span>);
   return (
     <Page title={name} className="agent-page">
-      <div className="meta">
-        {pair("Kind", <span title={sp?.rung_why || ""}><Rung rung={r} retired={r == null || r > 5} /></span>)}
-        {pair("Machine", sp?.machine ? `${sp.machine.name}${sp.machine.model ? `, ${sp.machine.model}` : ""}` : null)}
-        {pair("System", pl.system)}
-        {pair("Serves", loops.data ? <Serves a={a} sp={sp} loops={loops.data} /> : null)}
-        {pair("Engaged", engagedText(a))}
-        {pair("Mode", pl.mode)}
-        {pair("Defined at", sp?.where ? jump("its-definition", `${sp.where.file}:${sp.where.line}`) : sp?.implied ? jump("its-definition", "not written") : null)}
-      </div>
+      <Meta rows={[
+        ["Kind", <span title={sp?.rung_why || ""}><Rung rung={r} retired={r == null || r > 5} /></span>],
+        ["Machine", sp?.machine ? `${sp.machine.name}${sp.machine.model ? `, ${sp.machine.model}` : ""}` : null],
+        ["System", pl.system],
+        ["Serves", loops.data ? <Serves a={a} sp={sp} loops={loops.data} /> : null],
+        ["Engaged", engagedText(a)],
+        ["Mode", pl.mode],
+        ["Defined at", sp?.where ? jump("its-definition", `${sp.where.file}:${sp.where.line}`) : sp?.implied ? jump("its-definition", "not written") : null],
+      ]} />
       {ag.error && <ErrorNote error={ag.error} />}
       {a.agent?.description && <p className="muted">{noSpec(a.agent.description)}</p>}
       <section id="what-it-is"><h2>{RUNG_SECTION[r] || "Its law"}</h2><WhatItIs a={a} sp={sp} files={files} /></section>

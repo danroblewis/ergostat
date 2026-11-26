@@ -1,6 +1,5 @@
-import { useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { Async, Empty, Filters, FlowChart, ItemsTable, Note, Page, hiddenStates } from "../../components";
+import { Async, Empty, Filters, FinishedNote, FinishedToggle, FlowChart, ItemsTable, Note, Page, SearchBox, StatesChoice, SystemGroup, hiddenStates } from "../../components";
 import { plural } from "../../lib/format";
 import { kindHref } from "../../lib/hrefs";
 import { useApi } from "../../hooks/useApi";
@@ -26,20 +25,6 @@ export default function ItemsPage() {
 const perHour = (x: number | null | undefined) =>
   x == null ? "–" : x >= 10 ? String(Math.round(x)) : x >= 1 ? x.toFixed(1) : x ? x.toFixed(2) : "0";
 
-function Search({ value, onSearch, live }: { value?: string; onSearch: (w: string) => void; live?: boolean }) {
-  const [text, setText] = useState(value ?? "");
-  return (
-    <input
-      type="search"
-      placeholder="Search kinds, ids and fields"
-      aria-label="Search"
-      value={text}
-      onChange={(ev) => { setText(ev.target.value); if (live) onSearch(ev.target.value); }}
-      onKeyDown={(ev) => { if (ev.key === "Enter") onSearch(text.trim()); }}
-    />
-  );
-}
-
 /** The overview: under each system, a card per kind with its counts, rates and its states over the window. */
 function Overview() {
   const [q, setQ] = useSearchParams();
@@ -50,13 +35,8 @@ function Overview() {
   return (
     <Page title="Items">
       <Filters>
-        <Search onSearch={(w) => w && navigate(`/items?q=${encodeURIComponent(w)}`)} />
-        <span className="rg-viewbar">
-          <span className="seg" role="group" aria-label="States">
-            <button type="button" className={!all ? "on" : ""} aria-pressed={!all} title="Each kind's states as waiting, working, stopped and done" onClick={() => pick(false)}>State groups</button>
-            <button type="button" className={all ? "on" : ""} aria-pressed={all} title="Each kind's own states" onClick={() => pick(true)}>Every state</button>
-          </span>
-        </span>
+        <SearchBox placeholder="Search kinds, ids and fields" onSearch={(w) => w && navigate(`/items?q=${encodeURIComponent(w)}`)} />
+        <span className="rg-viewbar"><StatesChoice all={all} onChange={pick} /></span>
         <Link to="/items?view=list" className="small">every kind's list</Link>
       </Filters>
       <div className="kind-overview">
@@ -71,16 +51,11 @@ function Overview() {
                   if (!ks.length) return null;
                   const n = ks.reduce((a: number, k: any) => a + (k.total || 0), 0);
                   return (
-                    <section key={g.name} className="sys-group" data-system={g.name}>
-                      <h2 className="sys-head">
-                        {g.name}
-                        <span className="muted"> {plural(n, "item")}, {plural(ks.length, "kind")}</span>
-                        {g.description && <span className="muted sys-desc">{g.description}</span>}
-                      </h2>
+                    <SystemGroup key={g.name} name={g.name} count={`${plural(n, "item")}, ${plural(ks.length, "kind")}`} description={g.description}>
                       <div className="kind-cards">
                         {ks.map((k: any) => <KindCard key={k.name} k={k} d={d} all={all} />)}
                       </div>
-                    </section>
+                    </SystemGroup>
                   );
                 })}
                 {quiet.length > 0 && (
@@ -144,14 +119,8 @@ function EveryKind() {
   return (
     <Page title="Items">
       <Filters>
-        <Search value={needle} live onSearch={(w) => set("q", w.trim() || null)} />
-        <span className="fin-choice">
-          <span className="muted">Finished items:</span>
-          <span className="seg fin-seg" role="group" aria-label="Finished items">
-            <button type="button" className={!showFin ? "on" : ""} aria-pressed={!showFin} onClick={() => set("finished", null)}>Hidden</button>
-            <button type="button" className={showFin ? "on" : ""} aria-pressed={showFin} onClick={() => set("finished", "show")}>Shown</button>
-          </span>
-        </span>
+        <SearchBox value={needle} live placeholder="Search kinds, ids and fields" onSearch={(w) => set("q", w || null)} />
+        <FinishedToggle shown={showFin} onChange={(v) => set("finished", v ? "show" : null)} />
         <Link to="/items" className="small">the overview</Link>
       </Filters>
       <div className="item-systems">
@@ -190,23 +159,13 @@ function EveryKindBody({ d, needle, showFin }: { d: any; needle: string; showFin
                 <span className="muted"> {d.matched?.[name] ?? its.length}</span>
               </h3>
               {its.length > 0 && <ItemsTable items={its} show={k?.show || []} caption={`${name || "No kind"} items`} />}
-              {nLeft > 0 && !showFin && !needle && <p className="note finished-note">{nLeft} finished ({left.join(", ")}) not shown</p>}
+              {!showFin && !needle && <FinishedNote n={nLeft} states={left} />}
             </div>
           );
         }).filter(Boolean);
         if (!parts.length) return null;
-        return (
-          <section key={g.name} className="sys-group" data-system={g.name}>
-            <h2 className="sys-head">
-              {g.name}
-              <span className="muted"> {plural(g.kinds.length, "kind")}</span>
-              {g.description && <span className="muted sys-desc">{g.description}</span>}
-            </h2>
-            {parts}
-          </section>
-        );
+        return <SystemGroup key={g.name} name={g.name} count={plural(g.kinds.length, "kind")} description={g.description}>{parts}</SystemGroup>;
       })}
     </>
   );
 }
-

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { PanelFrame } from "../charts/PanelView";
-import { asQueryPanel, KINDS } from "./kinds";
+import { asQueryPanel, KINDS } from "./kinds/index";
 import type { PanelDef } from "./types";
 
 /* One panel of any kind, framed: what a dashboard, or any page, draws for a declaration. A kind it does not know is

@@ -10,8 +10,9 @@ export {
 } from "./ui";
 export { AgentLink, ItemLink, KindLink } from "./links";
 export { EventsTable, EventDetail, useShowEvent, changeOf, type RecordEvent } from "./events";
-export { KindBar, ItemsTable, FieldValue, isShort, hiddenStates } from "./items";
+export { KindBar, ItemsTable, FieldValue, StatesChoice, isShort, hiddenStates } from "./items";
 export { GoalCells, type GoalColumn } from "./goals";
 export { Chart, Plot, PanelView, PanelFrame, QueryPanel, usePanelResults, Spark, FlowChart, KindStates, valueText, type Series, type PlotSeries } from "./charts";
 export { GoalDetail } from "./GoalDetail";
 export { GoalsTable, ALL_COLUMNS, PANEL_COLUMNS } from "./GoalsTable";
+export { Segmented, SearchBox, Pager, PAGE_SIZES, FinishedToggle, FinishedNote, Meta, SystemGroup } from "./controls";

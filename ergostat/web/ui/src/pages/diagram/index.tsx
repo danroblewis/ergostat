@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Async, Fields, Menu, Tabs, useDetail } from "../../components";
+import { Async, Fields, Menu, Segmented, Tabs, useDetail } from "../../components";
 import { DiagramCanvas, graphOf, usePartPanels, type Acts, type ViewKey } from "../../components/diagram";
 import { useApi } from "../../hooks/useApi";
 import { useStatus } from "../../state/status";
@@ -116,16 +116,11 @@ export default function DiagramPage() {
           {view === "process" && (
             <>
               <span className="sep" />
-              <span className="seg" role="group" aria-label="Nodes">
-                {(["states", "events"] as const).map((b) => (
-                  <button key={b} type="button" className={(q.get("by") || g?.by) === b ? "on" : ""} onClick={() => go({ by: b })}>{b === "states" ? "States" : "Events"}</button>
-                ))}
-              </span>
+              <Segmented label="Nodes" value={q.get("by") || g?.by || ""} onChange={(b) => go({ by: b })}
+                options={[{ value: "states", label: "States" }, { value: "events", label: "Events" }]} />
               <span className="sep" />
-              <span className="seg" role="group" aria-label="Numbers">
-                <button type="button" className={show !== "times" ? "on" : ""} onClick={() => go({ show: "" })}>Counts</button>
-                <button type="button" className={show === "times" ? "on" : ""} onClick={() => go({ show: "times" })}>Times</button>
-              </span>
+              <Segmented label="Numbers" value={show === "times" ? "times" : ""} onChange={(v) => go({ show: v })}
+                options={[{ value: "", label: "Counts" }, { value: "times", label: "Times" }]} />
               <span className="sep" />
               <input type="range" min={0} max={100} step={5} className="pm-paths" aria-label="Paths shown" defaultValue={q.get("paths") || "0"}
                 title="Hide lines rarer than this share of their kind's most frequent"

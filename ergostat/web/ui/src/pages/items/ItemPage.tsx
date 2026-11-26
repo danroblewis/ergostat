@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Async, Empty, EventsTable, FieldValue, Loading, Note, Page, Table, isShort, useShowEvent } from "../../components";
+import { Async, Empty, EventsTable, FieldValue, Loading, Meta, Note, Page, Table, isShort, useShowEvent } from "../../components";
 import { itemHref, kindHref } from "../../lib/hrefs";
 import { useApi } from "../../hooks/useApi";
 import { ago, dur, nowS, stamp } from "../../lib/format";
@@ -43,7 +43,6 @@ function ItemBody({ d, why, changesOf, setChangesOf }: {
     const e = (d.record || []).find((x: any) => x.id === eid);
     return e ? <a href="#" className="plain" title={`event ${eid}`} onClick={(ev) => { ev.preventDefault(); showEvent(e); }}>{type}</a> : <span>{type}</span>;
   };
-  const pair = (label: string, value: ReactNode) => <span key={label}><span>{label}</span>{value}</span>;
 
   // the path it took, arrow by arrow, to where it is now; the other states apart (its endings double-bordered)
   const fin = new Set<string>(k?.final || []);
@@ -87,16 +86,15 @@ function ItemBody({ d, why, changesOf, setChangesOf }: {
         </div>
       )}
 
-      <div className="meta">
-        {pair("Kind", k ? <Link to={kindHref(k.name)}>{k.name}</Link> : <span className="muted">none (nothing under items: matches this id)</span>)}
-        {d.state && pair("State", <span><b>{d.state}</b> for {dur(now - d.entered)}</span>)}
-        {d.eta?.unscheduled
-          ? pair("Expected done", <span data-eta="">not scheduled: {d.eta.said || "it cannot move"}</span>)
-          : d.eta?.p50 && pair("Expected done", <span data-eta=""><b>{stamp(d.eta.p50)}</b>{d.eta.p90 ? <span className="muted"> (90% by {stamp(d.eta.p90)})</span> : null}</span>)}
-        {pair("Events", String(d.events))}
-        {pair("First", ago(d.first))}
-        {pair("Latest", <span>{d.latest}<span className="muted">, {ago(d.last)}</span></span>)}
-      </div>
+      <Meta rows={[
+        ["Kind", k ? <Link to={kindHref(k.name)}>{k.name}</Link> : <span className="muted">none (nothing under items: matches this id)</span>],
+        ["State", d.state && <span><b>{d.state}</b> for {dur(now - d.entered)}</span>],
+        ["Expected done", d.eta?.unscheduled ? <span data-eta="">not scheduled: {d.eta.said || "it cannot move"}</span>
+          : d.eta?.p50 && <span data-eta=""><b>{stamp(d.eta.p50)}</b>{d.eta.p90 ? <span className="muted"> (90% by {stamp(d.eta.p90)})</span> : null}</span>],
+        ["Events", String(d.events)],
+        ["First", ago(d.first)],
+        ["Latest", <span>{d.latest}<span className="muted">, {ago(d.last)}</span></span>],
+      ]} />
 
       {k && k.states?.length > 0 && (
         <>

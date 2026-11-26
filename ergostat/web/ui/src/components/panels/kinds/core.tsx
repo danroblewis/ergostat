@@ -1,24 +1,24 @@
 import { lazy, Suspense, useMemo } from "react";
-import { dur } from "../../lib/format";
-import type { Panel } from "../../lib/query";
-import { Chart } from "../charts/Chart";
-import { KindStates } from "../charts/KindStates";
-import { PanelFrame } from "../charts/PanelView";
-import { Plot } from "../charts/Plot";
-import { QueryPanel } from "../charts/QueryPanel";
-import { useDetail } from "../Detail";
-import { GoalDetail } from "../GoalDetail";
-import { PANEL_COLUMNS, GoalsTable } from "../GoalsTable";
-import { ItemsTable } from "../items";
-import { Markdown } from "../Markdown";
-import { Async, Loading } from "../ui";
-import type { PanelBodyProps, PanelDef, PanelKind } from "./types";
-import { usePanelApi } from "./usePanelApi";
+import { dur } from "../../../lib/format";
+import type { Panel } from "../../../lib/query";
+import { Chart } from "../../charts/Chart";
+import { KindStates } from "../../charts/KindStates";
+import { PanelFrame } from "../../charts/PanelView";
+import { Plot } from "../../charts/Plot";
+import { QueryPanel } from "../../charts/QueryPanel";
+import { useDetail } from "../../Detail";
+import { GoalDetail } from "../../GoalDetail";
+import { PANEL_COLUMNS, GoalsTable } from "../../GoalsTable";
+import { ItemsTable } from "../../items";
+import { Markdown } from "../../Markdown";
+import { Async, Loading } from "../../ui";
+import type { PanelBodyProps, PanelDef, PanelKind } from "../types";
+import { usePanelApi } from "../usePanelApi";
 
 /* Each kind of panel a dashboard may hold, by the name the model's `dashboards:` uses (spec/dashboards.py KINDS), each
    asking its own endpoint with exactly the parameters the panel declares. */
 
-const DiagramPanel = lazy(() => import("../diagram/DiagramPanel"));   // only when a dashboard has one: it brings ELK
+const DiagramPanel = lazy(() => import("../../diagram/DiagramPanel"));   // only when a dashboard has one: it brings ELK
 
 /** The parameters a panel sends its endpoint: all but its words, its size and the page's own id. */
 export function paramsOf(def: PanelDef, ...keys: string[]): Record<string, unknown> {
@@ -112,7 +112,7 @@ function NotDrawn({ def }: PanelBodyProps) {
 }
 
 /** Every kind of panel, by its name in `dashboards:`. */
-export const KINDS: Record<string, PanelKind> = {
+export const CORE: Record<string, PanelKind> = {
   query: { label: "Query (PromQL or SQL)", needs: "queries", Frame: ({ def, every, refreshKey, tools }) => (
     <QueryPanel panel={asQueryPanel(def)} every={every} refreshKey={refreshKey} tools={tools} />) },
   diagram: { label: "Diagram", needs: "address", Frame: ({ def, tools }) => (
