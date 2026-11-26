@@ -1,4 +1,95 @@
-import type { PanelKind } from "../types";
+import { useCallback } from "react";
+import { Attention, ControlLoops, FeedbackLoops, feedbackCount, Legend, LEGEND_TYPE, QuietSystems, type AttentionPart } from "../../Attention";
+import { useDetail } from "../../Detail";
+import { GoalDetail } from "../../GoalDetail";
+import { GoalControl, GoalParts, GoalRunbook } from "../../GoalParts";
+import { Async } from "../../ui";
+import { useStatus } from "../../../state/status";
+import type { PanelBodyProps, PanelKind } from "../types";
+import { usePanelApi } from "../usePanelApi";
+import { paramsOf } from "./core";
 
-/* The attention group's kinds of panel (each also declared in ergostat/spec/dashboards.py, its attention block). */
-export const ATTENTION: Record<string, PanelKind> = {};
+/* The attention group's kinds of panel (each also declared in ergostat/spec/dashboards.py, its attention block): what
+   asks for the owner, how to read a drawing, the loops a view draws, the quiet systems, and one goal's runbook, parts
+   and control loop. A goal named in any of them opens its detail beside the page, as the goals panel's rows do. */
+
+const listOf = (v: unknown): string[] | null =>
+  Array.isArray(v) ? v.map(String) : typeof v === "string" && v ? v.split(",").map((x) => x.trim()).filter(Boolean) : null;
+
+function useOpenGoal() {
+  const detail = useDetail();
+  return useCallback((name: string) => detail.open(`goal:${name}`, <GoalDetail key={name} name={name} />), [detail]);
+}
+
+/** /api/status's attention, as the app already asks it every 5 s (state/status.tsx): never asked twice. */
+function AttentionBody({ def }: PanelBodyProps) {
+  const { status } = useStatus();
+  const onGoal = useOpenGoal();
+  return (
+    <div className="panel-table">
+      <Attention attention={status?.attention || []} status={status} show={listOf(def.show) as AttentionPart[] | null} onGoal={onGoal} />
+    </div>
+  );
+}
+
+function LegendBody({ def }: PanelBodyProps) {
+  return (
+    <div className="panel-table">
+      <p className="muted small">How to read the {LEGEND_TYPE[def.view] || def.view}.</p>
+      <Legend view={def.view} />
+    </div>
+  );
+}
+
+function FeedbackLoopsBody({ def, every, refreshKey }: PanelBodyProps) {
+  const g = usePanelApi<any>("graph", { view: "dynamics", ...paramsOf(def, "system") }, every, refreshKey);
+  return (
+    <div className="panel-table">
+      <Async state={g}>{(d) => <><p className="muted small">{feedbackCount(d)}</p><FeedbackLoops g={d} /></>}</Async>
+    </div>
+  );
+}
+
+function ControlLoopsBody({ def, every, refreshKey }: PanelBodyProps) {
+  const g = usePanelApi<any>("graph", { view: "blocks", ...paramsOf(def, "system") }, every, refreshKey);
+  const onGoal = useOpenGoal();
+  return <div className="panel-table"><Async state={g}>{(d) => <ControlLoops g={d} onGoal={onGoal} />}</Async></div>;
+}
+
+function QuietSystemsBody({ every, refreshKey }: PanelBodyProps) {
+  const systems = usePanelApi<any[]>("systems", {}, every, refreshKey);
+  return (
+    <div className="panel-table">
+      <Async state={systems}>{(d) => <QuietSystems systems={d} none={<p className="muted">No system is quiet now.</p>} />}</Async>
+    </div>
+  );
+}
+
+const goalPath = (def: PanelBodyProps["def"]) => (def.goal ? `loops/${encodeURIComponent(def.goal)}` : null);
+
+function GoalRunbookBody({ def, every, refreshKey }: PanelBodyProps) {
+  const lp = usePanelApi<any>(goalPath(def), {}, every, refreshKey);
+  return <div className="panel-table"><Async state={lp} what="Goal">{(d) => <GoalRunbook name={def.goal} lp={d} />}</Async></div>;
+}
+
+function GoalPartsBody({ def, every, refreshKey }: PanelBodyProps) {
+  const lp = usePanelApi<any>(goalPath(def), {}, every, refreshKey);
+  return <div className="panel-table"><Async state={lp} what="Goal">{(d) => <GoalParts name={def.goal} lp={d} />}</Async></div>;
+}
+
+function GoalControlBody({ def, every, refreshKey }: PanelBodyProps) {
+  const ctl = usePanelApi<any>(def.goal ? "loop-control" : null, paramsOf(def, "goal"), every, refreshKey);
+  const { status } = useStatus();
+  return <div className="panel-table"><GoalControl ctl={ctl} off={status?.loops?.[def.goal]?.off_share} /></div>;
+}
+
+export const ATTENTION: Record<string, PanelKind> = {
+  attention: { label: "What asks for you", Body: AttentionBody },
+  legend: { label: "How to read a view", needs: "view", Body: LegendBody },
+  "feedback-loops": { label: "Feedback loops", Body: FeedbackLoopsBody },
+  "control-loops": { label: "Control loops", Body: ControlLoopsBody },
+  "quiet-systems": { label: "Quiet systems", Body: QuietSystemsBody },
+  "goal-runbook": { label: "A goal's runbook", needs: "goal", Body: GoalRunbookBody },
+  "goal-parts": { label: "A goal's parts along its loop", needs: "goal", Body: GoalPartsBody },
+  "goal-control": { label: "A goal's control loop", needs: "goal", Body: GoalControlBody },
+};
