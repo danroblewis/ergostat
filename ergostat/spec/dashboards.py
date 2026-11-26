@@ -13,13 +13,17 @@ from .load import Map, Problem
 
 MOST = 24                          # panels in one dashboard (docs/proposals/dashboard.md, section 6, rule 5)
 SIZES = ("s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall")
-DASHBOARD_KEYS = {"title", "description", "window", "panels"}
-PANEL_KEYS = {"panel", "title", "size", "note", "fit"}     # fit: as tall as what it shows (a page made of panels)
+DASHBOARD_KEYS = {"title", "description", "window", "panels", "nav", "page"}
+# the web page's own pages a dashboard may be drawn in place of (``page:``) → the address's word it binds, if any: a
+# panel's parameter written ``$WORD`` (``agent: $agent``) takes it from the page's address (/agent/NAME)
+PAGES = {"goals": None, "agents": None, "items": None, "record": None, "agent": "agent", "item": "item", "kind": "kind"}
+PANEL_KEYS = {"panel", "title", "size", "note", "fit", "quiet"}   # fit: as tall as what it shows (a page made of panels);
+#                                                  quiet: not drawn while it has nothing to say (an item's part, quiet systems)
 ITEM_SET = {"kind", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"}
 # each kind of panel → the parameters it takes (those of its endpoint, by the same names)
 KINDS = {
     "note": {"text"},
-    "goals": {"goals"},                                   # the loops rows (GET /api/loops), these goals or all
+    "goals": {"goals", "columns"},                        # the loops rows (GET /api/loops), these goals or all; columns
     "chart": {"refs", "points", "replay", "fan"},         # GET /api/series
     "items": ITEM_SET,                                    # GET /api/items
     "states": {"kind", "points"},                         # GET /api/items-flow
@@ -145,8 +149,11 @@ NEEDS.update({**NEEDS_AGENTS, **NEEDS_ITEMS, **NEEDS_RECORD, **NEEDS_ATTENTION})
 CHECKS = {**CHECKS_ITEMS}      # KIND → {parameter: its check}: a group's kinds' own parameters
 TEXTS = {"text", "address", "moved", "moved_since", "moved_until", "through", "followed", "search"}
 LISTS = {"refs", "goals", "kinds", "state", "where"}     # a list, or one string (comma-separated as the address writes it)
-LISTS |= LISTS_ATTENTION
-CHOICES: dict[str, tuple] = {**CHOICES_ATTENTION}       # a parameter whose every word is one of these
+LISTS |= LISTS_ATTENTION | {"columns"}
+# a goals panel's columns (web/ui/src/components/GoalsTable.tsx ALL_COLUMNS), or all of them
+GOAL_COLUMNS = ("goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted",
+                "card", "all")
+CHOICES: dict[str, tuple] = {**CHOICES_ATTENTION, "columns": GOAL_COLUMNS}   # a parameter whose every word is one of these
 
 
 def take(doc, data: Map, defaults: dict) -> None:
@@ -206,6 +213,20 @@ def check(c, spec, exists) -> None:
                 c.err(f"{what}.window: longer than keep: ({spec.keep / 86400:g}d): the record holds no more", m.at("window"),
                       "bad-dashboard")
                 window = None
+        nav = _nav(c, m, what)
+        page = m.get("page")
+        if page is not None and (not isinstance(page, str) or page not in PAGES):
+            c.err(f"{what}.page: one of the pages {', '.join(PAGES)}", m.at("page"), "bad-dashboard")
+            page = None
+        elif page is not None and nav is not None:
+            c.err(f"{what}.nav: a dashboard in place of a page is reached by that page's own link", m.at("nav"),
+                  "bad-dashboard")
+            nav = None
+        binds = PAGES.get(page or "")                    # its panels read as that page's, though the page is taken
+        if page is not None and (other := next((x for x in spec.dashboards.values() if x.page == page), None)):
+            c.err(f"{what}.page: the {page} page is drawn by dashboard {other.name} already", m.at("page"),
+                  "defined-twice", f"dashboard.{other.name}")
+            page = None
         panels = m.get("panels")
         if not isinstance(panels, list) or not panels:
             c.err(f"{what}.panels: a list of panels, each {{panel: KIND, ...}}", m.at("panels"), "bad-dashboard")
@@ -213,15 +234,29 @@ def check(c, spec, exists) -> None:
         if len(panels) > MOST:
             c.err(f"{what}.panels: {len(panels)} panels; at most {MOST}", m.at("panels"), "bad-dashboard")
             panels = []
-        d = Dashboard(name, str(m.get("title") or ""), str(m.get("description") or ""), window, system=system, where=w)
+        d = Dashboard(name, str(m.get("title") or ""), str(m.get("description") or ""), window, system=system, where=w,
+                      nav=nav, page=page)
         for i, x in enumerate(panels):
-            got = _panel(c, spec, exists, x, f"{what}.panels[{i}]", m.at("panels"))
+            got = _panel(c, spec, exists, x, f"{what}.panels[{i}]", m.at("panels"), binds)
             if got is not None:
                 d.panels.append(got)
         spec.dashboards[name] = d
 
 
-def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
+def _nav(c, m, what: str) -> str | None:
+    """``nav:``: true (its title, else its name, in the page's navigation) or the words of its link; None: not there."""
+    v = m.get("nav")
+    if v is None or v is False:
+        return None
+    if v is True:
+        return ""
+    if isinstance(v, str) and v.strip() and len(v) <= 40:
+        return v.strip()
+    c.err(f"{what}.nav: true, or its link's words (at most 40 characters)", m.at("nav"), "bad-dashboard")
+    return None
+
+
+def _panel(c, spec, exists, x, what: str, near, binds: str | None = None) -> Panel | None:
     if not isinstance(x, dict):
         c.err(f"{what}: a map, {{panel: KIND, ...}}", near, "bad-dashboard")
         return None
@@ -240,14 +275,25 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
         return None
     params: dict = {}
     ok = True
-    if "fit" in x:
-        if not isinstance(x["fit"], bool):
-            c.err(f"{what}.fit: true or false", at("fit"), "bad-dashboard")
+    for flag in ("fit", "quiet"):
+        if flag not in x:
+            continue
+        if not isinstance(x[flag], bool):
+            c.err(f"{what}.{flag}: true or false", at(flag), "bad-dashboard")
             ok = False
-        elif x["fit"]:
-            params["fit"] = True
+        elif x[flag]:
+            params[flag] = True
     for k in sorted(KINDS[kind] & set(x)):
         v, w = x[k], at(k)
+        if isinstance(v, str) and v.startswith("$"):      # taken from the page's address (page:)
+            if binds is None or v != f"${binds}" or k != binds:
+                c.err(f"{what}.{k}: {v!r} is taken from no address" + (f" (this page's is ${binds}, as {binds}: ${binds})"
+                      if binds else " (only a dashboard in place of the agent, item or kind page takes one)"), w,
+                      "bad-dashboard")
+                ok = False
+            else:
+                params[k] = v
+            continue
         if (own := CHECKS.get(kind, {}).get(k)) is not None and (why := own(v)) is not None:
             c.err(f"{what}.{k}: {why}", w, "bad-dashboard")
             ok = False
@@ -298,7 +344,7 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
     if ok and kind == "diagram" and not str(params.get("address", "")).startswith("/diagram"):
         c.err(f"{what}.address: a Diagram address, like /diagram?view=blocks&system=NAME", at("address"), "bad-dashboard")
         ok = False
-    if ok and kind == "items":
+    if ok and kind == "items" and not any(str(v).startswith("$") for v in params.values()):
         from .item_sets import BadSet, parse
         try:
             parse(query(params))
@@ -447,4 +493,13 @@ def plain_panel(p: Panel) -> dict:
 def plain(d: Dashboard) -> dict:
     """A dashboard as the API and the snapshot carry it: what was declared, in the declaration's own words."""
     return {"name": d.name, "title": d.title, "description": d.description, "window": d.window, "system": d.system,
-            "declared": True, "panels": [plain_panel(p) for p in d.panels]}
+            "nav": d.nav, "page": d.page, "declared": True, "panels": [plain_panel(p) for p in d.panels]}
+
+
+def bound(p: Panel, address: dict) -> Panel:
+    """A panel with each ``$WORD`` parameter taken from the page's address (``address``: WORD → its value); one the
+    address does not give is left as written (its endpoint says it is not there)."""
+    if not any(isinstance(v, str) and v.startswith("$") for v in p.params.values()):
+        return p
+    params = {k: (address.get(v[1:]) or v) if isinstance(v, str) and v.startswith("$") else v for k, v in p.params.items()}
+    return Panel(p.panel, p.title, p.size, p.note, params, p.where)

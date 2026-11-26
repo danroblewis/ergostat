@@ -1,22 +1,18 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ALL_COLUMNS, Async, GoalDetail, GoalsTable, Muted, Note, Page, PanelFrame, useDetail } from "../../components";
-import { QuietSystems } from "../../components/Attention";
-import { asQueryPanel, type PanelDef } from "../../components/panels";
-import { useApi } from "../../hooks/useApi";
+import { GoalDetail, Muted, Note, Page, useDetail } from "../../components";
+import { DashboardView } from "../../components/panels/DashboardView";
 import { windowNote } from "../../lib/format";
+import { GOALS_PANELS } from "../../lib/pages";
 import { goalsOff, useStatus } from "../../state/status";
 
-/* Goals (the old pages.js pageLoops), a dashboard made in advance: the quiet-systems panel (when a system is quiet) and
-   the goals panel, full width with every column, those that need someone first. A click opens the goal's detail beside
-   the page, the goal chosen kept in the address (?select=NAME): the page's own, not the panel's. */
+/* Goals (the old pages.js pageLoops), a dashboard made in advance (lib/pages.ts): the quiet-systems panel (drawn only
+   when a system is quiet) and the goals panel, full width with every column. A click opens the goal's detail beside
+   the page, the goal chosen kept in the address (?select=NAME): the page's own, handed to the panel. */
 
-const QUIET: PanelDef = { panel: "quiet-systems", id: "quiet", title: "Quiet systems", size: "full", fit: true };
-const GOALS: PanelDef = { panel: "goals", id: "goals", title: "Every goal", size: "full", fit: true };
+const EVERY = 3000;
 
 export default function GoalsPage() {
-  const loops = useApi<Record<string, any>>("loops", { perf: 1 }, { every: 3000 });
-  const systems = useApi<any[]>("systems", {}, { every: 3000 });
   const { status } = useStatus();
   const detail = useDetail();
   const [q, setQ] = useSearchParams();
@@ -40,25 +36,13 @@ export default function GoalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail.key]);
 
+  const panels = useMemo(() => GOALS_PANELS.map((d) => (d.panel === "goals" ? { ...d, onOpen: open, selected } : d)), [open, selected]);
   const off = goalsOff(status);
   const w = windowNote(status);
 
   return (
     <Page title={<>Goals{status && <Muted>{` · goals off ${off.off}${off.upkeep ? ` · model upkeep ${off.upkeep}` : ""}`}</Muted>}</>}>
-      <div className="panel-grid">
-        {(systems.data || []).some((s) => s.quiet) && (
-          <PanelFrame panel={asQueryPanel(QUIET)} className="panel-kind-quiet-systems">
-            <QuietSystems systems={systems.data || []} />
-          </PanelFrame>
-        )}
-        <PanelFrame panel={asQueryPanel(GOALS)} className="panel-kind-goals">
-          <div className="panel-table">
-            <Async state={loops}>
-              {(data) => <GoalsTable loops={data} columns={ALL_COLUMNS} selected={selected} onOpen={open} caption={GOALS.title} />}
-            </Async>
-          </div>
-        </PanelFrame>
-      </div>
+      <DashboardView panels={panels} every={EVERY} />
       {w && <Note>Time off and back in: {w}. Back in: typically, from going off to holding again.</Note>}
     </Page>
   );

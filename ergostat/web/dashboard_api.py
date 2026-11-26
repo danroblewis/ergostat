@@ -19,7 +19,7 @@ import time
 from collections import OrderedDict
 from urllib.parse import quote
 
-from ..spec.dashboards import MOST, names, plain, plain_panel, query, sent
+from ..spec.dashboards import MOST, PAGES, bound, names, plain, plain_panel, query, sent
 from ..spec.ir import Dashboard, Panel
 
 LIMIT = 0.3           # s: one panel's own running time before it answers pending
@@ -75,7 +75,7 @@ def listing(p) -> list[dict]:
     spec = getattr(p.model, "spec", None)
     ds = [default(spec), *(getattr(spec, "dashboards", None) or {}).values()]
     return [{"name": d.name, "title": d.title, "description": d.description, "panels": len(d.panels),
-             "window": d.window, "declared": d.name != "default"} for d in ds]
+             "window": d.window, "declared": d.name != "default", "nav": d.nav, "page": d.page} for d in ds]
 
 
 class _Job:
@@ -188,8 +188,9 @@ def _run(live, p, panel: Panel, q: dict, snap):
             got = {**got, "results": [{**by[went], "id": mine} for mine, went in wanted if went in by]}
         return got
     if panel.panel not in PATHS:                   # drawn by the page from its parameters alone (a legend)
-        return {k: v for k, v in panel.params.items() if k != "fit"}
-    path, asked = PATHS[panel.panel], {k: v for k, v in panel.params.items() if k not in ("goals", "fit", "show")}
+        return {k: v for k, v in panel.params.items() if k not in ("fit", "quiet")}
+    path, asked = PATHS[panel.panel], {k: v for k, v in panel.params.items()
+                                       if k not in ("goals", "columns", "fit", "quiet", "show")}
     for k in [k for k in asked if "{" + k + "}" in path]:   # a path naming one thing (agents/{agent}): it, not a query
         path = path.replace("{" + k + "}", quote(str(asked.pop(k)), safe=""))
     got = _answer(live, path, {**q, **FIXED.get(panel.panel, {}), **query(asked)}, p, snap)
@@ -206,6 +207,12 @@ def answer(live, p, name: str | None, q: dict, wait: bool = False) -> dict | Non
     if d is None:
         return None
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
+    word = PAGES.get(d.page or "")                 # in place of a page that takes a name: the address's, as agent=NAME
+    if word and one(word):
+        d = Dashboard(d.name, d.title, d.description, d.window, [bound(x, {word: one(word)}) for x in d.panels],
+                      d.system, d.where, d.nav, d.page)
+    if one("plain") == "1":                        # its declaration alone: a page whose panels ask for themselves
+        return plain(d) if d.name != "default" else {**plain(d), "declared": False}
     window = _window(q) if one("since") else (d.window or _window({}))
     at = asked = None
     try:

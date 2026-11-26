@@ -21,6 +21,12 @@ export interface DashboardDef {
   /** the window it opens with, like "7d" (none: the page's) */
   since?: string | null;
   panels: PanelDef[];
+  /** its name under `dashboards:` (a declared one, or a copy of it: Keep puts it back in place) */
+  name?: string;
+  /** in the header's navigation, at /d/NAME: its link's words ("": its title) */
+  nav?: string | null;
+  /** the page it is drawn in place of (lib/pages.ts PAGES) */
+  page?: string | null;
 }
 
 /** What a panel's body is drawn from: its declaration, and the page's refresh. */

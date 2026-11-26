@@ -35,7 +35,7 @@ FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this 
 KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
 # names; the same list as the page's routes (web/ui/src/App.tsx). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "dashboard", "goals", "loops", "agents", "agent", "items", "item", "record")
+UI_PAGES = ("diagram", "dashboard", "d", "goals", "loops", "agents", "agent", "items", "item", "record")
 APP = "app/index.html"               # the page: the React app (web/ui), built into static/app
 
 

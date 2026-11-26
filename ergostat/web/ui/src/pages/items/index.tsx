@@ -1,16 +1,14 @@
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { Filters, FinishedToggle, Page, SearchBox, StatesChoice } from "../../components";
 import { DashboardView } from "../../components/panels/DashboardView";
-import type { PanelDef } from "../../components/panels/types";
 import { kindHref } from "../../lib/hrefs";
+import { EVERY_KIND_PANELS as EVERY_KIND, ITEMS_PANELS as OVERVIEW } from "../../lib/pages";
 
 /* /items, a dashboard made in advance: the overview of kinds (a `kinds` panel) when the address has only ?states= or
    the window; /items?kind=K goes to the kind's page; a search or any other filter lists every kind's newest (an
    `items-by-kind` panel). The page keeps its title and its filters, in the address (states=all, q=, finished=show). */
 
 const OVERVIEW_KEYS = new Set(["states", "window", "at"]);
-const OVERVIEW: PanelDef[] = [{ panel: "kinds", id: "kinds", title: "Kinds of item", size: "full", fit: true }];
-const EVERY_KIND: PanelDef[] = [{ panel: "items-by-kind", id: "items-by-kind", title: "Each kind's newest", size: "full", fit: true }];
 
 export default function ItemsPage() {
   const [q] = useSearchParams();

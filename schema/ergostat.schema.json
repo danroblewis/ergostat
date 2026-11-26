@@ -656,6 +656,8 @@
         "title": {"type": "string"},
         "description": {"type": "string"},
         "window": {"$ref": "#/$defs/duration"},
+        "nav": {"description": "In the page's navigation, at /d/NAME: true (its title), or its link's words", "oneOf": [{"type": "boolean"}, {"type": "string", "minLength": 1, "maxLength": 40}]},
+        "page": {"description": "One of the page's own pages it is drawn in place of; agent, item and kind take a panel's $agent, $item or $kind from the address", "enum": ["goals", "agents", "items", "record", "agent", "item", "kind"]},
         "panels": {"type": "array", "minItems": 1, "maxItems": 24, "items": {"$ref": "#/$defs/panel"}}
       }
     },
@@ -750,7 +752,7 @@
         "search": {"type": "string"},
         "fit": {"type": "boolean"},
         "address": {"type": "string", "pattern": "^/diagram"},
-        "agent": {"$ref": "#/$defs/name"},
+        "agent": {"anyOf": [{"$ref": "#/$defs/name"}, {"const": "$agent"}]},
         "item": {"type": "string", "minLength": 1},
         "q": {"type": "string", "minLength": 1},
         "sort": {"type": "string", "minLength": 1},
@@ -772,22 +774,65 @@
             {"enum": ["waiting", "off", "housekeeping", "suggestions"]},
             {"type": "array", "minItems": 1, "items": {"enum": ["waiting", "off", "housekeeping", "suggestions"]}}
           ]
+        },
+        "quiet": {"type": "boolean"},
+        "columns": {
+          "oneOf": [
+            {
+              "enum": [
+                "goal",
+                "status",
+                "measure",
+                "value",
+                "bound",
+                "far",
+                "timeOff",
+                "backIn",
+                "spark",
+                "performance",
+                "acted",
+                "card",
+                "all"
+              ]
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "goal",
+                  "status",
+                  "measure",
+                  "value",
+                  "bound",
+                  "far",
+                  "timeOff",
+                  "backIn",
+                  "spark",
+                  "performance",
+                  "acted",
+                  "card",
+                  "all"
+                ]
+              }
+            }
+          ]
         }
       },
       "allOf": [
         {
           "if": {"properties": {"panel": {"const": "note"}}},
-          "then": {"required": ["text"], "propertyNames": {"enum": ["panel", "fit", "note", "size", "text", "title"]}}
+          "then": {"required": ["text"], "propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "text", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "goals"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "goals", "note", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "columns", "fit", "goals", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "chart"}}},
           "then": {
             "required": ["refs"],
-            "propertyNames": {"enum": ["panel", "fan", "fit", "note", "points", "refs", "replay", "size", "title"]}
+            "propertyNames": {"enum": ["panel", "fan", "fit", "note", "points", "quiet", "refs", "replay", "size", "title"]}
           }
         },
         {
@@ -805,6 +850,7 @@
                 "moved_until",
                 "n",
                 "note",
+                "quiet",
                 "search",
                 "size",
                 "state",
@@ -817,134 +863,161 @@
         },
         {
           "if": {"properties": {"panel": {"const": "states"}}},
-          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "size", "title"]}}
+          "then": {
+            "required": ["kind"],
+            "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "cycle-time"}}},
-          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "size", "title"]}}
+          "then": {
+            "required": ["kind"],
+            "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "scope"}}},
-          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "points", "size", "title"]}}
+          "then": {
+            "required": ["goal"],
+            "propertyNames": {"enum": ["panel", "fit", "goal", "note", "points", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "items-graph"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "size", "system", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "timeline"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "size", "system", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "query"}}},
           "then": {
             "required": ["queries"],
-            "propertyNames": {"enum": ["panel", "display", "fit", "form", "layout", "note", "queries", "size", "title"]}
+            "propertyNames": {"enum": ["panel", "display", "fit", "form", "layout", "note", "queries", "quiet", "size", "title"]}
           }
         },
         {
           "if": {"properties": {"panel": {"const": "diagram"}}},
-          "then": {"required": ["address"], "propertyNames": {"enum": ["panel", "address", "fit", "note", "size", "title"]}}
+          "then": {
+            "required": ["address"],
+            "propertyNames": {"enum": ["panel", "address", "fit", "note", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "ladder"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "agents"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "daemons"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "agent-what"}}},
-          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+          "then": {
+            "required": ["agent"],
+            "propertyNames": {"enum": ["panel", "agent", "fit", "note", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "agent-definition"}}},
-          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+          "then": {
+            "required": ["agent"],
+            "propertyNames": {"enum": ["panel", "agent", "fit", "note", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "agent-place"}}},
-          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+          "then": {
+            "required": ["agent"],
+            "propertyNames": {"enum": ["panel", "agent", "fit", "note", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "agent-runs"}}},
-          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+          "then": {
+            "required": ["agent"],
+            "propertyNames": {"enum": ["panel", "agent", "fit", "note", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "agent-log"}}},
-          "then": {"required": ["agent"], "propertyNames": {"enum": ["panel", "agent", "fit", "note", "size", "title"]}}
+          "then": {
+            "required": ["agent"],
+            "propertyNames": {"enum": ["panel", "agent", "fit", "note", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "kinds"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "states", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "states", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "items-by-kind"}}},
-          "then": {"propertyNames": {"enum": ["panel", "finished", "fit", "note", "per_kind", "q", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "finished", "fit", "note", "per_kind", "q", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "kind-now"}}},
           "then": {
             "required": ["kind"],
-            "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "size", "states", "title"]}
+            "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "quiet", "size", "states", "title"]}
           }
         },
         {
           "if": {"properties": {"panel": {"const": "kind-model"}}},
-          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "size", "title"]}}
+          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "kind-definition"}}},
-          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "size", "title"]}}
+          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "item-list"}}},
           "then": {
             "required": ["kind"],
-            "propertyNames": {"enum": ["panel", "finished", "fit", "kind", "n", "note", "q", "size", "sort", "state", "title"]}
+            "propertyNames": {"enum": ["panel", "finished", "fit", "kind", "n", "note", "q", "quiet", "size", "sort", "state", "title"]}
           }
         },
         {
           "if": {"properties": {"panel": {"const": "item-summary"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "item-why"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "item-path"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "item-relations"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "item-fields"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "item-refused"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "item-moves"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "item-events"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "size", "title"]}}
+          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "item-changes"}}},
           "then": {
             "required": ["item"],
-            "propertyNames": {"enum": ["panel", "fit", "history", "item", "note", "size", "title"]}
+            "propertyNames": {"enum": ["panel", "fit", "history", "item", "note", "quiet", "size", "title"]}
           }
         },
         {
@@ -961,6 +1034,7 @@
                 "match",
                 "n",
                 "note",
+                "quiet",
                 "remote",
                 "runs",
                 "size",
@@ -973,43 +1047,43 @@
         },
         {
           "if": {"properties": {"panel": {"const": "goal-crossings"}}},
-          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "goal-decisions"}}},
-          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "attention"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "show", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "show", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "legend"}}},
-          "then": {"required": ["view"], "propertyNames": {"enum": ["panel", "fit", "note", "size", "title", "view"]}}
+          "then": {"required": ["view"], "propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "title", "view"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "feedback-loops"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "system", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "control-loops"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "system", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "quiet-systems"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "goal-runbook"}}},
-          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "goal-parts"}}},
-          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "goal-control"}}},
-          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "size", "title"]}}
+          "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "fit", "goal", "note", "quiet", "size", "title"]}}
         }
       ]
     },

@@ -5,3 +5,5 @@ export { KINDS, asQueryPanel, paramsOf } from "./kinds/index";
 export { normalizeDashboard, normalizePanel } from "./normalize";
 export { endpointParams, usePanelApi } from "./usePanelApi";
 export type { DashboardDef, PanelDef, PanelKind, PanelBodyProps } from "./types";
+export { DeclaredDashboard, EVERY, Refresh, useDeclared } from "./Declared";
+export { InPlace } from "./InPlace";

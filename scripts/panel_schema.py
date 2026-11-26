@@ -15,7 +15,9 @@ FLAG = {"type": "boolean"}
 NAMES = {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]}
 # the parameters the newer kinds take (the older ones' are in the schema already): each one's type
 PARAMS = {
-    "fit": FLAG, "address": {"type": "string", "pattern": "^/diagram"}, "agent": {"$ref": "#/$defs/name"},
+    "fit": FLAG, "quiet": FLAG, "address": {"type": "string", "pattern": "^/diagram"},
+    "agent": {"anyOf": [{"$ref": "#/$defs/name"}, {"const": "$agent"}]},     # $agent: the page's address's (page: agent)
+    "columns": {"oneOf": [{"enum": list(d.GOAL_COLUMNS)}, {"type": "array", "minItems": 1, "items": {"enum": list(d.GOAL_COLUMNS)}}]},
     "item": TEXT, "q": TEXT, "sort": TEXT, "history": TEXT, "match": TEXT, "about": {"$ref": "#/$defs/name"},
     "machine": TEXT, "remote": TEXT, "runs": FLAG, "window": FLAG,
     "from": {"type": "number", "minimum": 0}, "to": {"type": "number", "minimum": 0},
@@ -28,7 +30,7 @@ PARAMS = {
 
 
 def panel(old: dict) -> dict:
-    props = {**old["properties"], **{k: v for k, v in PARAMS.items() if k not in old["properties"]}}
+    props = {**old["properties"], **PARAMS}
     props["panel"] = {"enum": list(d.KINDS)}
     missing = sorted(set().union(*d.KINDS.values(), d.PANEL_KEYS) - set(props))
     if missing:

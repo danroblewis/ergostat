@@ -1118,6 +1118,8 @@ class Dashboard:
     panels: list[Panel] = field(default_factory=list)
     system: str | None = None
     where: Where | None = None
+    nav: str | None = None         # in the page's navigation, at /d/NAME: its link's words ("": its title)
+    page: str | None = None        # the web page's own page it is drawn in place of (dashboards.PAGES)
 
 
 @dataclass

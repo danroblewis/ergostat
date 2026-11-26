@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useCallback, type ReactNode } from "react";
+import { PanelFrame } from "../../charts/PanelView";
 import { Attention, ControlLoops, FeedbackLoops, feedbackCount, Legend, LEGEND_TYPE, QuietSystems, type AttentionPart } from "../../Attention";
 import { useDetail } from "../../Detail";
 import { GoalDetail } from "../../GoalDetail";
@@ -7,7 +8,7 @@ import { Async } from "../../ui";
 import { useStatus } from "../../../state/status";
 import type { PanelBodyProps, PanelKind } from "../types";
 import { usePanelApi } from "../usePanelApi";
-import { paramsOf } from "./core";
+import { asQueryPanel, paramsOf } from "./core";
 
 /* The attention group's kinds of panel (each also declared in ergostat/spec/dashboards.py, its attention block): what
    asks for the owner, how to read a drawing, the loops a view draws, the quiet systems, and one goal's runbook, parts
@@ -56,12 +57,16 @@ function ControlLoopsBody({ def, every, refreshKey }: PanelBodyProps) {
   return <div className="panel-table"><Async state={g}>{(d) => <ControlLoops g={d} onGoal={onGoal} />}</Async></div>;
 }
 
-function QuietSystemsBody({ every, refreshKey }: PanelBodyProps) {
+/** The quiet systems; `quiet` (a page's): not drawn at all while no system is quiet. */
+function QuietSystemsFrame({ def, every, refreshKey, tools }: PanelBodyProps & { tools?: ReactNode }) {
   const systems = usePanelApi<any[]>("systems", {}, every, refreshKey);
+  if (def.quiet && !(systems.data || []).some((s) => s.quiet)) return null;
   return (
-    <div className="panel-table">
-      <Async state={systems}>{(d) => <QuietSystems systems={d} none={<p className="muted">No system is quiet now.</p>} />}</Async>
-    </div>
+    <PanelFrame panel={asQueryPanel(def)} tools={tools} className="panel-kind-quiet-systems">
+      <div className="panel-table">
+        <Async state={systems}>{(d) => <QuietSystems systems={d} none={<p className="muted">No system is quiet now.</p>} />}</Async>
+      </div>
+    </PanelFrame>
   );
 }
 
@@ -88,7 +93,7 @@ export const ATTENTION: Record<string, PanelKind> = {
   legend: { label: "How to read a view", needs: "view", Body: LegendBody },
   "feedback-loops": { label: "Feedback loops", Body: FeedbackLoopsBody },
   "control-loops": { label: "Control loops", Body: ControlLoopsBody },
-  "quiet-systems": { label: "Quiet systems", Body: QuietSystemsBody },
+  "quiet-systems": { label: "Quiet systems", Frame: QuietSystemsFrame },
   "goal-runbook": { label: "A goal's runbook", needs: "goal", Body: GoalRunbookBody },
   "goal-parts": { label: "A goal's parts along its loop", needs: "goal", Body: GoalPartsBody },
   "goal-control": { label: "A goal's control loop", needs: "goal", Body: GoalControlBody },

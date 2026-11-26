@@ -5,22 +5,14 @@ import { engagedText } from "../../components/agents/agentParts";
 import { noSpec, Serves } from "../../components/agents/AgentSections";
 import { noAgent } from "../../components/panels/kinds/agents";
 import { PanelBox } from "../../components/panels/PanelBox";
-import type { PanelDef } from "../../components/panels/types";
 import { useApi } from "../../hooks/useApi";
+import { AGENT_PANELS } from "../../lib/pages";
 
 /* An agent's own page (/agent/NAME, agent.js pageAgent): a built-in dashboard of the agents group's panels (what it
    is, by its rung; its definition as written; its place in the model; what it did; the end of its log), each for the
    agent the address names. The page keeps its own head: the Meta row and its description. Each section is an anchor. */
 
 const EVERY = 4000;
-/** The page's panels, by the anchor each is drawn under; `agent` is filled in from the address. */
-export const AGENT_PANELS: PanelDef[] = [
-  { panel: "agent-what", id: "what-it-is", size: "full", fit: true },
-  { panel: "agent-definition", id: "its-definition", size: "full", fit: true },
-  { panel: "agent-place", id: "its-place", size: "full", fit: true },
-  { panel: "agent-runs", id: "what-it-did", size: "full", fit: true },
-  { panel: "agent-log", id: "its-log", size: "full", fit: true },
-];
 
 export default function AgentPage() {
   const { name = "" } = useParams();

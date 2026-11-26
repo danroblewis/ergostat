@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { ago, clock, dur, recordedShort } from "../lib/format";
+import { dashboardHref, useDashboards } from "../state/dashboards";
 import { goalsOff, useStatus, waitsOnYou } from "../state/status";
 import { WINDOW_WORDS, WINDOWS, type WindowKey, useTime } from "../state/time";
 import { Menu } from "./Menu";
@@ -16,6 +17,9 @@ const NAV: [string, string][] = [
 export function Shell({ children }: { children: ReactNode }) {
   const { since } = useTime();
   const carried = since === "1h" ? "" : `?window=${since}`;   // the window chosen, carried to the page gone to
+  const { list } = useDashboards();     // the model's dashboards with nav:, each at its own address, after the pages
+  const navDashboards: [string, string][] = (list || []).filter((d) => d.nav != null)
+    .map((d) => [dashboardHref(d.name), d.nav || d.title || d.name]);
   return (
     <>
       <header className="bar">
@@ -25,7 +29,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <Waits />
         </span>
         <nav id="nav">
-          {NAV.map(([to, label]) => (
+          {[...NAV, ...navDashboards].map(([to, label]) => (
             <NavLink key={to} to={to + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
           ))}
         </nav>

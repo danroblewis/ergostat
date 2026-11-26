@@ -5,6 +5,7 @@ import { itemListParams } from "../../components/panels/kinds/items";
 import { SharedAnswers } from "../../components/panels/shared";
 import type { PanelDef } from "../../components/panels/types";
 import { usePanelApi } from "../../components/panels/usePanelApi";
+import { KIND_PANELS } from "../../lib/pages";
 
 /* /items/KIND, a dashboard made in advance (kindpage.js): its bar as the page's heading (a state chip filters the
    list), then its panels: Now (kind-now: its states over the window and how long its finished took), In the model
@@ -14,12 +15,8 @@ import { usePanelApi } from "../../components/panels/usePanelApi";
    states=all. */
 
 const SIZES = PAGE_SIZES;
-const TOP: PanelDef[] = [
-  { panel: "kind-now", id: "now", title: "Now", size: "m", fit: true },
-  { panel: "kind-model", id: "model", title: "In the model", size: "m", fit: true },
-  { panel: "kind-definition", id: "definition", title: "Definition", size: "full", fit: true, folded: true },
-];
-const LIST: PanelDef = { panel: "item-list", id: "items", title: "Items", size: "full", fit: true };
+const TOP: PanelDef[] = KIND_PANELS.filter((d) => d.panel !== "item-list");
+const LIST: PanelDef = KIND_PANELS.find((d) => d.panel === "item-list")!;
 
 export default function KindPage() {
   const { kind = "" } = useParams();

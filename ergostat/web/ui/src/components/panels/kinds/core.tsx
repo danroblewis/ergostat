@@ -8,7 +8,8 @@ import { Plot } from "../../charts/Plot";
 import { QueryPanel } from "../../charts/QueryPanel";
 import { useDetail } from "../../Detail";
 import { GoalDetail } from "../../GoalDetail";
-import { PANEL_COLUMNS, GoalsTable } from "../../GoalsTable";
+import { ALL_COLUMNS, PANEL_COLUMNS, GoalsTable } from "../../GoalsTable";
+import type { GoalColumn } from "../../goals";
 import { ItemsTable } from "../../items";
 import { Markdown } from "../../Markdown";
 import { Async, Loading } from "../../ui";
@@ -37,14 +38,27 @@ function NoteBody({ def }: PanelBodyProps) {
   return <div className="panel-text"><Markdown source={String(def.text || "")} /></div>;
 }
 
+/** The columns a goals panel shows: `columns` names them (or `all`), else the panel's few. */
+export function goalColumns(v: unknown): GoalColumn[] {
+  const asked = listOf(v);
+  if (!asked) return PANEL_COLUMNS;
+  if (asked.includes("all")) return ALL_COLUMNS;
+  const known = ALL_COLUMNS.filter((c) => asked.includes(c));
+  return known.length ? known : PANEL_COLUMNS;
+}
+
+/** Goals: each goal's row. `columns` (names, or `all`); a page may hand it `onOpen` (a click on a goal: else its
+ *  detail opens beside the page) and `selected` (the goal shown as chosen). */
 function GoalsBody({ def, every, refreshKey }: PanelBodyProps) {
   const loops = usePanelApi<Record<string, any>>("loops", { perf: 1 }, every, refreshKey);
   const detail = useDetail();
+  const open = typeof def.onOpen === "function" ? def.onOpen as (name: string) => void
+    : (name: string) => detail.open(`goal:${name}`, <GoalDetail key={name} name={name} />);
   return (
     <div className="panel-table">
       <Async state={loops}>
-        {(data) => <GoalsTable loops={data} only={listOf(def.goals)} columns={PANEL_COLUMNS} caption={def.title || "Goals"}
-          onOpen={(name) => detail.open(`goal:${name}`, <GoalDetail key={name} name={name} />)} />}
+        {(data) => <GoalsTable loops={data} only={listOf(def.goals)} columns={goalColumns(def.columns)} caption={def.title || "Goals"}
+          selected={def.selected ?? null} onOpen={open} />}
       </Async>
     </div>
   );

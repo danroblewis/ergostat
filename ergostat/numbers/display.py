@@ -83,6 +83,9 @@ def entry(spec, draft) -> tuple[str, list[str]]:
         raise pr.ProposalError(f"not kept: {name!r} is not a dashboard's name (lowercase letters, digits and -, "
                                "starting with a letter; not default)")
     body: dict = {"title": title}
+    for k in ("nav", "page"):                         # in the navigation; in place of one of the page's own pages
+        if draft.get(k) not in (None, "", False):
+            body[k] = draft[k]
     try:
         from ..durations import parse_duration
         if isinstance(draft.get("since"), str) and parse_duration(draft["since"]) <= spec.keep:

@@ -17,9 +17,11 @@ header's project list and `ergostat snapshot`.
       styles/                the page's styles (style.css, panels.css, plots.css, panel-editor.css, dashboard.css)
       lib/                   pure functions: api.ts (apiGet, apiPost, apiSend), format.ts (fmt, dur, ago, stamp,
                              rateText, op, holdText, windowNote, plural...), rung.ts, hrefs.ts (itemHref, kindHref,
-                             agentHref, diagramHref), goals.ts (a goal in words), query.ts (what a panel asks /api/query)
+                             agentHref, diagramHref), goals.ts (a goal in words), query.ts (what a panel asks /api/query),
+                             pages.ts (each of the page's own pages as its panels: PAGES, pageDashboard)
       state/                 app-wide context: time.tsx (window and moment, in the address), status.tsx (/api/status
-                             every 5 s: useStatus())
+                             every 5 s: useStatus()), dashboards.tsx (/api/dashboards every 15 s: the header's nav:
+                             entries, and useInPlaceOf(page), the dashboard declared in a page's place)
       hooks/                 usePoll (a refresh that never overlaps, pauses while hidden), useApi (an answer, with
                              the window, polled when asked: { data, error, loading, refresh })
       components/            the components any page is composed of (index.ts):
@@ -34,7 +36,9 @@ header's project list and `ergostat snapshot`.
         controls.tsx         Segmented, SearchBox, Pager, FinishedToggle, FinishedNote, Meta, SystemGroup
         panels/              a panel of every kind, by its name in the model's dashboards: (SPEC §4f), one file a
                              group in kinds/ (core, agents, items, record, attention), checked by spec/dashboards.py
-                             and answered by dashboard_api.py; PanelBox (one, framed), DashboardView (a grid). Each
+                             and answered by dashboard_api.py; PanelBox (one, framed), DashboardView (a grid),
+                             DeclaredDashboard (one the model declares, by name), InPlace (a page, or the dashboard
+                             declared in its place, lazily loaded). Each
                              asks its own endpoint with exactly its parameters; GETs of one address under way at once
                              are one request (lib/api.ts). A new kind: its component, its KINDS entry here and in
                              spec/dashboards.py, then `uv run python scripts/panel_schema.py` for the schema.
@@ -45,8 +49,11 @@ header's project list and `ergostat snapshot`.
 
 ## Rules
 
-- A page is a dashboard: its sections are panels (components/panels), drawn with `fit: true`; only what is the
-  page's own (its title, filters bound to the address) is written on the page.
+- A page is a dashboard: its sections are panels (components/panels), drawn with `fit: true`, its panel list in
+  `lib/pages.ts`; only what is the page's own (its title, filters bound to the address) is written on the page. What a
+  page hands a panel beyond its declared parameters (a click: `onOpen`; the list's choices: `onParams`; the goal
+  chosen: `selected`) is optional: the same panel on a dashboard works without it. A dashboard declared with `page:`
+  draws in that page's place (App.tsx, `Own`).
 - Compose pages from `components/`. Anything another page could show (a table, a chart, a link, a drawing) is a
   component there, taking its data as props or asking for it itself; a page's folder keeps only what is that page's
   alone: its layout, its toolbar, what it keeps in the address.

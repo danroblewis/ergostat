@@ -1992,6 +1992,7 @@ dashboards:
     title: The factory, this week          # optional
     description: where tickets wait        # optional
     window: 7d                             # optional: the one window of all its panels; at most keep:
+    nav: This week                         # optional: in the page's navigation, at /d/week (true: its title)
     panels:                                # 1 to 24
       - {panel: goals, size: full}
       - {panel: states, kind: ticket, size: l, note: Where tickets wait}
@@ -2001,13 +2002,14 @@ dashboards:
 
 Each panel is its kind (`panel:`), its words (`title`, `note`), its `size` (`s`, `m`, `l` or `full`, each with
 `-tall` too; default `m`), `fit: true` to be as tall as what it shows (a page made of panels: an item's fields, a
-list), and **exactly the parameters its endpoint takes**, by the same names. Every page of the web page is drawn
+list), `quiet: true` to be left out while it has nothing to say (an item's parts, the quiet systems), and **exactly the
+parameters its endpoint takes**, by the same names. Every page of the web page is drawn
 from these same panels, so a section seen on one page can be put on any dashboard:
 
 | `panel` | Answered by | Its parameters |
 |---|---|---|
 | `note` | nothing: its text | `text` (needed) |
-| `goals` | `GET /api/loops`: each goal's row | `goals` (default all) |
+| `goals` | `GET /api/loops`: each goal's row | `goals` (default all), `columns` (any of `goal`, `status`, `measure`, `value`, `bound`, `far`, `timeOff`, `backIn`, `spark`, `performance`, `acted`, `card`, or `all`; default the first six with `spark` and `card`) |
 | `chart` | `GET /api/series` | `refs` (stocks, flows, auxiliaries; needed), `points`, `replay`, `fan` |
 | `items` | `GET /api/items` (with each open item's estimate) | `kind` (needed), `state`, `where`, `moved`, `moved_since`, `moved_until`, `through`, `followed`, `search`, `n` |
 | `states`, `cycle-time` | `GET /api/items-flow` | `kind` (needed), `points` |
@@ -2041,6 +2043,17 @@ reference to a stock, flow or auxiliary (or a sensor of one), a goal, an item ki
 system that the model does not have (**unknown-ref**), each at its line. More than 24 panels, or a `window` longer
 than `keep:`, is **bad-dashboard**. The name `default` is the model's own (below), so it cannot be declared.
 
+**In the navigation, and in a page's place.** `nav: true` (or the link's words, at most 40 characters) puts a
+dashboard in the page's navigation, after the page's own, at its own address `/d/NAME`. `page:` draws it in place of
+one of the page's own pages: `goals`, `agents`, `items`, `record`, or `agent`, `item` and `kind`, the pages of one
+thing (`/agent/NAME`, `/item/ID`, `/items/KIND`). A panel of one of those three may write its parameter `$agent`,
+`$item` or `$kind` (`{panel: agent-runs, agent: $agent}`): taken from the address, and checked there rather than
+against the model. `?builtin=1` on the page's address shows ergostat's own page all the same. Each of the page's
+own pages is itself made of these panels (`web/ui/src/lib/pages.ts`), so the Dashboard page offers a copy of
+Goals, Agents, Items or Record to start a draft from. `check` refuses a `page:` not in that list, `nav:` and `page:`
+together, a `$WORD` the dashboard's page does not take (**bad-dashboard**), and a second dashboard for one page
+(**defined-twice**). The Diagram and the Dashboard page are not replaced: the diagram is primary.
+
 **Namespaced by its file.** A dashboard written in a file whose `defaults:` sets a system is named `SYSTEM.NAME`
 (`delivery.review` in `factory/delivery.yaml`), so two systems' files may each have an `overview`.
 
@@ -2053,17 +2066,21 @@ and written only by the owner's Accept unless the judge's policy names `display:
 **Keep.** On the Dashboard page, a reader's draft has **Keep**. It sends the draft to the server
 (`POST /api/propose?keep=dashboard`, the draft as the JSON body), which works out the `dashboards:` entry from it
 (`numbers/display.py`): named from its title (lowercase, `-` between words), its window when `keep:` holds it, each
-panel a `query` panel written as one JSON line. A dashboard of that name already declared is replaced in place. The
+panel a `query` panel written as one JSON line (any other kind kept as its own kind and parameters). A draft may
+carry `name` (a copy of a declared dashboard: put back in its place), `nav` and `page`, chosen on the page before it
+is sent. A dashboard of that name already declared is replaced in place. The
 change is made by the owner, waits under *Changes to review* with its diff (shown, never offered as text to edit),
 and Accept writes it as it writes a what-if; Dismiss lets it go. Nothing is written before Accept. It is refused
 when the model it leaves does not pass `check`, when it would change anything but `dashboards:`, and for a draft
 with rows, variables or repeated panels (they stay in the draft: `dashboards:` holds panels alone so far).
-`/dashboard?name=NAME` draws a declared dashboard's `query` panels on the page (its other kinds are answered by
-`GET /api/dashboard/NAME` and not drawn there yet); changing it there makes it the reader's own draft. An agent or
+`/dashboard?name=NAME` draws a declared dashboard, each panel of any kind asking for its own answer; changing it
+there makes it the reader's own draft. An agent or
 the Supervisor proposes the same kind of change through `propose` with `kind: display`.
 
 **Served in one request.** `GET /api/dashboards` lists each dashboard: `name`, `title`, `description`, `panels` (how
-many), `window` and `declared`, the model's own `default` first. `GET /api/dashboard/NAME` (`since`, `at` as every
+many), `window`, `declared`, `nav` and `page`, the model's own `default` first. `GET /api/dashboard/NAME?plain=1`
+answers its declaration alone, no panel worked out (a page whose panels ask for themselves); for a dashboard in place
+of the agent, item or kind page, `agent=`, `item=` or `kind=` fills its panels' `$WORD`, with or without `plain`. `GET /api/dashboard/NAME` (`since`, `at` as every
 answer; else the dashboard's `window`) answers every panel at once: each panel's declaration (`panel`) and its
 `answer`, built by the same function its own endpoint calls on the same parameters, all on one snapshot of the
 state. The answer says that snapshot's number (`moment`) and `at`. `NAME` `default` is the model's own: for each

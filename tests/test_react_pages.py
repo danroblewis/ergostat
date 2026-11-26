@@ -292,6 +292,7 @@ def test_keep_sends_the_draft_and_accept_writes_it_to_the_model(browser, declare
     pg.wait_for_selector("#main .page.dash .panel", timeout=WAIT)
     pg.get_by_role("button", name="Keep").click()
     box = pg.locator("[aria-label='Keep this dashboard']")
+    box.get_by_role("button", name="Propose").click()                           # where it is shown: as it was
     box.locator(".diff").wait_for(timeout=WAIT)                                  # the dashboards: entry, shown first
     assert "dashboards" in p.model.path.read_text() and "overview:" not in p.model.path.read_text()   # nothing yet
     box.get_by_role("button", name="Accept").click()

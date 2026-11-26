@@ -21,5 +21,6 @@ export function normalizePanel(x: any, i = 0): PanelDef {
 
 export function normalizeDashboard(d: any): DashboardDef {
   return { title: d?.title || "Dashboard", description: d?.description, since: d?.since ?? d?.window ?? null,
-    panels: (Array.isArray(d?.panels) ? d.panels : []).map(normalizePanel) };
+    panels: (Array.isArray(d?.panels) ? d.panels : []).map(normalizePanel),
+    ...(d?.name ? { name: d.name } : {}), ...(d?.nav != null ? { nav: d.nav } : {}), ...(d?.page ? { page: d.page } : {}) };
 }
