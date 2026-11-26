@@ -32,8 +32,17 @@ KINDS = {
 }
 # ---- the agents group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/agents.tsx): KIND → its parameters
 KINDS.update({
+    "ladder": set(),                                      # GET /api/agents: how many on each rung, and the exceptions
+    "agents": set(),                                      # GET /api/agents: every agent by rung, what its runs cost
+    "daemons": set(),                                     # GET /api/daemons
+    "agent-what": {"agent"},                              # GET /api/agents/AGENT (and its files): what it is, by rung
+    "agent-definition": {"agent"},                        # GET /api/agents/AGENT: its block as written
+    "agent-place": {"agent"},                             # GET /api/agents/AGENT: its place in the model
+    "agent-runs": {"agent"},                              # GET /api/agents/AGENT: its runs' tally, cost, recent runs
+    "agent-log": {"agent"},                               # GET /api/agents/AGENT: the end of its log
 })
-NEEDS_AGENTS: dict[str, str] = {}      # KIND → the parameter it cannot do without
+NEEDS_AGENTS: dict[str, str] = {k: "agent" for k in ("agent-what", "agent-definition", "agent-place", "agent-runs",
+                                                     "agent-log")}      # KIND → the parameter it cannot do without
 
 # ---- the items group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/items.tsx): KIND → its parameters
 KINDS.update({
@@ -206,7 +215,7 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
                 c.err(f"{what}.{k}: true or false", w, "bad-dashboard")
                 ok = False
                 continue
-        elif k in TEXTS or k in ("kind", "goal", "system"):
+        elif k in TEXTS or k in ("kind", "goal", "system", "agent"):
             if not isinstance(v, str) or not v:
                 c.err(f"{what}.{k}: text", w, "bad-dashboard")
                 ok = False
@@ -341,6 +350,8 @@ def _refs(c, spec, exists, k: str, v, params: dict, what: str, w) -> bool:
     elif k == "system" and v not in spec.systems and v not in {x.system for t in (spec.stocks, spec.flows, spec.goals,
                                                                                     spec.blocks) for x in t.values()}:
         ok = bad(f"{v!r} is not a system" + c.suggest(v, spec.systems), f"system.{v}")
+    elif k == "agent" and v not in spec.blocks:          # the model's agents are its blocks
+        ok = bad(f"{v!r} is not an agent" + c.suggest(v, spec.blocks), f"block.{v}")
     elif k == "state":
         kind = spec.items.get(params.get("kind") or "")
         for s in v:

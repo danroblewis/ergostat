@@ -34,7 +34,8 @@ JOBS_KEPT = 256       # finished panels kept at once (the oldest go first)
 PATHS = {"goals": "loops", "chart": "series", "items": "items", "states": "items-flow", "cycle-time": "items-flow",
          "scope": "loop-scope", "items-graph": "items-graph", "timeline": "items-graph"}
 # each group's kinds of panel → the endpoint that answers them (the path after /api/; a group's own block)
-PATHS.update({})   # agents
+PATHS.update({"ladder": "agents", "agents": "agents", "daemons": "daemons", **{k: "agents/{agent}" for k in (
+    "agent-what", "agent-definition", "agent-place", "agent-runs", "agent-log")}})   # agents
 PATHS.update({})   # items
 PATHS.update({"events": "events", "goal-crossings": "loops/{goal}", "goal-decisions": "loops/{goal}"})   # record
 PATHS.update({})   # attention
