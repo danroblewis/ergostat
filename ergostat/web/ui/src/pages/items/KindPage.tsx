@@ -1,14 +1,25 @@
-import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Async, Code, Empty, ErrorNote, Filters, FinishedNote, FinishedToggle, Fold, ItemsTable, KindBar, KindStates, Loading, Page, PAGE_SIZES, Pager, SearchBox, StatesChoice, StatusWord, hiddenStates } from "../../components";
-import { useApi } from "../../hooks/useApi";
-import { plural } from "../../lib/format";
+import { useParams, useSearchParams } from "react-router-dom";
+import { ErrorNote, Filters, FinishedToggle, KindBar, Page, PAGE_SIZES, SearchBox, StatesChoice } from "../../components";
+import { DashboardView } from "../../components/panels/DashboardView";
+import { itemListParams } from "../../components/panels/kinds/items";
+import { SharedAnswers } from "../../components/panels/shared";
+import type { PanelDef } from "../../components/panels/types";
+import { usePanelApi } from "../../components/panels/usePanelApi";
 
-/* /items/KIND (pages.js pageItems with ``only``, kindpage.js): its bar as the page's heading (a state chip filters
-   the list), Now (its states over the window and how long its finished took), In the model (what counts it, the
-   goals and loops it is in), its definition, then its items, a page at a time, searched and sorted by the server.
-   Every choice is in the address: state=, q=, finished=show, sort=KIND:field, page=KIND:N, size=, states=all. */
+/* /items/KIND, a dashboard made in advance (kindpage.js): its bar as the page's heading (a state chip filters the
+   list), then its panels: Now (kind-now: its states over the window and how long its finished took), In the model
+   (kind-model: what counts it, the goals and loops it is in), its definition (kind-definition), and its items
+   (item-list: a page at a time, searched and sorted by the server). The page asks each answer once and hands it to
+   its panels; the list's filters are in its head. Every choice is in the address: state=, q=, finished=show, sort=KIND:field, page=KIND:N, size=,
+   states=all. */
 
 const SIZES = PAGE_SIZES;
+const TOP: PanelDef[] = [
+  { panel: "kind-now", id: "now", title: "Now", size: "m", fit: true },
+  { panel: "kind-model", id: "model", title: "In the model", size: "m", fit: true },
+  { panel: "kind-definition", id: "definition", title: "Definition", size: "full", fit: true, folded: true },
+];
+const LIST: PanelDef = { panel: "item-list", id: "items", title: "Items", size: "full", fit: true };
 
 export default function KindPage() {
   const { kind = "" } = useParams();
@@ -31,131 +42,60 @@ export default function KindPage() {
       return n;
     }, { replace: true });
 
-  const list = useApi<any>("items", {
-    kind, n: size, offset: (pg - 1) * size, shown: 1,
-    ...(state ? { state } : {}), ...(needle ? { q: needle } : {}), ...(sort ? { sort } : {}), ...(showFin ? { finished: "show" } : {}),
-  }, { every: 5000 });
-  const fp = useApi<any>(`kinds/${encodeURIComponent(kind)}`, {}, { every: 30000 });
-  const flow = useApi<any>("items-flow", { kind, points: 60 }, { every: 30000 });
+  // the list's choices, as the panel says them, into the address
+  const onParams = (c: Record<string, string | number | null>) => {
+    const out: Record<string, string | null> = {};
+    if ("page" in c) out.page = c.page ? `${kind}:${c.page}` : null;
+    if ("sort" in c) out.sort = c.sort ? `${kind}:${c.sort}` : null;
+    if ("n" in c) out.size = c.n ? String(c.n) : null;
+    if ("finished" in c) out.finished = c.finished ? String(c.finished) : null;
+    set(out);
+  };
+  const list: PanelDef = { ...LIST, kind, state: state || undefined, q: needle || undefined, sort: sort || undefined,
+    finished: showFin ? "show" : undefined, n: size, page: pg, onParams };
+  const top = TOP.map((d) => ({ ...d, kind, ...(d.panel === "kind-now" ? { states: all ? "all" : undefined } : {}) }));
 
-  const k = list.data?.kinds?.find((x: any) => x.name === kind);
+  const asked = itemListParams(list);
+  const items = usePanelApi<any>("items", asked, 5000);
+  const fp = usePanelApi<any>(`kinds/${encodeURIComponent(kind)}`, {}, 30000);
+  const flowAsked = { kind, points: 60 };
+  const flow = usePanelApi<any>("items-flow", flowAsked, 30000);
+  const k = items.data?.kinds?.find((x: any) => x.name === kind);
 
   return (
     <div className="page kind-page">
       {k ? (
         <KindBar k={k} level={1} state={state} onState={(st) => set({ state: st })} />
-      ) : list.error ? (
-        <Page title={kind}><ErrorNote error={list.error} /></Page>
+      ) : items.error ? (
+        <Page title={kind}><ErrorNote error={items.error} /></Page>
       ) : (
         <h1>{kind}</h1>
       )}
-
-      <section className="kind-sect">
-        <h2>Now</h2>
-        <StatesChoice all={all} onChange={(v) => set({ states: v ? "all" : null }, true)} />
-        <KindStates flow={flow.data} fp={fp.data} all={all} />
-        <a className="pm-link" href={`/diagram?view=process&kind=${encodeURIComponent(kind)}&mode=states`}
-          title="Its process map: how many are in each state now, and how they moved">process map</a>
-      </section>
-
-      <section className="kind-sect">
-        <h2>In the model</h2>
-        <Async state={fp}>{(d) => <InModel fp={d} />}</Async>
-      </section>
-
-      <Fold className="kind-sect" summary="Definition">
-        {fp.data?.definition ? <Code code={JSON.stringify(fp.data.definition, null, 2)} lang="json" /> : <Loading />}
-      </Fold>
-
-      <h2 className="kind-sect">Items</h2>
-      <Filters>
-        <SearchBox value={needle} live placeholder="Search ids and fields" onSearch={(w) => set({ q: w || null })} />
-        {needle && list.data && (
-          <span className="muted search-said" aria-live="polite">
-            {list.data.total} match{list.data.total === 1 ? "" : "es"}, {list.data.finished ?? 0} finished
-          </span>
-        )}
-        <FinishedToggle shown={showFin} onChange={(v) => set({ finished: v ? "show" : null })} />
-        {state && (
-          <span className="set-chip">
-            state {state}{" "}
-            <button type="button" className="ghost" title="Remove this filter" aria-label="Remove this filter" onClick={() => set({ state: null })}>×</button>
-          </span>
-        )}
-      </Filters>
-      <div className="item-systems">
-        <Async state={list}>
-          {(d) => {
-            const its = d.items.filter((i: any) => i.kind === kind);
-            const left = hiddenStates(k).filter((s) => k?.counts?.[s]);
-            const nLeft = left.reduce((a, s) => a + k.counts[s], 0);
-            const pager = (at: "top" | "foot") => (
-              <Pager at={at} total={d.total} offset={d.offset} cut={d.cut} shown={its.length} size={size} what={needle ? "matches" : state || ""}
-                onPage={(n) => set({ page: n > 1 ? `${kind}:${n}` : null })}
-                onSize={(n) => set({ size: n === 25 ? null : String(n) })} />
-            );
-            return (
-              <section className="sys-group kind-items">
-                {its.length ? (
-                  <>
-                    {pager("top")}
-                    <ItemsTable items={its} show={k?.show || []} sort={sort} caption={`${kind} items`}
-                      onSort={(s) => set({ sort: s ? `${kind}:${s}` : null })} />
-                    {pager("foot")}
-                  </>
-                ) : (
-                  <Empty>{needle ? "Nothing matches." : state ? `No ${kind} items in ${state}.` : "No items to show."}</Empty>
-                )}
-                {!showFin && !state && !needle && <FinishedNote n={nLeft} states={left} onShow={() => set({ finished: "show" })} />}
-              </section>
-            );
-          }}
-        </Async>
-      </div>
-    </div>
-  );
-}
-
-/** What in the model counts its items, the goals on those parts, the loops they are in, and the states none counts. */
-function InModel({ fp }: { fp: any }) {
-  if (fp.why) return <p className="muted">{fp.why}</p>;
-  const counted = fp.counted_in || [], goals = fp.goals || [], loops = fp.loops || [], taken = fp.taken_by || [];
-  if (!counted.length && !goals.length && !taken.length) return <p className="muted">Nothing in the model counts these items.</p>;
-  return (
-    <div className="kind-model">
-      {counted.length > 0 && (
-        <p>
-          Counted in{" "}
-          {counted.map((c: any, i: number) => (
-            <span key={c.part}>
-              {i ? "; " : ""}
-              <a href={`/diagram?view=dynamics&part=${encodeURIComponent(c.part)}`}>{c.kind} {c.name}</a>
-              <span className="muted"> ({c.measure ? `${c.measure} of ` : ""}{c.states?.join(", ") || "every state"}{c.system ? `, in ${c.system}` : ""})</span>
-            </span>
-          ))}
-          .
-        </p>
-      )}
-      {taken.length > 0 && (
-        <p>Taken by {taken.map((t: any) => (typeof t === "string" ? t : t.block || t.name)).join(", ")}.</p>
-      )}
-      {goals.length > 0 && (
-        <ul className="kind-goals">
-          {goals.map((g: any) => (
-            <li key={g.goal}>
-              <Link to={`/goals?goal=${encodeURIComponent(g.goal)}`}>{g.goal}</Link> holds {g.of} {g.hold}{" "}
-              <StatusWord status={g.status} />
-              {g.description && <span className="muted"> {g.description}</span>}
-            </li>
-          ))}
-        </ul>
-      )}
-      {loops.length > 0 && (
-        <p className="muted small">
-          In {plural(loops.length, "loop")}: {loops.map((l: any) => `${l.name} (${l.polarity})`).join(", ")}.
-        </p>
-      )}
-      {fp.uncounted?.length > 0 && <p className="muted small">Nothing counts it in {fp.uncounted.join(", ")}.</p>}
+      <SharedAnswers answers={[
+        { path: "items", params: asked, state: items },
+        { path: `kinds/${encodeURIComponent(kind)}`, state: fp },
+        { path: "items-flow", params: flowAsked, state: flow },
+      ]}>
+        <DashboardView panels={[...top, list]} tools={(d) => d.panel === "kind-now" ? (
+          <StatesChoice all={all} onChange={(v) => set({ states: v ? "all" : null }, true)} />
+        ) : d.panel === "item-list" ? (
+          <Filters>
+            <SearchBox value={needle} live placeholder="Search ids and fields" onSearch={(w) => set({ q: w || null })} />
+            {needle && items.data && (
+              <span className="muted search-said" aria-live="polite">
+                {items.data.total} match{items.data.total === 1 ? "" : "es"}, {items.data.finished ?? 0} finished
+              </span>
+            )}
+            <FinishedToggle shown={showFin} onChange={(v) => set({ finished: v ? "show" : null })} />
+            {state && (
+              <span className="set-chip">
+                state {state}{" "}
+                <button type="button" className="ghost" title="Remove this filter" aria-label="Remove this filter" onClick={() => set({ state: null })}>×</button>
+              </span>
+            )}
+          </Filters>
+        ) : null} />
+      </SharedAnswers>
     </div>
   );
 }

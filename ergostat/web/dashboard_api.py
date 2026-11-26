@@ -35,7 +35,11 @@ PATHS = {"goals": "loops", "chart": "series", "items": "items", "states": "items
          "scope": "loop-scope", "items-graph": "items-graph", "timeline": "items-graph"}
 # each group's kinds of panel → the endpoint that answers them (the path after /api/; a group's own block)
 PATHS.update({})   # agents
-PATHS.update({})   # items
+PATHS.update({"kinds": "items-overview", "items-by-kind": "items", "kind-now": "items-flow", "kind-model": "kinds/{kind}",
+              "kind-definition": "kinds/{kind}", "item-list": "items", "item-why": "why", "item-summary": "items/{item}",
+              "item-path": "items/{item}", "item-relations": "items/{item}", "item-fields": "items/{item}",
+              "item-refused": "items/{item}", "item-moves": "items/{item}", "item-events": "items/{item}",
+              "item-changes": "items/{item}"})   # items
 PATHS.update({})   # record
 PATHS.update({})   # attention
 

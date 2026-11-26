@@ -5,8 +5,9 @@ export const itemHref = (id: string, remote?: string) =>
 export const kindHref = (name: string, q = "") => `/items/${encodeURIComponent(name)}${q ? `?${q}` : ""}`;
 export const agentHref = (name: string) => `/agent/${encodeURIComponent(name)}`;
 
-/** The diagram, drawn the way asked: a view, a system, or only what an item or a kind passed through. */
-export function diagramHref(at: { view?: "dynamics" | "blocks" | "process"; system?: string; item?: string; kind?: string; around?: string } = {}) {
+/** The diagram, drawn the way asked: a view, a system, or only what an item or a kind passed through (the Process
+ *  view: only these kinds, `kinds`). */
+export function diagramHref(at: { view?: "dynamics" | "blocks" | "process"; system?: string; item?: string; kind?: string; around?: string; kinds?: string } = {}) {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(at)) if (v && !(k === "view" && v === "dynamics")) q.set(k, v);
   const s = q.toString();
