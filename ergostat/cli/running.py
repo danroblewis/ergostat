@@ -83,9 +83,14 @@ def _stop_runs(p, rc: int) -> int:
 
 
 def _metrics_answer(p) -> bool:
-    """Whether the VictoriaMetrics that keeps the readings answers; when it does not, said, with how to start one (the
-    readings are kept nowhere else: never a run that loses them)."""
+    """Whether the VictoriaMetrics that keeps the readings answers, ergostat's own started when it is the default local
+    one and none runs; when it does not, said, with how to start one (the readings are kept nowhere else: never a run
+    that loses them)."""
+    from ..storage import start_local
     from ..victoria import VictoriaError
+    if (why := start_local(p.storage)) is not None:
+        print(f"ergostat run: {why}", file=sys.stderr)
+        return False
     try:
         p.measurements.check()
     except VictoriaError as e:

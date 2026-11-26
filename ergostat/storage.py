@@ -247,10 +247,44 @@ def metrics_project(directory: Path) -> str:
 def not_answering(url: str) -> str:
     """What to do when no VictoriaMetrics answers at ``url``: every reading is kept there, and nothing else holds them."""
     return (f"no VictoriaMetrics answers at {url}, and ergostat keeps every reading there. Start one: "
-            "brew install victoriametrics, then victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data "
+            "brew install victoriametrics, then ergostat run (it starts one at the default address), or victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data "
             "-retentionPeriod 100y (or brew services start victoriametrics); or have ergostat run it with "
             "storage: measurements: run: <that command> in the model; or point storage: measurements: url: (or "
             f"{URL_ENV}) at one that runs (docs/DASHBOARDS.md, VictoriaMetrics)")
+
+
+BINARIES = ("victoria-metrics", "victoria-metrics-prod")   # Homebrew's name, then the release archive's
+DATA = Path.home() / ".ergostat" / "victoria-metrics-data"
+
+
+def start_local(cfg: Storage | None, wait: float = 15.0) -> str | None:
+    """Start the VictoriaMetrics the readings are in, when it is ergostat's own: no ``url:`` and no ``run:`` in the model,
+    no ``ERGOSTAT_METRICS_URL``, so the default local address. Started detached (it outlives the run: every ergostat
+    command and every project on this machine reads it), its data in ``~/.ergostat/victoria-metrics-data`` and its log
+    beside it. Returns None once it answers, else what is wrong (no binary, or it did not come up)."""
+    import shutil
+    import subprocess
+    import time
+    url = metrics_url(cfg)
+    if answers(url):
+        return None
+    if (cfg is not None and (cfg.url or cfg.run)) or os.environ.get(URL_ENV) or url != VM_URL.rstrip("/"):
+        return not_answering(url)                     # one the owner named: theirs to start, never ours
+    exe = next((b for b in map(shutil.which, BINARIES) if b), None)
+    if exe is None:
+        return (f"no VictoriaMetrics answers at {url}, and none is installed for ergostat to start "
+                "(ergostat keeps every reading there): brew install victoriametrics, then run this again")
+    DATA.mkdir(parents=True, exist_ok=True)
+    with open(DATA.parent / "victoria-metrics.log", "ab") as log:
+        subprocess.Popen([exe, f"-storageDataPath={DATA}", "-retentionPeriod=100y", f"-httpListenAddr={url.split('://', 1)[-1]}"],
+                         stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, close_fds=True)
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if answers(url):
+            return None
+        time.sleep(0.2)
+    return (f"started VictoriaMetrics ({exe}) but it did not answer at {url} within {wait:g}s; "
+            f"its log: {DATA.parent / 'victoria-metrics.log'}")
 
 
 def open_measurements(cfg: Storage, directory: Path):

@@ -25,8 +25,8 @@ working on it in [CLAUDE.md](CLAUDE.md).
 ```bash
 uv tool install git+ssh://git@github.com/danroblewis/ergostat   # private: needs your GitHub SSH key
 # (update later with: uv tool upgrade ergostat)
-brew install victoriametrics   # required: every reading is kept there (Linux: the single-node release binary)
-victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data -retentionPeriod 100y &   # at 127.0.0.1:8428
+brew install victoriametrics   # required: every reading is kept there (Linux: the single-node release binary);
+                               # ergostat run starts it at 127.0.0.1:8428 when none runs
 cd <your repository>
 $EDITOR ergostat.yaml          # the model (below); examples/first-loop is the smallest whole one
 ergostat check                 # errors with file:line, then findings (missing feedback, ...)
@@ -199,9 +199,9 @@ and control engineering compared ([docs/vocabulary.md](docs/vocabulary.md)).
 ## The record
 
 What happened (events), in `~/.ergostat/<name>-<hash>/`: an append-only log of compressed segments (or SQLite).
-What the sensors read (measurements): in VictoriaMetrics, which is required (`brew install victoriametrics`, then run
-it, or let ergostat run it with `storage: measurements: run:`; with none answering, `ergostat run` says how and does
-not start), so every one of ergostat's metrics is PromQL ([docs/DASHBOARDS.md](docs/DASHBOARDS.md) §6a). Under a long,
+What the sensors read (measurements): in VictoriaMetrics, which is required (`brew install victoriametrics`; with none
+answering at the default address, `ergostat run` starts one and leaves it running, its data in
+`~/.ergostat/victoria-metrics-data`; or let the engine supervise it with `storage: measurements: run:`), so every one of ergostat's metrics is PromQL ([docs/DASHBOARDS.md](docs/DASHBOARDS.md) §6a). Under a long,
 heavy load the record stays bounded: an item's events older than a week are rolled up into one snapshot event (its
 state as of then; the originals archived, compressed, behind the item page's "Show the full history"), and no event
 older than `keep:` (30 days) is kept; the readings are kept for the server's `-retentionPeriod`. The engine does this

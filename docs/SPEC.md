@@ -945,8 +945,10 @@ only if nothing was dragged or laid out again meanwhile.
 The record is two stores, kept apart (few events, many measurements), held to one conformance suite
 (`tests/test_store_conformance.py`): the events, in the state directory, behind one interface with two backends; and
 the measurements, every reading, in VictoriaMetrics, the only metrics store (the owner's decision, 2026-11-25: every
-metric goes through PromQL, recorded in VictoriaMetrics). VictoriaMetrics is required: with none answering,
-`ergostat run` refuses to start and a command that reads the readings fails, each saying how to start one
+metric goes through PromQL, recorded in VictoriaMetrics). VictoriaMetrics is required: with none answering at
+the default address, `ergostat run` starts one (`storage.start_local`: detached, its data in
+`~/.ergostat/victoria-metrics-data`); with no binary, or one the owner named (`url:`, `run:`, `ERGOSTAT_METRICS_URL`)
+not answering, it refuses to start and a command that reads the readings fails, each saying how to start one
 (`brew install victoriametrics`, or `run:`); nothing is ever written somewhere else instead. A project says more in
 `storage:` (main file only):
 

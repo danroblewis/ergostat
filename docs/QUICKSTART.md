@@ -8,8 +8,7 @@ your own and point it at metrics you already have.
 ```bash
 uv tool install git+ssh://git@github.com/danroblewis/ergostat.git   # private: needs your GitHub SSH key
 uv tool upgrade ergostat                                             # later, to update
-brew install victoriametrics                                         # required: every reading is kept there
-victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data -retentionPeriod 100y &
+brew install victoriametrics                                         # required: ergostat run starts it when none runs
 ```
 
 VictoriaMetrics is where ergostat keeps every reading (on Linux, the single-node `victoria-metrics` release binary on

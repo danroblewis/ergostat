@@ -131,12 +131,15 @@ keeps is kept in VictoriaMetrics, its only metrics store (NOTES.md, 2026-11-25),
 
 **Get it.** VictoriaMetrics is required: ergostat keeps no reading anywhere else. It is one binary with no
 dependencies: `brew install victoriametrics` on a Mac, or the single-node `victoria-metrics` from the project's
-releases (`victoria-metrics-<os>-<arch>-<version>.tar.gz`) on your `PATH`. Start it yourself,
-`victoria-metrics -storageDataPath ~/.ergostat/victoria-metrics-data -retentionPeriod 100y` (or
-`brew services start victoriametrics`, after setting its `-retentionPeriod`). ergostat looks for it at
-`http://127.0.0.1:8428`, VictoriaMetrics' own default; another address is `storage: measurements: url:` in the model, or
-`ERGOSTAT_METRICS_URL` for every project. With none answering, `ergostat run` refuses to start, and a command that reads
-the readings fails, each saying how to start one: never a run whose readings go nowhere.
+releases (`victoria-metrics-<os>-<arch>-<version>.tar.gz`) on your `PATH`. ergostat looks for it at
+`http://127.0.0.1:8428`, VictoriaMetrics' own default, and when none answers there, `ergostat run` starts one itself:
+detached, so it outlives the run and every command and project on the machine shares it, with
+`-storageDataPath ~/.ergostat/victoria-metrics-data -retentionPeriod 100y` and its log in
+`~/.ergostat/victoria-metrics.log`. You may start it yourself instead (that command, or `brew services start
+victoriametrics` after setting its `-retentionPeriod`). Another address is `storage: measurements: url:` in the model,
+or `ERGOSTAT_METRICS_URL` for every project: one you name is yours to start, and ergostat never starts it. With no
+binary installed, or one you named not answering, `ergostat run` refuses to start, and a command that reads the
+readings fails, each saying how to start one: never a run whose readings go nowhere.
 
 **Or let ergostat run it.** In the model's main file:
 
