@@ -5,6 +5,8 @@
   background: var(--bg); border: var(--hair) solid var(--line); border-radius: var(--radius-menu); color: var(--ink); }
 .panel[hidden], .panel [hidden] { display: none; }
 .panel-tall { --panel-h: calc(var(--sp-7) * 9); }
+.panel.panel-form-diagram { --panel-h: calc(var(--sp-7) * 9); }            /* a diagram is taller than a chart */
+.panel.panel-form-diagram.panel-tall { --panel-h: calc(var(--sp-7) * 13); }
 .panel-form-stat:not(.panel-tall) { --panel-h: calc(var(--sp-7) * 4); }
 .panel-s { grid-column: span 4; } .panel-m { grid-column: span 6; } .panel-l { grid-column: span 8; } .panel-full { grid-column: span 12; }
 @media (max-width: 900px) { .panel-s, .panel-m { grid-column: span 6; } .panel-l, .panel-full { grid-column: span 12; } }
