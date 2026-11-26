@@ -1,5 +1,6 @@
 """The views the SQL data source answers from (sql.py; SPEC §4e, *The SQL source*): documented, stable and read only,
-over the item index (spec/itemindex.py), whose own tables are never readable.
+over the item index (spec/itemindex.py), whose own tables are never readable. All item data is here: the built-in item
+shortcuts (query/sources.py) are SQL over these views and nothing else.
 
 - ``transitions(id, kind, at, from_state, to_state, event, type)``: every move of every item; an arrival has no
   ``from_state``.
@@ -17,6 +18,13 @@ over the item index (spec/itemindex.py), whose own tables are never readable.
   parent not one), the expected number ``out`` and ``lost`` within the horizon and the ``yield``; ``forecast_group_by`` one row
   for each k-th member out (``n``): the date it is out by in half (``p50``) and nine tenths (``p90``) of the runs; and
   the functions ``GROUP_FUNCTIONS`` answer a group's counts by any date (``_group_functions``).
+- ``item_list(id, kind, state, first, last, entered, events)``: every item of every kind, as it is now.
+- ``item_numbers(id, kind, field, at, value, delta)``: each change of an item's numeric field (the item fields shortcut).
+- ``item_labels(id, kind, label, value)``: what an item is labelled by for a filter or a group: ``state``, and each
+  top-level field as a word (query/labels.py ``word``: an empty or missing one ``none``, a list or a map ``many``).
+- ``item_state_groups(id, kind, state_group)``: each item's stage in its group's progress (spec/grouptally.py), made in
+  Python when a text names it.
+- ``events(type, source, at, n)``: how many events of each type and source the index folded in the minute ending ``at``.
 - one view per item kind, named for the kind (``-`` read as ``_``; a name that is not then a plain word, or that is one
   of the views above, has none): ``(id, state, first, last, entered, events, <the kind's show: fields>)``.
 
@@ -40,11 +48,17 @@ import time
 from .. import stages
 from ..spec import codec
 
+STATE_GROUPS = "item_state_groups"
 STABLE = {
     "transitions": ("id", "kind", "at", "from_state", "to_state", "event", "type"),
     "item_fields": ("id", "kind", "field", "value"),
     "item_spans": ("id", "kind", "state", "entered", "left", "entry", "reason"),
+    "item_list": ("id", "kind", "state", "first", "last", "entered", "events"),
+    "item_numbers": ("id", "kind", "field", "at", "value", "delta"),
+    "item_labels": ("id", "kind", "label", "value"),
+    "events": ("type", "source", "at", "n"),
     **stages.COLUMNS,                                   # (made from the items' stages, here: _stage_tables)
+    STATE_GROUPS: ("id", "kind", "state_group"),        # (made from the items' groups, here: _state_group_table)
 }
 _SAID = ("p50", "p90", "runs", "computed", "at", "version", "estimate", "none")
 FORECAST = {                                            # (made from the forecast: _forecast_tables)
@@ -101,8 +115,9 @@ def _definitions(spec, finished: dict[str, list[str]]) -> dict[str, str]:
                      for k, fs in sorted(finished.items()) if fs)
     out = {
         "transitions": "select i.id as id, k.name as kind, m.t as at, f.name as from_state, d.name as to_state, "
-        "m.event as event, y.name as type from main.moves m join main.items i on i.rid = m.rid "
-        + " ".join(names.format(a=a, c=c) for a, c in (("k", "m.kind"), ("f", "m.frm"), ("d", "m.dst"), ("y", "m.type"))),
+        "m.event as event, y.name as type from main.names k join main.moves m on m.kind = k.id "
+        "join main.names d on d.id = m.dst join main.items i on i.rid = m.rid "
+        + " ".join(names.format(a=a, c=c) for a, c in (("f", "m.frm"), ("y", "m.type"))),
         "item_fields": "select i.id as id, k.name as kind, j.key as field, j.value as value "
         f"from main.items i {names.format(a='k', c='i.kind')} join json_each(_fields(i.body)) j",
         "item_spans": "select i.id as id, k.name as kind, d.name as state, s.t as entered, s.nxt as \"left\", "
@@ -111,6 +126,23 @@ def _definitions(spec, finished: dict[str, list[str]]) -> dict[str, str]:
         "as entry from main.moves) s join main.items i on i.rid = s.rid "
         + " ".join(names.format(a=a, c=c) for a, c in (("k", "s.kind"), ("d", "s.dst"), ("n", "i.state"))),
     }
+    out["item_list"] = ("select i.id as id, k.name as kind, n.name as state, i.first as first, i.last as last, "
+                        "i.entered as entered, i.n as events from main.items i join main.names k on k.id = i.kind "
+                        + names.format(a="n", c="i.state"))
+    out["item_numbers"] = ("select i.id as id, k.name as kind, f.name as field, l.t as at, l.value as value, "
+                           "l.delta as delta from main.names k join main.number_log l on l.kind = k.id "
+                           "join main.names f on f.id = l.field join main.items i on i.rid = l.rid")
+    out["item_labels"] = ("select i.id as id, k.name as kind, 'state' as label, coalesce(n.name, 'none') as value "
+                          "from main.items i join main.names k on k.id = i.kind " + names.format(a="n", c="i.state")
+                          + " union all select i.id, k.name, j.key, case j.type when 'null' then 'none' "
+                          "when 'true' then 'true' when 'false' then 'false' "
+                          "when 'text' then case when j.value = '' then 'none' else j.value end "
+                          "when 'integer' then cast(j.value as text) "
+                          "when 'real' then case when j.value = cast(j.value as integer) "
+                          "then cast(cast(j.value as integer) as text) else cast(j.value as text) end else 'many' end "
+                          "from main.items i join main.names k on k.id = i.kind join json_each(_fields(i.body)) j "
+                          "where j.key != 'state'")
+    out["events"] = "select e.type as type, e.source as source, e.at as at, e.n as n from main.event_counts e"
     for view, (kind, shown) in kind_views(spec).items():
         cols = "".join(f", json_extract(_fields(i.body), '$.{f}') as \"{f}\"" for f in shown)
         out[view] = (f"select i.id as id, n.name as state, i.first as first, i.last as last, i.entered as entered, "
@@ -208,6 +240,21 @@ def _stage_tables(c, spec, finished: dict[str, list[str]], now: float) -> None:
         c.execute(f'create temp table "{view}" ({", ".join(chr(34) + x + chr(34) for x in cols)})')
         c.executemany(f'insert into temp."{view}" values ({", ".join("?" * len(cols))})',
                       [tuple(r[x] for x in cols) for r in made[view]])
+
+
+def _state_group_table(c, ix, spec) -> None:
+    """``item_state_groups``: each item of a kind whose items are in a group's progress, its stage there (done, in
+    progress, waiting, stopped; spec/grouptally.py), as the query engine's ``state_group`` label reads it."""
+    from ..spec.grouptally import stages as group_stages
+    c.execute(f'create temp table "{STATE_GROUPS}" ("id", "kind", "state_group")')
+    for kind, k in sorted((getattr(spec, "items", None) or {}).items()):
+        if not k.states:
+            continue
+        try:
+            by_id = ix.guard(lambda kind=kind: group_stages(ix, getattr(ix, "spec", None) or spec, kind))
+        except Exception:                               # (a kind its groups cannot be told for: none of its items)
+            continue
+        c.executemany(f'insert into temp."{STATE_GROUPS}" values (?, ?, ?)', [(i, kind, g) for i, g in by_id.items()])
 
 
 def _bounded(c, deadline: float, why: list) -> None:
@@ -386,8 +433,12 @@ def opened(ix, spec, deadline: float, text: str | None = None, why: list | None 
         if forecast is not None:
             names |= _forecast_tables(c, forecast, words)
             _group_functions(c, forecast, why)
+        if words is None or STATE_GROUPS in words:
+            _state_group_table(c, ix, spec)
+            names.add(STATE_GROUPS)
         c.execute("pragma query_only = 1")
-        tables = {"items", "moves", "names", "json_each"}   # (what the definitions read; json_each is item_fields')
+        tables = {"items", "moves", "names", "number_log", "event_counts", "json_each"}   # (what the definitions read;
+        #                                                                       json_each is item_fields' and item_labels')
         c.set_authorizer(_authorizer(why, lambda db, a: (db == "main" and a in tables) or (db == "temp" and a in names),
                                      FUNCTIONS | {"_fields", "json_each"}, names | (own or set())))
         yield c, why

@@ -97,7 +97,7 @@ def _store(url: str, d: Path, spec) -> Victoria:
 
 
 def _metrics(spec, v: Victoria, prefix: str) -> list[str]:
-    return datasources.suggest(spec, "ergostat", "metrics", prefix=prefix, store=v)["suggestions"]
+    return datasources.suggest("promql", "metrics", prefix=prefix, store=v)["suggestions"]
 
 
 # ---- done item 1: the factory
@@ -331,7 +331,7 @@ def test_a_query_saved_under_an_old_name_asks_the_new(prom, tmp_path):
     v = _store(prom, tmp_path, None)
     Prom.asked.clear()
     g = grid(1_795_400_000.0, 1_795_400_400.0, 4)
-    got = datasources.query(None, "ergostat", 'sum by (state) (ergostat_items{kind="gap"})', g, store=v)
+    got = datasources.query(None, "promql", 'sum by (state) (ergostat_items{kind="gap"})', g, store=v)
     assert Prom.asked == ['sum by (state) ({__name__=~"gap_items|ergostat_items",kind=~"gap|"})']   # (both names)
     assert [w[0] for w in got["warnings"]] == ["old-name"] and 'ergostat_items{kind="gap"} -> gap_items' in got["warnings"][0][1]
 

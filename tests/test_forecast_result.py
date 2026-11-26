@@ -205,12 +205,12 @@ def test_the_worker_versions_each_forecast_it_works_out(tmp_path, fresh):
     assert other["version"] > first["version"]
 
 
-SQL = "\nsources:\n  record: {type: sql}\n"
+SQL = "\n"
 
 
 def ask(p, text: str) -> dict:
     from ergostat.web.server import Live, api
-    body = {"since": 3600.0, "until": time.time() + 3600, "points": 4, "queries": [{"id": "a", "source": "record", "text": text}]}
+    body = {"since": 3600.0, "until": time.time() + 3600, "points": 4, "queries": [{"id": "a", "source": "sql", "text": text}]}
     q = base64.urlsafe_b64encode(json.dumps(body).encode()).decode().rstrip("=")
     [r] = api(Live(p), "query", {"q": [q]})["results"]
     return r

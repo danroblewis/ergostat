@@ -1,21 +1,31 @@
-"""The five sources a query reads. Each returns its groups' rows in the window: ``Rows`` (things that happened, to be
-aggregated in their buckets) or ``Levels`` (one value per bucket already). Only ``events`` reads the event log."""
+"""The built-in query kinds as query generators (NOTES.md, 2026-11-25, the owner's decision): each writes the dashboard's
+or the YAML's shortcut as one query in a data source's own language and asks it of that source, never reading a store
+of its own. Item fields, item moves, items per state and events are SQL over the item views (``sql``:
+datasources/_itemviews.py); a metric series is PromQL over the readings (``promql``: datasources/promql.py). What
+each wrote is returned with what it read (``Read.compiled``: ``[{"source", "text"}]``), and the answer carries it, so
+a reader sees it is just SQL or PromQL and can ask the same text of the source itself (``:since`` and ``:until`` are
+the panel's window, as there).
+
+Each returns its groups' rows in the window: ``Rows`` (things that happened, to be aggregated in their buckets) or
+``Levels`` (one value per bucket already). Grouping and filtering by a label (``state``, ``kind``, a field,
+``state_group``) are joins in the SQL (``item_list``, ``item_labels``, ``item_state_groups``)."""
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
 from ..spec import items as its
-from ..spec import numberreads
-from . import labels
 from .buckets import Grid, aggregate, grid
+from .labels import STATE_GROUP
 from .parse import Query
 
-EVENTS_MOST = 20_000        # events one query may read from the log
-EVENTS_WINDOW = 31 * 86400.0    # the longest window an events query may read the log over
-READINGS_MOST = 20_000      # a series' readings read for a percentile
 ANY = "all"
 OHLC_SOURCES = ("items", "series", "moves")   # what has values in time; a level or a count of events has no open and close
+GENERATED_ROWS = 2_000_000  # rows one generated SQL query may answer (bucketed here, never sent as they are)
+SECONDS = 10.0              # what a generated query may take, when the request gives no budget
+MINUTE = 60.0               # events are counted per minute (the item index's ``event_counts``)
+EPS = 0.001                 # a bucket is [start, end): PromQL's window (t - step, t] is read a millisecond early
 
 
 class Unanswerable(Exception):
@@ -34,6 +44,8 @@ class Read:
     read_log: bool = False
     note: str | None = None
     read_from: float | None = None                # only what happened from here on was read: earlier buckets are unknown
+    agg: str | None = None                        # the aggregation the rows are read by, when not the query's own
+    compiled: list[dict] = field(default_factory=list)   # what was asked: [{"source": "sql" | "promql", "text"}]
 
 
 def kinds(spec, q: Query) -> list:
@@ -53,34 +65,98 @@ def _index(p, spec, k, fields=()):
     return ix
 
 
-def _all(ix, sql: str, args: tuple) -> list:
-    """A read of the index, under its lock."""
-    return ix.guard(lambda: ix.db.execute(sql, args).fetchall())
-
-
 def _named(q: Query) -> tuple:
     return tuple(n for n, _ in q.where) + ((q.group_by,) if q.group_by not in (None, "state", "kind") else ())
 
 
-def items(p, spec, q: Query, g: Grid) -> Read:
+# ---- writing SQL
+
+def lit(v) -> str:
+    """A value as an SQL literal."""
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def _in(col: str, values) -> str:
+    return f"{col} in ({', '.join(lit(v) for v in values)})"
+
+
+class _Labels:
+    """The joins and the expressions that label a row of ``alias`` (its ``id`` and ``kind``) by ``state``, ``kind``,
+    ``state_group`` or a field, as the query engine groups and filters by them (query/labels.py): an item with no value
+    for one is ``none``."""
+
+    def __init__(self, alias: str):
+        self.alias, self.joins, self.made = alias, [], {}
+
+    def __call__(self, name: str) -> str:
+        if name == "kind":
+            return f"{self.alias}.kind"
+        if name in self.made:
+            return self.made[name]
+        n = len(self.made)
+        if name == "state":
+            self.joins.append(f"left join item_list s{n} on s{n}.id = {self.alias}.id")
+            got = f"coalesce(s{n}.state, 'none')"
+        elif name == STATE_GROUP:
+            self.joins.append(f"left join item_state_groups s{n} on s{n}.id = {self.alias}.id")
+            got = f"coalesce(s{n}.state_group, 'none')"
+        else:
+            self.joins.append(f"left join item_labels s{n} on s{n}.id = {self.alias}.id and s{n}.label = {lit(name)}")
+            got = f"coalesce(s{n}.value, 'none')"
+        self.made[name] = got
+        return got
+
+
+def _labelled(base: str, cols: str, q: Query, group: str | None, order: str = "b.at") -> str:
+    """``select cols[, the group's label as grp] from (base) b`` with the filter ``q.where`` and the group's label
+    joined; ordered by ``order``."""
+    lab = _Labels("b")
+    conds = [_in(lab(name), vals) for name, vals in q.where]
+    grp = f", {lab(group)} as grp" if group else ""
+    return (f"select {cols}{grp} from ({base}) b" + "".join(f" {j}" for j in lab.joins)
+            + (f" where {' and '.join(conds)}" if conds else "") + (f" order by {order}" if order else ""))
+
+
+def _kind_cond(q: Query, col: str = "kind") -> list[str]:
+    return [f"{col} = {lit(q.kind)}"] if q.kind else []
+
+
+def _sql(p, spec, text: str, g: Grid, seconds: float, transcript: bool = False) -> list[tuple]:
+    """The rows ``text`` answers over the window, asked of the ``sql`` source as any SQL query is."""
+    from ..datasources import SourceError, sql
+    if seconds <= 0:
+        raise Unanswerable("busy: this request has no time left to ask; try again")
+    try:
+        _, rows = sql.rows(p, spec, text, {"since": g.since, "until": g.until, "step": g.step}, seconds, transcript,
+                           GENERATED_ROWS)
+    except SourceError as e:
+        raise Unanswerable(str(e)) from e
+    return rows
+
+
+def _shown(text: str) -> list[dict]:
+    return [{"source": "sql", "text": text}]
+
+
+# ---- the generators
+
+def items(p, spec, q: Query, g: Grid, seconds: float = SECONDS) -> Read:
+    """A numeric field's changes: each one's time, the value it took and by how much it moved (``item_numbers``)."""
+    ks = kinds(spec, q)
+    conds = [*_kind_cond(q), f"field = {lit(q.field)}", "at >= :since", "at <= :until"]
+    base = f"select at, id, kind, value, delta from item_numbers where {' and '.join(conds)}"
+    text = _labelled(base, "b.at, b.value, b.delta", q, q.group_by)
+    transcript = its.asks_transcript(ks, (q.field, *_named(q)))
+    rows = _sql(p, spec, text, g, seconds, transcript)
+    if not rows:
+        held = f"select count(*) from item_numbers where {' and '.join([*_kind_cond(q), f'field = {lit(q.field)}'])}"
+        if not _sql(p, spec, held, g, seconds, transcript)[0][0]:
+            raise Unanswerable(f"field {q.field!r} is not a numeric field of {q.kind or 'any kind'}")
     out: dict[str, list] = {}
-    states: list[str] = []
-    found = False
-    for k in kinds(spec, q):
-        ix = _index(p, spec, k, (q.field, *_named(q)))
-        found = found or any(f["field"] == q.field for f in numberreads.fields_of(ix).get(k.name, ()))
-        rows = numberreads.changes(ix, k.name, q.field, g.since, g.until)
-        if not rows:
-            continue
-        ok = labels.allowed(ix, k.name, q.where)
-        label = labels.labeller(ix, k.name, q.group_by) if q.group_by else None
-        states += [s for s in k.states if s not in states]
-        for t, rid, v, d in rows:
-            if ok is None or ok(rid):
-                out.setdefault(label(rid) if label else q.field, []).append((t, v, d))
-    if not found:
-        raise Unanswerable(f"field {q.field!r} is not a numeric field of {q.kind or 'any kind'}")
-    return Read(rows=out, order=states if q.group_by == "state" else [], unit=_field_unit(q))
+    for r in rows:
+        out.setdefault(r[3] if q.group_by else q.field, []).append((r[0], r[1], r[2]))
+    states = list(dict.fromkeys(s for k in ks for s in k.states))
+    return Read(rows=out, order=states if q.group_by == "state" else [], unit=_field_unit(q), compiled=_shown(text))
 
 
 def _field_unit(q: Query) -> str:
@@ -88,125 +164,154 @@ def _field_unit(q: Query) -> str:
     return "items" if q.agg == "count" else unit_of(q.field)
 
 
-def _state_ids(ix, k, q: Query, moved: set) -> list[int]:
-    names = [s for s in q.state if s in moved] if q.state else sorted(x for x in moved if x)
-    return [x for x in (ix.known(s) for s in names) if x != -1]
+def _states(q: Query, col: str) -> str:
+    return _in(col, q.state) if q.state else f"{col} is not null"
 
 
-def _moves_of(ix, k, q: Query, g: Grid) -> list[tuple]:
-    """(time, rid, state, value) of the query's moves."""
-    kn = ix.known(k.name)
-    if kn == -1:
-        return []
-    entering = q.measure == "entries"
-    col = "dst" if entering else "frm"
-    ids = _state_ids(ix, k, q, ix.reached(k.name) if entering else ix.left(k.name))
-    if q.include_open:
-        return _left_rows(ix, kn, _state_ids(ix, k, q, ix.left(k.name)), g) + _open_rows(ix, k, kn, q, g)
-    if not ids:
-        return []
-    marks = ",".join("?" * len(ids))
-    if q.first_only:                  # an item's first time in the state: never a return to it
-        sql = (f"select first, rid, dst, 1.0 from (select min(t) first, rid, dst from moves where kind = ? and dst in ({marks}) "
-               f"group by rid, dst) where first >= ? and first <= ? order by first")
-        return _all(ix, sql, (kn, *ids, g.since, g.until))
+def _moves_base(q: Query) -> str:
+    """``(at, id, kind, st, v)`` of the query's moves: when, the item, its kind, the state and the value."""
+    k = _kind_cond(q)
+    window = ["at >= :since", "at <= :until"]
+    if q.include_open:                  # time in state, of those that left and those still in the state at the end
+        left = ("select t.at, t.id, t.kind, t.from_state as st, t.at - (select max(x.at) from transitions x where "
+                "x.id = t.id and x.to_state = t.from_state and x.at <= t.at) as v from transitions t where "
+                + " and ".join([*_kind_cond(q, "t.kind"), _states(q, "t.from_state"), "t.at >= :since", "t.at <= :until"]))
+        now = ("select :until as at, o.id, o.kind, o.to_state as st, :until - o.at as v from (select id, kind, to_state, "
+               "max(at) as at from transitions where " + " and ".join([*k, "at <= :until"]) + " group by id) o where "
+               + _states(q, "o.to_state"))
+        return f"{left} union all {now}"
+    if q.first_only:                    # an item's first time in the state: never a return to it
+        return ("select first as at, id, kind, to_state as st, 1.0 as v from (select min(at) as first, id, kind, to_state "
+                f"from transitions where {' and '.join([*k, _states(q, 'to_state')])} group by id, to_state) "
+                "where first >= :since and first <= :until")
     if q.measure == "time_in_state":
-        return _left_rows(ix, kn, ids, g)
-    sql = f"select t, rid, {col}, 1.0 from moves where kind = ? and {col} in ({marks}) and t >= ? and t <= ? order by t"
-    return _all(ix, sql, (kn, *ids, g.since, g.until))
+        return ("select t.at, t.id, t.kind, t.from_state as st, t.at - (select max(x.at) from transitions x where "
+                "x.id = t.id and x.to_state = t.from_state and x.at <= t.at) as v from transitions t where "
+                + " and ".join([*_kind_cond(q, "t.kind"), _states(q, "t.from_state"), "t.at >= :since", "t.at <= :until"]))
+    col = "to_state" if q.measure == "entries" else "from_state"
+    return f"select at, id, kind, {col} as st, 1.0 as v from transitions where {' and '.join([*k, _states(q, col), *window])}"
 
 
-def _left_rows(ix, kn: int, ids: list[int], g: Grid) -> list[tuple]:
-    """(when it left, rid, state, how long it had been there) of each time an item left one of the states."""
-    if not ids:
-        return []
-    marks = ",".join("?" * len(ids))
-    sql = (f"select m.t, m.rid, m.frm, m.t - (select max(x.t) from moves x where x.rid = m.rid and x.dst = m.frm and x.t <= m.t) "
-           f"from moves m where m.kind = ? and m.frm in ({marks}) and m.t >= ? and m.t <= ? order by m.t")
-    return _all(ix, sql, (kn, *ids, g.since, g.until))
-
-
-def _open_rows(ix, k, kn: int, q: Query, g: Grid) -> list[tuple]:
-    """(the window's end, rid, state, its age there so far) of each item in one of the states at the window's end."""
-    names = [s for s in q.state if s in ix.reached(k.name)] if q.state else sorted(x for x in ix.reached(k.name) if x)
-    wanted = {x for x in (ix.known(s) for s in names) if x != -1}
-    rows = _all(ix, "select max(t), rid, dst from moves where kind = ? and t <= ? group by rid", (kn, g.until))
-    return [(g.until, rid, dst, g.until - t) for t, rid, dst in rows if dst in wanted]
-
-
-def moves(p, spec, q: Query, g: Grid) -> Read:
+def moves(p, spec, q: Query, g: Grid, seconds: float = SECONDS) -> Read:
+    """Moves into a state (``entries``), out of one (``exits``), or how long items stayed in one (``time_in_state``),
+    from ``transitions``."""
+    ks = kinds(spec, q)
+    if q.kind and q.state and (bad := [s for s in q.state if s not in ks[0].states]):
+        raise Unanswerable(f"state {bad[0]!r} is not a state of {q.kind}")
+    group = None if q.group_by in (None, "state") else q.group_by
+    text = _labelled(_moves_base(q), "b.at, b.v, b.st", q, group)
+    rows = _sql(p, spec, text, g, seconds, its.asks_transcript(ks, _named(q)))
     out: dict[str, list] = {}
-    order: list[str] = []
-    for k in kinds(spec, q):
-        if q.state and not q.kind and not set(q.state) & set(k.states):
+    for r in rows:
+        if r[1] is None:
             continue
-        if q.kind and q.state and (bad := [s for s in q.state if s not in k.states]):
-            raise Unanswerable(f"state {bad[0]!r} is not a state of {k.name}")
-        ix = _index(p, spec, k, _named(q))
-        rows = _moves_of(ix, k, q, g)
-        ok = labels.allowed(ix, k.name, tuple(x for x in q.where))
-        label = None if q.group_by in (None, "state") else labels.labeller(ix, k.name, q.group_by)
-        order += [s for s in k.states if s not in order]
-        for t, rid, st, v in rows:
-            if v is None or (ok is not None and not ok(rid)):
-                continue
-            name = ix.name(st) if q.group_by == "state" else label(rid) if label else q.measure
-            out.setdefault(name, []).append((t, v, v))
+        name = r[2] if q.group_by == "state" else r[3] if group else q.measure
+        out.setdefault(name, []).append((r[0], r[1], r[1]))
+    order = list(dict.fromkeys(s for k in ks for s in k.states))
     return Read(rows=out, order=order if q.group_by == "state" else [],
-                unit="seconds" if q.measure == "time_in_state" else "items")
+                unit="seconds" if q.measure == "time_in_state" else "items", compiled=_shown(text))
 
 
-def _level_key(ix, k, q: Query, by: str):
-    """(rid, state id) -> the group a move counts toward."""
-    if by == "state":
-        return lambda _rid, st: ix.name(st)
-    label = labels.labeller(ix, k.name, by)
-    return lambda rid, _st: label(rid)
-
-
-def counts(p, spec, q: Query, g: Grid) -> Read:
+def counts(p, spec, q: Query, g: Grid, seconds: float = SECONDS) -> Read:
+    """How many items are in each state at each bucket's end: the running total of the moves into it (+1) and out of it
+    (−1), from ``transitions``; those before the window added up in the SQL."""
     by = q.group_by or "state"
     if q.measure:
         raise Unanswerable("counts takes no measure")
-    wanted = set(q.state) if q.state else None
-    diffs: dict[str, list[int]] = {}
-    base: dict[str, int] = {}
-    order: list[str] = []
-    for k in kinds(spec, q):
-        if q.kind and wanted and (bad := sorted(wanted - set(k.states))):
-            raise Unanswerable(f"state {bad[0]!r} is not a state of {k.name}")
-        ix = _index(p, spec, k, tuple(n for n, _ in q.where) + ((by,) if by not in ("state", "kind") else ()))
-        kn = ix.known(k.name)
-        if kn == -1:
-            continue
-        order += [s for s in k.states if s not in order]
-        ok = labels.allowed(ix, k.name, q.where)
-        key = _level_key(ix, k, q, by)
-        names = {r: ix.name(r) for (r,) in _all(ix, "select distinct dst from moves where kind = ?", (kn,)) if r is not None}
-        keep = {st for st, n in names.items() if wanted is None or n in wanted}
-        for rid, frm, dst in _all(ix, "select rid, frm, dst from moves where kind = ? and t < ?", (kn, g.since)):
-            if ok is None or ok(rid):
-                for st, sign in ((dst, 1), (frm, -1)):
-                    if st in keep:
-                        name = key(rid, st)
-                        base[name] = base.get(name, 0) + sign
-        for t, rid, frm, dst in _all(ix, "select t, rid, frm, dst from moves where kind = ? and t >= ? and t <= ? order by t",
-                                    (kn, g.since, g.until)):
-            if ok is None or ok(rid):
-                for st, sign in ((dst, 1), (frm, -1)):
-                    if st in keep:
-                        diffs.setdefault(key(rid, st), [0] * g.n)[g.at(t)] += sign
+    ks = kinds(spec, q)
+    if q.kind and q.state and (bad := sorted(set(q.state) - set(ks[0].states))):
+        raise Unanswerable(f"state {bad[0]!r} is not a state of {q.kind}")
+    k = _kind_cond(q)
+    into = " and ".join([*k, "at <= :until", _states(q, "to_state")])
+    out_of = " and ".join([*k, "at <= :until", _states(q, "from_state")])
+    base = (f"select at, id, kind, to_state as st, 1 as v from transitions where {into} union all "
+            f"select at, id, kind, from_state as st, -1 as v from transitions where {out_of}")
+    lab = _Labels("b")
+    conds = [_in(lab(name), vals) for name, vals in q.where]
+    key = "b.st" if by == "state" else lab(by)
+    moved = (f"select b.at as at, {key} as grp, b.v as v from ({base}) b" + "".join(f" {j}" for j in lab.joins)
+             + (f" where {' and '.join(conds)}" if conds else ""))
+    text = (f"with moved as ({moved}) select null as at, grp, sum(v) from moved where at < :since group by grp "
+            "union all select at, grp, v from moved where at >= :since")
+    rows = _sql(p, spec, text, g, seconds, its.asks_transcript(ks, tuple(n for n, _ in q.where)
+                                                               + ((by,) if by not in ("state", "kind") else ())))
+    base_n: dict[str, float] = {}
+    diffs: dict[str, list[float]] = {}
+    for at, grp, v in rows:
+        if at is None:
+            base_n[grp] = base_n.get(grp, 0) + v
+        else:
+            diffs.setdefault(grp, [0] * g.n)[g.at(at)] += v
     levels: dict[str, list] = {}
-    for name in base.keys() | diffs.keys():
-        level, row = base.get(name, 0), []
+    for name in base_n.keys() | diffs.keys():
+        level, row = base_n.get(name, 0), []
         d = diffs.get(name) or [0] * g.n
         for i in range(g.n):
             level += d[i]
             row.append(float(level))
         if any(row):
             levels[name] = row
+    order = list(dict.fromkeys(s for k in ks for s in k.states))
     note = None if q.agg == "last" else "counts are the level at each bucket's end: the aggregation does not apply"
-    return Read(levels=levels, order=order if by == "state" else [], unit="items", note=note)
+    return Read(levels=levels, order=order if by == "state" else [], unit="items", note=note, compiled=_shown(text))
+
+
+def item_points(p, spec, q: Query, xf: str, yf: str | None, since: float, until: float, size: str | None = None,
+                color: str | None = None, seconds: float = SECONDS) -> tuple[list[tuple], str]:
+    """One point per item for an X of a field (or binning one): each item's value of ``xf`` (and ``yf``) at the window's
+    end, for the items that changed in the window, with its group's label, its ``size`` and ``color``, latest last:
+    ``[(id, t, x, y, size, color, group)]``, and the SQL that read them (over ``item_numbers``)."""
+    def held(field: str) -> str:
+        return ("select id, kind, max(at) as t, value from item_numbers where "
+                + " and ".join([*_kind_cond(q), f"field = {lit(field)}", "at <= :until"]) + " group by id")
+    two = bool(yf) and yf != xf
+    withs = [f"x as ({held(xf)})", *([f"y as ({held(yf)})"] if two else []), *([f"sz as ({held(size)})"] if size else [])]
+    lab = _Labels("b")
+    conds = [_in(lab(name), vals) for name, vals in q.where]
+    t = "max(b.t, y.t)" if two else "b.t"
+    yv = "y.value" if two else "b.value" if yf else "null"
+    cols = [f"{t} as t", "b.value as x", f"{yv} as y", "sz.value as size" if size else "null as size",
+            f"{lab(color)} as color" if color else "null as color", f"{lab(q.group_by)} as grp" if q.group_by else "null as grp"]
+    text = (f"with {', '.join(withs)} select b.id, {', '.join(cols)} from x b"
+            + (" join y on y.id = b.id and y.value is not null" if two else "")
+            + (" left join sz on sz.id = b.id" if size else "") + "".join(f" {j}" for j in lab.joins)
+            + f" where b.value is not null and {t} >= :since" + "".join(f" and {c}" for c in conds) + f" order by {t}, b.id")
+    g = Grid(since, until, max(until - since, 1.0), since, 1)
+    ks = kinds(spec, q)
+    named = (xf, *([yf] if yf else []), *([size] if size else []), *_named(q))
+    rows = _sql(p, spec, text, g, seconds, its.asks_transcript(ks, named))
+    if not rows:
+        for f in (xf, *([yf] if yf else [])):
+            have = f"select count(*) from item_numbers where {' and '.join([*_kind_cond(q), f'field = {lit(f)}'])}"
+            if not _sql(p, spec, have, g, seconds)[0][0]:
+                raise Unanswerable(f"no kind has both numeric fields {xf!r} and {yf!r}" if yf else
+                                   f"{xf!r} is not a numeric field of any kind")
+    return rows, text
+
+
+def _types(type_: str) -> str:
+    """An events query's ``type``: types joined by commas, each exact or a prefix ending in ``*`` (store._types)."""
+    ors = []
+    for t in (x.strip() for x in type_.split(",") if x.strip()):
+        ors.append("1" if t == "*" else f"type glob {lit(t)}" if t.endswith("*") else f"type = {lit(t)}")
+    return "(" + " or ".join(ors or ["1"]) + ")"
+
+
+def events(p, spec, q: Query, g: Grid, seconds: float = SECONDS) -> Read:
+    """How many events of each type happened, counted per minute as the item index folds them (``events``): each
+    minute's count is read at the minute's start."""
+    if q.group_by not in (None, "type") or q.where:
+        raise Unanswerable("events are counted by type only: group_by may be type, and there are no filters")
+    conds = [f"at > :since", f"at - {MINUTE:g} <= :until"]
+    conds.append(_types(q.type) if q.type else f"type not glob {lit(its.TRANSCRIPT_TYPES)}")
+    text = f"select at - {MINUTE:g} as at, type, n from events where {' and '.join(conds)} order by at"
+    rows = _sql(p, spec, text, g, seconds, bool(q.type and "claude." in q.type))
+    out: dict[str, list] = {}
+    for at, ty, n in rows:
+        out.setdefault(ty if q.group_by else (q.type or ANY), []).append((max(at, g.since), float(n), float(n)))
+    note = (f"events are counted per minute: a bucket of {g.step:g} s holds each minute's count in the bucket the "
+            "minute starts in") if g.step < MINUTE else None
+    return Read(rows=out, unit="events", note=note, agg="sum" if q.agg == "count" else None, compiled=_shown(text))
 
 
 def series_grid(m, name: str, since: float, until: float, points: int, asked: float | None) -> Grid:
@@ -214,7 +319,24 @@ def series_grid(m, name: str, since: float, until: float, points: int, asked: fl
     return grid(since, until, points, asked)
 
 
-def series(p, spec, q: Query, g: Grid) -> Read:
+OVER_TIME = {"count": "count_over_time", "sum": "sum_over_time", "avg": "avg_over_time", "min": "min_over_time",
+             "max": "max_over_time", "last": "last_over_time"}
+
+
+def series_promql(q: Query, step: float) -> str:
+    """The PromQL a series' buckets are: its readings over each bucket's window (``series`` names it; the server holds
+    the query to this project's)."""
+    sel = '{series="' + q.series.replace("\\", "\\\\").replace('"', '\\"') + '"}'
+    win = f"[{step:g}s]"
+    if q.agg.startswith("p"):
+        return f"quantile_over_time({float(q.agg[1:]) / 100:g}, {sel}{win})"
+    return f"{OVER_TIME[q.agg]}({sel}{win})"
+
+
+def series(p, spec, q: Query, g: Grid, seconds: float = SECONDS) -> Read:
+    """A metric series' readings in each bucket, aggregated by VictoriaMetrics: PromQL, asked of ``promql``."""
+    from .. import datasources
+    from ..datasources import SourceError, promql
     if q.group_by or q.where:
         raise Unanswerable("a series has no groups or filters: its readings carry no labels")
     m = p.measurements
@@ -222,19 +344,53 @@ def series(p, spec, q: Query, g: Grid) -> Read:
         raise Unanswerable(f"series {q.series!r} has no readings")
     before = m.latest(q.series, g.since - 1e-6)
     unit = _series_unit(p, q.series)
-    if q.agg.startswith("p"):
-        rows = [(t, v, v) for t, v in m.sampled(q.series, g.since, g.until, points=READINGS_MOST // 2)]
-        return Read(rows={q.series: rows} if rows else {}, unit=unit, before=before and before[1], before_t=before and before[0],
-                    note="percentiles over rolled-up spans read their buckets' means")
-    return Read(levels={q.series: _rolled(m, q, g)}, unit=unit, before=before and before[1], before_t=before and before[0])
+    text = series_promql(q, g.step)
+    row = _buckets(m, q, text, g, seconds)
+    return Read(levels={q.series: row}, unit=unit, before=before and before[1], before_t=before and before[0],
+                compiled=[{"source": "promql", "text": text}])
 
 
-def _rolled(m, q: Query, g: Grid) -> list:
+def _buckets(m, q: Query, text: str, g: Grid, seconds: float) -> list:
+    """``text`` asked of ``promql`` at each bucket's end (its window the bucket, read a millisecond early so a bucket is
+    [start, end)): one value per bucket, None where it has no reading."""
+    from .. import datasources
+    from ..datasources import SourceError, promql
+    if seconds <= 0:
+        raise Unanswerable("busy: this request has no time left to ask; try again")
+    try:
+        src, _ = datasources._source(datasources.PROMQL, m)
+        if hasattr(m, "_sync_reads"):
+            m._sync_reads()                     # (what this process wrote, sent before it is read)
+        w = datasources.Window(g.since, g.until, g.start + g.step - EPS, g.step, g.n, min(seconds, datasources.MOST_SECONDS))
+        got = promql.query(src, text, w)
+    except SourceError as e:
+        raise Unanswerable(f"{e}") from e
+    if isinstance(got, dict):
+        raise Unanswerable(f"series {q.series!r} answered as a histogram's buckets, not one series")
     row: list = [None] * g.n
-    pick = {"count": 1, "sum": 2, "min": 3, "max": 4, "last": 5}
-    for r in m.rollups(q.series, g.since, g.until, g.start, g.step, g.n):
-        row[r[0]] = r[2] / r[1] if q.agg == "avg" else float(r[pick[q.agg]])
+    for _, pts in got:                         # (one series under two names, an old and the model's: the first kept)
+        for t, v in pts:
+            b = min(g.n - 1, max(0, round((t + EPS - g.start) / g.step) - 1))
+            if v is not None and row[b] is None:
+                row[b] = float(v)
     return row
+
+
+CANDLE = {"count": "count_over_time", "open": "first_over_time", "high": "max_over_time", "low": "min_over_time",
+          "close": "last_over_time"}
+
+
+def series_candles(p, q: Query, g: Grid, seconds: float = SECONDS) -> tuple[dict[int, list], list[dict]]:
+    """A series' candles, each bucket's count, open, high, low and close worked out by VictoriaMetrics (PromQL, one query
+    each): ``{bucket: [count, sum, low, high, open time, open, close time, close]}`` as candles.py makes them (the sum
+    and times not read), and what was asked."""
+    sel = '{series="' + q.series.replace("\\", "\\\\").replace('"', '\\"') + '"}'
+    texts = {k: f"{f}({sel}[{g.step:g}s])" for k, f in CANDLE.items()}
+    deadline = time.monotonic() + seconds
+    got = {k: _buckets(p.measurements, q, t, g, deadline - time.monotonic()) for k, t in texts.items()}
+    out = {b: [int(got["count"][b]), None, got["low"][b], got["high"][b], None, got["open"][b], None, got["close"][b]]
+           for b in range(g.n) if got["count"][b]}
+    return out, [{"source": "promql", "text": t} for t in texts.values()]
 
 
 def _series_unit(p, name: str) -> str:
@@ -248,24 +404,6 @@ def _series_unit(p, name: str) -> str:
     return next((x.unit for parts in named.values() if (x := parts.get(kind)) is not None and x.unit), "")
 
 
-def events(p, spec, q: Query, g: Grid, read=None) -> Read:
-    """``read(n, type, since, until, skip)``: how the log is read (under the request's budget), when given."""
-    if q.group_by not in (None, "type") or q.where:
-        raise Unanswerable("events are counted by type only: group_by may be type, and there are no filters")
-    skip = () if q.type else (its.TRANSCRIPT_TYPES,)
-    if g.until - g.since > EVENTS_WINDOW:
-        raise Unanswerable(f"events are read from the log, over at most {int(EVENTS_WINDOW // 86400)} days: ask for a shorter window")
-    ask = read or (lambda n, type, since, until, skip: p.events.moments(n=n, type=type, since=since, until=until, skip=skip))
-    got = ask(EVENTS_MOST + 1, q.type, g.since, g.until, skip)        # (time, type): a count reads no event's data
-    cut = len(got) > EVENTS_MOST
-    out: dict[str, list] = {}
-    for t, ty in got[-EVENTS_MOST:]:
-        out.setdefault(ty if q.group_by else (q.type or ANY), []).append((t, 1.0, 1.0))
-    note = f"only the latest {EVENTS_MOST} events in the window were read: earlier buckets are empty, not zero" if cut else None
-    return Read(rows=out, unit="events", truncated=cut, read_log=True, note=note,
-                read_from=got[-EVENTS_MOST][0] if cut else None)
-
-
 READERS = {"items": items, "moves": moves, "counts": counts, "series": series, "events": events}
 
 
@@ -277,3 +415,8 @@ def bucketed(rows: list[tuple], agg: str, g: Grid) -> list:
         if x is not None:
             cells[g.at(t)].append(x)
     return [aggregate(agg, c) for c in cells]
+
+
+def deadline_seconds(deadline: float | None) -> float:
+    """What is left of a request's budget (``time.monotonic()`` deadline), or the whole of a generated query's."""
+    return SECONDS if deadline is None else deadline - time.monotonic()

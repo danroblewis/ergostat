@@ -18,7 +18,7 @@ def values(p, raw: str | None, reader: bool = False) -> dict:
         raise BadQuery(f"values: {extra[0]!r} is not a key (source, text, since, until and vars)")
     source, text, since, until = d.get("source"), d.get("text"), d.get("since", 86400), d.get("until")
     if not isinstance(source, str) or not source or not isinstance(text, str):
-        raise BadQuery("values: source (a name under sources:) and text (label_values(...)) are needed")
+        raise BadQuery("values: source (promql) and text (label_values(...)) are needed")
     num = lambda v: isinstance(v, int | float) and not isinstance(v, bool) and v == v and abs(v) < 1e12  # noqa: E731
     if not num(since) or not 0 < since <= MOST_WINDOW or (until is not None and not num(until)):
         raise BadQuery(f"values: since must be seconds, more than 0 and at most {int(MOST_WINDOW)}; until a time")
@@ -27,8 +27,7 @@ def values(p, raw: str | None, reader: bool = False) -> dict:
         return {"error": f"{source}: {READER_REFUSED}", "error_kind": "refused"}
     end = time.time() if until is None else float(until)
     try:
-        return {"values": datasources.values(getattr(p.model, "spec", None), source, text, end - since, end,
-                                             datasources.MOST_SECONDS, given,
+        return {"values": datasources.values(source, text, end - since, end, datasources.MOST_SECONDS, given,
                                              store=getattr(p, "measurements", None))}
     except datasources.SourceError as e:
         return {"error": f"{source}: {e}", "error_kind": e.kind}

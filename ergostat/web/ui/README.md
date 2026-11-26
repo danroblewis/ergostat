@@ -48,8 +48,7 @@ Every page has a route and draws from the real API; none is at parity with the o
   answer buttons, keys, the split pane, PNG/Markdown export, equations, `have=` (every poll fetches the whole graph).
 - **Dashboard:** plot kinds beyond line/area/stacked/step/bar/stat/table; the 12-column grid with drag and resize;
   rows, repeats, variables, `?draft=`, `?name=` dashboards, Keep; the code box (highlighting, keys), SQL suggestions,
-  display options. The built-in PromQL source `ergostat` is detected by a probe query, because the server's listing
-  (`datasources.listed()`) drops it on SQLite without saying why.
+  display options.
 - **Goals / Agents:** the goal panel's charts (scope, forecast, step response, Bode, fit) and MathML; the agent page's
   run and cost charts, resources fold and version spans.
 - **Items:** the Graph and Timeline views, item sets, set chips (`where=`, `moved=`...), built-in kinds' views

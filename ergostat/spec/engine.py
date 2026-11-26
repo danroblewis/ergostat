@@ -2580,7 +2580,7 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
         return None, f"read from its journals in {s.journal} while ergostat runs"
     if s.query is not None:
         src = spec.sources.get(s.query["source"])
-        if src is None and s.query["source"] == "ergostat":     # the built-in source: this project's own readings
+        if src is None and s.query["source"] in ("ergostat", "promql"):   # ergostat's own promql: this project's readings
             from ..storage import metrics_project, metrics_url
             from ..store import state_dir
             return prometheus(metrics_url(getattr(spec, "storage", None)), str(s.query.get("promql", "")), s.timeout,

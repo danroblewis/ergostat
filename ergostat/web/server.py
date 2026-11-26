@@ -720,8 +720,8 @@ def _suggest(p, q: dict, reader: bool) -> dict:
     if reader:
         return {"suggestions": [], "error": f"{one('source')}: {READER_REFUSED}", "error_kind": "refused"}
     try:
-        return datasources.suggest(getattr(p.model, "spec", None), one("source"), one("what"), one("prefix"),
-                                   one("metric"), one("label"), store=p.measurements, project=p)
+        return datasources.suggest(one("source"), one("what"), one("prefix"), one("metric"), one("label"),
+                                   store=p.measurements, project=p)
     except datasources.SourceError as e:
         return {"suggestions": [], "error": f"{one('source')}: {e}", "error_kind": e.kind}
     except Exception as e:                            # (its type only: the words may hold the source's address)

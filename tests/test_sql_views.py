@@ -41,7 +41,8 @@ def test_a_query_reads_real_views_and_copies_nothing(p, spy):
     [(text, temp)] = spy
     assert "item_spans" in text
     assert {t for t, _ in temp} == {"view"}, temp
-    assert {n for _, n in temp} == {"transitions", "item_fields", "item_spans", "ticket"}
+    assert {n for _, n in temp} == {"transitions", "item_fields", "item_spans", "item_list", "item_numbers", "item_labels",
+                                    "events", "ticket", "session"}
 
 
 def test_a_name_only_the_index_has_is_refused_before_the_text_reaches_the_index(p, spy):

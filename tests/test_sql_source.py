@@ -18,6 +18,7 @@ import pytest
 from ergostat import datasources
 from ergostat import model as mdl
 from ergostat.datasources import _itemviews, sql
+from ergostat.spec.itemindex import index_for
 from ergostat.spec import itemindex
 from ergostat.store import Project
 from ergostat.web.server import Live, api
@@ -69,8 +70,6 @@ def p(tmp_path):
             states: [open, doing, done, dropped]
             on: {ticket.started: doing, ticket.back: open, ticket.done: done, ticket.dropped: dropped}
             show: [owner, size]
-        sources:
-          record: {type: sql}
         """))
     p = Project(mdl.load(tmp_path))
     for item, type_, at, data in EVENTS:
@@ -79,7 +78,7 @@ def p(tmp_path):
 
 
 def ask(p, text: str) -> dict:
-    body = {"since": 3600.0, "until": T + 3600, "points": 4, "queries": [{"id": "a", "source": "record", "text": text}]}
+    body = {"since": 3600.0, "until": T + 3600, "points": 4, "queries": [{"id": "a", "source": "sql", "text": text}]}
     q = base64.urlsafe_b64encode(json.dumps(body).encode()).decode().rstrip("=")
     [r] = api(Live(p), "query", {"q": [q]})["results"]
     return r
@@ -148,7 +147,7 @@ def test_rows_bytes_values_and_a_median_s_numbers_are_bounded(p, monkeypatch):
 
 def raw(p, text: str) -> tuple[list[str], list[tuple]]:
     """A query's columns and rows as SQLite answers them, on the views as a query sees them (no frame made)."""
-    ix = sql._index(p, p.model.spec)
+    ix = index_for(p.events, p.model.spec, False)
     with _itemviews.opened(ix, p.model.spec, time.monotonic() + 10) as (c, why):
         try:
             cur = c.execute(text)
@@ -158,7 +157,7 @@ def raw(p, text: str) -> tuple[list[str], list[tuple]]:
 
 
 def test_a_query_s_connection_holds_its_memory_and_attaches_nothing(p):
-    ix = sql._index(p, p.model.spec)
+    ix = index_for(p.events, p.model.spec, False)
     with _itemviews.opened(ix, p.model.spec, time.monotonic() + 10) as (c, _):
         assert c.getlimit(sqlite3.SQLITE_LIMIT_LENGTH) == 16 * 2**20 and c.getlimit(sqlite3.SQLITE_LIMIT_ATTACHED) == 0
         c.set_authorizer(None)                                     # (only to read what was set)
@@ -191,10 +190,17 @@ def test_the_views_answer_as_the_record_was_worked_by_hand(p):
 
 def test_the_views_survive_an_index_layout_change(p, monkeypatch):
     before = view_answers(p)
-    assert set(before) == {"transitions", "item_fields", "item_spans", "ticket",
-                           "item_stages", "stage_estimates", "item_progress"}     # (the stages': tests/test_stages.py)
-    assert {v: cols for v, (cols, _) in before.items()} == {
+    assert set(before) == {"transitions", "item_fields", "item_spans", "item_list", "item_numbers", "item_labels",
+                           "events", "ticket", "session",                       # (session: the built-in kind's own)
+                           "item_stages", "stage_estimates", "item_progress",   # (the stages': tests/test_stages.py)
+                           "item_state_groups"}
+    assert {v: cols for v, (cols, _) in before.items() if v != "session"} == {
         "transitions": ["id", "kind", "at", "from_state", "to_state", "event", "type"],
+        "item_list": ["id", "kind", "state", "first", "last", "entered", "events"],
+        "item_numbers": ["id", "kind", "field", "at", "value", "delta"],
+        "item_labels": ["id", "kind", "label", "value"],
+        "events": ["type", "source", "at", "n"],
+        "item_state_groups": ["id", "kind", "state_group"],
         "item_fields": ["id", "kind", "field", "value"],
         "item_spans": ["id", "kind", "state", "entered", "left", "entry", "reason"],
         "ticket": ["id", "state", "first", "last", "entered", "events", "owner", "size"],
@@ -270,10 +276,11 @@ def test_an_answer_with_a_time_column_is_series_and_the_editor_is_offered_views_
     assert r["shape"] == "series" and r["series"][0]["name"] == "one" and 1.0 in r["series"][0]["values"], r
     r = ask(p, "select id, state from ticket")
     assert r.get("error_kind") == "refused" and "column of numbers" in r["error"], r
-    got = datasources.suggest(p.model.spec, "record", "metrics", project=p)
-    assert got == {"suggestions": ["forecast_group_by", "forecast_groups", "forecast_items", "forecast_kinds", "forecast_stages",
-                                   "item_fields", "item_progress", "item_spans", "item_stages", "stage_estimates",
-                                   "ticket", "transitions"], "more": False}
-    got = datasources.suggest(p.model.spec, "record", "labels", "", "item_spans", project=p)
+    got = datasources.suggest("sql", "metrics", project=p)
+    assert got == {"suggestions": ["events", "forecast_group_by", "forecast_groups", "forecast_items", "forecast_kinds",
+                                   "forecast_stages", "item_fields", "item_labels", "item_list", "item_numbers",
+                                   "item_progress", "item_spans", "item_stages", "item_state_groups", "session",
+                                   "stage_estimates", "ticket", "transitions"], "more": False}
+    got = datasources.suggest("sql", "labels", "", "item_spans", project=p)
     assert got["suggestions"] == sorted(_itemviews.STABLE["item_spans"])
-    assert sql.LANGUAGE == "SQL" and datasources.types()["sql"] is sql
+    assert sql.LANGUAGE == "SQL" and datasources._module("sql") is sql

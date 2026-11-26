@@ -23,7 +23,7 @@ KEEP = 30.0                 # seconds an answer is kept
 def _groupable(ix, k) -> list[str]:
     """``state``, ``kind``, the fields its latest items hold few distinct texts in, and its group relations holding one
     id per item (a gap's ``milestone``: a category by declaration, however many) with ``state_group``, each item's stage
-    in that group's progress (``labels.stage``), to stack them by."""
+    in that group's progress (``item_state_groups``), to stack them by."""
     from ..spec.grouptally import offered
     groups = [r for r, x in k.relations.items() if offered(k, x)]
     kn = ix.known(k.name)
@@ -73,18 +73,19 @@ def _read(p) -> dict:
     for name, got in sources.items():
         got["x"] = list(X_OF[name])
         got["ohlc"] = name in OHLC_SOURCES
-    return {"sources": sources, "datasources": datasources.listed(spec, p.measurements), "x_types": list(X_TYPES),
+    return {"sources": sources, "x_types": list(X_TYPES),
             "pipelines": [_pipeline(n, k) for n, k in kinds.items() if k.pipeline],     # (SPEC §5a, Stages)
             "aggregations": list(AGGS), "transforms": list(TRANSFORMS), "rate_per": list(RATE_PER),
             "rate_units": dict(transforms.SHORT)}
 
 
 def fields(live, p, reader: bool = False) -> dict:
-    """``reader``: anyone under a public name, who may not ask a data source but the model's own, so is offered only
-    that (SPEC §4e)."""
+    """``datasources``: ergostat's two sources, ``promql`` and ``sql``, always both, each saying whether it can be asked
+    now and, when not, why (datasources.listed); ``reader``: anyone under a public name, who may ask neither (SPEC
+    §4e). The built-in kinds under ``sources`` are query generators over them (sources.py)."""
     key = ("query-fields", int(time.time() // KEEP), getattr(live, "mtime", None))
     got = live.cached(key)
     if got is None:
         got = _read(p)
         live.keep(key, got)
-    return {**got, "datasources": datasources.listed(getattr(p.model, "spec", None), own_only=True)} if reader else got
+    return {**got, "datasources": datasources.listed(getattr(p, "measurements", None), p, reader)}

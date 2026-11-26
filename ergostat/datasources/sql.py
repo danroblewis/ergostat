@@ -1,11 +1,7 @@
 """The ``sql`` data source (SPEC §4e, *The SQL source*): SQLite's SQL over the stable, read-only views of the asking
-project's own items (_itemviews.py), for what PromQL cannot ask: which items, one item against another, exact
-medians, cohorts. Its connection is the project's record, so it has no keys::
-
-    sources:
-      record:
-        type: sql
-
+project's own items (_itemviews.py): all item data, projected into SQLite. It is one of ergostat's two sources (with
+``promql``), always there, never declared: its connection is the project's record. The built-in item shortcuts (item
+fields, item moves, items per state, events) are SQL written by query/sources.py and asked here (``rows``).
 A query is one SELECT. ``:since``, ``:until`` and ``:step`` are the panel's window (Unix seconds). It may take 10 s or
 less (the request's remaining time), answer 5,000 rows and 8 MB, and make values of 16 MB; past any it is stopped and
 refused with ``limit``. Anything but a SELECT through the views (a write, ATTACH, PRAGMA, the index's own tables) is
@@ -27,9 +23,9 @@ from . import ASKING, SourceError, _frames, _itemviews
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 TYPE = "sql"
-KEYS = ()
 LANGUAGE = "SQL"
 MOST_BYTES = 8 * 2**20          # of the answer's text and blobs (a number counts 8)
+GENERATED_BYTES = 64 * 2**20    # of a generated query's rows (query/sources.py), bucketed on the server before they are sent
 
 
 def _project():
@@ -38,14 +34,6 @@ def _project():
     if p is None or spec is None:
         raise SourceError("unknown", "the SQL source reads the asking project's items, and no project asked")
     return p, spec
-
-
-def _index(p, spec):
-    from ..spec.itemindex import index_for
-    ix = index_for(p.events, spec, False)
-    if ix is None:
-        raise SourceError("unknown", "this project's record is kept nowhere on disk, so it has no item index to read")
-    return ix
 
 
 def _refusal(e: sqlite3.Error, why: list, seconds: float) -> SourceError:
@@ -61,15 +49,16 @@ def _refusal(e: sqlite3.Error, why: list, seconds: float) -> SourceError:
     return SourceError("refused", words)
 
 
-def _fetched(cur) -> list[tuple]:
+def _fetched(cur, most: int | None = None) -> list[tuple]:
     rows, size = [], 0
+    most_rows, most_bytes = (_frames.MOST_ROWS, MOST_BYTES) if most is None else (most, GENERATED_BYTES)
     while batch := cur.fetchmany(500):
         rows += batch
         size += sum(len(v) if isinstance(v, str | bytes) else 8 for r in batch for v in r)
-        if len(rows) > _frames.MOST_ROWS:
-            raise SourceError("limit", f"the query answered more than the {_frames.MOST_ROWS} rows allowed; aggregate it")
-        if size > MOST_BYTES:
-            raise SourceError("limit", f"the query answered more than the {MOST_BYTES // 2**20} MB allowed")
+        if len(rows) > most_rows:
+            raise SourceError("limit", f"the query answered more than the {most_rows} rows allowed; aggregate it")
+        if size > most_bytes:
+            raise SourceError("limit", f"the query answered more than the {most_bytes // 2**20} MB allowed")
     return rows
 
 
@@ -110,17 +99,23 @@ def _forecast(p, text: str) -> dict | None:
     return fc
 
 
-def query(src, text: str, w) -> dict:
-    p, spec = _project()
-    deadline = time.monotonic() + w.seconds
-    ix = _index(p, spec)
+def rows(p, spec, text: str, params: dict, seconds: float, transcript: bool = False,
+         most: int | None = None) -> tuple[list[str], list[tuple]]:
+    """``text`` asked of project ``p``'s item views as any SQL query is (checked on a stand-in, then run on the views,
+    bounded in time and size): its columns and its rows. ``transcript``: read the index that folds transcripts too
+    (spec/items.py ``asks_transcript``); ``most``: the rows it may answer (a generated query's own bound, past the
+    panel's ``_frames.MOST_ROWS``)."""
+    deadline = time.monotonic() + seconds
+    from ..spec.itemindex import index_for
+    ix = index_for(p.events, spec, transcript)
+    if ix is None:
+        raise SourceError("unknown", "this project's record is kept nowhere on disk, so it has no item index to read")
     why: list = []
     fc = _forecast(p, text)
-    params = {"since": w.since, "until": w.until, "step": w.step}
     try:                                        # (on a stand-in first: only a text that passed reaches the index)
         own = _itemviews.check(spec, deadline, text, params, why, fc)
     except sqlite3.Error as e:
-        raise _refusal(e, why, w.seconds) from None
+        raise _refusal(e, why, seconds) from None
     except Exception as e:                      # (never fails open)
         raise SourceError("refused", f"the query could not be checked ({type(e).__name__})") from None
     try:
@@ -128,10 +123,15 @@ def query(src, text: str, w) -> dict:
             cur = c.execute(text, params)
             if cur.description is None:
                 raise SourceError("refused", "the text holds no SELECT")
-            cols, rows = [d[0] for d in cur.description], _fetched(cur)
+            return [d[0] for d in cur.description], _fetched(cur, most)
     except sqlite3.Error as e:
-        raise _refusal(e, why, w.seconds) from None
-    return _frame(cols, rows)
+        raise _refusal(e, why, seconds) from None
+
+
+def query(src, text: str, w) -> dict:
+    p, spec = _project()
+    cols, got = rows(p, spec, text, {"since": w.since, "until": w.until, "step": w.step}, w.seconds)
+    return _frame(cols, got)
 
 
 def suggest(src, what: str, prefix: str, metric: str, label: str, seconds: float, most: int) -> tuple[list, bool]:

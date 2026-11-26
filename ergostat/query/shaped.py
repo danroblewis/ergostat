@@ -4,9 +4,9 @@ and a frequency response. Each is built from what ``engine`` reads, and raises `
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
-from . import axes, candles, labels, points, sources, spread
+from . import axes, candles, points, sources, spread
 from . import frequency as fr
 from . import transforms as tf
 from .buckets import Grid, aggregate, grid
@@ -27,6 +27,8 @@ class Asking:
     points: int
     one: Callable               # (query, points) -> a time result
     read: Callable              # (query, grid) -> what its source holds, under the request's budget
+    seconds: Callable = lambda: sources.SECONDS   # what is left of the request's budget
+    compiled: list = field(default_factory=list)  # what was asked for an answer read here, not through ``one``
 
 
 def label(q: Query) -> str:
@@ -109,49 +111,24 @@ def _capped(groups: dict[str, list]) -> tuple[dict[str, list], int]:
 
 
 def _item_points(a: Asking, q: Query, xf: str, yf: str | None, most: int, extra: tuple = ()) -> tuple[dict, int]:
-    """Per group, the items' points, at most ``most`` in all, the latest changed."""
+    """Per group, the items' points, at most ``most`` in all, the latest changed: one SQL query over ``item_numbers``
+    (sources.item_points), what it asked kept for the answer."""
     if q.source != "items":
         raise Unanswerable(f"an X of a field is for the items source, not {q.source}")
-    every: list = []
-    found = False
-    for k in sources.kinds(a.spec, q):
-        named = (xf, *([yf] if yf else []), *extra, *sources._named(q))
-        ix = sources._index(a.p, a.spec, k, named)
-        if not points.has_field(ix, k.name, xf) or (yf and not points.has_field(ix, k.name, yf)):
-            continue
-        found = True
-        got = points.of_kind(ix, k.name, xf, yf, a.since, a.until, q.where)
-        every += [(ix, k, pt) for pt in got]
-    if not found:
-        raise Unanswerable(f"no kind has both numeric fields {xf!r} and {yf!r}" if yf else f"{xf!r} is not a numeric field of any kind")
-    every.sort(key=lambda r: (r[2].t, r[2].rid))
-    left = max(0, len(every) - most)
-    every = every[-most:]
-    return _labelled(a, q, every), left
-
-
-def _labelled(a: Asking, q: Query, every: list) -> dict:
-    groups: dict[str, list] = {}
-    by_ix: dict = {}
-    for ix, k, pt in every:
-        by_ix.setdefault((id(ix), k.name), (ix, k, []))[2].append(pt)
     x = q.x
-    for ix, k, pts in by_ix.values():
-        rids = [pt.rid for pt in pts]
-        ids = points.names(ix, rids)
-        label_of = labels.labeller(ix, k.name, q.group_by) if q.group_by else None
-        sizes = points.held(ix, k.name, x.size, a.until) if x.size else {}
-        color = labels.labeller(ix, k.name, x.color_by) if x.color_by else None
-        for pt in pts:
-            pt.id = ids.get(pt.rid)
-            pt.size = sizes[pt.rid][1] if pt.rid in sizes else None
-            pt.color = color(pt.rid) if color else None
-            groups.setdefault(label_of(pt.rid) if label_of else (q.field or x.field), []).append(pt)
-    if x.size and every and all(pt.size is None for _, _, pt in every):
-        raise Unanswerable(f"size {x.size!r} is not a numeric field of these items")
-    for pts in groups.values():
-        pts.sort(key=lambda r: (r.t, r.rid))
-    return groups
+    size = x.size if x is not None else None
+    color = x.color_by if x is not None else None
+    rows, text = sources.item_points(a.p, a.spec, q, xf, yf, a.since, a.until, size, color, a.seconds())
+    a.compiled.append({"source": "sql", "text": text})
+    left = max(0, len(rows) - most)
+    rows = rows[-most:] if most else []
+    if size and rows and all(r[4] is None for r in rows):
+        raise Unanswerable(f"size {size!r} is not a numeric field of these items")
+    groups: dict[str, list] = {}
+    for i, t, xv, yv, sz, col, grp in rows:
+        pt = points.Point(i, t, xv, yv if yf else None, sz, col, i)
+        groups.setdefault(grp if q.group_by else (q.field or (x.field if x is not None else xf)), []).append(pt)
+    return groups, left
 
 
 def _ignored(q: Query, agg_fits: bool) -> list[str]:
@@ -206,11 +183,12 @@ def category(a: Asking, q: Query) -> dict:
     keep, rest = ranked[:MOST_GROUPS], ranked[MOST_GROUPS:]
     values: dict[str, float | None] = {}
     if read.rows is not None:
-        pick = 2 if q.agg == "sum" else 1
+        agg = read.agg or q.agg
+        pick = 2 if agg == "sum" else 1
         for n in keep:
-            values[n] = aggregate(q.agg, [r[pick] for r in groups[n] if r[pick] is not None])
+            values[n] = aggregate(agg, [r[pick] for r in groups[n] if r[pick] is not None])
         if rest:
-            values[OTHER] = aggregate(q.agg, [r[pick] for n in rest for r in sorted(groups[n], key=lambda r: r[0]) if r[pick] is not None])
+            values[OTHER] = aggregate(agg, [r[pick] for n in rest for r in sorted(groups[n], key=lambda r: r[0]) if r[pick] is not None])
     else:
         ends = {n: next((v for v in reversed(groups[n]) if v is not None), None) for n in ranked}
         values = {n: ends[n] for n in keep}
@@ -222,6 +200,8 @@ def category(a: Asking, q: Query) -> dict:
     got = _category_row(a, q, order, [values[n] for n in order], read.unit, len(rest), read.read_log, [read.note] if read.note else [])
     if read.truncated:
         got["truncated"] = True
+    if read.compiled:
+        got["compiled"] = read.compiled
     return got
 
 
@@ -306,6 +286,9 @@ def _carried(got: dict, *read: dict) -> dict:
         got["note"] = "; ".join(dict.fromkeys(said))
     if any(r.get("truncated") for r in read):
         got["truncated"] = True
+    compiled = [c for r in read for c in r.get("compiled") or ()]
+    if compiled:                                      # what each answer it was made from asked (sources.py)
+        got["compiled"] = list({(c["source"], c["text"]): c for c in compiled}.values())
     return got
 
 
@@ -350,11 +333,8 @@ def ohlc(a: Asking, q: Query, first_time) -> dict:
     g = _grid_of(a, q, a.points, q.bucket)
     notes = [f"transform {q.transform} does not apply to candles"] if q.transform != "none" else []
     if q.source == "series":
-        read = READERS["series"](a.p, a.spec, replace(q, agg="last"), g)
-        try:
-            got_rows = candles.of_series(a.p.measurements, q.series, g)
-        except candles.TooMany as e:
-            raise Unanswerable(str(e)) from e
+        read = READERS["series"](a.p, a.spec, replace(q, agg="last"), g, a.seconds())
+        got_rows, read.compiled = sources.series_candles(a.p, q, g, a.seconds())
         rows = {q.series: got_rows}
         folded, order, unit, log_read = 0, [q.series], read.unit, False
     else:
@@ -378,6 +358,8 @@ def ohlc(a: Asking, q: Query, first_time) -> dict:
         got["note"] = "; ".join(notes)
     if read.truncated:
         got["truncated"] = True
+    if read.compiled:
+        got["compiled"] = read.compiled
     return got
 
 
@@ -406,19 +388,33 @@ def response(a: Asking, q: Query) -> dict:
     except fr.Refused as e:
         raise Unanswerable(str(e)) from e
     return _carried({"id": q.id, **got, "method": "empirical", "unit": "" if xu == yu else f"{yu}/{xu}" if xu else yu,
-                     "read_log": xl or yl}, xr, yr)
+                     "read_log": xl or yl}, xr, yr)          # (the estimate: a transform of the two answers' values)
 
 
 def _model(a: Asking, q: Query) -> dict:
-    """A goal's declared process, as the model data source answers ``goal NAME declared`` (datasources/model.py)."""
-    from .. import datasources
+    """A goal's declared process (``process:``), worked out from the model, not read: its exact frequency response,
+    which Bode and Nyquist draw, and the system with its poles and zeros, which the pole-zero map draws. A process with
+    dead time is drawn sampled (a continuous delay has no finite set of poles): at the goal's controller period, or a
+    quarter of the dead time, lengthened to keep the dead time within ``lti.MOST_PERIODS`` periods."""
+    from ..control import loop, lti, record
     from ..datasources import _frames
-    from ..datasources import model as source
-    if not q.model or any(c.isspace() for c in q.model):
+    spec = a.spec
+    if not q.model or spec is None or q.model not in (getattr(spec, "goals", None) or {}):
         raise Unanswerable(f"goal {q.model!r} is not in the model")
-    w = datasources.Window(a.since, a.until, a.since, a.until - a.since, 1, datasources.MOST_SECONDS, a.p)
+    proc = loop.model_process(spec, q.model)
+    if proc is None:
+        raise Unanswerable(f"goal {q.model!r} declares no process")
+    sig = record.signals(spec, q.model)
+    theta = proc.get("theta") or 0.0
+    dt = max((sig.period if sig else None) or theta / 4, theta / lti.MOST_PERIODS) if theta else None
     try:
-        got = _frames.answer(source.query(None, f"goal {q.model} declared", w), None, 1)
-    except datasources.SourceError as e:
+        pz, fr_ = lti.poles_zeros(proc, dt), lti.response(proc)
+    except ValueError as e:
         raise Unanswerable(str(e)) from e
+    system = {"form": "ipdt" if proc["form"] == "integrating" else "fopdt", "gain": proc["K"], "tau": proc.get("tau"),
+              "delay": theta, "poles": pz["poles"], "zeros": pz["zeros"], **({"dt": pz["dt"]} if pz.get("dt") else {})}
+    out = {"shape": "response", "frequency": fr_, "system": system, "process_from": "declared", "provenance": "declared"}
+    if sig is not None:
+        out["path"] = {"input": sig.u, "output": sig.y}
+    got = _frames.answer(out, None, 1)
     return {"id": q.id, **{k: v for k, v in got.items() if k not in ("shape", "has")}}

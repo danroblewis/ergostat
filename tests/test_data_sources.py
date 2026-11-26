@@ -1,6 +1,7 @@
-"""Dashboard data sources (ergostat/datasources): a panel query in a source's own language, answered through the server
-against a stub Prometheus; a fake type added by registering one module; the bounds, an unreachable source and a bad
-query each refused in words; and no request but a read."""
+"""Ergostat's two data sources (ergostat/datasources; NOTES.md, 2026-11-25): ``promql`` and ``sql``, always listed,
+each saying whether it can be asked and why not; a panel query in a source's own language, answered through the server
+against a stub VictoriaMetrics standing in for the project's own (its measurements' ``base``); the bounds, an
+unreachable server and a bad query each refused in words; no request but a read; and no source declared."""
 
 from __future__ import annotations
 
@@ -10,7 +11,6 @@ import ssl
 import textwrap
 import threading
 import time
-import types
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,15 +20,13 @@ import pytest
 
 from ergostat import datasources
 from ergostat import model as mdl
-from ergostat.datasources import prometheus
+from ergostat.datasources import promql
 from ergostat.store import Project
 from ergostat.web.server import Live, api
 from tests import tlscerts
 from tests.ports import free_port
 
 T = 1_795_400_400.0         # a multiple of 120
-OWN = {"name": "model", "type": "model", "language": "model"}     # the model's own source, there undeclared
-ERGO = {"name": "ergostat", "type": "prometheus", "language": "PromQL"}   # the built-in source: this project's readings
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -50,6 +48,14 @@ class Stub(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         a = {k: v[0] for k, v in parse_qs(u.query).items()}
+        if u.path == "/health":                     # (VictoriaMetrics answering: what the listing asks)
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"OK")
+            return None
+        if u.path == "/api/v1/query":               # (the store's own reads of its newest readings: there are none)
+            return self.answer(200, {"status": "success", "data": {"resultType": "vector", "result": []}})
         type(self).seen.append(("GET", u.path, a))
         if u.path != "/api/v1/query_range":
             return self.answer(404, {"status": "error", "error": "not found"})
@@ -99,10 +105,13 @@ def prom():
     srv.server_close()
 
 
-def project(tmp_path, sources: str) -> Project:
-    (tmp_path / "ergostat.yaml").write_text("name: ds\nstocks:\n  queue: {unit: tickets}\nsources:\n"
-                                            + textwrap.indent(textwrap.dedent(sources).strip() + "\n", "  "))
-    return Project(mdl.load(tmp_path))
+def project(tmp_path, url: str, more: str = "") -> Project:
+    """A project whose readings are on the VictoriaMetrics at ``url`` (here a stub): what ``promql`` asks."""
+    (tmp_path / "ergostat.yaml").write_text("name: ds\nstocks:\n  queue: {unit: tickets}\n" + textwrap.dedent(more))
+    p = Project(mdl.load(tmp_path))
+    p.measurements.base = url
+    datasources._ANSWERS.clear()
+    return p
 
 
 def ask(p, *queries, since=480.0, until=T + 480, points=4) -> list[dict]:
@@ -113,15 +122,12 @@ def ask(p, *queries, since=480.0, until=T + 480, points=4) -> list[dict]:
 
 @pytest.fixture
 def p(tmp_path, prom):
-    return project(tmp_path, f"""
-        prom: {{type: prometheus, url: "{prom}"}}
-        down: {{type: prometheus, url: "http://127.0.0.1:{free_port()}"}}
-        """)
+    return project(tmp_path, prom)
 
 
 def test_a_promql_range_query_answers_as_series_on_the_window(p):
     Stub.seen.clear()
-    [r] = ask(p, {"source": "prom", "text": "sum by (job) (up)"})
+    [r] = ask(p, {"source": "promql", "text": "sum by (job) (up)"})
     assert "error" not in r, r
     assert r["times"] == [T, T + 120, T + 240, T + 360] and r["step"] == 120
     assert {s["name"]: s["values"] for s in r["series"]} == {'up{job="a"}': [0.0, 1.0, 2.0, 3.0],
@@ -131,42 +137,44 @@ def test_a_promql_range_query_answers_as_series_on_the_window(p):
 
 
 def test_the_most_points_and_the_longest_window_are_answered(p):
-    [r] = ask(p, {"source": "prom", "text": "up"}, since=400 * 86400.0, until=T + 7, points=1000)
+    [r] = ask(p, {"source": "promql", "text": "up"}, since=400 * 86400.0, until=T + 7, points=1000)
     assert "error" not in r, r
     assert len(r["times"]) == 1001 and all(len(s["values"]) == 1001 for s in r["series"])
 
 
 def test_a_window_past_the_points_bound_is_refused_in_words(p, monkeypatch):
     monkeypatch.setattr(datasources, "MOST_POINTS", 3)
-    [r] = ask(p, {"source": "prom", "text": "up"}, until=T + 7)
+    [r] = ask(p, {"source": "promql", "text": "up"}, until=T + 7)
     assert r["error_kind"] == "limit" and "points, more than the 3 allowed" in r["error"]
 
 
 def test_an_old_query_still_answers_beside_a_source_query(p):
-    r = ask(p, {"source": "counts"}, {"source": "prom", "text": "up"})
+    r = ask(p, {"source": "counts"}, {"source": "promql", "text": "up"})
     assert "error" not in r[0] and "error" not in r[1]
 
 
-def test_over_the_series_bound_unreachable_and_bad_each_say_so(p):
-    many, down, bad, long_, nobody = ask(p, {"source": "prom", "text": "many"}, {"source": "down", "text": "up"},
-                                         {"source": "prom", "text": "sum(up"},
-                                         {"source": "prom", "text": "x" * (datasources.MOST_TEXT + 1)},
-                                         {"source": "nowhere", "text": "up"})
+def test_over_the_series_bound_unreachable_and_bad_each_say_so(p, tmp_path):
+    many, bad, long_, nobody, old = ask(p, {"source": "promql", "text": "many"}, {"source": "promql", "text": "sum(up"},
+                                        {"source": "promql", "text": "x" * (datasources.MOST_TEXT + 1)},
+                                        {"source": "nowhere", "text": "up"}, {"source": "prom", "text": "up"})
     assert many["error_kind"] == "limit" and "51 series, more than the 50" in many["error"]
-    assert down["error_kind"] == "unreachable" and "could not reach source 'down'" in down["error"]
-    assert "127.0.0.1" not in down["error"]                               # never the address
     assert bad["error_kind"] == "refused" and "parse error: unclosed left parenthesis" in bad["error"]
     assert long_["error_kind"] == "limit" and "characters" in long_["error"]
-    assert "no source named 'nowhere'" in nobody["error"]
+    assert nobody["error_kind"] == "unknown" and "two data sources, promql and sql; 'nowhere' is neither" in nobody["error"]
+    assert "neither" in old["error"]                                      # a source once declared is no source now
+    p.measurements.base = f"http://127.0.0.1:{free_port()}"
+    [down] = ask(p, {"source": "promql", "text": "up"})
+    assert down["error_kind"] == "unreachable" and "could not reach source 'promql'" in down["error"]
+    assert "127.0.0.1" not in down["error"]                               # never the address
 
 
 @pytest.mark.parametrize("how", ["late", "stall", "trickle"])
 def test_a_source_that_is_slow_to_answer_is_cut_off_at_the_time_bound(p, monkeypatch, how):
     monkeypatch.setattr(datasources, "MOST_SECONDS", 1.0)
     t0 = time.monotonic()
-    [r] = ask(p, {"source": "prom", "text": how})
+    [r] = ask(p, {"source": "promql", "text": how})
     took = time.monotonic() - t0
-    assert r["error_kind"] == "limit" and "source 'prom' did not answer within 1 s" in r["error"], r
+    assert r["error_kind"] == "limit" and "source 'promql' did not answer within 1 s" in r["error"], r
     assert took < 2.5, took                                               # (the stub would go on for 30 s)
 
 
@@ -191,77 +199,75 @@ def proms(certs):
 @pytest.mark.parametrize("how", ["stall", "trickle"])
 def test_an_https_source_that_trickles_is_cut_off_at_the_time_bound(tmp_path, proms, certs, monkeypatch, how):
     monkeypatch.setattr(ssl, "_create_default_https_context", lambda: ssl.create_default_context(cafile=certs["ca"]))
-    p = project(tmp_path, f'proms: {{type: prometheus, url: "{proms}"}}')
-    [ok] = ask(p, {"source": "proms", "text": "up"})
+    p = project(tmp_path, proms)
+    [ok] = ask(p, {"source": "promql", "text": "up"})
     assert "error" not in ok and len(ok["series"]) == 2, ok              # (the certificate is trusted: TLS is spoken)
     monkeypatch.setattr(datasources, "MOST_SECONDS", 1.0)
     t0 = time.monotonic()
-    [r] = ask(p, {"source": "proms", "text": how})
+    [r] = ask(p, {"source": "promql", "text": how})
     took = time.monotonic() - t0
-    assert r["error_kind"] == "limit" and "source 'proms' did not answer within 1 s" in r["error"], r
+    assert r["error_kind"] == "limit" and "source 'promql' did not answer within 1 s" in r["error"], r
     assert took < 2.5, took                                               # (the stub would go on for 30 s)
 
 
 def test_a_source_query_takes_only_source_and_text(p):
-    [r] = ask(p, {"source": "prom", "text": "up", "agg": "sum"})
+    [r] = ask(p, {"source": "promql", "text": "up", "agg": "sum"})
     assert "'agg' is not a key of a data source's query" in r["error"]
-    [r] = ask(p, {"source": "prom", "text": "up", "vars": {"k": "a"}})
+    [r] = ask(p, {"source": "promql", "text": "up", "vars": {"k": "a"}})
     assert "vars must be" in r["error"]
-    [r] = ask(p, {"source": "items", "field": "x", "x": {"type": "bins", "query": {"source": "prom", "text": "up"}}})
+    [r] = ask(p, {"source": "items", "field": "x", "x": {"type": "bins", "query": {"source": "promql", "text": "up"}}})
     assert "cannot be an X" in r["error"]
 
 
-def test_the_fields_list_a_source_by_name_type_and_language_never_its_address(p, prom):
+def test_the_fields_list_exactly_the_two_sources_each_saying_whether_it_answers(p, prom, tmp_path):
+    """Always both, in order, never an address: an unavailable one is listed with why and how to make it available."""
     got = api(Live(p), "query/fields", {})["datasources"]
-    assert got == [datasources.ANALYSIS, {"name": "prom", "type": "prometheus", "language": "PromQL"},
-                   {"name": "down", "type": "prometheus", "language": "PromQL"}, OWN, ERGO]
+    assert got == [{"name": "promql", "type": "promql", "language": "PromQL", "available": True},
+                   {"name": "sql", "type": "sql", "language": "SQL", "available": True}]
     assert prom not in json.dumps(api(Live(p), "query/fields", {}))
+    p.measurements.base = f"http://127.0.0.1:{free_port()}"
+    datasources._ANSWERS.clear()
+    promql_, sql_ = datasources.listed(p.measurements, p)
+    assert promql_["name"] == "promql" and promql_["available"] is False
+    assert "no VictoriaMetrics answers at" in promql_["reason"] and "brew install victoriametrics" in promql_["reason"]
+    assert sql_ == {"name": "sql", "type": "sql", "language": "SQL", "available": True}
+    nowhere = datasources.listed(None, None)
+    assert [x["name"] for x in nowhere] == ["promql", "sql"] and not any(x["available"] for x in nowhere)
+    assert all(x["reason"] for x in nowhere)
 
 
-def fake_query(src, text, w):
-    return [(f"{src.options['table']}:{text}", [(w.start + i * w.step, float(i * 2)) for i in range(w.points)])]
+@pytest.mark.parametrize("entry", ["record: {type: sql}", "m: {type: model}", "a: {type: analysis}",
+                                   "promql: {type: prometheus, url: 'http://x'}", "q: {type: promql}"])
+def test_a_dashboard_source_declared_under_sources_is_a_model_error_that_says_why(tmp_path, entry):
+    (tmp_path / "ergostat.yaml").write_text(f"name: ds\nstocks:\n  queue: {{unit: tickets}}\nsources:\n  {entry}\n")
+    with pytest.raises(Exception, match="exactly two, promql .* and sql") as e:
+        mdl.load(tmp_path)
+    assert "sources: holds only the external systems a sensor reads" in str(e.value)
 
 
-@pytest.fixture
-def fake():
-    datasources.register(types.SimpleNamespace(TYPE="fake", KEYS={"table"}, LANGUAGE="FakeQL", query=fake_query))
-    yield
-    datasources.unregister("fake")
-
-
-def test_a_new_type_is_one_module_and_panels_do_not_change(tmp_path, fake):
-    p = project(tmp_path, "f: {type: fake, table: t1}")
-    [r] = ask(p, {"source": "f", "text": "count it"})
-    assert r["series"] == [{"name": "t1:count it", "values": [0.0, 2.0, 4.0, 6.0]}]
-    assert api(Live(p), "query/fields", {})["datasources"] == [datasources.ANALYSIS,
-                                                               {"name": "f", "type": "fake", "language": "FakeQL"}, OWN, ERGO]
+def test_a_sensor_still_reads_an_external_system_under_sources_and_no_panel_asks_it(tmp_path, prom):
+    p = project(tmp_path, prom, f"""
+        sources:
+          ext: {{type: prometheus, url: "{prom}"}}
+        auxiliaries:
+          load:
+            sensor: {{query: {{source: ext, promql: up}}, every: 30s}}
+        """)
+    assert p.model.spec.sources["ext"].type == "prometheus"
+    [r] = ask(p, {"source": "ext", "text": "up"})
+    assert r["error_kind"] == "unknown" and "'ext' is neither" in r["error"]
+    assert [x["name"] for x in api(Live(p), "query/fields", {})["datasources"]] == ["promql", "sql"]
     for ts in sorted((ROOT / "ergostat" / "web" / "ui" / "src" / "pages" / "dashboard").rglob("*.ts*")):
         text = ts.read_text().lower()                                       # nothing in the page names a type
-        assert "prometheus" not in text and "fakeql" not in text, ts
+        assert "prometheus" not in text, ts
 
 
-def test_a_fake_type_over_the_series_bound_is_refused_whatever_its_type(tmp_path, fake, monkeypatch):
-    monkeypatch.setattr(datasources, "MOST_SERIES", 0)
-    p = project(tmp_path, "f: {type: fake, table: t1}")
-    [r] = ask(p, {"source": "f", "text": "x"})
-    assert r["error_kind"] == "limit" and "1 series, more than the 0" in r["error"]
-
-
-def test_an_unknown_type_is_refused_by_check(tmp_path):
-    with pytest.raises(Exception, match="type: one of"):
-        project(tmp_path, "f: {type: nosuch}")
-
-
-def test_a_type_offers_query_and_nothing_else():
-    def write(src, text):
-        pass
-    with pytest.raises(TypeError, match="offers only query"):
-        datasources.register(types.SimpleNamespace(TYPE="w", KEYS=set(), LANGUAGE="W", query=fake_query, write=write))
-    assert "w" not in datasources.types()
-    for name, mod in datasources.types().items():    # every type there is: only query (with suggest and values) offered
+def test_each_source_offers_query_and_reads_only():
+    for name in datasources.NAMES:
+        mod = datasources._module(name)
         own = {n for n, v in vars(mod).items() if not n.startswith("_") and callable(v)
                and getattr(v, "__module__", None) == mod.__name__}
-        assert "query" in own and own <= {"query", "suggest", "values"}, name
+        assert "query" in own and own <= {"query", "suggest", "values", "rows"}, name
 
 
 PUBLIC = "dash.example.org"
@@ -269,13 +275,11 @@ PUBLIC = "dash.example.org"
 
 def test_an_anonymous_public_reader_is_refused_a_source_and_nothing_is_sent(tmp_path, prom):
     from ergostat.web import serve
-    (tmp_path / "ergostat.yaml").write_text(f"name: ds\nstocks:\n  queue: {{unit: tickets}}\nsources:\n"
-                                            f"  prom: {{type: prometheus, url: \"{prom}\"}}\n"
-                                            f"web:\n  names: [{PUBLIC}]\n  open: read\n")
-    server, url = serve(Project(mdl.load(tmp_path)), free_port())
+    p = project(tmp_path, prom, f"web:\n  names: [{PUBLIC}]\n  open: read\n")
+    server, url = serve(p, free_port())
     try:
         body = {"since": 480.0, "until": T + 480, "points": 4,
-                "queries": [{"id": "0", "source": "prom", "text": "up"}, {"id": "1", "source": "counts"}]}
+                "queries": [{"id": "0", "source": "promql", "text": "up"}, {"id": "1", "source": "counts"}]}
         q = base64.urlsafe_b64encode(json.dumps(body).encode()).decode().rstrip("=")
 
         def get(path, host=None):
@@ -285,24 +289,21 @@ def test_an_anonymous_public_reader_is_refused_a_source_and_nothing_is_sent(tmp_
         Stub.seen.clear()
         src, own = get(f"/api/query?q={q}", PUBLIC)["results"]
         assert src["error_kind"] == "refused" and "public name" in src["error"] and "series" not in src
-        assert "error" not in own                                            # the model's own data is still read
+        assert "error" not in own                                            # a built-in shortcut still answers
         assert Stub.seen == []                                               # nothing was sent to the source
-        assert get("/api/query/fields", PUBLIC)["datasources"] == [datasources.ANALYSIS, OWN]  # nothing reading outside
-        body["queries"].append({"id": "r", "source": "analysis", "text": "raw(0)"})    # an analysis of it: refused too
-        q2 = base64.urlsafe_b64encode(json.dumps(body).encode()).decode().rstrip("=")
-        *_, ana = get(f"/api/query?q={q2}", PUBLIC)["results"]
-        assert ana["error_kind"] == "refused" and Stub.seen == []                      # and still nothing sent
+        listed = get("/api/query/fields", PUBLIC)["datasources"]
+        assert [x["name"] for x in listed] == ["promql", "sql"] and not any(x["available"] for x in listed)
+        assert all("public name" in x["reason"] for x in listed)
         src, _ = get(f"/api/query?q={q}")["results"]                          # the owner, on this machine, as before
         assert "error" not in src and len(Stub.seen) == 1
-        assert get("/api/query/fields")["datasources"] == [datasources.ANALYSIS,
-                                                           {"name": "prom", "type": "prometheus", "language": "PromQL"}, OWN, ERGO]
+        assert all(x["available"] for x in get("/api/query/fields")["datasources"])
     finally:
         server.shutdown()
         server.server_close()
 
 
-def test_prometheus_is_asked_by_get_on_query_range_only(p):
+def test_promql_is_asked_by_get_on_query_range_only(p):
     Stub.seen.clear()
-    ask(p, {"source": "prom", "text": "up"}, {"source": "prom", "text": "many"}, {"source": "prom", "text": "sum(up"})
+    ask(p, {"source": "promql", "text": "up"}, {"source": "promql", "text": "many"}, {"source": "promql", "text": "sum(up"})
     assert len(Stub.seen) == 3 and {(m, path) for m, path, _ in Stub.seen} == {("GET", "/api/v1/query_range")}
-    assert prometheus._PATH == "/api/v1/query_range"
+    assert promql._PATH == "/api/v1/query_range"

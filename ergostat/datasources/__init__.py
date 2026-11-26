@@ -1,28 +1,26 @@
-"""Dashboard data sources (SPEC §4e, *Data sources*; §11): a named connection under the model's ``sources:``, a query language, and a
-read-only ``query`` that answers a time window as series. A panel query is ``{"source": name, "text": ...}``, the text in
-the source's own language; the answer has the shape of every chart's (``times``, ``step``, ``series``).
+"""Ergostat's two data sources (SPEC §4e, *Data sources*; NOTES.md, 2026-11-25, the owner's decision): ``promql``, every
+metric, recorded in VictoriaMetrics (``promql.py``), and ``sql``, all item data, projected into SQLite (the item views:
+``sql.py``, ``_itemviews.py``). There are no others, and none is declared: everything that is not an external system is
+stored in one of the two, and every built-in shortcut (item fields, item moves, items per state, events, metric series,
+a frequency response) is a query generator that writes a PromQL or SQL query and asks it of one of them
+(query/sources.py), never a source of its own. Sensors that read external systems (a ``sources:`` entry of type
+``prometheus``, ``command`` or ``ergostat``) are sensors, not data sources: a panel never asks them.
 
-A type is one module in this package, found by its name: ``TYPE`` (the word in ``sources:``), ``KEYS`` (its connection
-keys besides ``type``), ``LANGUAGE`` (what its text is written in) and ``query(source, text, window)``, which returns
-``[(name, [(time, value), ...]), ...]``, or a typed frame (series with roles, a table or points: _frames.py). It may
-also offer ``suggest(source, what, prefix, metric, label, seconds, most)``, the names an editor completes (``what``:
-``metrics``, ``labels`` or ``values``), read from the source's own metadata, and ``values(source, selector, label,
-window)``, the values a label takes, which a dashboard variable written ``label_values(selector, label)`` lists
-(``values`` here). It offers nothing else: a module with any other public function or class is refused, so ``query``,
-``suggest`` and ``values`` are the only operations anything can call on a source (and each must itself only read).
-Every query is bounded here, whatever its type: its text, its window, its points and its series, and it is refused
-with words naming the bound it is over."""
+A panel query is ``{"source": "promql" | "sql", "text": ...}``; the answer has the shape of every chart's (``times``,
+``step``, ``series``). Each source's module offers ``query(source, text, window)``, which returns ``[(name, [(time,
+value), ...]), ...]`` or a typed frame (series with roles, a table or points: _frames.py), and may offer ``suggest``
+(the names an editor completes) and ``values`` (a dashboard variable's ``label_values``). ``listed`` names both,
+always, each with whether it can be asked now and, when not, why. Every query is bounded here, whatever its source: its
+text, its window, its points and its series, and it is refused with words naming the bound it is over."""
 
 from __future__ import annotations
 
-import importlib
 import math
-import pkgutil
 import re
 import threading
+import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from types import FunctionType, ModuleType
 
 from . import _frames, _lint
 
@@ -33,13 +31,15 @@ MOST_WINDOW = 400 * 86400.0
 MOST_SECONDS = 10.0         # the longest one query may take to answer
 MOST_VALUES = 200           # values a variable's query may list
 MOST_VALUE = 200            # characters of one value
-OFFERED = {"TYPE", "KEYS", "LANGUAGE", "query", "suggest", "values"}
 _LABEL_VALUES = re.compile(r"\s*label_values\(\s*(?:(.+)\s*,\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\Z", re.S)
 MOST_SUGGESTIONS = 100      # names one suggestion answers with
 SUGGEST_SECONDS = 3.0
 SUGGESTED = ("metrics", "labels", "values")
-ANALYSIS = {"name": "analysis", "type": "analysis", "language": "ergostat analysis"}   # query/analysis.py: reserved
-OWN_NAME = OWN_TYPE = "model"   # the source that is the project's own model (datasources/model.py)
+PROMQL, SQL = "promql", "sql"
+NAMES = (PROMQL, SQL)       # the two sources, in the order they are listed
+OLD_NAMES = {"ergostat": PROMQL}   # a saved panel's name for the built-in PromQL source, before it was named promql
+CHECKED_EVERY = 5.0         # seconds whether VictoriaMetrics answers is kept, for the listing
+READER = "a data source is not asked for anyone under a public name (web: open: read); the owner or a login may ask"
 _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a label's name, as a suggestion takes it
 
 
@@ -55,14 +55,14 @@ class SourceError(Exception):
 
 @dataclass(frozen=True)
 class Window:
-    """What a type is asked for: ``points`` values, one at each of ``start + i * step``, within [since, until]."""
+    """What a source is asked for: ``points`` values, one at each of ``start + i * step``, within [since, until]."""
     since: float
     until: float
     start: float
     step: float
     points: int
     seconds: float          # how long it may take
-    project: object = field(default=None, compare=False)    # the project asked of (a model source reads its own)
+    project: object = field(default=None, compare=False)    # the project asked of
     public: bool = False    # asked for anyone under a public name (web: open: read)
 
     @property
@@ -70,103 +70,102 @@ class Window:
         return self.start + (self.points - 1) * self.step
 
 
-ASKING: ContextVar = ContextVar("asking", default=None)   # the project asking, while a type answers (one reading the
-#                                                          project's own record, sql.py, takes it: ``ASKING.get()``)
-_TYPES: dict[str, ModuleType] = {}
-_LOCK = threading.RLock()
-_FOUND = False
+@dataclass(frozen=True)
+class Source:
+    """What a source's module is asked through: its name, and for ``promql`` the VictoriaMetrics that holds the
+    readings (``url``) and the label it holds every query to (``options["extra_label"]``: this project's)."""
+    name: str
+    type: str
+    url: str = ""
+    options: dict = field(default_factory=dict)
 
 
-def register(mod) -> None:
-    """A type, checked: it says its type, keys and language, and offers ``query`` and nothing else."""
-    names = {n for n in vars(mod) if not n.startswith("_") and n.isidentifier()}
-    if not {"TYPE", "KEYS", "LANGUAGE", "query"} <= names or not callable(mod.query):
-        raise TypeError(f"a data source type needs TYPE, KEYS, LANGUAGE and query: {getattr(mod, '__name__', mod)}")
-    own = lambda v: isinstance(v, FunctionType | type) and (    # noqa: E731
-        not isinstance(mod, ModuleType) or getattr(v, "__module__", None) == mod.__name__)
-    extra = sorted(n for n in names - OFFERED if own(getattr(mod, n)))
-    if extra:
-        raise TypeError(f"data source type {mod.TYPE}: offers {extra[0]}; "
-                        "a type offers only query, suggest and values (read-only)")
-    with _LOCK:
-        _TYPES[mod.TYPE] = mod
+ASKING: ContextVar = ContextVar("asking", default=None)   # the project asking, while a source answers (sql.py reads
+#                                                          the asking project's own items: ``ASKING.get()``)
 
 
-def unregister(name: str) -> None:
-    with _LOCK:
-        _TYPES.pop(name, None)
+def _module(name: str):
+    if name == PROMQL:
+        from . import promql
+        return promql
+    from . import sql
+    return sql
 
 
-def types() -> dict[str, ModuleType]:
-    """Every type there is: the modules of this package, and any registered."""
-    global _FOUND
-    with _LOCK:
-        if not _FOUND:
-            for m in pkgutil.iter_modules(__path__):
-                if not m.name.startswith("_"):
-                    register(importlib.import_module(f"{__name__}.{m.name}"))
-            _FOUND = True
-        return dict(_TYPES)
+def canonical(name: str) -> str:
+    """The source's name: ``promql`` or ``sql``, an old name for one read as it (``OLD_NAMES``)."""
+    return OLD_NAMES.get(name, name)
 
 
-OWN = "ergostat"          # the built-in source: ergostat's own readings, as PromQL (a model's source of this name wins)
+def language(name: str) -> str | None:
+    """The language a source is asked in, or None for no source of that name."""
+    name = canonical(name)
+    return _module(name).LANGUAGE if name in NAMES else None
 
 
-def sources(spec, store=None) -> dict:
-    """The model's ``sources:``; the model itself as one named ``model`` unless a source declared takes that name (its
-    connection is the project's own model and record, datasources/model.py, so it needs no declaring); and with the
-    project's measurements (``store``) the built-in ``ergostat``: a Prometheus-compatible source over the
-    VictoriaMetrics that holds them, asked only for this project's series (its ``extra_label``, which the server
-    enforces whatever the text says)."""
-    from ..spec.ir import Source
-    got = dict(getattr(spec, "sources", None) or {})
-    if spec is not None and OWN_NAME not in got:
-        got[OWN_NAME] = Source(OWN_NAME, OWN_TYPE)
-    if store is not None and OWN not in got:
-        got[OWN] = Source(OWN, "prometheus", store.base, options={"extra_label": f"project={store.project}"})
-    return got
+_ANSWERS: dict[str, tuple[float, bool]] = {}
+_ANSWERS_LOCK = threading.Lock()
 
 
-def _needs(src) -> None:
-    if src.options.get("needs"):
-        raise SourceError("refused", src.options["needs"])
+def _vm_answers(url: str) -> bool:
+    """Whether VictoriaMetrics answers at ``url``: asked at most once every CHECKED_EVERY seconds."""
+    from ..storage import answers
+    now = time.monotonic()
+    with _ANSWERS_LOCK:
+        got = _ANSWERS.get(url)
+    if got is not None and now - got[0] < CHECKED_EVERY:
+        return got[1]
+    ok = answers(url, wait=0.5)
+    with _ANSWERS_LOCK:
+        _ANSWERS[url] = (now, ok)
+    return ok
 
 
-def listed(spec, store=None, own_only: bool = False) -> list[dict]:
-    """The sources a panel can query: ergostat's own ``analysis`` first (reserved, never declared, and a declared source
-    of that name is never listed), then the rest (the built-in ``ergostat``, over the VictoriaMetrics that holds the
-    readings): name, type and language, and never their connection.
-    ``own_only``: only those that read nothing outside the project (what anyone under a public name may ask; an
-    analysis re-asks only a source its reader may ask)."""
-    every = types()
-    return [dict(ANALYSIS), *({"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
-                              for s in sources(spec, store).values() if s.type in every and not s.options.get("needs")
-                              and s.name != ANALYSIS["name"] and (not own_only or s.type == OWN_TYPE))]
+def unavailable(name: str, store=None, project=None) -> str | None:
+    """Why source ``name`` cannot be asked now, or None when it can. ``store``: the project's measurements (its
+    VictoriaMetrics); ``project``: the project asked of (whose item index the SQL source reads)."""
+    name = canonical(name)
+    if name == PROMQL:
+        if store is None or not getattr(store, "base", None):
+            return "this project has no measurements store, so there is no VictoriaMetrics to ask"
+        if not _vm_answers(store.base):
+            from ..storage import not_answering
+            return not_answering(store.base)
+        return None
+    if name == SQL:
+        if project is None:
+            return "the SQL source reads the asking project's items, and no project asked"
+        from ..spec.itemindex import state_dir
+        if state_dir(getattr(project, "events", None)) is None or not hasattr(project.events, "generation"):
+            return "this project's record is kept nowhere on disk, so it has no item index to read"
+        return None
+    return f"ergostat has two data sources, {PROMQL} and {SQL}; {name!r} is neither"
 
 
-def language(spec, name: str, store=None) -> str | None:
-    """The language a source is asked in, or None for none of that name."""
-    src = sources(spec, store).get(name)
-    mod = types().get(src.type) if src is not None else None
-    return mod.LANGUAGE if mod is not None else None
+def listed(store=None, project=None, reader: bool = False) -> list[dict]:
+    """The two sources a panel can query, always both, in order: ``name``, ``type`` and ``language``, ``available``
+    and, when it is not, ``reason``: why it cannot be asked now and what would make it so. ``reader``: anyone under
+    a public name, who may ask neither (``READER``); the built-in shortcuts, which write their own queries, still
+    answer them."""
+    out = []
+    for name in NAMES:
+        why = READER if reader else unavailable(name, store, project)
+        out.append({"name": name, "type": name, "language": _module(name).LANGUAGE, "available": why is None,
+                    **({"reason": why} if why else {})})
+    return out
 
 
-def own(spec, name: str) -> bool:
-    """Whether source ``name`` reads only the project's own model and record; an unknown name does not (nor the
-    built-in ``ergostat``, which reads a server)."""
-    src = sources(spec).get(name)
-    return src is not None and src.type == OWN_TYPE
-
-
-def _source(spec, name: str, store=None):
-    src = sources(spec, store).get(name)
-    if src is None:
-        raise SourceError("unknown", f"no source named {name!r} under sources:")
-    mod = types().get(src.type)
-    if mod is None:
-        raise SourceError("unknown", f"source {name!r} is of type {src.type}, which panels cannot query")
-    _needs(src)
-    return src, mod
+def _source(name: str, store=None):
+    """The source of this name, as its module is asked it, and the module; SourceError when there is none."""
+    name = canonical(name)
+    if name not in NAMES:
+        raise SourceError("unknown", f"ergostat has two data sources, {PROMQL} and {SQL}; {name!r} is neither")
+    if name == PROMQL:
+        if store is None or not getattr(store, "base", None):
+            raise SourceError("unreachable", "this project has no measurements store, so there is no VictoriaMetrics "
+                                             "to ask")
+        return Source(PROMQL, PROMQL, store.base, {"extra_label": f"project={store.project}"}), _module(name)
+    return Source(SQL, SQL), _module(name)
 
 
 def _text(mod, text, given) -> str:
@@ -180,17 +179,17 @@ def _text(mod, text, given) -> str:
     return sent
 
 
-def values(spec, name: str, text: str, since: float, until: float, seconds: float = MOST_SECONDS,
+def values(name: str, text: str, since: float, until: float, seconds: float = MOST_SECONDS,
            given: dict | None = None, store=None) -> list[str]:
     """A variable's values: ``label_values(label)`` or ``label_values(selector, label)`` asked of source ``name`` over
     [since, until], at most MOST_VALUES of them, each at most MOST_VALUE characters; SourceError otherwise. ``store``:
-    the project's measurements (for the built-in ``ergostat``)."""
-    src, mod = _source(spec, name, store)
+    the project's measurements (for ``promql``)."""
+    src, mod = _source(name, store)
     m = _LABEL_VALUES.match(_text(mod, text, given))
     if not m:
         raise SourceError("refused", "a variable's query is label_values(label) or label_values(selector, label)")
     if not callable(getattr(mod, "values", None)):
-        raise SourceError("refused", f"source {name!r} ({src.type}) cannot list a label's values")
+        raise SourceError("refused", f"source {src.name!r} cannot list a label's values")
     if not 0 < until - since <= MOST_WINDOW:
         raise SourceError("limit", f"the window is more than the {int(MOST_WINDOW // 86400)} days allowed")
     if seconds <= 0:
@@ -198,7 +197,7 @@ def values(spec, name: str, text: str, since: float, until: float, seconds: floa
     w = Window(since, until, since, until - since, 1, min(seconds, MOST_SECONDS))
     got = mod.values(src, (m.group(1) or "").strip() or None, m.group(2), w)
     if not isinstance(got, list) or not all(isinstance(v, str) for v in got):
-        raise SourceError("refused", f"source {name!r} answered with no list of values")
+        raise SourceError("refused", f"source {src.name!r} answered with no list of values")
     if len(got) > MOST_VALUES:
         raise SourceError("limit", f"the label has {len(got)} values, more than the {MOST_VALUES} a variable may list; "
                                    "narrow the selector")
@@ -211,9 +210,9 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, given: d
           store=None, project=None, public: bool = False) -> dict:
     """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError.
     ``given``: the dashboard's variables it may use, name to the values selected (``_interpolate``); ``store``: the
-    project's measurements (for the built-in ``ergostat``); ``project``: the project asked of, given to the type in its
-    window and while it answers (``ASKING``); ``public``: asked for a public reader."""
-    src, mod = _source(spec, name, store)
+    project's measurements (for ``promql``); ``project``: the project asked of, given to the source in its window and
+    while it answers (``ASKING``); ``public``: asked for a public reader."""
+    src, mod = _source(name, store)
     text = _text(mod, text, given)
     if g.until - g.since > MOST_WINDOW:
         raise SourceError("limit", f"the window is more than the {int(MOST_WINDOW // 86400)} days allowed")
@@ -222,7 +221,7 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, given: d
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
     turned: list = []
-    if name == OWN and src.options.get("extra_label"):   # the built-in source: a saved query's old names, and the new
+    if src.name == PROMQL:                          # a saved query's old names, and the new
         from ..promnames import convert, names_for
         text, turned = convert(text, names_for(spec), both=True)
     w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS), project, public)
@@ -240,11 +239,11 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, given: d
                 out = panel(out, {})
         except _frames.Bad as e:
             raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused",
-                              f"source {name!r} answered badly: {e}" if e.code is None else f"source {name!r}: {e}",
+                              f"source {src.name!r} answered badly: {e}" if e.code is None else f"source {src.name!r}: {e}",
                               code=e.code) from e
         return {**out, "warnings": [*out.get("warnings", ()), *warned]}
     if not isinstance(got, list):
-        raise SourceError("refused", f"source {name!r} answered with no series")
+        raise SourceError("refused", f"source {src.name!r} answered with no series")
     if len(got) > MOST_SERIES:
         raise SourceError("limit", f"the query answered {len(got)} series, more than the {MOST_SERIES} a panel may draw; "
                                    "aggregate it (sum by, topk)")
@@ -259,18 +258,14 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, given: d
             "warnings": warned}
 
 
-def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", label: str = "",
+def suggest(name: str, what: str, prefix: str = "", metric: str = "", label: str = "",
             seconds: float = SUGGEST_SECONDS, store=None, project=None) -> dict:
     """The names an editor may complete: ``{suggestions, more}``, at most MOST_SUGGESTIONS, each starting with ``prefix``
     (``more``: there were others, not sent). ``metric`` narrows labels and values to one metric's; ``label`` is whose
-    values. Bounded like a query, whatever the type: in time, in what is asked and in what is answered."""
-    src = sources(spec, store).get(name)
-    mod = types().get(src.type) if src is not None else None
-    if mod is None:
-        raise SourceError("unknown", f"no source named {name!r} under sources: that panels can query")
-    _needs(src)
+    values. Bounded like a query, whatever the source: in time, in what is asked and in what is answered."""
+    src, mod = _source(name, store)
     if not callable(getattr(mod, "suggest", None)):
-        raise SourceError("refused", f"source {name!r} ({src.type}) suggests nothing")
+        raise SourceError("refused", f"source {src.name!r} suggests nothing")
     if what not in SUGGESTED:
         raise SourceError("refused", f"what is suggested is one of {', '.join(SUGGESTED)}, not {what!r}")
     if any(v and not _NAME.fullmatch(v) for v in (metric, label)) or (what == "values") != bool(label):
