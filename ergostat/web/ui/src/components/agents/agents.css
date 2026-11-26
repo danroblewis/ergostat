@@ -1,0 +1,7 @@
+/* an agent's sections wherever they are drawn (an agent's page, a dashboard's panel): wide text scrolls or wraps */
+.agent-part pre, .agent-part .table-wrap, .agent-part .md { max-width: 100%; overflow-x: auto; }
+.agent-part pre.log-tail { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-part code.command { overflow-wrap: anywhere; }
+.agent-part dd { overflow-wrap: anywhere; min-width: 0; }
+.agent-part details.agent-file > summary, .agent-part details.wrapper > summary { cursor: pointer; font-family: var(--mono); }
+.panel-kind-ladder .ladder-line { margin: 0; }                         /* the ladder as a panel: its frame spaces it */
