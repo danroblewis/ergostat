@@ -20,7 +20,7 @@ projections:
     description: one removal a merged simplification made, from its commit's Removed trailer - class, path, name, lines
     fields:
       state:
-        type: one of [recorded]
+        values: [recorded]
     events:
       removal-recorded:
         when: type == 'removal.recorded'

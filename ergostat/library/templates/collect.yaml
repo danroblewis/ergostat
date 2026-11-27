@@ -88,7 +88,7 @@ projections:
     query: key.startswith('${projection}/')
     description: what the collector ${name} saw
     fields:
-      state: {type: "${states}"}
+      state: {values: "${states}"}
     events: ${events}
 stocks:
   collected:

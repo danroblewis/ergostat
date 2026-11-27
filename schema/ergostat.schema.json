@@ -2445,24 +2445,9 @@
           "type": "string"
         },
         "fields": {
-          "description": "What an object is: each field's type (text, number, integer, boolean, time, duration, map, list of T, one of [a, b]; the field state, a one of, is its lifecycle), fold (replace, first, add, min, max, append, append(N), union, merge, count, mean, variance, stdev, rms, or a model's own function) and description. A type alone, or nothing (any value, replace), is allowed.",
+          "description": "What an object is: each field's type (text, number, integer, boolean, time, duration, map, list of T) or values (the only values it may hold; the field state's values are its lifecycle), fold (replace, first, add, min, max, append, append(N), union, merge, count, mean, variance, stdev, rms, or a model's own function) and description. A type alone, or nothing (any value, replace), is allowed.",
           "type": "object",
-          "additionalProperties": {
-            "anyOf": [
-              {"type": "null"},
-              {"type": "string"},
-              {"type": "array", "items": {"type": "string"}},
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "type": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}, {"type": "object"}]},
-                  "fold": {"type": "string"},
-                  "description": {"type": "string"}
-                }
-              }
-            ]
-          }
+          "additionalProperties": {"anyOf": [{"type": "null"}, {"type": "string"}, {"type": "object", "additionalProperties": false, "properties": {"type": {"type": "string"}, "values": {"type": "array", "minItems": 1, "items": {"type": ["string", "number"]}}, "fold": {"type": "string"}, "description": {"type": "string"}}}]}
         },
         "events": {
           "description": "Its kinds of event, named by you (SPEC section 5a): each a when: (an expression of the event, or true; the first kind whose when holds takes an event), an optional key: of its own, and field: an expression giving the value it tells (folded by the field's rule; a fold call, set(...) or add(...), is this kind's own rule). Only declared fields; \"...\": an object whose fields each fold into the object's (pick, omit, rename). Events no kind takes are the remainder.",

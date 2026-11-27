@@ -32,7 +32,7 @@ projections:
     query: key.startswith('request/')
     fields:
       state:
-        type: one of [new, approved, denied, deferred]
+        values: [new, approved, denied, deferred]
 agents:
   approver: {kind: decision}
   picker: {kind: decision}

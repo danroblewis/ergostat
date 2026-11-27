@@ -70,7 +70,7 @@ projections:
     description: something asked of someone else, waiting for their answer
     fields:
       state:
-        type: one of [waiting, answered, given-up]
+        values: [waiting, answered, given-up]
       pings: {fold: add}
     events:
       answered:

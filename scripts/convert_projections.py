@@ -120,7 +120,7 @@ def convert(b):
     rels = set(b.get("relations") or {}) if isinstance(b.get("relations"), dict) else set()
     fields = CommentedMap()
     if states is not None:
-        fields["state"] = CommentedMap([("type", f"one of [{', '.join(map(str, states))}]")]) \
+        fields["state"] = CommentedMap([("values", list(map(str, states)))]) \
             if isinstance(states, list) else CommentedMap([("type", states)])
     for f in names:
         if f == "state" or f in rels or (f == "stages" and b.get("pipeline")):

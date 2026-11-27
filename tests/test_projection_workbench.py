@@ -26,7 +26,7 @@ query: type == 'aws.eventbridge' and data.source == 'aws.ec2' and not data.detai
 key: [data.account, data.region, "data.detail['instance-id']"]
 time: data.time
 fields:
-  state: {type: "one of [pending, running, stopping, stopped, shutting-down, terminated]"}
+  state: {values: [pending, running, stopping, stopped, shutting-down, terminated]}
   account: text
   region: text
   instance_id: text
@@ -116,7 +116,7 @@ def test_the_instance_definition_checks_and_reads_as_written(tmp_path):
     assert [x.name for x in k.kinds] == ["state-change", "launch", "start", "restart", "resize", "tagged", "stop-or-end"]
     d = k.definition()
     assert d["fields"]["launched_by"] == {"type": "text", "fold": "first"}
-    assert d["fields"]["state"]["type"].startswith("one of [pending")
+    assert d["fields"]["state"]["values"][0] == "pending"
     assert d["events"]["launch"]["key"][2].startswith("each(")
     assert k.show[:3] == ["account", "region", "instance_id"]            # show: the declared fields by default
 
@@ -125,9 +125,9 @@ def test_the_instance_definition_checks_and_reads_as_written(tmp_path):
     ("    events:\n      a:\n        when: type == 'x'\n        colour: data.c\n", "undeclared-field"),
     ("    fields:\n      n: {type: text, fold: add}\n", "bad-fold"),
     ("    fields:\n      n: text\n    events:\n      a:\n        when: type == 'x'\n        n: add(1)\n", "bad-fold"),
-    ("    fields:\n      state: {type: 'one of [a, b]'}\n    events:\n      a:\n        when: type == 'x'\n"
+    ("    fields:\n      state: {values: [a, b]}\n    events:\n      a:\n        when: type == 'x'\n"
      "        state: set('c')\n", "unknown-state"),
-    ("    fields:\n      s: {type: 'one of [a, b]'}\n    events:\n      a:\n        when: type == 'x'\n"
+    ("    fields:\n      s: {values: [a, b]}\n    events:\n      a:\n        when: type == 'x'\n"
      "        s: \"'c'\"\n", "not-one-of"),
     ("    fields:\n      n: {fold: blend}\n", "unknown-function"),
     ("    fields:\n      n: number\n    events:\n      a:\n        when: type == 'x'\n        n: blend(1)\n",
@@ -151,7 +151,7 @@ projections:
     key: data.job
     time: data.at
     fields:
-      state: {type: "one of [new, running, done]"}
+      state: {values: [new, running, done]}
       name: text
       first_seen: {type: time, fold: first}
       runs: {type: integer, fold: add}
@@ -242,7 +242,7 @@ projections:
     query: type.startswith('job.')   # every job event
     key: data.job
     fields:
-      state: {type: "one of [new, done]"}   # its lifecycle
+      state: {values: [new, done]}   # its lifecycle
       name: text
     events:
       # updated 2026-01-01

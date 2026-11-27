@@ -19,7 +19,7 @@ def test_a_model_gets_the_built_in_session_kind_with_its_transcript_shown_as_a_c
             query: key.startswith('ticket/')
             fields:
               state:
-                type: one of [open, done]
+                values: [open, done]
         blocks:
           dev:
             type: ai
@@ -40,7 +40,7 @@ def test_a_declared_session_kind_is_kept_and_not_replaced(tmp_path):
             query: key.startswith('session/')
             fields:
               state:
-                type: one of [open, closed]
+                values: [open, closed]
             show: [model]
 """)
     assert SESSION not in m.spec.items and m.spec.items["talk"].show == ["model"]

@@ -65,12 +65,12 @@ UNCOUNTED = """
         query: key.startswith('ticket/')
         fields:
           state:
-            type: one of [todo, done]
+            values: [todo, done]
       note:
         query: key.startswith('note/')
         fields:
           state:
-            type: one of [open, closed]
+            values: [open, closed]
     stocks:
       todo:
         sensor: {projection: ticket, state: todo, every: 3s}

@@ -27,7 +27,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [new, picked]
+        values: [new, picked]
     events:
       ticket-found:
         when: type == 'ticket.found'
@@ -44,7 +44,7 @@ projections:
     query: key.startswith('pr/')
     fields:
       state:
-        type: one of [open, reviewed]
+        values: [open, reviewed]
     events:
       pr-reviewed:
         when: type == 'pr.reviewed'
@@ -57,7 +57,7 @@ projections:
     query: key.startswith('alert/')
     fields:
       state:
-        type: one of [open, resolved]
+        values: [open, resolved]
     events:
       alert-triggered:
         when: type == 'alert.triggered'

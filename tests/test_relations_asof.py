@@ -25,7 +25,7 @@ projections:
     query: key.startswith('epic/')
     fields:
       state:
-        type: one of [planned, underway, shipped]
+        values: [planned, underway, shipped]
     events:
       epic-started:
         when: type == 'epic.started'
@@ -44,7 +44,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [todo, doing, done]
+        values: [todo, doing, done]
     events:
       ticket-started:
         when: type == 'ticket.started'

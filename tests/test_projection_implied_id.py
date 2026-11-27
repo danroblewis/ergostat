@@ -35,7 +35,7 @@ systems:
 
 
 def test_a_projection_in_no_system_matches_its_name(tmp_path):
-    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket:\n    fields:\n      state:\n        type: one of [open, done]\n"))
+    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket:\n    fields:\n      state:\n        values: [open, done]\n"))
     assert got == {"ticket": "ticket/*"} and not errors
 
 
@@ -45,7 +45,7 @@ def test_a_projection_in_a_top_level_system(tmp_path):
 
 
 def test_a_projection_in_a_nested_system_by_its_system_key(tmp_path):
-    got, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket:\n    system: intake\n    fields:\n      state:\n        type: one of [open]\n"))
+    got, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket:\n    system: intake\n    fields:\n      state:\n        values: [open]\n"))
     assert got == {"ticket": "factory/intake/ticket/*"} and not errors
     spec, _ = read(tmp_path / "ergostat.yaml")
     assert spec.items["ticket"].matches("factory/intake/ticket/12") and not spec.items["ticket"].matches("ticket/12")
@@ -59,7 +59,7 @@ def test_a_projection_in_a_nested_system_by_its_files_defaults(tmp_path):
           ticket:
             fields:
               state:
-                type: one of [open]
+                values: [open]
 """})
     got, errors = ids(path)
     assert got == {"ticket": "factory/intake/ticket/*"} and not errors
@@ -112,7 +112,7 @@ def test_a_template_made_projection_is_named_by_its_short_name(tmp_path):
           ticket:
             fields:
               state:
-                type: one of [open, done]
+                values: [open, done]
         stocks:
           open:
             unit: items
@@ -123,7 +123,7 @@ def test_a_template_made_projection_is_named_by_its_short_name(tmp_path):
 
 
 def test_a_remote_serves_the_implied_id_written_out(tmp_path):
-    path = model(tmp_path, SYSTEMS + "projections:\n  ticket:\n    system: intake\n    fields:\n      state:\n        type: one of [open]\n  pr:\n    query: key.startswith('gh/pr/')\n")
+    path = model(tmp_path, SYSTEMS + "projections:\n  ticket:\n    system: intake\n    fields:\n      state:\n        values: [open]\n  pr:\n    query: key.startswith('gh/pr/')\n")
     got = serve.model(path)["sections"]["projections"]
     assert got["ticket"]["query"] == "glob(key, 'factory/intake/ticket/*')" and \
         got["pr"]["query"] == "key.startswith('gh/pr/')"
@@ -136,7 +136,7 @@ def test_check_passes_on_a_model_with_no_ids(tmp_path, capsys):
             system: intake
             fields:
               state:
-                type: one of [open, done]
+                values: [open, done]
             events:
               ticket-closed:
                 when: type == 'ticket.closed'
@@ -148,7 +148,7 @@ def test_check_passes_on_a_model_with_no_ids(tmp_path, capsys):
           note:
             fields:
               state:
-                type: one of [new]
+                values: [new]
         stocks:
           open-tickets:
             system: intake

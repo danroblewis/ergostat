@@ -29,7 +29,7 @@ projections:
     query: key.startswith('incident/')
     fields:
       state:
-        type: one of [open, fixing, closed]
+        values: [open, fixing, closed]
     events:
       incident-opened:
         when: type == 'incident.opened'
@@ -54,7 +54,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [todo, doing, done]
+        values: [todo, doing, done]
     events:
       ticket-planned:
         when: type == 'ticket.planned'

@@ -17,7 +17,7 @@ projections:
     query: key.startswith('gap/')
     fields:
       state:
-        type: one of [open, building, merged]
+        values: [open, building, merged]
     events:
       gap-opened:
         when: type == 'gap.opened'
@@ -102,7 +102,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [ready, doing, done]
+        values: [ready, doing, done]
     events:
       ticket-started:
         when: type == 'ticket.started'
@@ -119,7 +119,7 @@ projections:
     query: key.startswith('part/')
     fields:
       state:
-        type: one of [ready, made]
+        values: [ready, made]
     events:
       part-made:
         when: type == 'part.made'

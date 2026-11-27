@@ -32,18 +32,18 @@ projections:
   ticket:
     fields:
       state:
-        type: one of [new, shipped]
+        values: [new, shipped]
     system: intake
   note:
     fields:
       state:
-        type: one of [open]
+        values: [open]
     system: qa
   run:
     query: key.startswith('run/')
     fields:
       state:
-        type: one of [going]
+        values: [going]
 stocks:
   arrived: {system: intake, unit: tickets, sensor: {projection: ticket, state: new}}
   shipped: {system: delivery, unit: tickets, sensor: {projection: ticket, state: shipped}}

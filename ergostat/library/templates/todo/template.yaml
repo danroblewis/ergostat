@@ -56,7 +56,7 @@ projections:
     description: something a person must do by hand, with its instructions and where it must be done
     fields:
       state:
-        type: one of [new, ready, in-progress, waiting, done, dropped]
+        values: [new, ready, in-progress, waiting, done, dropped]
       notes: {fold: append}
     events:
       added:
@@ -104,7 +104,7 @@ projections:
     description: something a to-do waits on that someone else does (a person's answer, an outside change), recorded by hand
     fields:
       state:
-        type: one of [new, asked, answered]
+        values: [new, asked, answered]
       notes: {fold: append}
     events:
       asked:
@@ -125,7 +125,7 @@ projections:
     description: the ready to-dos of one place, in the order to do them, with every one's instructions (sitting)
     fields:
       state:
-        type: one of [open, clear]
+        values: [open, clear]
     events:
       grouped:
         when: type == '${batch-projection}.grouped'

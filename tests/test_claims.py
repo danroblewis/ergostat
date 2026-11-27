@@ -113,7 +113,7 @@ projections:
     query: key.startswith('job/')
     fields:
       state:
-        type: one of [waiting, running, done]
+        values: [waiting, running, done]
     events:
       job-started:
         when: type == 'job.started'

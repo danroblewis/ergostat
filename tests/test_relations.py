@@ -24,7 +24,7 @@ projections:
     query: key.startswith('epic/')
     fields:
       state:
-        type: one of [planned, underway, shipped]
+        values: [planned, underway, shipped]
     events:
       epic-started:
         when: type == 'epic.started'
@@ -43,7 +43,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [todo, doing, done]
+        values: [todo, doing, done]
     events:
       ticket-started:
         when: type == 'ticket.started'
@@ -119,7 +119,7 @@ STARTS = """
         query: key.startswith('ticket/')
         fields:
           state:
-            type: one of [todo, review, done, on-hold]
+            values: [todo, review, done, on-hold]
         relations:
           {rel}
     messages:
@@ -154,7 +154,7 @@ TAKEN = """
         query: key.startswith('gap/')
         fields:
           state:
-            type: one of [todo, approved, merged]
+            values: [todo, approved, merged]
         relations:
           depends_on: {{projection: gap, starts_at: [{state}]}}
     blocks:
@@ -180,7 +180,7 @@ def test_takes_unblocked_needs_a_precedence_relation(tmp_path):
             query: key.startswith('ticket/')
             fields:
               state:
-                type: one of [todo, done]
+                values: [todo, done]
             relations: {parent: ticket}
         blocks:
           dev:
@@ -402,7 +402,7 @@ projections:
     system: building
     fields:
       state:
-        type: one of [ready, building, done]
+        values: [ready, building, done]
     events:
       gap-started:
         when: type == 'gap.started'
@@ -421,7 +421,7 @@ projections:
     system: building
     fields:
       state:
-        type: one of [running, ended]
+        values: [running, ended]
     events:
       session-ended:
         when: type == 'session.ended'
@@ -436,7 +436,7 @@ projections:
     system: knowledge
     fields:
       state:
-        type: one of [open, judged]
+        values: [open, judged]
     events:
       review-judged:
         when: type == 'review.judged'
@@ -451,7 +451,7 @@ projections:
     system: support
     fields:
       state:
-        type: one of [todo, done]
+        values: [todo, done]
     events:
       ticket-done:
         when: type == 'ticket.done'
@@ -529,14 +529,14 @@ projections:
     system: planning
     fields:
       state:
-        type: one of [planned, shipped]
+        values: [planned, shipped]
     relations: {after: epic}
   ticket:
     query: key.startswith('ticket/')
     system: delivery
     fields:
       state:
-        type: one of [todo, doing, done]
+        values: [todo, doing, done]
     events:
       ticket-started:
         when: type == 'ticket.started'

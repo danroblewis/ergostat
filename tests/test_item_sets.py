@@ -21,7 +21,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [new, awaiting, approved, done]
+        values: [new, awaiting, approved, done]
     events:
       ticket-asked:
         when: type == 'ticket.asked'
@@ -223,7 +223,7 @@ projections:
     query: key.startswith('job/')
     fields:
       state:
-        type: one of [new, doing, done]
+        values: [new, doing, done]
     events:
       job-started:
         when: type == 'job.started'
@@ -283,7 +283,7 @@ projections:
     query: key.startswith('gap/')
     fields:
       state:
-        type: one of [open, building, merged, parked, closed, dead]
+        values: [open, building, merged, parked, closed, dead]
     events:
       gap-opened:
         when: type == 'gap.opened'
@@ -316,7 +316,7 @@ projections:
     query: key.startswith('pool/')
     fields:
       state:
-        type: one of [held]
+        values: [held]
     events:
       pool-measured:
         when: type == 'pool.measured'

@@ -33,7 +33,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [open, building, done, dropped]
+        values: [open, building, done, dropped]
     events:
       ticket-started:
         when: type == 'ticket.started'
@@ -59,7 +59,7 @@ projections:
     query: key.startswith('session/')
     fields:
       state:
-        type: one of [open, done, failed]
+        values: [open, done, failed]
       messages: {fold: append}
       tool_calls: {fold: append}
     events:

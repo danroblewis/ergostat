@@ -24,7 +24,7 @@ projections:
     query: key.startswith('bug/')
     fields:
       state:
-        type: one of [open, fixed]
+        values: [open, fixed]
     events:
       bug-opened:
         when: type == 'bug.opened'

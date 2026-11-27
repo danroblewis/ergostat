@@ -65,7 +65,7 @@ projections:
     description: an alert from the pager
     fields:
       state:
-        type: one of [new, triaged, closed]
+        values: [new, triaged, closed]
     events:
       alert-fired:
         when: type == 'alert.fired'

@@ -40,7 +40,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [new, done]
+        values: [new, done]
 agents:
   ai: {kind: ai}
   small: {kind: narrow-ai}

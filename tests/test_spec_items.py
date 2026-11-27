@@ -19,7 +19,7 @@ projections:
     query: key.startswith('github/pull_request/')
     fields:
       state:
-        type: one of [open, review, merged, closed]
+        values: [open, review, merged, closed]
     events:
       pr-review-asked:
         when: type == 'pr.review-asked'

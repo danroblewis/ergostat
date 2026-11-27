@@ -94,7 +94,7 @@ projections:
     description: an item worked through the steps
     fields:
       state:
-        type:
+        values:
           - each: steps
             value: ${it.name}
           - done

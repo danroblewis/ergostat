@@ -20,7 +20,7 @@ def model(pr_gate=PR, push_gate="auto", pr_risk="", push_args="{title: its title
     return textwrap.dedent(f"""
         name: t
         projections:
-          ticket: {{fields: {{state: {{type: "one of [open, done]"}}}}}}
+          ticket: {{fields: {{state: {{values: [open, done]}}}}}}
         actions:
           pr:
             run: "echo pr {{title}} >> ran.txt"

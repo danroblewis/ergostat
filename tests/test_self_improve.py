@@ -30,7 +30,7 @@ projections:
     description: an alert from the pager
     fields:
       state:
-        type: one of [new, triaged, closed]
+        values: [new, triaged, closed]
     events:
       alert-fired:
         when: type == 'alert.fired'
@@ -256,7 +256,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [new, worked, done]
+        values: [new, worked, done]
     events:
       ticket-opened:
         when: type == 'ticket.opened'

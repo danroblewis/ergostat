@@ -116,7 +116,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [new, picked, located, worked, pr-open, review-asked, changes-asked, approved, sailed, ci-failed, ci-green, merged, done, stopped]
+        values: [new, picked, located, worked, pr-open, review-asked, changes-asked, approved, sailed, ci-failed, ci-green, merged, done, stopped]
     events:
       ticket-pick-up:
         when: type == 'ticket.pick-up'

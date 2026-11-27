@@ -69,7 +69,7 @@ def p(tmp_path):
             query: key.startswith('ticket/')
             fields:
               state:
-                type: one of [open, doing, done, dropped]
+                values: [open, doing, done, dropped]
             events:
               ticket-started:
                 when: type == 'ticket.started'

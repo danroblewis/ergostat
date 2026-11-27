@@ -24,7 +24,7 @@ projections:
     key: key
     fields:
       state:
-        type: one of [planned, ongoing, done]
+        values: [planned, ongoing, done]
       last_seen: {}
       name: {}
       crew: {}
@@ -301,7 +301,7 @@ projections:
   t:
     fields:
       state:
-        type: one of [a, b]
+        values: [a, b]
       n: {}
     events:
       t-x:
@@ -328,7 +328,7 @@ projections:
   t:
     fields:
       state:
-        type: one of [a, b]
+        values: [a, b]
       seen: {}
     events:
       t-x:
@@ -438,7 +438,7 @@ projections:
   m:
     fields:
       state:
-        type: one of [planned, ongoing]
+        values: [planned, ongoing]
       retry_count: {}
       started_by: {}
       n: {}

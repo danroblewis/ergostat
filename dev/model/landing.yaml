@@ -28,7 +28,7 @@ projections:
     description: one merge queue run's batch (batch/<run tag>) - its gaps tested together, each run of the suites (full, named, halves) with its outcome, the gaps isolated, what landed and was given back (dev/bin/batches.py)
     fields:
       state:
-        type: one of [new, testing, isolating, pushing, landed, partial, failed, given-back]
+        values: [new, testing, isolating, pushing, landed, partial, failed, given-back]
       runs: {fold: append}
       isolated: {fold: append}
                                     # new: no event puts one there; it arrives testing, a working state the merge

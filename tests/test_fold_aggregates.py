@@ -26,7 +26,7 @@ projections:
     query: key.startswith('reading/')
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
       c: {fold: count}
       m: {fold: mean}
       v: {fold: variance}

@@ -584,7 +584,7 @@ def test_the_template_has_fixes_hold_and_check_finds_it_served(tmp_path, monkeyp
 
 
 def test_an_auxiliary_counts_moves_over_its_window_and_refuses_over_alone(tmp_path):
-    head = "name: t\nprojections:\n  issue:\n    query: key.startswith('issue/')\n    fields:\n      state:\n        type: one of [open, closed]\n    events:\n      issue-seen:\n        when: type == 'issue.seen'\n        '...': data\n        state: set('open')\n      other:\n        when: true\n        '...': data\nauxiliaries:\n"
+    head = "name: t\nprojections:\n  issue:\n    query: key.startswith('issue/')\n    fields:\n      state:\n        values: [open, closed]\n    events:\n      issue-seen:\n        when: type == 'issue.seen'\n        '...': data\n        state: set('open')\n      other:\n        when: true\n        '...': data\nauxiliaries:\n"
     for sensor, error in (("{projection: issue, entering: open, over: 1d}", None),
                           ("{projection: issue, state: open, over: 1d}", "items-on-stock")):
         d = tmp_path / str(bool(error))

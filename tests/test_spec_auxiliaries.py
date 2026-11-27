@@ -189,7 +189,7 @@ projections:
     query: key.startswith('case/')
     fields:
       state:
-        type: one of [unmet, met]
+        values: [unmet, met]
     events:
       case-met:
         when: type == 'case.met'

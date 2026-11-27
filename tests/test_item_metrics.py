@@ -28,7 +28,7 @@ projections:
     query: key.startswith('gap/')
     fields:
       state:
-        type: one of [open, building, merged]
+        values: [open, building, merged]
       cost_usd: {fold: add}
     events:
       gap-found:
@@ -56,7 +56,7 @@ projections:
     query: key.startswith('milestone/')
     fields:
       state:
-        type: one of [waiting, active]
+        values: [waiting, active]
     events:
       milestone-added:
         when: type == 'milestone.added'

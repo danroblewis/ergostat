@@ -27,7 +27,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [todo, doing, done]
+        values: [todo, doing, done]
     events:
       ticket-started:
         when: type == 'ticket.started'
@@ -58,7 +58,7 @@ projections:
     query: key.startswith('gap/')
     fields:
       state:
-        type: one of [ready, doing, review, fix, approved, merged]
+        values: [ready, doing, review, fix, approved, merged]
     events:
       gap-opened:
         when: type == 'gap.opened'
@@ -203,7 +203,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [todo, doing, review, reviewing, done]
+        values: [todo, doing, review, reviewing, done]
     events:
       ticket-started:
         when: type == 'ticket.started'

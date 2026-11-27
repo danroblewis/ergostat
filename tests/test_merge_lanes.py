@@ -30,7 +30,7 @@ projections:
     query: key.startswith('batch/')
     fields:
       state:
-        type: one of [ready, landed, failed]
+        values: [ready, landed, failed]
     events:
       batch-ready:
         when: type == 'batch.ready'

@@ -63,7 +63,7 @@ projections:
     query: key.startswith('knowledge/')
     fields:
       state:
-        type: one of [active, retired]
+        values: [active, retired]
     events:
       knowledge-found:
         when: type == 'knowledge.found'

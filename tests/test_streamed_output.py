@@ -28,7 +28,7 @@ projections:
     query: key.startswith('finding/')
     fields:
       state:
-        type: one of [new, kept]
+        values: [new, kept]
     events:
       finding-found:
         when: type == 'finding.found'
@@ -244,7 +244,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [ready, doing, done]
+        values: [ready, doing, done]
     events:
       ticket-started:
         when: type == 'ticket.started'

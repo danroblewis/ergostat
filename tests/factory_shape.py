@@ -23,7 +23,7 @@ def model_yaml() -> str:
         for k in kinds:
             on = ", ".join(f"{st}: {{when: \"type == '{k}.{st}'\", '...': data, state: \"'{st}'\"}}" for st in STATES)
             lines += [f"  {k}:", f"    query: key.startswith('{k}/')", f"    system: {s}",
-                      f"    fields: {{state: {{type: \"one of [{', '.join(STATES)}]\"}}}}",
+                      f"    fields: {{state: {{values: [{', '.join(STATES)}]}}}}",
                       f"    events: {{{on}, other: {{when: true, '...': data}}}}"]
     done = ", ".join(f"{k}: [done]" for ks in SYSTEMS.values() for k in ks)
     paused = ", ".join(f"{k}: [parked]" for ks in SYSTEMS.values() for k in ks)

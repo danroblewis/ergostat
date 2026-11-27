@@ -322,7 +322,7 @@ def test_an_event_written_from_a_reading_is_refused_without_the_count_it_read(tm
         assert it.state == "waiting" and "x" not in it.fields and it.refused[-1]["form"] == "read", data
     it = its.fold("todo/b", [wait, {"id": "e2", "time": 2.0, "type": "todo.freed", "data": {"x": 1, "read": 1}}], k)
     assert it.state == "ready" and it.fields == {"title": "b", "x": 1} and not it.refused
-    bad = MODEL + "projections:\n  x:\n    query: key.startswith('x/')\n    fields:\n      state:\n        type: one of [a, b]\n    events:\n      x-b:\n        when: type == 'x.b'\n        '...': data\n        state: set('b')\n      other:\n        when: true\n        '...': data\n    if-unchanged: x.b\n"
+    bad = MODEL + "projections:\n  x:\n    query: key.startswith('x/')\n    fields:\n      state:\n        values: [a, b]\n    events:\n      x-b:\n        when: type == 'x.b'\n        '...': data\n        state: set('b')\n      other:\n        when: true\n        '...': data\n    if-unchanged: x.b\n"
     (tmp_path / "ergostat.yaml").write_text(bad)
     assert "bad-if-unchanged" in {x.code for x in read(tmp_path / "ergostat.yaml")[1] if x.level == "error"}
 
@@ -382,7 +382,7 @@ projections:
     query: key.startswith('note/')
     fields:
       state:
-        type: one of [new, open, shut]
+        values: [new, open, shut]
     events:
       note-opened:
         when: type == 'note.opened'

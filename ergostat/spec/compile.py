@@ -770,7 +770,7 @@ class Compiler:
     def handlers(self, name: str, m: Map, what: str, spec: Spec):
         """``query:``, ``key:``, ``time:``, ``fields:`` and ``events:`` (SPEC §5a): which events the projection reads,
         the object each belongs to, what an object is (each field's type and fold), and the kinds of event it reads
-        and what each tells (field → an expression, ``handlers.py``). Also the states (a ``one of`` field named
+        and what each tells (field → an expression, ``handlers.py``). Also the states (the ``values:`` of the field named
         ``state``), and the moves its kinds make with a constant state (``on``, as ergostat's own projections say
         them)."""
         from . import fields as fl
@@ -793,9 +793,9 @@ class Compiler:
             except fl.BadField as e:
                 self.err(f"{what}.fields.{f}: {e}", fw, e.code)
         st = declared.get("state")
-        states = list(st.type.values) if st is not None and st.type.base == "one of" else []
-        if st is not None and st.type.base not in ("one of", None, "text"):
-            self.err(f"{what}.fields.state: the state is text, or one of [its states] (the first is where a new object "
+        states = list(st.type.values) if st is not None and st.type.base == "values" else []
+        if st is not None and st.type.base not in ("values", None, "text"):
+            self.err(f"{what}.fields.state: the state is text, with values: [its states] (the first is where a new object "
                      f"starts)", m.at("fields"), "bad-states")
         if any(not NAME.match(s) for s in states):
             self.err(f"{what}.fields.state: its states are names (lowercase letters, digits and -)", m.at("fields"),
@@ -905,7 +905,7 @@ class Compiler:
                     except BadExpr as e:
                         self.err(f"{what}.events.{kn}.{f}: {e}", fw, e.code)
                         continue
-                    if d is not None and d.type.base == "one of":
+                    if d is not None and d.type.base == "values":
                         lit = one_literal(v)
                         if lit is not None and lit not in d.type.values:
                             self.err(f"{what}.events.{kn}.{f}: {lit!r} is not one of its values "

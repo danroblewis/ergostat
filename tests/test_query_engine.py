@@ -31,7 +31,7 @@ MODEL = """
         query: key.startswith('ticket/')
         fields:
           state:
-            type: one of [open, doing, done]
+            values: [open, doing, done]
           ai_cost_usd: {fold: add}
         events:
           ticket-started:

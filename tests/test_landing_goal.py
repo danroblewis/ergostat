@@ -200,7 +200,7 @@ projections:
     query: key.startswith('gap/')
     fields:
       state:
-        type: one of [new, approved, queued, merged]
+        values: [new, approved, queued, merged]
     events:
       gap-opened:
         when: type == 'gap.opened'
@@ -225,7 +225,7 @@ projections:
     query: key.startswith('batch/')
     fields:
       state:
-        type: one of [testing, isolating, landed]
+        values: [testing, isolating, landed]
     final: [landed]
     events:
       batch-started:

@@ -2305,7 +2305,7 @@ projections:
     time: data.time                    # the event's own time (else the recorded time): the fold is by event time
 
     fields:                            # what an instance is
-      state:         {type: "one of [pending, running, stopping, stopped, shutting-down, terminated]"}
+      state:         {values: [pending, running, stopping, stopped, shutting-down, terminated]}
       instance_type: {type: text}
       launched_by:   {type: text, fold: first}
       launched_at:   {type: time, fold: first}
@@ -2359,8 +2359,8 @@ projections:
 | `lease`, `group`, `system`, `description` | | | As for every part (`lease:`: §9.5; `group:`: the nav bar menu it is shown in) |
 
 **Fields** (`spec/fields.py`). Each field has a type: `text`, `number`, `integer`, `boolean`, `time` (seconds, or ISO
-8601 text), `duration`, `map`, `list of T`, or `one of [a, b, ...]` (left out: any value). In a flow map the `one of`
-is quoted (`{type: "one of [a, b]"}`: YAML reads `[` there as a list), or written `{one of: [a, b]}`. And a fold, how
+8601 text), `duration`, `map` or `list of T` (left out: any value); or `values: [a, b, ...]`, the only values it may
+hold (text: `state: {values: [pending, running, done]}`, the states, the first where a new object starts). And a fold, how
 values from events combine: `replace` (the default: the newest by event time wins), `first` (the earliest by event
 time), `add`, `min`, `max`, `append` (`append(N)`: only the last N kept), `union` (a set, kept sorted), `merge` (a deep
 merge of objects), `count`, `mean`, `variance`, `stdev`, `rms` (exact, their running state kept beside the item,
@@ -2502,7 +2502,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [open, doing, done]
+        values: [open, doing, done]
     dashboards:
       list:
         title: Tickets
@@ -2677,14 +2677,14 @@ projections:
     query: key.startswith('epic/')
     fields:
       state:
-        type: one of [planned, underway, shipped]
+        values: [planned, underway, shipped]
     relations:
       after: epic                           # precedence: it follows the epic it names
   ticket:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [todo, doing, review, done]
+        values: [todo, doing, review, done]
     relations:
       blocked_by: ticket                    # a projection, or a list of projections
       parent: epic                          # a group
@@ -2945,7 +2945,7 @@ projections:
     query: key.startswith('note/')
     fields:
       state:
-        type: one of [open, retired]
+        values: [open, retired]
     about: about                            # "data": {"about": ["goal.inbox-short", "stock.inbox"]}
 messages:
   done: {note: [retired]}
@@ -2979,7 +2979,7 @@ projections:
   epic:
     fields:
       state:
-        type: one of [planned, underway, shipped]
+        values: [planned, underway, shipped]
     join:
       - {children: parent, any: [doing, review, done], to: underway}   # once one has started
       - {children: parent, all: done, to: shipped}                      # once every one is done
@@ -4989,7 +4989,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [ready, doing, review, done]
+        values: [ready, doing, review, done]
     events:
       ticket-started:
         when: type == 'ticket.started'

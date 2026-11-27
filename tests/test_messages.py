@@ -28,7 +28,7 @@ projections:
     query: key.startswith('review/')
     fields:
       state:
-        type: one of [requested, briefed, answered]
+        values: [requested, briefed, answered]
     events:
       review-briefed:
         when: type == 'review.briefed'
@@ -46,7 +46,7 @@ projections:
     query: key.startswith('ramp/')
     fields:
       state:
-        type: one of [pending, briefed, approved]
+        values: [pending, briefed, approved]
     events:
       ramp-briefed:
         when: type == 'ramp.briefed'
@@ -64,7 +64,7 @@ projections:
     query: key.startswith('session/')
     fields:
       state:
-        type: one of [open, done, failed, lost]
+        values: [open, done, failed, lost]
     events:
       session-ran:
         when: type == 'session.ran'

@@ -56,7 +56,7 @@ projections:
     query: key.startswith('pr/')
     fields:
       state:
-        type: one of [open, review, merged, closed]
+        values: [open, review, merged, closed]
     events:
       pr-review-asked:
         when: type == 'pr.review-asked'

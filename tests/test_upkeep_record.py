@@ -35,7 +35,7 @@ projections:
     query: key.startswith('t/')
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
     events:
       t-opened:
         when: type == 't.opened'

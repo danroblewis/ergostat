@@ -15,9 +15,9 @@ MODEL = """
 name: t
 projections:
   ticket:
-    fields: {state: [ready, doing, done]}
+    fields: {state: {values: [ready, doing, done]}}
   job:
-    fields: {state: [ready, done]}
+    fields: {state: {values: [ready, done]}}
     events:
       done: {when: "type == 'job.done'", '...': data, state: "'done'"}
       other: {when: true, '...': data}

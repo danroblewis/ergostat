@@ -161,7 +161,7 @@ def test_snapshot_is_a_set_with_its_history_summarised_and_the_full_history_arch
 
 
 def test_the_kept_fold_follows_new_events_and_a_past_moment(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("projections:\n  t:\n    query: key.startswith('t/')\n    fields:\n      state:\n        type: one of [a, b]\n    events:\n      t-b:\n        when: type == 't.b'\n        '...': data\n        state: set('b')\n      other:\n        when: true\n        '...': data\n")
+    (tmp_path / "ergostat.yaml").write_text("projections:\n  t:\n    query: key.startswith('t/')\n    fields:\n      state:\n        values: [a, b]\n    events:\n      t-b:\n        when: type == 't.b'\n        '...': data\n        state: set('b')\n      other:\n        when: true\n        '...': data\n")
     p = Project(mdl.load(tmp_path))
     spec = p.model.spec
     for i in range(30):

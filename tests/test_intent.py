@@ -61,7 +61,7 @@ projections:
     query: key.startswith('change/')
     fields:
       state:
-        type: one of [proposed, building, review, merged, dropped]
+        values: [proposed, building, review, merged, dropped]
     events:
       change-started:
         when: type == 'change.started'

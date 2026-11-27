@@ -683,21 +683,21 @@ projections:
     system: planning
     fields:
       state:
-        type: one of [planned, underway, shipped]
+        values: [planned, underway, shipped]
     relations: {after: epic}
   goal:
     query: key.startswith('goal/')
     system: planning
     fields:
       state:
-        type: one of [open, met]
+        values: [open, met]
     relations: {serves: {projection: epic, precedence: false}}
   ticket:
     query: key.startswith('ticket/')
     system: delivery
     fields:
       state:
-        type: one of [todo, doing, done]
+        values: [todo, doing, done]
     events:
       ticket-started:
         when: type == 'ticket.started'

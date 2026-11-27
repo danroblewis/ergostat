@@ -94,7 +94,7 @@ projections:
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
     fields:
       state:
-        type: one of [open, replan, planned, split, joined, ready, fix, building, built, in-review, approved, queued, push-pending, queue-failed, merged, parked, closed]
+        values: [open, replan, planned, split, joined, ready, fix, building, built, in-review, approved, queued, push-pending, queue-failed, merged, parked, closed]
       rounds: {fold: add}
       reviews_n: {fold: add}
       fix_rounds: {fold: add}
@@ -260,7 +260,7 @@ projections:
     description: a group of gaps finished together (the owner, 2026-11-22) - waiting on the milestones it depends on, active (at most [milestones] active_max at once, in rank order; an upkeep one always), completed once it has gaps and every one is merged or closed, or an upkeep one at the end of its cycle (dev/bin/milestones.py)
     fields:
       state:
-        type: one of [waiting, active, completed]
+        values: [waiting, active, completed]
     final: [completed]               # no event moves a completed milestone out of it
     events:
       milestone-added:
@@ -288,7 +288,7 @@ projections:
     description: one review of a gap's branch - its verdict (merge, fix or park) and its findings
     fields:
       state:
-        type: one of [written, merge, fix, park]
+        values: [written, merge, fix, park]
     events:
       review-written:
         when: type == 'review.written'
@@ -318,7 +318,7 @@ projections:
     description: one AI session of the factory's (implementor, reviewer, planner, researcher, librarian) - its conversation, live while it runs, and what it cost (dev/bin/sessions.py)
     fields:
       state:
-        type: one of [running, done, failed]
+        values: [running, done, failed]
       messages: {fold: append}
       tool_calls: {fold: append}
       tool_results: {fold: append}
@@ -356,7 +356,7 @@ projections:
     description: a test that failed in a suite and passed alone (seen) - counted each time, until fixed; or one that fails on main too (main-broken, the implementor's triage, dev/bin/onmain.py), until it passes twice alone on the pushed main (main-mend, dev/bin/mend.py)
     fields:
       state:
-        type: one of [seen, main-broken, fixed]
+        values: [seen, main-broken, fixed]
       times: {fold: add}
       gaps: {fold: union}
     # written only by dev/bin/flakes.py, on the item as it stands, under its lock: seen on a main-broken item is
@@ -392,7 +392,7 @@ projections:
     description: the coordinator stepping in by hand, with why - evidence of a loop the factory still lacks
     fields:
       state:
-        type: one of [open, remedied]
+        values: [open, remedied]
       tests: {fold: union}
       gaps: {fold: union}
     events:
@@ -414,7 +414,7 @@ projections:
     description: one pipeline manager session - every standing trigger no earlier session handled (the queue blocked, gaps dead, parked or stuck, aging defects) and the merge pipeline's broken conditions, raised by pipeline-watch on its schedule or at once when the merge pipeline breaks (dev/bin/watch.py)
     fields:
       state:
-        type: one of [raised, handled, failed, superseded]
+        values: [raised, handled, failed, superseded]
     events:
       situation-raised:
         when: type == 'situation.raised'
@@ -447,7 +447,7 @@ projections:
     description: an AI pool (pool/implementor, pool/reviewer) - how many sessions at once, ramped up on good results
     fields:
       state:
-        type: one of [held]
+        values: [held]
     events:
       pool-measured:
         when: type == 'pool.measured'
@@ -472,7 +472,7 @@ projections:
     description: a version of main the instance may run - installed into its own folder, switched to, kept or reverted
     fields:
       state:
-        type: one of [available, installed, approved, draining, switched, healthy, reverted, superseded, withdrawn, failed]
+        values: [available, installed, approved, draining, switched, healthy, reverted, superseded, withdrawn, failed]
     events:
       upgrade-opened:
         when: type == 'upgrade.opened'
@@ -533,7 +533,7 @@ projections:
     description: a question for the researcher (dev/bin/ask.py, or a planner's) - asked, then answered with a report whose sources were checked (dev/bin/research.py); an answer with none checked is asked again once, then dead
     fields:
       state:
-        type: one of [asked, unsourced, answered, dead]
+        values: [asked, unsourced, answered, dead]
       unsourced: {fold: add}
     events:
       research-asked:
@@ -562,7 +562,7 @@ projections:
     description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), or a finding (kind finding) the researcher proposed from a checked answer, carried by its areas - approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
     fields:
       state:
-        type: one of [new, seen, proposed, requested, approved, applied, denied, retired]
+        values: [new, seen, proposed, requested, approved, applied, denied, retired]
       times: {fold: add}
       reviews: {fold: union}
       findings: {fold: append}
@@ -608,7 +608,7 @@ projections:
     description: one entry of dev/knowledge/ in the running version, of its file's declared kind (component, rule, lesson, finding, question, source; briefs carry the rules and lessons), kept by the collector knowledge-sync - the owner's decisions are ergostat.decision items instead
     fields:
       state:
-        type: one of [new, active, retired]
+        values: [new, active, retired]
     events:
       knowledge-found:
         when: type == 'knowledge.found'

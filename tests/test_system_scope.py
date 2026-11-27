@@ -41,25 +41,25 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [new, checking, done]
+        values: [new, checking, done]
     system: factory
   qa-note:
     query: key.startswith('qa-note/')
     fields:
       state:
-        type: one of [open, closed]
+        values: [open, closed]
     system: qa
   shared-ref:
     query: key.startswith('ref/')
     fields:
       state:
-        type: one of [open]
+        values: [open]
     system: factory
   unused-parent:
     query: key.startswith('unused/')
     fields:
       state:
-        type: one of [open]
+        values: [open]
     system: factory
 stocks:
   arrived:
@@ -155,7 +155,7 @@ projections:
     query: key.startswith('job/')
     fields:
       state:
-        type: one of [open]
+        values: [open]
     system: plant
 stocks:
   queue:
@@ -217,7 +217,7 @@ projections:
     query: key.startswith('job/')
     fields:
       state:
-        type: one of [open]
+        values: [open]
     system: a
 stocks:
   queue:
@@ -407,13 +407,13 @@ projections:
     query: key.startswith('epic/')
     fields:
       state:
-        type: one of [open]
+        values: [open]
     system: plan
   ticket:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [open]
+        values: [open]
     system: build
     relations: {parent: epic}
 """))

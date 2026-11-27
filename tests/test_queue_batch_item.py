@@ -203,7 +203,7 @@ def project(tmp_path, out):
     (tmp_path / "m").mkdir()
     (tmp_path / "m" / "ergostat.yaml").write_text(kind + textwrap.dedent("""
           gap:
-            fields: {state: [approved, merged]}
+            fields: {state: {values: [approved, merged]}}
         messages:
           done: {batch: [landed, partial, failed, given-back], gap: [merged]}
         """))

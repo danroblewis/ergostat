@@ -43,7 +43,7 @@ projections:
     description: one report, its file in report
     fields:
       state:
-        type: one of [written]
+        values: [written]
     events:
       written:
         when: type == '${projection}.written'

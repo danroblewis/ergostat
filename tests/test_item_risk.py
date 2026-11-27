@@ -298,7 +298,7 @@ projections:
     query: key.startswith('change/')
     fields:
       state:
-        type: one of [open, ready, landed, failed]
+        values: [open, ready, landed, failed]
     events:
       change-readied:
         when: type == 'change.readied'

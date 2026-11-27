@@ -26,7 +26,7 @@ projections:
     query: key.startswith('job/')
     fields:
       state:
-        type: one of [new, done]
+        values: [new, done]
     events:
       job-end:
         when: type == 'job.end'
@@ -163,7 +163,7 @@ projections:
     query: key.startswith('job/')
     fields:
       state:
-        type: one of [new, done]
+        values: [new, done]
 """
 
 

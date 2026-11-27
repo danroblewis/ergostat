@@ -16,7 +16,7 @@ projections:
     query: key.startswith('pr/')
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
     events:
       pr-opened:
         when: type == 'pr.opened'

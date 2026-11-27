@@ -17,7 +17,7 @@ projections:
     key: [data.account, data.region, data.detail['instance-id']]
 
     fields:                                   # what an instance is
-      state:         {type: one of [pending, running, stopping, stopped, shutting-down, terminated]}
+      state:         {values: [pending, running, stopping, stopped, shutting-down, terminated]}
       instance_type: {type: text}
       launched_by:   {type: text, fold: first}
       launched_at:   {type: time, fold: first}
@@ -50,7 +50,7 @@ projections:
   gives its own `key:`. `each(LIST, 'field')` in a key applies the event to every object named there (one event,
   several objects).
 - `fields:` the object: each field's `type` (`text`, `number`, `integer`, `boolean`, `time`, `duration`, `map`,
-  `list of T`, `one of [...]`) and `fold` (how values from events combine: `replace`, the default, newest by event time
+  `list of T`; or `values: [...]`, the only values it may hold) and `fold` (how values from events combine: `replace`, the default, newest by event time
   wins; `first`, `add`, `min`, `max`, `append(N)`, `union`, `merge`, `count`, `mean`, `stdev`, `rms`, a model's own
   function). Optional `description`.
 - `events:` the kinds of event it reads, named by the user (an event log can't be relied on to have a field naming its

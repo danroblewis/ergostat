@@ -43,7 +43,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [todo, doing, review, done, held]
+        values: [todo, doing, review, done, held]
     events:
       ticket-opened:
         when: type == 'ticket.opened'
@@ -74,7 +74,7 @@ projections:
     query: key.startswith('note/')
     fields:
       state:
-        type: one of [open, shut]
+        values: [open, shut]
     events:
       note-opened:
         when: type == 'note.opened'
@@ -91,7 +91,7 @@ projections:
     query: key.startswith('slot/')
     fields:
       state:
-        type: one of [held]
+        values: [held]
     events:
       slot-made:
         when: type == 'slot.made'
@@ -455,7 +455,7 @@ projections:
     query: key.startswith('gap/')
     fields:
       state:
-        type: one of [open, ready, fix, building, built, in-review, approved, queued, merged, parked, closed]
+        values: [open, ready, fix, building, built, in-review, approved, queued, merged, parked, closed]
     events:
       gap-found:
         when: type == 'gap.found'

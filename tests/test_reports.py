@@ -24,7 +24,7 @@ projections:
     query: key.startswith('zebraticket/')
     fields:
       state:
-        type: one of [triage-queue, sorting-hat, done]
+        values: [triage-queue, sorting-hat, done]
     events:
       zebraticket-sorted:
         when: type == 'zebraticket.sorted'

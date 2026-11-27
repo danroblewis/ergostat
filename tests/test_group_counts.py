@@ -40,7 +40,7 @@ projections:
     query: key.startswith('unit/')
     fields:
       state:
-        type: one of [made, passed, scrapped]
+        values: [made, passed, scrapped]
     events:
       unit-made:
         when: type == 'unit.made'
@@ -65,7 +65,7 @@ projections:
     query: key.startswith('lot/')
     fields:
       state:
-        type: one of [open, shipped]
+        values: [open, shipped]
     events:
       lot-opened:
         when: type == 'lot.opened'

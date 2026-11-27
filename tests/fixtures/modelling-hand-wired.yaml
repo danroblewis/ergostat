@@ -8,7 +8,7 @@ projections:
     query: key.startswith('session/')
     fields:
       state:
-        type: one of [open, done, failed, lost]
+        values: [open, done, failed, lost]
     events:
       session-ran:
         when: type == 'session.ran'

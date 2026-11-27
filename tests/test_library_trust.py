@@ -30,7 +30,7 @@ projections:
     query: key.startswith('${name}-ticket/')
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
     events:
       ticket-closed:
         when: type == 'ticket.closed'

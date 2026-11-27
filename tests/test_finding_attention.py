@@ -17,7 +17,7 @@ projections:
     query: key.startswith('situation/')
     fields:
       state:
-        type: one of [raised, handled]
+        values: [raised, handled]
     events:
       situation-raised:
         when: type == 'situation.raised'

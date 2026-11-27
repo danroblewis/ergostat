@@ -94,7 +94,7 @@ projections:
     description: an item that arrived and wants an answer
     fields:
       state:
-        type: one of [waiting, leased, answered, dead]
+        values: [waiting, leased, answered, dead]
     events:
       answered:
         when: type == '${projection}.answered'

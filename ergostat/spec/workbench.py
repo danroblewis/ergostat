@@ -226,7 +226,7 @@ def lifecycles(kind, items: list) -> dict:
     the field (once RARE_FROM have it)."""
     out = {}
     for f, d in kind.declared.items():
-        if d.type.base != "one of":
+        if d.type.base != "values":
             continue
         trans: Counter = Counter()
         objs: dict[tuple, set] = {}

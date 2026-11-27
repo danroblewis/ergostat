@@ -22,7 +22,7 @@ query: type.startswith('gadget.')
 key: data.gid
 fields:
   state:
-    type: one of [made, sold]
+    values: [made, sold]
   colour: {}
   price: {}
 events:
@@ -199,7 +199,7 @@ query: type == 'aws.eventbridge' and data.source == 'aws.ec2'
 key: [data.account, data.region, "data.detail['instance-id']"]
 fields:
   state:
-    type: one of [pending, running, stopping, stopped, shutting-down, terminated]
+    values: [pending, running, stopping, stopped, shutting-down, terminated]
   account: {}
   region: {}
 events:

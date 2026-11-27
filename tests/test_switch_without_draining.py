@@ -33,7 +33,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [ready, done]
+        values: [ready, done]
     events:
       ticket-done:
         when: type == 'ticket.done'
@@ -46,12 +46,12 @@ projections:
     query: key.startswith('gap/')
     fields:
       state:
-        type: one of [open]
+        values: [open]
   upgrade:
     query: key.startswith('upgrade/')
     fields:
       state:
-        type: one of [switched, healthy, reverted, failed]
+        values: [switched, healthy, reverted, failed]
     events:
       upgrade-switched:
         when: type == 'upgrade.switched'

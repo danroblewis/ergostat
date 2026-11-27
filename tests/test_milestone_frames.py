@@ -93,7 +93,7 @@ projections:
     query: key.startswith('gap/')
     fields:
       state:
-        type: one of [ready, building, merged]
+        values: [ready, building, merged]
     events:
       gap-defined:
         when: type == 'gap.defined'
@@ -118,7 +118,7 @@ projections:
     query: key.startswith('milestone/')
     fields:
       state:
-        type: one of [waiting, active, completed]
+        values: [waiting, active, completed]
     events:
       milestone-added:
         when: type == 'milestone.added'

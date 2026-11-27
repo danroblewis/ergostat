@@ -402,7 +402,7 @@ def test_an_items_cost_counts_every_take_past_its_records_latest_events_and_roll
             query: key.startswith('ticket/')
             fields:
               state:
-                type: one of [open, done]
+                values: [open, done]
             events:
               ticket-done:
                 when: type == 'ticket.done'

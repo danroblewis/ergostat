@@ -521,7 +521,7 @@ projections:
     query: key.startswith('request/')
     fields:
       state:
-        type: one of [waiting, working, review, done, failed]
+        values: [waiting, working, review, done, failed]
       cost_usd: {fold: add}
         # lock): a patch testing /main as read, so a newer break refuses it and its move
     events:

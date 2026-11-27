@@ -33,7 +33,7 @@ MODEL = """
         query: key.startswith('deploy/')
         fields:
           state:
-            type: one of [queued, rolling, live, rolled-back]
+            values: [queued, rolling, live, rolled-back]
         events:
           deploy-rolling:
             when: type == 'deploy.rolling'
@@ -208,7 +208,7 @@ def test_stage_durations_are_histograms_labelled_only_by_kind_declared_stage_and
 def test_a_pipeline_that_is_not_one_is_refused(tmp_path, bad):
     from ergostat.spec import read
     (tmp_path / "ergostat.yaml").write_text("name: st\nstocks:\n  q: {unit: deploys}\nprojections:\n  deploy:\n"
-                                            f"    fields: {{state: [queued, live]}}\n    {bad}\n")
+                                            f"    fields: {{state: {{values: [queued, live]}}}}\n    {bad}\n")
     spec, problems = read(tmp_path / "ergostat.yaml")
     assert [x.code for x in problems if x.level == "error"] == ["bad-pipeline"], problems
     assert spec.items["deploy"].pipeline is None

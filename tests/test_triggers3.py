@@ -20,7 +20,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
     events:
       ticket-reopened:
         when: type == 'ticket.reopened'
@@ -111,7 +111,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
     events:
       ticket-reopened:
         when: type == 'ticket.reopened'

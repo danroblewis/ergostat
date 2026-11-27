@@ -33,7 +33,7 @@ projections:
     query: key.startswith('${projection}/')
     fields:
       state:
-        type: one of [ready, done]
+        values: [ready, done]
 stocks:
   waiting:
     unit: items

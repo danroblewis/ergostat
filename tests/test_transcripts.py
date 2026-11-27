@@ -20,7 +20,7 @@ projections:
     query: key.startswith('session/')
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
       messages: {fold: append}
       tool_calls: {fold: append}
       tool_results: {fold: append}

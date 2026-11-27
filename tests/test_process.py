@@ -24,7 +24,7 @@ projections:
     system: delivery
     fields:
       state:
-        type: one of [asked, researching, researched, shipped]
+        values: [asked, researching, researched, shipped]
     events:
       flag-researching:
         when: type == 'flag.researching'
@@ -50,7 +50,7 @@ projections:
     system: research
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
     events:
       facet-done:
         when: type == 'facet.done'
@@ -283,7 +283,7 @@ def test_a_real_scheduled_runs_events_cite_it(tmp_path):
             query: key.startswith('x/')
             fields:
               state:
-                type: one of [o, c]
+                values: [o, c]
         blocks:
           sweep:
             type: program
@@ -327,7 +327,7 @@ projections:
     system: work
     fields:
       state:
-        type: one of [new, a, b, c, d]
+        values: [new, a, b, c, d]
     events:
       job-a:
         when: type == 'job.a'

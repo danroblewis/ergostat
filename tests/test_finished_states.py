@@ -30,7 +30,7 @@ projections:
     query: key.startswith('gap/')
     fields:
       state:
-        type: one of [open, ready, building, in-review, merged, parked, closed]
+        values: [open, ready, building, in-review, merged, parked, closed]
     events:
       gap-opened:
         when: type == 'gap.opened'
@@ -67,7 +67,7 @@ projections:
     query: key.startswith('pool/')
     fields:
       state:
-        type: one of [held]
+        values: [held]
     events:
       pool-measured:
         when: type == 'pool.measured'
@@ -80,7 +80,7 @@ projections:
     query: key.startswith('answer/')
     fields:
       state:
-        type: one of [asked, answered]
+        values: [asked, answered]
     events:
       answer-asked:
         when: type == 'answer.asked'
@@ -97,7 +97,7 @@ projections:
     query: key.startswith('task/')
     fields:
       state:
-        type: one of [todo, doing, waiting, done]
+        values: [todo, doing, waiting, done]
     events:
       task-made:
         when: type == 'task.made'

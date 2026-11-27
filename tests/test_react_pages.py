@@ -32,7 +32,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [opened, working, done]
+        values: [opened, working, done]
     events:
       ticket-opened:
         when: type == 'ticket.opened'
@@ -407,7 +407,7 @@ def test_a_declared_dashboard_is_edited_where_it_is_drawn_and_saved_where_it_is(
 
 # ---- a projection tried before it is written (SPEC §5a, Trying a projection): the nav bar's +, the Definition editor
 
-GADGET = "query: type.startswith('gadget.')\nfields:\n  state:\n    type: one of [made, sold]\nevents:\n  gadget-made:\n    when: type == 'gadget.made'\n    state: set('made')\n  other:\n    when: true\n    '...': data\n" \
+GADGET = "query: type.startswith('gadget.')\nfields:\n  state:\n    values: [made, sold]\nevents:\n  gadget-made:\n    when: type == 'gadget.made'\n    state: set('made')\n  other:\n    when: true\n    '...': data\n" \
          "    colour: data.colour\n"
 
 
@@ -463,7 +463,7 @@ def test_editing_a_projection_s_definition_tries_it_and_cancel_discards_it(brows
     pg.get_by_role("button", name="Edit", exact=True).first.click()
     pg.locator(".proj-def-code .cm-content").wait_for(timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('[data-testid=try-items]')?.textContent === '3'", timeout=WAIT)
-    definition(pg, "query: key.startswith('ticket/')\nfields:\n  state:\n    type: one of [opened, nope]\nevents:\n  ticket-done:\n    when: type == 'ticket.done'\n    state: set('gone')\n  other:\n    when: true\n    '...': data\n")
+    definition(pg, "query: key.startswith('ticket/')\nfields:\n  state:\n    values: [opened, nope]\nevents:\n  ticket-done:\n    when: type == 'ticket.done'\n    state: set('gone')\n  other:\n    when: true\n    '...': data\n")
     pg.locator(".try-errors li").first.wait_for(timeout=WAIT)                            # check's error, said
     assert "gone" in pg.locator(".try-errors").inner_text()
     pg.get_by_role("button", name="Cancel", exact=True).click()

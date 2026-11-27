@@ -38,7 +38,7 @@ projections:
     description: an alert firing, then resolved
     fields:
       state:
-        type: one of [firing, resolved]
+        values: [firing, resolved]
     events:
       fired:
         when: type == '${pages}.fired'

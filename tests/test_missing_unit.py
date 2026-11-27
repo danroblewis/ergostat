@@ -87,7 +87,7 @@ def test_the_fixer_proposes_a_unit_it_can_infer_from_the_sensor(tmp_path, monkey
     text = textwrap.dedent(UNITLESS).replace("  backlog:\n    description: work waiting\n    sensor: {manual: true}\n",
                                              "  backlog:\n    description: work waiting\n"
                                              "    sensor: {projection: ticket, state: open, every: 2s}\n")
-    text += "projections:\n  ticket:\n    query: key.startswith('ticket/')\n    description: a ticket\n    fields:\n      state:\n        type: one of [open, closed]\n" \
+    text += "projections:\n  ticket:\n    query: key.startswith('ticket/')\n    description: a ticket\n    fields:\n      state:\n        values: [open, closed]\n" \
             "    events:\n      ticket-opened:\n        when: type == 'ticket.opened'\n        '...': data\n        state: set('open')\n      ticket-closed:\n        when: type == 'ticket.closed'\n        '...': data\n        state: set('closed')\n      other:\n        when: true\n        '...': data\n"
     (tmp_path / "ergostat.yaml").write_text(text)
     p = Project(mdl.load(tmp_path))

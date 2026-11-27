@@ -18,7 +18,7 @@ projections:
     query: key.startswith('issue/')
     fields:
       state:
-        type: one of [open, closed]
+        values: [open, closed]
     events:
       issue-seen:
         when: type == 'issue.seen'

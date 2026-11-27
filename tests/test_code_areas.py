@@ -20,7 +20,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [todo, doing, fix, done]
+        values: [todo, doing, fix, done]
     events:
       ticket-opened:
         when: type == 'ticket.opened'

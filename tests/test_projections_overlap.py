@@ -29,7 +29,7 @@ MODEL = """
         query: key.startswith('ticket/')
         fields:
           state:
-            type: one of [open, doing, done]
+            values: [open, doing, done]
         events:
           ticket-started:
             when: type == 'ticket.started'
@@ -47,7 +47,7 @@ MODEL = """
         query: key.startswith('ticket/')
         fields:
           state:
-            type: one of [open, doing, done]
+            values: [open, doing, done]
         events:
           ticket-started:
             when: type == 'ticket.started'
@@ -65,7 +65,7 @@ MODEL = """
         query: key.startswith('ticket/')
         fields:
           state:
-            type: one of [open, doing, done]
+            values: [open, doing, done]
           hours: {fold: add}
         events:
           ticket-started:
@@ -84,7 +84,7 @@ MODEL = """
         query: key.startswith('ticket/')
         fields:
           state:
-            type: one of [unworked, worked]
+            values: [unworked, worked]
           hours: {fold: max}
           titles: {fold: append}
         events:

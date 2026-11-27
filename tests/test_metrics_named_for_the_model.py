@@ -165,7 +165,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
     events:
       ticket-opened:
         when: type == 'ticket.opened'
@@ -182,7 +182,7 @@ projections:
     query: key.startswith('review/')
     fields:
       state:
-        type: one of [asked, given]
+        values: [asked, given]
     events:
       review-asked:
         when: type == 'review.asked'
@@ -264,7 +264,7 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
             query: key.startswith('ticket/')
             fields:
               state:
-                type: one of [open]
+                values: [open]
             events:
               ticket-opened:
                 when: type == 'ticket.opened'
@@ -290,7 +290,7 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
             query: key.startswith('ticket/')
             fields:
               state:
-                type: one of [open]
+                values: [open]
             events:
               ticket-opened:
                 when: type == 'ticket.opened'
@@ -314,7 +314,7 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
 
 
 def test_a_kind_that_would_read_as_the_engines_is_refused(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("name: k\nprojections:\n  ergostat-jobs:\n    query: key.startswith('job/')\n    fields:\n      state:\n        type: one of [open]\n    events:\n      job-opened:\n        when: type == 'job.opened'\n        '...': data\n        state: set('open')\n      other:\n        when: true\n        '...': data\n")
+    (tmp_path / "ergostat.yaml").write_text("name: k\nprojections:\n  ergostat-jobs:\n    query: key.startswith('job/')\n    fields:\n      state:\n        values: [open]\n    events:\n      job-opened:\n        when: type == 'job.opened'\n        '...': data\n        state: set('open')\n      other:\n        when: true\n        '...': data\n")
     _, problems = read(tmp_path / "ergostat.yaml")
     [p] = [x for x in problems if x.level == "error"]
     assert p.code == "metric-clash" and "ergostat_jobs_items" in p.message and p.message.endswith("rename it")

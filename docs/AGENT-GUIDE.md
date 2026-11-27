@@ -24,7 +24,7 @@ acting on that chain. If your drawing has many separate stocks each draining to 
 loops that share nothing, the model is the wrong shape (section 4).
 
 Items are how individual pieces of work are tracked: each ticket, request or pull request is an
-**item**, a fold of the events about one id. A projection's `state` field (`one of [...]`) lists its **states**
+**item**, a fold of the events about one id. A projection's `state` field (`values: [...]`) lists its **states**
 in order. The stocks
 count items in each state; the flows count items moving between states. That is the bridge between
 "a ticket moves through my process" and the diagrams.
@@ -59,7 +59,7 @@ Work through these steps in order. Ask the person only what you cannot infer.
    2. *Kinds of event*: ask `/api/events/kinds` for the result's shapes; name each kind you keep under `events:`
       with its `when:` (the suggested one, edited). An event log rarely names its own kinds: you do.
    3. *Fields*: declare what an object is under `fields:`, each with a `type` (`text`, `integer`, `time`, `map`,
-      `one of [...]`: the field `state` is the lifecycle) and a `fold` (`replace`, `first`, `add`, `merge`...). Then
+      `values: [...]` for the only values it may hold: the field `state` is the lifecycle) and a `fold` (`replace`, `first`, `add`, `merge`...). Then
       map each kind's values onto them; a kind whose key sits elsewhere gives its own `key:` (`each(...)` when one
       event names several objects). Name `time:` when the events carry their own time.
    4. *Review*: `/api/projections/review` until nothing is unexplained: no remainder (or only what you mean to leave
@@ -229,7 +229,7 @@ projections:
     query: key.startswith('request/')
     fields:
       state:
-        type: one of [new, researching, awaiting-approval, rolling-out, done, rejected]
+        values: [new, researching, awaiting-approval, rolling-out, done, rejected]
     events:
       request-new:
         when: type == 'request.new'
@@ -1166,7 +1166,7 @@ projections:
     description: one change to the product, from proposal to release
     fields:
       state:
-        type: one of [proposed, building, in-review, releasing, released, on-hold, dropped]
+        values: [proposed, building, in-review, releasing, released, on-hold, dropped]
     events:
       change-proposed:
         when: type == 'change.proposed'
@@ -1204,7 +1204,7 @@ projections:
     description: a pull request on the code host, as the collector saw it
     fields:
       state:
-        type: one of [new, open, merged, closed]
+        values: [new, open, merged, closed]
     events:
       pr-merged:
         when: type == 'pr.merged'
@@ -1226,7 +1226,7 @@ projections:
     description: one of the owner's own to-dos
     fields:
       state:
-        type: one of [new, todo, done, dropped]
+        values: [new, todo, done, dropped]
     events:
       todo-done:
         when: type == 'todo.done'
@@ -1251,7 +1251,7 @@ projections:
     description: one sitting in an access context (the lab network)
     fields:
       state:
-        type: one of [new, planned, open, closed]
+        values: [new, planned, open, closed]
     events:
       batch-opened:
         when: type == 'batch.opened'

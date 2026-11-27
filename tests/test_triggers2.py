@@ -22,7 +22,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [open, triaged]
+        values: [open, triaged]
     events:
       ticket-triaged:
         when: type == 'ticket.triaged'
@@ -198,7 +198,7 @@ projections:
     query: key.startswith('ticket/')
     fields:
       state:
-        type: one of [open, done]
+        values: [open, done]
     events:
       ticket-reopened:
         when: type == 'ticket.reopened'
