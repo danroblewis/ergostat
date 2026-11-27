@@ -37,3 +37,10 @@ export function goalsOff(st?: Status): { off: number | "?"; upkeep: number } {
   const g = st?.goals_off;
   return g ? { off: g.system, upkeep: Object.values(g.own || {}).reduce((a, b) => a + b, 0) } : { off: "?", upkeep: 0 };
 }
+
+/** A sensor whose newest read failed (/api/status's sensors_failing): what it measures (`stock.NAME`), and why. */
+export type SensorFailing = { sensor: string; part: string; why: string; at: number; last_read: number | null; in_a_row: number };
+
+/** The failing sensors of a diagram part, by its node id (`stock:NAME`, `flow:NAME`) or its part (`stock.NAME`). */
+export const failingOf = (st: Status | undefined, id: string): SensorFailing[] =>
+  ((st?.sensors_failing || []) as SensorFailing[]).filter((x) => x.part === id.replace(":", "."));

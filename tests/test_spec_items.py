@@ -267,3 +267,15 @@ def test_the_item_answer_sends_history_only_when_asked_and_sizes_its_files(tmp_p
     assert plain["file_sizes"] == {"b.md": 5}
     assert list(api(live, f"items/{at}", {"history": ["title"]})["history"]) == ["title"]
     assert {"title", "brief"} <= set(api(live, f"items/{at}", {"history": ["all"]})["history"])
+
+
+def test_the_same_value_again_is_no_change(tmp_path):
+    """A field written again with the value it has (a program printing its whole item every run) is no change: each
+    event stays on the record, but the field's history and count say only what changed. 1 then True is a change."""
+    p = project(tmp_path)
+    for i in range(5):
+        p.events.add("pr.seen", item="github/pull_request/2", data={"title": "same", "n": 1 if i < 4 else True,
+                                                                   "step": i})
+    d = its.detail(p.events, p.model.spec, "github/pull_request/2")
+    assert d["changes"]["title"] == 1 and d["changes"]["step"] == 5 and d["changes"]["n"] == 2
+    assert d["fields"]["title"] == "same"

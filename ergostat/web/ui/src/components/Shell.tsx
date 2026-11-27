@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ago, clock, dur, recordedShort } from "../lib/format";
 import { dashboardHref, useDashboards } from "../state/dashboards";
-import { goalsOff, useStatus, waitsOnYou } from "../state/status";
+import { goalsOff, useStatus, waitsOnYou, type SensorFailing } from "../state/status";
 import { WINDOW_WORDS, WINDOWS, type WindowKey, useTime } from "../state/time";
 import { Menu } from "./Menu";
 import type { ProjectionRoute } from "../lib/routes";
@@ -27,6 +27,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <span className="where">
           <Link className="brand" to="/diagram">ergostat</Link>
           <RunState />
+          <Failing />
           <Waits />
         </span>
         <nav id="nav">
@@ -103,6 +104,16 @@ function ModelErrors({ cls, said, banner, errors }: { cls: string; said: string;
       </Menu.Block>
     </Menu>
   );
+}
+
+/** The sensors whose newest read failed: their parts are unmeasured, said in the header whatever page is open. */
+function Failing() {
+  const { status } = useStatus();
+  const xs: SensorFailing[] = status?.sensors_failing || [];
+  if (!xs.length) return null;
+  const tip = xs.map((x) => `${x.sensor}: ${x.why}`).join("\n");
+  return <Link id="sensors-failing" className="runstate bad" to="/diagram" title={tip}>
+    {xs.length} sensor{xs.length === 1 ? "" : "s"} failing</Link>;
 }
 
 function Waits() {

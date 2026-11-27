@@ -1655,6 +1655,7 @@ class Engine:
             for s, v, why, t, err in got:
                 name = sensor_name(s.of.name, s.name)
                 if err is not None:
+                    self.p.events.add("sensor.failed", item=name, source=SOURCE, data={"why": f"{type(err).__name__}: {err}"})
                     self.say(f"sensor {s.of.name}.{s.name}: {type(err).__name__}: {err}")
                 elif v is None:
                     self.p.events.add("sensor.failed", item=name, source=SOURCE, data={"why": why})
@@ -2432,6 +2433,12 @@ class Said:
             self.counts["events"] += 1
             return
         r = self.target(obj)
+        if r is None and "out" not in obj and "event" not in obj:   # neither an event nor an output's command
+            near = ' ("item", not "id", names what it is about)' if "id" in obj and "item" not in obj else ""
+            self.refuse(obj, 'a line is an event, {"event": "mission.started", "item": "mission/1234", "data": {...}}, '
+                        f'or a command to one of {self.b.name}\'s outputs, {{"out": NAME, "value": n}}; this one has '
+                        f'neither "event" nor "out"{near}')
+            return
         if r is None:
             self.refuse(obj, f"{self.b.name} has no such output ({obj.get('out')!r}); its outputs: "
                         f"{', '.join(str(t) for t in self.b.targets()) or 'none'}")
@@ -2674,7 +2681,10 @@ def number_in(text: str, parse: str | None) -> tuple[float | None, str]:
             return float(x.split()[0]), ""
         except (ValueError, IndexError):
             continue
-    return None, "it printed no number (a bare number, or {\"value\": n})" + (f": {lines[-1][:80]!r}" if lines else "")
+    if not lines:
+        return None, ("it printed nothing (a bare number, or {\"value\": n}, was wanted; run: is run by /bin/sh, which on "
+                      "Linux is often dash: bash's own words, such as $RANDOM, need bash -c '...')")
+    return None, "it printed no number (a bare number, or {\"value\": n}): " + repr(lines[-1][:80])
 
 
 def prometheus(url: str, promql: str, timeout: float, extra_label: str | None = None) -> tuple[float | None, str]:

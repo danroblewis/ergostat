@@ -414,6 +414,7 @@ def _snapshot(project, window: float, now: float | None) -> dict:
             "starts": oldest, "before_record": bool(oldest and now < oldest),
             "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
             "agents": agents}
+    snap["sensors_failing"] = sensors_failing(project, now)
     snap["hints"] = ladder_hints(project, snap)
     snap["messages"] = unrouted_messages(project, now)
     snap["inbox"], snap["quarantined"] = inbox(project, now, live), quarantined(project)
@@ -436,6 +437,34 @@ def _snapshot(project, window: float, now: float | None) -> dict:
         snap["daemons"] = read_status(project.dir)
     snap["as_of"] = {"seq": seq, "made": time.time()}
     return snap
+
+
+FAILING_ASKS = 3   # failed reads in a row after which a sensor waits for the owner (not one blip)
+
+
+def sensors_failing(project, now: float) -> list[dict]:
+    """The sensors whose newest read failed (a ``sensor.failed`` after their newest reading, or with none): what it
+    measures, why, when it last tried and last read, and how many reads in a row failed (counted to FAILING_ASKS)."""
+    from .spec.legacy import sensor_name
+    from .spec.projections import latest
+    spec = getattr(project.model, "spec", None)
+    if spec is None:
+        return []
+    sensors = {sensor_name(s.of.name, s.name): s for s in spec.sensors() if not s.manual}
+    out = []
+    for name, f in latest(project, "sensor.failed", sorted(sensors), until=now).items():
+        if f is None:
+            continue
+        s = sensors[name]
+        ok = _latest(project, s.series, now)
+        if ok is not None and ok[0] >= f["time"]:
+            continue                                  # read since it last failed
+        row = project.events.query(n=FAILING_ASKS, type="sensor.failed", item=name,
+                                   **({"since": ok[0]} if ok is not None else {}), until=now)
+        out.append({"sensor": name, "part": f"{s.of.kind}.{s.of.name}", "why": (f.get("data") or {}).get("why") or "",
+                    "at": f["time"], "last_read": ok[0] if ok is not None else None, "in_a_row": len(row),
+                    "every": s.every})
+    return out
 
 
 def age(snap: dict, now: float | None = None) -> dict:
@@ -883,6 +912,13 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                         f"contradicted by the record (latest: {a.get('contradicted_latest')}; Items: ergostat.claim)"})
         if a["stale"] and running:
             out.append({"level": "warn", "what": f"agent {name}", "says": f"no recent reading from {', '.join(a['stale'])}"})
+    for x in snap.get("sensors_failing", []):         # a part measured by nothing that answers (its newest read failed)
+        read = f"last read {human(time.time() - x['last_read'])} ago" if x.get("last_read") else "never read"
+        many = x["in_a_row"] >= FAILING_ASKS
+        out.append({"level": "bad", "what": f"sensor {x['sensor']}", "part": x["part"], "sensor": x["sensor"],
+                    **({"waiting": True} if many else {}),
+                    "says": f"its {'last ' + str(x['in_a_row']) + ' reads' if many else 'last read'} failed: {x['why']} "
+                    f"({read}; {x['part'].replace('.', ' ', 1)} is unmeasured)"})
     for m in snap.get("messages", []):               # the owner's words that reached no work (SPEC §12h)
         short = m["id"].split("/", 1)[1]
         text = m["text"] if len(m["text"]) <= 80 else m["text"][:77] + "..."

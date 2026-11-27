@@ -1232,3 +1232,9 @@ svg.canvas .proposed-changed rect, svg.canvas .proposed-changed circle, svg.canv
 .redesign-edits { margin: var(--sp-1) 0 var(--sp-2) var(--sp-4); padding: 0; }
 .redesign-edits li { margin: var(--sp-0) 0; }
 .redesign-ask { display: inline-flex; gap: var(--sp-1); align-items: center; }
+
+/* a part whose sensor's newest read failed: unmeasured */
+svg .node.unmeasured :is(rect, path, circle, ellipse) { stroke: var(--bad); stroke-dasharray: 5 3; }
+.unmeasured-note { margin: var(--sp-2) 0; }
+.unmodelled-note { border-left: 3px solid var(--warn); padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); }
+.unmodelled-note pre { margin: var(--sp-2) 0 0; }

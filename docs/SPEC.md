@@ -3411,7 +3411,7 @@ flows:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `run` | command | | A command whose output is the reading: a bare number, or JSON `{"value": n}`. Run in the model's folder; its environment carries `ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR` and (when the engine has one) `ERGOSTAT_SOCKET`, as a block's run does (section 9.3), so a collector can read the items with `$ERGOSTAT_CMD item --projection K --json` |
+| `run` | command | | A command whose output is the reading: a bare number, or JSON `{"value": n}`. Run by `/bin/sh -c` (on Linux often dash, not bash: bash's own words such as `$RANDOM` need `bash -c '...'`), in the model's folder; its environment carries `ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR` and (when the engine has one) `ERGOSTAT_SOCKET`, as a block's run does (section 9.3), so a collector can read the items with `$ERGOSTAT_CMD item --projection K --json` |
 | `query` | map | | A query against a source (section 11): `source` and the source's own fields |
 | `daemon` | map, or a name under `daemons:` | | Read by a long-lived process (section 9.7): each reading asked as a line on its schedule, no process started per reading; several sensors may name one daemon |
 | `journal` | folder | | The `*.jsonl` journals directly in this folder, written by something ergostat did not start, followed while ergostat runs (below, *Journals*). Relative to the model's folder and inside it: an absolute path, or one whose `..` leaves the folder, is refused (`bad-journal`). Never read on a schedule, and no process is started for it |
@@ -3435,6 +3435,13 @@ flows:
 
 On a flow, a sensor's reading is a rate per hour; on a `two-way` flow it may be negative (it ran
 back).
+
+**A sensor failing.** A read that gives no number (the command printed nothing or no number, failed, timed out, or
+raised) is recorded as `sensor.failed`, with why. While a sensor's newest read is a failure, what it measures is
+unmeasured, and that is said wherever the owner looks: `/api/status`'s `sensors_failing` (each sensor, what it
+measures, why, when it last tried and last read, and how many reads in a row failed); the attention list (a fault,
+waiting for the owner once three reads in a row have failed); the page's header (*1 sensor failing*); and the
+diagram, where the part is drawn unmeasured and its side panel says why. A reading since the failure ends it.
 
 **Backfilled readings.** A history kept outside ergostat (a measure computed at each commit of a
 repository's past, say) is written into a sensor's series at its own times, where the charts, the

@@ -63,7 +63,7 @@ MARKS = ("loop.*", "trigger.tripped", "trigger.reset", "steptest.offered", "step
 CHAINS = {"person.asked": (0, True), "agent.ran": (0, False),            # type: (chain, whether it asks)
           "block.advised": (1, True), "block.approved": (1, False), "block.denied": (1, False)}
 LATEST = ("agent.ran", "agent.failed", "agent.started", "controller.decided", "valve.opened", "auxiliary.set",
-          "variable.set")    # each item's newest of these types is kept (``latest``)
+          "variable.set", "sensor.failed")    # each item's newest of these types is kept (``latest``)
 TICKS = {w: (_types_matcher(TALLIES[w][0], ()), TALLIES[w][1]) for w in ("opened", "runs", "full")}   # ``ticks``
 LOOSE = ",".join((*MARKS, *CHAINS, *LATEST))  # the types read beside the items' events (theirs without a ``/``)
 

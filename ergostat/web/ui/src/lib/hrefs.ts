@@ -1,11 +1,11 @@
-import { itemPath } from "./routes";
+import { itemPath, segs } from "./routes";
 
 /* The page's addresses, built in one place: every link to an item, a projection, an agent or a part of the diagram. */
 
 /** An item's page: /PROJECTION/REST (lib/routes.ts), else /item/ID (one on a remote, or no projection of this model's
  *  matches). */
 export const itemHref = (id: string, remote?: string) =>
-  remote ? `/item/${encodeURIComponent(id)}?remote=${encodeURIComponent(remote)}` : itemPath(id) || `/item/${encodeURIComponent(id)}`;
+  remote ? `/item/${segs(id)}?remote=${encodeURIComponent(remote)}` : itemPath(id) || `/item/${segs(id)}`;
 /** A projection's page: /PROJECTION. */
 export const projectionHref = (name: string, q = "") => `/${encodeURIComponent(name)}${q ? `?${q}` : ""}`;
 export const agentHref = (name: string) => `/agent/${encodeURIComponent(name)}`;

@@ -68,11 +68,11 @@ from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
-VERSION = 9                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
+VERSION = 10                # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
 #                             6: the numbers, or what the status reads, on the two branches that each took 6;
 #                             7: both; 8: records.last, latest, ticks, each item's fields touched, or event_counts
 #                             and carried for the item metrics (itemmetrics.py), on the two branches that each took 8;
-#                             9: both)
+#                             9: both; 10: each sensor's newest sensor.failed in latest)
 ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched

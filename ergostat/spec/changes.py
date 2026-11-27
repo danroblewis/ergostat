@@ -51,8 +51,8 @@ def rule_ops(doc: dict, key: str, value, rule: str) -> list[dict]:
     """The patch operations that fold ``value`` into field ``key`` by ``rule``."""
     path, has = pointer(key), key in doc
     cur = doc.get(key)
-    if rule == "replace":
-        return [{"op": "add", "path": path, "value": value}]
+    if rule == "replace":                          # the same value again is no change (the event is still on the record)
+        return [] if has and type(cur) is type(value) and cur == value else [{"op": "add", "path": path, "value": value}]
     if rule == "first":
         return [] if has else [{"op": "add", "path": path, "value": value}]
     if rule == "append":
@@ -155,6 +155,8 @@ def _plain(doc: dict, data: dict, rules: dict[str, str]) -> list[tuple]:
             out += apply(doc, ops[k])
             continue
         had = k in doc
+        if had and type(doc[k]) is type(v) and doc[k] == v:    # the same value again: no change
+            continue
         out.append(("replace" if had else "add", pointer(k), doc.get(k) if had else None, v))
         doc[k] = copy.deepcopy(v) if isinstance(v, (dict, list)) else v
     return out

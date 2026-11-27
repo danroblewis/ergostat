@@ -52,7 +52,8 @@ function prefixOf(glob: string): string | null {
 export const projectionOfId = (id: string) => projections.find((k) => globRe(k.id).test(id));
 export const isProjection = (name: string) => projections.some((k) => k.name === name);
 
-const segs = (s: string) => s.split("/").map(encodeURIComponent).join("/");
+/** An id written into an address: each part between its slashes encoded, the slashes kept (ticket/12, not ticket%2F12). */
+export const segs = (s: string) => s.split("/").map(encodeURIComponent).join("/");
 
 /** An item's own address, /PROJECTION/REST; null when no projection is known to match it (then /item/ID). */
 export function itemPath(id: string): string | null {

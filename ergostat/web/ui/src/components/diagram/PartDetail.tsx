@@ -5,6 +5,7 @@ import { useDetail } from "../Detail";
 import { Fields } from "../Table";
 import { AppLink, Async, Rich } from "../ui";
 import { useApi } from "../../hooks/useApi";
+import { failingOf, useStatus } from "../../state/status";
 import { ago, dur, fmt, rateText } from "../../lib/format";
 
 /* What a click on a part opens in the side panel (details.js's openNodeNow, dynamics.js's openNodeSD, blocks.js's
@@ -53,6 +54,7 @@ export function SdPartPanel({ n, g }: { n: any; g: any }) {
     : flow ? `part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`
       : `part/stock/${encodeURIComponent(n.label)}`;
   const st = useApi<any>(path);
+  const { status } = useStatus();
   const byId: Record<string, any> = Object.fromEntries(g.nodes.map((x: any) => [x.id, x]));
   const nm = (id: string) => byId[id]?.label || byId[id]?.flow || id;
   const causes = g.edges.filter((e: any) => e.kind === "connector" && e.target === n.id).map((e: any) => `${nm(e.source)} (${sign(e.polarity)})`).join(", ");
@@ -87,6 +89,11 @@ export function SdPartPanel({ n, g }: { n: any; g: any }) {
     <>
       <div className="kind">{kindWord}</div>
       <h2>{n.flow || n.label}</h2>
+      {failingOf(status, flow ? `flow:${n.flow || n.label}` : n.id).map((x) => (
+        <p key={x.sensor} className="lvl-bad unmeasured-note">
+          <b>Unmeasured.</b> Sensor {x.sensor}: {x.in_a_row > 1 ? `its last ${x.in_a_row} reads failed` : "its last read failed"} ({ago(x.at)}): {x.why}.{" "}
+          {x.last_read ? `Last read ${ago(x.last_read)}.` : "Never read."}
+        </p>))}
       <Async state={st}>
         {(d) => {
           const m = d?.model || {}, now = d?.now || {};

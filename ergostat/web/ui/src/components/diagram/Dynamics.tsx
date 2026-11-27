@@ -1,3 +1,4 @@
+import { failingOf, useStatus } from "../../state/status";
 import { arrowHead, curve, edgePoints, pipeHead, roundedPath, shortened, textWidth } from "./geom";
 import { nameOf, portSide, sdAuxLines, sdLabelLines, sdNoUnit, sdValue, SYS_ROW, SYS_TOP, systemDescLines, UPKEEP, type Layout } from "./layout";
 
@@ -163,6 +164,9 @@ function Edge({ e, le, g }: { e: any; le: any; g: any }) {
 
 export function DynamicsDrawing({ g, lay, acts }: { g: any; lay: Layout; acts: Acts }) {
   const byId: Record<string, any> = Object.fromEntries(g.nodes.map((n: any) => [n.id, n]));
+  const { status } = useStatus();   // a part whose sensor's newest read failed is drawn unmeasured
+  const failing = (n: any) => { const xs = failingOf(status, n.kind === "valve" || n.kind === "disturbance" ? `flow:${n.flow || n.label}` : n.id);
+    return xs.length ? xs.map((x) => `sensor ${x.sensor} failing: ${x.why}`).join("; ") : ""; };
   const edgeById: Record<string, any> = Object.fromEntries(g.edges.map((e: any) => [e.id, e]));
   return (
     <>
@@ -182,9 +186,9 @@ export function DynamicsDrawing({ g, lay, acts }: { g: any; lay: Layout; acts: A
           const lb = ln.labels?.[0];
           const lines = lb ? sdLabelLines(n) : [];
           return (
-            <g key={n.id} className={`node k-${n.kind}${acts.sel === n.id ? " sel" : ""}`} transform={`translate(${ln.x},${ln.y})`} data-id={n.id}
+            <g key={n.id} className={`node k-${n.kind}${acts.sel === n.id ? " sel" : ""}${failing(n) ? " unmeasured" : ""}`} transform={`translate(${ln.x},${ln.y})`} data-id={n.id}
               onClick={() => acts.pick(n)} onDoubleClick={(ev) => { if (n.kind === "system") { ev.stopPropagation(); acts.toggleSystem(n.label); } }}>
-              <title>{n.label}</title>
+              <title>{n.label}{failing(n) ? `: unmeasured, ${failing(n)}` : ""}</title>
               <Part n={n} w={ln.width} h={ln.height} acts={acts} />
               {lb && lines.map((t: string, i: number) => (
                 <text key={i} x={lb.x + lb.width / 2} y={lb.y + 13 + i * 16} textAnchor="middle"
