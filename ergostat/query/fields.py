@@ -85,11 +85,18 @@ def _read(p) -> dict:
 
 def fields(live, p, reader: bool = False) -> dict:
     """``datasources``: ergostat's two sources, ``promql`` and ``sql``, always both, each saying whether it can be asked
-    now and, when not, why (datasources.listed); ``reader``: anyone under a public name, who may ask neither (SPEC
+    now and, when not, why (datasources.listed), the SQL one its ``views`` and their columns (what its editor
+    completes); ``reader``: anyone under a public name, who may ask neither (SPEC
     §4e). The built-in kinds under ``sources`` are query generators over them (sources.py)."""
     key = ("query-fields", int(time.time() // KEEP), getattr(live, "mtime", None))
     got = live.cached(key)
     if got is None:
         got = _read(p)
         live.keep(key, got)
-    return {**got, "datasources": datasources.listed(getattr(p, "measurements", None), p, reader)}
+    listed = datasources.listed(getattr(p, "measurements", None), p, reader)
+    spec = getattr(p.model, "spec", None)
+    for d in listed:                    # the views the SQL source reads and their columns: what its editor completes
+        if d["name"] == datasources.SQL and d["available"] and spec is not None:
+            from ..datasources._itemviews import views
+            d["views"] = {v: list(cs) for v, cs in views(spec).items()}
+    return {**got, "datasources": listed}

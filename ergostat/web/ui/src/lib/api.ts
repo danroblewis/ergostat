@@ -32,29 +32,46 @@ export function apiUrl(path: string, params: Params = {}): string {
 
 /* GETs of the same address under way at once are one request: a page of panels reading the same answer (an agent's
    sections, an item's) asks the server once. Each caller may still stop waiting (its signal); the request itself goes
-   on for the others, and is forgotten when it ends. */
-const inFlight = new Map<string, Promise<unknown>>();
+   on while anyone still waits, and is cancelled once every caller has stopped (a query editor's preview, asked again
+   as its text changes), then forgotten. A caller with no signal always waits. */
+interface Asked { answer: Promise<unknown>; ctl: AbortController; waiting: number; kept: boolean }
+const inFlight = new Map<string, Asked>();
 
 export async function apiGet<T = any>(path: string, params: Params = {}, signal?: AbortSignal): Promise<T> {
   const url = apiUrl(path, params);
-  let asked = inFlight.get(url) as Promise<T> | undefined;
-  if (!asked) {
-    asked = (async () => {
-      const r = await fetch(url);
+  if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+  let mine = inFlight.get(url);
+  if (!mine) {
+    const ctl = new AbortController();
+    const one: Asked = { answer: Promise.resolve(), ctl, waiting: 0, kept: false };
+    one.answer = (async () => {
+      const r = await fetch(url, { signal: ctl.signal });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
         throw new ApiError(body.error || `${path}: ${r.status}`, r.status);
       }
       return r.json() as Promise<T>;
-    })().finally(() => inFlight.delete(url));
-    inFlight.set(url, asked);
+    })().finally(() => { if (inFlight.get(url) === one) inFlight.delete(url); });
+    inFlight.set(url, one);
+    mine = one;
   }
-  if (!signal) return asked;
-  if (signal.aborted) throw new DOMException("aborted", "AbortError");
+  const asked = mine;
+  if (!signal) {
+    asked.kept = true;
+    return asked.answer as Promise<T>;
+  }
+  asked.waiting += 1;
   return new Promise<T>((resolve, reject) => {
-    const stop = () => reject(new DOMException("aborted", "AbortError"));
+    const stop = () => {
+      reject(new DOMException("aborted", "AbortError"));
+      asked.waiting -= 1;
+      if (asked.waiting <= 0 && !asked.kept) {          // nobody waits for it any more: cancel it
+        if (inFlight.get(url) === asked) inFlight.delete(url);
+        asked.ctl.abort();
+      }
+    };
     signal.addEventListener("abort", stop, { once: true });
-    asked!.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
+    (asked.answer as Promise<T>).then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
   });
 }
 

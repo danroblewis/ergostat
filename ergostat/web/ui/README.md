@@ -44,6 +44,9 @@ header's project list and `ergostat snapshot`.
                              asks its own endpoint with exactly its parameters; GETs of one address under way at once
                              are one request (lib/api.ts). A new kind of panel: its component, its KINDS entry here and in
                              spec/dashboards.py, then `uv run python scripts/panel_schema.py` for the schema.
+        query/               QueryEditor (a query's text in CodeMirror, highlighted and completed at the cursor:
+                             SQL's views and columns from /api/query/fields, PromQL's names from /api/query/suggest;
+                             its own chunk, loaded lazily) and LivePreview (a panel asked again 400 ms after a change)
         diagram/             imported from "components/diagram" (it brings ELK): Diagram (asks for its own graph:
                              <Diagram view="blocks" system="x" />), DiagramCanvas (draws a graph a page has), the
                              three drawings, useDiagramLayout, usePanZoom, a part's panels (usePartPanels)
@@ -76,8 +79,7 @@ Every page has a route and draws from the real API; none is at parity with the o
   loop markers, flows-only, correspondence colouring, dominance charts; Blocks' frames, fractions and MathML; inbox
   answer buttons, keys, the split pane, PNG/Markdown export, equations, `have=` (every poll fetches the whole graph).
 - **Dashboard:** plot kinds beyond line/area/stacked/step/bar/stat/table; the 12-column grid with drag and resize;
-  rows, repeats, variables, `?draft=`, `?name=` dashboards, Keep; the code box (highlighting, keys), SQL suggestions,
-  display options.
+  rows, repeats, variables, `?draft=`, `?name=` dashboards, Keep; display options.
 - **Goals / Agents:** the goal panel's charts (scope, forecast, step response, Bode, fit) and MathML; the agent page's
   run and cost charts, resources fold and version spans.
 - **Items:** the Graph and Timeline views, item sets, set chips (`where=`, `moved=`...), built-in projections' views

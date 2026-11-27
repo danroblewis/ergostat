@@ -222,8 +222,10 @@ def test_a_source_query_takes_only_source_and_text(p):
 def test_the_fields_list_exactly_the_two_sources_each_saying_whether_it_answers(p, prom, tmp_path):
     """Always both, in order, never an address: an unavailable one is listed with why and how to make it available."""
     got = api(Live(p), "query/fields", {})["datasources"]
+    views = got[1].pop("views")                     # the SQL views and their columns, what its editor completes
     assert got == [{"name": "promql", "type": "promql", "language": "PromQL", "available": True},
                    {"name": "sql", "type": "sql", "language": "SQL", "available": True}]
+    assert views["transitions"][:3] == ["id", "projection", "at"] and "item_list" in views
     assert prom not in json.dumps(api(Live(p), "query/fields", {}))
     p.measurements.base = f"http://127.0.0.1:{free_port()}"
     datasources._ANSWERS.clear()

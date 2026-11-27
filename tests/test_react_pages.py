@@ -170,10 +170,100 @@ def test_the_panel_editor_offers_exactly_the_two_sources_and_shows_what_a_shortc
     assert source.locator("option").evaluate_all("os => os.map(o => o.value)") == ["promql", "sql"]
     source.select_option("sql")
     pg.locator("select[aria-label='Query']").first.select_option("counts")
-    pg.get_by_role("button", name="Preview").click()
-    pg.wait_for_selector(".pe-compiled code", timeout=WAIT)
+    pg.wait_for_selector(".pe-compiled code", timeout=WAIT)               # the preview asks on its own: no button
     assert "from transitions" in pg.locator(".pe-compiled code").first.inner_text()
+    assert pg.get_by_role("button", name="Preview").count() == 0
     assert settled(pg) == []
+    pg.close()
+
+
+def new_query(pg, form: str | None = None):
+    """The dashboard's editor, a new panel with one query; its text editor, once drawn."""
+    pg.wait_for_selector("#main .page.dash", timeout=WAIT)
+    pg.get_by_role("button", name="Edit", exact=True).first.click()
+    pg.get_by_role("button", name="Add panel").click()
+    editor = pg.locator("[aria-label='Edit panel']")
+    editor.wait_for(timeout=WAIT)
+    if form:
+        editor.get_by_label("Chart").select_option(form)
+    editor.get_by_role("button", name="Add query").click()
+    pg.wait_for_function("() => document.querySelectorAll(\"select[aria-label='Source'] option\").length >= 2",
+                         timeout=WAIT)
+    return editor
+
+
+def test_the_sql_editor_highlights_completes_a_view_at_the_cursor_and_the_preview_follows_the_text(browser, site):
+    """The query text is CodeMirror: SQL drawn in its tokens, the views the SQL source reads offered in a popup at the
+    cursor (taken with Enter), and the preview, always there, asked again on its own a moment after the typing stops."""
+    pg = opened(browser, site + "/dashboard")
+    editor = new_query(pg, "table")
+    editor.locator("select[aria-label='Source']").first.select_option("sql")
+    text = editor.locator(".qe .cm-content").first
+    text.wait_for(timeout=WAIT)
+    assert editor.locator(".qe-preview").count() == 1                       # there before anything is written
+    text.click()
+    pg.keyboard.type("select id, events from item_li")
+    popup = pg.locator(".cm-tooltip-autocomplete")
+    popup.wait_for(timeout=WAIT)
+    assert "item_list" in popup.inner_text()
+    pg.wait_for_timeout(200)                     # (CodeMirror takes no Enter in its popup's first 75 ms: a typed one)
+    pg.keyboard.press("Enter")                                              # the one chosen, at the cursor
+    assert text.inner_text().strip() == "select id, events from item_list"
+    assert editor.locator(".qe .tok-keyword").count() >= 2                  # select, from: highlighted
+    preview = editor.locator(".qe-preview")
+    preview.locator("td", has_text="ticket/1").first.wait_for(timeout=WAIT)  # asked with no button pressed
+    text.click()
+    pg.keyboard.press("End")
+    pg.keyboard.type(" where id = 'ticket/2'")
+    pg.wait_for_function("() => { const t = [...document.querySelectorAll('.qe-preview td')].map(x => x.textContent);"
+                         " return t.includes('ticket/2') && !t.includes('ticket/1'); }", timeout=WAIT)
+    pg.keyboard.type(" and nonsense_column = 1")                            # a query that fails says why, inline
+    preview.locator("[role='alert']").first.wait_for(timeout=WAIT)
+    assert "nonsense_column" in preview.locator("[role='alert']").first.inner_text()
+    pg.keyboard.type(" or ")
+    pg.keyboard.press("Control+Space")                                      # the popup asked for
+    popup.wait_for(timeout=WAIT)
+    pg.keyboard.press("Escape")                                             # closes the popup, not the panel editor
+    popup.wait_for(state="hidden", timeout=WAIT)
+    assert editor.count() == 1
+    assert settled(pg) == []
+    pg.close()
+
+
+def test_the_promql_editor_completes_the_sources_metric_names_and_highlights_a_function(browser, site):
+    """PromQL's completion asks /api/query/suggest (what=metrics): the names the source knows, at the cursor. Here no
+    VictoriaMetrics runs, so the page is told the source answers and the suggestions are given it."""
+    import json
+
+    def fields(route):
+        got = route.fetch().json()
+        for d in got["datasources"]:
+            d["available"], _ = True, d.pop("reason", None)
+        route.fulfill(json=got)
+
+    asked = []
+
+    def suggest(route):
+        asked.append(route.request.url)
+        names = ["http_requests_total", "http_request_seconds", "up"] if "what=metrics" in route.request.url else []
+        route.fulfill(body=json.dumps({"suggestions": names, "more": False}), content_type="application/json")
+
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    pg.route("**/api/query/fields*", fields)
+    pg.route("**/api/query/suggest*", suggest)
+    pg.goto(site + "/dashboard", wait_until="load")
+    editor = new_query(pg)
+    editor.locator("select[aria-label='Source']").first.select_option("promql")
+    text = editor.locator(".qe .cm-content").first
+    text.wait_for(timeout=WAIT)
+    text.click()
+    pg.keyboard.type("rate(http_req")
+    popup = pg.locator(".cm-tooltip-autocomplete")
+    popup.wait_for(timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector('.cm-tooltip-autocomplete')?.textContent.includes('http_requests_total')",
+                         timeout=WAIT)
+    assert any("source=promql" in u and "what=metrics" in u for u in asked)
+    assert editor.locator(".qe .tok-function").first.inner_text() == "rate"
     pg.close()
 
 
