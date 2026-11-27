@@ -211,7 +211,7 @@ build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_
 browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rpfEs -n 4 --dist worksteal tests/test_react_pages.py"
                                      # (-rpfEs, as unit: the SKIPPED lines queue.suites counts, the FAILED and
                                      # ERROR lines fac.failed_tests reads, -rs alone printed neither, and PASSED)
-browser_paths = ["ergostat/web/**", "examples/**", "tests/test_react_pages.py"]
+browser_paths = ["ergostat/web/**", "tests/fixtures/first-loop/**", "tests/test_react_pages.py"]
                                      # the queue runs browser in a batch only when `git diff --name-only` from main
                                      # names one of these (fnmatch: * crosses /); else `browser: {not_run: ...}`. [] or
                                      # absent: every batch, as before. The net: the daily run on main (browser-daily)
@@ -221,7 +221,7 @@ browser_ready = "uv run --with playwright==1.63.0 python -c 'from playwright.syn
 build_browser = false                # true: each implementor round also runs the four browser files (-n 4, minutes
                                      # of 4 CPUs) after a Chromium launch; false: only ruff and build (unit where no
                                      # build is set). The merge queue runs its suites either way (browser_paths)
-demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
+demo = "true"                        # (the examples demo_check walked are gone, 2026-11-27: a step that passes)
 alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
 rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rfEs -p no:randomly {tests}"
