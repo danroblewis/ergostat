@@ -86,7 +86,7 @@ DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 INFERRED = re.compile(r"^ergostat\.model-change/[0-9a-z-]+$")   # inferred: the model change that added a part
 WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")       # a field a SQL view names as a column
 STAGES_MOST = 32                                     # stage names a pipeline declares (its histograms' labels)
-AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
+AGENT_KEYS = COMMON | {"kind", "external", "at-once", "model", "cost", "host"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file", "tls"}}
 DASHBOARD_SOURCES = ("sql", "model", "analysis", "promql")   # once declared for panels: now ergostat's own, never declared
@@ -1265,7 +1265,7 @@ class Compiler:
                 n = 1
             spec.agents[name] = Agent(name, kind, bool(m.get("external")), n, m.get("model") and str(m["model"]),
                                       m.get("cost") and str(m["cost"]), m.get("host") and str(m["host"]),
-                                      self.text(m, "description"), m.where)
+                                      self.text(m, "description"), m.where, system=self.system("agents", name, m))
         from ..recipes import compile as recipes
         recipes.contexts(self, spec)                         # contexts: the context recipes (SPEC §12j)
         for name, m, what in self.named("blocks"):
@@ -1361,7 +1361,8 @@ class Compiler:
         self.ends(spec)
         self.watched(spec)
         self.renamed()
-        for x in (*spec.stocks.values(), *spec.flows.values(), *spec.goals.values(), *spec.blocks.values()):
+        for x in (*spec.stocks.values(), *spec.flows.values(), *spec.goals.values(), *spec.blocks.values(),
+                  *spec.agents.values()):
             if x.system and x.system not in spec.systems:      # named by a part, not described: a top-level system
                 spec.systems[x.system] = ""
         return spec

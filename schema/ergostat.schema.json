@@ -2384,6 +2384,7 @@
         "host": {
           "type": "string"
         },
+        "system": {"$ref": "#/$defs/name"},
         "description": {"type": "string"}
       }
     },

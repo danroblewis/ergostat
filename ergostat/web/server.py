@@ -766,6 +766,10 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 "projections": [{"name": k.name, "id": k.id, "declared": getattr(k, "where", None) is not None,
                                  "group": k.group}
                           for k in (spec.items.values() if spec else [])]}      # declared: the model's, not ergostat's own
+    if head == "scope":                            # what each system contains, from the graph (SPEC §4a): read-only,
+        from ..spec.scope import TOP, scope         # worked out once per version of the model
+        spec = getattr(m, "spec", None)
+        return {"top": TOP, "systems": scope(spec) if spec is not None else {}}
     if head in ("dashboards", "dashboard"):         # the declared dashboards; one's every panel in one answer (SPEC §4f)
         from . import dashboard_api
         return dashboard_api.listing(p) if head == "dashboards" else dashboard_api.answer(live, p, name, q)

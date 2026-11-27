@@ -162,7 +162,9 @@ def build() -> argparse.ArgumentParser:
                                          "(from the record)")
     dv.add_argument("--url", help="discover prometheus: the Prometheus to read")
     dv.add_argument("--match", metavar="REGEX", help="discover prometheus: only metric names matching this")
-    topic("explain", cmd_explain, "The model, or one part (goal.x, stock.x, auxiliary.x, ...), in sentences, and its feedback loops")
+    ex = topic("explain", cmd_explain, "The model, or one part (goal.x, stock.x, auxiliary.x, ...), in sentences, and its feedback loops")
+    ex.add_argument("--contains", action="store_true", help="what each system (or system NAME) contains, worked out from "
+                                                           "the graph: what it defines, and what is ancillary and why")
     cl = topic("claims", cmd_claims, "What blocks said they did (claim lines), checked against the record; trust by "
                                     "block, rung and model")
     cl.add_argument("--check", action="store_true", help="check the claims made and left unchecked (ergostat stopped "

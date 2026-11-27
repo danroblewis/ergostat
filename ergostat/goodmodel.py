@@ -25,7 +25,7 @@ READ_WHAT = {"remote": ("proposals",)}
 READ_FLAGS = ("n", "projection", "kind", "state", "history", "type", "item", "source", "follow", "runs", "data", "patch", "set_", "by",
               "to", "why", "after", "no_count", "all", "around", "depth", "list", "wiring", "blocks", "open", "note",
               "command", "stats", "search", "near", "path_to", "about_item", "backfilled", "from_",
-              "replace", "groups", "risk_score", "backtest")
+              "replace", "groups", "risk_score", "backtest", "contains")
 WRITES = ("add", "add_many", "prune", "replace", "forget", "roll", "drop", "flush", "backfill")
 
 

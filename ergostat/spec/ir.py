@@ -1007,6 +1007,9 @@ class Agent:
     host: str | None = None
     description: str = ""
     where: Where | None = None
+    # the system it is defined in (its ``system:``, or its file's ``defaults:``); None: the top level. Left out of its
+    # plain form while None, so a model that names none hashes as it did before the key existed (numbers/version._plain)
+    system: str | None = field(default=None, metadata={"unset": None})
 
 
 @dataclass

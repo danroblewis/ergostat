@@ -34,6 +34,13 @@ it is open, with the gaps named.
 to a tagged stock (the stock's flows and their valves, the sensors measuring it, the controllers
 holding it). The system with no selection is everything.
 
+In the YAML model (SPEC §4a) systems nest (`within:`), and **what a system contains is worked out from the graph**
+(`spec/scope.py`): what is defined in it, and what an edge (a flow, a sensor counting a projection, a goal and its
+loop, a block's reads and writes, a relation between projections) brings in from another system: an edge is in every
+system from its ends up to their lowest common ancestor, and so are its ends, ancillary where they are not defined.
+What stays inside a subsystem is not in its parent; the top level is the default system. `ergostat explain
+--contains` and `GET /api/scope` say it, each ancillary thing with why.
+
 **`ergostat check`** reports errors (a reference that does not resolve; a valve on a disturbance)
 and warnings (a loop that cannot close; a part no agent fills; a flow with no valve that is not a
 disturbance; an agent with nothing to do, no roles, or a command that is not found).
