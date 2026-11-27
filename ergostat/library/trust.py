@@ -115,6 +115,7 @@ PROCESS = {"gain": (S, "the loop's process gain"), "time-constant": (S, "its tim
            "identified": (S, "words on where the numbers came from"), "description": (S, "words shown with it")}
 REL = {"projection": (L, "the projection it names"), "precedence": (S, "it orders the work"), "inverse": (S, "the reverse's name"),
        "group": (S, "it groups items"), "description": (S, "words shown with it")}
+BOUND = {"append": (S, "the most values an append keeps")}
 JOIN = {"children": (S, "the relation children name it by"), "all": (L, "the states all must reach"),
         "any": (L, "the states any must reach"), "to": (S, "the state it moves to")}
 
@@ -126,7 +127,7 @@ ITEM = {**COMMON, "id": (S, "which ids are this projection's"), "states": (L, "i
         "moves-from": (M, "the only states an event moves it out of"),
         "if-unchanged": (L, "events applied only to it as read"),
         "on": (M, "which event moves it to which state"), "show": (L, "fields shown"), "formats": (M, "how fields are shown"),
-        "fold": (M, "how events' fields fold into it"), "relations": (each(one_of(L, REL)), "relations to other items"),
+        "fold": (each(one_of(S, BOUND)), "how events' fields fold into it"), "relations": (each(one_of(L, REL)), "relations to other items"),
         "join": (one_of(JOIN, list_of(JOIN)), "a parent moved on by its children's states"),
         "about": (S, "the field naming the parts it is about; only check reads it"),
         "attention": (S, "the field whose latest item's words are shown on the attention list"),

@@ -794,8 +794,8 @@ class Compiler:
                     self.err(f"{what}.formats.{f}: {fmt!r} is not a format ({', '.join(FORMATS)})", raw.at(f), "bad-format")
                 else:
                     formats[str(f)] = str(fmt)
-        from .changes import RULES
-        rules = {}
+        from .changes import BOUNDED, RULES
+        rules, bounds = {}, {}
         raw = m.get("fold") or {}
         if not isinstance(raw, dict):
             self.err(f"{what}.fold: a map of field: how its events' data folds into it ({', '.join(RULES)})", m.at("fold"),
@@ -804,6 +804,17 @@ class Compiler:
             for f, rule in raw.items():
                 if not isinstance(f, str) or not f:
                     self.err(f"{what}.fold: {f!r} is not a field name", raw.at(f), "bad-fold")
+                elif isinstance(rule, dict):            # a rule with its bound: {append: 20}, the last 20 values kept
+                    (name, n), = rule.items() if len(rule) == 1 else ((None, None),)
+                    if name not in BOUNDED:
+                        self.err(f"{what}.fold.{f}: only {', '.join(BOUNDED)} takes a bound, written {{append: 20}} "
+                                 f"(the last 20 values kept), not {', '.join(map(str, rule)) or 'an empty map'}",
+                                 raw.at(f), "bad-fold")
+                    elif type(n) is not int or n < 1:
+                        self.err(f"{what}.fold.{f}: {name}'s bound is the most values kept, a whole number of 1 or more, "
+                                 f"not {n!r}", raw.at(f), "bad-fold")
+                    else:
+                        rules[f], bounds[f] = str(name), n
                 elif str(rule) not in RULES:
                     self.err(f"{what}.fold.{f}: {rule!r} is not a fold rule ({', '.join(RULES)})" + self.suggest(str(rule), RULES),
                              raw.at(f), "bad-fold")
@@ -860,7 +871,7 @@ class Compiler:
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
                         risk=risk,
                         system=self.system("projections", name, m), description=self.text(m, "description"), where=m.where,
-                        fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
+                        fold=rules, bounds=bounds, lease=leases.terms(self, m, "lease", what), relations=relations,
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
                         finished=list(done), lost=list(lost), moves_from={e: tuple(s) for e, s in only.items()},
                         if_unchanged=tuple(fenced), attention=attention, group=self.group(m, what))

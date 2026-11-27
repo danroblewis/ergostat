@@ -174,7 +174,7 @@ def _ask(db, e: dict) -> None:
 
 def _packed(it: Item | None):
     return None if it is None else (it.state, it.fields, it.first, it.last, it.entered, it.n, it.latest, it.moves, [],
-                                    it.refused, it.rolled)
+                                    it.refused, it.rolled, it.acc)
 
 
 def _record(db, fam: str, id: str, es: list[dict]) -> None:

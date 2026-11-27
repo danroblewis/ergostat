@@ -2176,6 +2176,8 @@ projections:
       reviewers: union
       comments: append
       hours: sum
+      log: {append: 20}              # only the last 20 values kept
+      review_hours: mean             # count, mean, variance, stdev, rms: a number, kept exactly as events arrive
 ```
 
 | Key | Type | Default | Meaning |
@@ -2305,6 +2307,32 @@ and MCP's `record_event` say at once when a patch they recorded changed nothing.
 | `merge` | an object, each object given deep-merged into it (an object's keys merged, anything else replaced) |
 | `first` | the first value given, kept |
 | `relation` | a set of item ids, kept as a sorted list: an id or a list of ids is added; `{"add": ..., "remove": ..., "set": ...}` says it outright (`set` first, the whole set, as a collector mirroring another system's links says it; then `add`, then `remove`). Anything but ids is refused. A relation's field folds by it unless `fold:` says `union` or `replace` |
+| `count` | how many events gave the field a value (an integer). Any value counts but `null`, which is no value and changes nothing. Refused when the field holds something that is not a count (a patch put it there) |
+| `mean` | the mean of the numbers given (a float) |
+| `variance` | the sample variance of the numbers given (divided by n - 1, a float), `null` until two values have been given |
+| `stdev` | the square root of the sample variance, `null` until two values have been given |
+| `rms` | the root mean square of the numbers given: the square root of the mean of their squares |
+
+`append` alone takes a bound: `{append: 20}` keeps only the last 20 values (a whole number of 1 or more; any other
+bound, or a bound on another rule, is an error, `bad-fold`). Each value appended past it takes the oldest out (a
+`remove` at `/0` in history), and a list longer than the bound given at once keeps its last 20. Plain `append` is
+unbounded.
+
+**What each rule refuses** (the event is refused for the item, whole, and kept on the record): `sum` anything but a
+number, or a field that holds one no longer; `min` and `max` a number against text; `append` and `union` a field that
+is not a list; `merge` a value or a field that is not an object; `relation` anything but ids; `count` a field that is
+not a count; `mean`, `variance`, `stdev` and `rms` anything but a finite number (text, a boolean, a list, an object,
+NaN, infinity: a boolean is not a number). `null` is no value to `min`, `max`, `count` and the four aggregates.
+
+**The aggregates** (`count`, `mean`, `variance`, `stdev`, `rms`) are exact and their state is bounded: the field holds
+only the number, and what is needed to go on (the count of values, their running mean and the sum of squared
+deviations from it by Welford's algorithm, which stays accurate where the sum of squares would cancel; for `rms` the
+running mean of the squares) is the item's own running state, kept beside its fields wherever its fold is kept: the
+item index, and a snapshot's `rollup.acc`. So an item folds to the same numbers from its events, caught up a chunk at
+a time, or from a snapshot and what came after it. The state is never shown as a field. Every value changes it, but
+history keeps a change only when the number shown changes (the mean of 4 and 4 is still 4.0). A `patch` or `set`
+that changes an aggregate's field (or a field another rule wrote) starts it over: the next value is the first. A
+median or a percentile is not a fold rule: ask the items' numbers (SQL) or the metric (PromQL) for one.
 
 **History.** Every change is kept, per path, in order: when, by which event (its id and type),
 the operation (with its rule, or `patch` or `set`), the path, and the value before and after. A

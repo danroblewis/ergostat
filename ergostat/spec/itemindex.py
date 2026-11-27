@@ -6,8 +6,8 @@ the command line): whichever asks first after events arrive folds them, under SQ
 a chunk at a time, and the others read what it wrote. A process that starts reads the index; it
 folds only what is newer than it.
 
-- ``items``: per item its kind, state, times, counts and its document (``body``: its fields and
-  what was refused, packed by ``codec.py``); kinds, states and event types are numbers (``names``).
+- ``items``: per item its kind, state, times, counts and its document (``body``: its fields, what was
+  refused and its aggregates' running state, packed by ``codec.py``); kinds, states and event types are numbers (``names``).
 - ``moves``: every move of every item (when, from, to, by which event), so a flow counted from
   items reads only its window, and a count of items in a state reads only that state.
 - ``left`` and ``reached``: each kind's states some item has left, and has reached, so what a kind
@@ -145,7 +145,8 @@ def kinds_key(spec) -> tuple:
                   tuple(sorted(getattr(k, "relations", None) or {})), getattr(k, "about", None),
                   *((tuple(sorted(k.moves_from.items())),) if getattr(k, "moves_from", None) else ()),
                   *((("if-unchanged", tuple(k.if_unchanged)),) if getattr(k, "if_unchanged", None) else ()),
-                  *((("final", tuple(sorted(k.final))),) if getattr(k, "final", None) else ()))
+                  *((("final", tuple(sorted(k.final))),) if getattr(k, "final", None) else ()),
+                  *((("bounds", tuple(sorted(k.bounds.items()))),) if getattr(k, "bounds", None) else ()))
                  for k in (getattr(spec, "items", None) or {}).values())
 
 
@@ -558,7 +559,8 @@ class Index:
                 arrived = it.moves[0]["time"]
             values = (self.nid(it.kind), self.nid(it.state), it.first, it.last, newest, it.entered, it.n,
                       self.nid(it.latest), arrived, raw, raw_first,
-                      codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled, "t": touched, "d": dis}),
+                      codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled, "t": touched, "d": dis,
+                                  **({"a": it.acc} if it.acc else {})}),
                       text_of(it.fields))
             if rid is None:
                 rid = self.db.execute("insert into items(id, kind, state, first, last, newest, entered, n, latest, arrived, "
@@ -638,7 +640,7 @@ class Index:
     def _item(self, r: tuple, moves: list[dict] | None = None) -> Item:
         body = codec.unpack(r[13])
         it = Item(r[1], self.name(r[2]), self.name(r[3]), body["f"], r[4], r[5], r[7], r[8], self.name(r[9]) or "",
-                  moves if moves is not None else [], [], body["r"], body.get("o", 0))
+                  moves if moves is not None else [], [], body["r"], body.get("o", 0), body.get("a") or {})
         it.touched, it.dis = body.get("t", {"*": 1e300}), body.get("d")          # type: ignore[attr-defined]
         return it
 

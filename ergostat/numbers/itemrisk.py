@@ -212,7 +212,8 @@ def learned(events, spec, kind: str, then):
     k = spec.items[kind]
     skip = () if asks_transcript([k]) else (TRANSCRIPT_TYPES,)
     where = getattr(events, "path", None) or getattr(events, "dir", None)
-    key = (str(where), kind, repr(k.risk), repr(sorted(k.on.items())), repr(sorted(k.fold.items())), repr(k.states))
+    key = (str(where), kind, repr(k.risk), repr(sorted(k.on.items())), repr(sorted(k.fold.items())), repr(k.states),
+           repr(sorted(getattr(k, "bounds", {}).items())))
     with _LOCK:                                       # read, catch up and keep under one lock: no other caller between
         lr = _CACHE.get(key) if where is not None else None
         if lr is not None:

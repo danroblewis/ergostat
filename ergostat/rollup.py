@@ -144,7 +144,7 @@ def summarise(it) -> dict:
 
 def _meta(it) -> dict:
     return {"state": it.state, "entered": it.entered, "first": it.first, "last": it.last, "n": it.n, "latest": it.latest,
-            "moves": it.moves, "refused": it.refused, "fields": summarise(it)}
+            "moves": it.moves, "refused": it.refused, "fields": summarise(it), **({"acc": it.acc} if it.acc else {})}
 
 
 def snapshot_of(id: str, prefix: list[dict], kind, segments: list[str], now: float) -> dict:

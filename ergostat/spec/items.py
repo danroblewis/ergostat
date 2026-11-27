@@ -49,6 +49,7 @@ class Item:
     changes: list[dict] = field(default_factory=list)  # {time, event, type, form, op, path, before, after, rule}, when kept
     refused: list[dict] = field(default_factory=list)  # {time, event, type, form, why}: changesets that did not apply
     rolled: int = 0                  # a transcript's lines rolled into its snapshot, when they are not folded
+    acc: dict = field(default_factory=dict)   # field -> its aggregate's running state (changes.aggregate): never shown
 
     def as_dict(self, moves: bool = False, history: bool = False) -> dict:
         d = {"id": self.id, "projection": self.kind, "state": self.state, "fields": self.fields, "first": self.first,
@@ -101,6 +102,7 @@ def restore(it: Item, e: dict, history: bool = False, transcript: bool = True) -
     it.n, it.latest = r.get("n", 1), r.get("latest", e["type"])
     it.refused = [dict(x) for x in r.get("refused") or []]
     it.rolled = 0 if transcript else (e["data"].get("rollup") or {}).get("lines", 0)
+    it.acc = copy.deepcopy(r.get("acc") or {})      # its aggregates' running state, so they go on as they were
     if history:
         for f, h in (r.get("fields") or {}).items():
             it.changes.append({"time": h["last"]["time"], "event": e["id"], "type": SNAPSHOT, "form": "set", "op": "rolled up",
@@ -115,6 +117,7 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
     ``transcript``: whether these events include its transcript's lines (a snapshot holds both folds)."""
     it = it or Item(id, kind.name if kind else None)
     rules = kind.fold if kind else {}
+    bounds = kind.bounds if kind else None
     for e in events:
         if e["type"] == SNAPSHOT:
             restore(it, e, history, transcript)
@@ -169,7 +172,7 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
                 it.changes.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": form_of(e),
                                    "op": "refused", "path": "", "before": None, "after": None, "why": why})
             continue
-        done, why = fold_event(it.fields, e, rules)
+        done, why = fold_event(it.fields, e, rules, bounds, it.acc)
         if lease is not None and it.fields.get("lease") is not lease:   # the lease is ergostat's: no event's data replaces it
             it.fields["lease"] = lease
         if why is not None:

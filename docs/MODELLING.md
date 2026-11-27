@@ -69,7 +69,8 @@ Measure the new stock honestly: if its items have no state for it, give them one
 says when a ramp that went ahead broke or proved fine: `ramp.broke`, `ramp.proved-fine`). When what
 you need to count is in the items' fields rather than their states, check how those fields fold:
 each event's data replaces a field unless the projection says otherwise (`fold: {incidents: sum}`,
-`{comments: append}`; SPEC §5a), and `ergostat item ID --history FIELD` shows every change and the
+`{comments: append}`, `{log: {append: 20}}` for the last 20, `{review_hours: mean}` and `count`, `variance`,
+`stdev`, `rms`; SPEC §5a), and `ergostat item ID --history FIELD` shows every change and the
 event that made it, so a count built on a field that was overwritten when it should have been
 added to is found there.
 

@@ -1024,6 +1024,7 @@ class ItemKind:
     description: str = ""
     where: Where | None = None
     fold: dict[str, str] = field(default_factory=dict)   # field → how plain data folds into it (changes.RULES); else replace
+    bounds: dict[str, int] = field(default_factory=dict)   # field → the most values its rule keeps (append: the last N)
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # the terms of a lease on one of these (SPEC §9.5)
     relations: dict[str, Relation] = field(default_factory=dict)   # field → its relation to other items (SPEC §5a)
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)

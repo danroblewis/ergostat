@@ -2485,18 +2485,41 @@
         },
         "fold": {
           "type": "object",
-          "description": "How each field folds the plain data its events carry: replace (the default), append (to a list), sum, min, max, union (a set, kept as a sorted list), merge (a deep merge of objects), first (keep the first value, relation (a set of item ids: ids added, or {set, add, remove}))",
+          "description": "How each field folds the plain data its events carry: replace (the default), append (to a list; {append: N} keeps only the last N), sum, min, max, union (a set, kept as a sorted list), merge (a deep merge of objects), first (keep the first value), relation (a set of item ids: ids added, or {set, add, remove}), count (how many non-null values), mean, variance (sample, n - 1; null until two values), stdev, rms (of finite numbers)",
           "additionalProperties": {
-            "enum": [
-              "replace",
-              "append",
-              "sum",
-              "min",
-              "max",
-              "union",
-              "merge",
-              "first",
-              "relation"
+            "oneOf": [
+              {
+                "enum": [
+                  "replace",
+                  "append",
+                  "sum",
+                  "min",
+                  "max",
+                  "union",
+                  "merge",
+                  "first",
+                  "relation",
+                  "count",
+                  "mean",
+                  "variance",
+                  "stdev",
+                  "rms"
+                ]
+              },
+              {
+                "type": "object",
+                "description": "A rule with its bound: {append: 20}, only the last 20 values kept",
+                "properties": {
+                  "append": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "append"
+                ],
+                "additionalProperties": false
+              }
             ]
           }
         },
