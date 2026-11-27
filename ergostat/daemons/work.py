@@ -161,6 +161,8 @@ class Hands:
         """An observation line of a sensor this daemon serves, read at ``now``, recorded as that sensor's (as a
         ``run:`` sensor's output is), within the cap (``observe.py``); False for any other sensor (never recorded
         under another), or once ergostat's stop has said the drops."""
+        if sensor is None:                              # an event line of the daemon's own (a collector's)
+            return self._own_event(daemon, obj, now)
         with self.lock:
             s = self.observers.get((daemon, sensor)) if isinstance(sensor, str) else None
         if s is None:
@@ -176,6 +178,36 @@ class Hands:
             self._dropped(sensor, closed)
         if ok:
             self.e._observer(sensor)(seen, refused)
+        return True
+
+    def _own_event(self, daemon: str, obj: dict, now: float | None) -> bool:
+        """A daemon's event line tagged with no run or sensor: what a collector that runs forever saw, recorded as a
+        block's printed event is, from the daemon (its name the source), within the same cap as a sensor's
+        observations. Its item is optional (an event about no item, as a raw stream's is, until a projection keys it)."""
+        from .. import runner as old
+        obj, why = old.keyed(obj)
+        t = obj.get("event")
+        if why is None and (not isinstance(t, str) or not old.TYPE_NAME.match(t)
+                            or t.startswith((*old.OWN_TYPES, "block.", "person.", "sensor."))):
+            why = f"{str(t)[:60]!r}: an event type is lowercase words joined by dots, and not ergostat's own"
+        item = obj.get("item")
+        if why is None and item is not None and not isinstance(item, str):
+            why = "item must be a string: what the event is about"
+        data = obj.get("data") if obj.get("data") is not None else {}
+        if why is None and not isinstance(data, dict):
+            why = "data must be an object"
+        ok, closed = self.observed.admit(f"daemon {daemon}", now)
+        if ok is None:
+            return False
+        if closed:
+            self._dropped(f"daemon {daemon}", closed)
+        if not ok:
+            return True
+        if why is not None:
+            self.e.p.events.add("agent.refused", item=daemon, source="ergostat", data={"why": why, "line": obj})
+            self.e.say(f"daemon {daemon}: {why}")
+            return True
+        self.e.p.events.add(t, item=item, source=daemon, data=data)
         return True
 
     def _dropped(self, sensor: str, n: int) -> None:

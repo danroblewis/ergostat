@@ -61,6 +61,7 @@ The daemon writes back, every line tagged with what it belongs to:
 | `{"reading": 12, "sensor": "errors.main"}` | A reading sent unasked, for a sensor declared `push: true` |
 | `{"event": "job.done", "run": "fe51..."}` | Anything a `run:` block's process may print (events, `out`, `moved`), with the run added |
 | `{"done": 0, "run": "fe51..."}` | The run ended with this exit code. Exactly these two keys, and a whole number |
+| `{"event": "aws.eventbridge", "item": "...", "data": {...}}` | An event of its own, tagged with no run, request or sensor: what a collector that runs forever saw, recorded from the daemon (its name the source). `item` (or `key`) is optional. At most 50 a second, as a sensor's observations |
 | `{"heartbeat": true}` | Still alive. Any line says so; this one says nothing else |
 
 Sensors are named `STOCK.SENSOR`: a stock's single `sensor:` is called `main`, so `orders.main`. A line that is

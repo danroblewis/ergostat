@@ -174,7 +174,7 @@ def test_interleaved_items_are_attributed_to_their_runs(tmp_path):
     assert max(t) - min(t) < 1.5, "the items ran at once, not one after another"
 
 
-def test_stray_and_unknown_tagged_lines_are_dropped(tmp_path):
+def test_stray_and_unknown_tagged_lines_are_dropped_and_untagged_events_are_the_daemons(tmp_path):
     p = setup(tmp_path, block("{run: python3 d.py stray}"))
     p.events.add("ticket.opened", item="ticket/1", source="t")
     p.events.add("ticket.opened", item="ticket/2", source="t")
@@ -183,11 +183,13 @@ def test_stray_and_unknown_tagged_lines_are_dropped(tmp_path):
         assert wait_for(lambda: item(p, "ticket/1").state == "done" and item(p, "ticket/2").state == "done", 10)
     finally:
         e.close()
-    assert len([x for x in events(p, "ticket.done")]) == 2, "an untagged line, or one for no run, is never taken"
+    done = events(p, "ticket.done")
+    assert len([x for x in done if x["item"]]) == 2, "a line for no run is never taken as another run's"
+    own = [x for x in done if not x["item"]]           # an event tagged with nothing: the daemon's own (a collector's)
+    assert len(own) == 2 and {x["source"] for x in own} == {"block.worker"}
     assert all(r["data"]["exit"] == 0 for r in events(p, "agent.ran"))
     log = (p.dir / "logs" / "daemon-block.worker.log").read_text()
-    assert log.count("dropped") == 12 and "not a JSON object" in log and "no run of that id held" in log
-    assert "tagged with no run" in log
+    assert log.count("dropped") == 10 and "not a JSON object" in log and "no run of that id held" in log
 
 
 def test_strict_done(tmp_path):

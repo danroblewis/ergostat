@@ -278,6 +278,11 @@ class Process:
             if isinstance(v, bool) or not isinstance(v, int | float):
                 return h.answer(None, str(obj.get("error") or "its daemon answered with no number (reading:)")[:200])
             return h.answer(float(v), "")
+        if "event" in obj and "sensor" not in obj:       # an event of its own (a collector's): recorded from it
+            if self.on_observe(None, obj, self.read_at):
+                return None
+            return self.stray(text, "an event line not in shape ({\"event\": TYPE, \"item\": ID?, \"data\": {...}}), "
+                                    "or after ergostat stopped")
         if "sensor" in obj and ("event" in obj or "message" in obj):
             if "reading" in obj:
                 return self.stray(text, "a reading or an observation, not both")
