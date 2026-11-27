@@ -3686,9 +3686,11 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   taking nothing; none: one check) kept in sight above them, the YAML below them, and a panel of its own on the right
   (sticky, scrolling on its own; below the steps on a narrow screen). The YAML is the one thing edited: a step's edit
   rewrites it (comments and the rest kept), the YAML typed is read back into the steps (while it does not parse, the
-  page says so and the steps keep what they showed). **1 What it is**: the object's identity first: its fields (name,
-  type, values, fold, description) and its key, picked from them in order (each moved up or down or taken out, the
-  others offered to add; no expression typed). **2 Query**: the query (all of the
+  page says so and the steps keep what they showed). The draft (its YAML, the steps open, the span, the object shown)
+  is kept for the browser tab while editing (sessionStorage, by the projection's name), and a new projection's being new
+  by its address, so a reload, a remount or an address whose query changed (which drops the history state) loses no
+  work: the page opens again editing it; Save or Cancel forgets it. **1 What it is**: its fields (name, type, values,
+  fold, description). **2 Query**: the query (all of the
   record, or the last hour, day, 7 or 30 days), its count, what the last change added and dropped, right after it
   what the kinds of event its result holds cover (*8 kinds of event cover 100% of these events · Accept all*; once
   accepted, *All events taken by 8 kinds*), how it was read, and the newest 20 events, folded, each opened to its
@@ -3696,17 +3698,24 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   entries (renamed, their `when:` edited, removed, each with what it takes) and the events no kind takes yet, by shape,
   each accepted as a kind (never one that would take nothing). **4 Mapping**: `time:`, and per kind of event its key
   as solved, read only (`key: account ✓ data.account · region ✓ data.region · instance_id ✗ not told`: a ✗ clicked
-  opens that field's mapping for the kind, ready to type), the fields it tells, *Map these the same way* (what another kind maps by a plain path its events have too, each
-  ticked, applied at once), and one of its events (the others a click away) beside the record it makes
+  opens that field's mapping for the kind, ready to type), the fields it tells, what another kind maps by a plain path
+  its events have too mapped here at once, no Apply (*Mapped the same way as KIND: a → x*, each a × to take it back;
+  a field the kind has told once is never mapped again for it), and one of its events (the others a click away) beside the record it makes
   (`/api/projections/fold`): a value read into a field tagged with it (→ state), a value nothing reads marked, an
-  ignored path hidden (*show ignored (n)*). A value clicked goes into a field (a key field is
-  one: mapping it is mapping the key), `ignore:` (hidden in every kind's events), or a new field made there and then (its name from the JSON key, `instance-id` → `instance_id`,
-  its type guessed from the value). **5 Review**: how many objects, what each kind took, the paths left to decide
-  (each ignorable), the comparison with the saved definition. **The panel**: one object picked by its key, its record
-  (its fields now) and its lifespan (its state's path through its values, its events in time order, which kind took
-  each, what each changed); the residual (each count that is not 0 opened to its samples; none, *✓ Nothing
-  unexplained*); the lifecycles (transitions with bars); each field's distribution (top values, histogram; a time's
-  drawn over time). A new projection opens on all five; one that exists on its review, so what drifted shows.
+  ignored path hidden (*show ignored (n)*). A value hovered (a quarter second), clicked or given Enter opens a panel
+  floating under it (hovered, it goes once the pointer has left the value and the panel; clicked, once it leaves the
+  panel, on Escape or a click elsewhere): the value into a field (a key field is one: mapping it is mapping the key), `ignore:` (hidden in every kind's events), or a new field made there and then (its name from the JSON key, `instance-id` → `instance_id`,
+  its type guessed from the value). A kind whose sample events have every path read into a field (or a key part, or
+  `time:`) or ignored folds itself, a ✓ and *every path in its events mapped or ignored* in its line; a click opens it.
+  **5 Review**: how many objects, what each kind took, the paths left to decide
+  (each ignorable), the comparison with the saved definition. **The panel**, from the top: its key (the key fields in order,
+  each moved up or down or taken out, one added from the fields or made there with a name and a type, so the key is set
+  before any mapping; under it how many kinds of event tell every key field); its objects one at a time (‹ › through
+  them in key order, the first 1,000 of the review's `objects.keys`, a box to find one by its key), the one shown as its
+  record (its fields now) and its change history (its state's path through its values, its events in time order, which
+  kind took each, what each changed); the lifecycles (transitions with bars); each field's distribution (top values,
+  histogram; a time's drawn over time); and at the bottom the residual (each count that is not 0 opened to its samples;
+  none, *✓ Nothing unexplained*). A new projection opens on all five; one that exists on its review, so what drifted shows.
 
 **Where it went, on the item's page.** Right after its header, an item of a projection the model counts or takes shows its
 `path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that

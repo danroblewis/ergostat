@@ -35,6 +35,8 @@ export default function CodeEditor({ source, value, onChange, views, label, plac
   const lang = useRef(new Compartment());
   const changed = useRef(onChange);
   changed.current = onChange;
+  // a text set from outside is not said back: said back, it would undo an edit made from outside in the same moment
+  const outside = useRef(false);
 
   useEffect(() => {
     const v = new EditorView({
@@ -50,7 +52,7 @@ export default function CodeEditor({ source, value, onChange, views, label, plac
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ "aria-label": label || `${source} query`, spellcheck: "false" }),
           placeholder ? placeholderText(placeholder) : [],
-          EditorView.updateListener.of((u) => { if (u.docChanged) changed.current(u.state.doc.toString()); }),
+          EditorView.updateListener.of((u) => { if (u.docChanged && !outside.current) changed.current(u.state.doc.toString()); }),
         ],
       }),
     });
@@ -66,7 +68,10 @@ export default function CodeEditor({ source, value, onChange, views, label, plac
 
   useEffect(() => {                                   // a text set from outside (a shortcut chosen, a source changed)
     const v = view.current;
-    if (v && v.state.doc.toString() !== value) v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } });
+    if (v && v.state.doc.toString() !== value) {
+      outside.current = true;
+      try { v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } }); } finally { outside.current = false; }
+    }
   }, [value]);
 
   useEffect(() => {                                   // what check says of the text, on its lines

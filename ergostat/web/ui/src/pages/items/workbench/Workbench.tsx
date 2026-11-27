@@ -1,26 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { QueryEditor } from "../../../components/query";
 import { useSend } from "../../../hooks/useSend";
+import { keptGet, keptSet, stepsKey } from "../../../lib/kept";
 import * as D from "./draft";
 import { KindsStep, type Suggestions } from "./KindsStep";
 import { MappingStep, type MappingEdits } from "./MappingStep";
 import { QueryStep, SPANS } from "./QueryStep";
 import { ReviewStep, SidePanel, unexplained } from "./ReviewStep";
-import { WhatStep } from "./WhatStep";
+import { KeySide, WhatStep } from "./WhatStep";
 import { n, Step, type QEvent } from "./common";
 import "./workbench.css";
 
 /* The projection workbench (docs/roadmap/projection-workbench.md; SPEC §5a, *The workbench*), the projection's page in
    edit mode: a loop the user goes round until nothing is unexplained, then saves. Five steps in the main column (what
    it is: its key and fields; the query; the kinds of event; the mapping; the review), what is still unexplained kept
-   in sight above them, the YAML below them, and on the right a panel of its own (one object's record and lifespan,
-   the residual, the lifecycles, the fields' distributions). The YAML is the one thing edited: a step's edit rewrites
+   in sight above them, the YAML below them, and on the right a panel of its own (its key, its objects one at a time
+   with their record and change history, the lifecycles, the fields' distributions, the residual at the bottom). The YAML is the one thing edited: a step's edit rewrites
    it (draft.ts), and the YAML typed is read back into the steps; while it does not parse, the steps keep what they
    last showed and change nothing. A new projection opens on its steps from the first; one that exists opens on its
-   review, so what drifted shows. */
+   review, so what drifted shows. Which steps are open, the span and the object shown are kept for the tab with the
+   draft (lib/kept.ts, ProjectionPage.tsx). */
 
 export function Workbench({ name, system, text, setText, creating, problems }: {
-  name: string; system: string; text: string; setText: (t: string) => void; creating: boolean;
+  name: string; system: string; text: string; setText: (t: string | ((was: string) => string)) => void; creating: boolean;
   problems?: { line?: number | null; message: string }[];
 }) {
   const parsed = useMemo(() => D.read(text), [text]);
@@ -29,11 +31,15 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
   const draft = "draft" in parsed ? parsed.draft
     : good ?? { query: "", key: [], time: "", ignore: [], fields: [], kinds: [] };
   const editable = "draft" in parsed;
-  const change = (f: (t: string) => string) => { if (editable) setText(f(text)); };
+  // an edit applies to the text as it is by then: several made at once (kinds mapped the same way) all land
+  const change = (f: (t: string) => string) => { if (editable) setText(f); };
 
-  const [since, setSince] = useState("");
-  const [item, setItem] = useState("");
-  const [open, setOpen] = useState<Set<number>>(() => new Set(creating ? [1, 2, 3, 4, 5] : [5]));
+  const sk = stepsKey(system, name);
+  const [kept] = useState(() => keptGet<{ open?: number[]; since?: string; item?: string }>(sk));
+  const [since, setSince] = useState(kept?.since ?? "");
+  const [item, setItem] = useState(kept?.item ?? "");
+  const [open, setOpen] = useState<Set<number>>(() => new Set(kept?.open ?? (creating ? [1, 2, 3, 4, 5] : [5])));
+  useEffect(() => keptSet(sk, { open: [...open], since, item }), [sk, open, since, item]);
   const toggle = (k: number) => setOpen((s) => { const x = new Set(s); if (x.has(k)) x.delete(k); else x.add(k); return x; });
 
   const reviewBody = useMemo(() => (editable ? { name, yaml: text, system: system || undefined, since: since || undefined, item: item || undefined } : null),
@@ -56,7 +62,7 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
 
   const ed: MappingEdits = {
     setTop: (k, v) => change((t) => D.setTop(t, k, v)),
-    addField: (f) => change((t) => D.addField(t, f)),
+    addField: (f, type) => change((t) => D.addField(t, f, type)),
     setField: (f, part, v) => change((t) => D.setField(t, f, part, v)),
     renameField: (a, b) => change((t) => D.renameField(t, a, b)),
     removeField: (f) => change((t) => D.removeField(t, f)),
@@ -65,6 +71,7 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
     createAndMap: (k, f, type, e) => change((t) => D.setKind(D.addField(t, f, type), k, f, e)),
     ignore,
     setKey: (names) => change((t) => D.setKey(t, names)),
+    addKeyField: (f, type) => change((t) => D.setKey(D.addField(t, f, type), [...(D.read(t) as any).draft?.key ?? draft.key, f])),
   };
   const nUnmapped = r?.ok ? r.unmapped?.count ?? 0 : 0;
 
@@ -104,13 +111,13 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
         </Step>
         <div className="wb-yaml">
           <h2 className="small">Definition</h2>
-          <QueryEditor source="yaml" value={text} onChange={setText} label="The projection's definition (YAML)" problems={problems} />
+          <QueryEditor source="yaml" value={text} onChange={(t) => setText(t)} label="The projection's definition (YAML)" problems={problems} />
           {"error" in parsed && <p className="note lvl-error" role="alert">The YAML does not parse ({parsed.error}): the steps show it as it last parsed.</p>}
           <p className="muted small">The steps write it; what you type here is read back into them. Save writes it to the model.</p>
         </div>
       </div>
       <aside className="wb-side" aria-label="The draft's objects">
-        <SidePanel r={r} item={item} onItem={setItem} />
+        <SidePanel r={r} item={item} onItem={setItem} keyPart={<KeySide draft={draft} ed={ed} editable={editable} />} />
       </aside>
     </section>
   );

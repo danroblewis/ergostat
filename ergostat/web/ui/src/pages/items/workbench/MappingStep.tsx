@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent } from "react";
 import type { JsonPath, PathMark } from "../../../components/JsonValues";
 import { useSend } from "../../../hooks/useSend";
 import { fieldName, guessType, isPath, ofKind, pathExpr, reads, solvedKey, TYPES, underAny, type Draft, type KindDef } from "./draft";
@@ -8,13 +8,16 @@ import { Commit } from "./KindsStep";
 /* Step 4, the mapping: per kind of event, its key as solved from what it maps to the key's fields (✓ each part's
    expression, ✗ a part it does not tell, a click away from its mapping), one of its events shown as it reads (each
    value read into a field tagged with the field, a value nothing reads standing out, an ignored path hidden) beside
-   the record that event makes; a value clicked is put into a field (a key field among them), a new field, or ignored
-   (in every kind's events); what another kind already maps the same way is offered at once. And the event's own time
-   (time:). */
+   the record that event makes. A value hovered (or clicked, or Enter on it) opens a panel floating by it: put it into a
+   field (a key field among them), a new field, or ignore it (in every kind's events); hovered, the panel goes when the
+   pointer leaves the value and the panel; clicked, it stays until the pointer leaves the panel, Escape or a click
+   elsewhere. What another kind already maps by a plain path this kind's events have too is mapped here at once, said
+   with a × to take each back. A kind whose sample events have every path mapped or ignored folds itself, a ✓ in its
+   line; it opens again on a click. And the event's own time (time:). */
 
 export interface MappingEdits {
   setTop: (k: "time", v: string) => void;
-  addField: (name: string) => void;
+  addField: (name: string, type?: string) => void;
   setField: (name: string, part: "type" | "values" | "fold" | "description", v: string) => void;
   renameField: (from: string, to: string) => void;
   removeField: (name: string) => void;
@@ -23,6 +26,8 @@ export interface MappingEdits {
   createAndMap: (kind: string, field: string, type: string, expr: string) => void;
   ignore: (path: string) => void;
   setKey: (names: string[]) => void;
+  /** a new field made and put at the end of the key, in one edit */
+  addKeyField: (name: string, type: string) => void;
 }
 
 /** Every path in an event (its parts' and all within them), and its values' paths alone. */
@@ -38,6 +43,14 @@ function pathsOf(e: QEvent): { all: JsonPath[]; leaves: JsonPath[] } {
   };
   for (const [k, v] of [["type", e.type], ["key", e.item], ["source", e.source], ["data", e.data]] as [string, unknown][]) if (v != null) walk(v, [k]);
   return { all, leaves };
+}
+
+/** The value at a path in an event. */
+function valueAt(e: QEvent, path: JsonPath): unknown {
+  const top: Record<string, unknown> = { type: e.type, key: e.item, source: e.source, data: e.data };
+  let v: unknown = top;
+  for (const p of path) v = v != null && typeof v === "object" ? (v as any)[p] : undefined;
+  return v;
 }
 
 /** The record one event makes by the draft (POST /api/projections/fold). */
@@ -76,9 +89,9 @@ function Picked({ k, draft, ed, editable, path, value, onDone }: {
   const ok = /^[A-Za-z_][\w-]*$/.test(name.trim()) && !taken;
   const done = (f: () => void) => () => { f(); onDone(); };
   return (
-    <div className="wb-picked" role="group" aria-label="The value picked">
+    <>
       <p><code>{expr}</code> = <code>{short(value)}</code>{" "}
-        <button type="button" className="ghost" aria-label="Forget the value picked" onClick={onDone}>×</button></p>
+        <button type="button" className="ghost" aria-label="Close" onClick={onDone}>×</button></p>
       <p>Into{" "}
         {draft.fields.map((f) => (
           <button key={f.name} type="button" disabled={!editable} onClick={done(() => ed.setKind(k.name, f.name, expr))}>{f.name}</button>
@@ -86,16 +99,20 @@ function Picked({ k, draft, ed, editable, path, value, onDone }: {
         <button type="button" disabled={!editable} onClick={done(() => ed.ignore(expr))}>ignore this path</button>
       </p>
       <p>New field{" "}
-        <input value={name} onChange={(e) => setName(e.target.value)} aria-label="The new field's name" className="mono" spellCheck={false} />{" "}
+        <input value={name} onChange={(e) => setName(e.target.value)} aria-label="The new field's name" className="mono" spellCheck={false}
+          onKeyDown={(e) => { if (e.key === "Enter" && editable && ok) done(() => ed.createAndMap(k.name, name.trim(), type, expr))(); }} />{" "}
         <select value={type} onChange={(e) => setType(e.target.value)} aria-label="The new field's type">
           {TYPES.map((t) => <option key={t}>{t}</option>)}
         </select>{" "}
         <button type="button" disabled={!editable || !ok} onClick={done(() => ed.createAndMap(k.name, name.trim(), type, expr))}>Create and map</button>
         {taken && <span className="muted small"> (a field already)</span>}
       </p>
-    </div>
+    </>
   );
 }
+
+type Pop = { path: JsonPath; value: unknown; x: number; y: number; pinned: boolean; kb: boolean };
+const OPEN_MS = 250, GRACE_MS = 200;
 
 function KindMapping({ k, draft, ed, editable, fold }: {
   k: KindDef; draft: Draft; ed: MappingEdits; editable: boolean; fold: (evs: QEvent[]) => Record<string, unknown> | null;
@@ -103,13 +120,11 @@ function KindMapping({ k, draft, ed, editable, fold }: {
   const q = ofKind(draft.query, k.when);
   const body = useMemo(() => (q.trim() ? { query: q, limit: 5 } : null), [q]);
   const got = useSend<{ events: QEvent[] }>("events/query", body, 600);
-  const evs = got.data?.events || [];
+  const evs = useMemo(() => got.data?.events || [], [got.data]);
   const [at, setAt] = useState(0);
   const e = evs.length ? evs[Math.min(at, evs.length - 1)] : null;
-  const [picked, setPicked] = useState<{ path: JsonPath; value: unknown } | null>(null);
   const [showIgnored, setShowIgnored] = useState(false);
   const [adding, setAdding] = useState<string[]>([]);
-  const [unticked, setUnticked] = useState<Set<string>>(new Set());
   const told: Record<string, string> = Object.fromEntries(k.values);
   const solved = solvedKey(draft.key, k);
   const [focus, setFocus] = useState<string | null>(null);
@@ -131,38 +146,112 @@ function KindMapping({ k, draft, ed, editable, fold }: {
   const paths = e ? pathsOf(e) : { all: [], leaves: [] };
   const nIgnored = paths.leaves.filter((p) => underAny(pathExpr(p), draft.ignore)).length;
 
-  // what another kind maps by a plain path that this kind's events have too, and this kind does not tell yet
+  // every path left in its sample events: not read into a field (itself or what holds it), nor ignored
+  const decided = (p: JsonPath) => { for (let i = p.length; i > 0; i--) { const m = mark(p.slice(0, i)); if (m.to || m.ignored) return true; } return false; };
+  const left = new Set(evs.flatMap((x) => pathsOf(x).leaves.filter((p) => !decided(p)).map(pathExpr))).size;
+  const complete = evs.length > 0 && left === 0;
+  const [open, setOpen] = useState(true);
+  const wasComplete = useRef(false);
+  useEffect(() => { if (complete && !wasComplete.current) setOpen(false); wasComplete.current = complete; }, [complete]);
+
+  // what another kind maps by a plain path that this kind's events have too, mapped here at once: never a field this
+  // kind has told already (one taken back stays taken back)
+  const had = useRef(new Set<string>());
+  for (const f of Object.keys(told)) had.current.add(f);
   const same = useMemo(() => {
     const present = new Set(evs.flatMap((x) => pathsOf(x).all.map(pathExpr)));
-    const out: [string, string][] = [];
+    const out: [string, string, string][] = [];
     for (const o of draft.kinds) {
       if (o.name === k.name) continue;
       for (const [f, ex] of o.values) {
-        if (f in told || !draft.fields.some((x) => x.name === f) || out.some(([g]) => g === f)) continue;
-        if (isPath(ex) && present.has(ex.trim())) out.push([f, ex.trim()]);
+        if (had.current.has(f) || !draft.fields.some((x) => x.name === f) || out.some(([g]) => g === f)) continue;
+        if (isPath(ex) && present.has(ex.trim())) out.push([f, ex.trim(), o.name]);
       }
     }
     return out;
   }, [evs, draft, k.name]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const chosen = same.filter(([f]) => !unticked.has(f));
+  const [auto, setAuto] = useState<[string, string, string][]>([]);
+  const sameSig = JSON.stringify(same);
+  useEffect(() => {
+    if (!editable || !same.length) return;
+    ed.setKinds(k.name, same.map(([f, ex]) => [f, ex]));
+    setAuto((a) => [...a.filter(([f]) => !same.some(([g]) => g === f)), ...same]);
+  }, [sameSig, editable]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const mapped = auto.filter(([f, ex]) => told[f]?.trim() === ex);
+  const froms = [...new Set(mapped.map(([, , o]) => o))];
+
+  // the floating panel: hovered after a moment, or clicked (pinned)
+  const wrap = useRef<HTMLDivElement>(null);
+  const popEl = useRef<HTMLDivElement>(null);
+  const [pop, setPop] = useState<Pop | null>(null);
+  const timers = useRef<{ open?: number; close?: number }>({});
+  const stop = (w: "open" | "close") => { window.clearTimeout(timers.current[w]); timers.current[w] = undefined; };
+  useEffect(() => () => { stop("open"); stop("close"); }, []);
+  const closeSoon = () => { stop("close"); timers.current.close = window.setTimeout(() => setPop(null), GRACE_MS); };
+  const openAt = (b: HTMLElement, pinned: boolean, kb = false) => {
+    if (!e || !wrap.current) return;
+    let path: JsonPath;
+    try { path = JSON.parse(b.dataset.path || ""); } catch { return; }
+    const w = wrap.current.getBoundingClientRect(), r = b.getBoundingClientRect();
+    stop("open"); stop("close");
+    setPop({ path, value: valueAt(e, path), x: Math.max(0, Math.min(r.left - w.left, w.width - 352)), y: r.bottom - w.top + 2, pinned, kb });
+  };
+  const valueOf = (ev: { target: EventTarget }) => (ev.target as HTMLElement).closest?.<HTMLElement>(".wb-sample button[data-path]") ?? null;
+  const onOver = (ev: RMouseEvent) => {
+    const b = valueOf(ev);
+    if (!b) return;
+    const here = !!pop && JSON.stringify(pop.path) === b.dataset.path;
+    if (pop && (!pop.pinned || here)) stop("close");
+    if (pop?.pinned || here) return;
+    stop("open");
+    timers.current.open = window.setTimeout(() => openAt(b, false), OPEN_MS);
+  };
+  const onOut = (ev: RMouseEvent) => {
+    const b = valueOf(ev);
+    if (!b || (ev.relatedTarget instanceof Node && b.contains(ev.relatedTarget))) return;
+    stop("open");
+    if (pop && !pop.pinned) closeSoon();
+  };
+  useEffect(() => {
+    if (!pop) return;
+    if (pop.kb) popEl.current?.querySelector<HTMLElement>("button:not([disabled]), input")?.focus();
+    const key = (ev: KeyboardEvent) => { if (ev.key === "Escape") setPop(null); };
+    const down = (ev: MouseEvent) => {
+      const t = ev.target as HTMLElement;
+      if (popEl.current?.contains(t) || t.closest?.(".wb-sample button[data-path]")) return;
+      setPop(null);
+    };
+    document.addEventListener("keydown", key);
+    document.addEventListener("mousedown", down);
+    return () => { document.removeEventListener("keydown", key); document.removeEventListener("mousedown", down); };
+  }, [pop]);
 
   const rows = [...k.values.map(([f]) => f), ...adding.filter((f) => !(f in told))];
   const untold = draft.fields.map((f) => f.name).filter((f) => !rows.includes(f));
 
   return (
-    <details className="wb-map" open>
-      <summary><strong>{k.name}</strong> <code className="muted small">{short(k.when, 80)}</code></summary>
-      {same.length > 0 && (
+    <details className={`wb-map${complete ? " done" : ""}`} open={open} onToggle={(ev) => setOpen((ev.currentTarget as HTMLDetailsElement).open)}>
+      <summary>
+        {complete && <span className="wb-done" aria-label="Every path mapped">✓ </span>}
+        <strong>{k.name}</strong>{" "}
+        {complete ? <span className="muted small" data-testid={`done-${k.name}`}>every path in its events mapped or ignored</span>
+          : <code className="muted small">{short(k.when, 80)}</code>}
+        {!complete && evs.length > 0 && <span className="muted small"> · {left} path{left === 1 ? "" : "s"} left</span>}
+      </summary>
+      {mapped.length > 0 && (
         <p className="wb-same" data-testid={`same-${k.name}`}>
-          Map these the same way:{" "}
-          {same.map(([f, ex]) => (
-            <label key={f} className="wb-same-one">
-              <input type="checkbox" checked={!unticked.has(f)} aria-label={`${ex} → ${f}`}
-                onChange={() => setUnticked((s) => { const x = new Set(s); if (x.has(f)) x.delete(f); else x.add(f); return x; })} />
-              <code>{ex}</code> → {f}
-            </label>
-          ))}{" "}
-          <button type="button" disabled={!editable || !chosen.length} onClick={() => ed.setKinds(k.name, chosen)}>Apply</button>
+          {froms.map((o) => (
+            <span key={o} className="wb-same-from">
+              Mapped the same way as <strong>{o}</strong>:{" "}
+              {mapped.filter(([, , x]) => x === o).map(([f, ex]) => (
+                <span key={f} className="wb-same-one">
+                  <code>{ex}</code> → {f}
+                  <button type="button" className="ghost" disabled={!editable} aria-label={`Unmap ${f} for ${k.name}`}
+                    onClick={() => ed.setKind(k.name, f, "")}>×</button>
+                </span>
+              ))}
+            </span>
+          ))}
         </p>
       )}
       <table className="wb-table" aria-label={`What ${k.name} tells`}>
@@ -206,26 +295,30 @@ function KindMapping({ k, draft, ed, editable, fold }: {
           )}
         </tbody>
       </table>
-      {picked && (
-        <Picked key={JSON.stringify(picked.path)} k={k} draft={draft} ed={ed} editable={editable} path={picked.path} value={picked.value}
-          onDone={() => setPicked(null)} />
-      )}
       {got.error ? <p className="note lvl-error">{got.error}</p> : !e ? <p className="muted small">{got.data ? "None of its events in the query's result." : "Reading…"}</p> : (
         <>
           <p className="muted small wb-sample-nav">
             An event of it{evs.length > 1 && <>, {at + 1} of {evs.length}{" "}
-              <button type="button" className="ghost" aria-label="The previous event" disabled={at === 0} onClick={() => setAt(at - 1)}>‹</button>
-              <button type="button" className="ghost" aria-label="The next event" disabled={at >= evs.length - 1} onClick={() => setAt(at + 1)}>›</button></>}
-            : click a value to put it somewhere.
+              <button type="button" className="ghost" aria-label="The previous event" disabled={at === 0} onClick={() => { setPop(null); setAt(at - 1); }}>‹</button>
+              <button type="button" className="ghost" aria-label="The next event" disabled={at >= evs.length - 1} onClick={() => { setPop(null); setAt(at + 1); }}>›</button></>}
+            : point at a value to put it somewhere.
             {nIgnored > 0 && <>{" "}<button type="button" className="ghost small" aria-pressed={showIgnored}
               onClick={() => setShowIgnored(!showIgnored)}>{showIgnored ? "hide" : "show"} ignored ({nIgnored})</button></>}
           </p>
-          <div className="wb-pair">
-            <div className="wb-sample" aria-label={`An event of ${k.name}`}>
-              <EventValues e={e} mark={mark} showIgnored={showIgnored} picked={picked ? JSON.stringify(picked.path) : undefined}
-                onPick={(path, value) => setPicked({ path, value })} />
+          <div className="wb-pair" ref={wrap}>
+            <div className="wb-sample" aria-label={`An event of ${k.name}`} onMouseOver={onOver} onMouseOut={onOut}
+              onClick={(ev) => { const b = valueOf(ev); if (b) openAt(b, true, ev.detail === 0); }}>
+              <EventValues e={e} mark={mark} showIgnored={showIgnored} picked={pop ? JSON.stringify(pop.path) : undefined}
+                onPick={() => {}} />
             </div>
             <Made e={e} kind={k.name} fold={fold} />
+            {pop && (
+              <div ref={popEl} className="wb-pop wb-picked" role="dialog" aria-label="The value picked" style={{ left: pop.x, top: pop.y }}
+                onMouseEnter={() => stop("close")} onMouseLeave={closeSoon}>
+                <Picked key={JSON.stringify(pop.path)} k={k} draft={draft} ed={ed} editable={editable} path={pop.path} value={pop.value}
+                  onDone={() => setPop(null)} />
+              </div>
+            )}
           </div>
         </>
       )}

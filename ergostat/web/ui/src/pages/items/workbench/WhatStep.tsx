@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { FOLDS, TYPES, type Draft } from "./draft";
+import { FOLDS, solvedKey, TYPES, type Draft } from "./draft";
 import { Commit } from "./KindsStep";
 import type { MappingEdits } from "./MappingStep";
 
-/* Step 1, what it is: the object's identity before any event is read. Its key (key:, the fields that are its
-   identity, in order: several make a composite key; each kind of event's key is then what it maps to them, step 4) and
-   its fields (fields:, each its type, values, fold and description). The query, the kinds of event and the mapping
-   then find the parts. */
+/* Step 1, what it is: its fields (fields:, each its type, values, fold and description). And its key (key:, the fields
+   that are an object's identity, in order: several make a composite key; each kind of event's key is then what it maps
+   to them, step 4), at the top of the panel on the right (KeySide), set before any mapping: from the fields declared,
+   or a new one made there. The query, the kinds of event and the mapping then find the parts. */
 
 /** The key: the declared fields chosen, in order (each moved up or down, or taken out), and a choice of the others
  *  to add. None chosen: the events' own item. */
@@ -83,10 +83,40 @@ function Fields({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; edita
 export function WhatStep({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; editable: boolean }) {
   return (
     <>
-      <h3 className="small">Its key <span className="muted">(the fields that are an object&apos;s identity, in order; each kind of event maps them)</span></h3>
-      <KeyFields draft={draft} editable={editable} onChange={ed.setKey} />
-      <h3 className="small">Its fields</h3>
+      <p className="muted small">Its key is at the top of the panel on the right.</p>
       <Fields draft={draft} ed={ed} editable={editable} />
     </>
+  );
+}
+
+/** The key at the top of the panel on the right: its fields in order, one added from those declared or made there and
+ *  then (a name and a type), and how many kinds of event tell every part of it. */
+export function KeySide({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; editable: boolean }) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState("text");
+  const v = name.trim();
+  const taken = draft.fields.some((f) => f.name === v);
+  const ok = /^[A-Za-z_][\w-]*$/.test(v) && !taken;
+  const add = () => { if (editable && ok) { ed.addKeyField(v, type); setName(""); } };
+  const all = draft.kinds.filter((k) => solvedKey(draft.key, k).every((p) => p.expr)).length;
+  return (
+    <section className="wb-keyside" aria-label="Its key">
+      <h2 className="small">Its key <span className="muted">the fields that are an object&apos;s identity, in order</span></h2>
+      <KeyFields draft={draft} editable={editable} onChange={ed.setKey} />
+      <p className="wb-row wb-newkey">
+        <input className="mono" value={name} onChange={(e) => setName(e.target.value)} placeholder="a new field" spellCheck={false}
+          aria-label="A new key field's name" disabled={!editable} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
+        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="A new key field's type" disabled={!editable}>
+          {TYPES.map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <button type="button" disabled={!editable || !ok} onClick={add}>Add to the key</button>
+        {taken && v && <span className="muted small">a field already: add it above</span>}
+      </p>
+      {draft.key.length > 0 && draft.kinds.length > 0 && (
+        <p className="small" data-testid="key-told">
+          <span className={all === draft.kinds.length ? undefined : "lvl-warn"}>{all} of {draft.kinds.length}</span> kind{draft.kinds.length === 1 ? "" : "s"} of event tell every key field
+        </p>
+      )}
+    </section>
   );
 }

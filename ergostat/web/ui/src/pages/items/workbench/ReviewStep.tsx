@@ -184,31 +184,63 @@ export function ReviewStep({ r, error, busy, onIgnore, editable }: {
   );
 }
 
-/** The panel on the right, beside the steps: one object (picked by its key) as its record and lifespan, the
-    residual (only what is not 0; all 0, one check), the lifecycles and each field's distribution. */
-export function SidePanel({ r, item, onItem }: { r: any; item: string; onItem: (k: string) => void }) {
-  const [key, setKey] = useState(item);
-  useEffect(() => setKey(item), [item]);
-  if (!r?.ok) return <p className="muted small">{r ? "The draft does not check: see the review." : "Not reviewed yet."}</p>;
+/** The objects the draft makes, one at a time: ‹ › to step through them (in key order), a search to jump to one by its
+    key, and the one shown as its record and its change history (Lifespan). */
+function Objects({ r, item, onItem }: { r: any; item: string; onItem: (k: string) => void }) {
+  const keys: string[] = r.objects.keys || r.objects.sample || [];
+  const [find, setFind] = useState("");
+  useEffect(() => { if (!item && keys.length) onItem(keys[0]); }, [item, keys.length]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const i = keys.indexOf(item);
+  const jump = () => {
+    const w = find.trim();
+    if (!w) return;
+    onItem(keys.includes(w) ? w : keys.find((k) => k.includes(w)) ?? w);
+  };
+  const t = r.timeline;
+  return (
+    <section className="wb-objects" aria-label="Its objects">
+      <h2 className="small">Its objects <span className="muted">{n(r.objects.count)}</span></h2>
+      {!keys.length ? <p className="muted small">None yet: no event is keyed to an object.</p> : (
+        <>
+          <div className="wb-row wb-browse">
+            <button type="button" className="ghost" aria-label="The previous object" disabled={i <= 0} onClick={() => onItem(keys[i - 1])}>‹</button>
+            <span className="small" data-testid="object-at">{i < 0 ? "–" : n(i + 1)} of {n(keys.length)}{r.objects.count > keys.length ? "+" : ""}</span>
+            <button type="button" className="ghost" aria-label="The next object" disabled={i >= keys.length - 1}
+              onClick={() => onItem(keys[i < 0 ? 0 : i + 1])}>›</button>
+            <input className="wb-grow mono" list="wb-objects" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Find an object by its key"
+              placeholder="find by key" onKeyDown={(e) => { if (e.key === "Enter") jump(); }} />
+            <datalist id="wb-objects">{keys.slice(0, 200).map((k) => <option key={k} value={k} />)}</datalist>
+          </div>
+          {t && t.key === item ? <><p className="small"><code data-testid="object-key">{t.key}</code></p><Lifespan t={t} /></>
+            : <p className="muted small">Reading…</p>}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** The panel on the right, beside the steps: its key (set before any mapping), its objects one at a time, the
+    lifecycles and each field's distribution, and the residual at the bottom (only what is not 0; all 0, one check). */
+export function SidePanel({ r, item, onItem, keyPart }: { r: any; item: string; onItem: (k: string) => void; keyPart: ReactNode }) {
+  if (!r?.ok) return <>{keyPart}<p className="muted small">{r ? "The draft does not check: see the review." : "Not reviewed yet."}</p></>;
   const s = r.residual;
   const none = unexplained(r).length === 0;
   return (
     <>
-      <h2 className="small">An object</h2>
-      <div className="wb-row">
-        <input className="wb-grow mono" list="wb-objects" value={key} onChange={(e) => setKey(e.target.value)} aria-label="An object's key"
-          placeholder={r.objects.sample?.[0] || "an object's key"} onKeyDown={(e) => { if (e.key === "Enter") onItem(key.trim()); }} />
-        <datalist id="wb-objects">{(r.objects.sample || []).map((k: string) => <option key={k} value={k} />)}</datalist>
-        <button type="button" disabled={!key.trim()} onClick={() => onItem(key.trim())}>Show</button>
-      </div>
-      {r.objects.sample?.length > 0 && !item && (
-        <p className="small muted wb-examples">For example: {r.objects.sample.slice(0, 3).map((k: string) => (
-          <button key={k} type="button" className="ghost mono" onClick={() => onItem(k)}>{k}</button>
-        ))}</p>
-      )}
-      {r.timeline && <Lifespan t={r.timeline} />}
+      {keyPart}
+      <Objects r={r} item={item} onItem={onItem} />
 
-      <h2 className="small">The residual</h2>
+      {Object.keys(r.lifecycles || {}).length > 0 && <h2 className="small">Lifecycles</h2>}
+      <div className="wb-dists">
+        {Object.entries(r.lifecycles || {}).map(([f, l]) => <Lifecycle key={f} field={f} l={l} />)}
+      </div>
+
+      <h2 className="small">Its fields, across the objects</h2>
+      {r.fields.length === 0 ? <p className="muted">No fields yet (step 1).</p> : (
+        <div className="wb-dists">{r.fields.map((f: any) => <Distribution key={f.field} f={f} />)}</div>
+      )}
+
+      <h2 className="small wb-residual-h">The residual</h2>
       {none ? <p data-testid="residual-ok">✓ Nothing unexplained</p> : (
         <ul className="wb-residual" aria-label="The residual">
           <Residue label="remainder: events no kind takes" count={s.remainder.count}>
@@ -253,15 +285,6 @@ export function SidePanel({ r, item, onItem }: { r: any; item: string; onItem: (
         </ul>
       )}
 
-      {Object.keys(r.lifecycles || {}).length > 0 && <h2 className="small">Lifecycles</h2>}
-      <div className="wb-dists">
-        {Object.entries(r.lifecycles || {}).map(([f, l]) => <Lifecycle key={f} field={f} l={l} />)}
-      </div>
-
-      <h2 className="small">Its fields, across the objects</h2>
-      {r.fields.length === 0 ? <p className="muted">No fields yet (step 1).</p> : (
-        <div className="wb-dists">{r.fields.map((f: any) => <Distribution key={f.field} f={f} />)}</div>
-      )}
     </>
   );
 }

@@ -36,6 +36,7 @@ MOST = 200_000             # events one answer reads, at most (the newest)
 RARE = 0.01                # a transition in fewer than this share of the objects with the field: a contradiction
 RARE_FROM = 50             # ... once at least this many objects have the field
 TIMELINE_MOST = 200        # events in one object's timeline
+KEYS_MOST = 1000           # objects' keys the item browser steps through
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 RESERVED = ("data", "time", "type", "key", "source", "current", "true", "false", "null", "True", "False", "None")
 
@@ -616,7 +617,7 @@ def review(p, ask: dict) -> dict:
     out.update({
         "read": {"events": len(evs), **how},
         "kinds": per_kind,
-        "objects": {"count": len(items), "sample": sorted(items)[:3],
+        "objects": {"count": len(items), "sample": sorted(items)[:3], "keys": sorted(items)[:KEYS_MOST],
                     "key": list(kind.key) if kind.key else ["key (the events' item)"],
                     "one_event": sum(1 for it in its if it.n == 1)},
         "fields": distributions(kind, its),

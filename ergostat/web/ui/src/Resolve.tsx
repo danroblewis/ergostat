@@ -4,6 +4,7 @@ import { AppLink, ErrorNote, Loading, Page } from "./components";
 import { agentHref, dashboardHref, diagramHref, itemHref, projectionHref, scopeHref } from "./lib/hrefs";
 import { idOf, projectionsOfId } from "./lib/routes";
 import { resolve, type RouteTable } from "./lib/systemRoutes";
+import { keptDrop, keptGet, keptSet, newProjectionKey } from "./lib/kept";
 import { ownOf, useDashboards, type DashboardListed } from "./state/dashboards";
 
 /* Every address but the server's, read one segment at a time from the top level by lib/systemRoutes.ts (the same rules
@@ -67,12 +68,18 @@ export default function Resolve() {
       onSaved={(name) => navigate(`${table.scopes[system]?.path.replace(/\/$/, "") || ""}/${encodeURIComponent(localOf(name, system))}`)}
       onCancel={() => navigate(-1)} />;
   }
-  const fresh = (state as any)?.newProjection;
-  if (fresh && !(at?.kind === "projection" && at.name === fresh)) {   // the nav bar's + after the projections: until saved
-    const system = String((state as any).system || "");
-    return <Projection key={`new:${fresh}:${(state as any).at}`} projection={fresh} system={system} creating
-      onCreated={() => navigate(pathname, { replace: true })} onCancel={() => navigate(-1)} />;
+  // the nav bar's + after the projections: until saved. Kept for the tab too (lib/kept.ts): a change to the address's
+  // query (a search, the window) replaces the history entry without its state, and a reload drops it
+  const st = state as any;
+  const ask = st?.newProjection ? { name: String(st.newProjection), system: String(st.system || ""), at: st.at }
+    : keptGet<{ name: string; system: string; at: unknown }>(newProjectionKey(pathname));
+  if (ask && !(at?.kind === "projection" && at.name === ask.name)) {
+    if (st?.newProjection) keptSet(newProjectionKey(pathname), ask);
+    const done = () => keptDrop(newProjectionKey(pathname));
+    return <Projection key={`new:${ask.name}:${ask.at}`} projection={ask.name} system={ask.system} creating
+      onCreated={() => { done(); navigate(pathname, { replace: true }); }} onCancel={() => { done(); navigate(-1); }} />;
   }
+  if (ask) keptDrop(newProjectionKey(pathname));                   // saved: the model has it now
   if (!at) return old(table, pathname, search, q, hash) ?? <NothingHere pathname={pathname} />;
   if (at.redirect) return go(at.redirect);                         // a deeper address: the top-most
   const system = at.scope;

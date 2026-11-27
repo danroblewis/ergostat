@@ -7,6 +7,7 @@ import { SharedAnswers } from "../../components/panels/shared";
 import type { PanelDef } from "../../components/panels/types";
 import { usePanelApi } from "../../components/panels/usePanelApi";
 import { apiSend } from "../../lib/api";
+import { draftKey, keptDrop, keptGet, keptSet, stepsKey } from "../../lib/kept";
 import { PROJECTION_PANELS } from "../../lib/pages";
 import { starter, useTry } from "./DefinitionEditor";
 import { Workbench } from "./workbench/Workbench";
@@ -70,17 +71,27 @@ export default function ProjectionPage({ projection, system = "", creating = fal
         await apiSend("projections/save", { name: projection, yaml: text, system: system || undefined, new: creating || undefined });
       }
     },
-    onDone: () => { setSaved((x) => x + 1); if (creating) onCreated?.(); },
-    onCancel: () => { if (creating) onCancel?.(); },
+    onDone: () => { forget(); setSaved((x) => x + 1); if (creating) onCreated?.(); },
+    onCancel: () => { forget(); if (creating) onCancel?.(); },
   });
+  // the draft kept for the tab while editing (lib/kept.ts), so that a reload or a remount loses no work: restored when
+  // the page opens again, forgotten on Save or Cancel
+  const kk = draftKey(system, projection);
+  const forget = () => keptDrop(kk, stepsKey(system, projection));
   const fp = usePanelApi<any>(`projections/${encodeURIComponent(projection)}`, {}, 30000, saved);
-  useEffect(() => { if (creating && !ed.editing) ed.begin(); }, [creating]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if ((creating || keptGet(kk)) && !ed.editing) ed.begin(); }, [creating]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {                                       // editing: the definition as written (a new one: a start)
     if (!ed.editing) { setText(null); setWas(null); return; }
     if (text != null) return;
+    const kept = keptGet<{ text: string; was: string }>(kk);
+    if (kept && typeof kept.text === "string") { setText(kept.text); setWas(typeof kept.was === "string" ? kept.was : kept.text); return; }
     const t = creating || fp.error ? starter(projection) : fp.data ? (fp.data.yaml ?? null) : null;
     if (t != null) { setText(t); setWas(t); }
   }, [ed.editing, fp.data, fp.error]);                    // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ed.editing || text == null) return;
+    if (creating || text !== was) keptSet(kk, { text, was }); else keptDrop(kk);
+  }, [text, was]);                                        // eslint-disable-line react-hooks/exhaustive-deps
   const problems = useMemo(() => (tried.report && !tried.report.ok ? tried.report.errors : tried.report ? [] : undefined), [tried.report]);
   const draft: string | undefined = ed.editing && tried.report?.ok ? tried.report.draft : undefined;
 
@@ -112,7 +123,8 @@ export default function ProjectionPage({ projection, system = "", creating = fal
       )}
       {ed.bar && <div className="page-edit">{ed.bar}</div>}
       {ed.editing && text != null && (
-        <Workbench name={projection} system={system} text={text} setText={setText} creating={creating}
+        <Workbench name={projection} system={system} text={text} creating={creating}
+          setText={(v) => setText((p) => (typeof v === "function" ? (p == null ? p : v(p)) : v))}
           problems={problems} />
       )}
       <SharedAnswers answers={[

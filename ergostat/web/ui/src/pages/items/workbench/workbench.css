@@ -76,3 +76,17 @@
 .jv-to { color: var(--accent); font-size: var(--text-sm); }
 .wb-sample .jv-val.jv-unmapped { text-decoration: underline dotted var(--warn); text-underline-offset: var(--sp-0); }
 li.jv-ignored, .jv-val.jv-ignored { opacity: 0.5; text-decoration: line-through; }
+
+/* the floating panel a value in a sample event opens (hovered or clicked), anchored under the value */
+.wb-pair { position: relative; }
+.wb-pop { position: absolute; z-index: 5; width: 22em; max-width: 100%; padding: var(--sp-1) var(--sp-2); background: var(--bg);
+  border: var(--hair) solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-menu); }
+.wb-map.done > summary { color: var(--ink-2); }
+.wb-done { color: var(--accent); }
+.wb-same-from { display: block; }
+.wb-same-one button { padding: 0 var(--sp-0); }
+.wb-keyside { margin: 0 0 var(--sp-2); }
+.wb-newkey { margin: var(--sp-1) 0 0; align-items: center; }
+.wb-newkey input { width: 10em; }
+.wb-browse { align-items: center; margin: var(--sp-1) 0; }
+.wb-browse input { min-width: 8em; }
