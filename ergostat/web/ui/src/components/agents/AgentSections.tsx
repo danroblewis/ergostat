@@ -3,6 +3,7 @@ import { ago, bytesText, costText, cpuText, op, tokensText } from "../../lib/for
 import { goalWord } from "../../lib/goals";
 import { AgentLink } from "../links";
 import { Code, Markdown } from "../Markdown";
+import { diagramHref } from "../../lib/hrefs";
 import { AppLink, Dl, Muted, Rich, StatusWord } from "../ui";
 import { agentTally, rolesText } from "./agentParts";
 import "./agents.css";
@@ -179,7 +180,7 @@ export function Place({ a, name, loops }: { a: any; name: string; loops: any }) 
         ["commands", (pl.commands || []).length ? list(pl.commands) : null],
         ["working now", w ? (w.n == null ? "not known" : `working ${w.n} ${w.projection}${w.n === 1 ? "" : "s"}`) : null],
       ]} />
-      <p><AppLink to={`/diagram?view=blocks&around=block/${encodeURIComponent(name)}`}>Show on Blocks</AppLink></p>
+      <p><AppLink to={diagramHref({ view: "blocks", around: `block/${name}` })}>Show on Blocks</AppLink></p>
     </>
   );
 }

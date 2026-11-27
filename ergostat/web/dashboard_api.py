@@ -46,6 +46,8 @@ PATHS.update({"events": "events", "goal-crossings": "loops/{goal}", "goal-decisi
 PATHS.update({"attention": "status", "feedback-loops": "graph", "control-loops": "graph", "quiet-systems": "systems",
               "goal-runbook": "loops/{goal}", "goal-parts": "loops/{goal}", "goal-control": "loop-control"})   # attention
 # a kind whose endpoint is asked with words of its own, besides its parameters (KIND → query)
+# a kind whose system: is worked out here (its endpoint takes none): its rows those the system contains
+SCOPED_HERE = ("goals", "agents", "ladder", "chart", "projections", "attention")
 FIXED = {"feedback-loops": {"view": ["dynamics"]}, "control-loops": {"view": ["blocks"]}}
 
 
@@ -77,18 +79,20 @@ def listing(p) -> list[dict]:
     ds = [default(spec), *(getattr(spec, "dashboards", None) or {}).values()]
     return [{"name": d.name, "title": d.title, "description": d.description, "panels": len(d.panels),
              "window": d.window, "declared": d.name != "default", "nav": d.nav, "page": d.page,
-             "projection": d.projection, "role": d.role} for d in ds]
+             "projection": d.projection, "role": d.role, "system": d.system} for d in ds]
 
 
 def words_of(p, d: Dashboard, one) -> dict:
     """The address's words a dashboard's ``$WORD`` panels take: its page's (``agent=NAME``, as asked); a projection's
-    own, or one named as a projection, that projection; a projection's show dashboard, the item asked for."""
+    own, or one named as a projection, that projection; a projection's show dashboard, the item asked for; and the
+    system it is drawn in (``system=``, as asked; else the system it is written in, "" the top level)."""
     spec = getattr(p.model, "spec", None)
-    out = {}
+    out = {"system": one("system") if one("system") is not None else (d.system or "")}
+    local = d.name.split(".", 1)[1] if d.system and d.name.startswith(d.system + ".") else d.name
     if d.projection:
         out["projection"] = d.projection
-    elif d.page is None and spec is not None and d.name in spec.items:
-        out["projection"] = d.name
+    elif d.page is None and spec is not None and local in spec.items:
+        out["projection"] = local
     for word in {PAGES.get(d.page or ""), "item" if d.role == "show" else None, "projection"} - {None}:
         if word not in out and one(word):
             out[word] = one(word)
@@ -230,14 +234,35 @@ def _run(live, p, panel: Panel, q: dict, snap):
         return got
     if panel.panel not in PATHS:                   # drawn by the page from its parameters alone (a legend)
         return {k: v for k, v in panel.params.items() if k not in ("fit", "quiet")}
+    system = panel.params.get("system")
+    contains = _contains(p, system) if isinstance(system, str) and system and not system.startswith("$") else None
+    if panel.panel == "chart" and not panel.params.get("refs"):     # a system's: its stocks and flows
+        refs = [f"{k}.{r['name']}" for k, plural in (("stock", "stocks"), ("flow", "flows"))
+                for r in (contains or _contains(p, "") or {}).get(plural, [])][:8]
+        panel = Panel(panel.panel, panel.title, panel.size, panel.note, {**panel.params, "refs": refs}, panel.where)
     path, asked = PATHS[panel.panel], {k: v for k, v in panel.params.items()
-                                       if k not in ("goals", "columns", "fit", "quiet", "show")}
+                                       if k not in ("goals", "columns", "fit", "quiet", "show")
+                                       and not (k == "system" and panel.panel in SCOPED_HERE)}
     for k in [k for k in asked if "{" + k + "}" in path]:   # a path naming one thing (agents/{agent}): it, not a query
         path = path.replace("{" + k + "}", quote(str(asked.pop(k)), safe=""))
     got = _answer(live, path, {**q, **FIXED.get(panel.panel, {}), **query(asked)}, p, snap)
     if panel.panel == "goals" and isinstance(got, dict) and panel.params.get("goals"):
         got = {g: got[g] for g in names(panel.params["goals"]) if g in got}
+    if panel.panel in ("goals", "agents", "ladder") and isinstance(got, dict) and contains is not None:
+        mine = {r["name"] for k in (("goals",) if panel.panel == "goals" else ("agents", "blocks"))   # an agent: its
+                for r in contains.get(k, [])}                                                   # block's name too
+        got = {g: v for g, v in got.items() if g in mine}
     return got
+
+
+def _contains(p, system: str | None) -> dict | None:
+    """What a system contains (spec/scope.py), by plural: None when the model has no such system."""
+    from ..spec.scope import scope
+    spec = getattr(p.model, "spec", None)
+    if spec is None or system is None:
+        return None
+    got = scope(spec).get(system)
+    return got["contains"] if got else None
 
 
 def answer(live, p, name: str | None, q: dict, wait: bool = False) -> dict | None:

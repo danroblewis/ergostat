@@ -1,7 +1,7 @@
 /* The page's addresses per system (SPEC §4f, Addresses): the same rules as ergostat/spec/routes.py (its docstring says
    them), over the route table it writes (GET /api/route-table). Both are checked against tests/fixtures/route_cases.json
    (tests/test_system_routes.py runs this file with node). Self-contained, with no imports and only erasable types, so
-   node runs it as it is. Not yet the page's resolver: lib/routes.ts and Resolve.tsx still are. */
+   node runs it as it is. The page's resolver (Resolve.tsx) and every link it writes (lib/hrefs.ts) are these. */
 
 export type Segment = { kind: "dashboard" | "projection" | "system"; name: string; default?: boolean; projection?: string };
 export type Scope = { within: string | null; path: string; segments: Record<string, Segment> };

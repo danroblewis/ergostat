@@ -16,10 +16,12 @@ const HEADS: Partial<Record<GoalColumn, [string, boolean?]>> = {
   timeOff: ["time off", true], backIn: ["back in", true], spark: ["trend"], performance: ["behaviour"], acted: ["acted"],
 };
 
-export function GoalsTable({ loops, only, columns = ALL_COLUMNS, selected, onOpen, caption = "Goals" }: {
+export function GoalsTable({ loops, only, columns = ALL_COLUMNS, selected, onOpen, caption = "Goals", mark }: {
   loops: Record<string, any>;
-  /** these goals alone (a panel's goals:), else every one */
+  /** these goals alone (a panel's goals:, or a system's), else every one */
   only?: string[] | null;
+  /** a row's class and title (an ancillary goal: greyer, saying where it is defined) */
+  mark?: (name: string) => { className?: string; title?: string };
   columns?: GoalColumn[];
   selected?: string | null;
   onOpen: (name: string) => void;
@@ -46,7 +48,8 @@ export function GoalsTable({ loops, only, columns = ALL_COLUMNS, selected, onOpe
       </Table.Head>
       <Table.Body>
         {rows.map((g) => (
-          <Table.Row key={g.name} onClick={() => onOpen(g.name)} className={selected === g.name ? "selected" : undefined}>
+          <Table.Row key={g.name} onClick={() => onOpen(g.name)} title={mark?.(g.name).title}
+            className={[selected === g.name ? "selected" : "", mark?.(g.name).className || ""].join(" ").trim() || undefined}>
             <GoalCells g={{ ...g, behaviour: word(g.name, g) }} columns={columns} open={onOpen} at={at} />
           </Table.Row>
         ))}

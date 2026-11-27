@@ -890,13 +890,13 @@
         },
         {
           "if": {"properties": {"panel": {"const": "goals"}}},
-          "then": {"propertyNames": {"enum": ["panel", "columns", "fit", "goals", "note", "quiet", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "columns", "fit", "goals", "note", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "chart"}}},
           "then": {
             "required": ["refs"],
-            "propertyNames": {"enum": ["panel", "fan", "fit", "note", "points", "quiet", "refs", "replay", "size", "title"]}
+            "propertyNames": {"enum": ["panel", "fan", "fit", "note", "points", "quiet", "refs", "replay", "size", "system", "title"]}
           }
         },
         {
@@ -927,24 +927,15 @@
         },
         {
           "if": {"properties": {"panel": {"const": "states"}}},
-          "then": {
-            "required": ["projection"],
-            "propertyNames": {"enum": ["panel", "fit", "note", "points", "projection", "quiet", "size", "title"]}
-          }
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "points", "projection", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "cycle-time"}}},
-          "then": {
-            "required": ["projection"],
-            "propertyNames": {"enum": ["panel", "fit", "note", "points", "projection", "quiet", "size", "title"]}
-          }
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "points", "projection", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "scope"}}},
-          "then": {
-            "required": ["goal"],
-            "propertyNames": {"enum": ["panel", "fit", "goal", "note", "points", "quiet", "size", "title"]}
-          }
+          "then": {"propertyNames": {"enum": ["panel", "fit", "goal", "note", "points", "quiet", "size", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "items-graph"}}},
@@ -970,11 +961,11 @@
         },
         {
           "if": {"properties": {"panel": {"const": "ladder"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "agents"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "daemons"}}},
@@ -1017,7 +1008,7 @@
         },
         {
           "if": {"properties": {"panel": {"const": "projections"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "states", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "states", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "items-by-projection"}}},
@@ -1112,6 +1103,7 @@
                 "remote",
                 "runs",
                 "size",
+                "system",
                 "title",
                 "to",
                 "window"
@@ -1129,7 +1121,7 @@
         },
         {
           "if": {"properties": {"panel": {"const": "attention"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "show", "size", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "show", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "legend"}}},

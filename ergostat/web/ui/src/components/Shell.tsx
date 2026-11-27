@@ -2,45 +2,53 @@ import { useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { isPublic } from "../lib/api";
 import { ago, clock, dur, recordedShort } from "../lib/format";
-import { dashboardHref, useDashboards } from "../state/dashboards";
+import { dashboardHref, diagramHref, projectionHref, scopeHref } from "../lib/hrefs";
+import { DEFAULTS } from "../lib/pages";
+import type { ProjectionRoute } from "../lib/routes";
+import { ancillaryMark, scopedBy, type Scoped } from "../lib/scoped";
+import type { RouteTable } from "../lib/systemRoutes";
+import { useAddress, useDashboards, type DashboardListed } from "../state/dashboards";
 import { goalsOff, useStatus, waitsOnYou, type SensorFailing } from "../state/status";
 import { WINDOW_WORDS, WINDOWS, type WindowKey, useTime } from "../state/time";
 import { Menu } from "./Menu";
-import type { ProjectionRoute } from "../lib/routes";
 
-/* The app's frame: the header (brand, run state, what waits for the owner, the pages, the window) and the
-   page beneath it. */
-
-const NAV: [string, string][] = [
-  ["/diagram", "Diagram"], ["/goals", "Goals"], ["/agents", "Agents"], ["/record", "Record"],
-];
+/* The app's frame: the header (brand, the System tree, run state, what waits for the owner, the chosen system's nav
+   bar, the window) and the page beneath it. The system is the address's (useAddress: the scope it is read in), never
+   kept anywhere else (cascading control: the nav bar is the chosen system's). The nav bar: that system's dashboards
+   (its defaults, then the model's with `nav:`, then the hover +), a bar, then the projections it contains (an
+   ancillary one greyer), those with one `group:` one menu labelled by the group. */
 
 export function Shell({ children }: { children: ReactNode }) {
   const { since } = useTime();
   const carried = since === "1h" ? "" : `?window=${since}`;   // the window chosen, carried to the page gone to
-  const { list, projections } = useDashboards();   // the model's projections (each at /NAME) and dashboards with nav:
-  const own = (projections || []).filter((p) => p.declared);   // the model's own, not ergostat's
-  const navDashboards: [string, string][] = (list || []).filter((d) => d.nav != null)
+  const { list, projections, table } = useDashboards();
+  const { scope } = useAddress();
+  const s = scopedBy(table, scope);
+  const segs = table?.scopes[scope]?.segments || {};
+  const defaults = DEFAULTS.filter(([d]) => !table || segs[d]);
+  const navDashboards: [string, string][] = (list || []).filter((d) => d.nav != null && isScopes(d, scope, table))
     .map((d) => [dashboardHref(d.name), d.nav || d.title || d.name]);
+  const shown = (projections || []).filter((p) => (s ? s.has("projections", p.name) : p.declared));
   return (
     <>
       <header className="bar">
         <span className="where">
-          <Link className="brand" to="/diagram">ergostat</Link>
+          <Link className="brand" to={scopeHref("", "overview")}>ergostat</Link>
+          <SystemTree table={table} scope={scope} carried={carried} />
           <RunState />
           <Failing />
           <Waits />
         </span>
-        <nav id="nav">
-          {NAV.map(([to, label]) => (
-            <NavLink key={to} to={to + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
+        <nav id="nav" aria-label={`${scope || "The top level"}: its dashboards and projections`}>
+          {defaults.map(([d, label]) => (
+            <NavLink key={d} to={scopeHref(scope, d) + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
           ))}
           {navDashboards.map(([to, label]) => (
             <NavLink key={to} to={to + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
           ))}
           <NewDashboard />
-          {own.length > 0 && <span className="nav-bar-sep" aria-hidden="true" />}
-          <ProjectionNav projections={own} carried={carried} />
+          {shown.length > 0 && <span className="nav-bar-sep" aria-hidden="true" />}
+          <ProjectionNav projections={shown} carried={carried} scoped={s} />
         </nav>
         <span id="when"><WindowMenu /></span>
       </header>
@@ -49,8 +57,46 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
+/** Whether a dashboard the model writes is this scope's own, for its nav bar (not one in place of a default, or a
+ *  projection's list there, which have their own entries). */
+function isScopes(d: DashboardListed, scope: string, t: RouteTable | undefined): boolean {
+  if ((d.system || "") !== scope || d.page || d.projection) return false;
+  const local = scope && d.name.startsWith(scope + ".") ? d.name.slice(scope.length + 1) : d.name;
+  const seg = t?.scopes[scope]?.segments[local];
+  return !DEFAULTS.some(([x]) => x === local) && !seg?.projection;
+}
+
+/** The System tree, top left: the top level first (the model's name, or Everything), then each system under the one
+ *  it is within; choosing one goes to its overview. */
+function SystemTree({ table, scope, carried }: { table: RouteTable | undefined; scope: string; carried: string }) {
+  const navigate = useNavigate();
+  const { status } = useStatus();
+  if (!table) return null;
+  const top = status?.name || "Everything";
+  const rows: [string, number][] = [];
+  const add = (parent: string, depth: number) => {
+    for (const x of Object.keys(table.scopes).filter((k) => k !== "" && table.scopes[k].within === parent)) {
+      if (rows.some(([r]) => r === x)) continue;
+      rows.push([x, depth]);
+      add(x, depth + 1);
+    }
+  };
+  add("", 1);
+  return (
+    <Menu label={<><span className="muted small">System </span>{scope || top}</>} className="system-menu"
+      title="The system the nav bar is of: systems contain systems">
+      <Menu.Item checked={scope === ""} onSelect={() => navigate(scopeHref("", "overview") + carried)}>{top}</Menu.Item>
+      {rows.map(([x, depth]) => (
+        <Menu.Item key={x} checked={scope === x} onSelect={() => navigate(scopeHref(x, "overview") + carried)}>
+          <span className="depth" style={{ width: `${depth * 1.1}em` }} aria-hidden="true" />{x}
+        </Menu.Item>
+      ))}
+    </Menu>
+  );
+}
+
 /** The + at the end of the nav bar's dashboards, seen on hover: a new, empty dashboard, drawn where the page is until it
- *  is saved under its name (Resolve.tsx, components/panels/NewDashboard.tsx). */
+ *  is saved under its name, in the system whose nav bar it is (Resolve.tsx, components/panels/NewDashboard.tsx). */
 function NewDashboard() {
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
@@ -61,24 +107,31 @@ function NewDashboard() {
   );
 }
 
-/** The model's projections after a bar, each its own link to its list (/NAME); those the model gives one `group:` are
- *  one menu, labelled by the group, in the place of the group's first. */
-function ProjectionNav({ projections, carried }: { projections: ProjectionRoute[]; carried: string }) {
+/** The scope's projections after a bar, each its own link to its list; those the model gives one `group:` are one
+ *  menu, labelled by the group, in the place of the group's first. An ancillary one (defined in another system, or
+ *  ergostat's own) is greyer, its title saying where it is defined. */
+function ProjectionNav({ projections, carried, scoped }: { projections: ProjectionRoute[]; carried: string; scoped: Scoped | null }) {
   const navigate = useNavigate();
-  const head = decodeURIComponent(useLocation().pathname.split("/")[1] || "");
+  const { at } = useAddress();
+  const here = at && (at.kind === "projection" || at.kind === "item") ? at.name : at?.projection ?? null;
+  const to = (name: string) => projectionHref(name, "", scoped?.system) + carried;
   const seen = new Set<string>();
   const out: ReactNode[] = [];
   for (const p of projections) {
+    const mark = ancillaryMark(scoped, "projections", p.name);
     if (!p.group) {
-      out.push(<NavLink key={p.name} to={`/${encodeURIComponent(p.name)}${carried}`}
-        className={({ isActive }) => (isActive ? "on" : undefined)}>{title(p.name)}</NavLink>);
+      out.push(<NavLink key={p.name} to={to(p.name)} title={mark.title}
+        className={({ isActive }) => [isActive || here === p.name ? "on" : "", mark.className || ""].join(" ").trim() || undefined}>{title(p.name)}</NavLink>);
     } else if (!seen.has(p.group)) {
       seen.add(p.group);
       const members = projections.filter((q) => q.group === p.group);
+      const all = members.every((q) => ancillaryMark(scoped, "projections", q.name).className);
       out.push(
-        <Menu key={`group:${p.group}`} label={title(p.group)} buttonClassName={members.some((q) => q.name === head) ? "on" : ""}>
-          {members.map((q) => <Menu.Item key={q.name} checked={q.name === head}
-            onSelect={() => navigate(`/${encodeURIComponent(q.name)}${carried}`)}>{title(q.name)}</Menu.Item>)}
+        <Menu key={`group:${p.group}`} label={title(p.group)}
+          buttonClassName={[members.some((q) => q.name === here) ? "on" : "", all ? "ancillary" : ""].join(" ").trim()}>
+          {members.map((q) => <Menu.Item key={q.name} checked={q.name === here}
+            onSelect={() => navigate(to(q.name))}>
+            <span {...ancillaryMark(scoped, "projections", q.name)}>{title(q.name)}</span></Menu.Item>)}
         </Menu>);
     }
   }
@@ -102,7 +155,7 @@ function RunState() {
     ...names,
   ].filter(Boolean).join("\n");
   if (edited) return <ModelErrors cls={cls} said={said} banner={edited.banner} errors={edited.errors || []} />;
-  return <Link id="running" className={cls} to="/goals" title={tip || undefined}>{said}</Link>;
+  return <Link id="running" className={cls} to={scopeHref("", "goals")} title={tip || undefined}>{said}</Link>;
 }
 
 /* the model file's errors, said in a small note under the run state (`ergostat check` says the same in a terminal) */
@@ -126,7 +179,7 @@ function Failing() {
   const xs: SensorFailing[] = status?.sensors_failing || [];
   if (!xs.length) return null;
   const tip = xs.map((x) => `${x.sensor}: ${x.why}`).join("\n");
-  return <Link id="sensors-failing" className="runstate bad" to="/diagram" title={tip}>
+  return <Link id="sensors-failing" className="runstate bad" to={diagramHref()} title={tip}>
     {xs.length} sensor{xs.length === 1 ? "" : "s"} failing</Link>;
 }
 
@@ -135,7 +188,7 @@ function Waits() {
   const n = (status?.attention || []).filter(waitsOnYou).length;
   return (
     <span className="waits-said" aria-live="polite" aria-atomic="true">
-      {n > 0 && <Link id="waits" className="waits" to="/diagram#waiting" title={`${n} wait for you`}>{n} for you</Link>}
+      {n > 0 && <Link id="waits" className="waits" to={`${diagramHref()}#waiting`} title={`${n} wait for you`}>{n} for you</Link>}
     </span>
   );
 }

@@ -23,7 +23,9 @@ export function ProcessMapLink({ projection }: { projection: string }) {
 
 /** The overview (an answer of GET /api/items-overview): under each system, a card per projection with its counts, rates and
  *  its states over the window (`all`: each state, else their groups); the projections quiet in the window named after. */
-export function ProjectionsOverview({ d, all }: { d: any; all: boolean }) {
+export function ProjectionsOverview({ d, all, mark }: { d: any; all: boolean;
+  /** a card's class and title (an ancillary projection: greyer, saying where it is defined) */
+  mark?: (name: string) => { className?: string; title?: string } }) {
   const projectionOf: Record<string, any> = Object.fromEntries(d.projections.map((k: any) => [k.name, k]));
   const quiet = d.projections.filter((k: any) => k.quiet);
   return (
@@ -35,7 +37,7 @@ export function ProjectionsOverview({ d, all }: { d: any; all: boolean }) {
         return (
           <SystemGroup key={g.name} name={g.name} count={`${plural(n, "item")}, ${plural(ks.length, "projection")}`} description={g.description}>
             <div className="projection-cards">
-              {ks.map((k: any) => <ProjectionCard key={k.name} k={k} d={d} all={all} />)}
+              {ks.map((k: any) => <ProjectionCard key={k.name} k={k} d={d} all={all} mark={mark?.(k.name)} />)}
             </div>
           </SystemGroup>
         );
@@ -54,10 +56,11 @@ export function ProjectionsOverview({ d, all }: { d: any; all: boolean }) {
   );
 }
 
-function ProjectionCard({ k, d, all }: { k: any; d: any; all: boolean }) {
+function ProjectionCard({ k, d, all, mark }: { k: any; d: any; all: boolean; mark?: { className?: string; title?: string } }) {
   const states: string[] = all ? k.states : d.groups.filter((g: string) => k.by_group && g in k.by_group);
   return (
-    <div className="projection-flow projection-card" data-projection={k.name}>
+    <div className={`projection-flow projection-card${mark?.className ? ` ${mark.className}` : ""}`} title={mark?.title}
+      data-projection={k.name}>
       <Link to={projectionHref(k.name)} className="kname">
         {k.title || k.name}
         <span className="mono">{k.title ? k.name : k.id}</span>

@@ -54,9 +54,10 @@ def boards(tmp_path):
 
 def test_a_nav_dashboard_is_in_the_header_at_its_own_address(browser, boards):
     _, url = boards
-    pg = opened(browser, url + "/diagram")
+    pg = opened(browser, url + "/diagrams")
     pg.wait_for_function("() => [...document.querySelectorAll('#nav a')].some((a) => a.textContent === 'Crew')", timeout=WAIT)
-    assert pg.locator("#nav a").all_inner_texts() == ["Diagram", "Goals", "Agents", "Record", "Crew", "Ticket"]  # then the projections
+    assert pg.locator("#nav a").all_inner_texts() == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Crew",
+                                                      "Ticket"]                 # the defaults, the model's, the projections
     pg.locator("#nav a", has_text="Crew").click()
     pg.wait_for_url("**/crew", timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('The crew')", timeout=WAIT)
@@ -83,7 +84,8 @@ def test_a_page_declared_in_place_is_drawn_and_builtin_shows_ergostats_own(brows
 
 def test_an_agent_page_in_place_takes_its_agent_from_the_address(browser, boards):
     _, url = boards
-    pg = opened(browser, url + "/agent/worker")
+    pg = opened(browser, url + "/agent/worker")                     # the old address: the agent's own
+    pg.wait_for_url("**/agents/worker", timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('One agent')", timeout=WAIT)
     pg.locator(".panel.panel-kind-agent-what").wait_for(timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('.panel-kind-agent-what')?.innerText.includes('Runs ls inbox')", timeout=WAIT)
@@ -224,7 +226,7 @@ def test_the_goals_page_is_saved_as_the_dashboard_goals_and_reset(browser, plain
 
 def test_the_nav_bar_s_plus_makes_a_new_dashboard_in_the_nav(browser, plain):
     p, url = plain
-    pg = opened(browser, url + "/diagram")
+    pg = opened(browser, url + "/diagrams")
     pg.wait_for_selector("#nav a", timeout=WAIT)
     plus = pg.get_by_role("button", name="New dashboard")
     pg.locator("#nav").hover()

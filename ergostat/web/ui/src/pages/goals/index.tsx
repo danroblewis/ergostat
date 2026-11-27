@@ -8,14 +8,15 @@ import { goalsOff, useStatus } from "../../state/status";
 
 /* Goals (the old pages.js pageLoops), a dashboard made in advance (lib/pages.ts): the quiet-systems panel (drawn only
    when a system is quiet) and the goals panel, full width with every column. A click opens the goal's detail beside
-   the page, the goal chosen kept in the address (?select=NAME): the page's own, handed to the panel. Edited in place,
-   it is saved as the dashboard named goals, drawn here in place of this page. */
+   the page, the goal chosen kept in the address (?select=NAME): the page's own, handed to the panel. Each system has
+   one (/goals, /SYSTEM/goals): its goals, those it contains (an ancillary one greyer). Edited in place, it is saved as
+   the dashboard named goals of that system, drawn here in place of this page. */
 
 const BASE = pageDashboard("goals");
 
 const EVERY = 3000;
 
-export default function GoalsPage() {
+export default function GoalsPage({ system = "" }: { system?: string }) {
   const { status } = useStatus();
   const detail = useDetail();
   const [q, setQ] = useSearchParams();
@@ -39,7 +40,7 @@ export default function GoalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail.key]);
 
-  const ed = useEditing({ base: BASE, target: { name: "goals" } });
+  const ed = useEditing({ base: BASE, target: { name: "goals", system }, bind: { system } });
   const decorate = useMemo(() => (d: any) => (d.panel === "goals" ? { ...d, onOpen: open, selected } : d), [open, selected]);
   const off = goalsOff(status);
   const w = windowNote(status);

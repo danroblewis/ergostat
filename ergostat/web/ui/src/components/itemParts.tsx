@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ago, dur, nowS, stamp } from "../lib/format";
-import { diagramHref, itemHref, projectionHref } from "../lib/hrefs";
+import { diagramHref, eventsHref, itemHref, projectionHref } from "../lib/hrefs";
 import { Meta } from "./controls";
 import { EventsTable, useShowEvent } from "./events";
 import { FieldValue, isShort } from "./items";
@@ -238,7 +238,7 @@ export function ItemEvents({ d }: { d: any }) {
       {d.transcript_events > 0 && (
         <Note>
           {d.transcript_events} more events are its transcript's lines (claude.*), folded into its fields;{" "}
-          <Link to={`/record?item=${encodeURIComponent(d.id)}`}>all of them in the Record</Link>.
+          <Link to={eventsHref(`item=${encodeURIComponent(d.id)}`)}>all of them in the Events</Link>.
         </Note>
       )}
       {d.rollup && (

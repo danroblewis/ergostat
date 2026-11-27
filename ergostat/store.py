@@ -363,13 +363,21 @@ class Events:
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
               since: float | None = None, after_seq: int | None = None, until: float | None = None,
               skip: tuple[str, ...] = (), unvoided: bool = False, machine: str | None = None,
-              before_seq: int | None = None, first: int | None = None) -> list[dict]:
+              before_seq: int | None = None, first: int | None = None,
+              scoped: tuple[tuple[str, ...], tuple[str, ...]] | None = None) -> list[dict]:
         """Matching events, oldest first; the newest ``n`` when ``n`` is given, the oldest ``first`` (over ``n``)
         when that is. ``type`` may end in
         ``*``, and may be several, joined by commas; types in ``skip`` are left out. ``machine``: from
-        that source or one of its instances (``<machine>/<instance>``)."""
+        that source or one of its instances (``<machine>/<instance>``). ``scoped``: (item globs, sources): only the
+        events whose item one of the globs matches, or whose source is one of the sources (or its instance): a
+        system's (spec/scope.py)."""
         where, args = [], []
         _skipping(skip, where, args)
+        if scoped is not None:
+            globs, sources = scoped
+            ors = ["item glob ?"] * len(globs) + ["(source = ? or source like ?)"] * len(sources)
+            args += [g.replace("[!", "[^") for g in globs] + [x for s in sources for x in (s, s + "/%")]
+            where.append("(" + " or ".join(ors) + ")" if ors else "0")
         if unvoided:                                     # crossings a forgotten reading caused are left out
             where.append("id not in (select j.value from events f, json_each(f.data, '$.voids') j "
                          "where f.type = 'ergostat.forgotten')")

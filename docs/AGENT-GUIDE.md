@@ -314,7 +314,7 @@ engine took, with one line on stderr naming the first error; anything that acts 
 ### The Process view: does the workflow behave as modelled?
 
 The Dynamics view is the workflow you declared; the Process view is the one that happened. Open it
-(`/diagram?view=process`, the person's system chosen) once items have moved, and look for:
+(`/SYSTEM/diagrams?view=process`, the person's system's) once items have moved, and look for:
 
 - [ ] **Every move you modelled as a flow is a line**, and every line is a move you modelled. A line
       between two states with no flow between their stocks is work leaving or arriving where the model
@@ -512,7 +512,7 @@ old: `read` says how many seconds ago it was read. It still answers on the last 
    owner, with the reason and the age the finding gives. (One reading refused as too old is not this
    finding: it shows as that sensor's `sensor.failed`.)
 5. **Use its measures, not its items.** Its items can be seen, marked remote and read only (`/item/ID?remote=incidents`),
-   and its events in the Record page (`/record?remote=incidents`), but they are still never folded or counted
+   and its events on the Events page (`/events?remote=incidents`), but they are still never folded or counted
    locally: count them through the remote stock that counts them (its sensor is mirrored), or a sensor of your
    own, `query: {source: incidents, ref: stock.open}`. To link one of your items to one of its items, name its
    projection by its local name in `relations:` (`blocked_by: incidents-incident`): the process map draws the line,

@@ -55,10 +55,11 @@ interface RowProps {
   to?: string;
   onClick?: () => void;
   className?: string;
+  title?: string;
   children: ReactNode;
 }
 
-function Row({ to, onClick, className, children }: RowProps) {
+function Row({ to, onClick, className, title, children }: RowProps) {
   const navigate = useNavigate();
   const clickable = !!(to || onClick);
   const open = (ev: MouseEvent) => {
@@ -68,7 +69,7 @@ function Row({ to, onClick, className, children }: RowProps) {
     onClick?.();
   };
   return (
-    <tr className={[clickable && "click", className].filter(Boolean).join(" ") || undefined} onClick={clickable ? open : undefined}>
+    <tr className={[clickable && "click", className].filter(Boolean).join(" ") || undefined} title={title} onClick={clickable ? open : undefined}>
       {children}
     </tr>
   );

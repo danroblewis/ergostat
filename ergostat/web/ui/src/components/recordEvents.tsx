@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { ApiError } from "../lib/api";
 import { dur } from "../lib/format";
+import { eventsHref } from "../lib/hrefs";
 import { EventsTable, type RecordEvent } from "./events";
 import { AppLink, Loading } from "./ui";
 
@@ -10,12 +11,15 @@ import { AppLink, Loading } from "./ui";
 
 type Got<T> = { data: T | undefined; error: Error | null };
 
-/** Nothing to show: said so, and with a filter, a link to the Record without it (this address's, on the Record). */
+/** Nothing to show: said so, and with a filter, a link to the Events without it (this address's, on an Events page;
+ *  else the panel's system's). */
 export function NothingRecorded({ match, scope = {} }: { match?: string; scope?: Record<string, unknown> }) {
   const here = useLocation();
   if (!match) return <p className="muted">Nothing recorded yet.</p>;
-  const q = new URLSearchParams(here.pathname === "/record" ? here.search
-    : Object.entries(scope).filter(([, v]) => v != null && v !== "" && v !== false).map(([k, v]) => [k, v === true ? "1" : String(v)]));
+  const onEvents = /(^|\/)events\/?$/.test(here.pathname);
+  const { system, ...rest0 } = scope;
+  const q = new URLSearchParams(onEvents ? here.search
+    : Object.entries(rest0).filter(([, v]) => v != null && v !== "" && v !== false).map(([k, v]) => [k, v === true ? "1" : String(v)]));
   q.delete("match");
   q.delete("filter");
   q.delete("type");
@@ -23,7 +27,8 @@ export function NothingRecorded({ match, scope = {} }: { match?: string; scope?:
   return (
     <p className="muted">
       {`Nothing matches “${match}” · `}
-      <AppLink className="clear-filter" to={`/record${rest ? `?${rest}` : ""}`} replace={here.pathname === "/record"}>clear</AppLink>
+      <AppLink className="clear-filter" to={onEvents ? `${here.pathname}${rest ? `?${rest}` : ""}` : eventsHref(rest, typeof system === "string" ? system : "")}
+        replace={onEvents}>clear</AppLink>
     </p>
   );
 }

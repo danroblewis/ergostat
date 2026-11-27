@@ -1,14 +1,15 @@
 # ergostat's page, in React
 
 ergostat's page. It is built into `../static/app/` and served by ergostat's own server at every path but `/api`,
-`/static` and `/remote`; the page resolves the path itself (`src/lib/routes.ts`, `src/Resolve.tsx`): a projection's own
-dashboards, the model's dashboards at `/NAME`, its projections at `/PROJECTION` and their items at `/PROJECTION/REST`,
-then ergostat's own pages. Python needs nothing at runtime: the built files are
-committed. The old vanilla-JS page it was ported from is gone (2026-11-25), with its Model, Check and Guide pages, the
+`/static` and `/remote`; the page resolves the path itself (`src/lib/systemRoutes.ts` over GET /api/route-table,
+`src/Resolve.tsx`), one segment at a time from the top level: in each system's scope a dashboard (the model's, or a
+default: overview, diagrams, goals, agents, events), a projection it contains (`/factory/qa/note`, its items under
+it), `goals/NAME`, `agents/NAME`, or a subsystem; a deeper address redirects to the top-most (SPEC §4f, *Addresses*).
+Python needs nothing at runtime: the built files are committed. The old vanilla-JS page it was ported from is gone (2026-11-25), with its Model, Check and Guide pages, the
 header's project list and `ergostat snapshot`.
 
     npm install
-    npm run dev        # http://localhost:5173/goals, the API proxied to ERGOSTAT_URL (default 127.0.0.1:8781)
+    npm run dev        # http://localhost:5173/overview, the API proxied to ERGOSTAT_URL (default 127.0.0.1:8781)
     npm run check      # tsc
     npm run build      # tsc, then vite into ../static/app
 
@@ -16,16 +17,20 @@ header's project list and `ergostat snapshot`.
 
     src/
       main.tsx, App.tsx      the shell around Resolve.tsx: every address resolved by what the model names there, each
-                             page loaded lazily
+                             page loaded lazily (a system's defaults: pages/overview, diagram, goals, agents, events)
       styles/                the page's styles (style.css, panels.css, plots.css, panel-editor.css, dashboard.css: the
                              editing bar and the nav bar's +)
       lib/                   pure functions: api.ts (apiGet, apiPost, apiSend), format.ts (fmt, dur, ago, stamp,
-                             rateText, op, holdText, windowNote, plural...), rung.ts, hrefs.ts (itemHref, projectionHref,
-                             agentHref, diagramHref), goals.ts (a goal in words), query.ts (what a panel asks /api/query),
-                             pages.ts (each of the page's own pages as its panels: PAGES, pageDashboard)
+                             rateText, op, holdText, windowNote, plural...), rung.ts, systemRoutes.ts (resolve, href: the
+                             addresses per system, as spec/routes.py), hrefs.ts (every link at its canonical address:
+                             itemHref, projectionHref, agentHref, goalHref, dashboardHref, scopeHref, eventsHref,
+                             diagramHref), scoped.ts (what a panel's `system` shows: has, ancillary), routes.ts (id
+                             globs), goals.ts (a goal in words), query.ts (what a panel asks /api/query), pages.ts (each of
+                             the page's own pages as its panels: PAGES, pageDashboard, DEFAULTS)
       state/                 app-wide context: time.tsx (window and moment, in the address), status.tsx (/api/status
-                             every 5 s: useStatus()), dashboards.tsx (/api/routes every 15 s, asked again at once
-                             after a Save: the header's nav: entries, a projection's own dashboards: ownOf)
+                             every 5 s: useStatus()), dashboards.tsx (/api/routes and /api/route-table every 15 s,
+                             asked again at once after a Save: the nav bar's dashboards and projections, a projection's
+                             own dashboards: ownOf; useAddress(): what the address names and the system it is in)
       hooks/                 usePoll (a refresh that never overlaps, pauses while hidden), useApi (an answer, with
                              the window, polled when asked: { data, error, loading, refresh })
       components/            the components any page is composed of (index.ts):
@@ -58,8 +63,10 @@ header's project list and `ergostat snapshot`.
 
 ## Rules
 
-- A page is a dashboard: its sections are panels (components/panels), drawn with `fit: true`, its panel list in
-  `lib/pages.ts`; only what is the page's own (its title, filters bound to the address) is written on the page. It is
+- A page is a dashboard, and every dashboard is a system's: its sections are panels (components/panels), drawn with
+  `fit: true`, its panel list in `lib/pages.ts`, scoped by `system: $system` (the address's system); only what is the
+  page's own (its title, filters bound to the address) is written on the page. Links are built in `lib/hrefs.ts` only,
+  never written by hand, so each is at its canonical address. The system is the address's: no state keeps it. It is
   editable where it is drawn: `useEditing` with where it is saved (a projection's list or show, or a dashboard's
   name), and `EditableDashboard` (what the page hands a panel goes in `decorate`, never into what is saved). What a
   page hands a panel beyond its declared parameters (a click: `onOpen`; the list's choices: `onParams`; the goal
@@ -91,6 +98,8 @@ Every page has a route and draws from the real API; none is at parity with the o
   run and cost charts, resources fold and version spans.
 - **Items:** the Graph and Timeline views, item sets, set chips (`where=`, `moved=`...), built-in projections' views
   (claims, decisions, messages, gated actions, reports), notes, Impact, leases, remote items.
-- **Record:** its `window=1` scope shares the `window` parameter with the header's window, as on the old page.
+- **Events:** its `window=1` scope shares the `window` parameter with the header's window, as on the old page.
+- **Ancillary:** greyed in the nav bar and in a scoped goals, agents and projections panel; not yet in a chart's legend
+  (a system's stocks and flows defined elsewhere).
 
 Still to move into `components/`: a segmented toggle, a goal panel (goals/GoalDetail, diagram/Side).

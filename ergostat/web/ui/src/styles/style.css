@@ -9,6 +9,7 @@
   --line: #dee2e6;            /* oklch(0.912 0.007 250): hairlines */
   --line-strong: #c6cbd0;     /* oklch(0.84 0.009 250): control borders */
   --muted: #666d74;           /* oklch(0.53 0.014 250): secondary text, 5.2:1 */
+  --ancillary: #8a9097;       /* oklch(0.65 0.012 250): what a system shows and does not define, 3.2:1 */
   --ink-2: #42484f;           /* oklch(0.40 0.014 250) */
   --ink: #23292f;             /* oklch(0.27 0.013 250): text, 14:1, not black */
   /* hue: state, and interaction; nothing for fine */
@@ -71,6 +72,7 @@
     --line: #2c3035;          /* oklch(0.305 0.010 250) */
     --line-strong: #3e4349;   /* oklch(0.38 0.012 250) */
     --muted: #969ca3;         /* oklch(0.69 0.012 250) */
+    --ancillary: #737980;     /* oklch(0.57 0.012 250) */
     --ink-2: #b9bec4;         /* oklch(0.80 0.010 250) */
     --ink: #dfe2e6;           /* oklch(0.91 0.006 250) */
     --accent: #74aaf2;        /* oklch(0.73 0.12 256) */

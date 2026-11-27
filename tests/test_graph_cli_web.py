@@ -477,8 +477,8 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
 
     from ergostat.spec.dashboards import BUILTIN, RESERVED
     from ergostat.web.server import handler
-    resolve = (Path(__file__).resolve().parent.parent / "ergostat" / "web" / "ui" / "src" / "lib" / "routes.ts").read_text()
-    assert all(f'"{x}"' in resolve for x in BUILTIN), "the page's own pages and the model's check differ"
+    pages = (Path(__file__).resolve().parent.parent / "ergostat" / "web" / "ui" / "src" / "lib" / "pages.ts").read_text()
+    assert all(f'"{x}"' in pages for x in BUILTIN), "the page's own pages and the model's check differ"
     assert RESERVED == ("api", "static", "remote")
     (project.dir / "notes.md").write_text("# Notes\n")
     srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
@@ -496,6 +496,7 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
                      "/items/ticket", "/items/ticket?state=in-review&view=timeline",   # a projection's page
                      "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
                      "/record?type=x.y", "/dashboard", "/ticket", "/ticket/7", "/mission/a/b", "/big-dashboard",
+                     "/overview", "/events", "/factory/intake/overview", "/factory/ticket/7",
                      "/nope", "/itemsx", "/util.js", "/model", "/file/notes.md", "/d/x"):
             code, ctype, body = get(path)
             assert code == 200 and ctype.startswith("text/html") and b'name="ergostat-token"' in body, path

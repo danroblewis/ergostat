@@ -1,5 +1,5 @@
 import { useCallback, type ReactNode } from "react";
-import { projectionHref } from "../../lib/hrefs";
+import { agentHref, diagramHref, projectionHref } from "../../lib/hrefs";
 import { Chart } from "../charts/Chart";
 import { useDetail } from "../Detail";
 import { Fields } from "../Table";
@@ -66,7 +66,7 @@ export function SdPartPanel({ n, g }: { n: any; g: any }) {
       <Fields caption="Its links" fields={rows([["depends on", causes], ["drives", effects]])} />
       {loops.length > 0 && <p><b>In the loops</b> {loops.join(", ")}</p>}
       {(n.kind === "stock" || flow) && (
-        <p><AppLink to={`/diagram?view=dynamics&around=${n.kind === "stock" ? "stock" : "flow"}/${encodeURIComponent(n.flow || n.label)}`}>Draw what is around it</AppLink></p>
+        <p><AppLink to={diagramHref({ around: `${n.kind === "stock" ? "stock" : "flow"}/${n.flow || n.label}` })}>Draw what is around it</AppLink></p>
       )}
     </>
   );
@@ -103,7 +103,7 @@ export function SdPartPanel({ n, g }: { n: any; g: any }) {
               <Fields caption="The flow" fields={rows([
                 ["rate, over the window", now.rate !== undefined || n.rate != null ? rateText(now.rate ?? n.rate, d?.unit, n.flow) : "not measured"],
                 ["how it is known", now.how || n.how], ["equation", n.equation || d?.equation], ["description", m.description || n.description],
-                ["filled by", d?.agent ? <AppLink to={`/agent/${encodeURIComponent(d.agent)}`}>{d.agent}</AppLink> : null],
+                ["filled by", d?.agent ? <AppLink to={agentHref(d.agent)}>{d.agent}</AppLink> : null],
               ])} />
             </>
           );
@@ -140,7 +140,7 @@ export function BlockPanel({ n, acts }: { n: any; acts: { toggleSystem: (s: stri
       <h2>{title}</h2>
       {n.says && <p className="what"><Rich text={n.says} /></p>}
       {model.length > 0 && <><h3>In the model</h3><Fields caption="In the model" fields={model.map(([k, v]: any) => [k, typeof v === "string" ? <Rich text={v} /> : String(v)])} /></>}
-      {me && <p><AppLink to={`/agent/${encodeURIComponent(me)}`}>{me}</AppLink></p>}
+      {me && <p><AppLink to={agentHref(me)}>{me}</AppLink></p>}
       {(n.loops || []).length > 0 && <><h3>In the control loop{n.loops.length > 1 ? "s" : ""} of</h3><p>{n.loops.join(", ")}</p></>}
       {n.role === "subsystem" && (
         <div className="actions">

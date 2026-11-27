@@ -687,7 +687,6 @@ tests/test_conformance_lists_ergostat.py::test_checks_on_main_give_the_recorded_
 tests/test_counts.py
 
 # tests/test_dashboard_nav_page.py (1)
-tests/test_dashboard_nav_page.py::test_a_kind_named_as_the_servers_address_or_ergostats_page_is_a_finding[api-unrouted-projection]
 
 # tests/test_deps.py (1)
 tests/test_deps.py::test_a_dependency_whose_branch_is_on_main_is_said_landed_not_closed
@@ -787,3 +786,4 @@ tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped
 
 # tests/test_web_lanes.py (1)
 tests/test_web_lanes.py::test_a_reception_step_that_raises_closes_that_connection_only
+tests/test_dashboard_nav_page.py::test_a_kind_named_as_the_servers_address_is_a_finding[api-unrouted-projection]

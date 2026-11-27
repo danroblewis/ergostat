@@ -1,4 +1,5 @@
 import { fmt, stamp } from "../lib/format";
+import { eventsHref } from "../lib/hrefs";
 import { AppLink, StatusWord } from "./ui";
 
 /* What a goal's record says of it in the window, from its loop's answer (GET /api/loops/NAME): its crossings, each a
@@ -21,7 +22,7 @@ export function GoalCrossings({ goal, lp }: { goal: string; lp: any }) {
         {cs.map((e, i) => [e, next(i)] as const).reverse().map(([e, to]) => (
           <tr key={e.id}>
             <td className="nowrap">
-              <AppLink to={`/record?about=${encodeURIComponent(goal)}&from=${e.time}${to != null ? `&to=${to}` : ""}`}
+              <AppLink to={eventsHref(`about=${encodeURIComponent(goal)}&from=${e.time}${to != null ? `&to=${to}` : ""}`)}
                 title="What the goal, its controller and its valves recorded from this crossing to the next">{stamp(e.time)}</AppLink>
             </td>
             <td><StatusWord status={e.type.split(".")[1]} /></td>
@@ -50,8 +51,8 @@ export function GoalDecisions({ goal, lp, most = 6 }: { goal: string; lp: any; m
           <tr key={i}><td className="num">{n}</td><td>{w.replaceAll("#", "N")}</td></tr>))}</tbody>
       </table>
       <p className="small">
-        <AppLink to={`/record?item=${encodeURIComponent(goal)}&match=controller.decided${lp.since != null ? `&from=${lp.since}&to=${lp.until}` : ""}`}
-          title="Each decision of its controller in the window, in the Record">Each one in the Record</AppLink>
+        <AppLink to={eventsHref(`item=${encodeURIComponent(goal)}&match=controller.decided${lp.since != null ? `&from=${lp.since}&to=${lp.until}` : ""}`)}
+          title="Each decision of its controller in the window, in the Events">Each one in the Events</AppLink>
       </p>
     </>
   );

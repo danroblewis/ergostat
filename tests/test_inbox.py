@@ -99,7 +99,7 @@ def test_the_inbox_aggregates_every_kind(tmp_path):
     assert es["action"]["id"] == f"action/{record.short(got['action']['id'])}" and es["action"]["class"] == "outward"
     assert es["action"]["link"] == f"/item/{got['action']['id']}" and es["action"]["verbs"] == ["approve", "deny"]
     assert es["person"]["verbs"] == ["done"] and "review the queue" in es["person"]["summary"]
-    assert es["person"]["link"] == "/diagram?view=blocks&around=block/reviewer"
+    assert es["person"]["link"] == "/diagrams?view=blocks&around=block/reviewer"
     assert es["change"]["id"] == f"change/{got['change']['id']}" and es["change"]["class"] == "change:parameter"
     assert all(e["age"] >= 0 and e["summary"] for e in es.values())
     att = st.attention(st.snapshot(p), False, p.model)
@@ -256,7 +256,7 @@ def test_new_entries_within_the_window_are_one_message(tmp_path):
     assert deliver.sweep(p, spec, now + 61) == 1
     text = sent(tmp_path)
     assert text.startswith("ergostat: 1 request, 1 advised command waiting\n")
-    assert "http://ergostat.test:8791/diagram?view=blocks&around=block/reviewer" in text
+    assert "http://ergostat.test:8791/diagrams?view=blocks&around=block/reviewer" in text
     assert "ergostat inbox person/reviewer@1 --done N" in text and "ergostat inbox advise/pusher@2 --approve | --deny" in text
     assert deliver.sweep(p, spec, now + 200) == 0                                 # told once
     told = p.events.query(n=None, type=deliver.SENT)

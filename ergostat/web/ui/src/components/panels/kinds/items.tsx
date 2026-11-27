@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from "react";
+import { ancillaryMark, scopedBy } from "../../../lib/scoped";
+import { useDashboards } from "../../../state/dashboards";
 import { useTime } from "../../../state/time";
 import { ProjectionStates } from "../../charts/ProjectionStates";
 import { PanelFrame } from "../../charts/PanelView";
@@ -43,9 +45,12 @@ const pathOf = (head: string, name: unknown) => (name ? `${head}/${encodeURIComp
 
 function ProjectionsFrame({ def, every, refreshKey, tools }: FrameProps) {
   const got = usePanelAnswer<any>("items-overview", {}, every, refreshKey, true);
+  const s = scopedBy(useDashboards().table, def.system);      // a system's: those it contains, an ancillary one greyer
+  const of = (d: any) => (s ? { ...d, projections: d.projections.filter((k: any) => s.has("projections", k.name)) } : d);
   return (
     <Framed def={def} title="Projections" tools={tools}>
-      <Async state={got}>{(d) => <ProjectionsOverview d={d} all={def.states === "all"} />}</Async>
+      <Async state={got}>{(d) => <ProjectionsOverview d={of(d)} all={def.states === "all"}
+        mark={(n) => ancillaryMark(s, "projections", n)} />}</Async>
     </Framed>
   );
 }

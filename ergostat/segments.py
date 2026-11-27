@@ -783,8 +783,18 @@ class Segments:
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
               since: float | None = None, after_seq: int | None = None, until: float | None = None,
               skip: tuple[str, ...] = (), unvoided: bool = False, machine: str | None = None,
-              before_seq: int | None = None, first: int | None = None) -> list[dict]:
+              before_seq: int | None = None, first: int | None = None,
+              scoped: tuple[tuple[str, ...], tuple[str, ...]] | None = None) -> list[dict]:
         tests = []
+        if scoped is not None:                     # a system's: its projections' items, its blocks' and agents' own
+            import fnmatch
+            globs, sources = scoped
+
+            def mine(e, globs=globs, sources=tuple(sources)):
+                src, it = e.get("source") or "", e.get("item")
+                return (it is not None and any(fnmatch.fnmatchcase(it, g) for g in globs)) or \
+                    any(src == s or src.startswith(s + "/") for s in sources)
+            tests.append(mine)
         if machine:
             tests.append(lambda e: (e.get("source") or "") == machine or (e.get("source") or "").startswith(machine + "/"))
         if unvoided:

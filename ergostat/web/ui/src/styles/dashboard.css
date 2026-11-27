@@ -89,3 +89,10 @@
 #nav .nav-new { opacity: 0; min-height: 0; padding: 0 var(--sp-1); color: var(--ink-2); transition: opacity 120ms; }
 #nav:hover .nav-new, #nav .nav-new:focus-visible { opacity: 1; }
 @media (pointer: coarse) { #nav .nav-new { opacity: 1; } }
+/* the System tree, top left: each system under the one it is within; choosing one goes to its overview */
+.system-menu .menu-btn { font-size: var(--text-sm); font-weight: 600; color: var(--ink); }
+.system-menu .menu-item .depth { display: inline-block; }
+/* ancillary: what a system shows and does not define (defined in another system, or ergostat's own): greyer, its
+   title saying where it is defined */
+.bar nav a.ancillary, .bar nav .menu-btn.ancillary { color: var(--ancillary); }
+tr.ancillary, tr.ancillary a, .ancillary .kname, .projection-card.ancillary { color: var(--ancillary); }

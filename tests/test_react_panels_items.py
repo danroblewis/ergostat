@@ -86,15 +86,15 @@ def test_every_items_kind_draws_on_a_declared_dashboard(browser, board):
 
 
 def test_the_old_items_addresses_lead_to_each_projections_own(browser, board):
-    for old, new in (("/items/ticket?state=opened", "**/ticket?state=opened"), ("/items?projection=ticket", "**/ticket?projection=ticket"),
-                     ("/items", "**/diagram")):
+    for old, new in (("/items/ticket?state=opened", "**/ticket?state=opened"), ("/items?projection=ticket", "**/ticket"),
+                     ("/items", "**/overview")):
         pg = opened(browser, board + old)
         pg.wait_for_url(new, timeout=WAIT)
         assert settled(pg, 500) == []
         pg.close()
     pg = opened(browser, board + "/tickets")                         # the board's projections panel: a card links to /PROJECTION
     pg.locator(".panel-kind-projections .projection-card[data-projection=ticket]").wait_for(timeout=WAIT)
-    assert pg.locator(".projection-card[data-projection=ticket] a.pm-link").get_attribute("href") == "/diagram?view=process&projections=ticket"
+    assert pg.locator(".projection-card[data-projection=ticket] a.pm-link").get_attribute("href") == "/diagrams?view=process&projections=ticket"
     pg.close()
 
 
@@ -109,8 +109,8 @@ def test_the_projection_page_draws_its_panels_and_keeps_its_filters_in_the_addre
     goal = pg.locator(".projection-goals a").first
     goal.wait_for(timeout=WAIT)
     assert goal.get_attribute("href") == "/goals?select=few-tickets"
-    assert pg.locator(".projection-model a[href^='/diagram']").first.get_attribute("href") == "/diagram?around=stock%2Fopen-tickets"
-    assert pg.locator(".panel-kind-projection-now a.pm-link").get_attribute("href") == "/diagram?view=process&projections=ticket"
+    assert pg.locator(".projection-model a[href^='/diagram']").first.get_attribute("href") == "/diagrams?around=stock%2Fopen-tickets"
+    assert pg.locator(".panel-kind-projection-now a.pm-link").get_attribute("href") == "/diagrams?view=process&projections=ticket"
     # the finished shown, from the panel's own note: into the address
     pg.locator(".finished-flip").click()
     pg.wait_for_url("**finished=show**", timeout=WAIT)
@@ -145,7 +145,7 @@ def test_the_item_page_draws_its_parts_and_opens_its_changes(browser, board):
     assert pg.locator(".panel-kind-item-refused").count() == 0                     # nothing refused: not drawn
     assert pg.locator(".panel-kind-item-relations").count() == 0                   # no relations: not drawn
     assert pg.locator(".panel-kind-item-path a", has_text="what every ticket touches").get_attribute("href") == \
-        "/diagram?projection=ticket"
+        "/diagrams?projection=ticket"
     assert pg.locator(".panel-kind-item-changes table.history").count() == 0       # folded: not asked for
     pg.locator("#changes > summary").click()
     pg.locator(".panel-kind-item-changes table.history tbody tr").first.wait_for(timeout=WAIT)
