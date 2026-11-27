@@ -9,6 +9,16 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "6.20.4",
+    "@codemirror/commands": "6.11.2",
+    "@codemirror/lang-sql": "6.10.0",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/lint": "6.9.8",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.44.2",
+    "@lezer/common": "1.5.7",
+    "@lezer/highlight": "1.2.5",
+    "@prometheus-io/codemirror-promql": "0.316.0",
     "elkjs": "^0.9.3",
     "highlight.js": "^11.10.0",
     "marked": "^15.0.4",

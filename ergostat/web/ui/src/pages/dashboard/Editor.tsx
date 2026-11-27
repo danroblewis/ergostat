@@ -1,19 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import { Button, ErrorNote, PanelView, Select } from "../../components";
+import { useMemo, useState } from "react";
+import { Button, ErrorNote, Select } from "../../components";
 import { useApi } from "../../hooks/useApi";
-import { apiGet } from "../../lib/api";
-import { useTime } from "../../state/time";
-import { encodeQuery, type Answer, type Panel, type Query } from "../../lib/query";
+import { type Panel, type Query } from "../../lib/query";
 import { useStatus } from "../../state/status";
-import { PanelBox, normalizePanel } from "../../components/panels";
+import { LivePreview, QueryEditor } from "../../components/query";
 
 /* The panel editor (panel-editor.js, in part): a panel's title, note, form and size, and its queries. ergostat has two
    data sources, promql (every metric) and sql (all item data), and /api/query/fields lists exactly those two under
    datasources, each saying whether it can be asked now and, when not, why: an unavailable one is shown, disabled, with
    that reason. A query is written in its source's language, or made from one of the shortcuts that write it (item
    fields, moves, items per state and events write SQL; a metric series writes PromQL); a shortcut's answer says what
-   it asked (``compiled``), shown under the preview, so it is plainly just SQL or PromQL. A preview asks the query as
-   it stands. A diagram panel has no queries: it names a view, and the system, item or projection drawn. */
+   it asked (``compiled``), shown under the preview, so it is plainly just SQL or PromQL. The preview is always drawn,
+   asked again a moment after each change (components/query, LivePreview). A diagram panel has no queries: it names a view, and the system, item or projection drawn. */
 
 /* Each shortcut, the source it writes its query for, and its words. */
 const SHORTCUTS: [string, string, string][] = [["items", "sql", "Item fields"], ["moves", "sql", "Item moves"],
@@ -32,7 +30,6 @@ export function Editor({ panel, onSave, onCancel }: { panel: Panel; onSave: (p: 
   const [p, setP] = useState<Panel>(() => JSON.parse(JSON.stringify(panel)));
   const fields = useApi<any>("query/fields", {}, { window: false });
   const listed: DataSource[] | undefined = fields.data?.datasources;
-  const [preview, setPreview] = useState<Panel | null>(null);
 
   const set = (patch: Partial<Panel>) => setP((x) => ({ ...x, ...patch }));
   const isDiagram = p.form === "diagram";
@@ -79,10 +76,7 @@ export function Editor({ panel, onSave, onCancel }: { panel: Panel; onSave: (p: 
             <div><Button onClick={addQuery} disabled={p.queries.length >= 12}>Add query</Button></div>
           </>
         )}
-        <div>
-          <Button onClick={() => setPreview({ ...p, id: `${p.id}-preview` })}>Preview</Button>
-          {preview && <div className="panel-grid" style={{ marginTop: "var(--sp-2)" }}><PreviewPanel panel={{ ...preview, size: "full" }} /></div>}
-        </div>
+        <LivePreview panel={p} />
         <div style={{ display: "flex", gap: "var(--sp-2)", justifyContent: "flex-end" }}>
           <Button onClick={onCancel}>Cancel</Button>
           <Button className="primary" onClick={() => onSave(saved(p))} disabled={!isDiagram && !p.queries.length}>Save panel</Button>
@@ -115,32 +109,6 @@ function DiagramFields({ p, set }: { p: Panel; set: (patch: Partial<Panel>) => v
       <label>Only what an item passed through<br /><input value={d.item || ""} onChange={(e) => put({ item: e.target.value })} placeholder="an item's id" /></label>
       <label>Only what a projection touches<br /><input value={d.projection || ""} onChange={(e) => put({ projection: e.target.value })} placeholder="a projection's name" /></label>
     </div>
-  );
-}
-
-function PreviewPanel({ panel }: { panel: Panel }) {
-  if (panel.form === "diagram") return <PanelBox def={normalizePanel(saved(panel))} />;
-  return <QueryPreview panel={panel} />;
-}
-
-function QueryPreview({ panel }: { panel: Panel }) {
-  const { seconds, at } = useTime();
-  const q = encodeQuery({ since: seconds, until: at, points: 120, queries: panel.queries.map((x, n) => ({ ...x, label: undefined, hidden: undefined, id: x.id ?? String(n) })) });
-  const got = useApi<Answer>("query", { q }, { window: false });
-  const asked = (got.data?.results || []).flatMap((r) => (r.compiled || []).map((c: { source: string; text: string }) => ({ id: r.id, ...c })));
-  return (
-    <>
-      <PanelView panel={panel} results={got.data?.results} loading={got.loading} />
-      {asked.length > 0 && (
-        <div className="pe-compiled" style={{ gridColumn: "1 / -1" }}>
-          <p className="muted small" style={{ margin: 0 }}>What the shortcuts asked (the same text can be asked of the source itself):</p>
-          {asked.map((c, i) => (
-            <p key={i} style={{ margin: 0 }}><span className="muted small">{c.id} · {c.source}</span><br />
-              <code style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{c.text}</code></p>
-          ))}
-        </div>
-      )}
-    </>
   );
 }
 
@@ -216,36 +184,14 @@ function QueryRow({ q, fields, sources, listed, onChange, onRemove }: {
   );
 }
 
-/* A query in its source's own language; for a PromQL source, the metric names the source knows are suggested as the
-   word at the end is typed (/api/query/suggest, what=metrics). */
+/* A query in its source's own language, highlighted and completed as it is typed (components/query). */
 function TextQuery({ source, text, onChange }: { source: DataSource; text: string; onChange: (t: string) => void }) {
   const promql = /promql/i.test(source.language);
-  const word = promql ? (/([A-Za-z_:][A-Za-z0-9_:]*)$/.exec(text)?.[1] ?? "") : "";
-  const [picks, setPicks] = useState<string[]>([]);
-  useEffect(() => {
-    if (!promql || !word) { setPicks([]); return; }
-    const ctl = new AbortController();
-    const t = setTimeout(() => {
-      apiGet<any>("query/suggest", { source: source.name, what: "metrics", prefix: word, metric: "", label: "" }, ctl.signal)
-        .then((got) => setPicks((got.suggestions || []).map((s: any) => (typeof s === "string" ? s : s.name)).filter((n: string) => n !== word).slice(0, 12)))
-        .catch(() => setPicks([]));
-    }, 200);
-    return () => { clearTimeout(t); ctl.abort(); };
-  }, [promql, word, source.name]);
   return (
-    <div>
-      <label>{source.language} <span className="muted small">({source.name})</span><br />
-        <textarea className="pe-text" value={text} spellCheck={false} rows={4} onChange={(e) => onChange(e.target.value)}
-          style={{ width: "100%", fontFamily: "var(--mono, ui-monospace, monospace)", boxSizing: "border-box" }}
-          placeholder={promql ? 'rate(http_requests_total[5m])   ·   {__name__=~".+"} lists every metric' : `a ${source.language} query`} />
-      </label>
-      {picks.length > 0 && (
-        <ul role="listbox" aria-label="Suggestions" style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-1)", listStyle: "none", margin: 0, padding: 0 }}>
-          {picks.map((n) => (
-            <li key={n}><Button variant="ghost" onClick={() => onChange(text.slice(0, text.length - word.length) + n)}><code>{n}</code></Button></li>
-          ))}
-        </ul>
-      )}
+    <div className="pe-text">
+      <span>{source.language} <span className="muted small">({source.name})</span></span>
+      <QueryEditor source={promql ? "promql" : "sql"} value={text} onChange={onChange} label={`${source.language} query`}
+        placeholder={promql ? 'rate(http_requests_total[5m])   ·   {__name__=~".+"} lists every metric' : "select state, count(*) as n from item_list group by state"} />
     </div>
   );
 }

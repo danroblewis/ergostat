@@ -1,1 +1,0 @@
-import{j as m}from"./index-Bzu5RXnn.js";import{P as p}from"./PanelBox-SZWaQChZ.js";function t({panels:n,every:s,refreshKey:e,tools:r}){return m.jsx("div",{className:"panel-grid",children:n.map((a,i)=>m.jsx(p,{def:a,every:s,refreshKey:e,tools:r==null?void 0:r(a,i)},a.id||i))})}export{t as D};

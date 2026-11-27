@@ -114,9 +114,15 @@ function fineWhole(values: (number | null)[]): number | null {
   return v.length ? v[Math.floor(v.length / 2)] : null;
 }
 
+/** A result's columns: its own, or a table answer's names then measures (SQL's shape: "table"). */
+const columnsOf = (r: Result): string[] | undefined =>
+  r.columns ?? (Array.isArray(r.dims) || Array.isArray(r.measures)
+    ? [...(r.dims || []), ...(r.measures || [])].map((c: { name: string }) => c.name) : undefined);
+
 /** A table: a result's own columns and rows when it has them (SQL), else each series' last, least and most. */
 function ResultTable({ results, unit }: { results: Result[]; unit: string }) {
-  const grid = results.find((r) => Array.isArray(r.columns) && Array.isArray(r.rows));
+  const found = results.find((r) => Array.isArray(r.rows) && columnsOf(r));
+  const grid = found && { ...found, columns: columnsOf(found) };
   if (grid) return (
     <div className="panel-table">
       <table>
