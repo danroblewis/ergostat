@@ -25,21 +25,30 @@ MODEL = """
 name: t
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [open, building, merged]
-    on:
-      gap.found: open
-      gap.started: building
-      gap.merged: merged
+    events:
+      "*":
+        cost_usd: add(data.cost_usd)
+        milestone: "data.milestone if 'milestone' in data else current"
+      gap.found:
+        state: set('open')
+      gap.started:
+        state: set('building')
+      gap.merged:
+        state: set('merged')
+    otherwise: rest
     relations:
       milestone: {projection: milestone, group: true}
-    fold:
-      milestone: replace
-      cost_usd: sum
   milestone:
-    id: milestone/*
+    match:
+      key: milestone/*
     states: [waiting, active]
-    on: {milestone.added: waiting}
+    events:
+      milestone.added:
+        state: set('waiting')
+    otherwise: rest
 """
 
 

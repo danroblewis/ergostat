@@ -5,12 +5,17 @@ defaults:
 
 projections:
   session:                                   # each run of the improver: a Claude Code session, or the stand-in's
-    id: session/*
+    match:
+      key: session/*
     states: [open, done, failed, lost]
-    on:
-      session.ran: done
-      session.failed: failed
-      session.lost: lost
+    events:
+      session.ran:
+        state: set('done')
+      session.failed:
+        state: set('failed')
+      session.lost:
+        state: set('lost')
+    otherwise: rest
     show: [role, model, cost_usd, turns, seconds]
 
 stocks:

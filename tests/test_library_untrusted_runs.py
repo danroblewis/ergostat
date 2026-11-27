@@ -30,7 +30,8 @@ params:
   work: {type: map, default: {type: program, run: "true", every: 5m}}
 projections:
   ${projection}:
-    id: ${projection}/*
+    match:
+      key: ${projection}/*
     states: [ready, done]
 stocks:
   waiting:

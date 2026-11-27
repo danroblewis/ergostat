@@ -27,11 +27,15 @@ include:
   - parts/*.yaml
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [new, doing, done]
-    on:
-      job.start: doing
-      job.end: done
+    events:
+      job.start:
+        state: set('doing')
+      job.end:
+        state: set('done')
+    otherwise: rest
 stocks:
   doing:
     unit: jobs

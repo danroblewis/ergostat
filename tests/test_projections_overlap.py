@@ -26,27 +26,52 @@ MODEL = """
     name: overlap
     projections:
       ticket:                         # the first
-        id: ticket/*
+        match:
+          key: ticket/*
         states: [open, doing, done]
-        on: {ticket.started: doing, ticket.done: done}
+        events:
+          ticket.started:
+            state: set('doing')
+          ticket.done:
+            state: set('done')
+        otherwise: rest
         show: [title, hours]
       twin:                           # the same, under another name
-        id: ticket/*
+        match:
+          key: ticket/*
         states: [open, doing, done]
-        on: {ticket.started: doing, ticket.done: done}
+        events:
+          ticket.started:
+            state: set('doing')
+          ticket.done:
+            state: set('done')
+        otherwise: rest
         show: [title, hours]
       summed:                         # a copy with one more field: hours summed, not replaced
-        id: ticket/*
+        match:
+          key: ticket/*
         states: [open, doing, done]
-        on: {ticket.started: doing, ticket.done: done}
+        events:
+          "*":
+            hours: add(data.hours)
+          ticket.started:
+            state: set('doing')
+          ticket.done:
+            state: set('done')
+        otherwise: rest
         show: [title, hours]
-        fold: {hours: sum}
       effort:                         # the same events read otherwise: other fields, other rules, other states
-        id: ticket/*
+        match:
+          key: ticket/*
         states: [unworked, worked]
-        on: {ticket.started: worked}
+        events:
+          "*":
+            hours: max(data.hours)
+            titles: append(data.titles)
+          ticket.started:
+            state: set('worked')
+        otherwise: rest
         show: [hours, titles]
-        fold: {hours: max, titles: append}
     stocks:
       open-tickets: {unit: tickets, sensor: {projection: ticket, state: open, every: 1m}}
       worked: {unit: tickets, sensor: {projection: effort, state: worked, every: 1m}}

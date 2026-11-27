@@ -81,7 +81,11 @@ a disturbance is added to the model.
   date as events come in; people and dashboards query those tables. Several projections may look at the same events.
   Never "kind" for a projection.
 - **Item**: one id's row of a projection: the fold of that id's events (a projection's items). An event's `item` field
-  is the id it is about.
+  (a printed line may say `key`, the same) is the id it is about.
+- **Handlers** (2026-11-27, the owner's design): a projection reads the events its `match:` holds for, keys each to an
+  item (`key:`), and says per event type, field by field, what the event does to the item (`events:`), each value an
+  expression (`add(1)`, `data.reason`, `set('done')`) of built-in fold functions and the model's own Python
+  `functions:`. Events are facts; the handlers are the projection. `id:`, `on:` and `fold:` are gone.
 - **Metrics**: time-series measurements. Kept in a store of their own, separate from events,
   because there will be few events and many metrics.
 - **Every metric goes through PromQL, recorded in VictoriaMetrics** (2026-11-25, the owner's decision). VictoriaMetrics

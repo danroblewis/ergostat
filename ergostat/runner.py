@@ -100,6 +100,16 @@ def matches(pattern: str, ev: dict) -> bool:
 TYPE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+$")
 
 
+def keyed(line: dict) -> tuple[dict, str | None]:
+    """A printed line's ``"key"``, which is its ``"item"`` (SPEC §5a): the line with ``item`` in its place, or why it is
+    refused (both, saying different things)."""
+    if not isinstance(line, dict) or "key" not in line:
+        return line, None
+    if line.get("item") is not None and line["item"] != line["key"]:
+        return line, '"key" and "item" are the same thing (the item the event is about), and this line says both, differently'
+    return {**{k: v for k, v in line.items() if k != "key"}, "item": line["key"]}, None
+
+
 def _number(v) -> bool:
     import math
     return isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v)
@@ -226,6 +236,10 @@ class Recorder:
                 self.counts["decisions"] += 1
             return True
         if "event" in line:
+            line, why = keyed(line)
+            if why:
+                self.refuse(line, why)
+                return True
             t = line["event"]
             if not isinstance(t, str) or not TYPE_NAME.match(t):
                 self.refuse(line, "an event type is lowercase words joined by dots, like backup.requested")

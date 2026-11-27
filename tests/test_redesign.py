@@ -27,7 +27,7 @@ def thirteen(dest: Path):
     it): one kind through 13 states, a stock a state, every move written as an outflow to a cloud, a goal and a block a
     step. Returns whether a spec has them chained."""
     states = [f"s{i:02d}" for i in range(1, 14)]
-    lines = ["name: thirteen", "projections:", "  request:", "    id: request/*", "    description: a request worked through 13 steps",
+    lines = ["name: thirteen", "projections:", "  request:", "    match: {key: request/*}", "    description: a request worked through 13 steps",
              f"    states: [{', '.join(states)}, done]", "    on:"]
     lines += [f"      request.{s}-reached: {s}" for s in states] + ["      request.finished: done"]
     lines += ["stocks:"]
@@ -61,13 +61,18 @@ PIECES = """\
 name: t
 projections:
   alert:
-    id: alert/*
+    match:
+      key: alert/*
     description: an alert from the pager
     states: [new, triaged, closed]
-    on:
-      alert.fired: new
-      alert.triaged: triaged
-      alert.closed: closed
+    events:
+      alert.fired:
+        state: set('new')
+      alert.triaged:
+        state: set('triaged')
+      alert.closed:
+        state: set('closed')
+    otherwise: rest
 stocks:
   triage:
     sensor: {projection: alert, state: new, every: 2s}

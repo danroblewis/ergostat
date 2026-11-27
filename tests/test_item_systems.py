@@ -36,13 +36,19 @@ systems:
   b: {}
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [open, done]
-    on: {job.done: done}
+    events:
+      job.done:
+        state: set('done')
+    otherwise: rest
   lone:
-    id: lone/*
+    match:
+      key: lone/*
   mine:
-    id: mine/*
+    match:
+      key: mine/*
     system: b
 stocks:
   open-a:

@@ -14,9 +14,17 @@ from ergostat.store import Project
 MODEL = """
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [open, building, merged]
-    on: {gap.opened: open, gap.started: building, gap.merged: merged}
+    events:
+      gap.opened:
+        state: set('open')
+      gap.started:
+        state: set('building')
+      gap.merged:
+        state: set('merged')
+    otherwise: rest
     relations:
       depends_on: gap
       parent: gap
@@ -82,13 +90,23 @@ TWO = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, doing, done]
-    on: {ticket.started: doing, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
   part:
-    id: part/*
+    match:
+      key: part/*
     states: [ready, made]
-    on: {part.made: made}
+    events:
+      part.made:
+        state: set('made')
+    otherwise: rest
 blocks:
   first:
     type: program

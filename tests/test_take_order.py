@@ -19,9 +19,19 @@ from ergostat.store import Project
 MODEL = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, fix, doing, done]
-    on: {ticket.opened: todo, ticket.failed: fix, ticket.started: doing, ticket.done: done}
+    events:
+      ticket.opened:
+        state: set('todo')
+      ticket.failed:
+        state: set('fix')
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations: {blocked_by: ticket}
 messages:
   done: {ticket: [done]}
@@ -120,7 +130,7 @@ def test_a_block_switched_off_is_projected_not_to_take(tmp_path):
 PAUSED = MODEL.replace("messages:\n  done: {ticket: [done]}", """messages:
   done: {ticket: [done]}
   paused: {ticket: [held]}""").replace("states: [todo, fix, doing, done]", "states: [todo, fix, doing, held, done]").replace(
-    "ticket.done: done}", "ticket.done: done, ticket.held: held}")
+    "        state: set('done')\n", "        state: set('done')\n      ticket.held:\n        state: set('held')\n")
 
 
 def test_a_paused_item_is_not_done_not_projected_and_blocks_its_dependents(tmp_path):

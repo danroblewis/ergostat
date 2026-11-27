@@ -60,9 +60,15 @@ blocks:
     out: flow.in-b
 projections:
   knowledge:
-    id: knowledge/*
+    match:
+      key: knowledge/*
     states: [active, retired]
-    on: {knowledge.found: active, knowledge.retired: retired}
+    events:
+      knowledge.found:
+        state: set('active')
+      knowledge.retired:
+        state: set('retired')
+    otherwise: rest
     about: about
 messages:
   done: {knowledge: [retired]}
@@ -388,7 +394,8 @@ def test_mcp_explain_lists_the_same_items_as_the_cli(home, capsys):
 @pytest.mark.parametrize("about,says", [("[about]", "bad-about"), ("tags", "bad-about")])
 def test_about_must_name_a_field_folded_by_replace(home, about, says):
     from ergostat.spec import read
-    text = MODEL.replace("about: about", f"about: {about}\n    fold: {{tags: union}}")
+    text = MODEL.replace("about: about", f"about: {about}").replace(
+        "    events:\n", "    events:\n      '*':\n        tags: union(data.tags)\n", 1)
     (home / "ergostat.yaml").write_text(textwrap.dedent(text))
     _, problems = read(home / "ergostat.yaml", extremes=False)
     assert any(x.code == says for x in problems if x.level == "error"), [str(x) for x in problems]

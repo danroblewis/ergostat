@@ -31,7 +31,7 @@ systems:
 projections:
   ticket: {states: [new, shipped], system: intake}
   note: {states: [open], system: qa}
-  run: {id: run/*, states: [going]}
+  run: {match: {key: run/*}, states: [going]}
 stocks:
   arrived: {system: intake, unit: tickets, sensor: {projection: ticket, state: new}}
   shipped: {system: delivery, unit: tickets, sensor: {projection: ticket, state: shipped}}

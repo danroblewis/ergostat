@@ -23,10 +23,13 @@ MODEL = """
 name: rz
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [new, done]
-    on:
-      job.end: done
+    events:
+      job.end:
+        state: set('done')
+    otherwise: rest
 stocks:
   waiting: {unit: jobs, sensor: {projection: job, state: new, every: 1s}}
 goals:
@@ -151,7 +154,7 @@ GLOBBED = """
 name: rz
 include: [parts/*.yaml, plain.yaml]
 projections:
-  job: {id: job/*, states: [new, done]}
+  job: {match: {key: job/*}, states: [new, done]}
 """
 
 

@@ -22,9 +22,15 @@ KIND = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, doing, done]
-    on: {ticket.started: doing, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 """
 
 

@@ -15,10 +15,13 @@ MODEL = """
 name: rz
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [new, done]
-    on:
-      job.end: done
+    events:
+      job.end:
+        state: set('done')
+    otherwise: rest
 stocks:
   waiting: {unit: jobs, sensor: {projection: job, state: new, every: 1s}}
 goals:
@@ -487,12 +490,16 @@ TAKES = """
 name: rz
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [new, done]
-    on:
-      job.end: done
+    events:
+      job.end:
+        state: set('done')
+    otherwise: rest
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, done]
 blocks:
   doer:

@@ -32,7 +32,8 @@ systems:
       every: 60s
 projections:
   thing:
-    id: thing/*
+    match:
+      key: thing/*
 stocks:
   queue:
     sensor: {run: echo 1}

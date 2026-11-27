@@ -18,11 +18,14 @@ systems:
 
 projections:
   removal:
-    id: removal/*
+    match:
+      key: removal/*
     description: one removal a merged simplification made, from its commit's Removed trailer - class, path, name, lines
     states: [recorded]
-    on:
-      removal.recorded: recorded
+    events:
+      removal.recorded:
+        state: set('recorded')
+    otherwise: rest
     show: [class, path, name, lines, gap]
     relations:
       gap: gap

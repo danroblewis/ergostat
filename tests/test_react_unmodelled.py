@@ -31,6 +31,6 @@ def test_an_unmodelled_item_says_so_and_what_to_add(site, browser):
     pg.wait_for_selector(".unmodelled-note", timeout=WAIT)
     note = pg.locator(".unmodelled-note").inner_text()
     assert "Not in the model." in note and "No projection matches missioner/1235" in note
-    assert "projections:\n  missioner:\n    id: missioner/*" in note
+    assert "projections:\n  missioner:\n    match: {key: missioner/*}" in note
     assert settled(pg) == []
     pg.close()

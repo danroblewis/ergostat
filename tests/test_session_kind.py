@@ -15,7 +15,7 @@ def test_a_model_gets_the_built_in_session_kind_with_its_transcript_shown_as_a_c
     m = write(tmp_path, """
         name: t
         projections:
-          ticket: {id: ticket/*, states: [open, done]}
+          ticket: {match: {key: ticket/*}, states: [open, done]}
         blocks:
           dev:
             type: ai
@@ -32,6 +32,6 @@ def test_a_declared_session_kind_is_kept_and_not_replaced(tmp_path):
     m = write(tmp_path, """
         name: t
         projections:
-          talk: {id: session/*, states: [open, closed], show: [model]}
+          talk: {match: {key: session/*}, states: [open, closed], show: [model]}
         """)
     assert SESSION not in m.spec.items and m.spec.items["talk"].show == ["model"]

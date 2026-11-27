@@ -23,6 +23,7 @@ from ..leases import PREFIX as LEASE_PREFIX
 from ..leases import fold as lease_fold
 from ..operating import KIND as OPERATING
 from .changes import fold_event, form_of
+from .handlers import apply_event
 from .ir import DEAD, ItemKind, Sensor, Spec
 
 REOPENED = "ergostat.item.reopened"   # any item moved back, by ergostat, to a state its data names (SPEC §12h)
@@ -79,10 +80,11 @@ def field_of(path: str) -> str:
     return path[1:].split("/", 1)[0].replace("~1", "/").replace("~0", "~")
 
 
-def projections_of(spec: Spec, id: str) -> list[ItemKind]:
+def projections_of(spec: Spec, id: str, open: bool = False) -> list[ItemKind]:
     """Every projection that matches ``id`` (SPEC §5a): each folds its events into an item of its own. An event has no
-    projection; a projection is a way of looking at a set of events."""
-    return [k for k in (getattr(spec, "items", None) or {}).values() if k.matches(id)]
+    projection; a projection is a way of looking at a set of events. ``open``: and those whose items no id glob tells
+    (``ItemKind.open``), which may have it."""
+    return [k for k in (getattr(spec, "items", None) or {}).values() if k.matches(id) or (open and k.open)]
 
 
 def projection(spec: Spec, id: str, name: str | None = None) -> ItemKind | None:
@@ -91,8 +93,36 @@ def projection(spec: Spec, id: str, name: str | None = None) -> ItemKind | None:
     Whatever acts on a projection's items names the projection (a block's ``takes:``, a sensor's, a relation's)."""
     if name is not None:
         k = (getattr(spec, "items", None) or {}).get(name)
-        return k if k is not None and k.matches(id) else None
+        return k if k is not None and (k.open or k.matches(id)) else None
     return next(iter(projections_of(spec, id)), None)
+
+
+def routes(spec: Spec, e: dict) -> list[tuple]:
+    """Every (projection, item) event ``e`` folds into (SPEC §5a): each projection that reads it (``match:``), into the
+    item its ``key:`` names; ``(None, id)`` when none reads it and it is about an item (an id with a ``/``)."""
+    out = []
+    for k in (getattr(spec, "items", None) or {}).values():
+        if k.reads(e):
+            key = k.key_of(e)
+            if key:
+                out.append((k, key))
+    if not out and "/" in str(e.get("item") or ""):
+        out.append((None, e["item"]))
+    return out
+
+
+def reads_all(spec: Spec) -> bool:
+    """Whether some projection keys its items by something other than the events' own item: the record's every event
+    is read for it, not only those about an item."""
+    return any(not k.by_item for k in (getattr(spec, "items", None) or {}).values())
+
+
+def events_for(events, k: ItemKind | None, id: str, until: float | None = None, skip=()) -> list[dict]:
+    """The events projection ``k`` folds into its item ``id`` (``None``: every event about the id), oldest first."""
+    if k is None or k.by_item:
+        evs = events.query(n=None, item=id, until=until, skip=skip)
+        return evs if k is None or k.match is None else [e for e in evs if k.reads(e)]
+    return [e for e in events.query(n=None, until=until, skip=skip) if k.reads(e) and k.key_of(e) == id]
 
 
 def rollup_of(e: dict, kind: str | None) -> tuple[dict, dict]:
@@ -202,7 +232,15 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
                 it.changes.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": form_of(e),
                                    "op": "refused", "path": "", "before": None, "after": None, "why": why})
             continue
-        done, why = fold_event(it.fields, e, rules, bounds, it.acc)
+        handled = kind is not None and kind.handlers is not None and form_of(e) == "data"
+        rule_of: dict = {}
+        moved_to = None
+        if handled:                                          # the projection's handlers (handlers.py, SPEC §5a)
+            done5, why, moved_to = apply_event(kind, it, e)
+            done = [d[:4] for d in done5]
+            rule_of = {d[1]: d[4] for d in done5}
+        else:
+            done, why = fold_event(it.fields, e, rules, bounds, it.acc)
         if lease is not None and it.fields.get("lease") is not lease:   # the lease is ergostat's: no event's data replaces it
             it.fields["lease"] = lease
         if why is not None:
@@ -216,9 +254,9 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
                 c = {"time": e["time"], "event": e["id"], "type": e["type"], "form": form, "op": op, "path": path,
                      "before": before, "after": after}
                 if form == "data":
-                    c["rule"] = rules.get(field_of(path), "replace")
+                    c["rule"] = rule_of.get(path) or rules.get(field_of(path), "replace")
                 it.changes.append(c)
-        to = kind.on.get(e["type"]) if kind else None
+        to = (moved_to if handled else kind.on.get(e["type"])) if kind else None
         if e["type"] == REOPENED and kind and kind.states and _for(e, "reopened", kind):   # reopened: back to the state
             want = ((e.get("data") or {}).get("reopened") or {}).get("to")             # it names (else the first)
             to = want if want in kind.states else kind.states[0]
@@ -289,9 +327,9 @@ def _late(ix, events, spec, kind: str | None, until: float | None, transcript: b
     skip = () if transcript else (TRANSCRIPT_TYPES,)
     out = {}
     for i in ids:
-        evs = events.query(n=None, item=i, until=until, skip=skip)
-        if evs:
-            for k in ([spec.items[kind]] if kind else projections_of(spec, i) or [None]):
+        for k in ([spec.items[kind]] if kind else projections_of(spec, i, open=True) or [None]):
+            evs = events_for(events, k, i, until, skip)
+            if evs:
                 out[(k.name if k else None, i)] = fold(i, evs, k, transcript=transcript)
     return out
 
@@ -323,14 +361,18 @@ def project(events, spec: Spec, kind: str | None = None, until: float | None = N
 def fold_all(events, spec: Spec, kind: str | None, until: float | None, transcript: bool) -> list[Item]:
     """Every item (of ``kind``; None: every item, of a kind or of none) as it stood at ``until``, folded from the
     record itself, the latest first."""
-    by: dict[str, list[dict]] = {}
-    for e in events.of_items([spec.items[kind].id] if kind else None, until=until,
-                             skip=() if transcript else (TRANSCRIPT_TYPES,)):
-        by.setdefault(e["item"], []).append(e)
-    out = []
-    for id, evs in by.items():
-        for k in ([spec.items[kind]] if kind else projections_of(spec, id) or [None]):
-            out.append(fold(id, evs, k, transcript=transcript))
+    by: dict[tuple, list[dict]] = {}
+    skip = () if transcript else (TRANSCRIPT_TYPES,)
+    one_k = spec.items[kind] if kind else None
+    if reads_all(spec) if one_k is None else not one_k.by_item:
+        evs = events.query(n=None, until=until, skip=skip)
+    else:
+        evs = events.of_items([one_k.id] if one_k else None, until=until, skip=skip)
+    for e in evs:
+        for k, key in routes(spec, e):
+            if one_k is None or k is one_k:
+                by.setdefault((k.name if k else None, key), []).append(e)
+    out = [fold(key, es, spec.items[name] if name else None, transcript=transcript) for (name, key), es in by.items()]
     return sorted(out, key=lambda i: -i.last)
 
 
@@ -464,7 +506,7 @@ def one(events, spec: Spec, id: str, kind: str | None = None) -> Item | None:
     k = projection(spec, id, kind)
     if kind is not None and k is None:
         return None
-    evs = events.query(n=None, item=id)
+    evs = events_for(events, k, id)
     return fold(id, evs, k) if evs else None
 
 
@@ -494,10 +536,10 @@ def refused_by(events, spec: Spec, e: dict, every: bool = False) -> str | None:
     if not (isinstance(item, str) and "/" in item):
         return None
     ks = projections_of(spec, item) if spec is not None else []
-    if not every and e.get("patch") is None and e.get("set") is None and not any(k.fold for k in ks):
+    if not every and e.get("patch") is None and e.get("set") is None and not any(k.fold or k.handlers for k in ks):
         return None
-    evs = events.query(n=None, item=item)
     for k in ks or [None]:
+        evs = events_for(events, k, item)
         why = next((r["why"] for r in fold(item, evs, k).refused if r["event"] == e["id"]), None) if evs else None
         if why:
             return f"{k.name}: {why}" if len(ks) > 1 else why
@@ -822,11 +864,11 @@ def detail(events, spec, id: str, until: float | None = None, history: int | Non
     that matches: ``projection``), its fields, its moves, each field's history (its latest ``history`` changes, and how
     many there were), what was refused, and its record; ``projections``, every projection that sees the id. None when
     nothing is recorded about it, or ``kind`` does not match it."""
-    evs = events.query(n=None, item=id, until=until)
-    if not evs:
-        return None
     k = projection(spec, id, kind)
     if kind is not None and k is None:
+        return None
+    evs = events_for(events, k, id, until)
+    if not evs:
         return None
     it = fold(id, evs, k, history=True)
     d = it.as_dict(moves=True, history=True)
@@ -849,7 +891,9 @@ def detail(events, spec, id: str, until: float | None = None, history: int | Non
             "record_total": len(own),
             "projections": [x.name for x in projections_of(spec, id)],
             "projection_of": {"name": k.name, "id": k.id, "states": k.states, "on": k.on, "show": k.show, "formats": k.formats,
-                        "fold": k.fold} if k else None,
+                        "fold": k.fold, "match": k.match, "key": [v.text for v in k.key] if k.key else "key",
+                        "events": {t: {f: v.text for f, v in h.items()} for t, h in (k.handlers or {}).items()},
+                        "otherwise": k.otherwise} if k else None,
             "transcript_events": len(evs) - len(own),
             "relations": related(events, spec, it, k),
             "record": own[-500:]}

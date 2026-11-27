@@ -38,9 +38,15 @@ T0 = 1_700_000_000.0
 DEPS = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, done]
-    on: {ticket.started: doing, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations:
       blocked_by: ticket
 messages:
@@ -55,9 +61,17 @@ blocks:
 STEPS = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, done]
-    on: {ticket.started: doing, ticket.returned: todo, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.returned:
+        state: set('todo')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 messages:
   done: {ticket: [done]}
 """

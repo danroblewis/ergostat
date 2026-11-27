@@ -16,12 +16,17 @@ from ergostat.store import Project
 MODEL = """
 projections:
   pr:
-    id: github/pull_request/*
+    match:
+      key: github/pull_request/*
     states: [open, review, merged, closed]
-    on:
-      pr.review-asked: review
-      pr.merged: merged
-      pr.closed: closed
+    events:
+      pr.review-asked:
+        state: set('review')
+      pr.merged:
+        state: set('merged')
+      pr.closed:
+        state: set('closed')
+    otherwise: rest
     show: [title]
 stocks:
   in-review:
@@ -109,10 +114,13 @@ def test_the_compiler_refuses_what_does_not_fit(tmp_path):
     bad = """
     projections:
       ticket:
-        id: tickets
+        match:
+          key: tickets
         states: [open, done]
-        on:
-          ticket.closed: shut
+        events:
+          ticket.closed:
+            state: set('shut')
+        otherwise: rest
     stocks:
       a:
         sensor:

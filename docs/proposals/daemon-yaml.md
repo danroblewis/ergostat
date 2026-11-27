@@ -85,9 +85,15 @@ then today's `daemon:` map, renamed, with `run` outside it. The pair is the docs
 name: shell-jobs
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.opened: ready, job.done: done}
+    events:
+      job.opened:
+        state: set('ready')
+      job.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   ready:
     unit: jobs
@@ -109,9 +115,15 @@ blocks:
 name: shell-jobs
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.opened: ready, job.done: done}
+    events:
+      job.opened:
+        state: set('ready')
+      job.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   ready:
     unit: jobs
@@ -564,9 +576,15 @@ runs at most 10 at once where it said `pool: 20`.
 name: builder
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, done]
-    on: {ticket.opened: ready, ticket.done: done}
+    events:
+      ticket.opened:
+        state: set('ready')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 blocks:
   builder:
     type: program
@@ -580,9 +598,15 @@ blocks:
 name: builder
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, done]
-    on: {ticket.opened: ready, ticket.done: done}
+    events:
+      ticket.opened:
+        state: set('ready')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 blocks:
   builder:
     type: program
@@ -685,9 +709,15 @@ be the default. Today the same text means no heartbeat at all (`config.py:53`, `
 name: t-block
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.opened: ready, job.done: done}
+    events:
+      job.opened:
+        state: set('ready')
+      job.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   ready:
     unit: jobs
@@ -710,9 +740,15 @@ blocks:
 name: t-block
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.opened: ready, job.done: done}
+    events:
+      job.opened:
+        state: set('ready')
+      job.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   ready:
     unit: jobs

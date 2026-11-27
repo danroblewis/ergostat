@@ -52,46 +52,63 @@ params:
     description: how often the batches are worked out again
 projections:
   ${projection}:
-    id: ${projection}/*
+    match:
+      key: ${projection}/*
     description: something a person must do by hand, with its instructions and where it must be done
     states: [new, ready, in-progress, waiting, done, dropped]
-    on:
-      ${projection}.added: new
-      ${projection}.ready: ready
-      ${projection}.done: done
-      ${projection}.started: in-progress
-      ${projection}.waiting: waiting
-      ${projection}.dropped: dropped
-      ${projection}.freed: ready
+    events:
+      "*":
+        notes: append(data.notes)
+      ${projection}.added:
+        state: set('new')
+      ${projection}.ready:
+        state: set('ready')
+      ${projection}.done:
+        state: set('done')
+      ${projection}.started:
+        state: set('in-progress')
+      ${projection}.waiting:
+        state: set('waiting')
+      ${projection}.dropped:
+        state: set('dropped')
+      ${projection}.freed:
+        state: set('ready')
+    otherwise: rest
     finished: [done, dropped]
     moves-from:
       ${projection}.freed: [waiting]
     if-unchanged: ["${projection}.freed", "${projection}.stuck"]
-    fold:
-      notes: append
     relations:
       waits_on:
         projection: ["${projection}", "${wait-projection}"]
         precedence: true
     show: [title, where, due, requester, stuck]
   ${wait-projection}:
-    id: ${wait-projection}/*
+    match:
+      key: ${wait-projection}/*
     description: something a to-do waits on that someone else does (a person's answer, an outside change), recorded by hand
     states: [new, asked, answered]
-    on:
-      ${wait-projection}.asked: asked
-      ${wait-projection}.answered: answered
+    events:
+      "*":
+        notes: append(data.notes)
+      ${wait-projection}.asked:
+        state: set('asked')
+      ${wait-projection}.answered:
+        state: set('answered')
+    otherwise: rest
     finished: [answered]
-    fold:
-      notes: append
     show: [title, who]
   ${batch-projection}:
-    id: ${batch-projection}/*
+    match:
+      key: ${batch-projection}/*
     description: the ready to-dos of one place, in the order to do them, with every one's instructions (sitting)
     states: [open, clear]
-    on:
-      ${batch-projection}.grouped: open
-      ${batch-projection}.cleared: clear
+    events:
+      ${batch-projection}.grouped:
+        state: set('open')
+      ${batch-projection}.cleared:
+        state: set('clear')
+    otherwise: rest
     finished: [clear]
     show: [title, count, due]
 stocks:

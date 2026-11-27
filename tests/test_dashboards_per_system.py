@@ -21,9 +21,15 @@ defaults:
   system: desk
 projections:
   bug:
-    id: bug/*
+    match:
+      key: bug/*
     states: [open, fixed]
-    on: {bug.opened: open, bug.fixed: fixed}
+    events:
+      bug.opened:
+        state: set('open')
+      bug.fixed:
+        state: set('fixed')
+    otherwise: rest
 """
 
 

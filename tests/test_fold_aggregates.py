@@ -23,10 +23,20 @@ RULES = {"c": "count", "m": "mean", "v": "variance", "s": "stdev", "r": "rms", "
 MODEL = """
 projections:
   reading:
-    id: reading/*
+    match:
+      key: reading/*
     states: [open, done]
-    on: {reading.done: done}
-    fold: {c: count, m: mean, v: variance, s: stdev, r: rms, a: {append: 5}}
+    events:
+      "*":
+        c: count(data.c)
+        m: mean(data.m)
+        v: variance(data.v)
+        s: stdev(data.s)
+        r: rms(data.r)
+        a: append(data.a, 5)
+      reading.done:
+        state: set('done')
+    otherwise: rest
 """
 
 
@@ -150,21 +160,6 @@ def test_a_bounded_append_keeps_only_the_last_values():
     assert doc["a"] == [13, 14, 20]
 
 
-def test_append_bound_compiles_and_a_bad_bound_is_an_error(tmp_path):
-    p = project(tmp_path)
-    k = p.model.spec.items["reading"]
-    assert k.fold["a"] == "append" and k.bounds == {"a": 5} and k.fold["m"] == "mean"
-    base = "projections:\n  reading:\n    id: reading/*\n    fold: {a: %s}\n"
-    for bad, says in (("{append: 0}", "a whole number of 1 or more"), ("{append: -3}", "a whole number of 1 or more"),
-                      ("{append: 2.5}", "a whole number of 1 or more"), ("{append: x}", "a whole number of 1 or more"),
-                      ("{append: true}", "a whole number of 1 or more"), ("{sum: 3}", "only append takes a bound"),
-                      ("{append: 3, sum: 1}", "only append takes a bound"), ("{}", "only append takes a bound")):
-        got = problems(tmp_path, base % bad)
-        assert any(g.startswith("bad-fold: projection reading.fold.a") and says in g for g in got), (bad, got)
-    assert problems(tmp_path, base % "{append: 20}") == []
-    assert any("is not a fold rule" in g and "median" in g for g in problems(tmp_path, base % "median"))
-
-
 # ---- the same fold however it was reached
 
 
@@ -240,10 +235,3 @@ def test_a_fold_from_scratch_in_chunks_and_from_a_snapshot_are_the_same(tmp_path
     _cold()
     again = {id: (f, acc) for id, (f, acc, *_) in _state(its.project(c.events, c.model.spec)).items()}
     assert again == got                                     # built again from the record
-
-
-def test_a_library_may_write_a_bounded_append_and_nothing_else_in_a_rule():
-    from ergostat.library import trust
-    fold = trust.ITEM["fold"][0]
-    assert trust._match(fold, {"a": "append", "b": {"append": 20}, "m": "mean"}, "fold", trust.OWNER, trust.OWNER) is None
-    assert trust._match(fold, {"b": {"run": "x"}}, "fold", trust.OWNER, trust.OWNER) is not None

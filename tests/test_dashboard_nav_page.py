@@ -50,9 +50,15 @@ dashboards:
       - {panel: projection-now, projection: $projection}
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [opened, done]
-    on: {ticket.opened: opened, ticket.done: done}
+    events:
+      ticket.opened:
+        state: set('opened')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 """
 
 
@@ -151,7 +157,7 @@ def test_keep_writes_nav_and_page_and_keeps_them_in_place(tmp_path):
 
 @pytest.mark.parametrize("kind", ["api", "static"])
 def test_a_top_level_projection_named_as_the_servers_address_is_an_error(tmp_path, kind):
-    d = write(tmp_path, BOARD.replace("projections:\n", f"projections:\n  {kind}:\n    id: {kind}/*\n    states: [a]\n"))
+    d = write(tmp_path, BOARD.replace("projections:\n", f"projections:\n  {kind}:\n    match: {{key: {kind}/*}}\n    states: [a]\n"))
     _, problems = read(d / "ergostat.yaml")
     assert [(x.level, x.code) for x in problems if x.about == f"projection.{kind}"] == [("error", "address-unreachable")]
 
@@ -161,8 +167,7 @@ def test_a_projections_group_is_checked_and_listed(tmp_path):
     error."""
     p = write(tmp_path)
     f = p / "ergostat.yaml"
-    f.write_text(f.read_text().replace("    on: {ticket.opened: opened, ticket.done: done}",
-                                       "    on: {ticket.opened: opened, ticket.done: done}\n    group: things"))
+    f.write_text(f.read_text().replace("    otherwise: rest", "    otherwise: rest\n    group: things", 1))
     from ergostat.web import server
     routes = server.api(server.Live(Project(mdl.load(p))), "routes", {})
     assert [x["group"] for x in routes["projections"] if x["name"] == "ticket"] == ["things"]

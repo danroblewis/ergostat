@@ -13,9 +13,15 @@ from ergostat.store import Project
 MODEL = """
 projections:
   pr:
-    id: pr/*
+    match:
+      key: pr/*
     states: [open, done]
-    on: {pr.opened: open, pr.merged: done}
+    events:
+      pr.opened:
+        state: set('open')
+      pr.merged:
+        state: set('done')
+    otherwise: rest
 stocks:
   points:
     sensor:

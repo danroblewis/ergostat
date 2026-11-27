@@ -259,7 +259,8 @@ def test_the_skill_sends_every_agent_setting_up_a_model_to_the_section():
 KIND = """
 projections:
   todo:
-    id: todo/*
+    match:
+      key: todo/*
     states: @STATES@
     on: @ON@
     @REL@

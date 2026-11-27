@@ -121,8 +121,8 @@ def test_a_persons_entry_says_what_its_number_moves(tmp_path):
 
 
 def test_the_why_of_an_action_is_its_items_impact_and_tests(tmp_path):
-    p, _ = project(tmp_path, MODEL.replace("blocks:", "projections:\n  failure:\n    id: failure/*\n    states: [open]\n"
-                                                   "    on: {failure.seen: open}\nblocks:", 1))
+    p, _ = project(tmp_path, MODEL.replace("blocks:", "projections:\n  failure:\n    match: {key: failure/*}\n    states: [open]\n"
+                                                   "    events: {failure.seen: {state: set('open')}}\n    otherwise: rest\nblocks:", 1))
     p.events.add("failure.seen", item="failure/1", data={"impact": {"said": "restores 12 an hour"}, "tests": "passed"})
     gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "failure/1"})
     e = entries.entries(p)[0]
@@ -130,8 +130,8 @@ def test_the_why_of_an_action_is_its_items_impact_and_tests(tmp_path):
 
 
 def test_an_action_says_its_command_and_its_reason_once_in_the_cli_the_message_and_the_status(tmp_path, capsys):
-    p, _ = project(tmp_path, MODEL.replace("blocks:", "projections:\n  failure:\n    id: failure/*\n    states: [open]\n"
-                                                   "    on: {failure.seen: open}\nblocks:", 1)
+    p, _ = project(tmp_path, MODEL.replace("blocks:", "projections:\n  failure:\n    match: {key: failure/*}\n    states: [open]\n"
+                                                   "    events: {failure.seen: {state: set('open')}}\n    otherwise: rest\nblocks:", 1)
                    .replace('run: "cat >> sent.txt"', 'run: "cat >> sent.txt"\n      detail: full'))
     p.events.add("failure.seen", item="failure/1", data={"impact": {"said": "restores 12 an hour"}, "tests": "passed"})
     gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "failure/1"})

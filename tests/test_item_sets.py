@@ -18,9 +18,17 @@ sources:
   prom: {type: prometheus, url: "http://127.0.0.1:1"}
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [new, awaiting, approved, done]
-    on: {ticket.asked: awaiting, ticket.approved: approved, ticket.done: done}
+    events:
+      ticket.asked:
+        state: set('awaiting')
+      ticket.approved:
+        state: set('approved')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     show: [title, area]
 stocks:
   awaiting-approval:
@@ -203,9 +211,15 @@ TAKES = """
 name: taken
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [new, doing, done]
-    on: {job.started: doing, job.done: done}
+    events:
+      job.started:
+        state: set('doing')
+      job.done:
+        state: set('done')
+    otherwise: rest
     show: [title]
 stocks:
   todo: {unit: jobs, sensor: {projection: job, state: new}}
@@ -250,14 +264,31 @@ GAPS = """
 name: gaps
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [open, building, merged, parked, closed, dead]
-    on: {gap.opened: open, gap.started: building, gap.merged: merged, gap.parked: parked, gap.closed: closed,
-         gap.died: dead}
+    events:
+      gap.opened:
+        state: set('open')
+      gap.started:
+        state: set('building')
+      gap.merged:
+        state: set('merged')
+      gap.parked:
+        state: set('parked')
+      gap.closed:
+        state: set('closed')
+      gap.died:
+        state: set('dead')
+    otherwise: rest
   pool:
-    id: pool/*
+    match:
+      key: pool/*
     states: [held]
-    on: {pool.measured: held}
+    events:
+      pool.measured:
+        state: set('held')
+    otherwise: rest
 messages:
   done: {gap: [merged, closed]}
   paused: {gap: [parked]}

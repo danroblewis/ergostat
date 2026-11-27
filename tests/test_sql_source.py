@@ -66,9 +66,19 @@ def p(tmp_path):
           queue: {unit: tickets}
         projections:
           ticket:
-            id: ticket/*
+            match:
+              key: ticket/*
             states: [open, doing, done, dropped]
-            on: {ticket.started: doing, ticket.back: open, ticket.done: done, ticket.dropped: dropped}
+            events:
+              ticket.started:
+                state: set('doing')
+              ticket.back:
+                state: set('open')
+              ticket.done:
+                state: set('done')
+              ticket.dropped:
+                state: set('dropped')
+            otherwise: rest
             show: [owner, size]
         """))
     p = Project(mdl.load(tmp_path))

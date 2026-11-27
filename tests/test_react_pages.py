@@ -29,9 +29,17 @@ ITEM = "ticket/1"
 PROJECTION = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [opened, working, done]
-    on: {ticket.opened: opened, ticket.working: working, ticket.done: done}
+    events:
+      ticket.opened:
+        state: set('opened')
+      ticket.working:
+        state: set('working')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 """
 WAIT = 20_000                      # ms: a page's first answers on a busy machine
 

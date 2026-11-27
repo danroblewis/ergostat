@@ -90,17 +90,19 @@ params:
     description: what a person is asked about the dead letters; false for nobody
 projections:
   ${projection}:
-    id: ${projection}/*
+    match:
+      key: ${projection}/*
     description: an item worked through the steps
     states:
       - each: steps
         value: ${it.name}
       - done
-    on:
+    events:
       each:
         each: steps
         key: ${projection}.${it.name}-done
-        value: ${it.next}
+        value: {state: "set('${it.next}')"}
+    otherwise: rest
     show: [title, error, failed_at]
 workspaces:
   workspace:

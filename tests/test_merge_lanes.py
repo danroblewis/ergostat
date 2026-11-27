@@ -27,9 +27,17 @@ MODEL = """
 name: t
 projections:
   batch:
-    id: batch/*
+    match:
+      key: batch/*
     states: [ready, landed, failed]
-    on: {batch.ready: ready, batch.landed: landed, batch.failed: failed}
+    events:
+      batch.ready:
+        state: set('ready')
+      batch.landed:
+        state: set('landed')
+      batch.failed:
+        state: set('failed')
+    otherwise: rest
 blocks:
   lane:
     type: program

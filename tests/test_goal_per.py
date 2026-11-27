@@ -15,11 +15,19 @@ from ergostat.store import Project
 MODEL = """
 name: t
 projections:
-  epic: {id: epic/*, states: [planned, underway, shipped]}
+  epic: {match: {key: epic/*}, states: [planned, underway, shipped]}
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, review, done]
-    on: {ticket.started: doing, ticket.review: review, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.review:
+        state: set('review')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations: {parent: epic}
 stocks:
   review-age:

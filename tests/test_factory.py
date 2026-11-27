@@ -1626,8 +1626,8 @@ def long_record(tmp_path, monkeypatch, n: int = 600):
     is outside the last 500 that `ergostat item --json` carries; and gap/short, three events."""
     from ergostat import model as mdl
     from ergostat.store import Project
-    (tmp_path / "ergostat.yaml").write_text("name: timer\nprojections:\n  gap:\n    id: gap/*\n    states: [ready, building, built]\n"
-                                            "    on: {gap.ready: ready, gap.started: building, gap.built: built}\n")
+    (tmp_path / "ergostat.yaml").write_text("name: timer\nprojections:\n  gap:\n    match: {key: gap/*}\n    states: [ready, building, built]\n"
+                                            "    events: {gap.ready: {state: set('ready')}, gap.started: {state: set('building')}, gap.built: {state: set('built')}}\n    otherwise: rest\n")
     p = Project(mdl.load(tmp_path))
     p.events.add("gap.ready", item="gap/long", source="test", at=100.0)
     p.events.add("gap.built", item="gap/long", source="test", data={"build_hours": 0.5}, at=200.0)
@@ -4289,9 +4289,15 @@ PUSH_MODEL = """
 name: t
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [approved, queued]
-    on: {gap.approved: approved, gap.queued: queued}
+    events:
+      gap.approved:
+        state: set('approved')
+      gap.queued:
+        state: set('queued')
+    otherwise: rest
 stocks:
   approved:
     sensor: {projection: gap, state: approved, every: 5s}

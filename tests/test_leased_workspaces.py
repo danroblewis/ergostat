@@ -26,9 +26,15 @@ MODEL = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open, review, done]
-    on: {ticket.review: review, ticket.done: done}
+    events:
+      ticket.review:
+        state: set('review')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     show: [title]
 stocks:
   open-tickets:

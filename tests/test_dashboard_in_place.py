@@ -18,8 +18,8 @@ from ergostat.store import Project
 from ergostat.web import dashboard_api
 from tests.test_dashboards import MODEL, project, write
 
-OWN = MODEL.replace("""    on: {ticket.started: doing, ticket.done: done}
-""", """    on: {ticket.started: doing, ticket.done: done}
+OWN = MODEL.replace("""    otherwise: rest
+""", """    otherwise: rest
     dashboards:
       list:
         title: Tickets, my way
@@ -36,9 +36,13 @@ defaults:
   system: desk
 projections:
   bug:
-    id: bug/*
+    match:
+      key: bug/*
     states: [open, fixed]
-    on: {bug.fixed: fixed}
+    events:
+      bug.fixed:
+        state: set('fixed')
+    otherwise: rest
 """
 
 

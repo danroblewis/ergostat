@@ -25,9 +25,15 @@ FINDINGS = """
 name: s
 projections:
   finding:
-    id: finding/*
+    match:
+      key: finding/*
     states: [new, kept]
-    on: {finding.found: new, finding.kept: kept}
+    events:
+      finding.found:
+        state: set('new')
+      finding.kept:
+        state: set('kept')
+    otherwise: rest
 stocks:
   found:
     unit: findings
@@ -228,9 +234,15 @@ LEASED = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, doing, done]
-    on: {ticket.started: doing, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 blocks:
   worker:
     type: program

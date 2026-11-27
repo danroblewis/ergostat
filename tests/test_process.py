@@ -20,15 +20,29 @@ systems:
   research: {description: what is found out}
 projections:
   flag:
-    id: flag/*
+    match:
+      key: flag/*
     system: delivery
     states: [asked, researching, researched, shipped]
-    on: {flag.researching: researching, flag.researched: researched, flag.shipped: shipped, flag.reworked: researching}
+    events:
+      flag.researching:
+        state: set('researching')
+      flag.researched:
+        state: set('researched')
+      flag.shipped:
+        state: set('shipped')
+      flag.reworked:
+        state: set('researching')
+    otherwise: rest
   facet:
-    id: facet/*
+    match:
+      key: facet/*
     system: research
     states: [open, done]
-    on: {facet.done: done}
+    events:
+      facet.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   flags-asked:
     unit: flags
@@ -250,7 +264,8 @@ def test_a_real_scheduled_runs_events_cite_it(tmp_path):
         name: t
         projections:
           x:
-            id: x/*
+            match:
+              key: x/*
             states: [o, c]
         blocks:
           sweep:
@@ -287,7 +302,7 @@ def test_relations_between_the_items_drawn_are_lines_between_their_activities(tm
     """Each link between two items drawn is a line from the activity the naming item was last at to the one the
     named item was last at, aggregated, named by its relation; a link to an item not drawn is no line."""
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace(
-        "    on: {facet.done: done}", "    on: {facet.done: done}\n    relations: {parent: flag}"))
+        "        state: set('done')\n    otherwise: rest", "        state: set('done')\n    otherwise: rest\n    relations: {parent: flag}"))
     p = Project(mdl.load(tmp_path))
     now = time.time()
     seed(p, now)
@@ -312,10 +327,20 @@ systems:
   work: {description: the jobs}
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     system: work
     states: [new, a, b, c, d]
-    on: {job.a: a, job.b: b, job.c: c, job.d: d}
+    events:
+      job.a:
+        state: set('a')
+      job.b:
+        state: set('b')
+      job.c:
+        state: set('c')
+      job.d:
+        state: set('d')
+    otherwise: rest
 """
 
 

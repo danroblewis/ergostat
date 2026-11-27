@@ -162,13 +162,25 @@ TWO = """
 name: two
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open, done]
-    on: {ticket.opened: open, ticket.closed: done}
+    events:
+      ticket.opened:
+        state: set('open')
+      ticket.closed:
+        state: set('done')
+    otherwise: rest
   review:
-    id: review/*
+    match:
+      key: review/*
     states: [asked, given]
-    on: {review.asked: asked, review.given: given}
+    events:
+      review.asked:
+        state: set('asked')
+      review.given:
+        state: set('given')
+    otherwise: rest
 stocks:
   backlog:
     unit: tickets
@@ -234,7 +246,7 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""\
         name: clash
         projections:
-          ticket: {id: ticket/*, states: [open], on: {ticket.opened: open}}
+          ticket: {match: {key: ticket/*}, states: [open], events: {ticket.opened: {state: set('open')}}, otherwise: rest}
         stocks:
           ticket-items: {unit: tickets}
         """))
@@ -248,7 +260,7 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
         name: apart
         systems: {desk: {description: the help desk}}
         projections:
-          ticket: {id: ticket/*, states: [open], on: {ticket.opened: open}}
+          ticket: {match: {key: ticket/*}, states: [open], events: {ticket.opened: {state: set('open')}}, otherwise: rest}
         stocks:
           ticket-items: {unit: tickets, system: desk, sensor: {projection: ticket, state: open, every: 1m}}
           ergostat-load: {unit: jobs, system: desk}
@@ -264,7 +276,7 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
 
 
 def test_a_kind_that_would_read_as_the_engines_is_refused(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("name: k\nprojections:\n  ergostat-jobs: {id: job/*, states: [open], on: {job.opened: open}}\n")
+    (tmp_path / "ergostat.yaml").write_text("name: k\nprojections:\n  ergostat-jobs: {match: {key: job/*}, states: [open], events: {job.opened: {state: set('open')}}, otherwise: rest}\n")
     _, problems = read(tmp_path / "ergostat.yaml")
     [p] = [x for x in problems if x.level == "error"]
     assert p.code == "metric-clash" and "ergostat_jobs_items" in p.message and p.message.endswith("rename it")

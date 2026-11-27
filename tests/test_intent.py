@@ -58,13 +58,19 @@ MODEL = """
 name: t
 projections:
   change:
-    id: change/*
+    match:
+      key: change/*
     states: [proposed, building, review, merged, dropped]
-    on:
-      change.started: building
-      change.review: review
-      change.merged: merged
-      change.dropped: dropped
+    events:
+      change.started:
+        state: set('building')
+      change.review:
+        state: set('review')
+      change.merged:
+        state: set('merged')
+      change.dropped:
+        state: set('dropped')
+    otherwise: rest
     show: [title]
 stocks:
   todo:

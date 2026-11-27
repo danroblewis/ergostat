@@ -69,7 +69,7 @@ function Unmodelled({ id }: { id: string }) {
       <p><b className="lvl-warn">Not in the model.</b> No projection matches {id}
         {own.length ? <> (the model's: {own.map((p) => `${p.name} matches ${p.id}`).join(", ")})</> : null}.
         {" "}Its events are on the record; this page folds them as they are. To model it, add a projection:</p>
-      <pre>{`projections:\n  ${name}:\n    id: ${prefix}/*`}</pre>
+      <pre>{`projections:\n  ${name}:\n    match: {key: ${prefix}/*}`}</pre>
     </div>
   );
 }

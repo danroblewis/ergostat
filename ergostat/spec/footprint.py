@@ -72,7 +72,9 @@ def _build(spec, kind: str) -> dict:
         "states": [{"state": s, "first": i == 0, "finished": s in done, "paused": s in paused,
                     "final": s in k.final,
                     "ergostat": s in (LEASED, DEAD)} for i, s in enumerate(states)],
-        "finished_by": done_why, "on": dict(k.on), "show": list(k.show), "fold": dict(k.fold),
+        "finished_by": done_why, "match": k.match, "key": [v.text for v in k.key] if k.key else "key",
+        "events": {t: {f: v.text for f, v in h.items()} for t, h in (k.handlers or {}).items()} if k.handlers is not None
+        else {t: {"state": f"set('{s}')"} for t, s in k.on.items()}, "otherwise": k.otherwise, "show": list(k.show),
         "relations": {r: {"projections": x.kinds, "precedence": x.precedence, "inverse": x.inverse or None, "group": x.group}
                       for r, x in k.relations.items()}, "named_by": rel_in,
         "join": [{"children": j.children, "states": j.states, "to": j.to, "all": j.all} for j in k.join],

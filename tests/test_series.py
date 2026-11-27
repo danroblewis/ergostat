@@ -53,12 +53,17 @@ def test_flow_rates_come_from_valves_and_else_from_the_stocks_changes(project):
 MODEL = """
 projections:
   pr:
-    id: pr/*
+    match:
+      key: pr/*
     states: [open, review, merged, closed]
-    on:
-      pr.review-asked: review
-      pr.merged: merged
-      pr.closed: closed
+    events:
+      pr.review-asked:
+        state: set('review')
+      pr.merged:
+        state: set('merged')
+      pr.closed:
+        state: set('closed')
+    otherwise: rest
 stocks:
   in-review:
     unit: prs

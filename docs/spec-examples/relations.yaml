@@ -1,15 +1,19 @@
 # Relations between items (SPEC section 5a, Relations): epics of tickets that wait on one another.
 projections:
   epic:
-    id: epic/*
+    match:
+      key: epic/*
     states: [planned, underway, shipped]
-    "on": {epic.started: underway, epic.shipped: shipped}
+    events: {epic.started: {state: set('underway')}, epic.shipped: {state: set('shipped')}}
+    otherwise: rest
     relations:
       after: epic                                   # precedence: it follows the epic it names
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, review, done]
-    "on": {ticket.started: doing, ticket.submitted: review, ticket.approved: done}
+    events: {ticket.started: {state: set('doing')}, ticket.submitted: {state: set('review')}, ticket.approved: {state: set('done')}}
+    otherwise: rest
     relations:
       blocked_by: ticket                            # precedence: ready once each ticket it names is done
       parent: epic                                  # cross-projection; a group: the Graph hangs it off its epic

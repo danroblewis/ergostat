@@ -18,10 +18,21 @@ from ergostat.store import Project
 MODEL = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [new, review, merging, done]
-    on: {ticket.opened: new, ticket.implemented: review, ticket.changes: new, ticket.approved: merging,
-         ticket.merged: done}
+    events:
+      ticket.opened:
+        state: set('new')
+      ticket.implemented:
+        state: set('review')
+      ticket.changes:
+        state: set('new')
+      ticket.approved:
+        state: set('merging')
+      ticket.merged:
+        state: set('done')
+    otherwise: rest
     relations:
       blocked_by: ticket
 messages:
@@ -58,7 +69,7 @@ def gated_record(tmp_path, seed: int = 0, t0: float = 1_790_000_000.0) -> Projec
     brought in at once ``GATED_BATCH`` after ``t0``, recorded for 60 h."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL.replace("{pool}", "20").replace(   # a run's own
-        "[new, review", "[new, doing, review").replace("ticket.implemented", "ticket.started: doing, ticket.implemented")))
+        "[new, review", "[new, doing, review").replace("      ticket.implemented:", "      ticket.started:\n        state: set('doing')\n      ticket.implemented:")))
     p = Project(mdl.load(tmp_path))                     # event at an admitted take moves it to doing (a factory's gap)
     kw = {"pool": 20, "gate": 4, "dev": 3 * 3600.0, "sigma": 0.25, "fail": 0.1, "rework": 0.1}
     generate(p, t0, 96, rate=0.4, backlog=0, seed=3 + seed, prefix="h", stop_arrivals=36, **kw)

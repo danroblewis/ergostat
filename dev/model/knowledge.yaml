@@ -504,8 +504,7 @@ blocks:
     system: knowledge
     description: after each review, its findings against the review lessons (one small AI step on haiku) - new shapes and classes found twice proposed; off until [knowledge] librarian = true
     run: python3 dev/bin/librarian.py
-    on: {event: review.written, emits: [review.measured, lesson.seen, lesson.measured, lesson.proposed, session.started,
-                                       session.ended, session.errored]}
+    on: {event: review.written, emits: [review.measured, lesson.seen, lesson.measured, lesson.proposed, session.started, session.ended, session.errored]}
     actions: [knowledge-change]
     timeout: 15m
     out: flow.lessons-found

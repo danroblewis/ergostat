@@ -28,10 +28,17 @@ MODEL = """
       queue: {unit: tickets}
     projections:
       ticket:
-        id: ticket/*
+        match:
+          key: ticket/*
         states: [open, doing, done]
-        on: {ticket.started: doing, ticket.done: done}
-        fold: {ai_cost_usd: sum}
+        events:
+          "*":
+            ai_cost_usd: add(data.ai_cost_usd)
+          ticket.started:
+            state: set('doing')
+          ticket.done:
+            state: set('done')
+        otherwise: rest
     storage:
       events: segments
     """

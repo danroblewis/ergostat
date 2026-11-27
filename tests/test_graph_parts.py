@@ -230,18 +230,31 @@ def test_an_epic_over_more_than_the_bound_draws_its_active_work():
 MODEL = """
 projections:
   epic:
-    id: epic/*
+    match:
+      key: epic/*
     states: [planned, underway, shipped]
-    on: {epic.started: underway, epic.shipped: shipped}
+    events:
+      epic.started:
+        state: set('underway')
+      epic.shipped:
+        state: set('shipped')
+    otherwise: rest
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, done]
-    on: {ticket.started: doing, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations:
       blocked_by: ticket
       parent: epic
   note:
-    id: note/*
+    match:
+      key: note/*
     states: [open]
     relations:
       about: ticket

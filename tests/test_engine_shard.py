@@ -35,19 +35,24 @@ daemons:
   solo: {run: "sleep 60"}
 projections:
   epic:
-    id: epic/*
+    match:
+      key: epic/*
     states: [planned, shipped]
     system: a
     join:
       - {children: parent, all: done, to: shipped}
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, done]
     system: b
-    on: {ticket.done: done}
+    events:
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations: {parent: epic}
-  job: {id: job/*, states: [new, done], system: a}
-  loose: {id: loose/*}
+  job: {match: {key: job/*}, states: [new, done], system: a}
+  loose: {match: {key: loose/*}}
 stocks:
   a-q: {unit: things, system: a, sensor: {run: echo 1, every: 1h}}
   a-tank: {unit: things, system: a, sensor: {run: echo 5, every: 1h}}

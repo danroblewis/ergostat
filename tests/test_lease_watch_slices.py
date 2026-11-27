@@ -15,12 +15,17 @@ MODEL = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, doing, done]
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.done: done}
+    events:
+      job.done:
+        state: set('done')
+    otherwise: rest
 blocks:
   worker:
     type: program

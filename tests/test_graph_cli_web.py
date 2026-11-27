@@ -679,23 +679,30 @@ systems:
   delivery: {description: what is built}
 projections:
   epic:
-    id: epic/*
+    match:
+      key: epic/*
     system: planning
     states: [planned, underway, shipped]
     relations: {after: epic}
   goal:
-    id: goal/*
+    match:
+      key: goal/*
     system: planning
     states: [open, met]
     relations: {serves: {projection: epic, precedence: false}}
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     system: delivery
     states: [todo, doing, done]
-    on: {ticket.started: doing}
+    events:
+      ticket.started:
+        state: set('doing')
+    otherwise: rest
     relations: {blocked_by: ticket, parent: epic}
   note:
-    id: note/*
+    match:
+      key: note/*
     system: delivery
 messages:
   done: {ticket: [done], epic: [shipped]}

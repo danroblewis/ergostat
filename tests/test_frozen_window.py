@@ -25,9 +25,17 @@ PLAIN = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, done]
-    on: {ticket.opened: todo, ticket.started: doing, ticket.done: done}
+    events:
+      ticket.opened:
+        state: set('todo')
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 blocks:
   dev:
     type: program

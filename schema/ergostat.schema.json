@@ -9,6 +9,11 @@
     "name": {
       "$ref": "#/$defs/name"
     },
+    "functions": {
+      "description": "The model's own fold functions (main file only, SPEC section 5a): Python files in the model's folder, written from it; each top-level def NAME(current, *args) is called by name from a projection's events: handlers. A built-in's name cannot be used.",
+      "type": "array",
+      "items": {"type": "string", "pattern": "\\.py$"}
+    },
     "purpose": {
       "type": "string",
       "description": "What the whole model is for (main file only): a goal in no system that says what it is for is traced to it (SPEC section 4a)."
@@ -2424,20 +2429,32 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "description": "The ids it matches, a pattern with a / in it; when absent, its system's chain from the top level, its name, then * (factory/intake/ticket/*)",
-          "type": "string",
-          "pattern": "^[^/].*/"
+        "match": {
+          "description": "Which events it reads: a path into the event (type, key, source, time, data.a.b) to the value it must hold, or a glob with * (type: mission.*); every entry must hold. When absent: {key: its system's chain from the top level, its name, then *} (factory/intake/ticket/*)",
+          "type": "object",
+          "propertyNames": {"pattern": "^(type|key|item|source|time|data(\\..+)?)$"}
+        },
+        "key": {
+          "description": "The item each event belongs to: an expression (key, the event's own item; data.account), or a list of them, joined by / (a composite key). Default: key",
+          "oneOf": [
+            {"type": "string"},
+            {"type": "array", "items": {"type": "string"}, "minItems": 1}
+          ]
+        },
+        "events": {
+          "description": "One handler per event type (or \"*\": every event it reads, before the type's own): field: an expression saying how the event changes it (SPEC section 5a). state: set('done') moves the item; data.reason sets a field from the event; add(1), append(data.reason, 20), union(data.member), remove(x), min, max, merge, first, unset(), count(), mean, variance, stdev, rms fold it; the model's own functions: too. \"...\": an object whose fields each set the item's (pick, omit, rename). A YAML number, boolean or null is a constant; text is quoted inside the expression.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "otherwise": {
+          "description": "An event type with no handler: merge its data into the item (default), ignore it, or rest (every event's data that no handler names is merged in)",
+          "enum": ["merge", "ignore", "rest"]
         },
         "states": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/name"
-          }
-        },
-        "on": {
-          "type": "object",
-          "additionalProperties": {
             "$ref": "#/$defs/name"
           }
         },
@@ -2457,46 +2474,6 @@
               "text",
               "json",
               "claude-session"
-            ]
-          }
-        },
-        "fold": {
-          "type": "object",
-          "description": "How each field folds the plain data its events carry: replace (the default), append (to a list; {append: N} keeps only the last N), sum, min, max, union (a set, kept as a sorted list), merge (a deep merge of objects), first (keep the first value), relation (a set of item ids: ids added, or {set, add, remove}), count (how many non-null values), mean, variance (sample, n - 1; null until two values), stdev, rms (of finite numbers)",
-          "additionalProperties": {
-            "oneOf": [
-              {
-                "enum": [
-                  "replace",
-                  "append",
-                  "sum",
-                  "min",
-                  "max",
-                  "union",
-                  "merge",
-                  "first",
-                  "relation",
-                  "count",
-                  "mean",
-                  "variance",
-                  "stdev",
-                  "rms"
-                ]
-              },
-              {
-                "type": "object",
-                "description": "A rule with its bound: {append: 20}, only the last 20 values kept",
-                "properties": {
-                  "append": {
-                    "type": "integer",
-                    "minimum": 1
-                  }
-                },
-                "required": [
-                  "append"
-                ],
-                "additionalProperties": false
-              }
             ]
           }
         },

@@ -34,10 +34,16 @@ params:
 projections:
   ${pages}:
     if: ${pages}
-    id: ${pages}/*
+    match:
+      key: ${pages}/*
     description: an alert firing, then resolved
     states: [firing, resolved]
-    on: {"${pages}.fired": firing, "${pages}.resolved": resolved}
+    events:
+      "${pages}.fired":
+        state: set('firing')
+      "${pages}.resolved":
+        state: set('resolved')
+    otherwise: rest
 auxiliaries:
   signal:
     unit: ${unit}

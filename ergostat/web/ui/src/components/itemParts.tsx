@@ -152,7 +152,8 @@ export function ItemFields({ d, onChanges }: { d: any; onChanges?: (field: strin
   const fname = (f: string) => (
     <>
       {f}
-      {k?.fold?.[f] && <span className="muted small rule" title="how its events' data folds into it"> {k.fold[f]}</span>}
+      {(k?.events?.["*"]?.[f] || k?.fold?.[f]) && <span className="muted small rule" title="how every event it reads folds into it">
+        {" "}{k?.events?.["*"]?.[f] || k.fold[f]}</span>}
       {counts[f] > 1 && (onChanges ? (
         <a className="small changes-of" href="#changes" onClick={(ev) => { ev.preventDefault(); onChanges(f); document.getElementById("changes")?.scrollIntoView(); }}>
           {" "}{counts[f]} changes

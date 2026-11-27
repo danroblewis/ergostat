@@ -185,11 +185,16 @@ something outside reports with `ergostat event --add ticket.opened --item ticket
 ```yaml
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open, doing, done]
-    on:
-      ticket.started: doing
-      ticket.closed: done
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.closed:
+        state: set('done')
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+    otherwise: rest
 stocks:
   backlog:
     unit: tickets

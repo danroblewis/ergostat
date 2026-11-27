@@ -26,13 +26,18 @@ POOR = """\
 name: t
 projections:
   alert:
-    id: alert/*
+    match:
+      key: alert/*
     description: an alert from the pager
     states: [new, triaged, closed]
-    on:
-      alert.fired: new
-      triage.finished: triaged
-      alert.closed: closed
+    events:
+      alert.fired:
+        state: set('new')
+      triage.finished:
+        state: set('triaged')
+      alert.closed:
+        state: set('closed')
+    otherwise: rest
 stocks:
   new-alerts:
     description: alerts not yet triaged
@@ -99,7 +104,7 @@ def test_check_notes_the_craft_and_never_the_parts_a_template_made(tmp_path):
     assert "no-unit" not in got                                       # a finding, not a note: below
     _, ps = read(p.model.path)
     assert [(x.level, x.about, str(x.where)) for x in ps if x.code == "no-unit"] == \
-        [("finding", "stock.new-alerts", "ergostat.yaml:13")]         # once, with its file and line
+        [("finding", "stock.new-alerts", "ergostat.yaml:18")]         # once, with its file and line
     assert got["no-equation"] == {"flow.alerts-triaged"}            # between two stocks; the outflow to a cloud is not
     assert got["collector-undescribed"] == {"flow.alerts-fired"}
     assert got["event-names-mixed"] == {"projections.alert"}
@@ -257,9 +262,17 @@ NO_EQUATIONS = """\
 name: bare
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [new, worked, done]
-    on: {ticket.opened: new, ticket.worked: worked, ticket.done: done}
+    events:
+      ticket.opened:
+        state: set('new')
+      ticket.worked:
+        state: set('worked')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   new-tickets:
     sensor: {projection: ticket, state: new, every: 5s}

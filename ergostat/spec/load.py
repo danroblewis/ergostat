@@ -21,7 +21,7 @@ SECTIONS = ("sources", "systems", "projections", "parameters", "auxiliaries", "v
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",
             "daemons": "daemon", "operating": "operating state"}
-TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
+TOP = {"name", "purpose", "functions", "include", "keep", "messages", "storage", "intake", "web", "notify",
        "defaults", "uses", "library", "libraries", "budget", "operating", "runs", "dashboards",
        *SECTIONS}
 
@@ -134,6 +134,8 @@ class Document:
     messages: object = None          # messages: how the owner's messages are routed (SPEC §12h), in one file
     messages_at: Where | None = None
     storage: object = None
+    functions: object = None         # functions: the model's own fold functions, Python files (main file only, SPEC §5a)
+    functions_at: Where | None = None
     purpose: str = ""                # what the whole model is for (main file only): goals trace to it (SPEC §4a)
     intake: object = None            # intake: what may push events to the running ergostat (main file only)
     web: object = None               # web: the page's public names and their login (main file only)
@@ -215,6 +217,12 @@ def load(main: Path) -> Document:
             else:
                 doc.problems.append(Problem("error", "purpose: belongs in the main file only", data.at("purpose"),
                                             "purpose-in-include"))
+        if "functions" in data:
+            if top:
+                doc.functions, doc.functions_at = data["functions"], data.at("functions")
+            else:
+                doc.problems.append(Problem("error", "functions: belongs in the main file only (the owner's own code)",
+                                            data.at("functions"), "functions-in-include"))
         if "storage" in data:
             if top:
                 doc.storage = data["storage"]

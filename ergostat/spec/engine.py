@@ -2395,6 +2395,10 @@ class Said:
             self.nack = got
             return
         if "event" in obj:
+            obj, why = old.keyed(obj)
+            if why:
+                self.refuse(obj, why)
+                return
             t = obj["event"]
             if self.item and not obj.get("item"):     # a run on a leased item: its lines are about it by default
                 obj = {**obj, "item": self.item}
@@ -2529,6 +2533,10 @@ def observations(text: str) -> tuple[list[dict], list[str]]:
                 refused.append("a message line says something: {\"message\": {\"text\": \"...\", \"by\": \"me\"}}")
             continue
         if not isinstance(obj, dict) or "event" not in obj:
+            continue
+        obj, why = old.keyed(obj)
+        if why:
+            refused.append(why)
             continue
         t, item = obj["event"], obj.get("item")
         if not isinstance(t, str) or not old.TYPE_NAME.match(t) or t.startswith((*old.OWN_TYPES, "block.", "person.", "sensor.")):

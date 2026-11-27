@@ -23,9 +23,15 @@ name: n
 storage: {{events: {backend}}}
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {{job.arrived: ready, job.done: done}}
+    events:
+      job.arrived:
+        state: set('ready')
+      job.done:
+        state: set('done')
+    otherwise: rest
 """
 
 TAKES = KIND + """

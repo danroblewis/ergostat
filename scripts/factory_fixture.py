@@ -41,7 +41,7 @@ def write_model(d: Path) -> None:
         doc = {"defaults": {"system": system}, **{k: v for k, v in sm.plain_workflow(w, {}, 6, 3).items() if v}}
         if kind == "gap":                     # paused (parked), chained (depends_on), and its last step gated
             doc["projections"]["gap"].update(states=[*doc["projections"]["gap"]["states"], "parked"], relations={"depends_on": "gap"})
-            doc["projections"]["gap"]["on"]["gap.parked"] = "parked"
+            doc["projections"]["gap"]["events"]["gap.parked"] = {"state": "set('parked')"}
             doc["blocks"][GATED]["actions"] = ["ship"]
         (d / "parts" / f"{kind}.yaml").write_text(sm.dump(doc))
     agents = {f"{r}-{s}": {"kind": k, **({"at-once": 6} if k == "program" else {}), "description": f"the {r} of {s}"}

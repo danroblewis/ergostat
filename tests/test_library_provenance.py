@@ -146,7 +146,7 @@ def test_command_mark_lost_through_non_command_param(tmp_path):
 
 
 def test_nested_library_literal_sandboxed(tmp_path):
-    l2 = "template: l2\nprojections:\n  k: {id: k/*}\nuses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"
+    l2 = "template: l2\nprojections:\n  k: {match: {key: k/*}}\nuses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body="stocks:\n  s: {unit: u}\nuses:\n  in:\n    use: l2\n"), "l2": l2})
     assert "./fetch.sh" in sandboxed(path, "u-in-c-arriving").run
 

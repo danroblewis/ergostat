@@ -108,7 +108,7 @@ def test_a_rename_that_changes_a_sensor_or_control_is_not_a_rename(tmp_path):
              "control": [('hold: "<= 3"', 'hold: "<= 50"')],
              "a value": [("value: 3", "value: 300")],                       # the dynamics, past the fit test
              "a rate": [("    description: closed\n", "    description: closed\n    rate: 5\n")],
-             "a projection": [("triage.finished: triaged", "triage.done: triaged")]}
+             "a projection": [("      triage.finished:\n", "      triage.done:\n")]}
     for name, more in cases.items():
         after = spec_of(name, more)
         assert ver.renamed_parts(before, after) is None, name

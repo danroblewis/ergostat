@@ -46,7 +46,7 @@ pytestmark = pytest.mark.skipif(_WHY is not None, reason=_WHY or "")
 MODEL = """\
 name: repair-demo
 projections:
-  issue: {{id: issue/*, states: [open, closed], on: {{issue.seen: open, issue.closed: closed}}}}
+  issue: {{match: {{key: issue/*}}, states: [open, closed], events: {{issue.seen: {{state: set('open')}}, issue.closed: {{state: set('closed')}}}}, otherwise: rest}}
 stocks:
   open-issues: {{unit: issues, cumulative: true, sensor: {{projection: issue, state: open, every: 1h}}}}
 flows:

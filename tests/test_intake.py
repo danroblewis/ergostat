@@ -24,17 +24,33 @@ MODEL = """
 name: pushed
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [new, picked]
-    on: {ticket.found: new, ticket.picked: picked}
+    events:
+      ticket.found:
+        state: set('new')
+      ticket.picked:
+        state: set('picked')
+    otherwise: rest
   pr:
-    id: pr/*
+    match:
+      key: pr/*
     states: [open, reviewed]
-    on: {pr.reviewed: reviewed}
+    events:
+      pr.reviewed:
+        state: set('reviewed')
+    otherwise: rest
   alert:
-    id: alert/*
+    match:
+      key: alert/*
     states: [open, resolved]
-    on: {alert.triggered: open, alert.resolved: resolved}
+    events:
+      alert.triggered:
+        state: set('open')
+      alert.resolved:
+        state: set('resolved')
+    otherwise: rest
 intake:
   hooks:
     jira:

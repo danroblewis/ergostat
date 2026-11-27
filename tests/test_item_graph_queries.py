@@ -22,12 +22,17 @@ MODEL = """
 name: graphs
 projections:
   epic:
-    id: epic/*
+    match:
+      key: epic/*
     states: [planned, shipped]
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, done]
-    on: {ticket.done: done}
+    events:
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations:
       blocked_by: ticket
       parent: epic

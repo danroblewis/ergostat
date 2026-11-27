@@ -37,7 +37,8 @@ goals:
   aside-low: {stock: aside, hold: "<= 0"}
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [new, done]
 agents:
   ai: {kind: ai}

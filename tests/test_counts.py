@@ -106,8 +106,8 @@ def test_kept_counts_are_a_fresh_count_as_events_arrive_after_rollups_and_a_rest
 
 
 def _ticket(tmp_path, states="[new, doing, done]"):
-    (tmp_path / "ergostat.yaml").write_text(f"projections:\n  ticket:\n    id: ticket/*\n    states: {states}\n"
-                                            "    on: {ticket.started: doing, ticket.done: done, ticket.new: new}\n")
+    (tmp_path / "ergostat.yaml").write_text(f"projections:\n  ticket:\n    match: {{key: ticket/*}}\n    states: {states}\n"
+                                            "    events: {ticket.started: {state: set('doing')}, ticket.done: {state: set('done')}, ticket.new: {state: set('new')}}\n    otherwise: rest\n")
     return Project(mdl.load(tmp_path))
 
 

@@ -27,9 +27,13 @@ MODEL = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open, done]
-    on: {ticket.done: done}
+    events:
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   open-tickets:
     sensor: {projection: ticket, state: open, every: 5s}

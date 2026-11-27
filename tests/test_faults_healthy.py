@@ -24,9 +24,13 @@ BODY = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, doing, done]
-    on: {ticket.done: done}
+    events:
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   up:
     unit: flag

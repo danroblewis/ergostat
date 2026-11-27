@@ -121,13 +121,15 @@ JOIN = {"children": (S, "the relation children name it by"), "all": (L, "the sta
 
 SYSTEM = {"description": (S, "words shown with it"), "within": (S, "the system it is drawn in"),
           "show": (L, "parts shown on its box")}
-ITEM = {**COMMON, "id": (S, "which ids are this projection's"), "states": (L, "its states"),
+ITEM = {**COMMON, "match": (M, "which events it reads"), "key": (one_of(S, L), "the item each event belongs to"),
+        "otherwise": (S, "what an event with no handler does"), "states": (L, "its states"),
         "final": (L, "its states no event moves it out of"), "finished": (L, "its states that count as finished"),
         "lost": (L, "its finished states that are a loss"),
         "moves-from": (M, "the only states an event moves it out of"),
         "if-unchanged": (L, "events applied only to it as read"),
-        "on": (M, "which event moves it to which state"), "show": (L, "fields shown"), "formats": (M, "how fields are shown"),
-        "fold": (each(one_of(S, BOUND)), "how events' fields fold into it"), "relations": (each(one_of(L, REL)), "relations to other items"),
+        "events": (each(M), "what each event type does to its fields: expressions of built-in fold functions (the "
+                            "model's own functions: are the owner's, in the main file only)"),
+        "show": (L, "fields shown"), "formats": (M, "how fields are shown"), "relations": (each(one_of(L, REL)), "relations to other items"),
         "join": (one_of(JOIN, list_of(JOIN)), "a parent moved on by its children's states"),
         "about": (S, "the field naming the parts it is about; only check reads it"),
         "attention": (S, "the field whose latest item's words are shown on the attention list"),

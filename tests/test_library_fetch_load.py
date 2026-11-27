@@ -23,7 +23,8 @@ params:
   projection: {type: name, default: "${name}"}
 projections:
   ${projection}:
-    id: ${projection}/*
+    match:
+      key: ${projection}/*
     states: [new, done]
 stocks:
   waiting:

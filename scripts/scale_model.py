@@ -90,13 +90,19 @@ def intake(w: dict) -> str:
     return f"{w['name']}-{w['states'][0]}"
 
 
+def handlers(on: dict) -> dict:
+    """A projection's events: each event type setting the state it moves the item to (SPEC §5a)."""
+    return {t: {"state": f"set('{s}')"} for t, s in on.items()}
+
+
 def plain_workflow(w: dict, by: dict, rate: float, step_seconds: float) -> dict:
     n, st = w["name"], w["states"]
     out: dict = {"projections": {}, "stocks": {}, "auxiliaries": {}, "flows": {}, "parameters": {}, "goals": {}, "blocks": {}}
     on = {f"{n}.{s}": s for s in st[1:]}
     on.update({f"{n}.new": "new", f"{n}.done": "done", f"{n}.dropped": "dropped"})
-    out["projections"][n] = {"id": f"{n}/*", "description": f"a piece of work of projection {n}",
-                       "states": [*st, "done", "dropped"], "on": on, "show": ["title"], "lease": {"attempts": 3}}
+    out["projections"][n] = {"match": {"key": f"{n}/*"}, "description": f"a piece of work of projection {n}",
+                       "states": [*st, "done", "dropped"], "events": handlers(on), "otherwise": "rest", "show": ["title"],
+                       "lease": {"attempts": 3}}
     for s in st:
         out["stocks"][f"{n}-{s}"] = {"unit": "items", "description": f"{n} items waiting at {s}",
                                      "sensor": {"projection": n, "state": s, "every": EVERY}}
@@ -183,8 +189,9 @@ def system_file(s: dict, by: dict, rate: float, step_seconds: float) -> dict:
 
 MODELLING = {
     "defaults": {"system": "modelling"},
-    "projections": {"session": {"id": "session/*", "states": ["open", "done", "failed", "lost"],
-                          "on": {"session.ran": "done", "session.failed": "failed", "session.lost": "lost"},
+    "projections": {"session": {"match": {"key": "session/*"}, "states": ["open", "done", "failed", "lost"],
+                          "events": handlers({"session.ran": "done", "session.failed": "failed", "session.lost": "lost"}),
+                          "otherwise": "rest",
                           "show": ["role", "model", "cost_usd", "seconds"]}},
     "stocks": {
         "model-error": {"unit": "1", "description": "the scaled error of the model's replay on the record",

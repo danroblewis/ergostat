@@ -110,9 +110,15 @@ def test_a_claim_line_that_says_nothing_is_refused(tmp_path):
 ITEMS = """
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [waiting, running, done]
-    on: {job.started: running, job.finished: done}
+    events:
+      job.started:
+        state: set('running')
+      job.finished:
+        state: set('done')
+    otherwise: rest
 """
 
 

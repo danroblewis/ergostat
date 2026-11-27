@@ -360,9 +360,15 @@ for line in sys.stdin:
 name: t-block
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.opened: ready, job.done: done}
+    events:
+      job.opened:
+        state: set('ready')
+      job.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   ready:
     unit: jobs

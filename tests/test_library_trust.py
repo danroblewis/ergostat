@@ -27,9 +27,13 @@ template: shape
 description: structure only
 projections:
   ticket:
-    id: "${name}-ticket/*"
+    match:
+      key: "${name}-ticket/*"
     states: [open, done]
-    on: {ticket.closed: done}
+    events:
+      ticket.closed:
+        state: set('done')
+    otherwise: rest
 stocks:
   open:
     unit: items
@@ -223,7 +227,7 @@ CASES = {
     "workspaces": ("workspaces:\n  w: {type: git, repo: .}\n", "workspaces"),
     "actions": ("actions:\n  push: {run: echo}\n", "actions"),
     "parameter-inferred": ("parameters:\n  x: {value: 1, inferred: true}\n", "parameters.u-x.inferred"),
-    "item-lease": ("projections:\n  k: {id: k/*, lease: {ttl: 1h}}\n", "projections.u-k.lease"),
+    "item-lease": ("projections:\n  k: {match: {key: k/*}, lease: {ttl: 1h}}\n", "projections.u-k.lease"),
     "goal-owner": ("goals:\n  g: {stock: s, hold: '<= 1', owner: ana}\n", "goals.u-g.owner"),
     "after-substitution": ("goals:\n  g: ${how}\n", "goals.u-g.run"),
     "map-under-a-value": ("stocks:\n  t: {unit: {run: echo 1}}\n", "stocks.u-t.unit"),
@@ -309,7 +313,7 @@ def test_nested_chain_refused_whole(tmp_path):
           u:
             use: t1
         """, {"own": {"t1": "template: t1\nstocks:\n  s: {unit: u}\nflows:\n  f: {to: s}\nuses:\n  mid:\n    use: l\n"},
-              "lib": {"l": "template: l\nprojections:\n  k: {id: k/*}\nblocks:\n  b: {type: compare, above: 1, in: stock.x}\n"
+              "lib": {"l": "template: l\nprojections:\n  k: {match: {key: k/*}}\nblocks:\n  b: {type: compare, above: 1, in: stock.x}\n"
                            "  r: {type: program, run: ./fetch.sh, every: 10m}\n"}})
     refused_once(path)
     doc = load(path)

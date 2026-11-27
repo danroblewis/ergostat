@@ -17,9 +17,13 @@ CASES = """
 name: s
 projections:
   case:
-    id: case/*
+    match:
+      key: case/*
     states: [open, met]
-    on: {case.met: met}
+    events:
+      case.met:
+        state: set('met')
+    otherwise: rest
 stocks:
   q:
     unit: things

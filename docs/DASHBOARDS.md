@@ -518,16 +518,23 @@ stocks:
       busy: {run: ./count-busy.sh, every: 1m}
 projections:
   request:
-    id: request/*
+    match:
+      key: request/*
     states: [waiting, working, review, done, failed]
-    on:
-      request.started: working
-      request.reviewed: review
-      request.done: done
-      request.failed: failed
+    events:
+      "*":
+        cost_usd: add(data.cost_usd)
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+      request.started:
+        state: set('working')
+      request.reviewed:
+        state: set('review')
+      request.done:
+        state: set('done')
+      request.failed:
+        state: set('failed')
+    otherwise: rest
     show: [requester, size]
-    fold:
-      cost_usd: sum
 ```
 
 ## How this document is checked

@@ -248,9 +248,12 @@ def test_a_session_in_the_record_is_read_from_its_claude_events(tmp_path):
     p = project(tmp_path, """
         projections:
           session:
-            id: session/*
+            match:
+              key: session/*
             formats: {transcript: claude-session}
-            fold: {messages: append}
+            events:
+              "*":
+                messages: append(data.messages)
         """)
     (tmp_path / "run").mkdir()
     synthetic(tmp_path / "run" / "a.jsonl")

@@ -14,9 +14,15 @@ KIND = """
 name: f
 projections:
   situation:
-    id: situation/*
+    match:
+      key: situation/*
     states: [raised, handled]
-    on: {situation.raised: raised, situation.handled: handled}
+    events:
+      situation.raised:
+        state: set('raised')
+      situation.handled:
+        state: set('handled')
+    otherwise: rest
     attention: finding
 """
 

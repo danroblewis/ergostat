@@ -72,7 +72,7 @@ SENSOR_KEYS = {"run", "query", "manual", "projection", "builtin", "daemon", "jou
                "unit", "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
+ITEM_KEYS = COMMON | {"match", "key", "events", "otherwise", "states", "show", "formats", "lease", "relations", "join", "about", "final",
                       "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score", "group",
                       "dashboards"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
@@ -752,6 +752,112 @@ class Compiler:
         return {"title": p.get("title") or "", "stages": list(names),
                 "waiting": {"kind": w["projection"], "state": w["state"], "order": list(w.get("order") or [])} if w else None}
 
+    def functions(self, spec: Spec) -> None:
+        """``functions: [file.py, ...]`` (SPEC §5a): the model's own fold functions, each top-level ``def`` of the
+        files (relative to the model's folder), called by name from a projection's handlers."""
+        raw, w = self.doc.functions, self.doc.functions_at
+        if raw is None:
+            return
+        if not isinstance(raw, list) or not all(isinstance(p, str) and p.endswith(".py") and not p.startswith("/")
+                                                and ".." not in p.split("/") for p in raw):
+            self.err("functions: a list of Python files in the model's folder, written from it ([folds.py])", w,
+                     "bad-functions")
+            return
+        from .handlers import load_functions
+        spec.functions, spec.functions_hash = load_functions(self.doc.root, raw, lambda msg: self.err(msg, w, "bad-functions"))
+
+    def handlers(self, name: str, m: Map, what: str, spec: Spec, states: list):
+        """``match:``, ``key:``, ``events:`` and ``otherwise:`` (SPEC §5a): which events the projection reads, the item
+        each belongs to, what each event type does to it (field → an expression, ``handlers.py``), and what an event
+        type with no handler does. Also the moves its handlers make with a constant state (``on``, as ergostat's own
+        projections say them)."""
+        from ..runner import TYPE_NAME
+        from .handlers import BadExpr, OTHERWISE, compile_value
+        match = m.get("match")
+        if match is None:
+            match = {"key": self.implied_id(name, m, what, spec)}
+        elif not isinstance(match, dict) or not match or not all(
+                isinstance(p, str) and (p in ("type", "key", "item", "source", "time") or p.startswith("data."))
+                and (v is None or isinstance(v, (str, int, float, bool, list))) for p, v in match.items()):
+            self.err(f"{what}.match: a map of a path into the event (type, key, source, data.a.b) to the value it must "
+                     f"hold, or a glob with * ({{type: ticket.*}}); every entry must hold", m.at("match") or m.where,
+                     "bad-match")
+            match = {"key": f"{name}/*"}
+        else:
+            match = {str(p): v for p, v in match.items()}
+            k = match.get("key", match.get("item"))
+            if isinstance(k, str) and ("/" not in k or k.startswith("/")):
+                self.err(f"{what}.match.key: which items are this projection's, a pattern with a / in it, like "
+                         f"github/pull_request/* (ids without a / are ergostat's own parts)", m.at("match"), "bad-id")
+        raw = m.get("key")
+        key = None
+        if raw is not None:
+            parts = raw if isinstance(raw, list) else [raw]
+            got = []
+            for p in parts:
+                try:
+                    if not isinstance(p, str):
+                        raise BadExpr("an expression naming a part of the event (key, data.account)")
+                    got.append(compile_value(p, spec.functions, ("data", "time", "type", "key", "source")))
+                except BadExpr as e:
+                    self.err(f"{what}.key: {e}", m.at("key") or m.where, "bad-key")
+            key = None if [v.text.strip() for v in got] == ["key"] or not got else got
+        otherwise = m.get("otherwise", "merge")
+        if otherwise not in OTHERWISE:
+            self.err(f"{what}.otherwise: merge (an event type with no handler merges its data into the item), ignore, "
+                     f"or rest (every event's data no handler names is merged in)", m.at("otherwise"), "bad-otherwise")
+            otherwise = "merge"
+        evs = m.get("events") or {}
+        handlers, moves = {}, {}
+        if not isinstance(evs, dict):
+            self.err(f"{what}.events: a map of event type (or \"*\") to its handler, a map of field: expression",
+                     m.at("events"), "not-a-map")
+            evs = {}
+        for t, h in evs.items():
+            w = evs.at(t) if hasattr(evs, "at") else m.where
+            if not isinstance(t, str) or not (t == "*" or TYPE_NAME.match(t)):
+                self.err(f"{what}.events: {t!r} is not an event type (lowercase words joined by dots: ticket.opened), "
+                         f"nor \"*\" (every event it reads)", w, "bad-type")
+                continue
+            if not isinstance(h, dict):
+                self.err(f"{what}.events.{t}: a map of field: expression (state: set('done'), retries: add(1))", w,
+                         "not-a-map")
+                continue
+            got = {}
+            for f, raw_v in h.items():
+                fw = h.at(f) if hasattr(h, "at") else w
+                if not isinstance(f, str) or not f:
+                    self.err(f"{what}.events.{t}: {f!r} is not a field name", fw, "bad-handler")
+                    continue
+                try:
+                    v = compile_value(raw_v, spec.functions)
+                except BadExpr as e:
+                    self.err(f"{what}.events.{t}.{f}: {e}", fw, "bad-handler")
+                    continue
+                if f == "state":
+                    lit = v.literal if v.tree is None else (v.tree.args[0].value if v.call == "set" and len(v.tree.args) == 1
+                                                            and hasattr(v.tree.args[0], "value") else None)
+                    if v.tree is not None and v.call is None and hasattr(v.tree, "value") and \
+                            isinstance(getattr(v.tree, "value"), str):
+                        lit = v.tree.value
+                    if lit is not None and not isinstance(lit, str):
+                        self.err(f"{what}.events.{t}.state: a state is text, set('done')", fw, "unknown-state")
+                        continue
+                    if isinstance(lit, str):
+                        if states and lit not in states:
+                            self.err(f"{what}.events.{t}.state: {lit!r} is not one of its states ({', '.join(states)})",
+                                     fw, "unknown-state")
+                            continue
+                        if not states:
+                            self.err(f"{what}: events: moves items between states; list them under states:", fw,
+                                     "bad-states")
+                            continue
+                        if t != "*":
+                            moves[t] = lit
+                got[f] = v
+            handlers[t] = got
+        return match, key, handlers, moves, otherwise
+
     def implied_id(self, name: str, m: Map, what: str, spec: Spec) -> str:
         """A projection's id when it writes none (SPEC §5a): its defined-in system's chain from the top level, its
         name, then ``*``: ``ticket`` in ``intake``, within ``factory``, is ``factory/intake/ticket/*``; one in no
@@ -769,35 +875,14 @@ class Compiler:
 
     def item_kind(self, name: str, m: Map, what: str, spec: Spec) -> ItemKind:
         self.keys(m, ITEM_KEYS, what)
-        id = m.get("id")
-        if id is None:
-            id = self.implied_id(name, m, what, spec)
-        elif not isinstance(id, str) or "/" not in id or id.startswith("/"):
-            self.err(f"{what}.id: which ids are this projection's, a pattern with a / in it, like github/pull_request/* "
-                     f"(ids without a / are ergostat's own parts)", m.at("id") or m.where, "bad-id")
-            id = f"{name}/*"
         states = m.get("states") or []
         if not isinstance(states, list) or not all(isinstance(x, str) and NAME.match(x) for x in states):
             self.err(f"{what}.states: a list of state names (lowercase letters, digits and -); the first is where a new "
                      f"item starts", m.at("states"), "bad-states")
             states = []
-        on = m.get("on") or {}
-        moves = {}
-        if not isinstance(on, dict):
-            self.err(f"{what}.on: a map of event type: the state it moves the item to", m.at("on"), "not-a-map")
-        else:
-            from ..runner import TYPE_NAME
-            for ev, st in on.items():
-                if not isinstance(ev, str) or not TYPE_NAME.match(ev):
-                    self.err(f"{what}.on: {ev!r} is not an event type (lowercase words joined by dots: ticket.opened)",
-                             on.at(ev), "bad-type")
-                elif str(st) not in states:
-                    self.err(f"{what}.on.{ev}: {st!r} is not one of its states ({', '.join(states) or 'none'})", on.at(ev),
-                             "unknown-state")
-                else:
-                    moves[ev] = str(st)
-            if moves and not states:
-                self.err(f"{what}: on: moves items between states; list them under states:", m.where, "bad-states")
+        match, key, handlers, moves, otherwise = self.handlers(name, m, what, spec, states)
+        id = match.get("key") if isinstance(match.get("key"), str) else match.get("item") \
+            if isinstance(match.get("item"), str) else "*"
         show = m.get("show") or []
         if not isinstance(show, list):
             self.err(f"{what}.show: a list of field names", m.at("show"), "bad-show")
@@ -813,32 +898,15 @@ class Compiler:
                     self.err(f"{what}.formats.{f}: {fmt!r} is not a format ({', '.join(FORMATS)})", raw.at(f), "bad-format")
                 else:
                     formats[str(f)] = str(fmt)
-        from .changes import BOUNDED, RULES
-        rules, bounds = {}, {}
-        raw = m.get("fold") or {}
-        if not isinstance(raw, dict):
-            self.err(f"{what}.fold: a map of field: how its events' data folds into it ({', '.join(RULES)})", m.at("fold"),
-                     "not-a-map")
-        else:
-            for f, rule in raw.items():
-                if not isinstance(f, str) or not f:
-                    self.err(f"{what}.fold: {f!r} is not a field name", raw.at(f), "bad-fold")
-                elif isinstance(rule, dict):            # a rule with its bound: {append: 20}, the last 20 values kept
-                    (rn, n), = rule.items() if len(rule) == 1 else ((None, None),)
-                    if rn not in BOUNDED:
-                        self.err(f"{what}.fold.{f}: only {', '.join(BOUNDED)} takes a bound, written {{append: 20}} "
-                                 f"(the last 20 values kept), not {', '.join(map(str, rule)) or 'an empty map'}",
-                                 raw.at(f), "bad-fold")
-                    elif type(n) is not int or n < 1:
-                        self.err(f"{what}.fold.{f}: {rn}'s bound is the most values kept, a whole number of 1 or more, "
-                                 f"not {n!r}", raw.at(f), "bad-fold")
-                    else:
-                        rules[f], bounds[f] = str(rn), n
-                elif str(rule) not in RULES:
-                    self.err(f"{what}.fold.{f}: {rule!r} is not a fold rule ({', '.join(RULES)})" + self.suggest(str(rule), RULES),
-                             raw.at(f), "bad-fold")
-                else:
-                    rules[f] = str(rule)
+        rules, bounds = {}, {}                       # a relation's field, a pipeline's stages: folded by their rule
+        import ast as _ast
+        RULE_OF = ("set", "add", "append", "min", "max", "union", "merge", "first", "count", "mean", "variance", "stdev",
+                   "rms")
+        for h in handlers.values():                  # a handler that says more than a plain value says how it folds
+            for f, v in h.items():
+                if v.tree is not None and not isinstance(v.tree, (_ast.Attribute, _ast.Subscript, _ast.Name)):
+                    rules.setdefault(f, {"add": "sum", "set": "replace", None: "replace"}.get(v.call, v.call)
+                                     if v.call in (None, *RULE_OF) else "replace")
         from ..leases import compile as leases
         from . import joins
         from .relations import compile_relations
@@ -871,7 +939,7 @@ class Compiler:
         only = m.get("moves-from") or {}             # event type → the only states it moves an item out of
         if not isinstance(only, dict) or not all(e in moves and isinstance(s, list) and s and set(s) <= set(states)
                                                  for e, s in only.items()):
-            self.err(f"{what}.moves-from: a map of one of its on: events to the list of its states it alone moves an "
+            self.err(f"{what}.moves-from: a map of one of its events that sets its state to the list of its states it alone moves an "
                      f"item out of ({{ticket.reopened: [done]}})", m.at("moves-from") or m.where, "bad-moves-from")
             only = {}
         fenced = m.get("if-unchanged") or []         # events applied only to the item as read (SPEC §5a)
@@ -888,6 +956,7 @@ class Compiler:
         pipeline = self.pipeline(m, what, rules)
         risk = self.risk_score(m, what, states) if "risk-score" in m else None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
+                        match=match, key=key, handlers=handlers, otherwise=otherwise, functions=spec.functions,
                         risk=risk,
                         system=self.system("projections", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, bounds=bounds, lease=leases.terms(self, m, "lease", what), relations=relations,
@@ -1159,10 +1228,11 @@ class Compiler:
                 self.err(f"{what}.tls: a map of cert:, key: and (optional) ca:", m.at("tls"), "bad-remote")
             spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"),
                                         dict(m["tls"]) if isinstance(m.get("tls"), dict) else None)
+        self.functions(spec)
         for name, m, _ in self.named("projections"):
             k = self.item_kind(name, m, f"projection {name}", spec)
             if k.id.startswith("ergostat."):
-                self.err(f"projection {name}.id: ids starting ergostat. are ergostat's own ({MODEL_CHANGE}/*)", m.at("id") or m.where,
+                self.err(f"projection {name}.match.key: ids starting ergostat. are ergostat's own ({MODEL_CHANGE}/*)", m.at("match") or m.where,
                          "reserved-id")
                 continue
             spec.items[name] = k

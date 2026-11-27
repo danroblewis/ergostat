@@ -24,11 +24,16 @@ T0 = 1_700_000_000.0
 MODEL = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open, done]
-    on: {ticket.done: done}
+    events:
+      ticket.done:
+        state: set('done')
+    otherwise: rest
   note:
-    id: note/*
+    match:
+      key: note/*
 """
 
 

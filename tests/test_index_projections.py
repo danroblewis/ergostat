@@ -36,9 +36,13 @@ def _project(tmp_path, backend: str, extra: str = "") -> Project:
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(f"""
         projections:
           ticket:
-            id: ticket/*
+            match:
+              key: ticket/*
             states: [open, done]
-            on: {{ticket.done: done}}
+            events:
+              ticket.done:
+                state: set('done')
+            otherwise: rest
         storage:
           events: {backend}
         """) + extra)

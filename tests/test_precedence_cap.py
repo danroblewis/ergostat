@@ -19,14 +19,28 @@ from ergostat.store import Project
 MODEL = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, done]
-    on: {ticket.opened: todo, ticket.started: doing, ticket.done: done}
+    events:
+      ticket.opened:
+        state: set('todo')
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations: {blocked_by: [ticket, part]}
   part:
-    id: part/*
+    match:
+      key: part/*
     states: [open, made]
-    on: {part.opened: open, part.made: made}
+    events:
+      part.opened:
+        state: set('open')
+      part.made:
+        state: set('made')
+    otherwise: rest
 messages:
   done: {ticket: [done], part: [made]}
 blocks:

@@ -30,21 +30,35 @@ systems:
     description: the shop
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open, building, done, dropped]
-    on:
-      ticket.started: building
-      ticket.done: done
-      ticket.dropped: dropped
-      ticket.reopened: open
+    events:
+      ticket.started:
+        state: set('building')
+      ticket.done:
+        state: set('done')
+      ticket.dropped:
+        state: set('dropped')
+      ticket.reopened:
+        state: set('open')
+    otherwise: rest
     system: shop
   session:
-    id: session/*
+    match:
+      key: session/*
     states: [open, done, failed]
-    on: {session.ran: done, session.failed: failed}
+    events:
+      "*":
+        messages: append(data.messages)
+        tool_calls: append(data.tool_calls)
+      session.ran:
+        state: set('done')
+      session.failed:
+        state: set('failed')
+    otherwise: rest
     show: [role, recipe, outcome]
     formats: {transcript: claude-session}
-    fold: {messages: append, tool_calls: append}
 stocks:
   todo:
     system: shop

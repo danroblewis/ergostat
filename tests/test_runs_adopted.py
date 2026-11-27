@@ -34,9 +34,13 @@ runs:
   outlive_engine: true
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, done]
-    on: {ticket.done: done}
+    events:
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   handled:
     unit: tickets

@@ -21,9 +21,19 @@ BASE = """
 name: coh
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [new, doing, review, done]
-    on: {ticket.started: doing, ticket.submitted: review, ticket.merged: done, ticket.reopened: doing}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.submitted:
+        state: set('review')
+      ticket.merged:
+        state: set('done')
+      ticket.reopened:
+        state: set('doing')
+    otherwise: rest
 stocks:
   new: {unit: tickets, sensor: {projection: ticket, state: new}}
   doing: {unit: tickets, sensor: {projection: ticket, state: doing}}

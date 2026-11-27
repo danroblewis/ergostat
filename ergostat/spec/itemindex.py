@@ -68,7 +68,7 @@ from ..leases import PREFIX as LEASE_PREFIX
 from ..store import damaged
 from . import codec, itemnumbers, projections
 from .about import parts_named
-from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, projections_of, text_of
+from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, projections_of, reads_all, routes, text_of
 from .relations import links_of
 
 VERSION = 11                # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
@@ -170,7 +170,11 @@ def kinds_key(spec) -> tuple:
                   *((tuple(sorted(k.moves_from.items())),) if getattr(k, "moves_from", None) else ()),
                   *((("if-unchanged", tuple(k.if_unchanged)),) if getattr(k, "if_unchanged", None) else ()),
                   *((("final", tuple(sorted(k.final))),) if getattr(k, "final", None) else ()),
-                  *((("bounds", tuple(sorted(k.bounds.items()))),) if getattr(k, "bounds", None) else ()))
+                  *((("bounds", tuple(sorted(k.bounds.items()))),) if getattr(k, "bounds", None) else ()),
+                  *((("handlers", repr(sorted(getattr(k, "match", None).items(), key=str)),
+                      tuple(v.text for v in k.key or ()), k.otherwise,
+                      tuple((t, tuple((f, repr(v.text)) for f, v in h.items())) for t, h in (k.handlers or {}).items()),
+                      getattr(spec, "functions_hash", "")),) if getattr(k, "match", None) is not None else ()))
                  for k in (getattr(spec, "items", None) or {}).values())
 
 
@@ -401,6 +405,14 @@ class Index:
             self._kinds_of[id] = ks
         return ks
 
+    def routes(self, e: dict) -> list[tuple]:
+        """Every (projection, item) event ``e`` folds into (``items.routes``); for a model whose projections all read
+        their events by item id alone, by the id's projections, kept."""
+        if self.kinds and all(k.match is None for k in self.kinds.values()):
+            item = e.get("item")
+            return [(k, item) for k in self.kinds_of(item)] if isinstance(item, str) and "/" in item else []
+        return routes(self.spec, e) if self.kinds else ([(None, e["item"])] if "/" in str(e.get("item") or "") else [])
+
     def tables(self) -> list[str]:
         """Every table of rows: one per projection, then ``unprojected``."""
         return [table_of(k) for k in sorted(self.kinds)] + [UNPROJECTED]
@@ -518,7 +530,9 @@ class Index:
             projections.again(self, events, seq)            # and what the status reads folded again from what is left
         self._set_meta(gen=gen)
         self._numbered()
-        new = events.of_items(None, after_seq=seq, skip=skip, limit=CHUNK)
+        every = reads_all(self.spec)                        # a projection keyed by its events' data: every event read
+        new = events.query(n=None, after_seq=seq, skip=skip, first=CHUNK) if every else \
+            events.of_items(None, after_seq=seq, skip=skip, limit=CHUNK)
         top = max([seq, *(e["seq"] for e in new)])
         finished = len(new) < CHUNK
         if finished:
@@ -528,7 +542,8 @@ class Index:
             top, finished = got[-1]["seq"], False
             new = [e for e in new if e["seq"] <= top]
         self._fold(new)
-        projections.follow(self, sorted(new + other, key=lambda e: e["seq"]))
+        status = {e["seq"]: e for e in [e for e in new if not every or "/" in str(e.get("item") or "")] + other}
+        projections.follow(self, [status[q] for q in sorted(status)])
         self._set_meta(seq=top)
         self.seq, self.gen = top, gen
         return finished
@@ -545,7 +560,9 @@ class Index:
     def _reconcile(self, events) -> None:
         """After events were taken out: an item none of whose events is left is forgotten."""
         live = events.item_ids()
-        gone = [(rid,) for rid, id in self.db.execute("select rid, id from items") if id not in live]   # (every row of it)
+        keyed = [table_of(k) for k, x in self.kinds.items() if not x.by_item]     # (keyed by data: not the record's ids)
+        gone = [(rid,) for t in self.tables() if t not in keyed
+                for rid, id in self.db.execute(f"select rid, id from {t}") if id not in live]   # (every row of it)
         if gone:
             from ..itemmetrics import carry
             carry(self.db, [r[0] for r in gone], self.name, time.time())   # what they counted, kept (and their move to (gone))
@@ -560,9 +577,10 @@ class Index:
                 self.cache.pop(id, None)
 
     def _fold(self, new: list[dict]) -> None:
-        by: dict[str, list[dict]] = {}
+        by: dict[tuple, list[dict]] = {}                     # an item: (projection, id), and its events
         for e in new:
-            by.setdefault(e["item"], []).append(e)
+            for k, key in self.routes(e):
+                by.setdefault((k.name if k else None, key), []).append(e)
         if not by:
             return
         per: dict[tuple, int] = {}                           # (type, source, minute): events counted (itemmetrics.py)
@@ -572,12 +590,12 @@ class Index:
                 per[k] = per.get(k, 0) + 1
         self.db.executemany("insert into event_counts(type, source, at, n) values (?,?,?,?) "
                             "on conflict(type, source, at) do update set n = n + excluded.n", [(*k, n) for k, n in per.items()])
-        keys = [(k.name if k else None, id) for id in by for k in self.kinds_of(id)]   # an item: (projection, id)
+        keys = list(by)
         have = {key: x for key in keys if (x := self.cache.pop(key, None)) is not None}
         rows = self._rows_of([key for key in keys if key not in have])
         now = time.time()
         for key in keys:
-            id, evs = key[1], by[key[1]]
+            id, evs = key[1], by[key]
             k = self.kinds.get(key[0]) if key[0] else None
             got = have.get(key)
             row = rows.get(key)

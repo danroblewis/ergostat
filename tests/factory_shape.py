@@ -21,8 +21,9 @@ def model_yaml() -> str:
     lines.append("projections:")
     for s, kinds in SYSTEMS.items():
         for k in kinds:
-            on = ", ".join(f"{k}.{st}: {st}" for st in STATES)
-            lines += [f"  {k}:", f"    id: {k}/*", f"    system: {s}", f"    states: [{', '.join(STATES)}]", f"    on: {{{on}}}"]
+            on = ", ".join(f"{k}.{st}: {{state: set('{st}')}}" for st in STATES)
+            lines += [f"  {k}:", f"    match: {{key: {k}/*}}", f"    system: {s}", f"    states: [{', '.join(STATES)}]",
+                      f"    events: {{{on}}}", "    otherwise: rest"]
     done = ", ".join(f"{k}: [done]" for ks in SYSTEMS.values() for k in ks)
     paused = ", ".join(f"{k}: [parked]" for ks in SYSTEMS.values() for k in ks)
     lines += ["messages:", f"  done: {{{done}}}", f"  paused: {{{paused}}}"]

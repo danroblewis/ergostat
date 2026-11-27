@@ -26,9 +26,15 @@ CTX = mp.get_context("spawn")
 YAML = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [{states}]
-    on: {{ticket.started: doing, ticket.done: done}}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 storage:
   events: sqlite
 """

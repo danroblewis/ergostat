@@ -16,15 +16,24 @@ MODEL = """
 name: t
 projections:
   epic:
-    id: epic/*
+    match:
+      key: epic/*
     states: [planned, underway, shipped]
     join:
       - {children: parent, any: [doing, done], to: underway}
       - {children: parent, all: done, to: shipped}
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, done]
-    on: {ticket.started: doing, ticket.done: done, ticket.reopened: todo}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+      ticket.reopened:
+        state: set('todo')
+    otherwise: rest
     relations: {parent: epic}
 stocks:
   underway:
@@ -136,7 +145,7 @@ def test_the_parents_move_is_counted_entering(tmp_path):
 def test_a_join_is_checked(tmp_path):
     bad = MODEL.replace("{children: parent, all: done, to: shipped}", "{children: parent, all: closed, to: gone}") \
         .replace("{children: parent, any: [doing, done], to: underway}", "{children: epic_of, any: doing, to: underway}")
-    bad = bad.replace("  ticket:\n", "  other:\n    id: other/*\n    states: [a]\n    join: {children: parent, all: done}\n  ticket:\n")
+    bad = bad.replace("  ticket:\n", "  other:\n    match: {key: other/*}\n    states: [a]\n    join: {children: parent, all: done}\n  ticket:\n")
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(bad))
     _, problems = read(tmp_path / "ergostat.yaml")
     said = "\n".join(x.message for x in problems if x.level == "error")

@@ -27,22 +27,57 @@ DEMOS = ("first-loop", "image-squeeze", "roadmap", "software-factory", "the-job"
 FACTORY = """
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [open, ready, building, in-review, merged, parked, closed]
-    on: {gap.opened: open, gap.ready: ready, gap.started: building, gap.built: in-review, gap.merged: merged,
-         gap.parked: parked, gap.closed: closed}
+    events:
+      gap.opened:
+        state: set('open')
+      gap.ready:
+        state: set('ready')
+      gap.started:
+        state: set('building')
+      gap.built:
+        state: set('in-review')
+      gap.merged:
+        state: set('merged')
+      gap.parked:
+        state: set('parked')
+      gap.closed:
+        state: set('closed')
+    otherwise: rest
   pool:
-    id: pool/*
+    match:
+      key: pool/*
     states: [held]
-    on: {pool.measured: held}
+    events:
+      pool.measured:
+        state: set('held')
+    otherwise: rest
   answer:
-    id: answer/*
+    match:
+      key: answer/*
     states: [asked, answered]
-    on: {answer.asked: asked, answer.given: answered}
+    events:
+      answer.asked:
+        state: set('asked')
+      answer.given:
+        state: set('answered')
+    otherwise: rest
   task:
-    id: task/*
+    match:
+      key: task/*
     states: [todo, doing, waiting, done]
-    on: {task.made: todo, task.begun: doing, task.waits: waiting, task.done: done}
+    events:
+      task.made:
+        state: set('todo')
+      task.begun:
+        state: set('doing')
+      task.waits:
+        state: set('waiting')
+      task.done:
+        state: set('done')
+    otherwise: rest
 messages:
   done: {gap: [merged, closed]}
   paused: {gap: [parked], task: [waiting]}

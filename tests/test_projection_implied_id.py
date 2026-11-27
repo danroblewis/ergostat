@@ -68,16 +68,16 @@ def test_a_system_named_only_by_a_part_is_top_level(tmp_path):
 
 
 def test_an_id_written_overrides_and_is_checked_as_ever(tmp_path):
-    got, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, id: jira/ticket/*}\n"))
+    got, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, match: {key: jira/ticket/*}}\n"))
     assert got == {"ticket": "jira/ticket/*"} and not errors
-    _, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, id: tickets}\n"))
+    _, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, match: {key: tickets}}\n"))
     assert [e.code for e in errors] == ["bad-id"]
 
 
 def test_a_system_that_is_not_a_name_needs_an_id(tmp_path):
     _, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket: {system: Big Ops}\n"))
     assert "bad-id" in [e.code for e in errors]
-    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket: {system: Big Ops, id: ops/ticket/*}\n"))
+    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket: {system: Big Ops, match: {key: ops/ticket/*}}\n"))
     assert got == {"ticket": "ops/ticket/*"} and "bad-id" not in [e.code for e in errors]
 
 
@@ -120,9 +120,9 @@ def test_a_template_made_projection_is_named_by_its_short_name(tmp_path):
 
 
 def test_a_remote_serves_the_implied_id_written_out(tmp_path):
-    path = model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, states: [open]}\n  pr: {id: gh/pr/*}\n")
+    path = model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, states: [open]}\n  pr: {match: {key: gh/pr/*}}\n")
     got = serve.model(path)["sections"]["projections"]
-    assert got["ticket"]["id"] == "factory/intake/ticket/*" and got["pr"]["id"] == "gh/pr/*"
+    assert got["ticket"]["match"] == {"key": "factory/intake/ticket/*"} and got["pr"]["match"] == {"key": "gh/pr/*"}
 
 
 def test_check_passes_on_a_model_with_no_ids(tmp_path, capsys):
@@ -131,7 +131,10 @@ def test_check_passes_on_a_model_with_no_ids(tmp_path, capsys):
           ticket:
             system: intake
             states: [open, done]
-            on: {ticket.closed: done}
+            events:
+              ticket.closed:
+                state: set('done')
+            otherwise: rest
           note:
             states: [new]
         stocks:

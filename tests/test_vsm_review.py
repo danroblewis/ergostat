@@ -27,10 +27,13 @@ name: plant
 purpose: keep the plant's work moving
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [new, done]
-    on:
-      job.end: done
+    events:
+      job.end:
+        state: set('done')
+    otherwise: rest
 systems:
   ops: {{description: "{DESC}"}}
   inner: {{description: the inner loop, within: ops}}

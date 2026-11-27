@@ -176,9 +176,13 @@ TAKES = """\
 name: t
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.done: done}
+    events:
+      job.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   ready:
     unit: jobs

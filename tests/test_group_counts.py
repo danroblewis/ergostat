@@ -37,17 +37,31 @@ YIELD = """
 name: lots
 projections:
   unit:
-    id: unit/*
+    match:
+      key: unit/*
     states: [made, passed, scrapped]
-    on: {unit.made: made, unit.passed: passed, unit.scrapped: scrapped}
+    events:
+      unit.made:
+        state: set('made')
+      unit.passed:
+        state: set('passed')
+      unit.scrapped:
+        state: set('scrapped')
+    otherwise: rest
     finished: [passed, scrapped]
     lost: [scrapped]
     relations:
       lot: {projection: lot, group: true}
   lot:
-    id: lot/*
+    match:
+      key: lot/*
     states: [open, shipped]
-    on: {lot.opened: open, lot.shipped: shipped}
+    events:
+      lot.opened:
+        state: set('open')
+      lot.shipped:
+        state: set('shipped')
+    otherwise: rest
 """
 SQL = ""
 MEMBERS, BY = 50, 4000.0

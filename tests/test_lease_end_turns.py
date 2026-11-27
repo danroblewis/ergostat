@@ -26,13 +26,23 @@ MODEL = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, doing, done]
-    on: {ticket.started: doing, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
   note:
-    id: note/*
+    match:
+      key: note/*
     states: [new, read]
-    on: {note.read: read}
+    events:
+      note.read:
+        state: set('read')
+    otherwise: rest
 blocks:
   worker:
     type: program

@@ -26,17 +26,33 @@ from tests.test_remote import LOCAL, REMOTE, served_into, write
 REMOTE_ITEMS = REMOTE + """
 projections:
   incident:
-    id: incident/*
+    match:
+      key: incident/*
     states: [open, fixing, closed]
-    on: {incident.opened: open, incident.fixing: fixing, incident.closed: closed}
+    events:
+      incident.opened:
+        state: set('open')
+      incident.fixing:
+        state: set('fixing')
+      incident.closed:
+        state: set('closed')
+    otherwise: rest
 """
 
 TICKET = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, done]
-    on: {ticket.planned: todo, ticket.started: doing, ticket.done: done}
+    events:
+      ticket.planned:
+        state: set('todo')
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations: {RELS}
 """
 
@@ -142,7 +158,7 @@ def test_a_remote_relation_never_gates_but_the_same_relation_does_on_a_local_kin
     assert "ticket/1" in [i.id for i in pr.order_ready(ev, spec, "ticket", todo, now)]
     # the same relation on a local kind whose item is unfinished: blocked, and not taken
     d = tmp_path / "plain"
-    write(d, local_text("{blocked_by: epic}", "  epic:\n    id: epic/*\n    states: [planned, shipped]\n"))
+    write(d, local_text("{blocked_by: epic}", "  epic:\n    match: {key: epic/*}\n    states: [planned, shipped]\n"))
     served_into(d, tmp_path, text=REMOTE_ITEMS)
     p = Project(mdl.load(d))
     p.events.add("epic.planned", item="epic/1", at=now - 200)
@@ -162,7 +178,7 @@ def test_precedence_true_on_a_remote_relation_is_an_error(tmp_path, monkeypatch)
     got = errors("{blocked_by: {projection: incidents-incident, precedence: true}}")
     assert [p.code for p in got] == ["remote-relation-precedence"], got
     assert "cannot gate on it" in got[0].message
-    got = errors("{blocked_by: [epic, incidents-incident]}", "  epic:\n    id: epic/*\n")
+    got = errors("{blocked_by: [epic, incidents-incident]}", "  epic:\n    match: {key: epic/*}\n")
     assert [p.code for p in got] == ["bad-relation"] and "names only that projection" in got[0].message, got
     got = errors("{parent: {projection: incidents-incident, group: true}}")
     assert [p.code for p in got] == ["bad-relation"], got
@@ -220,8 +236,8 @@ def test_a_line_is_drawn_from_our_step_to_the_step_their_item_was_last_at(tmp_pa
 
 
 def test_a_local_kind_of_the_same_name_is_not_taken_for_a_remote_line(tmp_path, monkeypatch):
-    more = ("  incidents-incident:\n    id: incident/*\n    states: [open, fixing, closed]\n"
-            "    on: {incident.opened: open, incident.fixing: fixing}\n")
+    more = ("  incidents-incident:\n    match: {key: incident/*}\n    states: [open, fixing, closed]\n"
+            "    events: {incident.opened: {state: set('open')}, incident.fixing: {state: set('fixing')}}\n    otherwise: rest\n")
     w = World(tmp_path, monkeypatch, local=local_text(more=more), local_kind=True)   # the remote serves incident too
     assert "incident" in w.spec.remotes["incidents"]["projections"]
     assert w.spec.items["ticket"].relations["blocked_by"].remote == ""
@@ -270,7 +286,7 @@ def test_a_reply_that_leaves_out_an_id_or_is_malformed_is_unlinked_not_dropped(t
 
 
 def test_two_relations_sharing_an_id_ask_it_once_and_are_checked_each(tmp_path, monkeypatch):
-    remote = REMOTE_ITEMS + "  page:\n    id: page/*\n"
+    remote = REMOTE_ITEMS + "  page:\n    match: {key: page/*}\n"
     w = World(tmp_path, monkeypatch, remote=remote,
               local=local_text("{blocked_by: incidents-incident, relates_to: incidents-page}"))
     now = time.time()

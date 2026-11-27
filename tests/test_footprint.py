@@ -61,8 +61,8 @@ def _done_ticket(p: Project, id: str = "ticket/1") -> None:
 UNCOUNTED = """
     name: t
     projections:
-      ticket: {id: ticket/*, states: [todo, done]}
-      note: {id: note/*, states: [open, closed]}
+      ticket: {match: {key: ticket/*}, states: [todo, done]}
+      note: {match: {key: note/*}, states: [open, closed]}
     stocks:
       todo:
         sensor: {projection: ticket, state: todo, every: 3s}

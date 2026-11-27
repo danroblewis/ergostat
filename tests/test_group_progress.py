@@ -180,13 +180,16 @@ def test_past_its_bound_it_is_refused_never_cut(rec, monkeypatch):
 def test_done_when_is_a_groups_map_of_its_states(tmp_path):
     base = """
     projections:
-      epic: {id: epic/*, states: [open, done]}
+      epic: {match: {key: epic/*}, states: [open, done]}
       ticket:
-        id: ticket/*
+        match:
+          key: ticket/*
         states: [open, done, dropped]
         relations:
           epic: {projection: epic, group: true, done_when: %s}
-        fold: {epic: replace}
+        events:
+          "*":
+            epic: "data.epic if 'epic' in data else current"
     """
     for ok, v in ((True, "{done: {why: [fixed, shipped]}}"), (False, "{nowhere: {why: x}}"), (False, "{done: {}}"),
                   (False, "{done: {why: {a: 1}}}"), (False, "[done]"), (False, "null"), (False, "[]"),
@@ -204,16 +207,29 @@ TICKETS = """
 name: t
 projections:
   epic:
-    id: epic/*
+    match:
+      key: epic/*
     states: [open, doing, done]
-    on: {epic.started: doing, epic.done: done}
+    events:
+      epic.started:
+        state: set('doing')
+      epic.done:
+        state: set('done')
+    otherwise: rest
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, done]
-    on: {ticket.started: doing, ticket.done: done}
+    events:
+      "*":
+        epic: "data.epic if 'epic' in data else current"
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations:
       epic: {projection: epic, group: true}
-    fold: {epic: replace}
 messages:
   done: {epic: [done], ticket: [done]}
 """

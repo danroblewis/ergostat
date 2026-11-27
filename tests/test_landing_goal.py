@@ -197,14 +197,34 @@ def test_the_pipeline_manager_reads_the_reason_rather_than_the_queue_state(tmp_p
 WHY = """
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [new, approved, queued, merged]        # (a gap arrives in its first state, as the factory's in open)
-    on: {gap.opened: new, gap.approved: approved, gap.queued: queued, gap.merged: merged}
+    events:
+      gap.opened:
+        state: set('new')
+      gap.approved:
+        state: set('approved')
+      gap.queued:
+        state: set('queued')
+      gap.merged:
+        state: set('merged')
+    otherwise: rest
   batch:
-    id: batch/*
+    match:
+      key: batch/*
     states: [testing, isolating, landed]
     final: [landed]
-    on: {batch.started: testing, batch.run-started: testing, batch.run-finished: isolating, batch.ended-landed: landed}
+    events:
+      batch.started:
+        state: set('testing')
+      batch.run-started:
+        state: set('testing')
+      batch.run-finished:
+        state: set('isolating')
+      batch.ended-landed:
+        state: set('landed')
+    otherwise: rest
     show: [size, run, outcome]
     relations:
       gaps: {projection: gap, precedence: false, inverse: batches}

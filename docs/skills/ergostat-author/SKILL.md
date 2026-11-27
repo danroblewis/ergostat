@@ -70,7 +70,7 @@ outflow to a cloud. A stock per state with each step draining to a cloud draws a
 row of separate loops, and says nothing about the workflow.
 
 1. **The projection and its states, in order**: `projections: {PROJECTION: {id: PROJECTION/*, states: [...], on: {...}}}`, the first
-   state where an item arrives, the last where it is finished; an `on:` event per move.
+   state where an item arrives, the last where it is finished; an `events:` handler setting `state` per move.
 2. **One stock per state that waits**, counted by a `projection:` sensor (`projection: PROJECTION, state: S`): a count of items
    (never `measure: oldest` or `age` on a chain stock: flows move items, not hours). A state nothing waits in (a
    moment, not a queue) needs no stock.
@@ -113,11 +113,18 @@ order and the event that moves each:
 ```yaml
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [new, picked, located, worked, pr-open, review-asked, changes-asked, approved, sailed,
              ci-failed, ci-green, merged, done, stopped]
-    on: {ticket.pick-up: picked, ticket.locate: located, ticket.work: worked, ..., ticket.close: done,
-         ticket.stopped: stopped}
+    events:
+      ticket.pick-up: {state: set('picked')}
+      ticket.locate: {state: set('located')}
+      ticket.work: {state: set('worked')}
+      # ... one handler per moving event ...
+      ticket.close: {state: set('done')}
+      ticket.stopped: {state: set('stopped')}
+    otherwise: rest
     lease: {attempts: 3}
 ```
 
@@ -229,7 +236,7 @@ to read each:
 |---|---|---|---|
 | `move-without-flow` | Process ↔ Dynamics | items moved between two states with stocks, and no flow carries them | add the flow it names (or re-point the cloud flow it names) |
 | `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (drawn running back on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
-| `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `on:` mapping if B was meant to be entered |
+| `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `events:` handlers if B was meant to be entered |
 | `order-contradicted` | Process ↔ Dynamics | items went from A to B; the chain's flows run from B to A | the flows are the wrong way round: re-point them |
 | `arrival-not-modelled`, `completion-not-modelled` | Process ↔ Dynamics | items arrive where no flow brings them in, or finish where no flow takes them out | the arrivals flow from outside into that stock, or the completions flow out |
 | `waiting-without-goal`, `goal-without-loop` | Dynamics ↔ Blocks | items wait for the model's blocks in a stock no goal holds, or no loop closes | a goal on the stock (`hold: "<= 0"`), served by the block that moves them on |

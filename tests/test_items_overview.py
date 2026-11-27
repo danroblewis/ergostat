@@ -121,8 +121,8 @@ def test_out_counts_only_the_cards_finished_never_a_paused_or_leased_state_never
     d.mkdir()
     st = ["open", "leased", "parked", "done"]
     (d / "ergostat.yaml").write_text(
-        "name: out-rule\nprojections:\n  job:\n    id: job/*\n    states: [" + ", ".join(st) + "]\n    on: {"
-        + ", ".join(f"job.{s}: {s}" for s in st) + "}\nmessages:\n  paused: {job: [parked]}\n")
+        "name: out-rule\nprojections:\n  job:\n    match: {key: job/*}\n    states: [" + ", ".join(st) + "]\n    otherwise: rest\n    events: {"
+        + ", ".join(f"job.{s}: {{state: set('{s}')}}" for s in st) + "}\nmessages:\n  paused: {job: [parked]}\n")
     p = Project(mdl.load(d))
     t = time.time() - 3600
     evs = [("job.open", "job/1", t), ("job.leased", "job/1", t + 10),          # leased, never left

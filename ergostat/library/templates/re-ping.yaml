@@ -66,14 +66,18 @@ params:
     description: what a person is asked once a question is given up on; false for nobody
 projections:
   ${projection}:
-    id: ${projection}/*
+    match:
+      key: ${projection}/*
     description: something asked of someone else, waiting for their answer
     states: [waiting, answered, given-up]
-    on:
-      ${projection}.answered: answered
-      ${projection}.gave-up: given-up
-    fold:
-      pings: sum
+    events:
+      "*":
+        pings: add(data.pings)
+      ${projection}.answered:
+        state: set('answered')
+      ${projection}.gave-up:
+        state: set('given-up')
+    otherwise: rest
     show: [title, from, pings]
 stocks:
   unanswered:

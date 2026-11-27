@@ -1042,10 +1042,44 @@ class ItemKind:
     attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
     pipeline: dict | None = None   # its items record stages (ergostat/stages.py): {title, stages, waiting}
     risk: dict | None = None       # risk-score: {at, failed, passed, undone, from, least} (numbers/itemrisk.py); off when None
+    match: dict | None = None      # which events it reads (handlers.match_ok); None: those whose item ``id`` matches
+    key: list | None = None        # the item an event belongs to (handlers.Value parts, joined by /); None: its item
+    handlers: dict | None = None   # event type (or "*") → field → handlers.Value; None: on: and fold: (ergostat's own)
+    otherwise: str = "merge"       # an event type with no handler: merge its data, ignore it, or (rest) merge what none names
+    functions: dict = field(default_factory=dict, repr=False, compare=False)   # the model's fold functions, by name
 
     def matches(self, id: str) -> bool:
+        """Whether ``id`` may be one of its items: by its key glob (``match: {key: ...}``); one that reads its events
+        by anything else, or keys them by their data, says so of no id (``open``: asked by name, any)."""
         import fnmatch
-        return fnmatch.fnmatchcase(id, self.id)
+        return not self.open and fnmatch.fnmatchcase(id, self.id)
+
+    @property
+    def open(self) -> bool:
+        """Whether its items are not told by an id glob: its match names no key, or its key is not the events' item."""
+        return self.match is not None and (self.key is not None or not any(
+            isinstance(self.match.get(p), str) for p in ("key", "item")))
+
+    @property
+    def by_item(self) -> bool:
+        """Whether its items are the events' own items (``key: $key``): each item's events are the record's by its id."""
+        return self.key is None
+
+    def reads(self, e: dict) -> bool:
+        """Whether this projection reads event ``e`` (its ``match:``; else its item matches ``id``)."""
+        if self.match is None:
+            item = e.get("item")
+            return isinstance(item, str) and self.matches(item)
+        from .handlers import match_ok
+        return match_ok(self.match, e)
+
+    def key_of(self, e: dict) -> str | None:
+        """The item event ``e`` belongs to in this projection (None: none)."""
+        if self.key is None:
+            item = e.get("item")
+            return item if isinstance(item, str) and item else None
+        from .handlers import key_of
+        return key_of(self.key, e)
 
 
 @dataclass
@@ -1146,6 +1180,8 @@ class Spec:
     agents: dict[str, Agent] = field(default_factory=dict)
     sources: dict[str, Source] = field(default_factory=dict)
     items: dict[str, ItemKind] = field(default_factory=dict)
+    functions: dict = field(default_factory=dict, repr=False, compare=False)   # the model's fold functions (handlers.py)
+    functions_hash: str = ""                # of their files' text: in the item index's cache key
     auxiliaries: dict[str, Auxiliary] = field(default_factory=dict)
     systems: dict[str, str] = field(default_factory=dict)        # name → description
     purpose: str = ""                                             # what the whole model is for (SPEC §4a)

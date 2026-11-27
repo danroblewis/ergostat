@@ -21,9 +21,15 @@ sources:
   acmeprom: {type: prometheus, url: "http://prom.acme-internal.corp:9090"}
 projections:
   zebraticket:
-    id: zebraticket/*
+    match:
+      key: zebraticket/*
     states: [triage-queue, sorting-hat, done]
-    on: {zebraticket.sorted: sorting-hat, zebraticket.closed: done}
+    events:
+      zebraticket.sorted:
+        state: set('sorting-hat')
+      zebraticket.closed:
+        state: set('done')
+    otherwise: rest
 stocks:
   invoices-pending:
     unit: invoices

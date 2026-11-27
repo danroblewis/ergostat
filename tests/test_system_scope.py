@@ -37,10 +37,10 @@ systems:
   qa: {within: factory, description: checks the work}
   delivery: {within: factory, description: ships it}
 projections:
-  ticket: {id: ticket/*, states: [new, checking, done], system: factory}
-  qa-note: {id: qa-note/*, states: [open, closed], system: qa}
-  shared-ref: {id: ref/*, states: [open], system: factory}
-  unused-parent: {id: unused/*, states: [open], system: factory}
+  ticket: {match: {key: ticket/*}, states: [new, checking, done], system: factory}
+  qa-note: {match: {key: qa-note/*}, states: [open, closed], system: qa}
+  shared-ref: {match: {key: ref/*}, states: [open], system: factory}
+  unused-parent: {match: {key: unused/*}, states: [open], system: factory}
 stocks:
   arrived:
     system: intake
@@ -131,7 +131,7 @@ systems:
   a: {within: plant}
   b: {within: plant}
 projections:
-  job: {id: job/*, states: [open], system: plant}
+  job: {match: {key: job/*}, states: [open], system: plant}
 stocks:
   queue:
     system: a
@@ -188,7 +188,7 @@ systems:
   a: {within: plant}
   b: {within: plant}
 projections:
-  job: {id: job/*, states: [open], system: a}
+  job: {match: {key: job/*}, states: [open], system: a}
 stocks:
   queue:
     system: a
@@ -373,9 +373,10 @@ systems:
   plan: {}
   build: {}
 projections:
-  epic: {id: epic/*, states: [open], system: plan}
+  epic: {match: {key: epic/*}, states: [open], system: plan}
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open]
     system: build
     relations: {parent: epic}

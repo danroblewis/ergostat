@@ -17,20 +17,23 @@ from ergostat.store import Project
 MODEL = """
 projections:
   session:
-    id: session/*
+    match:
+      key: session/*
     states: [open, done]
-    on:
-      session.ran: done
+    events:
+      "*":
+        messages: append(data.messages)
+        tool_calls: append(data.tool_calls)
+        tool_results: append(data.tool_results)
+        thinking: append(data.thinking)
+        tokens_in: add(data.tokens_in)
+        tokens_out: add(data.tokens_out)
+      session.ran:
+        state: set('done')
+    otherwise: rest
     show: [role, cost_usd]
     formats:
       transcript: claude-session
-    fold:
-      messages: append
-      tool_calls: append
-      tool_results: append
-      thinking: append
-      tokens_in: sum
-      tokens_out: sum
 stocks:
   sessions-open:
     sensor:
@@ -121,7 +124,7 @@ def test_the_session_folds_into_its_conversation(tmp_path):
     assert f["tool_results"][0]["tool_use_id"] == "t1" and f["thinking"][0]["text"] == "Look at the encoder first."
     assert f["tokens_in"] == 120 and f["tokens_out"] == 12, "a message over two lines is counted once"
     assert f["cost_usd"] == 0.12 and d["state"] == "done"
-    assert d["changes"]["messages"] == 4 and d["transcript_events"] == 6
+    assert d["changes"]["messages"] == 3 and d["transcript_events"] == 6     # one change per event that changed it
     assert all(e["type"].startswith("session.") for e in d["record"]), "the record shown is the session's own events"
     # what lists and counts sessions leaves the transcript out, and says how many events there are
     listed = its.listing(p.events, p.model.spec, kind="session")["items"][0]

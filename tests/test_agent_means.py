@@ -29,7 +29,8 @@ goals:
   inner-low: {stock: inner, hold: "<= 5"}
 projections:
   request:
-    id: request/*
+    match:
+      key: request/*
     states: [new, approved, denied, deferred]
 agents:
   approver: {kind: decision}

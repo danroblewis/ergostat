@@ -114,7 +114,6 @@ def model_with_sessions(tmp_path: Path) -> Project:
     kinds = {k: root["projections"][k] for k in ("session", "gap", "research", "review", "situation", "milestone")}
     for k in kinds.values():
         k.pop("join", None)
-        k["on"] = k.pop(True)                                                   # (YAML 1.1 reads `on:` as true)
     (tmp_path / "ergostat.yaml").write_text(yaml.safe_dump({"projections": kinds}))
     return Project(mdl.load(tmp_path))
 

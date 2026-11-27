@@ -124,10 +124,16 @@ def test_snapshot_is_a_set_with_its_history_summarised_and_the_full_history_arch
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(f"""
         projections:
           ticket:
-            id: ticket/*
+            match:
+              key: ticket/*
             states: [open, done]
-            on: {{ticket.done: done}}
-            fold: {{spent: sum, notes: append}}
+            events:
+              "*":
+                spent: add(data.spent)
+                notes: append(data.notes)
+              ticket.done:
+                state: set('done')
+            otherwise: rest
         storage:
           events: {backend}
           rollup: {{after: 1h, projections: {{ticket: 2h}}}}
@@ -155,7 +161,7 @@ def test_snapshot_is_a_set_with_its_history_summarised_and_the_full_history_arch
 
 
 def test_the_kept_fold_follows_new_events_and_a_past_moment(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("projections:\n  t:\n    id: t/*\n    states: [a, b]\n    on: {t.b: b}\n")
+    (tmp_path / "ergostat.yaml").write_text("projections:\n  t:\n    match: {key: t/*}\n    states: [a, b]\n    events: {t.b: {state: set('b')}}\n    otherwise: rest\n")
     p = Project(mdl.load(tmp_path))
     spec = p.model.spec
     for i in range(30):
@@ -172,7 +178,7 @@ def test_the_kept_fold_follows_new_events_and_a_past_moment(tmp_path):
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_keep_forgets_an_item_whole_and_rolls_up_a_live_one(tmp_path, backend):
-    (tmp_path / "ergostat.yaml").write_text(f"keep: 1d\nprojections:\n  t:\n    id: t/*\nstorage:\n  events: {backend}\n"
+    (tmp_path / "ergostat.yaml").write_text(f"keep: 1d\nprojections:\n  t:\n    match: {{key: t/*}}\nstorage:\n  events: {backend}\n"
                                             "  rollup: never\n")
     p = Project(mdl.load(tmp_path))
     now = T0 + 10 * 86400
@@ -196,9 +202,12 @@ def test_a_transcript_read_again_records_none_of_its_rolled_up_lines(tmp_path):
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
         projections:
           session:
-            id: session/*
+            match:
+              key: session/*
             formats: {transcript: claude-session}
-            fold: {messages: append}
+            events:
+              "*":
+                messages: append(data.messages)
         """))
     lines = [{"type": "user", "uuid": f"u{i}", "timestamp": "2023-11-14T22:13:20Z", "message": {"role": "user", "content": f"m{i}"}}
              for i in range(6)]

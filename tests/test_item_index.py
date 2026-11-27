@@ -61,10 +61,17 @@ def _ticket(tmp_path, backend="segments", extra=""):
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(f"""
         projections:
           ticket:
-            id: ticket/*
+            match:
+              key: ticket/*
             states: [open, doing, done]
-            on: {{ticket.started: doing, ticket.done: done}}
-            fold: {{spent: sum}}
+            events:
+              "*":
+                spent: add(data.spent)
+              ticket.started:
+                state: set('doing')
+              ticket.done:
+                state: set('done')
+            otherwise: rest
         storage:
           events: {backend}
         """) + extra)

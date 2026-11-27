@@ -24,9 +24,15 @@ MEDIAN = 1200.0                      # 20 min doing
 MODEL = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, done]
-    on: {ticket.started: doing, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
     relations:
       blocked_by: ticket
 messages:
@@ -42,10 +48,23 @@ blocks:
 GAPS = """
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [ready, doing, review, fix, approved, merged]
-    on: {gap.opened: ready, gap.started: doing, gap.reviewed: review, gap.failed: fix, gap.approved: approved,
-         gap.merged: merged}
+    events:
+      gap.opened:
+        state: set('ready')
+      gap.started:
+        state: set('doing')
+      gap.reviewed:
+        state: set('review')
+      gap.failed:
+        state: set('fix')
+      gap.approved:
+        state: set('approved')
+      gap.merged:
+        state: set('merged')
+    otherwise: rest
     relations:
       depends_on: {projection: gap, starts_at: [approved]}
 messages:
@@ -176,9 +195,19 @@ def test_levelled_pass_uses_measured_concurrency(tmp_path):
 REVIEWED = """
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, review, reviewing, done]
-    on: {ticket.started: doing, ticket.submitted: review, ticket.picked: reviewing, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.submitted:
+        state: set('review')
+      ticket.picked:
+        state: set('reviewing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 messages:
   done: {ticket: [done]}
 blocks:

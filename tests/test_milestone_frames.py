@@ -90,17 +90,33 @@ def milestone_answer(n_extra: int = 0, per: int = 6) -> dict:
 MODEL = """
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [ready, building, merged]
-    on: {gap.defined: ready, gap.started: building, gap.merged: merged}
+    events:
+      gap.defined:
+        state: set('ready')
+      gap.started:
+        state: set('building')
+      gap.merged:
+        state: set('merged')
+    otherwise: rest
     relations:
       depends_on: gap
       parent: gap
       milestone: {projection: milestone, group: true, precedence: false, inverse: gaps}
   milestone:
-    id: milestone/*
+    match:
+      key: milestone/*
     states: [waiting, active, completed]
-    on: {milestone.added: waiting, milestone.activated: active, milestone.completed: completed}
+    events:
+      milestone.added:
+        state: set('waiting')
+      milestone.activated:
+        state: set('active')
+      milestone.completed:
+        state: set('completed')
+    otherwise: rest
     relations:
       depends_on: milestone
 messages:

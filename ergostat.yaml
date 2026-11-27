@@ -90,31 +90,81 @@ systems:
 
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
     states: [open, replan, planned, split, joined, ready, fix, building, built, in-review, approved, queued, push-pending,
              queue-failed, merged, parked, closed]
-    on:
-      gap.found: open                # intake: an entry of docs/GAPS.md
-      gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
-      gap.planned: planned           # planner: its definition of done written (run/plans/)
-      gap.plan-sent-back: replan             # plan lint: sent back to the planner with its findings
-      gap.split: split               # planner: split into sub-gaps, each naming it as parent; joined once all merged
-                                     # (or the join judge: short, a new sub-gap requested first)
-      gap.defined: ready             # intake, or the planner: its definition of done exists
-      gap.started: building          # implementor
-      gap.built: built
-      gap.review-started: in-review  # reviewer
-      gap.approved: approved
-      gap.sent-back: fix             # reviewer (fix), queue (a conflict) or triage (a real failure): its findings
-      gap.queued: queued             # merge queue
-      gap.push-pending: push-pending # merge queue: its run's gap did not land; its outcome waits for its batch's push
-      gap.queue-failed: queue-failed
-      gap.retried: approved          # triage: a flake, back to the queue
-      gap.merged: merged
-      gap.parked: parked             # the kill rule, or a park verdict: where it stopped
-      gap.closed: closed             # out of the backlog: done on main already, or a duplicate (backlog.py; the pipeline
-                                     # manager's close, once the coordinator approved it)
+    events:
+      "*":
+        rounds: add(data.rounds)
+        reviews_n: add(data.reviews_n)
+        fix_rounds: add(data.fix_rounds)
+        failed_gates: add(data.failed_gates)
+        retries: add(data.retries)
+        queue_attempts: add(data.queue_attempts)
+        stalls: add(data.stalls)  # its suite runs stopped for a limit, it alone in the batch (queue, triage)
+        sessions: add(data.sessions)
+        ai_cost_usd: add(data.ai_cost_usd)
+        planning_cost_usd: add(data.planning_cost_usd)  # the planner's share of it (plan.py; measure.py)
+        build_hours: add(data.build_hours)
+        build_failures: add(data.build_failures)  # one per failed build, over the gap's life: the kill rule (dev/README.md)
+        review_hours: add(data.review_hours)
+        queue_wait_hours: add(data.queue_wait_hours)
+        queue_runs: append(data.queue_runs)  # each queue run it was in: its id, whole minutes, end (merges-per-hour)
+        reviews: append(data.reviews)
+        contexts: append(data.contexts)
+        flakes: union(data.flakes)
+        plan_failures: add(data.plan_failures)
+        research: union(data.research)
+        research_waits: add(data.research_waits)
+        measured_runs: append(data.measured_runs)  # each measure-runs of a named measurement: its head, counts, runs (dev/bin/runs.py)
+        join_verdicts: append(data.join_verdicts)  # each judgment of the join judge: covered or short, the points not built
+        resources: append(data.resources)  # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
+        tool_denials: add(data.tool_denials)  # its sessions' tool calls refused (dev/bin/sessions.py), and which (denied); a
+        tool_denials_unknown: add(data.tool_denials_unknown)  # session whose result said nothing of them counts in tool_denials_unknown
+        denied: append(data.denied)
+        conflicts: add(data.conflicts)  # its merges refused in the queue for a conflict (queue.py refuse)
+        milestone: "data.milestone if 'milestone' in data else current"   # replaced, not a set of ids (below)
+      gap.found:
+        state: set('open')  # intake: an entry of docs/GAPS.md
+      gap.requested:
+        state: set('open')  # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
+      gap.planned:
+        state: set('planned')  # planner: its definition of done written (run/plans/)
+      gap.plan-sent-back:
+        state: set('replan')  # plan lint: sent back to the planner with its findings
+      gap.split:
+        state: set('split')  # planner: split into sub-gaps, each naming it as parent; joined once all merged
+        # (or the join judge: short, a new sub-gap requested first)
+      gap.defined:
+        state: set('ready')  # intake, or the planner: its definition of done exists
+      gap.started:
+        state: set('building')  # implementor
+      gap.built:
+        state: set('built')
+      gap.review-started:
+        state: set('in-review')  # reviewer
+      gap.approved:
+        state: set('approved')
+      gap.sent-back:
+        state: set('fix')  # reviewer (fix), queue (a conflict) or triage (a real failure): its findings
+      gap.queued:
+        state: set('queued')  # merge queue
+      gap.push-pending:
+        state: set('push-pending')  # merge queue: its run's gap did not land; its outcome waits for its batch's push
+      gap.queue-failed:
+        state: set('queue-failed')
+      gap.retried:
+        state: set('approved')  # triage: a flake, back to the queue
+      gap.merged:
+        state: set('merged')
+      gap.parked:
+        state: set('parked')  # the kill rule, or a park verdict: where it stopped
+      gap.closed:
+        state: set('closed')  # out of the backlog: done on main already, or a duplicate (backlog.py; the pipeline
+        # manager's close, once the coordinator approved it)
+    otherwise: rest
     show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason,
            parked_for, loop_rounds, loop_hours]
     # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended, gates, catches and catch_times
@@ -134,36 +184,6 @@ projections:
                                      # done), else (a duplicate, abandoned, no end said) it leaves the total;
                                      # with [milestones] enforce, one not active holds the gap by its field
                                      # waits_on_milestone (gap.milestone-held, no state), unless it is pulled
-    fold:
-      milestone: replace
-      rounds: sum
-      reviews_n: sum
-      fix_rounds: sum
-      failed_gates: sum
-      retries: sum
-      queue_attempts: sum
-      stalls: sum                    # its suite runs stopped for a limit, it alone in the batch (queue, triage)
-      sessions: sum
-      ai_cost_usd: sum
-      planning_cost_usd: sum         # the planner's share of it (plan.py; measure.py)
-      build_hours: sum
-      build_failures: sum            # one per failed build, over the gap's life: the kill rule (dev/README.md)
-      review_hours: sum
-      queue_wait_hours: sum
-      queue_runs: append             # each queue run it was in: its id, whole minutes, end (merges-per-hour)
-      reviews: append
-      contexts: append
-      flakes: union
-      plan_failures: sum
-      research: union
-      research_waits: sum
-      measured_runs: append          # each measure-runs of a named measurement: its head, counts, runs (dev/bin/runs.py)
-      join_verdicts: append          # each judgment of the join judge: covered or short, the points not built
-      resources: append              # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
-      tool_denials: sum              # its sessions' tool calls refused (dev/bin/sessions.py), and which (denied); a
-      tool_denials_unknown: sum      # session whose result said nothing of them counts in tool_denials_unknown
-      denied: append
-      conflicts: sum                 # its merges refused in the queue for a conflict (queue.py refuse)
     risk-score:                      # each change's chance of failing once approved, learned from the gaps judged
       at: approved                   # before it (SPEC §5a, Risk score; ergostat item --projection gap --risk-score [--backtest])
       failed: [gap.queue-failed, gap.reverted]
@@ -182,40 +202,63 @@ projections:
     # gap.resumed (no state): a park resumed (resumed_as, resumed_for, resumed_by, cleared: the condition; parks.py)
 
   milestone:
-    id: milestone/*
+    match:
+      key: milestone/*
     description: a group of gaps finished together (the owner, 2026-11-22) - waiting on the milestones it depends on, active (at most [milestones] active_max at once, in rank order; an upkeep one always), completed once it has gaps and every one is merged or closed, or an upkeep one at the end of its cycle (dev/bin/milestones.py)
     states: [waiting, active, completed]
     final: [completed]               # no event moves a completed milestone out of it
-    on:
-      milestone.added: waiting       # milestones.py add
-      milestone.activated: active    # milestones.py pass: its dependencies completed, and room under the limit
-      milestone.completed: completed
+    events:
+      milestone.added:
+        state: set('waiting')  # milestones.py add
+      milestone.activated:
+        state: set('active')  # milestones.py pass: its dependencies completed, and room under the limit
+      milestone.completed:
+        state: set('completed')
+    otherwise: rest
     show: [title, rank, upkeep, upkeep_ends]
     # milestone.changed (no state): its dependencies (milestones.py depends)
     relations:
       depends_on: milestone          # precedence: active only once every milestone it names is completed
 
   review:
-    id: review/*
+    match:
+      key: review/*
     description: one review of a gap's branch - its verdict (merge, fix or park) and its findings
     states: [written, merge, fix, park]
-    on:
-      review.written: written
-      review.approved: merge
-      review.sent-back: fix
-      review.parked: park
+    events:
+      review.written:
+        state: set('written')
+      review.approved:
+        state: set('merge')
+      review.sent-back:
+        state: set('fix')
+      review.parked:
+        state: set('park')
+    otherwise: rest
     show: [gap, round, verdict, ai_cost_usd]
     relations:
       gap: gap
 
   session:
-    id: session/*
+    match:
+      key: session/*
     description: one AI session of the factory's (implementor, reviewer, planner, researcher, librarian) - its conversation, live while it runs, and what it cost (dev/bin/sessions.py)
     states: [running, done, failed]
-    on:
-      session.started: running
-      session.ended: done
-      session.errored: failed        # no result, an error result, a timeout or a crash
+    events:
+      "*":
+        messages: append(data.messages)
+        tool_calls: append(data.tool_calls)
+        tool_results: append(data.tool_results)
+        thinking: append(data.thinking)
+        tokens_in: add(data.tokens_in)
+        tokens_out: add(data.tokens_out)
+      session.started:
+        state: set('running')
+      session.ended:
+        state: set('done')
+      session.errored:
+        state: set('failed')  # no result, an error result, a timeout or a crash
+    otherwise: rest
     show: [role, round, gap, model, cost, turns, seconds, transcript]
     # resources (no fold: one container's): its CPU and memory, peak and mean (dev/bin/resources.py)
     relations:
@@ -226,11 +269,9 @@ projections:
     formats:
       transcript: claude-session     # Claude Code's own session file, the token scrubbed: shown as the conversation,
                                      # each line recorded as a claude.* event about the session (SPEC 5a)
-    fold: {messages: append, tool_calls: append, tool_results: append, thinking: append, tokens_in: sum,
-           tokens_out: sum}
-
   flake:
-    id: flake/*
+    match:
+      key: flake/*
     description: a test that failed in a suite and passed alone (seen) - counted each time, until fixed; or one that fails on main too (main-broken, the implementor's triage, dev/bin/onmain.py), until it passes twice alone on the pushed main (main-mend, dev/bin/mend.py)
     states: [seen, main-broken, fixed]
     # written only by dev/bin/flakes.py, on the item as it stands, under its lock: seen on a main-broken item is
@@ -239,34 +280,53 @@ projections:
     # manage.py flake-fixed's (fixed_by: the person, why), read and written under the same lock
     # flake.released (no state): the quarantine's release, its test off main's list (quarantined: false,
     # released_at; fac.beside); quarantined folds from it and from flake.measured as before
-    on:
-      flake.seen: seen
-      flake.main-broken: main-broken   # failed on a branch and on clean main: main's, not the gap's
-      flake.fixed: fixed
-      flake.main-fixed: fixed          # passed twice alone on the pushed main (dev/bin/mend.py, under flakes.py's
-                                       # lock): a patch testing /main as read, so a newer break refuses it and its move
+    events:
+      "*":
+        times: add(data.times)
+        gaps: union(data.gaps)
+      flake.seen:
+        state: set('seen')
+      flake.main-broken:
+        state: set('main-broken')  # failed on a branch and on clean main: main's, not the gap's
+      flake.fixed:
+        state: set('fixed')
+      flake.main-fixed:
+        state: set('fixed')  # passed twice alone on the pushed main (dev/bin/mend.py, under flakes.py's
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+    otherwise: rest
     show: [test, times, main]
-    fold: {times: sum, gaps: union}
-
   intervention:
-    id: intervention/*
+    match:
+      key: intervention/*
     description: the coordinator stepping in by hand, with why - evidence of a loop the factory still lacks
     states: [open, remedied]
-    on:
-      intervention.recorded: open
-      intervention.remedied: remedied
+    events:
+      "*":
+        tests: union(data.tests)
+        gaps: union(data.gaps)
+      intervention.recorded:
+        state: set('open')
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+      intervention.remedied:
+        state: set('remedied')
+    otherwise: rest
     show: [reason, class, by, remedy]
-    fold: {tests: union, gaps: union}  # (class main-broken: one per main commit, every gap held by it)
-
   situation:
-    id: situation/*
+    match:
+      key: situation/*
     description: one pipeline manager session - every standing trigger no earlier session handled (the queue blocked, gaps dead, parked or stuck, aging defects) and the merge pipeline's broken conditions, raised by pipeline-watch on its schedule or at once when the merge pipeline breaks (dev/bin/watch.py)
     states: [raised, handled, failed, superseded]
-    on:
-      situation.raised: raised       # reason: scheduled or broken; triggers, each with its fingerprint (prints)
-      situation.handled: handled     # the session's calls run (manage.py), each with what it said; an answer per trigger
-      situation.failed: failed
-      situation.superseded: superseded   # one raised by the one-trigger watch (no prints): closed, never run
+    events:
+      situation.raised:
+        state: set('raised')  # reason: scheduled or broken; triggers, each with its fingerprint (prints)
+      situation.handled:
+        state: set('handled')  # the session's calls run (manage.py), each with what it said; an answer per trigger
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+      situation.failed:
+        state: set('failed')
+      situation.superseded:
+        state: set('superseded')  # one raised by the one-trigger watch (no prints): closed, never run
+    otherwise: rest
     show: [reason, triggers_n, actions_n, summary, ai_cost_usd]
     attention: finding               # the latest session's finding, on the page's attention list (not only stored here)
     relations:
@@ -274,74 +334,119 @@ projections:
     lease: {attempts: 2}
 
   pool:
-    id: pool/*
+    match:
+      key: pool/*
     description: an AI pool (pool/implementor, pool/reviewer) - how many sessions at once, ramped up on good results
     states: [held]
-    on:
-      pool.measured: held
-      pool.raise-asked: held
-      pool.lowered: held
+    events:
+      pool.measured:
+        state: set('held')
+      pool.raise-asked:
+        state: set('held')
+      pool.lowered:
+        state: set('held')
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+    otherwise: rest
     show: [pool, most, decision, risk_bound, tolerance, target, why]
 
   upgrade:
-    id: upgrade/*
+    match:
+      key: upgrade/*
     description: a version of main the instance may run - installed into its own folder, switched to, kept or reverted
     states: [available, installed, approved, draining, switched, healthy, reverted, superseded, withdrawn, failed]
-    on:
-      upgrade.opened: available        # merge queue: a new green main
-      upgrade.installed: installed     # upgrader
-      upgrade.superseded: superseded
-      upgrade.failed: failed
-      upgrade.switch-approved: approved    # the switcher (drain.py): its switch-instance approved
-      upgrade.switch-begun: approved   # the switch started (live.py, its own process): the runs under way carry on
-      upgrade.draining: draining       # (the record's before switch-without-draining: a switch waited for the runs
-      upgrade.drained: draining        # under way to drain; kept so the record of those still reads)
-      upgrade.withdrawn: withdrawn     # a newer version waits, or runs: its switch request withdrawn
-      upgrade.switched: switched       # the switch (live.py): the new version's engine started
-      upgrade.kept: healthy
-      upgrade.reverted: reverted
+    events:
+      upgrade.opened:
+        state: set('available')  # merge queue: a new green main
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+      upgrade.installed:
+        state: set('installed')  # upgrader
+      upgrade.superseded:
+        state: set('superseded')
+      upgrade.failed:
+        state: set('failed')
+      upgrade.switch-approved:
+        state: set('approved')  # the switcher (drain.py): its switch-instance approved
+      upgrade.switch-begun:
+        state: set('approved')  # the switch started (live.py, its own process): the runs under way carry on
+      upgrade.draining:
+        state: set('draining')  # (the record's before switch-without-draining: a switch waited for the runs
+      upgrade.drained:
+        state: set('draining')  # under way to drain; kept so the record of those still reads)
+      upgrade.withdrawn:
+        state: set('withdrawn')  # a newer version waits, or runs: its switch request withdrawn
+      upgrade.switched:
+        state: set('switched')  # the switch (live.py): the new version's engine started
+      upgrade.kept:
+        state: set('healthy')
+      upgrade.reverted:
+        state: set('reverted')
+    otherwise: rest
     show: [sha, check, switch, previous]
 
   research:
-    id: research/*
+    match:
+      key: research/*
     description: a question for the researcher (dev/bin/ask.py, or a planner's) - asked, then answered with a report whose sources were checked (dev/bin/research.py); an answer with none checked is asked again once, then dead
     states: [asked, unsourced, answered, dead]
-    on:
-      research.asked: asked
-      research.unsourced: unsourced  # no source checked: given back (counted), asked again with the why in its brief
-      research.answered: answered    # at least one source checked (sources_checked; the rest in sources_unchecked)
-      research.dead-lettered: dead   # unsourced a second time: its lease's last attempt, a dead letter
+    events:
+      "*":
+        unsourced: add(data.unsourced)
+      research.asked:
+        state: set('asked')
+      research.unsourced:
+        state: set('unsourced')  # no source checked: given back (counted), asked again with the why in its brief
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+      research.answered:
+        state: set('answered')  # at least one source checked (sources_checked; the rest in sources_unchecked)
+      research.dead-lettered:
+        state: set('dead')  # unsourced a second time: its lease's last attempt, a dead letter
+    otherwise: rest
     show: [question, gap, summary, report, sources_checked, sources_unchecked, unsourced_why]
-    fold: {unsourced: sum}           # how many answers had no source checked
-
   lesson:
-    id: lesson/*
+    match:
+      key: lesson/*
     description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), or a finding (kind finding) the researcher proposed from a checked answer, carried by its areas - approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
     states: [new, seen, proposed, requested, approved, applied, denied, retired]
                                      # new: no event puts one there; it arrives seen, a working state the librarian
                                      # moves on (lesson.proposed) once a second review finds its class, so why names it;
                                      # lesson.seen is written last, so proposed names lesson.requested, not a move back
-    on:
-      lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice; researcher: a finding
-      lesson.requested: requested    # before the knowledge queue: a gap with the exact edit (migrated by lesson.py settle)
-      lesson.approved: approved      # knowledge-change approved, or lesson.py add / retire
-      lesson.applied: applied        # lesson-apply: carried by the briefs from the record
-      lesson.denied: denied          # knowledge-change denied: settled, never proposed again (lesson.py settle)
-      lesson.retired: retired        # lesson-apply, for lesson.py retire: no longer carried
-      lesson.seen: seen              # librarian: a class not listed, found in one review
+    events:
+      "*":
+        times: add(data.times)
+        reviews: union(data.reviews)
+        findings: append(data.findings)
+      lesson.proposed:
+        state: set('proposed')  # librarian: a new shape of a known class, or a class found twice; researcher: a finding
+      lesson.requested:
+        state: set('requested')  # before the knowledge queue: a gap with the exact edit (migrated by lesson.py settle)
+      lesson.approved:
+        state: set('approved')  # knowledge-change approved, or lesson.py add / retire
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+      lesson.applied:
+        state: set('applied')  # lesson-apply: carried by the briefs from the record
+      lesson.denied:
+        state: set('denied')  # knowledge-change denied: settled, never proposed again (lesson.py settle)
+      lesson.retired:
+        state: set('retired')  # lesson-apply, for lesson.py retire: no longer carried
+      lesson.seen:
+        state: set('seen')  # librarian: a class not listed, found in one review
+    otherwise: rest
     show: [kind, lesson, name, entry, areas, research, text, times, gap, denied_by, why]
-    fold: {times: sum, reviews: union, findings: append}
-
   knowledge:
-    id: knowledge/*
+    match:
+      key: knowledge/*
     description: one entry of dev/knowledge/ in the running version, of its file's declared kind (component, rule, lesson, finding, question, source; briefs carry the rules and lessons), kept by the collector knowledge-sync - the owner's decisions are ergostat.decision items instead
     states: [new, active, retired]   # new: no event puts one there; it arrives active, a working state knowledge-sync
                                      # moves on (knowledge.retired) once it is gone from the files, so why names it;
                                      # active is not finished, so explain, check and status still read its about
-    on:
-      knowledge.found: active        # knowledge-sync: an entry in the files (or back in them)
-      knowledge.changed: active      # knowledge-sync: its title, text, areas or how many briefs carried it changed
-      knowledge.retired: retired     # knowledge-sync: no longer in the files
+    events:
+      knowledge.found:
+        state: set('active')  # knowledge-sync: an entry in the files (or back in them)
+      knowledge.changed:
+        state: set('active')  # knowledge-sync: its title, text, areas or how many briefs carried it changed
+      knowledge.retired:
+        state: set('retired')  # knowledge-sync: no longer in the files
+    otherwise: rest
     about: about                     # its *About:* line: the parts of this model it bears on (explain, check, status)
     show: [kind, title, file, areas, about, carried, text]
 

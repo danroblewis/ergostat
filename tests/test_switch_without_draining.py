@@ -30,16 +30,31 @@ runs:
   outlive_engine: true
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [ready, done]
-    on: {ticket.done: done}
+    events:
+      ticket.done:
+        state: set('done')
+    otherwise: rest
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [open]
   upgrade:
-    id: upgrade/*
+    match:
+      key: upgrade/*
     states: [switched, healthy, reverted, failed]
-    on: {upgrade.switched: switched, upgrade.kept: healthy, upgrade.reverted: reverted, upgrade.failed: failed}
+    events:
+      upgrade.switched:
+        state: set('switched')
+      upgrade.kept:
+        state: set('healthy')
+      upgrade.reverted:
+        state: set('reverted')
+      upgrade.failed:
+        state: set('failed')
+    otherwise: rest
 SENSED
 stocks:
   handled:

@@ -25,19 +25,39 @@ BASE = """
 name: t
 projections:
   review:
-    id: review/*
+    match:
+      key: review/*
     states: [requested, briefed, answered]
-    on: {review.briefed: briefed, review.answered: answered}
+    events:
+      review.briefed:
+        state: set('briefed')
+      review.answered:
+        state: set('answered')
+    otherwise: rest
     show: [title, author]
   ramp:
-    id: ramp/*
+    match:
+      key: ramp/*
     states: [pending, briefed, approved]
-    on: {ramp.briefed: briefed, ramp.approved: approved}
+    events:
+      ramp.briefed:
+        state: set('briefed')
+      ramp.approved:
+        state: set('approved')
+    otherwise: rest
     show: [flag, team]
   session:
-    id: session/*
+    match:
+      key: session/*
     states: [open, done, failed, lost]
-    on: {session.ran: done, session.failed: failed, session.lost: lost}
+    events:
+      session.ran:
+        state: set('done')
+      session.failed:
+        state: set('failed')
+      session.lost:
+        state: set('lost')
+    otherwise: rest
 stocks:
   to-brief:
     sensor: {projection: review, state: requested, every: 5s}

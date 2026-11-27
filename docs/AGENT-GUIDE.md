@@ -45,10 +45,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
 4. **A collector that finds the work**: a program block (or sensor) that polls the outside system
    (Jira, GitHub, a queue) and prints one event per new or changed item, e.g.
    `{"event": "request.new", "item": "request/123", "data": {"title": "...", "url": "..."}}`. The
-   projection's `on:` maps event types to states. This is the **sensor** of the whole workflow: without it
-   nothing arrives. The projection's `id:` may be left out: `request` in no system matches `request/*`, and in system
+   projection's `events:` handlers set each event type's state (`state: set('open')`). This is the **sensor** of the whole workflow: without it
+   nothing arrives. The projection's `match:` may be left out: `request` in no system matches `request/*`, and in system
    `intake`, within `factory`, `factory/intake/request/*` (SPEC §5a, *The implied id*); the collector's ids must
-   then start that way. Write `id:` when the outside system's ids are already fixed.
+   then start that way. Write `match: {key: ...}` when the outside system's ids are already fixed.
 
    **When the work is related** (a ticket blocked by another, tickets under an epic, a duplicate), declare the
    relations on the projection and have the collector record them as fields (SPEC §5a, *Relations*):
@@ -56,12 +56,14 @@ Work through these steps in order. Ask the person only what you cannot infer.
    ```yaml
    projections:
      ticket:
-       id: ticket/*
+       match:
+         key: ticket/*
        relations:
          blocked_by: ticket          # precedence: ready once each one it names is done
          parent: epic                # cross-projection: the epic it is part of
      epic:
-       id: epic/*
+       match:
+         key: epic/*
    ```
 
    An issue tracker's links map onto them: Jira's "is blocked by" links (inward, of the type Blocks) are
@@ -210,15 +212,24 @@ Work through these steps in order. Ask the person only what you cannot infer.
 ```yaml
 projections:
   request:
-    id: request/*
+    match:
+      key: request/*
     states: [new, researching, awaiting-approval, rolling-out, done, rejected]
-    on:
-      request.new: new
-      request.researching: researching
-      request.researched: awaiting-approval
-      request.approved: rolling-out
-      request.rejected: rejected
-      request.done: done
+    events:
+      request.new:
+        state: set('new')
+      request.researching:
+        state: set('researching')
+      request.researched:
+        state: set('awaiting-approval')
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+      request.approved:
+        state: set('rolling-out')
+      request.rejected:
+        state: set('rejected')
+      request.done:
+        state: set('done')
+    otherwise: rest
     show: [title, url]
 
 stocks:
@@ -318,7 +329,7 @@ The Dynamics view is the workflow you declared; the Process view is the one that
 
 - [ ] **Every move you modelled as a flow is a line**, and every line is a move you modelled. A line
       between two states with no flow between their stocks is work leaving or arriving where the model
-      says it cannot: a missing flow, or an `on:` mapping that is wrong.
+      says it cannot: a missing flow, or an `events:` handler that sets the wrong state.
 - [ ] **No state is left out**: a state no item ever enters in a long window is dead, or its event is
       never printed (look at the collector).
 - [ ] **Items end where the work ends.** The end node should follow your final states; an item that
@@ -350,7 +361,7 @@ blocks), run again, until every projection reads `N of N agree`. How to read eac
 |---|---|---|---|
 | `move-without-flow` | Process ↔ Dynamics | items moved between two states with stocks, and no flow carries them | add the flow it names (or re-point the cloud flow it names) |
 | `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (drawn running back on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
-| `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `on:` mapping if B was meant to be entered |
+| `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `events:` handlers if B was meant to be entered |
 | `order-contradicted` | Process ↔ Dynamics | items went from A to B; the chain's flows run from B to A | the flows are the wrong way round: re-point them |
 | `arrival-not-modelled`, `completion-not-modelled` | Process ↔ Dynamics | items arrive where no flow brings them in, or finish where no flow takes them out | the arrivals flow from outside into that stock, or the completions flow out |
 | `waiting-without-goal`, `goal-without-loop` | Dynamics ↔ Blocks | items wait for the model's blocks in a stock no goal holds, or no loop closes | a goal on the stock (`hold: "<= 0"`), served by the block that moves them on |
@@ -1051,11 +1062,11 @@ work that is plainly waiting on someone. Build the model so that every wait has 
 - **Who or what takes each state.** For every state an item rests in unfinished, one of: a block's `takes:` (a
   program or AI step), or, for work done outside ergostat (a person's review, a reviewer at a code host), a
   **working state**: not the projection's first state, left by an event that records the work (`change.reviewed`). `why`
-  then names "whoever records change.reviewed" (the first event of its `on:` that moves it out, in the order
+  then names "whoever records change.reviewed" (the first event of its `events:` that moves it out, in the order
   written, so write the way on before side exits) and lists the others. The projection's first state is where items wait to
   be taken: when nothing in ergostat takes them, give the projection a first state no event moves an item into (`new`) and
-  let the arriving event put it straight into its working state (`todo.added: todo`). **Write the arriving events
-  last in `on:`.** Only a move back to the projection's first state is left out of the ways on, and with `new` first the
+  let the arriving event put it straight into its working state (`todo.added: {state: set('todo')}`). **Write the arriving events
+  last in `events:`.** Only a move back to the projection's first state is left out of the ways on, and with `new` first the
   arriving event is no longer one, so written first it is named as the owner of every later working state: a batch
   in `isolating` would name "whoever records batch.started", a move backwards. Written last, it is named only for a
   state with no other way on.
@@ -1122,37 +1133,70 @@ The model, item by item from what was said (scripts are the person's; `scaffold`
 ```yaml
 projections:
   change:
-    id: change/*
+    match:
+      key: change/*
     description: one change to the product, from proposal to release
     states: [proposed, building, in-review, releasing, released, on-hold, dropped]
-    on:
-      change.proposed: proposed
-      change.built: in-review
-      change.reviewed: releasing
-      change.released: released
-      change.held: on-hold
-      change.dropped: dropped
+    events:
+      change.proposed:
+        state: set('proposed')
+      change.built:
+        state: set('in-review')
+      change.reviewed:
+        state: set('releasing')
+      change.released:
+        state: set('released')
+        # lock): a patch testing /main as read, so a newer break refuses it and its move
+      change.held:
+        state: set('on-hold')
+      change.dropped:
+        state: set('dropped')
+    otherwise: rest
     relations:
       depends_on: change                                # precedence: it waits for these to be released
       pull_request: {projection: pr, precedence: true}        # and for its pull request to be merged
   pr:
-    id: pr/*
+    match:
+      key: pr/*
     description: a pull request on the code host, as the collector saw it
     states: [new, open, merged, closed]
-    on: {pr.merged: merged, pr.closed: closed, pr.opened: open}          # the arriving event last
+    events:
+      pr.merged:
+        state: set('merged')
+      pr.closed:
+        state: set('closed')
+      pr.opened:
+        state: set('open')
+    otherwise: rest
   todo:
-    id: todo/*
+    match:
+      key: todo/*
     description: one of the owner's own to-dos
     states: [new, todo, done, dropped]
-    on: {todo.done: done, todo.dropped: dropped, todo.added: todo}
+    events:
+      todo.done:
+        state: set('done')
+      todo.dropped:
+        state: set('dropped')
+      todo.added:
+        state: set('todo')
+    otherwise: rest
     relations:
       needs: {projection: batch, precedence: true, starts_at: [open]}   # a sitting in an access context
       covers: change                                              # an update's subject: says, never waits
   batch:
-    id: batch/*
+    match:
+      key: batch/*
     description: one sitting in an access context (the lab network)
     states: [new, planned, open, closed]
-    on: {batch.opened: open, batch.closed: closed, batch.planned: planned}   # open names batch.closed
+    events:
+      batch.opened:
+        state: set('open')
+      batch.closed:
+        state: set('closed')
+      batch.planned:
+        state: set('planned')
+    otherwise: rest
 
 messages:
   done: {change: [released, dropped], pr: [merged], todo: [done, dropped], batch: [closed]}

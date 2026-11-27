@@ -372,9 +372,15 @@ name: daemon-demo
 
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.opened: ready, job.done: done}
+    events:
+      job.opened:
+        state: set('ready')
+      job.done:
+        state: set('done')
+    otherwise: rest
     description: a job; its work leaves a file in done/
 
 stocks:
@@ -568,9 +574,15 @@ wait                                                    # the job under way fini
 name: shell-jobs
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.opened: ready, job.done: done}
+    events:
+      job.opened:
+        state: set('ready')
+      job.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   ready:
     unit: jobs

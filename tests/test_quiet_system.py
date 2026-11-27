@@ -7,8 +7,8 @@ from ergostat.store import Project
 
 N = 14
 MODEL = "\n".join([
-    "name: quiet", "systems:", "  shop: {}", "  yard: {}", "projections:", "  job:", "    id: job/*",
-    "    states: [waiting, done]", "    system: shop", "    on: {job.done: done}", "stocks:",
+    "name: quiet", "systems:", "  shop: {}", "  yard: {}", "projections:", "  job:", "    match: {key: job/*}",
+    "    states: [waiting, done]", "    system: shop", "    events: {job.done: {state: set('done')}}\n    otherwise: rest", "stocks:",
     *[f"  q{i}: {{unit: jobs, system: shop, sensor: {{run: echo 1, every: 1h}}}}" for i in range(1, N + 1)],
     "  pile: {unit: jobs, system: yard, sensor: {run: echo 1, every: 1h}}",
     "flows:", "  served: {from: q1, system: shop}", "  carted: {from: pile, system: yard}",
@@ -75,8 +75,8 @@ def test_one_unknown_goal_and_it_says_nothing(tmp_path, monkeypatch):
 
 WHERE = (("a", "plant"), ("b", "line"), ("c", "line"))
 NESTED = "\n".join([
-    "name: nested", "systems:", "  plant: {}", "  line: {within: plant}", "projections:", "  job:", "    id: job/*",
-    "    states: [waiting, done]", "    system: line", "    on: {job.done: done}", "stocks:",
+    "name: nested", "systems:", "  plant: {}", "  line: {within: plant}", "projections:", "  job:", "    match: {key: job/*}",
+    "    states: [waiting, done]", "    system: line", "    events: {job.done: {state: set('done')}}\n    otherwise: rest", "stocks:",
     *[f"  {s}: {{unit: jobs, system: {y}, sensor: {{run: echo 1, every: 1h}}}}" for s, y in WHERE],
     "flows:", "  served: {from: b, system: line}", *[f"  f{s}: {{from: {s}, system: {y}}}" for s, y in WHERE],
     "goals:", *[f"  g{s}: {{stock: {s}, hold: \"<= 5\", system: {y}}}" for s, y in WHERE],

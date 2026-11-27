@@ -30,9 +30,15 @@ MODEL = """
 name: calls
 projections:
   job:
-    id: job/*
+    match:
+      key: job/*
     states: [ready, done]
-    on: {job.arrived: ready, job.done: done}
+    events:
+      job.arrived:
+        state: set('ready')
+      job.done:
+        state: set('done')
+    otherwise: rest
 actions:
   noop:
     run: "echo did it"
@@ -194,8 +200,8 @@ def test_the_socket_lists_items_as_the_command_does(engine, tmp_path):
 
 
 def test_the_socket_pages_through_more_items_than_one_listing_holds(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("name: many\nprojections:\n  doc:\n    id: doc/*\n    states: [open]\n"
-                                            "    on: {doc.opened: open}\n")
+    (tmp_path / "ergostat.yaml").write_text("name: many\nprojections:\n  doc:\n    match: {key: doc/*}\n    states: [open]\n"
+                                            "    events: {doc.opened: {state: set('open')}}\n    otherwise: rest\n")
     p = Project(mdl.load(tmp_path))
     for n in range(600):
         p.events.add("doc.opened", item=f"doc/{n}", source="test")

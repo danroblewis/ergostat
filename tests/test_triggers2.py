@@ -19,11 +19,16 @@ MODEL = """
 name: t
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open, triaged]
-    on: {ticket.triaged: triaged}
+    events:
+      ticket.triaged:
+        state: set('triaged')
+    otherwise: rest
   note:
-    id: note/*
+    match:
+      key: note/*
 blocks:
   triage:
     type: program
@@ -186,9 +191,15 @@ RELAYED = """
 name: relayed
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open, done]
-    on: {{ticket.reopened: open, ticket.closed: done}}
+    events:
+      ticket.reopened:
+        state: set('open')
+      ticket.closed:
+        state: set('done')
+    otherwise: rest
 blocks:{blocks}
   relay:
     type: program

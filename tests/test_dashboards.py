@@ -23,9 +23,15 @@ systems:
     show: [stock.queue]
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [open, doing, done]
-    on: {ticket.started: doing, ticket.done: done}
+    events:
+      ticket.started:
+        state: set('doing')
+      ticket.done:
+        state: set('done')
+    otherwise: rest
 stocks:
   queue:
     system: desk

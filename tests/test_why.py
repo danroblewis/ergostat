@@ -40,19 +40,41 @@ goals:
     hold: "<= 5"
 projections:
   ticket:
-    id: ticket/*
+    match:
+      key: ticket/*
     states: [todo, doing, review, done, held]
-    on: {ticket.opened: todo, ticket.started: doing, ticket.reviewed: review, ticket.done: done, ticket.held: held}
+    events:
+      ticket.opened:
+        state: set('todo')
+      ticket.started:
+        state: set('doing')
+      ticket.reviewed:
+        state: set('review')
+      ticket.done:
+        state: set('done')
+      ticket.held:
+        state: set('held')
+    otherwise: rest
     relations:
       blocked_by: ticket
   note:
-    id: note/*
+    match:
+      key: note/*
     states: [open, shut]
-    on: {note.opened: open, note.shut: shut}
+    events:
+      note.opened:
+        state: set('open')
+      note.shut:
+        state: set('shut')
+    otherwise: rest
   slot:
-    id: slot/*
+    match:
+      key: slot/*
     states: [held]
-    on: {slot.made: held}
+    events:
+      slot.made:
+        state: set('held')
+    otherwise: rest
 messages:
   done: {ticket: [done], note: [shut]}
   paused: {ticket: [held]}
@@ -405,11 +427,33 @@ def test_unreadable_field_is_an_answer(tmp_path, monkeypatch):
 FACTORY = """
 projections:
   gap:
-    id: gap/*
+    match:
+      key: gap/*
     states: [open, ready, fix, building, built, in-review, approved, queued, merged, parked, closed]
-    on: {gap.found: open, gap.defined: ready, gap.started: building, gap.built: built, gap.review-started: in-review,
-         gap.approved: approved, gap.sent-back: fix, gap.queued: queued, gap.merged: merged, gap.parked: parked,
-         gap.closed: closed}
+    events:
+      gap.found:
+        state: set('open')
+      gap.defined:
+        state: set('ready')
+      gap.started:
+        state: set('building')
+      gap.built:
+        state: set('built')
+      gap.review-started:
+        state: set('in-review')
+      gap.approved:
+        state: set('approved')
+      gap.sent-back:
+        state: set('fix')
+      gap.queued:
+        state: set('queued')
+      gap.merged:
+        state: set('merged')
+      gap.parked:
+        state: set('parked')
+      gap.closed:
+        state: set('closed')
+    otherwise: rest
     relations:
       depends_on: gap
 messages:

@@ -358,7 +358,7 @@ only as good as the events the steps record.
 
 ### Declare the states
 
-With `states:` declared (in order) and every event that moves an item mapped in `on:`, the map is drawn **by
+With `states:` declared (in order) and every event that moves an item handled in `events:` (`state: set('done')`), the map is drawn **by
 states**: the workflow as you wrote it, in your order, with your names, held directly against the stocks. Without
 states it is drawn by event types, every comment and retry a node. Declare every state a step waits in or ends in,
 including the side exits (`dismissed`, `stopped`).
@@ -515,7 +515,7 @@ Ordered by what matters most. Go through each after `check` is clean.
 
 **Process**
 
-1. Every projection declares its states and maps every moving event in `on:`.
+1. Every projection declares its states and sets `state` in the handler of every moving event (`events:`).
 2. Event types are `projection.verb-past`; branches into one state carry `via:`.
 3. Fan-outs and joins are done inside runs that hold the causing item's lease, and their dashed lines appear.
 4. Rework is a declared move back, drawn ↺, with its flow in the chain.

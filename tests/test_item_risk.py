@@ -295,9 +295,17 @@ KIND = """
 name: t
 projections:
   change:
-    id: change/*
+    match:
+      key: change/*
     states: [open, ready, landed, failed]
-    on: {change.readied: ready, change.landed: landed, change.failed: failed}
+    events:
+      change.readied:
+        state: set('ready')
+      change.landed:
+        state: set('landed')
+      change.failed:
+        state: set('failed')
+    otherwise: rest
     risk-score:
       at: ready
       failed: [change.failed, change.reverted]
