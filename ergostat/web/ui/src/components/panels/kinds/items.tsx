@@ -69,8 +69,8 @@ function EveryProjectionFrame({ def, every, refreshKey, tools }: FrameProps) {
 }
 
 function ProjectionNowFrame({ def, every, refreshKey, tools }: FrameProps) {
-  const flow = usePanelAnswer<any>(def.projection ? "items-flow" : null, { projection: def.projection, points: def.points ?? 60 }, every, refreshKey);
-  const fp = usePanelAnswer<any>(pathOf("projections", def.projection), {}, every, refreshKey, true);
+  const flow = usePanelAnswer<any>(def.projection ? "items-flow" : null, { projection: def.projection, points: def.points ?? 60, draft: def.draft }, every, refreshKey);
+  const fp = usePanelAnswer<any>(pathOf("projections", def.projection), { draft: def.draft }, every, refreshKey, true);
   return (
     <Framed def={def} title="Now" tools={tools}>
       {/* (a block, not the body's flex column: a projection's flow is sized as a flex item of a row) */}
@@ -81,7 +81,7 @@ function ProjectionNowFrame({ def, every, refreshKey, tools }: FrameProps) {
 }
 
 function ProjectionModelFrame({ def, every, refreshKey, tools }: FrameProps) {
-  const fp = usePanelAnswer<any>(pathOf("projections", def.projection), {}, every, refreshKey, true);
+  const fp = usePanelAnswer<any>(pathOf("projections", def.projection), { draft: def.draft }, every, refreshKey, true);
   return (
     <Framed def={def} title="In the model" tools={tools}>
       <Async state={fp}>{(d) => <ProjectionModel fp={d} />}</Async>
@@ -90,7 +90,7 @@ function ProjectionModelFrame({ def, every, refreshKey, tools }: FrameProps) {
 }
 
 function ProjectionDefinitionFrame({ def, every, refreshKey, tools }: FrameProps) {
-  const fp = usePanelAnswer<any>(pathOf("projections", def.projection), {}, every, refreshKey, true);
+  const fp = usePanelAnswer<any>(pathOf("projections", def.projection), { draft: def.draft }, every, refreshKey, true);
   const code = fp.data?.definition ? <Code code={JSON.stringify(fp.data.definition, null, 2)} lang="json" />
     : fp.error ? <p className="note lvl-error">{fp.error.message}</p> : <Loading />;
   return (
@@ -104,7 +104,7 @@ function ProjectionDefinitionFrame({ def, every, refreshKey, tools }: FrameProps
 export function itemListParams(def: PanelDef): Record<string, unknown> {
   const n = def.n ?? 25, page = Math.max(1, def.page ?? 1);
   return { projection: def.projection, n, offset: (page - 1) * n, shown: 1, state: def.state, q: (def.q || "").trim() || undefined,
-    sort: def.sort, finished: def.finished };
+    sort: def.sort, finished: def.finished, draft: def.draft };
 }
 
 function ItemListFrame({ def, every, refreshKey, tools }: FrameProps) {

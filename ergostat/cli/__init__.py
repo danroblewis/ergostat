@@ -394,6 +394,8 @@ def build() -> argparse.ArgumentParser:
     report_topics(sub, common)
     from .worker import register as worker_topic
     worker_topic(sub, common)
+    from .trying import register as trying_topics
+    trying_topics(sub, common)
     return ap
 
 

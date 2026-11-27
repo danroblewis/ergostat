@@ -108,6 +108,22 @@ TOOLS = [
      "refused, and its events.",
      "inputSchema": _obj({"projection": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
                           "n": {"type": "integer"}})},
+    {"name": "projection_try", "description": "Try a projection before writing it (SPEC §5a, Trying a projection): yaml is "
+     "its body (match:, key:, states:, events:...) or projections: {NAME: ...}; it is compiled with the model and folded "
+     "in memory over the record (since/until: 7d or epoch seconds; limit: the newest N) or over events given, and a small "
+     "report comes back instead of the events: matched by handler, not read / no key / unchanged grouped by shape (the "
+     "event type and the data paths that tell them apart, a trimmed sample each), refused by reason, items, each field's "
+     "coverage and values, states, duplicates (data.id or id repeated), and with expected ({KEY: {field: value}}) each "
+     "field right or wrong, by likely cause. item=KEY: that item's trace (each event, its handler, each field before -> "
+     "after); refused=WORDS: the events refused for that reason. Nothing is written. Read events_shape first.",
+     "inputSchema": _obj({"name": {"type": "string"}, "yaml": {"type": "string"}, "since": {"type": "string"},
+                          "until": {"type": "string"}, "events": {"type": "array", "items": {"type": "object"}},
+                          "expected": {"type": "object"}, "item": {"type": "string"}, "refused": {"type": "string"},
+                          "limit": {"type": "integer"}, "system": {"type": "string"}}, ["yaml"])},
+    {"name": "events_shape", "description": "The stream's shape, instead of its events: each path into the events' JSON "
+     "(type, item, source, data.detail.state; a list's members []), its types, how often it is there (%), how many "
+     "values it takes and up to five of them, trimmed. type: a glob (aws.*); since: 7d; limit: the newest N (5,000).",
+     "inputSchema": _obj({"type": {"type": "string"}, "since": {"type": "string"}, "limit": {"type": "integer"}})},
     {"name": "why", "description": "Why an item is not done: its state and for how long (unusual or not for its projection), "
      "the cause followed to its root (what it waits on, what that waits on: unfinished work, a person, a full pool, a "
      "gate or budget refusing runs, a dead or stale lease, a block failing or not running, a closed goal or intake, a "
@@ -406,6 +422,17 @@ class Server:
             kind = DECISION if recipe == "decisions" else CORRECTION
             return _text(cx.render(p, kind, a.get("scope") if kind == DECISION else (a.get("kind") or a.get("scope")),
                                    cx.budget_of(a.get("budget"))))
+        if name in ("projection_try", "events_shape"):
+            from .spec import trying
+            from .web.projection_api import moment, tried
+            try:
+                if name == "events_shape":
+                    lim = a.get("limit")
+                    return _text(trying.stream_shape(p, a.get("type") or None, moment(a.get("since")),
+                                                     int(lim) if isinstance(lim, (int, float)) else None))
+                return _text(tried(p, {**a, "yaml": a.get("yaml") if isinstance(a.get("yaml"), str) else ""}, keep=False))
+            except trying.TryError as e:
+                return {**_text(str(e)), "isError": True}
         if name == "items":
             from .spec import items as its
             if a.get("id"):

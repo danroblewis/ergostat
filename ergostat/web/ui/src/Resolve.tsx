@@ -67,6 +67,12 @@ export default function Resolve() {
       onSaved={(name) => navigate(`${table.scopes[system]?.path.replace(/\/$/, "") || ""}/${encodeURIComponent(localOf(name, system))}`)}
       onCancel={() => navigate(-1)} />;
   }
+  const fresh = (state as any)?.newProjection;
+  if (fresh && !(at?.kind === "projection" && at.name === fresh)) {   // the nav bar's + after the projections: until saved
+    const system = String((state as any).system || "");
+    return <Projection key={`new:${fresh}:${(state as any).at}`} projection={fresh} system={system} creating
+      onCreated={() => navigate(pathname, { replace: true })} onCancel={() => navigate(-1)} />;
+  }
   if (!at) return old(table, pathname, search, q, hash) ?? <NothingHere pathname={pathname} />;
   if (at.redirect) return go(at.redirect);                         // a deeper address: the top-most
   const system = at.scope;

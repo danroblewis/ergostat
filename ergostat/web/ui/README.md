@@ -55,11 +55,20 @@ header's project list and `ergostat snapshot`.
                              spec/dashboards.py, then `uv run python scripts/panel_schema.py` for the schema.
         query/               QueryEditor (a query's text in CodeMirror, highlighted and completed at the cursor:
                              SQL's views and columns from /api/query/fields, PromQL's names from /api/query/suggest;
-                             its own chunk, loaded lazily) and LivePreview (a panel asked again 400 ms after a change)
+                             its own chunk, loaded lazily; source="yaml" too, with check's errors on their lines:
+                             `problems`) and LivePreview (a panel asked again 400 ms after a change)
         diagram/             imported from "components/diagram" (it brings ELK): Diagram (asks for its own graph:
                              <Diagram view="blocks" system="x" />), DiagramCanvas (draws a graph a page has), the
                              three drawings, useDiagramLayout, usePanZoom, a part's panels (usePartPanels)
       pages/<page>/          one folder per page; index.tsx is the page, composed of components/.
+        items/ProjectionPage  a projection's list page; its Edit also edits the projection's definition
+        items/DefinitionEditor  (SPEC §5a, Trying a projection): the YAML in the code editor, tried ~500 ms after
+                             typing stops (POST /api/projections/try, the one in flight cancelled: useTry), the report
+                             and the Stream shape (GET /api/events/shape) beside it, the page's panels given the draft's
+                             id (draft=ID on items, projections/P, items-flow) so they draw its items; Save writes it
+                             (POST /api/projections/save) before the list dashboard (useEditing's `before`). The nav
+                             bar's + after the projections (Shell.tsx NewProjection) asks a name and opens the page
+                             in edit mode (Resolve.tsx, state newProjection) until it is saved.
 
 ## Rules
 

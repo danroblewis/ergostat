@@ -84,9 +84,10 @@ export async function apiPost<T = any>(path: string, params: Params = {}): Promi
 }
 
 /** A write whose body is JSON (a message to the work in flight, a dashboard saved). */
-export async function apiSend<T = any>(path: string, body: unknown, params: Params = {}): Promise<T> {
+export async function apiSend<T = any>(path: string, body: unknown, params: Params = {}, signal?: AbortSignal): Promise<T> {
   const r = await fetch(apiUrl(path, params), {
     method: "POST",
+    signal,
     body: JSON.stringify(body),
     headers: { "Content-Type": "application/json", "X-Ergostat-Token": token() },
   });

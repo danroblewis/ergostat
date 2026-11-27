@@ -1321,6 +1321,30 @@ Model it so ergostat can answer (SPEC §5a, *Stages*):
    way on a clock you set, then ask `item_progress` for the time left you worked by hand. The merge queue's own
    (`dev/bin/batches.py` `stage()`, `dev/model/landing.yaml`) is a worked example.
 
+## 3o. Writing a projection over a stream: shape, try, fix, then write
+
+A raw stream (EventBridge, webhooks, a collector's lines) is many events, and reading them costs tokens you need for
+the model. Never read the events themselves to write a projection; ask for their shape and try the projection on
+them, in memory (SPEC §5a, *Trying a projection*):
+
+1. **The shape first**: `ergostat events shape --type 'aws.*' --since 7d` (MCP `events_shape`) lists each path into the
+   events (`data.detail.state`, `data.detail.eventName`), how often it is there, its types, how many values it takes
+   and a few of them. Choose `match:` and `key:` from it (a key unique to one thing: account + region + id, not the id
+   alone, when two accounts may share ids).
+2. **Try it**: write the body in a file and `ergostat projection try draft.yaml --name ec2 --since 7d` (MCP
+   `projection_try` with `yaml`). Read the few lines it says: *matched* by handler; *no key* (read, but `key:` found
+   nothing: the API calls about an instance under another path, grouped by `detail.eventName`); *unchanged* (folded
+   and changed nothing: a handler that does not cover them); *refused* by reason; each field's coverage and values;
+   the states; *duplicates* (delivered twice: a counting or appending handler counts them twice).
+3. **Fix one group at a time**, largest first, and try again. When the source can say what each item should be (a
+   fixture, a list from the source's own API), give it as `--expected FILE.json` (`{KEY: {field: value}}`): each field
+   right or wrong, the wrong grouped by likely cause (`missing`, `number vs text`, `case`, `fewer`). A field that is
+   wrong on a few items: `--item KEY` traces that one (each event, the handler that ran, each field before → after).
+   A state wrong on late events says the stream is out of order: fold by the event's own time or keep the furthest
+   state.
+4. **Write it** when the report reads right: into the model's `projections:` (the owner's page writes it from the
+   projection's own page: Edit, its Definition, Save), then `ergostat check`.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |
@@ -1350,6 +1374,8 @@ Model it so ergostat can answer (SPEC §5a, *Stages*):
   item by its root, ranks the roots (stalls first, then by what waits on them), folds the goals off because of a root
   under it, and its first line names the biggest stall and its next step, or says nothing is stuck. Ask it first when
   many goals are off at once: fix the first stall, then ask again (SPEC §5a).
+- **A projection before you write it**: `ergostat events shape` and `ergostat projection try FILE.yaml` (MCP
+  `events_shape`, `projection_try`): the stream's paths, and a small report of what the draft folds (section 3o).
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.

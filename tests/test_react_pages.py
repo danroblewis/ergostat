@@ -394,3 +394,71 @@ def test_a_declared_dashboard_is_edited_where_it_is_drawn_and_saved_where_it_is(
     assert pg.locator(".panel.panel-kind-note").count() == 0
     assert settled(pg) == []
     pg.close()
+
+
+# ---- a projection tried before it is written (SPEC §5a, Trying a projection): the nav bar's +, the Definition editor
+
+GADGET = "match:\n  type: gadget.*\nstates:\n  - made\n  - sold\nevents:\n  gadget.made:\n    state: set('made')\n" \
+         "    colour: data.colour\n"
+
+
+@pytest.fixture
+def gadgets(tmp_path):
+    p = project_with_items(tmp_path / EXAMPLE)
+    now = time.time()
+    for i in range(3):
+        p.events.add("gadget.made", item=f"gadget/{i}", data={"colour": "red"}, at=now - 300 + i)
+    server, url = web.serve(p, 0)
+    try:
+        yield p, url
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def definition(pg, text: str) -> None:
+    box = pg.locator(".proj-def-code .cm-content")
+    box.wait_for(timeout=WAIT)
+    box.fill(text)
+
+
+def test_the_nav_bar_s_plus_makes_a_projection_tried_and_saved_on_its_page(browser, gadgets):
+    p, url = gadgets
+    pg = opened(browser, url + "/goals")
+    pg.wait_for_selector("#nav a:has-text('Ticket')", timeout=WAIT)
+    pg.hover("#nav")
+    pg.get_by_role("button", name="New projection").click()
+    pg.get_by_label("The new projection's name").fill("gadget")
+    pg.keyboard.press("Enter")
+    pg.wait_for_url("**/gadget", timeout=WAIT)
+    pg.locator(".proj-def-code .cm-content").wait_for(timeout=WAIT)
+    assert "match: {type: gadget.*}" in pg.locator(".proj-def-code .cm-content").inner_text()   # its start
+    definition(pg, GADGET)
+    pg.wait_for_function("() => document.querySelector('[data-testid=try-items]')?.textContent === '3'", timeout=WAIT)
+    pg.locator(".panel-kind-item-list a:has-text('gadget/1')").first.wait_for(timeout=WAIT)   # the list draws the draft
+    assert "gadget" not in p.model.path.read_text()                                          # nothing written yet
+    pg.get_by_role("button", name="Save", exact=True).click()
+    pg.get_by_role("button", name="Edit", exact=True).wait_for(timeout=WAIT)
+    text = p.model.path.read_text()
+    assert "  gadget:\n    match:\n      type: gadget.*\n" in text and "colour: data.colour" in text
+    pg.wait_for_selector("#nav a:has-text('Gadget')", timeout=WAIT)
+    assert settled(pg) == []
+    pg.close()
+
+
+def test_editing_a_projection_s_definition_tries_it_and_cancel_discards_it(browser, gadgets):
+    p, url = gadgets
+    before = p.model.path.read_text()
+    pg = opened(browser, url + "/ticket")
+    pg.locator(".panel-kind-item-list").wait_for(timeout=WAIT)
+    pg.get_by_role("button", name="Edit", exact=True).first.click()
+    pg.locator(".proj-def-code .cm-content").wait_for(timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector('[data-testid=try-items]')?.textContent === '3'", timeout=WAIT)
+    definition(pg, "match:\n  key: ticket/*\nstates:\n  - opened\n  - nope\nevents:\n  ticket.done:\n    state: set('gone')\n")
+    pg.locator(".try-errors li").first.wait_for(timeout=WAIT)                            # check's error, said
+    assert "gone" in pg.locator(".try-errors").inner_text()
+    pg.get_by_role("button", name="Cancel", exact=True).click()
+    pg.get_by_role("button", name="Edit", exact=True).wait_for(timeout=WAIT)
+    assert pg.locator(".proj-def-edit").count() == 0 and p.model.path.read_text() == before
+    assert settled(pg) == []
+    pg.close()

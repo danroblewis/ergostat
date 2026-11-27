@@ -49,6 +49,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <NewDashboard />
           {shown.length > 0 && <span className="nav-bar-sep" aria-hidden="true" />}
           <ProjectionNav projections={shown} carried={carried} scoped={s} />
+          <NewProjection scope={scope} path={table?.scopes[scope]?.path || "/"} taken={(projections || []).map((p) => p.name)} />
         </nav>
         <span id="when"><WindowMenu /></span>
       </header>
@@ -104,6 +105,40 @@ function NewDashboard() {
   return (
     <button type="button" className="ghost nav-new" title="A new dashboard: saved under a name, it is in the nav bar"
       aria-label="New dashboard" onClick={() => navigate(pathname + search, { state: { newDashboard: Date.now() } })}>+</button>
+  );
+}
+
+/** The + after the nav bar's projections, seen on hover: a new projection, asked its name (lowercase letters, digits
+ *  and -), then its list page at the scope's address for it, in edit mode with a starting definition (Resolve.tsx,
+ *  pages/items/ProjectionPage.tsx); nothing is in the model until it is saved there. */
+function NewProjection({ scope, path, taken }: { scope: string; path: string; taken: string[] }) {
+  const navigate = useNavigate();
+  const [asking, setAsking] = useState(false);
+  const [name, setName] = useState("");
+  if (isPublic()) return null;
+  const ok = /^[a-z][a-z0-9-]{0,63}$/.test(name);
+  const go = () => {
+    if (!ok) return;
+    setAsking(false);
+    setName("");
+    const to = `${path.replace(/\/$/, "")}/${encodeURIComponent(name)}`;
+    if (taken.includes(name)) navigate(to);
+    else navigate(to, { state: { newProjection: name, system: scope, at: Date.now() } });
+  };
+  if (!asking) {
+    return (
+      <button type="button" className="ghost nav-new" title="A new projection: named, then defined and tried on its own page"
+        aria-label="New projection" onClick={() => setAsking(true)}>+</button>
+    );
+  }
+  return (
+    <span className="nav-ask">
+      <input autoFocus aria-label="The new projection's name" placeholder="its name: lowercase, digits, -" value={name}
+        onChange={(e) => setName(e.target.value.toLowerCase())}
+        onKeyDown={(e) => { if (e.key === "Enter") go(); if (e.key === "Escape") { setAsking(false); setName(""); } }}
+        onBlur={() => { if (!name) setAsking(false); }} />
+      <button type="button" className="ghost" disabled={!ok} onClick={go}>Make</button>
+    </span>
   );
 }
 

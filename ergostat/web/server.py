@@ -740,6 +740,21 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
+    if head == "events" and name == "shape" and len(parts) == 2:   # the stream's shape (SPEC §5a, Trying a projection)
+        from .projection_api import shape
+        from ..spec.trying import TryError
+        try:
+            return shape(p, one)
+        except TryError as e:
+            raise BadSet(str(e)) from e
+    if one("draft") and head in ("items", "projections", "items-flow") and project is None:   # a draft's items, as tried
+        from ..spec.trying import scratch
+        dp = scratch(p, one("draft"))
+        if dp is None:
+            raise BadSet(f"draft {one('draft')}: no longer kept (a try is kept 15 minutes): try it again")
+        at0 = float(one("at")) if one("at") and one("at").replace(".", "", 1).isdigit() else None
+        return _answer(live, path, {k: v for k, v in q.items() if k != "draft"}, dp,
+                       pinned=pinned or live.snapshot(p, _window(q), at0))
     if head == "query":                           # every chart's numbers, read-only, without a snapshot (ergostat/query)
         return _query(live, p, parts, q)
     if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
@@ -1020,7 +1035,14 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
         return snap.get("daemons", {})
     if head == "projections":                     # what a projection touches (SPEC §5a, *What a kind touches*); None: 404
-        return _kind_now(p, getattr(m, "spec", None), name, snap) if name and len(parts) == 2 else None
+        got = _kind_now(p, getattr(m, "spec", None), name, snap) if name and len(parts) == 2 else None
+        if got is not None and project is None:          # its body as written: what the page's Definition editor loads
+            from ..spec.trying import definition_text
+            try:
+                got["yaml"] = definition_text(m.spec, name)
+            except Exception:                          # (one written on one line, a template's: not editable here)
+                got["yaml"] = None
+        return got
     if head == "events" and "remote" in q:        # a remote's, from its cache (remote/events.py): never the local record
         if name is not None:
             from ..remote.items import RemoteRefused
@@ -1447,6 +1469,13 @@ def handler(project):
                 elif u.path in ("/api/dashboards/save", "/api/dashboards/reset"):   # edited in place: written now
                     from .numbers_api import save
                     code, data = save(live, body, _window(q), reset=u.path.endswith("/reset"))
+                elif u.path in ("/api/projections/try", "/api/projections/save"):   # a projection tried; saved
+                    from .projection_api import BODY_MOST
+                    from .projection_api import post as projection
+                    if n > len(body):
+                        body += self.rfile.read(min(n, BODY_MOST) - len(body))
+                    code, data = (413, {"error": "a try's body is at most 8 MB"}) if n > BODY_MOST else \
+                        projection(live, u.path.removeprefix("/api/"), body, _window(q))
                 else:
                     code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down

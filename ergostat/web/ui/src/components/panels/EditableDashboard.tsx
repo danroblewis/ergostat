@@ -55,15 +55,18 @@ export type Editing = {
   tools: (def: PanelDef) => ReactNode;
   /** the panel editor, when a panel is being edited or added */
   dialog: ReactNode;
+  /** start editing (as the Edit control does) */
+  begin: () => void;
 };
 
 /** Editing a dashboard where it is drawn. `base`: what is drawn when nothing is being edited (its panels as declared,
  *  `$WORD`s and all); `saved`: it is the model's own, and ergostat has a page of its own there (so it can be reset);
  *  `start`: editing from the first (a new dashboard); `onDone`: after a save or a reset, with the name it was saved
- *  under. With no `target` (or on a public, read-only name) nothing is editable. */
-export function useEditing({ base, target, saved = false, bind, start = false, onDone, onCancel }: {
+ *  under. With no `target` (or on a public, read-only name) nothing is editable. `before`: what Save writes first (a
+ *  projection's definition, edited beside its list); with it, the dashboard is saved only when its panels changed. */
+export function useEditing({ base, target, saved = false, bind, start = false, onDone, onCancel, before }: {
   base: DashboardDef | null; target: SaveTarget | null; saved?: boolean; bind?: Record<string, string>; start?: boolean;
-  onDone?: (name: string, reset: boolean) => void; onCancel?: () => void;
+  onDone?: (name: string, reset: boolean) => void; onCancel?: () => void; before?: () => Promise<void>;
 }): Editing {
   const { refresh } = useDashboards();
   const [draft, setDraft] = useState<PanelDef[] | null>(start ? [] : null);
@@ -109,6 +112,16 @@ export function useEditing({ base, target, saved = false, bind, start = false, o
       description: base?.description || undefined, since: base?.since ?? undefined, panels: (draft || []).map(plainOf),
     };
     try {
+      if (!reset && before) {
+        await before();
+        const same = JSON.stringify((draft || []).map(plainOf)) === JSON.stringify(withIds(base?.panels || []).map(plainOf));
+        if (same) {                                   // the panels as they were: only what `before` wrote
+          setDraft(null);
+          refresh();
+          onDone?.(String(where.name || ""), false);
+          return;
+        }
+      }
       const got = await apiSend<any>(`dashboards/${reset ? "reset" : "save"}`, body);
       setDraft(null);
       refresh();
@@ -156,6 +169,7 @@ export function useEditing({ base, target, saved = false, bind, start = false, o
     bar: <>{bar}{error && <ErrorNote error={error} />}</>,
     tools,
     dialog: open && <PanelEditor def={open.def} adding={open.adding} onSave={put} onCancel={() => setOpen(null)} />,
+    begin,
   };
 }
 

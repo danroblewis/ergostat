@@ -258,9 +258,11 @@ def _removal(p, spec, target: tuple) -> tuple[str, ye.Edit]:
     return full, ye.Edit(str(f), [ye.Hunk(at, ls[at - 1:end], [])])
 
 
-def _change(p, spec, target: tuple, edit: ye.Edit, title: str, made_by: str, scope: str, words: str) -> dict:
+def _change(p, spec, target: tuple, edit: ye.Edit, title: str, made_by: str, scope: str, words: str,
+            model: bool = False) -> dict:
     """The edit as one display change made by ``made_by``, waiting for Accept. Refused (``ProposalError``) when the
-    model it leaves does not pass ``check``, or when it would change anything but dashboards."""
+    model it leaves does not pass ``check``, or when it would change anything but dashboards. ``model``: a
+    projection's definition (``save_projection``), a change to the model itself, of the kind it is."""
     from .improve import finding_id, kind_of
     try:
         texts = tr.texts_after([edit])
@@ -270,27 +272,34 @@ def _change(p, spec, target: tuple, edit: ye.Edit, title: str, made_by: str, sco
     errors = [str(x) for x in problems if x.level == "error"]
     if errors:
         raise pr.ProposalError("not kept: the dashboard it declares does not pass check: " + "; ".join(errors[:3]))
-    bad = beside(texts)
-    if bad or kind_of(spec, after, "display") != "display":
-        raise pr.ProposalError("not a display change: " + (f"it changes {', '.join(bad)}" if bad else
-                               "it changes nothing of dashboards: (kept as it is already)"))
+    if model:
+        kind = kind_of(spec, after, "structure")
+    else:
+        bad = beside(texts)
+        if bad or kind_of(spec, after, "display") != "display":
+            raise pr.ProposalError("not a display change: " + (f"it changes {', '.join(bad)}" if bad else
+                                   "it changes nothing of dashboards: (kept as it is already)"))
+        kind = "display"
     _, was = tr.compiled(p.model.path, {}, findings=True)
     seen = {finding_id(x.code, x.about) for x in was if x.level != "error"}
     new = sorted({finding_id(x.code, x.about) for x in problems if x.level != "error"} - seen)
     v = ver.version(spec)
     full = f"{target[1]}.{target[2]}" if target[0] == "projection" else target[1]
-    x = {"kind": "display", "made_by": made_by, "scope": scope, "scope_words": words,
-         "title": title, "target": f"dashboard.{full}", "parts": [], "touched": [],
-         "reason": "a dashboard changed where it is drawn: it changes dashboards alone (no dynamics, no replay)",
-         "change": "a dashboard declared: what the page shows",
+    x = {"kind": kind, "made_by": made_by, "scope": scope, "scope_words": words,
+         "title": title, "target": f"projection.{full}" if model else f"dashboard.{full}",
+         "parts": [f"projection.{full}"] if model else [], "touched": [],
+         "reason": "a projection defined where its items are drawn, tried on the record before it was saved" if model
+         else "a dashboard changed where it is drawn: it changes dashboards alone (no dynamics, no replay)",
+         "change": "a projection's definition: how the record's events fold into its items" if model
+         else "a dashboard declared: what the page shows",
          "findings": {"answered": [], "new": new, "notes_answered": [], "notes_new": []},
          "edit": pr._joined([edit]), "status": "pending", "created": time.time(), "structure": ver.structure(spec), "version": v}
     hunks = [y for h in edit.hunks for y in (*h.old, "->", *h.new)]
     with pr.locked(p):                                 # read again under the lock: the judge records here too
         props = pr.stored(p)
-        pid = pr._id("display", full, v, hunks)
+        pid = pr._id(kind, full, v, hunks)
         if (props.get(pid) or {}).get("status") not in (None, "pending"):
-            pid = pr._id("display", full, v, hunks, time.time())     # kept again after it was decided: a new change
+            pid = pr._id(kind, full, v, hunks, time.time())          # kept again after it was decided: a new change
         props[pid] = x = {**x, "id": pid}
         pr.save(p, props)
     return x
@@ -355,3 +364,30 @@ def reset(p, draft, snap: dict, by: str = "owner") -> dict:
     x = _change(p, spec, target, edit, f"Reset the dashboard {full} to ergostat's", by, "save",
                 "reset where it is drawn, on the page")
     return {**pr.accept(p, x["id"], snap, by=by), "dashboard": full}
+
+
+def save_projection(p, draft, snap: dict, by: str = "owner") -> dict:
+    """The owner's Save of a projection's definition from its own page (``{name, yaml, system?, new?}``: the YAML its
+    body, as the page's Definition editor holds it), put in place of the projection (its ``dashboards:`` kept) or, a
+    new one, at the end of ``projections:`` in its system's file (else the main file). Not a display change: a change
+    to the model, made by the owner and accepted in the same step, as Accept writes any (``proposals.accept``);
+    refused when the model it leaves does not pass ``check``."""
+    from ..spec import trying
+    d = draft if isinstance(draft, dict) else {}
+    name, text = str(d.get("name") or ""), d.get("yaml")
+    if not isinstance(text, str):
+        raise pr.ProposalError("not saved: {name, yaml}: the projection's name and its body as YAML")
+    spec = p.model.spec
+    system = system_of(spec, d) if d.get("system") else ""
+    if d.get("new") and name in spec.items:
+        raise pr.ProposalError(f"not saved: a projection named {name} is in the model already; name this one otherwise")
+    try:
+        _, edit, errors = trying.compiled(p, name, text, system)
+    except trying.TryError as e:
+        raise pr.ProposalError(f"not saved: {e}") from None
+    if errors:
+        raise pr.ProposalError("not saved: it does not pass check: " + "; ".join(
+            (f"line {e['line']}: " if e.get("line") else "") + e["message"] for e in errors[:3]))
+    x = _change(p, spec, ("dashboard", name), edit, f"Save the projection {name}", by, "save",
+                "saved where its items are drawn, on the page", model=True)
+    return {**pr.accept(p, x["id"], snap, by=by), "projection": name}

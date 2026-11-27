@@ -89,6 +89,24 @@
 #nav .nav-new { opacity: 0; min-height: 0; padding: 0 var(--sp-1); color: var(--ink-2); transition: opacity 120ms; }
 #nav:hover .nav-new, #nav .nav-new:focus-visible { opacity: 1; }
 @media (pointer: coarse) { #nav .nav-new { opacity: 1; } }
+#nav .nav-ask { display: inline-flex; gap: var(--sp-1); align-items: center; }
+#nav .nav-ask input { width: 14em; font: inherit; }
+/* a projection's definition, edited on its list page: the YAML beside the try's report (pages/items/DefinitionEditor.tsx) */
+.proj-def-edit { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--sp-3); margin: 0 0 var(--sp-3);
+  padding: var(--sp-2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
+@media (max-width: 760px) { .proj-def-edit { grid-template-columns: minmax(0, 1fr); } }
+.proj-def-edit h2 { margin: 0 0 var(--sp-1); }
+.proj-def-code .qe-box .cm-scroller { min-height: 14em; max-height: 60vh; }
+.proj-def-side { min-width: 0; overflow-wrap: anywhere; }
+.try-report p.try-line { margin: 0 0 var(--sp-1); }
+.try-label { display: inline-block; min-width: 6.5em; color: var(--ink-2); }
+.try-groups { margin: 0 0 var(--sp-1); }
+.try-groups > summary, .try-stream > summary { cursor: pointer; }
+.try-groups ul, .try-errors { margin: var(--sp-1) 0; padding-left: var(--sp-3); font-size: var(--text-sm); }
+.try-count { display: inline-block; min-width: 3em; text-align: right; color: var(--ink-2); }
+.try-fields { width: 100%; border-collapse: collapse; font-size: var(--text-sm); margin: var(--sp-1) 0; }
+.try-fields th, .try-fields td { text-align: left; padding: 1px var(--sp-1); border-bottom: var(--hair) solid var(--line); vertical-align: top; }
+.try-stream { margin-top: var(--sp-2); }
 /* the System tree, top left: each system under the one it is within; choosing one goes to its overview */
 .system-menu .menu-btn { font-size: var(--text-sm); font-weight: 600; color: var(--ink); }
 .system-menu .menu-item .depth { display: inline-block; }

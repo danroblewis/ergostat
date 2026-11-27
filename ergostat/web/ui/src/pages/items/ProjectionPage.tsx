@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ErrorNote, Filters, FinishedToggle, ProjectionBar, Page, PAGE_SIZES, SearchBox, StatesChoice } from "../../components";
 import { EditableDashboard, useEditing } from "../../components/panels/EditableDashboard";
@@ -5,7 +6,9 @@ import { itemListParams } from "../../components/panels/kinds/items";
 import { SharedAnswers } from "../../components/panels/shared";
 import type { PanelDef } from "../../components/panels/types";
 import { usePanelApi } from "../../components/panels/usePanelApi";
+import { apiSend } from "../../lib/api";
 import { PROJECTION_PANELS } from "../../lib/pages";
+import { DefinitionEditor, starter, useTry } from "./DefinitionEditor";
 
 /* /PROJECTION, a dashboard made in advance (kindpage.js): its bar as the page's heading (a state chip filters the
    list), then its panels: Now (projection-now: its states over the window and how long its finished took), In the
@@ -13,12 +16,19 @@ import { PROJECTION_PANELS } from "../../lib/pages";
    (item-list: a page at a time, searched and sorted by the server). The page asks each answer once and hands it to
    its panels; the list's filters are in its head. Every choice is in the address: state=, q=, finished=show, sort=PROJECTION:field, page=PROJECTION:N, size=,
    states=all. Edited in place, it is saved as the projection's list dashboard (`dashboards: list:`, in the file the
-   projection is defined in), drawn at /PROJECTION in place of this one. */
+   projection is defined in), drawn at /PROJECTION in place of this one.
+
+   Editing also edits the projection's definition (DefinitionEditor.tsx): its YAML body, tried on the record as it is
+   typed, the page's panels drawing the draft's items (draft=ID) meanwhile; Save writes the definition into the model
+   (POST /api/projections/save) and then the list dashboard if its panels changed; Cancel forgets both. A new
+   projection (the nav bar's + after the projections, `creating`) opens here in edit mode with a starting definition. */
 
 const SIZES = PAGE_SIZES;
 const BASE = { title: "", panels: PROJECTION_PANELS };
 
-export default function ProjectionPage({ projection }: { projection: string }) {
+export default function ProjectionPage({ projection, system = "", creating = false, onCreated, onCancel }: {
+  projection: string; system?: string; creating?: boolean; onCreated?: () => void; onCancel?: () => void;
+}) {
   const [q, setQ] = useSearchParams();
   // a value for another projection (page=gap:3) is not this one's
   const ofProjection = (v: string | null) => { const s = v || ""; const i = s.indexOf(":"); return i < 0 ? s : s.slice(0, i) === projection ? s.slice(i + 1) : ""; };
@@ -29,6 +39,9 @@ export default function ProjectionPage({ projection }: { projection: string }) {
   const pg = Math.max(1, parseInt(ofProjection(q.get("page")), 10) || 1);
   const size = SIZES.includes(+(q.get("size") || 0)) ? +q.get("size")! : 25;
   const all = q.get("states") === "all";
+  const [saved, setSaved] = useState(0);                  // asked again once a save is written
+  const [text, setText] = useState<string | null>(null);  // the definition while editing
+  const [was, setWas] = useState<string | null>(null);    // as it was when editing began
 
   const set = (changes: Record<string, string | null>, keepPage = false) =>
     setQ((p) => {
@@ -47,33 +60,60 @@ export default function ProjectionPage({ projection }: { projection: string }) {
     if ("finished" in c) out.finished = c.finished ? String(c.finished) : null;
     set(out);
   };
+  const tried = useTry(projection, text, system);
+  const ed = useEditing({
+    base: BASE, target: { projection, role: "list" }, bind: { projection },
+    before: async () => {
+      if (text != null && (creating || text !== was)) {
+        await apiSend("projections/save", { name: projection, yaml: text, system: system || undefined, new: creating || undefined });
+      }
+    },
+    onDone: () => { setSaved((x) => x + 1); if (creating) onCreated?.(); },
+    onCancel: () => { if (creating) onCancel?.(); },
+  });
+  const fp = usePanelApi<any>(`projections/${encodeURIComponent(projection)}`, {}, 30000, saved);
+  useEffect(() => { if (creating && !ed.editing) ed.begin(); }, [creating]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {                                       // editing: the definition as written (a new one: a start)
+    if (!ed.editing) { setText(null); setWas(null); return; }
+    if (text != null) return;
+    const t = creating || fp.error ? starter(projection) : fp.data ? (fp.data.yaml ?? null) : null;
+    if (t != null) { setText(t); setWas(t); }
+  }, [ed.editing, fp.data, fp.error]);                    // eslint-disable-line react-hooks/exhaustive-deps
+  const draft: string | undefined = ed.editing && tried.report?.ok ? tried.report.draft : undefined;
+
   // what the address chooses, given to the list's panel and the states' (the first of each kind: the page's own)
   const listed = { state: state || undefined, q: needle || undefined, sort: sort || undefined,
     finished: showFin ? "show" : undefined, n: size, page: pg, onParams };
-  const list: PanelDef = { panel: "item-list", projection, ...listed };
-  const ed = useEditing({ base: BASE, target: { projection, role: "list" }, bind: { projection } });
-  const decorate = (d: PanelDef): PanelDef => d.panel === "item-list" && d.projection === projection ? { ...d, ...listed }
-    : d.panel === "projection-now" ? { ...d, states: all ? "all" : d.states } : d;
+  const list: PanelDef = { panel: "item-list", projection, draft, ...listed };
+  const decorate = (d: PanelDef): PanelDef => {
+    const mine = d.projection === projection && draft ? { ...d, draft } : d;
+    return mine.panel === "item-list" && mine.projection === projection ? { ...mine, ...listed }
+      : mine.panel === "projection-now" ? { ...mine, states: all ? "all" : mine.states } : mine;
+  };
   const asked = itemListParams(list);
-  const items = usePanelApi<any>("items", asked, 5000);
-  const fp = usePanelApi<any>(`projections/${encodeURIComponent(projection)}`, {}, 30000);
-  const flowAsked = { projection, points: 60 };
-  const flow = usePanelApi<any>("items-flow", flowAsked, 30000);
+  const items = usePanelApi<any>("items", asked, 5000, saved);
+  const fpAsked = draft ? { draft } : {};
+  const fpShown = usePanelApi<any>(draft ? `projections/${encodeURIComponent(projection)}` : null, fpAsked, 30000);
+  const flowAsked = { projection, points: 60, draft };
+  const flow = usePanelApi<any>("items-flow", flowAsked, 30000, saved);
   const k = items.data?.projections?.find((x: any) => x.name === projection);
 
   return (
     <div className="page projection-page">
       {k ? (
         <ProjectionBar k={k} level={1} state={state} onState={(st) => set({ state: st })} />
-      ) : items.error ? (
+      ) : items.error && !creating ? (
         <Page title={projection}><ErrorNote error={items.error} /></Page>
       ) : (
-        <h1>{projection}</h1>
+        <h1>{projection}{creating && <span className="muted small"> (new: not in the model until it is saved)</span>}</h1>
       )}
       {ed.bar && <div className="page-edit">{ed.bar}</div>}
+      {ed.editing && text != null && (
+        <DefinitionEditor text={text} onChange={setText} report={tried.report} error={tried.error} busy={tried.busy} />
+      )}
       <SharedAnswers answers={[
         { path: "items", params: asked, state: items },
-        { path: `projections/${encodeURIComponent(projection)}`, state: fp },
+        { path: `projections/${encodeURIComponent(projection)}`, params: fpAsked, state: draft ? fpShown : fp },
         { path: "items-flow", params: flowAsked, state: flow },
       ]}>
         <EditableDashboard ed={ed} decorate={decorate} tools={(d) => d.panel === "projection-now" ? (

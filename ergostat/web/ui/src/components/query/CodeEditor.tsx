@@ -6,6 +6,8 @@ import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, a
 import { bracketMatching, syntaxHighlighting } from "@codemirror/language";
 import { classHighlighter, tagHighlighter, tags } from "@lezer/highlight";
 import { sql, SQLite } from "@codemirror/lang-sql";
+import { yaml } from "@codemirror/lang-yaml";
+import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { PromQLExtension } from "@prometheus-io/codemirror-promql";
 import { suggestClient } from "./promqlClient";
 import type { CodeEditorProps } from "./types";
@@ -19,13 +21,14 @@ import type { CodeEditorProps } from "./types";
 
 function language(source: CodeEditorProps["source"], views: Record<string, string[]> | undefined): Extension {
   if (source === "sql") return sql({ dialect: SQLite, schema: views || {}, upperCaseKeywords: false });
+  if (source === "yaml") return [yaml(), lintGutter()];       // a projection's definition (its check errors on their lines)
   return new PromQLExtension().setComplete({ remote: suggestClient(source) }).asExtension();
 }
 
 // a function's name (PromQL's rate, sum...) a class of its own: classHighlighter calls it a variable
 const functions = tagHighlighter([{ tag: tags.function(tags.variableName), class: "tok-function" }]);
 
-export default function CodeEditor({ source, value, onChange, views, label, placeholder }: CodeEditorProps) {
+export default function CodeEditor({ source, value, onChange, views, label, placeholder, problems }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const lang = useRef(new Compartment());
@@ -64,6 +67,16 @@ export default function CodeEditor({ source, value, onChange, views, label, plac
     const v = view.current;
     if (v && v.state.doc.toString() !== value) v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } });
   }, [value]);
+
+  useEffect(() => {                                   // what check says of the text, on its lines
+    const v = view.current;
+    if (!v || !problems) return;
+    const doc = v.state.doc;
+    v.dispatch(setDiagnostics(v.state, problems.map((p) => {
+      const line = doc.line(Math.min(Math.max(1, p.line || 1), doc.lines));
+      return { from: line.from, to: line.to, severity: "error" as const, message: p.message };
+    })));
+  }, [problems]);
 
   return (
     <div className="qe-box" ref={host} data-language={source}

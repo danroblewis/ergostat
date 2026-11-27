@@ -3444,6 +3444,48 @@ order:
 
 At 390 px wide its sections stack, with no sideways scroll.
 
+**Trying a projection.** A projection is tried before it is written (`spec/trying.py`, one engine behind four front
+ends): its YAML body is compiled in the context of the model as it is (in memory: put in place of the projection, or
+at the end of `projections:` for a new one; the model's errors elsewhere are not the draft's), folded by the same fold
+the item index uses (`items.fold`) over the record's events in the window (the newest 200,000 at most, ergostat's own
+families left out) or over events given, and said as a small report sized for an agent's tokens. Nothing is written:
+no file, no item index, no model.
+
+- `POST /api/projections/try` with `{name, yaml, since?, until?, events?, expected?, item?, refused?, limit?, system?}`
+  (`since`/`until` a span back, `7d`, or epoch seconds; `events` a list of recorded events or event lines, else the
+  record). Check errors are returned, never raised: `{ok: false, errors: [{line, message}]}`, `line` in the body. Else
+  `{ok: true, events: {read, source}, matched: {count, pct, by_handler}, unmatched: {not_read, no_key}, unchanged,
+  refused: {count, groups: [{why, count, events}]}, items: {count, key, sample, one_event}, fields: [{field, pct,
+  types, distinct, top | min, max}], states, duplicates, expected?, trace?, refused_events?, draft, took_s}`. Each of
+  `not_read`, `no_key` and `unchanged` (events folded that changed nothing) is grouped by shape: the event type, then
+  the one or two data paths whose values best tell the events' shapes apart (`detail-type`, then `detail.eventName`;
+  an id or a time, a value each, never), each group its count and one trimmed sample. `duplicates` says the events
+  that came twice: the same envelope id, or the same type and data whole (an upstream's own event id in it too).
+  `expected` (a map key → fields; `state` its state) scores each field: right, wrong, the wrong by likely cause
+  (`missing`, `number vs text`, `case`, `fewer`/`more`, `different value`), a sample or two. `item=KEY` adds that
+  item's trace (each event's id, time, type, the handler that ran, each field before → after, a move, a refusal);
+  `refused=WORDS` the events refused for that reason. Every list is capped (10 groups, 2 samples, 200 characters a
+  sample, 30 fields, 60 trace steps).
+- The draft's items are kept in the server's memory for 15 minutes (8 at most) under `draft`: `GET /api/items`,
+  `/api/projections/K` and `/api/items-flow` with `draft=ID` answer from a scratch record holding only the events it
+  reads, in a folder of its own, so the projection's page draws a draft with its own panels.
+- `GET /api/events/shape?type=GLOB&since=…&limit=N` (or `draft=ID`: the events it reads): each path into the events
+  (`type`, `item`, `source`, `data.a.b`; a list's members `[]`), its types, how often it is there (%), how many values it
+  takes and up to five, trimmed (80 paths at most; the newest 5,000 events by default).
+- `ergostat projection try FILE.yaml [--name N] [--events FILE.jsonl] [--since 7d] [--expected FILE.json] [--item KEY]
+  [--refused REASON] [--json]` (FILE holds the body, or `projections: {NAME: …}`), its text a few aligned lines, exit 1
+  when it does not check; `ergostat events shape [--type GLOB] [--since 7d] [--json]`; MCP's `projection_try` and
+  `events_shape`, with the same parameters.
+- On the projection's page, **Edit** also edits its definition: the body as written (its `dashboards:` left out, kept
+  on Save) in the code editor (YAML, check's errors on their lines), tried ~500 ms after typing stops (the try in
+  flight cancelled), the report beside it with a **Stream** disclosure (its shape), and the page's panels drawing the
+  draft's items. **Save** writes the definition into the model where it is defined (a new one: the main file, or the
+  system's file of the system whose page it is), a change to the model the owner makes and accepts in one step, as
+  Accept writes any (`numbers/display.py save_projection`, `POST /api/projections/save {name, yaml, system?, new?}`;
+  refused when `check` would refuse it), then the list dashboard if its panels changed. **Cancel** forgets both. The
+  nav bar's hover `+` after the projections asks a name and opens that projection's page at the scope's address, in
+  edit mode, starting from `match: {type: NAME.*}` and an empty `events:`; nothing is in the model until it is saved.
+
 **Where it went, on the item's page.** Right after its header, an item of a projection the model counts or takes shows its
 `path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that
 counts it (its state beside it when the names differ, else the state alone, its `says` as the title) and how long it
