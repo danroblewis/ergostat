@@ -35,7 +35,7 @@ systems:
 
 
 def test_a_projection_in_no_system_matches_its_name(tmp_path):
-    got, errors = ids(model(tmp_path, "name: t\nitems:\n  ticket:\n    states: [open, done]\n"))
+    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket:\n    states: [open, done]\n"))
     assert got == {"ticket": "ticket/*"} and not errors
 
 
@@ -63,7 +63,7 @@ def test_a_projection_in_a_nested_system_by_its_files_defaults(tmp_path):
 
 
 def test_a_system_named_only_by_a_part_is_top_level(tmp_path):
-    got, errors = ids(model(tmp_path, "name: t\nitems:\n  ticket: {system: ops}\n"))
+    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket: {system: ops}\n"))
     assert got == {"ticket": "ops/ticket/*"} and not errors
 
 
@@ -75,9 +75,9 @@ def test_an_id_written_overrides_and_is_checked_as_ever(tmp_path):
 
 
 def test_a_system_that_is_not_a_name_needs_an_id(tmp_path):
-    _, errors = ids(model(tmp_path, "name: t\nitems:\n  ticket: {system: Big Ops}\n"))
+    _, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket: {system: Big Ops}\n"))
     assert "bad-id" in [e.code for e in errors]
-    got, errors = ids(model(tmp_path, "name: t\nitems:\n  ticket: {system: Big Ops, id: ops/ticket/*}\n"))
+    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket: {system: Big Ops, id: ops/ticket/*}\n"))
     assert got == {"ticket": "ops/ticket/*"} and "bad-id" not in [e.code for e in errors]
 
 
