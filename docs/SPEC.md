@@ -2015,7 +2015,7 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `states`, `cycle-time` | `GET /api/items-flow` | `projection` (needed), `points` |
 | `scope` | `GET /api/loop-scope` | `goal` (needed), `points` |
 | `items-graph`, `timeline` | `GET /api/items-graph` (with its estimates) | `projections`, `system` |
-| `query` | `GET /api/query`: the Dashboard page's own panel, as a kept draft holds it | `queries` (needed: 1 to 64, checked by the query engine's parser in the shape the page's `send` gives them: their own `id`, `label` and `hidden` left out, an `input` or `output` naming another query by id replaced by that query as written (one level), an `x.query` by id sent as a query of its own, a reference that leads nowhere or back along its path refused, queries asked alike sent once; every query is checked, a hidden one too, and no form's own adjustment is applied; a query's `projection` must be the model's), `form`, `display`, `layout` |
+| `query` | `GET /api/query`: a chart of queries, as the panel editor writes it | `queries` (needed: 1 to 64, checked by the query engine's parser in the shape the page's `send` gives them: their own `id`, `label` and `hidden` left out, an `input` or `output` naming another query by id replaced by that query as written (one level), an `x.query` by id sent as a query of its own, a reference that leads nowhere or back along its path refused, queries asked alike sent once; every query is checked, a hidden one too, and no form's own adjustment is applied; a query's `projection` must be the model's), `form`, `display`, `layout` |
 | `diagram` | nothing: the page asks `GET /api/graph` itself | `address` (needed: a Diagram address, `/diagram?view=...`) |
 | `ladder` | `GET /api/agents`: how many agents fill each rung, and how many stand out (last run failed, never ran, behind) | none |
 | `agents` | `GET /api/agents`: every agent by rung, its roles, runs, schedule and what its runs cost in the window | none |
@@ -2044,15 +2044,16 @@ system that the model does not have (**unknown-ref**), each at its line. More th
 than `keep:`, is **bad-dashboard**. The name `default` is the model's own (below), so it cannot be declared.
 
 **Its address is its name.** The page's addresses are the model's (section 8 of DESIGN.md): `/api`, `/static` and
-`/remote` are the server's, and every other path is resolved in this order. A dashboard is at `/NAME`
+`/remote` are the server's, and every other path is resolved in this order. A projection's own dashboards (its
+`dashboards:`, section 5a) first: its `list` at `/PROJECTION`, its `show` at `/PROJECTION/REST`. A dashboard is at `/NAME`
 (`/big-dashboard`; `/delivery.review` for one named by its file). A projection is at `/PROJECTION`, its list, and each of
 its items at `/PROJECTION/REST`, REST being what its id glob's `*` matched (`ticket/1` at `/ticket/1`; a projection whose glob is
 not `PREFIX*` writes the whole id). Then ergostat's own pages, each a dashboard of panels at its name: `diagram`,
-`dashboard`, `goals`, `agents`, `record`, `agent/NAME` and `item/ID`. What the model names comes first: a dashboard
+`goals`, `agents`, `record`, `agent/NAME` and `item/ID`. What the model names comes first: a dashboard
 named `goals` is drawn at `/goals` in place of ergostat's Goals page, and a dashboard named as a projection is that projection's
 page, its panels' `$projection` the projection. `?builtin=1` on any address shows ergostat's own page all the same. Each of
-ergostat's pages is made of these panels (`web/ui/src/lib/pages.ts`), so the Dashboard page offers a copy of Goals,
-Agents or Record to start a draft from, kept under that page's name.
+ergostat's pages is made of these panels (`web/ui/src/lib/pages.ts`), so editing one where it is drawn (below) starts
+from ergostat's panels. There is no Dashboard page: `/dashboard` is an address like any other.
 
 `nav: true` (or the link's words, at most 40 characters) puts a dashboard in the header, after ergostat's pages and
 the menu of the model's projections. `page: agent`, `page: item` or `page: projection` draws a dashboard on every agent's, item's
@@ -2073,24 +2074,45 @@ sensors): declaring, changing or removing one changes neither the model's versio
 checked like any change, judged as a change of words (passed when `check` finds nothing new of it), never replayed,
 and written only by the owner's Accept unless the judge's policy names `display: auto`.
 
-**Keep.** On the Dashboard page, a reader's draft has **Keep**. It sends the draft to the server
-(`POST /api/propose?keep=dashboard`, the draft as the JSON body), which works out the `dashboards:` entry from it
-(`numbers/display.py`): named from its title (lowercase, `-` between words), its window when `keep:` holds it, each
-panel a `query` panel written as one JSON line (any other kind kept as its own kind and parameters). A draft may
-carry `name` (a copy of a declared dashboard: put back in its place), `nav` and `page`, chosen on the page before it
-is sent. A dashboard of that name already declared is replaced in place. The
-change is made by the owner, waits under *Changes to review* with its diff (shown, never offered as text to edit),
-and Accept writes it as it writes a what-if; Dismiss lets it go. Nothing is written before Accept. It is refused
-when the model it leaves does not pass `check`, when it would change anything but `dashboards:`, and for a draft
-with rows, variables or repeated panels (they stay in the draft: `dashboards:` holds panels alone so far).
-`/dashboard?name=NAME` draws a declared dashboard, each panel of any kind asking for its own answer; changing it
-there makes it the reader's own draft. An agent or
-the Supervisor proposes the same kind of change through `propose` with `kind: display`.
+**Editing in place.** Every page that is a dashboard is edited where it is drawn: a projection's list and show, a
+declared dashboard, and ergostat's Goals, Agents, Record and agent pages. **Edit** in the page's heading; then a
+panel's own buttons move it earlier or later, remove it, or edit its settings (a chart of queries or a diagram in the
+query editor; any other kind its title, note, size, `tall`, `fit`, `quiet` and the parameters its kind takes, as
+`GET /api/panel-kinds` lists them from `check`'s own table); **Add panel** adds one of any kind; **Save** writes it;
+**Cancel** forgets the edit; **Reset to ergostat's**, on a saved one drawn in place of one of ergostat's pages, takes it
+out of the YAML (with a `dashboards:` it leaves empty), so ergostat's own is drawn there again. While editing, a
+`quiet` panel is drawn too. Where it is saved:
+
+| Edited on | Saved as |
+|---|---|
+| a projection's list (`/PROJECTION`) or one of its items (`/PROJECTION/REST`) | that projection's `dashboards: list:` or `show:` (section 5a), in the file the projection is defined in |
+| a declared dashboard | its own entry, where it is declared (in a system's file, under its own name there) |
+| ergostat's Goals, Agents or Record page | the dashboard `goals`, `agents` or `record`, in the main file |
+| ergostat's page of an agent | the `page: agent` dashboard (named `agent`), in the main file |
+| the nav bar's **+** (shown on hover, after its dashboards) | a new dashboard, named when it is saved, with `nav: true`: at `/NAME`, in the nav bar |
+
+Save sends the dashboard (`POST /api/dashboards/save`, JSON: `{projection, role}` or `{name, page, nav, new}`, with
+`title`, `description`, `since` and `panels`; `POST /api/dashboards/reset` the same without its panels), and the
+server works out the YAML from it (`numbers/display.py`): its window when `keep:` holds it, each panel one JSON line
+(a `query` panel its `title`, `size`, `form`, `queries`, `note`, `display`, `layout`, `fit`, `quiet`; any other kind
+its own keys), a page's `$WORD`s as written. The one saving never writes or sees YAML. It is the owner's display
+change, made and accepted in one step: the same checks as any (refused when the model it leaves does not pass `check`,
+when it would change anything but dashboards, and for rows, variables or repeated panels), then written as Accept
+writes every change (`proposals.accept`: the files, the model read again, `ergostat.model-change.accepted` from who
+saved). Whoever may answer through the page saves: the owner on this machine, or a login a public name's `access:`
+admits (section 4d: its answers are the owner's, recorded with its email). A public name with `open: read` refuses
+every write, so its page shows no Edit and no **+**. A new dashboard named as one already declared is refused.
+
+**Keep.** `POST /api/propose?keep=dashboard` (the same JSON as Save) makes the same display change and leaves it
+waiting under *Changes to review*, for Accept or Dismiss; nothing is written before Accept. An agent or the Supervisor
+proposes the same kind of change through `propose` with `kind: display`.
 
 **Served in one request.** `GET /api/dashboards` lists each dashboard: `name`, `title`, `description`, `panels` (how
-many), `window`, `declared`, `nav` and `page`, the model's own `default` first. `GET /api/dashboard/NAME?plain=1`
+many), `window`, `declared`, `nav`, `page`, and for a projection's own its `projection` and `role` (`list`, `show`;
+named `PROJECTION.list`, `PROJECTION.show`), the model's own `default` first. `GET /api/dashboard/NAME?plain=1`
 answers its declaration alone, no panel worked out (a page whose panels ask for themselves); for a dashboard in place
-of the agent, item or projection page, `agent=`, `item=` or `projection=` fills its panels' `$WORD`, with or without `plain`. `GET /api/dashboard/NAME` (`since`, `at` as every
+of the agent, item or projection page, `agent=`, `item=` or `projection=` fills its panels' `$WORD`, with or without `plain`
+(a projection's own, and one named as a projection, take `$projection` as that projection). `GET /api/dashboard/NAME` (`since`, `at` as every
 answer; else the dashboard's `window`) answers every panel at once: each panel's declaration (`panel`) and its
 `answer`, built by the same function its own endpoint calls on the same parameters, all on one snapshot of the
 state. The answer says that snapshot's number (`moment`) and `at`. `NAME` `default` is the model's own: for each
@@ -2198,7 +2220,25 @@ projections:
 | `moves-from` | map of one of its `on:` events → a list of its states | none | The only states that event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for an event not in `on:` or a state it does not have) |
 | `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
 | `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{projection, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge`; any other rule for it is refused (`bad-pipeline`), as is a library's |
+| `dashboards` | `{list: DASHBOARD, show: DASHBOARD}` | ergostat's | The projection's own dashboards, display only (section 4f): `list` drawn at `/PROJECTION` (its panels may write `projection: $projection`), `show` for each of its items at `/PROJECTION/REST` (`item: $item`, and `$projection`). Each is a dashboard's `title`, `description`, `window` and `panels`, checked as a `dashboards:` entry is (no `nav` or `page`: it is drawn at the projection's addresses), served as `PROJECTION.list` and `PROJECTION.show`, in no version hash and nothing the item index folds by. Written here when the owner edits the page in place and saves; a library's refused |
 | `system`, `description` | | | |
+
+```yaml
+projections:
+  ticket:
+    id: ticket/*
+    states: [open, doing, done]
+    dashboards:
+      list:
+        title: Tickets
+        panels:
+          - {panel: projection-now, projection: $projection, size: full}
+          - {panel: item-list, projection: $projection, size: full, fit: true}
+      show:
+        panels:
+          - {panel: item-summary, item: $item, size: full}
+          - {panel: item-fields, item: $item, size: full, fit: true}
+```
 
 **Stages** (`ergostat/stages.py`). A projection with `pipeline:` is a pipeline: each of its items records the named stages it
 goes through as ordinary events, any type (the merge queue's are `batch.stage-started` and `batch.stage-finished`),

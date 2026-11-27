@@ -50,7 +50,7 @@ def declared(tmp_path):
 
 def test_each_attention_kind_draws_on_a_declared_dashboard(browser, declared):  # noqa: F811
     _, url = declared
-    pg = opened(browser, url + "/dashboard?name=watch")
+    pg = opened(browser, url + "/watch")
     heading(pg)
     pg.wait_for_function("() => document.querySelector('#main h1').textContent.startsWith('Watch board')", timeout=WAIT)
     for kind in KINDS:

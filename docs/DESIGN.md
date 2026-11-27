@@ -298,24 +298,33 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded). The addresses are the
 model's: only `/api` (a project file at `/api/file/PATH`), `/static` and `/remote` are the server's, and the server
 answers every other path with the page, the React app in `ergostat/web/ui` built into `static/app`. The page resolves
-a path (`web/ui/src/lib/routes.ts`) in this order: a dashboard the model declares, at `/NAME`; a projection, at
+a path (`web/ui/src/lib/routes.ts`) in this order: a projection's own dashboards (its `dashboards: list:` at
+`/PROJECTION`, `show:` at `/PROJECTION/REST`); a dashboard the model declares, at `/NAME`; a projection, at
 `/PROJECTION` (its list) and `/PROJECTION/REST` (one item: REST is what the projection's id glob's `*` matched, so `ticket/1` is at
-`/ticket/1`); then ergostat's own pages, each a dashboard of its own at its name: `/diagram?view=blocks`, `/dashboard`,
+`/ticket/1`); then ergostat's own pages, each a dashboard of its own at its name: `/diagram?view=blocks`,
 `/goals`, `/agents`, `/agent/NAME`, `/record?type=T`, and `/item/ID` (any id, a projection's or not, the id encoded). The
 model's names come first, so a dashboard or projection named `goals` is drawn at `/goals`; `?builtin=1` shows ergostat's own
 page all the same. Old addresses (`/items/PROJECTION`, `/item/ID` of a projection's item, `/d/NAME`, `/loops`) lead to the new ones. The page routes with the History API: a plain click on one of its links draws
 the page in place; a ctrl-, cmd-, shift- or middle-click is the browser's. The page knows one project, the one it
 serves: there is no project list in its header (`ergostat projects` lists them).
 
+Every page that is a dashboard is edited where it is drawn (SPEC §4f, *Editing in place*): Edit in its heading, then
+move, remove, add and set up panels, and Save, which writes the YAML where the dashboard belongs and accepts it in the
+same step (`POST /api/dashboards/save`, `numbers/display.py save`): a projection's list and show under the projection,
+in the file it is defined in; a declared dashboard where it is; Goals, Agents and Record as the dashboards `goals`,
+`agents`, `record`; an agent's page as the `page: agent` dashboard. Reset to ergostat's takes a saved one out. A `+`
+shown on hover after the nav bar's dashboards starts a new one, saved under its name with `nav: true`. There is no
+Dashboard editor page (owner, 2026-11-26).
+
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
 owner's absence*), read only but for one kind of write: the owner's answer to a proposal (Accept,
-Approve or Dismiss), asking for estimates (Calibrate, Estimate now) and proposing the values tried as a
-what-if (Propose these), each a `POST` the page makes. A request is served
+Approve or Dismiss), asking for estimates (Calibrate, Estimate now), proposing the values tried as a
+what-if (Propose these) and saving a dashboard edited in place (Save, Reset to ergostat's), each a `POST` the page makes. A request is served
 only when addressed to the server by its own name (the Host header is `127.0.0.1`, `localhost` or
 `[::1]` with its port: a page on another site whose name was pointed at 127.0.0.1, DNS rebinding,
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
-page can read. Pages: Dashboard (first in the header), Diagram (dynamics, blocks and process views; the side panel:
+page can read. Pages: Diagram (dynamics, blocks and process views; the side panel:
 attention, goals and their control loops, feedback loops or the process map's projections, model changes, legend), Goals, Agents (one list, by rung), a page for each
 projection (its items, by state), Record (events, with runs hidden by default), and no more: the Model, Check and Guide pages were removed (owner, 2026-11-25); the model's fit, residuals,
 proposals and checks are the command line's (`ergostat fit`, `ergostat residual`, `ergostat proposals`, `ergostat

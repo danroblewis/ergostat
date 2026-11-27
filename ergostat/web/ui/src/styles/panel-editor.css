@@ -118,3 +118,6 @@
 @media (max-width: 700px) and (max-height: 560px) {
   .pe-preview { position: static; }
 }
+/* a panel of any other kind: its words, size and parameters, in a grid of fields */
+.pe-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--sp-2) var(--sp-3); align-items: end; }
+.pe-fields input:not([type="checkbox"]) { width: 100%; box-sizing: border-box; }

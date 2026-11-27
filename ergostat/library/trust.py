@@ -132,6 +132,7 @@ ITEM = {**COMMON, "id": (S, "which ids are this projection's"), "states": (L, "i
         "about": (S, "the field naming the parts it is about; only check reads it"),
         "attention": (S, "the field whose latest item's words are shown on the attention list"),
         "group": (S, "the nav bar menu it is shown in"),
+        "dashboards": (NO, "its list and show dashboards: what the owner's page draws, saved by the owner where it is drawn"),
         "pipeline": (NO, "adds a row to the owner's default dashboard, which only the owner says"),
         "risk-score": (NO, "says what counts as a failure, which checks may be routed by: only the owner says"),
         "lease": (NO, "makes its items a work queue that blocks take and run")}

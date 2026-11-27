@@ -49,7 +49,7 @@ def crew(tmp_path_factory):
 
 
 def test_each_agents_kind_draws_on_a_declared_dashboard(browser, crew):  # noqa: F811
-    pg = opened(browser, crew + "/dashboard?name=crew")
+    pg = opened(browser, crew + "/crew")
     heading(pg)
     pg.wait_for_function("() => document.querySelector('#main h1').textContent.startsWith('The crew')", timeout=WAIT)
     for kind in KINDS:

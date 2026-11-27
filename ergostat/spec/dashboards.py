@@ -18,11 +18,15 @@ DASHBOARD_KEYS = {"title", "description", "window", "panels", "nav", "page"}
 RESERVED = ("api", "static", "remote")
 # ergostat's own pages, each a dashboard drawn at its name until the model's own dashboard or projection of that name
 # takes the address (web/ui/src/lib/routes.ts): a projection is at /PROJECTION, and its items at /PROJECTION/ID
-BUILTIN = ("diagram", "dashboard", "goals", "agents", "agent", "record", "item")
+BUILTIN = ("diagram", "goals", "agents", "agent", "record", "item")
 # the pages of one thing a dashboard may be drawn for (``page:``) → the address's word it binds: a panel's parameter
 # written ``$WORD`` (``agent: $agent``) takes it from the address (/agent/NAME, /PROJECTION/ID, /PROJECTION). A
 # dashboard named as a projection is that projection's page and binds ``$projection`` too
 PAGES = {"agent": "agent", "item": "item", "projection": "projection"}
+# a projection's own dashboards (``projections: P: dashboards:``), each drawn where the projection is: ``list`` at /P,
+# ``show`` for each of its items at /P/REST → the address's words its panels may write ``$WORD`` for
+PROJECTION_DASHBOARDS = {"list": ("projection",), "show": ("item", "projection")}
+OWN_KEYS = {"title", "description", "window", "panels"}   # a projection's own: drawn at its addresses, so no nav or page
 PANEL_KEYS = {"panel", "title", "size", "note", "fit", "quiet"}   # fit: as tall as what it shows (a page made of panels);
 #                                                  quiet: not drawn while it has nothing to say (an item's part, quiet systems)
 ITEM_SET = {"projection", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"}
@@ -74,7 +78,10 @@ NEEDS_ITEMS: dict[str, str] = {"projection-now": "projection", "projection-model
 
 
 def _one_of(*words):
-    return lambda v: None if v in words else f"one of {', '.join(words)}"
+    def check(v):
+        return None if v in words else f"one of {', '.join(words)}"
+    check.words = words                       # what the page's panel editor offers (dashboard_api.kinds)
+    return check
 
 
 def _text(v):
@@ -204,27 +211,13 @@ def names(v) -> list | None:
 
 def check(c, spec, exists) -> None:
     """At compile, once every part is read: each dashboard's keys, caps and references (``exists``: the compiler's
-    own check of a reference, as ``show:``'s)."""
+    own check of a reference, as ``show:``'s), those under ``dashboards:`` and each projection's own."""
     for name, (m, w, system) in c.doc.dashboards.items():
         what = f"dashboard {name}"
         if not isinstance(m, dict):
             c.err(f"{what}: a map of its keys (title, description, window, panels)", w, "not-a-map")
             continue
         c.keys(m, DASHBOARD_KEYS, what)
-        _words(c, m, ("title", "description"), what)
-        window = None
-        if m.get("window") is not None:
-            try:
-                window = parse_duration(m["window"], f"{what}.window")
-            except (DurationError, OverflowError, ValueError) as e:
-                c.err(f"{e} (like 1h, 1d, 7d)", m.at("window"), "bad-duration")
-            if window is not None and not math.isfinite(window):
-                c.err(f"{what}.window: {m['window']!r} is not a duration (like 1h, 1d, 7d)", m.at("window"), "bad-duration")
-                window = None
-            if window is not None and window > spec.keep:
-                c.err(f"{what}.window: longer than keep: ({spec.keep / 86400:g}d): the record holds no more", m.at("window"),
-                      "bad-dashboard")
-                window = None
         nav = _nav(c, m, what)
         page = m.get("page")
         if isinstance(page, str) and page in BUILTIN and page not in PAGES:
@@ -239,27 +232,74 @@ def check(c, spec, exists) -> None:
             c.err(f"{what}.nav: a dashboard in place of a page is reached by that page's own link", m.at("nav"),
                   "bad-dashboard")
             nav = None
-        binds = PAGES.get(page or "")                    # its panels read as that page's, though the page is taken
-        if binds is None and name in spec.items:          # named as a projection: its page, its $projection it
-            binds = "projection"
+        binds = (PAGES[page],) if page in PAGES else ()  # its panels read as that page's, though the page is taken
+        if not binds and name in spec.items:              # named as a projection: its page, its $projection it
+            binds = ("projection",)
         if page is not None and (other := next((x for x in spec.dashboards.values() if x.page == page), None)):
             c.err(f"{what}.page: the {page} page is drawn by dashboard {other.name} already", m.at("page"),
                   "defined-twice", f"dashboard.{other.name}")
             page = None
-        panels = m.get("panels")
-        if not isinstance(panels, list) or not panels:
-            c.err(f"{what}.panels: a list of panels, each {{panel: KIND, ...}}", m.at("panels"), "bad-dashboard")
-            panels = []
-        if len(panels) > MOST:
-            c.err(f"{what}.panels: {len(panels)} panels; at most {MOST}", m.at("panels"), "bad-dashboard")
-            panels = []
-        d = Dashboard(name, str(m.get("title") or ""), str(m.get("description") or ""), window, system=system, where=w,
-                      nav=nav, page=page)
-        for i, x in enumerate(panels):
-            got = _panel(c, spec, exists, x, f"{what}.panels[{i}]", m.at("panels"), binds)
-            if got is not None:
-                d.panels.append(got)
+        d = _dashboard(c, spec, exists, name, m, w, what, binds)
+        d.system, d.nav, d.page = system, nav, page
         spec.dashboards[name] = d
+    for name, m in (c.doc.sections.get("projections") or {}).items():
+        if name not in spec.items or not isinstance(m, dict) or m.get("dashboards") is None:
+            continue
+        own = m["dashboards"]
+        what = f"projection {name}.dashboards"
+        if not isinstance(own, dict):
+            c.err(f"{what}: a map of list: (drawn at /{name}) and show: (each of its items)", m.at("dashboards"),
+                  "not-a-map")
+            continue
+        c.keys(own, set(PROJECTION_DASHBOARDS), what)
+        for role, binds in PROJECTION_DASHBOARDS.items():
+            x = own.get(role)
+            if x is None:
+                continue
+            w, full = own.at(role) if isinstance(own, Map) else m.at("dashboards"), f"{name}.{role}"
+            if not isinstance(x, dict):
+                c.err(f"{what}.{role}: a map of its keys (title, description, window, panels)", w, "not-a-map")
+                continue
+            if full in spec.dashboards:
+                c.err(f"{what}.{role}: dashboard {full} is defined twice: here and at {spec.dashboards[full].where}", w,
+                      "defined-twice", f"dashboard.{full}")
+                continue
+            c.keys(x, OWN_KEYS, f"{what}.{role}")
+            d = _dashboard(c, spec, exists, full, x, w, f"{what}.{role}", binds)
+            d.system, d.projection, d.role = spec.items[name].system, name, role
+            spec.dashboards[full] = d
+
+
+def _dashboard(c, spec, exists, name: str, m, w, what: str, binds: tuple) -> Dashboard:
+    """One dashboard's words, window and panels, checked (``binds``: the address's words its panels may write
+    ``$WORD`` for)."""
+    _words(c, m, ("title", "description"), what)
+    window = None
+    if m.get("window") is not None:
+        try:
+            window = parse_duration(m["window"], f"{what}.window")
+        except (DurationError, OverflowError, ValueError) as e:
+            c.err(f"{e} (like 1h, 1d, 7d)", m.at("window"), "bad-duration")
+        if window is not None and not math.isfinite(window):
+            c.err(f"{what}.window: {m['window']!r} is not a duration (like 1h, 1d, 7d)", m.at("window"), "bad-duration")
+            window = None
+        if window is not None and window > spec.keep:
+            c.err(f"{what}.window: longer than keep: ({spec.keep / 86400:g}d): the record holds no more", m.at("window"),
+                  "bad-dashboard")
+            window = None
+    panels = m.get("panels")
+    if not isinstance(panels, list) or not panels:
+        c.err(f"{what}.panels: a list of panels, each {{panel: KIND, ...}}", m.at("panels") or w, "bad-dashboard")
+        panels = []
+    if len(panels) > MOST:
+        c.err(f"{what}.panels: {len(panels)} panels; at most {MOST}", m.at("panels"), "bad-dashboard")
+        panels = []
+    d = Dashboard(name, str(m.get("title") or ""), str(m.get("description") or ""), window, where=w)
+    for i, x in enumerate(panels):
+        got = _panel(c, spec, exists, x, f"{what}.panels[{i}]", m.at("panels"), binds)
+        if got is not None:
+            d.panels.append(got)
+    return d
 
 
 def routes(c, spec) -> None:
@@ -290,7 +330,7 @@ def _nav(c, m, what: str) -> str | None:
     return None
 
 
-def _panel(c, spec, exists, x, what: str, near, binds: str | None = None) -> Panel | None:
+def _panel(c, spec, exists, x, what: str, near, binds: tuple = ()) -> Panel | None:
     if not isinstance(x, dict):
         c.err(f"{what}: a map, {{panel: KIND, ...}}", near, "bad-dashboard")
         return None
@@ -320,9 +360,10 @@ def _panel(c, spec, exists, x, what: str, near, binds: str | None = None) -> Pan
     for k in sorted(KINDS[kind] & set(x)):
         v, w = x[k], at(k)
         if isinstance(v, str) and v.startswith("$"):      # taken from the page's address (page:)
-            if binds is None or v != f"${binds}" or k != binds:
-                c.err(f"{what}.{k}: {v!r} is taken from no address" + (f" (this page's is ${binds}, as {binds}: ${binds})"
-                      if binds else " (only a dashboard in place of the agent, item or projection page takes one)"), w,
+            if v[1:] not in binds or k != v[1:]:
+                c.err(f"{what}.{k}: {v!r} is taken from no address" + (
+                      f" (this page's: {', '.join(f'{b}: ${b}' for b in binds)})" if binds else
+                      " (only a dashboard in place of the agent, item or projection page takes one)"), w,
                       "bad-dashboard")
                 ok = False
             else:
@@ -527,7 +568,8 @@ def plain_panel(p: Panel) -> dict:
 def plain(d: Dashboard) -> dict:
     """A dashboard as the API and the snapshot carry it: what was declared, in the declaration's own words."""
     return {"name": d.name, "title": d.title, "description": d.description, "window": d.window, "system": d.system,
-            "nav": d.nav, "page": d.page, "declared": True, "panels": [plain_panel(p) for p in d.panels]}
+            "nav": d.nav, "page": d.page, "projection": d.projection, "role": d.role, "declared": True,
+            "panels": [plain_panel(p) for p in d.panels]}
 
 
 def bound(p: Panel, address: dict) -> Panel:

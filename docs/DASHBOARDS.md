@@ -1,7 +1,10 @@
 # Making sensible dashboards and panels
 
-For people and agents building a page on ergostat's Dashboard (`/dashboard`). A dashboard is a grid of panels kept
-as a draft in the page's address and in the browser (nothing is written to the server); each panel is a
+For people and agents building a dashboard in ergostat. Every page of ergostat's is a dashboard, a grid of panels, and
+every one is edited where it is drawn (SPEC §4f, *Editing in place*): **Edit** in the page's heading, then move,
+remove, add and set up panels, and **Save** writes it to the model's YAML where it belongs (a projection's list and
+show under the projection, a declared dashboard where it is, Goals, Agents and Record by their names); the nav bar's
+**+**, shown on hover, starts a new one, saved under a name and put in the nav bar. A panel of queries is a
 `chartPanel` config: a title, a note, a form, its options, how it is displayed, and the queries it asks of
 `GET /api/query` (SPEC §4e). Every panel config below is a real one: a test loads each and asks its queries of the
 query API (see *How this document is checked*, at the end).

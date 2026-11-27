@@ -1122,6 +1122,8 @@ class Dashboard:
     where: Where | None = None
     nav: str | None = None         # in the page's navigation, at /d/NAME: its link's words ("": its title)
     page: str | None = None        # the web page's own page it is drawn in place of (dashboards.PAGES)
+    projection: str | None = None  # a projection's own (projections.P.dashboards): named P.list or P.show
+    role: str | None = None        # of a projection's own: "list" (at /P) or "show" (each of its items, /P/REST)
 
 
 @dataclass

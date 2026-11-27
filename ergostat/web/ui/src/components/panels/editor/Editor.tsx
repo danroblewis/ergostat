@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { Button, ErrorNote, PanelView, Select } from "../../components";
-import { useApi } from "../../hooks/useApi";
-import { apiGet } from "../../lib/api";
-import { useTime } from "../../state/time";
-import { encodeQuery, type Answer, type Panel, type Query } from "../../lib/query";
-import { useStatus } from "../../state/status";
-import { PanelBox, normalizePanel } from "../../components/panels";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { PanelView } from "../../charts/PanelView";
+import { Button, ErrorNote, Select } from "../../ui";
+import { useApi } from "../../../hooks/useApi";
+import { apiGet } from "../../../lib/api";
+import { useTime } from "../../../state/time";
+import { encodeQuery, type Answer, type Panel, type Query } from "../../../lib/query";
+import { useStatus } from "../../../state/status";
+import { PanelBox } from "../PanelBox";
+import { normalizePanel } from "../normalize";
 
-/* The panel editor (panel-editor.js, in part): a panel's title, note, form and size, and its queries. ergostat has two
+/* The panel editor for a chart of queries or a diagram (panel-editor.js, in part; PanelEditor.tsx chooses it): a panel's title, note, form and size, and its queries. ergostat has two
    data sources, promql (every metric) and sql (all item data), and /api/query/fields lists exactly those two under
    datasources, each saying whether it can be asked now and, when not, why: an unavailable one is shown, disabled, with
    that reason. A query is written in its source's language, or made from one of the shortcuts that write it (item
@@ -21,14 +23,31 @@ const SHORTCUTS: [string, string, string][] = [["items", "sql", "Item fields"], 
 const sourceOf = (q: Query): string => SHORTCUTS.find(([k]) => k === q.source)?.[1] ?? (q.source === "ergostat" ? "promql" : q.source);
 const FORMS: [string, string][] = [["line", "Line"], ["area", "Area"], ["stacked", "Stacked area"], ["step", "Step"], ["bar", "Bar"], ["stat", "Stat"], ["table", "Table"], ["diagram", "Diagram"]];
 const VIEWS: [string, string][] = [["dynamics", "Dynamics (stocks and flows)"], ["blocks", "Blocks (the control system)"], ["process", "Process (how items moved)"]];
-const SIZES: [string, string][] = [["s", "Small (a third)"], ["m", "Medium (half)"], ["l", "Large (two thirds)"], ["full", "Full width"]];
 const AGGS = ["count", "sum", "avg", "min", "max", "last", "p50", "p90", "p95", "p99"];
 const TRANSFORMS: [string, string][] = [["none", "None"], ["rate", "Rate"], ["delta", "Change per step"], ["cumulative", "Running total"], ["moving_avg", "Moving average"]];
 const MEASURES: [string, string][] = [["entries", "Entries"], ["exits", "Exits"], ["time_in_state", "Time in state"]];
 
 interface DataSource { name: string; type: string; language: string; available: boolean; reason?: string }
 
-export function Editor({ panel, onSave, onCancel }: { panel: Panel; onSave: (p: Panel) => void; onCancel: () => void }) {
+export const SIZES: [string, string][] = [["s", "Small (a third)"], ["m", "Medium (half)"], ["l", "Large (two thirds)"], ["full", "Full width"]];
+
+/** The editor's frame: a dialog over the page, its heading, then what it edits. */
+export function EditorFrame({ heading, onCancel, children }: { heading: string; onCancel: () => void; children: ReactNode }) {
+  return (
+    <div className="pe-overlay" role="dialog" aria-modal="true" aria-label="Edit panel"
+      style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,.35)", display: "flex", alignItems: "flex-start", justifyContent: "center", overflow: "auto", padding: "3vh 1rem" }}
+      onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}>
+      <div className="dash-editor" style={{ background: "var(--bg)", color: "var(--ink)", borderRadius: "var(--radius-menu)", border: "var(--hair) solid var(--line)", padding: "var(--sp-4)", width: "min(1000px, 100%)", display: "grid", gap: "var(--sp-3)" }}>
+        <h2 style={{ margin: 0 }}>{heading}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export function Editor({ panel, adding, kindPicker, onSave, onCancel }: {
+  panel: Panel; adding?: boolean; kindPicker?: ReactNode; onSave: (p: Panel) => void; onCancel: () => void;
+}) {
   const [p, setP] = useState<Panel>(() => JSON.parse(JSON.stringify(panel)));
   const fields = useApi<any>("query/fields", {}, { window: false });
   const listed: DataSource[] | undefined = fields.data?.datasources;
@@ -51,11 +70,8 @@ export function Editor({ panel, onSave, onCancel }: { panel: Panel; onSave: (p: 
   const unavailable = (listed || []).filter((d) => !d.available);
 
   return (
-    <div className="pe-overlay" role="dialog" aria-modal="true" aria-label="Edit panel"
-      style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,.35)", display: "flex", alignItems: "flex-start", justifyContent: "center", overflow: "auto", padding: "3vh 1rem" }}
-      onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}>
-      <div className="dash-editor" style={{ background: "var(--bg)", color: "var(--ink)", borderRadius: "var(--radius-menu)", border: "var(--hair) solid var(--line)", padding: "var(--sp-4)", width: "min(1000px, 100%)", display: "grid", gap: "var(--sp-3)" }}>
-        <h2 style={{ margin: 0 }}>{panel.title ? "Edit panel" : "Add panel"}</h2>
+    <EditorFrame heading={adding ? "Add panel" : "Edit panel"} onCancel={onCancel}>
+        {kindPicker}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(14rem, 1fr))", gap: "var(--sp-2) var(--sp-3)" }}>
           <label>Title<br /><input value={p.title} onChange={(e) => set({ title: e.target.value })} style={{ width: "100%" }} autoFocus /></label>
           <label>Note<br /><input value={p.note || ""} onChange={(e) => set({ note: e.target.value })} style={{ width: "100%" }} /></label>
@@ -87,8 +103,7 @@ export function Editor({ panel, onSave, onCancel }: { panel: Panel; onSave: (p: 
           <Button onClick={onCancel}>Cancel</Button>
           <Button className="primary" onClick={() => onSave(saved(p))} disabled={!isDiagram && !p.queries.length}>Save panel</Button>
         </div>
-      </div>
-    </div>
+    </EditorFrame>
   );
 }
 

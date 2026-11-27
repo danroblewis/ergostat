@@ -603,6 +603,29 @@ def keep(live, body: bytes) -> tuple[int, dict]:
         return 409, {"error": str(e)}
 
 
+def save(live, body: bytes, window: float, reset: bool = False) -> tuple[int, dict]:
+    """``POST /api/dashboards/save`` (and ``/api/dashboards/reset``) with the dashboard as its JSON body: a dashboard
+    edited where it is drawn, written to the YAML where it belongs and accepted at once by whoever saves it (the owner
+    on this machine, or a login the page admits, whose answers are the owner's: SPEC §4d); ``reset`` takes the saved
+    one out. A public name that is read only never gets here (every write there is refused)."""
+    p = live.get()
+    if spec_of(p) is None:
+        return 400, {"error": "the model is an ergostat.toml: dashboards are declared in ergostat.yaml"}
+    from ..numbers import display
+    try:
+        draft = json.loads(body or b"null")
+    except (ValueError, RecursionError):
+        return 400, {"error": "save: the dashboard is not JSON"}
+    oldest = min((t for t in (p.events.first_time(), p.measurements.first_time()) if t), default=None)
+    snap = {"at": time.time(), "window": window, "starts": oldest}
+    try:
+        got = (display.reset if reset else display.save)(p, draft, snap, by=who())
+    except pr.ProposalError as e:
+        return 409, {"error": str(e)}
+    live.reloaded()
+    return 200, got
+
+
 def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, dict]:
     """``POST /api/estimate?calibrate=parts|systems|whole`` (calibrate, and make the proposals),
     ``/api/propose?whatif=NAME:V,NAME:V`` (the owner's what-if, every value tried made one proposal; or

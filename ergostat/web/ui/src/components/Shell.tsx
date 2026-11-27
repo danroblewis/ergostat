@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { isPublic } from "../lib/api";
 import { ago, clock, dur, recordedShort } from "../lib/format";
 import { dashboardHref, useDashboards } from "../state/dashboards";
 import { goalsOff, useStatus, waitsOnYou, type SensorFailing } from "../state/status";
@@ -11,7 +12,7 @@ import type { ProjectionRoute } from "../lib/routes";
    page beneath it. */
 
 const NAV: [string, string][] = [
-  ["/dashboard", "Dashboard"], ["/diagram", "Diagram"], ["/goals", "Goals"], ["/agents", "Agents"], ["/record", "Record"],
+  ["/diagram", "Diagram"], ["/goals", "Goals"], ["/agents", "Agents"], ["/record", "Record"],
 ];
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -37,6 +38,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {navDashboards.map(([to, label]) => (
             <NavLink key={to} to={to + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
           ))}
+          <NewDashboard />
           {own.length > 0 && <span className="nav-bar-sep" aria-hidden="true" />}
           <ProjectionNav projections={own} carried={carried} />
         </nav>
@@ -44,6 +46,18 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
       <main id="main">{children}</main>
     </>
+  );
+}
+
+/** The + at the end of the nav bar's dashboards, seen on hover: a new, empty dashboard, drawn where the page is until it
+ *  is saved under its name (Resolve.tsx, components/panels/NewDashboard.tsx). */
+function NewDashboard() {
+  const navigate = useNavigate();
+  const { pathname, search } = useLocation();
+  if (isPublic()) return null;
+  return (
+    <button type="button" className="ghost nav-new" title="A new dashboard: saved under a name, it is in the nav bar"
+      aria-label="New dashboard" onClick={() => navigate(pathname + search, { state: { newDashboard: Date.now() } })}>+</button>
   );
 }
 

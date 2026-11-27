@@ -98,11 +98,11 @@ def settled(pg, ms: int = 1500) -> list[str]:
     return pg.errs
 
 
-def test_the_header_names_the_pages_dashboard_first_and_no_project_list(browser, site):
+def test_the_header_names_the_pages_and_no_project_list(browser, site):
     pg = opened(browser, site + "/goals")
     pg.wait_for_selector("#nav a", timeout=WAIT)
     pg.wait_for_selector("#nav a:has-text('Ticket')", timeout=WAIT)     # the model's projections, after a bar
-    assert pg.locator("#nav a").all_inner_texts() == ["Dashboard", "Diagram", "Goals", "Agents", "Record", "Ticket"]
+    assert pg.locator("#nav a").all_inner_texts() == ["Diagram", "Goals", "Agents", "Record", "Ticket"]
     pg.locator("#nav a", has_text="Ticket").click()                      # each at /PROJECTION
     pg.wait_for_url("**/ticket", timeout=WAIT)
     assert pg.locator("select#project").count() == 0
@@ -111,31 +111,16 @@ def test_the_header_names_the_pages_dashboard_first_and_no_project_list(browser,
     pg.close()
 
 
-def test_the_dashboard_draws_its_panels(browser, site):
-    pg = opened(browser, site + "/dashboard")
-    assert heading(pg)
-    pg.wait_for_selector("#main .page.dash", timeout=WAIT)
-    assert settled(pg, 2500) == []
+def test_the_dashboard_editor_page_is_gone(browser, site):
+    pg = opened(browser, site + "/dashboard")                # an address like any other: the model names nothing there
+    pg.wait_for_function("() => document.querySelector('#main h1')?.textContent === 'Nothing here'", timeout=WAIT)
+    assert settled(pg) == []
     pg.close()
 
 
-def test_the_default_dashboard_draws_the_diagram_and_each_query_panel_its_own_answer(browser, site):
-    pg = opened(browser, site + "/dashboard")
-    pg.wait_for_selector("#main .page.dash", timeout=WAIT)
-    diagram = pg.locator(".panel.panel-form-diagram").first
-    diagram.wait_for(timeout=WAIT)
-    assert diagram.locator(".panel-title").inner_text() == "The system"
-    diagram.locator("svg.canvas g.node").first.wait_for(timeout=WAIT)           # the model's parts, laid out and drawn
-    assert diagram.locator("svg.canvas g.node").count() > 1
-    assert diagram.get_by_role("link", name="Open on the Diagram page").get_attribute("href") == "/diagram"
-    assert pg.locator(".panel:not(.panel-form-diagram)").count() >= 1            # the query panels beside it
-    assert settled(pg, 2500) == []
-    pg.close()
-
-
-def test_a_diagram_panel_is_added_in_the_editor_and_kept(browser, site):
-    pg = opened(browser, site + "/dashboard")
-    pg.wait_for_selector("#main .page.dash", timeout=WAIT)
+def test_a_diagram_panel_is_added_in_place_and_cancel_forgets_it(browser, site):
+    pg = opened(browser, site + "/goals")
+    pg.locator(".panel-kind-goals table.loops tbody tr").first.wait_for(timeout=WAIT)
     pg.get_by_role("button", name="Edit", exact=True).first.click()
     pg.get_by_role("button", name="Add panel").click()
     editor = pg.locator("[aria-label='Edit panel']")
@@ -147,18 +132,18 @@ def test_a_diagram_panel_is_added_in_the_editor_and_kept(browser, site):
     editor.get_by_role("button", name="Save panel").click()
     added = pg.locator(".panel.panel-form-diagram[aria-label='Control']")
     added.locator("svg.canvas.bd g.node").first.wait_for(timeout=WAIT)          # drawn as a block diagram
+    pg.get_by_role("button", name="Cancel", exact=True).click()                  # nothing kept: ergostat's page again
+    pg.wait_for_function("() => !document.querySelector(\".panel[aria-label='Control']\")", timeout=WAIT)
+    assert pg.get_by_role("button", name="Edit", exact=True).count() == 1
     assert settled(pg) == []
-    pg.reload()                                                                 # kept in this browser
-    pg.locator(".panel.panel-form-diagram[aria-label='Control']").wait_for(timeout=WAIT)
-    pg.evaluate("() => Object.keys(localStorage).filter(k => k.startsWith('ergostat.dashboard.')).forEach(k => localStorage.removeItem(k))")
     pg.close()
 
 
 def test_the_panel_editor_offers_exactly_the_two_sources_and_shows_what_a_shortcut_asked(browser, site):
     """The Source select lists promql and sql and nothing else (NOTES.md, 2026-11-25); a shortcut's preview shows the
     SQL it wrote."""
-    pg = opened(browser, site + "/dashboard")
-    pg.wait_for_selector("#main .page.dash", timeout=WAIT)
+    pg = opened(browser, site + "/record")
+    heading(pg)
     pg.get_by_role("button", name="Edit", exact=True).first.click()
     pg.get_by_role("button", name="Add panel").click()
     pg.wait_for_selector("[aria-label='Edit panel']", timeout=WAIT)
@@ -279,7 +264,7 @@ def declared(tmp_path):
 
 def test_a_declared_dashboard_draws_a_panel_of_every_kind(browser, declared):
     _, url = declared
-    pg = opened(browser, url + "/dashboard?name=ops")
+    pg = opened(browser, url + "/ops")
     heading(pg)
     pg.wait_for_function("() => document.querySelector('#main h1').textContent.startsWith('Ops board')", timeout=WAIT)
     for kind in ("note", "goals", "chart", "states", "cycle-time", "items"):
@@ -289,24 +274,25 @@ def test_a_declared_dashboard_draws_a_panel_of_every_kind(browser, declared):
     pg.locator(".panel-kind-chart canvas, .panel-kind-chart p.muted").first.wait_for(timeout=WAIT)   # drawn, or said empty
     pg.locator(".panel-kind-items table tbody tr").first.wait_for(timeout=WAIT)
     pg.locator(".panel.panel-form-diagram svg.canvas.bd g.node").first.wait_for(timeout=WAIT)
-    assert pg.locator("select[aria-label='Dashboard'] option").all_inner_texts()[:1] == ["This browser's draft"]
-    assert "Ops board" in pg.locator("select[aria-label='Dashboard'] option").all_inner_texts()
     assert settled(pg, 2500) == []
     pg.close()
 
 
-def test_keep_sends_the_draft_and_accept_writes_it_to_the_model(browser, declared):
+def test_a_declared_dashboard_is_edited_where_it_is_drawn_and_saved_where_it_is(browser, declared):
     p, url = declared
-    pg = opened(browser, url + "/dashboard")
-    pg.wait_for_selector("#main .page.dash .panel", timeout=WAIT)
-    pg.get_by_role("button", name="Keep").click()
-    box = pg.locator("[aria-label='Keep this dashboard']")
-    box.get_by_role("button", name="Propose").click()                           # where it is shown: as it was
-    box.locator(".diff").wait_for(timeout=WAIT)                                  # the dashboards: entry, shown first
-    assert "dashboards" in p.model.path.read_text() and "overview:" not in p.model.path.read_text()   # nothing yet
-    box.get_by_role("button", name="Accept").click()
-    pg.wait_for_url("**/dashboard?name=overview", timeout=WAIT)
-    assert "overview:" in p.model.path.read_text()
-    pg.locator(".panel").first.wait_for(timeout=WAIT)
+    pg = opened(browser, url + "/ops")
+    pg.locator(".panel.panel-kind-note").wait_for(timeout=WAIT)
+    pg.get_by_role("button", name="Edit", exact=True).first.click()
+    pg.get_by_role("button", name="Remove Read me").click()
+    pg.get_by_role("button", name="Move Goals earlier").click()
+    assert pg.get_by_role("button", name="Reset to ergostat's").count() == 0      # ergostat has no page at /ops
+    pg.get_by_role("button", name="Save", exact=True).click()
+    pg.get_by_role("button", name="Edit", exact=True).wait_for(timeout=WAIT)
+    text = p.model.path.read_text()
+    assert "Read me" not in text and text.count("  ops:") == 1
+    assert text.index('"title": "Goals"') < text.index('"title": "Inbox"')
+    pg.reload()
+    pg.locator(".panel.panel-kind-goals").wait_for(timeout=WAIT)
+    assert pg.locator(".panel.panel-kind-note").count() == 0
     assert settled(pg) == []
     pg.close()

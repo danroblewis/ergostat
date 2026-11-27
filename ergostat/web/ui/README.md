@@ -1,8 +1,9 @@
 # ergostat's page, in React
 
 ergostat's page. It is built into `../static/app/` and served by ergostat's own server at every path but `/api`,
-`/static` and `/remote`; the page resolves the path itself (`src/lib/routes.ts`, `src/Resolve.tsx`): the model's
-dashboards at `/NAME`, its projections at `/PROJECTION` and their items at `/PROJECTION/REST`, then ergostat's own pages. Python needs nothing at runtime: the built files are
+`/static` and `/remote`; the page resolves the path itself (`src/lib/routes.ts`, `src/Resolve.tsx`): a projection's own
+dashboards, the model's dashboards at `/NAME`, its projections at `/PROJECTION` and their items at `/PROJECTION/REST`,
+then ergostat's own pages. Python needs nothing at runtime: the built files are
 committed. The old vanilla-JS page it was ported from is gone (2026-11-25), with its Model, Check and Guide pages, the
 header's project list and `ergostat snapshot`.
 
@@ -16,14 +17,15 @@ header's project list and `ergostat snapshot`.
     src/
       main.tsx, App.tsx      the shell around Resolve.tsx: every address resolved by what the model names there, each
                              page loaded lazily
-      styles/                the page's styles (style.css, panels.css, plots.css, panel-editor.css, dashboard.css)
+      styles/                the page's styles (style.css, panels.css, plots.css, panel-editor.css, dashboard.css: the
+                             editing bar and the nav bar's +)
       lib/                   pure functions: api.ts (apiGet, apiPost, apiSend), format.ts (fmt, dur, ago, stamp,
                              rateText, op, holdText, windowNote, plural...), rung.ts, hrefs.ts (itemHref, projectionHref,
                              agentHref, diagramHref), goals.ts (a goal in words), query.ts (what a panel asks /api/query),
                              pages.ts (each of the page's own pages as its panels: PAGES, pageDashboard)
       state/                 app-wide context: time.tsx (window and moment, in the address), status.tsx (/api/status
-                             every 5 s: useStatus()), dashboards.tsx (/api/dashboards every 15 s: the header's nav:
-                             entries, and useInPlaceOf(page), the dashboard declared in a page's place)
+                             every 5 s: useStatus()), dashboards.tsx (/api/routes every 15 s, asked again at once
+                             after a Save: the header's nav: entries, a projection's own dashboards: ownOf)
       hooks/                 usePoll (a refresh that never overlaps, pauses while hidden), useApi (an answer, with
                              the window, polled when asked: { data, error, loading, refresh })
       components/            the components any page is composed of (index.ts):
@@ -39,8 +41,10 @@ header's project list and `ergostat snapshot`.
         panels/              a panel of every kind, by its name in the model's dashboards: (SPEC §4f), one file a
                              group in kinds/ (core, agents, items, record, attention), checked by spec/dashboards.py
                              and answered by dashboard_api.py; PanelBox (one, framed), DashboardView (a grid),
-                             DeclaredDashboard (one the model declares, by name), InPlace (a page, or the dashboard
-                             declared in its place, lazily loaded). Each
+                             DeclaredDashboard (one the model declares, by name), EditableDashboard and useEditing
+                             (editing any dashboard where it is drawn: Edit, move/remove/add, Save into the YAML,
+                             Reset to ergostat's), editor/ (PanelEditor: any kind's settings; Editor: a chart of
+                             queries or a diagram), NewDashboard (the nav bar's +). Each
                              asks its own endpoint with exactly its parameters; GETs of one address under way at once
                              are one request (lib/api.ts). A new kind of panel: its component, its KINDS entry here and in
                              spec/dashboards.py, then `uv run python scripts/panel_schema.py` for the schema.
@@ -52,7 +56,9 @@ header's project list and `ergostat snapshot`.
 ## Rules
 
 - A page is a dashboard: its sections are panels (components/panels), drawn with `fit: true`, its panel list in
-  `lib/pages.ts`; only what is the page's own (its title, filters bound to the address) is written on the page. What a
+  `lib/pages.ts`; only what is the page's own (its title, filters bound to the address) is written on the page. It is
+  editable where it is drawn: `useEditing` with where it is saved (a projection's list or show, or a dashboard's
+  name), and `EditableDashboard` (what the page hands a panel goes in `decorate`, never into what is saved). What a
   page hands a panel beyond its declared parameters (a click: `onOpen`; the list's choices: `onParams`; the goal
   chosen: `selected`) is optional: the same panel on a dashboard works without it. A dashboard declared with `page:`
   draws in that page's place (App.tsx, `Own`).
@@ -75,14 +81,13 @@ Every page has a route and draws from the real API; none is at parity with the o
 - **Diagram:** the old layout presets (anchors, satellites, rows, upright pipes), libavoid routing, pins and dragging,
   loop markers, flows-only, correspondence colouring, dominance charts; Blocks' frames, fractions and MathML; inbox
   answer buttons, keys, the split pane, PNG/Markdown export, equations, `have=` (every poll fetches the whole graph).
-- **Dashboard:** plot kinds beyond line/area/stacked/step/bar/stat/table; the 12-column grid with drag and resize;
-  rows, repeats, variables, `?draft=`, `?name=` dashboards, Keep; the code box (highlighting, keys), SQL suggestions,
-  display options.
+- **Dashboards:** plot kinds beyond line/area/stacked/step/bar/stat/table; the 12-column grid with drag and resize;
+  rows, repeats, variables; the code box (highlighting, keys), SQL suggestions, display options. (The Dashboard editor
+  page is gone: every dashboard is edited where it is drawn.)
 - **Goals / Agents:** the goal panel's charts (scope, forecast, step response, Bode, fit) and MathML; the agent page's
   run and cost charts, resources fold and version spans.
 - **Items:** the Graph and Timeline views, item sets, set chips (`where=`, `moved=`...), built-in projections' views
   (claims, decisions, messages, gated actions, reports), notes, Impact, leases, remote items.
 - **Record:** its `window=1` scope shares the `window` parameter with the header's window, as on the old page.
 
-Still to move into `components/`: a segmented toggle, a dialog (dashboard/Editor), a goal panel (goals/GoalDetail,
-diagram/Side).
+Still to move into `components/`: a segmented toggle, a goal panel (goals/GoalDetail, diagram/Side).
