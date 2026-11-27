@@ -940,6 +940,57 @@ counted beside it: a model's one system and `modelling` start with the system op
 Its lines are drawn from a quick routing first and refined in the background, the careful lines taking their place
 only if nothing was dragged or laid out again meanwhile.
 
+### What a system contains
+
+A stock, flow, auxiliary, parameter, goal, block, projection or agent is **defined in** one system: its `system:`, or
+its file's `defaults: system:`; one that says neither is defined at the **top level** (the default system: the root
+above the top-level systems). A sensor is defined where its stock, flow or auxiliary is. That is only where it is
+written. What a system *contains* is worked out from the graph of the model (`ergostat/spec/scope.py`), never
+declared, and a thing may be in many systems. `show:` plays no part in it.
+
+1. A thing defined in a system is in it.
+2. An edge joins things defined in systems that are nodes of the system tree (the top level its root). The edge, and
+   every thing it joins, is in each system on the paths from those systems up to their lowest common ancestor, that
+   ancestor included. An edge inside one system adds nothing. Between two subsystems of a parent: in both and in the
+   parent (a subsystem is a component of its parent). Between a subsystem and a system it is within, however deep:
+   in both and in every system between. Between two top-level systems: in both and at the top level. The edges:
+
+   | Edge | Joins |
+   |---|---|
+   | a flow | the flow, its `from:` stock and its `to:` stock |
+   | an influence | a flow or auxiliary and each part it is `driven-by`, each part and parameter its `equation:` names |
+   | a sensor | its part and the projection it counts (`projection:`); a `changes:` sensor, its flow and the stock it reads |
+   | a goal | the goal and what it holds; the goal and each block and flow of its loop (controllers, actuators, valves, the long way round) |
+   | a block | the block and each thing it reads (`in:`, its `goal:`, `pool: {now:}`), each thing it sets or commands (`out:`), and the projection it takes (`takes:`) |
+   | a relation | a projection and each projection a relation of it names (a join's children are a relation's) |
+
+3. A sensor comes with its part into every system its part is in, and the projection the sensor counts comes with it
+   (a flow crossing from `intake` to `delivery` brings the items its stocks count). An agent is in every system a
+   block it fills is in; a block is never brought into its agent's system (filling a role never changes the role).
+
+Nothing else is carried: a thing an edge brought into a system brings only its sensors, what they count and its agent.
+What stays inside a subsystem is not in its parent: a QA subsystem's own projection, counted only by QA's stocks
+that nothing outside QA touches, is in QA alone. A thing a system contains and does not define is **ancillary**
+there (drawn greyer), and says each edge that brought it. Ergostat's own projections are defined nowhere: one is in
+a system only when a part there uses it, ancillary there. Dashboards (scoped to the system they are written in),
+events (in no system), a projection's `about:` and a block's `on:` are not edges.
+
+`ergostat explain --contains` (`--contains NAME`: one system; `--json` the same as below) says, for the top level and
+each system, what it defines and each ancillary thing with why; `ergostat explain system.NAME` says it under
+*Contains*; `ergostat check` says each system's count in one line. `GET /api/scope` answers it, read-only, worked
+out once per version of the model:
+
+```json
+{"top": "", "systems": {"": {"within": null, "systems": ["factory"], "contains": {...}},
+                        "qa": {"within": "factory", "systems": [], "contains": {
+                          "flows": [{"name": "to-qa", "status": "ancillary", "defined_in": "intake",
+                                     "why": ["flow to-qa (intake) runs from stock arrived (intake) to stock checking (qa)"]}]}}}}
+```
+
+The top level is `""`; a top-level system's `within` is `""`. `contains` holds only the kinds it has, of `stocks`,
+`flows`, `auxiliaries`, `parameters`, `goals`, `blocks`, `sensors`, `projections`, `agents`; `defined_in` is null
+for ergostat's own projection.
+
 ## 4b. Storage: where the record is kept
 
 The record is two stores, kept apart (few events, many measurements), held to one conformance suite
@@ -5598,6 +5649,7 @@ agents:
 | `model` | string | none | For an AI machine: which model |
 | `cost` | string | none | What a run costs, for budgets counted across its blocks |
 | `host` | string | local | Where its commands run (local only at first) |
+| `system` | system name | its file's `defaults: system:`, else the top level | The system it is defined in; it is also in each system a block it fills is in (§4a, *What a system contains*) |
 | `description` | string | none | |
 
 What an agent is for:

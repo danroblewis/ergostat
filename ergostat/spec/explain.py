@@ -448,6 +448,11 @@ class Explainer:
         lines.append(f"  Size: {size_said(size(s, name))}.")
         if nearly_decomposable(s, name):
             lines.append(f"  It is {nearly_decomposable(s, name)}.")
+        from .scope import lines as contains           # what it contains, worked out from the graph (SPEC §4a)
+        got = contains(s, name, "    ")
+        if got:
+            lines.append("  Contains " + got[0].split(": ", 1)[1])
+            lines += got[1:]
         ports = s.interface(name)
         for d, title in (("in", "In"), ("out", "Out")):
             ps = [p for p in ports if p["dir"] == d]

@@ -134,6 +134,14 @@ def check_yaml(args, path: Path) -> int:
     loops = spec.loops()
     closed = [lp for lp in loops if lp.closes]
     print(c(f"{len(closed)} of {n(len(loops), 'goal')} closed by a loop ergostat can see", "dim"))
+    if spec.systems:                              # what each system contains, from the graph (SPEC §4a): a note
+        from ..spec.scope import scope, where
+        said_ = []
+        for name, got in scope(spec).items():
+            rows = [r for rs in got["contains"].values() for r in rs]
+            anc = sum(1 for r in rows if r["status"] == "ancillary")
+            said_.append(f"{where(name)} {len(rows)}" + (f" ({anc} ancillary)" if anc else ""))
+        print(c("What each system contains: " + "; ".join(said_) + " (ergostat explain --contains)", "dim"))
     notes = [p for p in findings if p.level == "note"]
     for p in findings:
         if p.level != "note":
@@ -447,6 +455,17 @@ def cmd_explain(args) -> int:
     if spec is None:
         print("explain reads the YAML model (ergostat convert)", file=sys.stderr)
         return 2
+    if getattr(args, "contains", False):          # what each system contains, from the graph (SPEC §4a)
+        from ..spec.scope import TOP, lines, scope
+        if args.name is not None and args.name.removeprefix("system.") not in spec.systems:
+            print(f"no system {args.name!r} (systems: {', '.join(sorted(spec.systems)) or 'none'})", file=sys.stderr)
+            return 2
+        one = None if args.name is None else args.name.removeprefix("system.")
+        if args.json:
+            sc = scope(spec)
+            return out_json({"top": TOP, "systems": sc if one is None else {one: sc[one]}})
+        print("\n".join(lines(spec, one)))
+        return 0
     try:
         text = explain(spec, args.name, p)
     except KeyError as e:
