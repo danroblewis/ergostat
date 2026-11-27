@@ -58,7 +58,7 @@ projections:
 
 def write(tmp_path: Path, board: str = BOARD) -> Path:
     d = tmp_path / "first-loop"
-    shutil.copytree(ROOT / "examples" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__", "inbox"))
+    shutil.copytree(ROOT / "tests" / "fixtures" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__", "inbox"))
     f = d / "ergostat.yaml"
     f.write_text(f.read_text() + board)
     return d
@@ -89,7 +89,7 @@ def test_nav_and_page_are_checked_kept_and_listed(tmp_path, capsys):
     assert [x for x in routes["projections"] if x["declared"]] == [{"name": "ticket", "id": "ticket/*", "declared": True, "group": None,
                                                                     "system": ""}]
     assert {"name": "session", "id": "session/*", "declared": False, "group": None, "system": ""} in routes["projections"]      # ergostat's own: linked
-    assert routes["reserved"] == ["api", "static", "remote"]
+    assert routes["reserved"] == ["api", "static"]
     assert "goals" in routes["builtin"] and [x["name"] for x in routes["dashboards"]] == list(listed)
 
 
@@ -149,12 +149,11 @@ def test_keep_writes_nav_and_page_and_keeps_them_in_place(tmp_path):
     assert (d / "ergostat.yaml").read_text().count("crew-board:") == 1
 
 
-@pytest.mark.parametrize("kind, code", [("api", "unrouted-projection")])     # (one named as a default dashboard, like
-def test_a_kind_named_as_the_servers_address_is_a_finding(tmp_path, kind, code):  # events: spec/routes.py's collision)
+@pytest.mark.parametrize("kind", ["api", "static"])
+def test_a_top_level_projection_named_as_the_servers_address_is_an_error(tmp_path, kind):
     d = write(tmp_path, BOARD.replace("projections:\n", f"projections:\n  {kind}:\n    id: {kind}/*\n    states: [a]\n"))
     _, problems = read(d / "ergostat.yaml")
-    assert [(x.level, x.code) for x in problems if x.about == f"projections.{kind}" and "projection" in x.code] == [("finding", code)]
-    assert not [x for x in problems if x.level == "error"]
+    assert [(x.level, x.code) for x in problems if x.about == f"projection.{kind}"] == [("error", "address-unreachable")]
 
 
 def test_a_projections_group_is_checked_and_listed(tmp_path):

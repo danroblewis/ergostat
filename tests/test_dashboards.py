@@ -172,11 +172,6 @@ def test_a_dashboard_in_a_system_s_file_is_named_by_that_system(tmp_path):
     assert spec.dashboards["desk.ops"].panels[0].params == {"refs": "stock.queue"}   # as written
 
 
-def test_the_demos_dashboards_compile_with_no_error():
-    for name, want in (("software-factory", {"week", "delivery.review"}), ("ticket-factory", {"oversight.hours"})):
-        spec, problems = read(ROOT / "examples" / name / "ergostat.yaml", extremes=False)
-        assert not [p for p in problems if p.level == "error"], problems
-        assert set(spec.dashboards) == want
 
 
 def test_a_dashboard_changes_no_version_of_the_model(tmp_path):
@@ -350,25 +345,3 @@ def test_a_moment_named_after_the_model_changed_is_answered_as_a_new_one(live):
     assert odd["at"] == first["at"]                                                   # still at the moment asked
 
 
-@pytest.mark.serial
-def test_the_default_dashboard_is_each_top_system_s_measures_and_goals_and_answers_in_half_a_second(tmp_path,
-                                                                                                    monkeypatch):
-    from ergostat.web import server
-    from ergostat.web.server import api
-    here = tmp_path / "software-factory"
-    shutil.copytree(ROOT / "examples/software-factory", here)
-    live = server.Live(Project(mdl.load(here)))
-    api(live, "status", {})                                # the model read and the record opened: not the timed part
-    began = time.monotonic()
-    got = api(live, "dashboard/default", {})
-    took = time.monotonic() - began
-    panels = [(x["panel"]["panel"], x["panel"]["title"]) for x in got["panels"]]
-    assert panels == [("chart", "factory: its measures"), ("goals", "factory: its goals"),       # intake, delivery in it
-                      ("chart", "modelling: its measures"), ("goals", "modelling: its goals"),   # the template's system
-                      ("chart", "product: its measures"), ("goals", "product: its goals")], panels
-    spec = live.p.model.spec
-    goals = next(x for x in got["panels"] if x["panel"]["title"] == "product: its goals")["panel"]["goals"]
-    assert goals == sorted(g for g, x in spec.goals.items() if x.system == "product")
-    # answered, not merely returned: a pending (or busy) panel would meet the time by the batch's own limit
-    assert all("answer" in x and not x.get("pending") and "error" not in x for x in got["panels"]), got["panels"]
-    assert took < 0.5, took

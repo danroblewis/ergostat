@@ -107,7 +107,7 @@ def cmd_remote(args) -> int:
             return out_json({"name": args.name, "token": tok})
         print(tok)
         print(c(f"kept only as its hash; give it to {args.name}'s owner, who puts it in the file their remotes: entry "
-                f"names (token-file:). This ergostat's page serves /remote/v1/ to it, read only.", "dim"), file=sys.stderr)
+                f"names (token-file:). This ergostat's page serves /api/remote/v1/ to it, read only.", "dim"), file=sys.stderr)
         return 0
     spec = getattr(p.model, "spec", None)
     remotes = getattr(spec, "remotes", None) or {}

@@ -32,7 +32,7 @@ function AgentsBody({ def, every, refreshKey }: PanelBodyProps) {
   return (
     <div className="panel-table">
       <Async state={got}>{(d) => <><AgentsTable agents={mine(d, s)} caption={def.title || "Agents, by rung"}
-        mark={(n) => ancillaryMark(s, "agents", n)} /><CostNote /></>}</Async>
+        mark={(n) => ancillaryMark(s, "agents", n)} label={s ? (n) => s.label("agents", n) : undefined} /><CostNote /></>}</Async>
     </div>
   );
 }

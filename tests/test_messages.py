@@ -353,36 +353,6 @@ def test_cli_send_and_list(tmp_path, capsys):
     assert "hold that one" in capsys.readouterr().out
 
 
-@pytest.mark.slow
-def test_image_squeeze_developer_session_takes_a_note_while_it_builds(tmp_path, monkeypatch):
-    """image-squeeze in AI mode, with ergostat's stand-in session (it runs the stand-in developer as the session's work,
-    and echoes what it receives): a note to the developer, sent while its session builds a hypothesis, reaches it live."""
-    import shutil
-    import subprocess
-    from pathlib import Path
-    src = Path(__file__).resolve().parent.parent / "examples" / "image-squeeze"
-    root = tmp_path / "squeeze"
-    shutil.copytree(src, root, ignore=shutil.ignore_patterns("run"))
-    for k, v in {"FACTORY_AI": "claude", "ERGOSTAT_CLAUDE": "echo", "ERGOSTAT_ECHO_RUN": "bin/py bin/standin_{role}.py",
-                 "FACTORY_PACE": "3", "ERGOSTAT_ECHO_WORK": "1"}.items():
-        monkeypatch.setenv(k, v)
-    p = Project(mdl.load(root))
-    cmd = f"{PY} -m ergostat -C {root}"
-    env = {**os.environ, "ERGOSTAT_CMD": cmd}
-    subprocess.run(["bin/py", "bin/lab.py", "init"], cwd=root, env=env, check=True, capture_output=True)
-    subprocess.run(["bin/py", "bin/lab.py", "propose", "Put transparent images on white before JPEG", "--idea", "white",
-                    "--key", "transparent-on-white"], cwd=root, env=env, check=True, capture_output=True)
-    t = run_in_background(p, "developer")
-    started = p.events.query(n=1, type="session.started")[-1]
-    m = send(p, "developer: keep the alpha channel for the logos")
-    t.join(120)
-    got = record.get(p, m["id"])
-    assert got["deliveries"][0]["how"] == "live" and got["deliveries"][0]["session"] == started["item"]
-    assert got["state"] == "answered" and "alpha channel" in got["answers"][0]["says"]
-    from ergostat.spec import items as its
-    assert its.one(p.events, p.model.spec, "hypothesis/1").state == "testing"    # and it did the work
-    claims = [e for e in p.events.query(n=None, type="ergostat.claim.made")]
-    assert claims and all(c["data"]["session"] == started["item"] for c in claims)
 
 
 def test_the_stand_in_reads_a_possessive_as_the_name(tmp_path):

@@ -479,21 +479,22 @@ old: `read` says how many seconds ago it was read. It still answers on the last 
 2. **Here**, declare it and look before referencing anything:
 
    ```yaml
-   remotes:
-     incidents:
-       url: http://127.0.0.1:8795       # https, or an SSH tunnel to the remote's page
-       token-file: incidents.token
-       every: 1m
+   systems:
+     incidents:                         # a remote is a system: its key is its name here
+       remote:
+         url: http://127.0.0.1:8795     # https, or an SSH tunnel to the remote's page
+         token-file: incidents.token
+         every: 1m
    ```
 
    Across machines, when the remote serves `web: mtls:` (its remote API alone, on its own port, to client
    certificates its owner's CA signed), read it over https with `tls: {cert: me.pem, key: me.key, ca:
-   servers.pem}` on the entry (`ca` optional); the token is still needed. `mtls-unreadable` means one of
+   servers.pem}` under `remote:` (`ca` optional); the token is still needed. `mtls-unreadable` means one of
    those files is missing, a directory or not PEM: the remote is not read until it is fixed.
 
    `ergostat remote` says whether it answers and which version of its model was read; `ergostat explain
    system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`. Its closed
-   box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on the `remotes:` entry, in
+   box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on its system (beside `remote:`), in
    the **remote's** names (`stock.open`, never `stock.incidents-open`); `remote-show-unresolved` means it does
    not serve one. A measure dimmed there is stale: it says how old its last reading is. `ergostat explain`
    of any of its parts (and of `system.incidents`, once) starts `remote incidents's (runs at URL, model vM,
@@ -521,7 +522,6 @@ old: `read` says how many seconds ago it was read. It still answers on the last 
    equations for the remote's parts, written as text in its names for its owner, each marked current or not.
    They are never in `ergostat proposals` and can't be accepted here; pass one on only if the owner asks.
 
-A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
 A remote's own remotes come through too, up to three ergostats away (`stock.m-a-open`: remote `m`'s part
 from its remote `a`); `remote-cycle`, `remote-too-deep`, `remote-malformed`, `remote-too-big`,
 `remote-bad-name`, `remote-name-taken` and `remote-instance` say what was refused or cut and why, and a
@@ -531,7 +531,7 @@ local part named like an imported one always wins.
 choose one of three ways.
 - **Copy in** (`collect`, the default): you want items and their current state, and an entry seen twice or missed
   across a lost memory does no harm. The collector's cursor lives only in its memory file.
-- **Read in place**: only for another ergostat (`remotes:`, above). For anything else it is not built (GAPS).
+- **Read in place**: only for another ergostat (a system with `remote:`, above). For anything else it is not built (GAPS).
 - **Mirror** (`collect` with `mirror: true`, `cursor-field:` the entry's position, and `position: text` when the
   position is a time): each entry must be recorded exactly once, as the log's own history, for example an audit trail
   or a process map read from it. Each event's id cites the entry (`cite:<flow>.<sensor>:i:<position>`), the cursor
@@ -892,7 +892,7 @@ item, per projection, per group (a `group: true` relation's parent) and per stag
 its runs, when it was computed, and `none` when it has no estimate. A dashboard panel reads it through the `sql`
 source's `forecast_items`, `forecast_projections`, `forecast_stages` and `forecast_groups` views (`select state,
 max(p90) from forecast_items group by state`); `GET /api/forecast` gives it as JSON; and a model reading this one as a
-remote gets it from `/remote/v1/forecast` (`/api/forecast?remote=NAME` there). Nothing has to be declared for it.
+remote gets it from `/api/remote/v1/forecast` (`/api/forecast?remote=NAME` there). Nothing has to be declared for it.
 
 A group's **counts** (SPEC §5a *Group counts*) come from the same runs: how many of its open members come out by a
 date, the chance at least N do, the expected loss, and how many to start for N out at a confidence. When the person's

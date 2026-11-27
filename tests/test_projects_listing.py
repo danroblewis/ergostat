@@ -37,7 +37,7 @@ def test_the_switcher_counts_the_systems_goals_and_the_models_upkeep_apart(tmp_p
 
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     d = tmp_path / "first-loop"
-    shutil.copytree(Path(__file__).resolve().parent.parent / "examples" / "first-loop", d)
+    shutil.copytree(Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "first-loop", d)
     p = Project(mdl.load(d / "ergostat.yaml"))
     for stock, value in (("inbox", 10), ("model-error", 0.5), ("unanswered-requests", 3)):    # inbox-short holds
         s = next(iter(p.model.spec.stocks[stock].sensors.values()))

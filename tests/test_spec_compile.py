@@ -47,17 +47,6 @@ def test_each_broken_file_is_refused_for_its_reason(path):
     assert all(p.where and p.where.line >= 1 for p in problems if p.level == "error")
 
 
-def test_first_loop_derives_its_loop():
-    spec = load(ROOT / "docs/spec-examples/first-loop.yaml")
-    lp = spec.loop("inbox-short")
-    assert lp.closes
-    assert lp.sensors == ["stock.inbox.main"]
-    assert lp.controllers == ["keep-inbox-short"]          # implied by the worker's goal:
-    assert lp.actuators == ["worker"]
-    assert lp.valves == ["processed"]
-    assert lp.disturbances == ["arrivals"]
-    assert spec.role(spec.blocks["keep-inbox-short"]) == "controller" and spec.blocks["keep-inbox-short"].implied
-    assert spec.role(spec.blocks["worker"]) == "actuator"
 
 
 def test_production_reports_missing_feedback_on_the_critical_goal():
@@ -169,15 +158,6 @@ def test_a_key_written_twice_is_an_error(tmp_path):
     assert "written twice" in str(e.value)
 
 
-def test_the_yaml_wins_over_the_toml_and_shows_as_the_old_model(tmp_path):
-    (tmp_path / "ergostat.toml").write_text('name = "old"\n')
-    (tmp_path / "ergostat.yaml").write_text((ROOT / "docs/spec-examples/first-loop.yaml").read_text())
-    m = mdl.load(tmp_path)
-    assert m.name == "first-loop" and m.spec is not None
-    assert m.controllers["inbox-short"].drives == ["worker"]
-    assert m.flows["arrivals"].disturbance is False          # drop sets it
-    assert m.loop("inbox-short").closes
-    assert all(lv != "error" for lv, _ in mdl.check(m))
 
 
 def test_every_old_example_converts_to_a_model_that_compiles(tmp_path):

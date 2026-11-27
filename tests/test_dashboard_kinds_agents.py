@@ -35,7 +35,7 @@ dashboards:
 
 def write(tmp_path: Path, board: str = BOARD) -> Path:
     d = tmp_path / "first-loop"
-    shutil.copytree(ROOT / "examples" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__", "inbox"))
+    shutil.copytree(ROOT / "tests" / "fixtures" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__", "inbox"))
     f = d / "ergostat.yaml"
     f.write_text(f.read_text() + board)
     return d

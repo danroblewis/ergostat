@@ -16,12 +16,13 @@ const HEADS: Partial<Record<GoalColumn, [string, boolean?]>> = {
   timeOff: ["time off", true], backIn: ["back in", true], spark: ["trend"], performance: ["behaviour"], acted: ["acted"],
 };
 
-export function GoalsTable({ loops, only, columns = ALL_COLUMNS, selected, onOpen, caption = "Goals", mark }: {
+export function GoalsTable({ loops, only, columns = ALL_COLUMNS, selected, onOpen, caption = "Goals", mark, label }: {
   loops: Record<string, any>;
   /** these goals alone (a panel's goals:, or a system's), else every one */
   only?: string[] | null;
   /** a row's class and title (an ancillary goal: greyer, saying where it is defined) */
   mark?: (name: string) => { className?: string; title?: string };
+  label?: (name: string) => string;
   columns?: GoalColumn[];
   selected?: string | null;
   onOpen: (name: string) => void;
@@ -50,7 +51,7 @@ export function GoalsTable({ loops, only, columns = ALL_COLUMNS, selected, onOpe
         {rows.map((g) => (
           <Table.Row key={g.name} onClick={() => onOpen(g.name)} title={mark?.(g.name).title}
             className={[selected === g.name ? "selected" : "", mark?.(g.name).className || ""].join(" ").trim() || undefined}>
-            <GoalCells g={{ ...g, behaviour: word(g.name, g) }} columns={columns} open={onOpen} at={at} />
+            <GoalCells g={{ ...g, behaviour: word(g.name, g), label: label?.(g.name) }} columns={columns} open={onOpen} at={at} />
           </Table.Row>
         ))}
       </Table.Body>

@@ -217,34 +217,7 @@ def copied(tmp_path, example: str) -> Project:
     return Project(mdl.load(tmp_path / example))
 
 
-def test_the_ticket_factory_work_block_and_its_implied_rule(tmp_path):
-    p = copied(tmp_path, "ticket-factory")
-    w = spec_of(p, "work")
-    assert {"name": "prompts/work.md", "role": "prompt", "format": "markdown"} in w["files"]
-    assert any(f["name"] == "bin/step.py" for f in w["files"]) and w["params"]["takes"]["projection"] == "ticket"
-    k = spec_of(p, "keep-located-worked")
-    assert k["implied"] is True and k["implied_by"] == "work" and k["law"]["says"]
 
 
-@pytest.mark.serial
-def test_an_agents_answer_is_quick(tmp_path):
-    """The live demos' ports are not reachable here: the same answer on the ticket factory, median of 10."""
-    p = copied(tmp_path, "ticket-factory")
-    live = Live(p)
-    for name in ("work", "keep-located-worked"):
-        took = []
-        for _ in range(10):
-            t = time.perf_counter()
-            api(live, f"agents/{name}", {})
-            took.append(time.perf_counter() - t)
-        assert statistics.median(took) < 0.3, (name, took)
 
 
-def test_docs_fresh_fixer_and_page_picker(tmp_path):
-    p = copied(tmp_path, "docs-fresh")
-    fixer = next(n for n in p.model.agents if n.endswith("fixer"))
-    text = json.dumps(api(Live(p), f"agents/{fixer}", {})["spec"])
-    assert json.loads(text)["own"]["module"].startswith("ergostat.")
-    assert "/.venv/" not in text and "/private/" not in text and sys.executable not in text
-    d = spec_of(p, "page-picker")["decisions"]
-    assert set(d) >= {"count", "kinds"}

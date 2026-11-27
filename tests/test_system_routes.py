@@ -13,7 +13,7 @@ import pytest
 
 from ergostat import model as mdl
 from ergostat.spec import SpecError, load, read
-from ergostat.spec.routes import collisions, href, resolve, table
+from ergostat.spec.routes import href, resolve, shadowed, table
 from ergostat.store import Project
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,7 +31,7 @@ def table_of(tmp_path, name) -> tuple[dict, list]:
     d = tmp_path / name
     d.mkdir()
     spec, probs = read(write(d, MODELS[name]["files"]))
-    other = [p for p in probs if p.level == "error" and p.code != "address-collision"]
+    other = [p for p in probs if p.level == "error" and p.code != "address-unreachable"]
     assert not other, [str(p) for p in other]
     return table(spec), probs
 
@@ -44,27 +44,46 @@ def test_each_shared_case_resolves_and_writes_as_the_fixture_says(tmp_path, name
     assert got == [(path, want) for path, want, _ in m["resolve"]]
     got = [href(t, thing, scope) for thing, scope, _ in m["href"]]
     assert got == [want for _, _, want in m["href"]]
-    assert [{"scope": c["scope"], "segment": c["segment"], "kinds": sorted(x["kind"] for x in c["things"])}
-            for c in collisions(t)] == m["collisions"]
+    assert [[c["scope"], c["segment"], [c["kept"]["kind"], c["kept"]["name"]], [c["lost"]["kind"], c["lost"]["name"]]]
+            for c in shadowed(t)] == m["shadowed"]
+    assert [[u["kind"], u["name"]] for u in t["unaddressed"]] == m["unaddressed"]
 
 
-def test_a_collision_names_both_things_and_the_scope_and_is_a_problem_of_the_model(tmp_path):
-    t, probs = table_of(tmp_path, "collisions")
-    said = {c["segment"]: c["message"] for c in collisions(t)}
-    assert said["review"] == ("/factory/review names 2 things in factory: dashboard factory.review and system review; "
-                              "rename one")
-    assert said["events"] == ("/events names 2 things in the top level: the default dashboard events and projection "
-                              "events; rename one")
-    assert said["api"] == "/api names 2 things in the top level: system api and the server's own /api; rename one"
-    assert sorted(p.about for p in probs if p.code == "address-collision") == ["factory.review", "top.api", "top.events"]
-    assert {p.level for p in probs if p.code == "address-collision"} == {"error"}        # the model does not load
-    with pytest.raises(SpecError, match="address collision"):
-        load(tmp_path / "collisions" / "ergostat.yaml")
+def test_a_shadowed_name_is_a_finding_naming_both_and_a_thing_with_no_address_an_error(tmp_path):
+    _, probs = table_of(tmp_path, "order")
+    said = [p for p in probs if p.code == "address-shadowed"]
+    assert [p.level for p in said] == ["finding", "finding"]
+    assert said[0].message == ("address shadowed: /factory/ticket is system ticket in factory, so projection ticket is "
+                               "not addressed there; it is at /ticket")
+    assert not [p for p in probs if p.level == "error"]
+    _, probs = table_of(tmp_path, "unreachable")
+    errs = sorted(p.about for p in probs if p.code == "address-unreachable")
+    assert errs == ["projection.events", "projection.static", "system.api", "system.goals", "system.review"]
+    assert {p.level for p in probs if p.code == "address-unreachable"} == {"error"}
+    with pytest.raises(SpecError, match="no address"):
+        load(tmp_path / "unreachable" / "ergostat.yaml")
+
+
+def test_a_remotes_parts_are_named_by_their_short_names_inside_it(tmp_path):
+    from tests.test_remote import LOCAL, served_into
+    from tests.test_remote import write as rwrite
+    local = tmp_path / "support"
+    rwrite(local, LOCAL)
+    served_into(local, tmp_path)
+    spec, probs = read(local / "ergostat.yaml")
+    assert not [p for p in probs if p.level == "error"], probs
+    t = table(spec)
+    assert t["scopes"]["incidents-triage"]["path"] == "/incidents/triage"
+    assert resolve(t, "/incidents/response") == {"scope": "incidents-response", "kind": "system",
+                                                 "name": "incidents-response"}
+    assert href(t, {"kind": "goal", "name": "incidents-few-open"}) == "/incidents/goals/few-open"   # carried up into the remote
+    assert resolve(t, "/incidents/goals/few-open")["name"] == "incidents-few-open"
+    assert href(t, {"kind": "agent", "name": "incidents-pager"}) == "/incidents/triage/agents/pager"
 
 
 def test_the_factory_model_has_no_collision_and_every_written_address_reads_back(tmp_path):
     t, probs = table_of(tmp_path, "factory")
-    assert not [p for p in probs if p.code == "address-collision"]
+    assert not [p for p in probs if p.code.startswith("address-")]
     for thing, scope, want in MODELS["factory"]["href"]:
         if want is None:
             continue

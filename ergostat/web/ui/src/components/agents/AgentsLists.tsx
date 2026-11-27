@@ -47,10 +47,11 @@ export function CostNote() {
 }
 
 /** Every agent, grouped by rung: its roles, runs, last run, schedule and what its runs cost, with the window's totals. */
-export function AgentsTable({ agents, caption = "Agents, by rung", mark }: {
+export function AgentsTable({ agents, caption = "Agents, by rung", mark, label }: {
   agents: Record<string, any>; caption?: string;
   /** a row's class and title (an ancillary agent: greyer, saying where it is defined) */
   mark?: (name: string) => { className?: string; title?: string };
+  label?: (name: string) => string;
 }) {
   const of = (i: number) => Object.entries(agents).filter(([, a]) => a.rung === i);
   const groups = COLS.map((k, i) => [i, k, of(i)] as const).filter(([, , xs]) => xs.length);
@@ -85,7 +86,7 @@ export function AgentsTable({ agents, caption = "Agents, by rung", mark }: {
               <Fragment key={name}>
                 <Table.Row to={agentHref(name)} {...mark?.(name)}>
                   <Table.Td className="nowrap">
-                    <AppLink to={agentHref(name)} className="agent-link"><b>{name}</b></AppLink>
+                    <AppLink to={agentHref(name)} className="agent-link"><b>{label?.(name) ?? name}</b></AppLink>
                     {x && <span className="exception" title={x[1]}>{` ${x[0]}`}</span>}
                   </Table.Td>
                   <Table.Td>

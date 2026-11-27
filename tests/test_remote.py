@@ -89,24 +89,24 @@ def test_the_remote_api_answers_with_a_token_only_and_pages_by_cursor(tmp_path):
     p.measurements.add("sensor/open.main", 4.0)
     server, url = web_serve(p, free_port())
     try:
-        assert _get(f"{url}/remote/v1/status")[0] == 404                    # off until a token is made
+        assert _get(f"{url}/api/remote/v1/status")[0] == 404                    # off until a token is made
         tok = tokens.issue(p.dir, "support")
-        assert _get(f"{url}/remote/v1/status")[0] == 401
-        assert _get(f"{url}/remote/v1/status", "wrong")[0] == 401
-        code, st, _ = _get(f"{url}/remote/v1/status", tok)
+        assert _get(f"{url}/api/remote/v1/status")[0] == 401
+        assert _get(f"{url}/api/remote/v1/status", "wrong")[0] == 401
+        code, st, _ = _get(f"{url}/api/remote/v1/status", tok)
         assert code == 200 and st["name"] == "incidents" and st["last_seq"] >= 5
-        code, m, etag = _get(f"{url}/remote/v1/model", tok)
+        code, m, etag = _get(f"{url}/api/remote/v1/model", tok)
         assert code == 200 and etag == f'"{m["version"]}"'
-        assert _get(f"{url}/remote/v1/model", tok, m["version"])[0] == 304   # unchanged: nothing sent
-        code, page, _ = _get(f"{url}/remote/v1/events?after=0&n=2", tok)
+        assert _get(f"{url}/api/remote/v1/model", tok, m["version"])[0] == 304   # unchanged: nothing sent
+        code, page, _ = _get(f"{url}/api/remote/v1/events?after=0&n=2", tok)
         assert code == 200 and [e["seq"] for e in page["events"]] == [1, 2] and page["next"] == 2 and page["more"]
-        code, page2, _ = _get(f"{url}/remote/v1/events?after={page['next']}&n=2", tok)
+        code, page2, _ = _get(f"{url}/api/remote/v1/events?after={page['next']}&n=2", tok)
         assert [e["seq"] for e in page2["events"]] == [3, 4]
-        code, r, _ = _get(f"{url}/remote/v1/readings?series=sensor/open.main&ref=stock.open,stock.nothing", tok)
+        code, r, _ = _get(f"{url}/api/remote/v1/readings?series=sensor/open.main&ref=stock.open,stock.nothing", tok)
         assert r["series"]["sensor/open.main"]["value"] == 4.0 and r["refs"]["stock.open"]["value"] == 4.0
         assert r["refs"]["stock.nothing"].get("missing") and r["version"] == m["version"]
-        assert _get(f"{url}/remote/v1/counts", tok)[0] == 200
-        assert _get(f"{url}/remote/v1/model", tok, method="POST")[0] in (403, 405)   # read only
+        assert _get(f"{url}/api/remote/v1/counts", tok)[0] == 200
+        assert _get(f"{url}/api/remote/v1/model", tok, method="POST")[0] in (403, 405)   # read only
     finally:
         server.shutdown()
         server.server_close()
@@ -126,10 +126,11 @@ def served_into(local, home_root, remote="incidents", text=REMOTE, ok=True):
 
 LOCAL = """
 name: support
-remotes:
+systems:
   incidents:
-    url: http://127.0.0.1:1
-    token-file: incidents.token
+    remote:
+      url: http://127.0.0.1:1
+      token-file: incidents.token
 stocks:
   tickets:
     sensor: {run: echo 3}
@@ -192,7 +193,7 @@ blocks:
 
 def test_systems_narrows_what_is_brought_in(tmp_path):
     local = tmp_path / "support"
-    write(local, LOCAL.replace("    token-file: incidents.token\n", "    token-file: incidents.token\n    systems: [triage]\n"))
+    write(local, LOCAL.replace("      token-file: incidents.token\n", "      token-file: incidents.token\n      systems: [triage]\n"))
     served_into(local, tmp_path)
     spec, problems = sp.read(local / "ergostat.yaml", extremes=False)
     assert not [p for p in problems if p.level == "error"], problems
@@ -489,3 +490,17 @@ def test_explain_without_remotes_unchanged(tmp_path):
     spec = _alert_triage_without_uses(tmp_path)
     assert not spec.remotes and not any("modelling" in n for n in spec.systems)
     assert _every_explanation(spec) == GOLDEN.read_text()     # written from main's explain, before this gap
+
+
+def test_a_remote_is_a_system_with_remote_and_the_old_section_is_an_error(tmp_path):
+    """A remote is written as a system (``systems: NAME: {remote: {...}}``): only within, description, show and remote
+    on the system, the rest under remote:; the old top-level ``remotes:`` is an error that says so."""
+    local = tmp_path / "support"
+    write(local, LOCAL.replace("    remote:\n", "    stocks: [x]\n    remote:\n      within: elsewhere\n"))
+    _, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    said = [p.message for p in problems if p.level == "error"]
+    assert any("unknown key 'stocks'" in m for m in said) and any("remote: unknown key 'within'" in m for m in said), said
+    write(local, "name: s\nremotes:\n  incidents: {url: 'http://127.0.0.1:1'}\n")
+    _, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    assert [p.code for p in problems if p.level == "error"] == ["unknown-key"]
+    assert "a remote is a system" in [p for p in problems if p.level == "error"][0].message

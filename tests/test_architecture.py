@@ -219,15 +219,3 @@ def test_system_size_in_explain_and_the_panel(tmp_path, monkeypatch):
         assert box["size"] == "13 parts, 3 feedback loops inside"
 
 
-def test_the_clean_examples_have_no_architecture_notes_and_every_example_is_fast():
-    for ex in sorted(p for p in (ROOT / "examples").iterdir() if (p / "ergostat.yaml").exists()):
-        from ergostat.spec.compile import compile_doc
-        from ergostat.spec.load import load
-        spec, _ = compile_doc(load(ex / "ergostat.yaml"))
-        found: list = []
-        t = time.perf_counter()
-        arch.findings(spec, lambda *a, found=found: found.append(a))
-        took = time.perf_counter() - t
-        assert took < 0.5, (ex.name, took)
-        if ex.name in CLEAN:
-            assert found == [], (ex.name, found)

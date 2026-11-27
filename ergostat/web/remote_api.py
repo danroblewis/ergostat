@@ -1,4 +1,4 @@
-"""The remote API (SPEC §4c): what another ergostat reads of this one, under ``/remote/v1/``. Read only (GET),
+"""The remote API (SPEC §4c): what another ergostat reads of this one, under ``/api/remote/v1/``. Read only (GET),
 bounded and paged, behind a bearer token per consumer (``remote/tokens.py``); off (404) until a token is made. The
 page's Host check is not applied here, since a tunnel or a proxy sends its own name: the token admits a request."""
 
@@ -93,10 +93,10 @@ def reading_of(live, p, ref: str) -> dict:
 
 
 def answer(live, path: str, q: dict):
-    """(status, body) for a GET under /remote/v1/."""
+    """(status, body) for a GET under /api/remote/v1/."""
     parts = [unquote(x) for x in path.strip("/").split("/")]
     if len(parts) < 2 or parts[0] != "v1":
-        return 404, {"error": "not found (the remote API is /remote/v1/...)"}
+        return 404, {"error": "not found (the remote API is /api/remote/v1/...)"}
     head, rest = parts[1], parts[2:]
     p = live.get()
     m = p.model

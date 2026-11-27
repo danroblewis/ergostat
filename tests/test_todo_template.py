@@ -467,34 +467,3 @@ def test_the_template_adds_no_action_that_writes_to_any_outside_system(tmp_path,
     assert not calls & {"open", "exec", "eval", "compile", "__import__"}, calls
 
 
-def test_the_demo_batches_its_todos_across_three_places(tmp_path, monkeypatch):
-    """The demo as its model runs it: its collector's command and its batcher's, each as compiled, one pass each."""
-    root = Path(__file__).resolve().parent.parent / "examples" / "todo-list"
-    for f in ("ergostat.yaml", "todos.jsonl"):
-        shutil.copy(root / f, tmp_path / f)
-    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
-    p = Project(mdl.load(tmp_path))
-    spec = p.model.spec
-    collect = spec.flows["todo-added"].sensors["main"].run
-    batch = spec.blocks["todo-batcher"].params["run"]
-
-    def run(cmd):
-        r = subprocess.run(cmd, shell=True, cwd=tmp_path, capture_output=True, text=True, env={**os.environ})
-        assert r.returncode == 0, r.stderr
-        for x in (json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")):
-            if "event" in x:
-                p.events.add(x["event"], item=x["item"], source="demo", data=x["data"])
-    run(collect)
-    run(batch)
-    got = {i.id: i for i in its.project(p.events, spec)}
-    assert got["todo/clean-cache"].state == "waiting" and got["todo/update-runbook"].state == "new"
-    batches = {k: i.fields for k, i in got.items() if k.startswith("todo-batch/") and i.state == "open"}
-    assert set(batches) == {"todo-batch/bastion-1", "todo-batch/lab-vpn", "todo-batch/anywhere"}, batches
-    assert batches["todo-batch/bastion-1"]["todos"] == ["todo/rotate-logs", "todo/renew-cert"]
-    assert why(p, "todo/clean-cache")["root"]["item"] == "todo/request-access"
-    p.events.add("todo.done", item="todo/request-access", source="user")
-    run(batch)                                     # the wait is over: ready again, and in its place's batch next pass
-    run(batch)
-    got = {i.id: i for i in its.project(p.events, spec)}
-    assert got["todo/clean-cache"].state == "ready" and got["todo-batch/build-host"].fields["todos"] == ["todo/clean-cache"]
-    assert got["todo-batch/anywhere"].state == "clear"

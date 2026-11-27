@@ -63,10 +63,11 @@ flows:
 """
 LOCAL = """\
 name: support
-remotes:
+systems:
   incidents:
-    url: http://127.0.0.1:1
-    token-file: incidents.token
+    remote:
+      url: http://127.0.0.1:1
+      token-file: incidents.token
 parameters:
   k:
     value: 2
@@ -209,7 +210,7 @@ def test_new_names_are_free_against_every_parameter_served_even_those_left_out_b
         "    unit: jobs\n", "    unit: jobs\n    system: ops\n").replace(
         "    to: queue\n", "    to: queue\n    system: ops\n").replace(
         "    from: queue\n", "    from: queue\n    system: ops\n")
-    local = LOCAL.replace("    token-file: incidents.token\n", "    token-file: incidents.token\n    systems: [ops]\n")
+    local = LOCAL.replace("      token-file: incidents.token\n", "      token-file: incidents.token\n      systems: [ops]\n")
     p, _ = _project(tmp_path, text=two, local=local)
     spec = p.model.spec
     assert "parameter.incidents-time-in-queue" not in spec.remotes["incidents"]["names"]   # narrowed away here
@@ -236,7 +237,7 @@ def test_a_for_remote_record_stores_no_fit_field(tmp_path):
 
 def test_a_proposal_of_local_and_remote_parts_or_two_remotes_is_not_written_for_remote(tmp_path):
     d = tmp_path / "support"
-    write(d, LOCAL.replace("remotes:\n", "remotes:\n  other:\n    url: http://127.0.0.1:2\n"))
+    write(d, LOCAL.replace("systems:\n", "systems:\n  other:\n    remote:\n      url: http://127.0.0.1:2\n", 1))
     served_into(d, tmp_path, text=REM)
     served_into(d, tmp_path / "o", remote="other", text=REM.replace("name: incidents", "name: other"))
     p = Project(mdl.load(d))
@@ -619,7 +620,7 @@ def test_ergostat_sends_nothing_for_a_for_remote_proposal(tmp_path, monkeypatch,
     assert asked
     for r in asked:
         said = urllib.parse.unquote_plus(r.full_url) + json.dumps(dict(r.header_items()))
-        assert r.get_method() == "GET" and r.data is None and "/remote/v1/" in r.full_url
+        assert r.get_method() == "GET" and r.data is None and "/api/remote/v1/" in r.full_url
         assert x["text"] not in said and "review-time from" not in said
 
 

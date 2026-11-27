@@ -90,20 +90,6 @@ def test_a_model_that_runs_away_at_ten_times_its_input_is_caught(tmp_path):
     assert away and not [m for _, m in got if "everything as usual" in m], got
 
 
-def test_a_pool_at_zero_and_a_setpoint_at_its_limit_run_with_the_loops_running():
-    spec, _ = sp.read(EXAMPLES / "first-loop" / "ergostat.yaml", extremes=False)
-    pl = sim.plan(spec)
-    conds = {c.key: c for c in ex.conditions(spec, pl)}
-    assert {"goal.inbox-short=low", "goal.inbox-short=high"} <= set(conds)
-    as_usual = ex._run(spec, pl, conds["usual"], None).values["stock.inbox"][-1]
-    pushed = ex._run(spec, pl, conds["goal.inbox-short=low"], None).values["stock.inbox"][-1]
-    assert as_usual == 10 and pushed < 0.5                    # held at 20: left at 10; held at 0: the worker drains it
-    spec, _ = sp.read(EXAMPLES / "image-squeeze" / "ergostat.yaml", extremes=False)
-    pools = [c for c in ex.conditions(spec, sim.plan(spec)) if c.pools]
-    assert pools and all(c.key.endswith("=empty-pool") for c in pools)
-    run = ex._run(spec, sim.plan(spec), pools[0], None)
-    took = [r for r, m in run.models.items() if m.block == pools[0].pools[0]]
-    assert took and all(not any(run.values[r]) for r in took)          # no server: nothing taken
 
 
 def test_a_second_check_is_fast_from_the_cache(tmp_path, monkeypatch):

@@ -620,49 +620,6 @@ def test_a_division_by_zero_is_counted_and_said_and_zidz_is_the_way_to_mean_it(t
     assert run_eq("XIDZ(1, 0, 7)", {}) == 7 and run_eq("ZIDZ(6, 3)", {}) == 2
 
 
-@pytest.mark.parametrize("hours", [24, 168])
-def test_the_job_replays_at_a_day_and_a_week_without_blowing_up(tmp_path, hours):
-    """The-job's model as written, on a record of ramps going ahead and breaking or proving fine as its
-    world makes them (world/traffic.py)."""
-    import random
-    import shutil
-    from pathlib import Path
-    src = Path(__file__).resolve().parent.parent / "examples" / "the-job"
-    shutil.copytree(src, tmp_path / "job", ignore=shutil.ignore_patterns("run", "__pycache__"))
-    p = Project(mdl.load(tmp_path / "job"))
-    rnd = random.Random(4)
-    now = float(int(time.time()))                        # (whole seconds: the store keeps a time to the ms)
-    span, day = hours * 3600.0, 60.0
-    per_hour = 20 if hours == 24 else 3
-    live = []
-    t = now - span
-    i = 0
-    while t < now:
-        i += 1
-        rid = f"ramp/{i}"
-        p.events.add("ramp.requested", item=rid, at=t)
-        p.events.add("ramp.went-ahead", item=rid, at=t + 1)
-        if rnd.random() < 0.45:
-            end, what = t + 1 + day * rnd.uniform(0.1, 0.5), "ramp.broke"
-        else:
-            end, what = t + 1 + day * 0.5, "ramp.proved-fine"
-        if end < now:
-            p.events.add(what, item=rid, at=end)
-        live.append((t + 1, end))
-        t += rnd.expovariate(per_hour / 3600.0)
-    for k in range(int(span // 300) + 1):
-        at = now - span + k * 300
-        p.measurements.add("sensor/unreviewed-ramps-live.main", float(sum(1 for a, b in live if a <= at < b)), at=at)
-    data = sim.measured(p, sim.Grid(now - span, now, 120))     # the page's window
-    run = sim.replay(p.model.spec, data)
-    vals = [v for v in run.values["stock.unreviewed-ramps-live"] if v is not None]
-    assert run.valid, run.invalid
-    assert vals and max(vals) < 20, max(vals)                    # not 2.6e10
-    meas = [v for v in data.values["stock.unreviewed-ramps-live"] if v is not None]
-    assert abs(sum(vals) / len(vals) - sum(meas) / len(meas)) < 0.1    # the delays hand on what they take in
-    _, ref, got = ft.compute(p, {"at": now})                    # the fit, on the reference window
-    assert ref.valid and got["partial"]["flow.ramps-broke"]["n"] >= 10
-    assert abs(got["partial"]["flow.ramps-broke"]["um"]) < 0.2   # its delay's output is not biased
 
 
 # ---- one accounting basis: the replay of what was counted is the record

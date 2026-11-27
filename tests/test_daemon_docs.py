@@ -244,10 +244,3 @@ def test_each_example_records_readings_and_finishes_items_under_the_engine(tmp_p
     assert not p.events.query(n=None, type="sensor.failed"), f"a sensor failed{why}"
 
 
-def test_the_demo_is_built_from_the_docs_own_files(tmp_path):
-    build("daemon-demo", tmp_path)
-    tracked = subprocess.run(["git", "-C", str(DEMO), "ls-files"], capture_output=True, text=True, check=True).stdout.split()
-    built = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_file())
-    assert sorted(f for f in tracked if f not in ("README.md", ".gitignore")) == built
-    for f in built:
-        assert (DEMO / f).read_text() == (tmp_path / f).read_text(), f"examples/daemon-demo/{f} differs from the docs"

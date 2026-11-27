@@ -1,37 +1,45 @@
 """The page's addresses, from what each system contains (SPEC §4f, *Addresses*; docs/roadmap/systems-and-projections.md).
 
-``/api``, ``/static`` and ``/remote`` are the server's. Every other address is read one segment at a time from the top
-level (the scope ``TOP``, ""); in a scope each segment is, in this order:
+``/api`` and ``/static`` are the server's (the remote API is under ``/api/remote/``). Every other address is read one
+segment at a time from the top level (the scope ``TOP``, ""). In a scope a name goes to the first of (the fixed order):
 
 1. a dashboard the model writes in that system (``dashboards:`` in a file whose ``defaults: system:`` is it; at the top
    level, one in a file that names no system), by its own name (``factory.review`` is ``review`` in ``factory``). One
    named as a default replaces that default there; one named as a projection the scope contains is that projection's
-   list dashboard there (dashboards come before projections), the projection's items still under it;
+   list dashboard there, the projection's items still under it (neither is a shadowing);
 2. a default dashboard: ``overview``, ``diagrams``, ``goals``, ``agents``, ``events``. ``goals/NAME`` and
    ``agents/NAME`` are a goal's and an agent's show dashboards, for a goal or agent the scope contains;
-3. a projection the scope contains (scope.py: defined or ancillary there): ``NAME`` its list, ``NAME/REST`` one of its
+3. a subsystem: what follows is read in it;
+4. a projection the scope contains (scope.py: defined or ancillary there): ``NAME`` its list, ``NAME/REST`` one of its
    items, REST what its id glob's ``*`` matched (``factory/intake/ticket/1234`` at ``.../ticket/1234``; a glob that is
-   not PREFIX* writes the whole id);
-4. a subsystem, by its own name: what follows is read in it.
+   not PREFIX* writes the whole id). Between two of one rank (two projections, or two goals under ``goals/``), the one
+   defined in that scope, then the first in the model's order.
 
-A dashboard drawn in place of a page (``page:``) has no address of its own: that page's link reaches it.
+At the top level ``api`` and ``static`` go to the server before all of these.
 
-**The top-most address.** A projection, item, goal or agent may be at several scopes' addresses: every scope that
-contains it. Its address read in a scope redirects to the highest scope on that scope's own chain (it and the systems
-it is within, up to the top level) that contains it, when that is higher: ``/factory/intake/ticket/1234`` redirects to
-``/factory/ticket/1234`` once a flow makes ``ticket`` cross into ``factory``, and to ``/ticket/1234`` once it is at the
-top level. Its canonical address (``href``) is the same rule read from the system it is defined in; one defined
-nowhere (ergostat's own) is at the highest scope that contains it, the first of them in the model's order on a tie.
-Never sideways: an agent carried from ``intake`` into its sibling ``qa`` (and not into ``factory``) is at both, and
-neither redirects. A dashboard is only where it is written; a system only under its parent (scope.py does not compute
-systems as things that cross: an open question).
+**Names.** A thing is named in a scope by its own name, except a part a remote or a template's instance made
+(``spec.belongs``: its system and its short name), which inside that system (it, or a system within it) is named by
+its short name: the remote ``incidents``'s ``ticket`` projection, ``incidents-ticket`` model-wide, is
+``/incidents/ticket``, its subsystem ``incidents-triage`` is ``/incidents/triage``, its goal ``incidents-full``
+``/incidents/goals/full``; outside it, the full name.
 
-**Collisions.** Two things at one segment of one scope (a subsystem and a dashboard both named ``review`` in
-``factory``; a projection named ``events``; a top-level one named ``api``) are a problem of the model (``collisions``,
-``problems``), at ``LEVEL``: errors (the model does not load, and the page shows the errors). The project's own model
-and two examples have one for now (a system and a projection of one name, in one scope), and their tests are disabled
-(tests/broken_by_redesign.txt). The two exceptions above (a model's dashboard over a default, or
-over a projection) are not collisions.
+**Shadowed.** A thing that loses its name at a scope is not addressed there (a finding, ``address-shadowed``, naming
+both things and the scope). A thing is *at* the scopes that contain it where it holds its name.
+
+**The top-most address.** A projection, item, goal or agent may be at several scopes. Its address read in a scope
+redirects to the highest scope on that scope's own chain (it and the systems it is within, up to the top level) that
+it is at, when that is higher: ``/factory/intake/ticket/1234`` redirects to ``/factory/ticket/1234`` once a flow makes
+``ticket`` cross into ``factory``, and to ``/ticket/1234`` once it is at the top level; a scope where its name is taken
+is skipped. Its canonical address (``href``) is the same rule read from the system it is defined in; one not at any
+scope on that chain (ergostat's own, or shadowed on its whole chain) is at the highest scope it is at, the first of
+them in the model's order on a tie. Never sideways from a scope: an agent carried from ``intake`` into its sibling
+``qa`` (and not into ``factory``) is at both, and neither redirects. A dashboard is only where it is written; a system
+only under its parent (scope.py does not compute systems as things that cross: an open question).
+
+**Errors.** A thing some scope contains that is at none (shadowed everywhere it is: a top-level system or projection
+named ``api`` or ``static``, a subsystem named as a default dashboard or as a dashboard its parent writes, a projection
+whose name is taken in every scope that contains it) has no address: an error (``address-unreachable``), and the model
+does not load. Nothing else is: two things never share an address, since each name in a scope goes to one of them.
 
 The table is plain JSON, served at GET /api/route-table; the page reads it with the same rules
 (web/ui/src/lib/systemRoutes.ts), both checked against tests/fixtures/route_cases.json.
@@ -44,30 +52,56 @@ from urllib.parse import quote, unquote
 
 from .scope import TOP, scope
 
-RESERVED = ("api", "static", "remote")
+RESERVED = ("api", "static")
 DEFAULTS = ("overview", "diagrams", "goals", "agents", "events")
-LEVEL = "error"         # a collision stops the model loading (docs/roadmap/systems-and-projections.md, step 5)
 SHOWS = {"goals": "goal", "agents": "agent"}        # a default dashboard whose next segment names one thing
+RANK = {"server": 0, "dashboard": 1, "default": 2, "system": 3, "projection": 4}
 
 
 def table(spec) -> dict:
-    """The route table: ``{"reserved", "defaults", "scopes": {SCOPE: {"within", "path", "segments": {SEGMENT:
-    {"kind": "dashboard" | "projection" | "system", "name", ("default": True | "projection": NAME)}}}},
-    "projections": {NAME: {"id", "defined_in", "in": [SCOPE, ...]}}, "goals" and "agents": {NAME: {"defined_in",
-    "in"}}, "dashboards": {NAME: SCOPE}, "collisions": [...]}``. ``in`` lists the scopes that contain it, in the
-    model's order; ``defined_in`` is None for ergostat's own."""
+    """The route table: ``{"reserved", "defaults", "scopes": {SCOPE: {"within", "name", "path", "segments": {SEGMENT:
+    {"kind": "dashboard" | "projection" | "system", "name", ("default": True | "projection": NAME)}}, "goals" and
+    "agents": {SEGMENT: NAME}}}, "projections": {NAME: {"id", "defined_in", "in": [SCOPE, ...], "at": {SCOPE:
+    SEGMENT}}}, "goals" and "agents": {NAME: {"defined_in", "in", "at"}}, "dashboards": {NAME: SCOPE}, "shadowed":
+    [...], "unaddressed": [...]}``. ``in`` lists the scopes that contain it, in the model's order, ``at`` those where
+    it holds its name (and the name); ``defined_in`` is None for ergostat's own. A scope's ``name`` is its segment
+    under its parent."""
     sc = scope(spec) if spec is not None else {TOP: {"within": None, "systems": [], "contains": {}}}
+    belongs = (getattr(spec, "belongs", None) or {}) if spec is not None else {}
     out: dict = {"reserved": list(RESERVED), "defaults": list(DEFAULTS), "scopes": {}, "projections": {}, "goals": {},
-                 "agents": {}, "dashboards": {}, "collisions": []}
+                 "agents": {}, "dashboards": {}, "shadowed": [], "unaddressed": []}
+    chains = {s: _sc_chain(sc, s) for s in sc}
+
+    def named(keys, name: str, s: str) -> str:
+        """Its name in scope ``s``: its short name inside the system that made it, else its own."""
+        for k in keys:
+            b = belongs.get(k)
+            if b is not None and b.system in chains.get(s, ()):
+                return b.short
+        return name
+
     for name, got in sc.items():
-        out["scopes"][name] = {"within": got["within"], "path": _path(sc, name), "segments": {}}
-    for plural, into in (("projections", "projections"), ("goals", "goals"), ("agents", "agents"),
-                         ("blocks", "agents")):     # a block is the page's agent too (/api/agents/NAME: its runs)
-        for name, got in sc.items():
+        seg = "" if name == TOP else named([f"system.{name}"], name, got["within"] if got["within"] is not None else TOP)
+        out["scopes"][name] = {"within": got["within"], "name": seg, "path": "", "segments": {}, "goals": {},
+                               "agents": {}}
+    for name in sc:
+        out["scopes"][name]["path"] = _path(out["scopes"], name)
+
+    keys: dict[tuple[str, str], list[str]] = {}     # (plural, name) → its belongs keys
+    defined: dict[tuple[str, str], set] = {}
+    for plural, into, one in (("projections", "projections", "projection"), ("goals", "goals", "goal"),
+                              ("agents", "agents", "agent"), ("blocks", "agents", "block")):
+        for name, got in sc.items():                # a block is the page's agent too (/api/agents/NAME: its runs)
             for row in got["contains"].get(plural, []):
-                thing = out[into].setdefault(row["name"], {"defined_in": row["defined_in"], "in": []})
+                thing = out[into].setdefault(row["name"], {"defined_in": row["defined_in"], "in": [], "at": {}})
                 if name not in thing["in"]:
                     thing["in"].append(name)
+                keys.setdefault((into, row["name"]), []).append(f"{one}.{row['name']}")
+                if row["status"] == "defined":
+                    defined.setdefault((into, row["name"]), set()).add(name)
+    for into in ("projections", "goals", "agents"):         # each scope's list in the model's scope order
+        for name, thing in out[into].items():
+            thing["in"].sort(key=list(sc).index)
     for name, thing in out["projections"].items():
         k = spec.items.get(name)
         thing["id"] = k.id if k is not None else f"{name}/*"
@@ -81,88 +115,153 @@ def table(spec) -> dict:
         out["dashboards"][full] = system
         dashboards[system].append((local, full, d))
 
+    lost: list[tuple[str, str, dict, dict]] = []    # (scope, segment, kept, lost)
     for s, got in sc.items():
-        claims: dict[str, list[tuple[dict, str]]] = {}
+        here = out["scopes"][s]
+        claims: dict[str, list[dict]] = {}
 
-        def claim(seg: str, entry: dict, said: str) -> None:
-            claims.setdefault(seg, []).append((entry, said))
+        def claim(seg: str, entry: dict) -> None:
+            claims.setdefault(seg, []).append(entry)
 
-        for local, full, _ in dashboards[s]:
-            claim(local, {"kind": "dashboard", "name": full}, f"dashboard {full}")
-        for d in DEFAULTS:
-            claim(d, {"kind": "dashboard", "name": d, "default": True}, f"the default dashboard {d}")
-        for row in got["contains"].get("projections", []):
-            claim(row["name"], {"kind": "projection", "name": row["name"]},
-                  f"projection {row['name']}" + ("" if row["status"] == "defined" else
-                                                 f" (ancillary, defined in {_where(row['defined_in'])})"))
-        for child in got["systems"]:
-            claim(child, {"kind": "system", "name": child}, f"system {child}")
         if s == TOP:
             for r in RESERVED:
-                if r in claims:
-                    claim(r, {"kind": "server", "name": r}, f"the server's own /{r}")
-        segs = out["scopes"][s]["segments"]
+                claim(r, {"kind": "server", "name": r})
+        for local, full, _ in dashboards[s]:
+            claim(local, {"kind": "dashboard", "name": full})
+        for d in DEFAULTS:
+            claim(d, {"kind": "dashboard", "name": d, "default": True})
+        for child in got["systems"]:
+            claim(out["scopes"][child]["name"], {"kind": "system", "name": child})
+        rows = got["contains"].get("projections", [])
+        for row in sorted(rows, key=lambda r: r["status"] != "defined"):
+            n = row["name"]
+            claim(named(keys[("projections", n)], n, s), {"kind": "projection", "name": n})
         for seg, said in claims.items():
-            kept = _merge(said)
-            if kept is None:
-                things = [w for _, w in said]
-                out["collisions"].append({
-                    "scope": s, "segment": seg, "things": [{k: e[k] for k in ("kind", "name")} for e, _ in said],
-                    "message": f"{out['scopes'][s]['path'].rstrip('/')}/{seg} names {len(said)} things in "
-                               f"{_where(s)}: " + " and ".join(things) + "; rename one"})
-                kept = said[0][0]
+            said.sort(key=lambda e: RANK["default" if e.get("default") else e["kind"]])     # (stable: model order)
+            kept, rest = dict(said[0]), said[1:]
+            if kept["kind"] == "dashboard" and not kept.get("default"):
+                rest = [e for e in rest if not e.get("default")]            # a model's dashboard replaces a default
+                p = next((e for e in rest if e["kind"] == "projection"), None)
+                if p is not None:                       # and is a projection's list dashboard there
+                    kept["projection"] = p["name"]
+                    out["projections"][p["name"]]["at"][s] = seg
+                    rest = [e for e in rest if e is not p]
+            for e in rest:
+                lost.append((s, seg, kept, e))
+            if kept["kind"] == "projection":
+                out["projections"][kept["name"]]["at"][s] = seg
             if kept["kind"] != "server":
-                segs[seg] = kept
+                here["segments"][seg] = kept
+        for into in ("goals", "agents"):            # goals/NAME, agents/NAME: their own names, one each
+            mine: dict[str, list[str]] = {}
+            for n, thing in out[into].items():
+                if s in thing["in"]:
+                    mine.setdefault(named(keys[(into, n)], n, s), []).append(n)
+            for seg, ns in mine.items():
+                ns.sort(key=lambda n: s not in defined.get((into, n), ()))
+                here[into][seg] = ns[0]
+                out[into][ns[0]]["at"][s] = seg
+                for n in ns[1:]:
+                    lost.append((s, f"{into}/{seg}", {"kind": into[:-1], "name": ns[0]}, {"kind": into[:-1], "name": n}))
+    for into in ("projections", "goals", "agents"):         # each thing's scopes in the model's scope order
+        for thing in out[into].values():
+            thing["at"] = {x: thing["at"][x] for x in sorted(thing["at"], key=list(sc).index)}
+
+    reached = {s for s in sc if s == TOP or out["scopes"][s]["name"] in
+               out["scopes"][sc[s]["within"]]["segments"] and
+               out["scopes"][sc[s]["within"]]["segments"][out["scopes"][s]["name"]] == {"kind": "system", "name": s}}
+    for s, seg, kept, e in lost:
+        where = _where(s)
+        at = f"{out['scopes'][s]['path'].rstrip('/')}/{seg}"
+        if e["kind"] == "system":
+            elsewhere = None
+        elif e["kind"] in ("projection", "goal", "agent"):
+            elsewhere = href(out, {"kind": e["kind"], "name": e["name"]})
+        else:
+            elsewhere = None
+        out["shadowed"].append({
+            "scope": s, "segment": seg, "kept": {"kind": kept["kind"], "name": kept["name"]},
+            "lost": {"kind": e["kind"], "name": e["name"]}, "at": elsewhere,
+            "message": f"{at} is {_said(kept)}" + ("" if kept["kind"] == "server" else f" in {where}")
+                       + f", so {_said(e)} is not addressed there"
+                       + (f"; it is at {elsewhere}" if elsewhere else "")})
+    for s in sc:
+        if s not in reached:
+            parent = sc[s]["within"]
+            seg = out["scopes"][s]["name"]
+            kept = out["scopes"][parent]["segments"].get(seg) or {"kind": "server", "name": seg}
+            out["unaddressed"].append({"kind": "system", "name": s, "message": (
+                f"system {s} has no address: {out['scopes'][parent]['path'].rstrip('/')}/{seg} is {_said(kept)}"
+                + ("" if kept["kind"] == "server" else f" in {_where(parent)}") + "; rename one")})
+    for into in ("projections", "goals", "agents"):
+        for n, thing in out[into].items():
+            if thing["in"] and not thing["at"]:
+                takers = [f"{_said(k)} in {_where(s)}" for s, _seg, k, e in lost if e["name"] == n
+                          and e["kind"] == ("projection" if into == "projections" else into[:-1])]
+                out["unaddressed"].append({"kind": into[:-1] if into != "projections" else "projection", "name": n,
+                                           "message": f"{into[:-1] if into != 'projections' else 'projection'} {n} "
+                                                      f"has no address: its name is taken by "
+                                                      + ("; ".join(takers) or "?") + " (every scope that contains it); "
+                                                      "rename one"})
+    gone = {(u["kind"], u["name"]) for u in out["unaddressed"]}       # said once, as the error
+    out["shadowed"] = [c for c in out["shadowed"] if (c["lost"]["kind"], c["lost"]["name"]) not in gone]
     return out
 
 
-def _merge(said: list[tuple[dict, str]]) -> dict | None:
-    """The one entry a segment names, or None when it names two things: a model's dashboard over a default (it
-    replaces it) or over a projection (that projection's list dashboard there) is not a collision."""
-    if len(said) == 1:
-        return said[0][0]
-    mine = [e for e, _ in said if e["kind"] == "dashboard" and not e.get("default")]
-    rest = [e for e, _ in said if e not in mine]
-    if len(mine) != 1:
-        return None
-    projection = None
-    for e in rest:
-        if e["kind"] == "projection" and projection is None:
-            projection = e["name"]
-        elif not (e["kind"] == "dashboard" and e.get("default")):
-            return None
-    return {**mine[0], **({"projection": projection} if projection else {})}
+def _said(e: dict) -> str:
+    if e["kind"] == "server":
+        return "the server's own"
+    if e["kind"] == "dashboard":
+        return f"the default dashboard {e['name']}" if e.get("default") else f"dashboard {e['name']}"
+    return f"{e['kind']} {e['name']}"
 
 
 def _where(system) -> str:
     return "ergostat" if system is None else "the top level" if system == TOP else system
 
 
-def _path(sc: dict, system: str) -> str:
+def _sc_chain(sc: dict, s: str) -> list[str]:
+    out: list[str] = []
+    while s is not None and s not in out:
+        out.append(s)
+        s = sc.get(s, {}).get("within")
+    return out
+
+
+def _path(scopes: dict, system: str) -> str:
     names: list[str] = []
-    while system not in (TOP, None) and system not in names:
-        names.append(system)
-        system = sc.get(system, {}).get("within")
+    seen: list[str] = []
+    while system not in (TOP, None) and system not in seen:
+        seen.append(system)
+        names.append(scopes[system]["name"] if system in scopes else system)
+        system = scopes.get(system, {}).get("within")
     return "/" + "/".join(quote(n, safe="!*'()") for n in reversed(names))
 
 
-def collisions(t: dict) -> list[dict]:
-    """Two things at one segment of one scope: each ``{"scope", "segment", "things", "message"}``."""
-    return list(t["collisions"])
+def shadowed(t: dict) -> list[dict]:
+    """Each name a thing lost at a scope: ``{"scope", "segment", "kept", "lost", "at", "message"}``."""
+    return list(t["shadowed"])
 
 
-def problems(spec, level: str = LEVEL) -> list:
-    """Each collision as a problem of the model; as an error, the model does not load and the page shows its errors."""
+def problems(spec) -> list:
+    """Each shadowing as a finding (``address-shadowed``); each thing with no address as an error
+    (``address-unreachable``: the model does not load, and the page shows its errors)."""
     from .load import Problem
+    t = table(spec)
+
+    def where_of(kind: str, name: str):
+        got = {"projection": spec.items, "dashboard": spec.dashboards, "goal": spec.goals,
+               "agent": spec.agents}.get(kind, {}).get(name)
+        return getattr(got, "where", None)
+
     out = []
-    for c in collisions(table(spec)):
-        where = None
-        for x in c["things"]:
-            got = {"projection": spec.items, "dashboard": spec.dashboards}.get(x["kind"], {}).get(x["name"])
-            if (where := getattr(got, "where", None)) is not None:
-                break
-        out.append(Problem(level, f"address collision: {c['message']}", where, "address-collision",
+    for c in t["shadowed"]:
+        where = where_of(c["lost"]["kind"], c["lost"]["name"]) or where_of(c["kept"]["kind"], c["kept"]["name"])
+        out.append(Problem("finding", f"address shadowed: {c['message']}", where, "address-shadowed",
                            f"{c['scope'] or 'top'}.{c['segment']}"))
+    for u in t["unaddressed"]:
+        out.append(Problem("error", f"address: {u['message']}", where_of(u["kind"], u["name"]), "address-unreachable",
+                           f"{u['kind']}.{u['name']}"))
     return out
 
 
@@ -178,19 +277,20 @@ def _chain(t: dict, s: str) -> list[str]:
 
 
 def _top(t: dict, thing: dict, s: str | None) -> str | None:
-    """The highest scope on ``s``'s chain that contains the thing (None: none does)."""
+    """The highest scope on ``s``'s chain that the thing is at (None: none is)."""
     if s is None:
         return None
-    on = [x for x in _chain(t, s) if x in thing["in"]]
+    on = [x for x in _chain(t, s) if x in thing["at"]]
     return on[-1] if on else None
 
 
 def _canonical(t: dict, thing: dict) -> str | None:
-    if not thing["in"]:
+    at = list(thing["at"])
+    if not at:
         return None
     if thing["defined_in"] is not None and (got := _top(t, thing, thing["defined_in"])) is not None:
         return got
-    return min(thing["in"], key=lambda x: (len(_chain(t, x)), thing["in"].index(x)))
+    return min(at, key=lambda x: (len(_chain(t, x)), at.index(x)))
 
 
 def _enc(s: str) -> str:
@@ -234,13 +334,14 @@ def _at(t: dict, s: str, rest: str = "") -> str:
 
 
 def _addr(t: dict, kind: str, name: str, s: str, id_: str | None = None) -> str:
+    seg = t["projections" if kind in ("projection", "item") else kind + "s"][name]["at"].get(s, name)
     if kind == "projection":
-        return _at(t, s, _enc(name))
+        return _at(t, s, _enc(seg))
     if kind == "item":
         p = _prefix(t["projections"][name]["id"])
         rest = id_[len(p):] if p is not None and id_.startswith(p) else id_
-        return _at(t, s, f"{_enc(name)}/{_segs(rest)}")
-    return _at(t, s, f"{'goals' if kind == 'goal' else 'agents'}/{_enc(name)}")
+        return _at(t, s, f"{_enc(seg)}/{_segs(rest)}")
+    return _at(t, s, f"{'goals' if kind == 'goal' else 'agents'}/{_enc(seg)}")
 
 
 def resolve(t: dict, path: str) -> dict | None:
@@ -269,7 +370,8 @@ def resolve(t: dict, path: str) -> dict | None:
                 return _thing(t, s, "item", e["projection"], "/".join(rest))
             if segs[i] in SHOWS and len(rest) == 1 and (e.get("default") or e["name"] == segs[i]
                                                          or e["name"].endswith("." + segs[i])):
-                return _thing(t, s, SHOWS[segs[i]], rest[0])
+                got = t["scopes"][s][segs[i]].get(rest[0])
+                return _thing(t, s, SHOWS[segs[i]], got) if got is not None else None
             return None
         if e["kind"] == "projection":
             return _thing(t, s, "item" if rest else "projection", e["name"], "/".join(rest) if rest else None)
@@ -280,7 +382,7 @@ def resolve(t: dict, path: str) -> dict | None:
 def _thing(t: dict, s: str, kind: str, name: str, rest: str | None = None) -> dict | None:
     table_ = t["projections" if kind in ("projection", "item") else kind + "s"]
     thing = table_.get(name)
-    if thing is None or s not in thing["in"]:
+    if thing is None or s not in thing["at"]:
         return None
     out: dict = {"scope": s, "kind": kind, "name": name}
     if kind == "item":

@@ -32,10 +32,11 @@ flows:
 
 M = """
 name: m
-remotes:
+systems:
   a:
-    url: http://127.0.0.1:1
-    token-file: a.token
+    remote:
+      url: http://127.0.0.1:1
+      token-file: a.token
 stocks:
   mine:
     sensor: {run: echo 1}
@@ -43,10 +44,11 @@ stocks:
 
 L = """
 name: l
-remotes:
+systems:
   m:
-    url: http://127.0.0.1:1
-    token-file: m.token
+    remote:
+      url: http://127.0.0.1:1
+      token-file: m.token
 """
 
 FAKE = "http://127.0.0.1:1"
@@ -185,7 +187,7 @@ def test_a_middle_never_serves_its_remotes_url(tmp_path):
     a, mroot = middle(tmp_path)
     url = "https://user:secret@a.example.invalid:8443"
     write(mroot, M.replace("http://127.0.0.1:1", url).replace(
-        "a.token\n", "a.token\n  b:\n    url: https://b.example.invalid\n    token-file: b.token\n"
+        "a.token\n", "a.token\n  b:\n    remote:\n      url: https://b.example.invalid\n      token-file: b.token\n"
                      "    description: the owner's words\n"))
     plant(mroot, "m", "a", a)
     with compose.offline():
@@ -334,7 +336,7 @@ def test_a_local_part_named_like_an_imported_one_wins(tmp_path):
     taken = codes(problems, "remote-name-taken")
     assert taken and "more.yaml" in taken[0].message and "remote m" in taken[0].message
     assert "stock.m-a-open" not in spec.remotes["m"]["parts"]
-    write(lroot, L + "  m-a:\n    url: http://127.0.0.1:1\n    token-file: ma.token\n")       # two remotes collide
+    write(lroot, L + "  m-a:\n    remote:\n      url: http://127.0.0.1:1\n      token-file: ma.token\n")       # two remotes collide
     plant(lroot, "l", "m-a", body("d" * 16, {"stocks": {"open": {"via": [], "description": "from m-a"},
                                                         "pool": {"via": []}},
                                              "flows": {"leak": {"from": "open", "to": "pool", "via": []}}}))
@@ -479,7 +481,7 @@ def test_a_middle_serves_the_origin_age_not_its_own_time(chain):
     c.up.reply = lambda: {"now": time.time() + ahead, "instance": c.a["instance"],
                           "series": {"sensor/open.main": {"value": 3, "time": time.time() + ahead - 50}}}
     assert _m_reads(c) == (3.0, "")
-    got = _get(f"{c.url}/remote/v1/readings?series=sensor/a-open.main&ref=stock.a-open", c.tok)
+    got = _get(f"{c.url}/api/remote/v1/readings?series=sensor/a-open.main&ref=stock.a-open", c.tok)
     now = got["now"]
     for g in (got["series"]["sensor/a-open.main"], got["refs"]["stock.a-open"]):
         assert g["value"] == 3 and abs(g["time"] - (now - 50)) < 1.0, g
@@ -492,7 +494,7 @@ def test_a_middle_serves_the_origin_age_not_its_own_time(chain):
         assert _m_reads(c)[0] is None
         kept = json.loads((c.dir / readings.RELAYED).read_text())
         assert kept["series"]["sensor/open.main"]["age"] is None
-        g = _get(f"{c.url}/remote/v1/readings?series=sensor/a-open.main", c.tok)["series"]["sensor/a-open.main"]
+        g = _get(f"{c.url}/api/remote/v1/readings?series=sensor/a-open.main", c.tok)["series"]["sensor/a-open.main"]
         assert g["value"] is None and g["time"] is None and g["why"], g
 
 
@@ -506,7 +508,7 @@ def test_a_middle_with_its_upstream_down_never_serves_fresh_looking_data(chain):
     c.up.reply = None                                                # A stops answering
     v, why = _m_reads(c)
     assert v is None and "unreachable" in why
-    got = _get(f"{c.url}/remote/v1/readings?series=sensor/a-open.main", c.tok)["series"]["sensor/a-open.main"]
+    got = _get(f"{c.url}/api/remote/v1/readings?series=sensor/a-open.main", c.tok)["series"]["sensor/a-open.main"]
     assert got["value"] == 3 and "a at" in got["unreachable"]
     assert t0 - 50 - 1 <= got["time"] <= t1 - 50 + 1                 # the old time, not when it was asked again
     lspec, _ = load(c.lroot / "ergostat.yaml")                      # L, reading M for real
@@ -515,7 +517,7 @@ def test_a_middle_with_its_upstream_down_never_serves_fresh_looking_data(chain):
     v, why = readings.read(lspec, lspec.sources["m"], ls)
     assert v is None and "not current" in why and "a at" in why
     (c.dir / readings.RELAYED).unlink()                              # nothing kept from A at all
-    got = _get(f"{c.url}/remote/v1/readings?series=sensor/a-open.main", c.tok)["series"]["sensor/a-open.main"]
+    got = _get(f"{c.url}/api/remote/v1/readings?series=sensor/a-open.main", c.tok)["series"]["sensor/a-open.main"]
     assert got["value"] is None and got["time"] is None and got["why"]
     readings._kept.clear()
     v, why = readings.read(lspec, lspec.sources["m"], ls)
@@ -523,7 +525,7 @@ def test_a_middle_with_its_upstream_down_never_serves_fresh_looking_data(chain):
     c.up.reply = lambda: {"now": time.time(), "instance": "9" * 16,  # A's state remade: a new id, M's cache still old
                           "series": {"sensor/open.main": {"value": 5, "time": time.time() - 1}}}
     assert _m_reads(c) == (5.0, "")
-    got = _get(f"{c.url}/remote/v1/readings?series=sensor/a-open.main", c.tok)["series"]["sensor/a-open.main"]
+    got = _get(f"{c.url}/api/remote/v1/readings?series=sensor/a-open.main", c.tok)["series"]["sensor/a-open.main"]
     assert got["value"] is None and got["time"] is None and "9" * 16 in got["why"]
     readings._kept.clear()
     v, why = readings.read(lspec, lspec.sources["m"], ls)
@@ -606,8 +608,8 @@ def test_three_instances_read_a_part_two_hops_away_and_mark_it_stale_when_the_or
     pa, pm, pl = free_ports(3)
     aroot, mroot, lroot = tmp_path / "a", tmp_path / "m", tmp_path / "l"
     write(aroot, "name: a\nstocks:\n  open:\n    sensor: {run: echo 7, every: 3s}\n")
-    write(mroot, f"name: m\nremotes:\n  a: {{url: 'http://127.0.0.1:{pa}', token-file: a.token, every: 10s}}\n")
-    write(lroot, f"name: l\nremotes:\n  m: {{url: 'http://127.0.0.1:{pm}', token-file: m.token, every: 10s}}\n")
+    write(mroot, f"name: m\nsystems:\n  a: {{remote: {{url: 'http://127.0.0.1:{pa}', token-file: a.token, every: 10s}}}}\n")
+    write(lroot, f"name: l\nsystems:\n  m: {{remote: {{url: 'http://127.0.0.1:{pm}', token-file: m.token, every: 10s}}}}\n")
     procs: list[subprocess.Popen] = []
     try:
         procs.append(_start(aroot, pa))

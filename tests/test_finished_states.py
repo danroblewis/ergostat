@@ -75,14 +75,6 @@ def test_nothing_inferable_lives_on_where_the_older_rule_took_the_last_state(tmp
     assert done_states(spec.items["pool"], set()) == ["held"]
 
 
-def test_ticket_factory_kinds_say_where_their_finish_comes_from():
-    """The definition named ticket-factory's ticket as inferred; it declares ``done: {ticket: [done]}``, so its okr
-    (nothing declared) is the inferred one, and its report (one state) lives on."""
-    spec = mdl.load(ROOT / "examples" / "ticket-factory").spec
-    assert (finish_of(spec, "ticket", set())["finished"], finish_of(spec, "ticket", set())["from"]) == (["done"], "declared")
-    okr = finish_of(spec, "okr", {"at-risk"})
-    assert (okr["finished"], okr["from"], okr["lives_on"]) == (["off-track"], "inferred", False)
-    assert finish_of(spec, "report", set())["lives_on"]
 
 
 def test_the_listing_the_relations_and_the_estimates_say_the_same(tmp_path):

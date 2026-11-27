@@ -118,21 +118,6 @@ def test_block_text_marks_untrusted(tmp_path):
     assert "⟦" not in json.dumps(trusted, ensure_ascii=False)
 
 
-@pytest.mark.parametrize("example", sorted(p.parent.name for p in (Path(__file__).parents[1] / "examples").glob("*/ergostat.yaml")))
-def test_examples_drawn_as_before(example):
-    """Each example's Blocks text: a mark only on what a library instance made (a part with a ``Via``), never on a
-    part the owner or ergostat wrote, so the owner's parts are drawn as before."""
-    from ergostat.blockdiagram import spec_of
-    from ergostat.library.expand import Via
-    from ergostat.library.untrusted import Shown
-    m = mdl.load(Path(__file__).parents[1] / "examples" / example)
-    spec = spec_of(m)
-    if spec is None:
-        return
-    sh = Shown(spec)
-    assert not [r for r, (_, x) in sh.parts.items() if not isinstance(x.where, Via)], example
-    if not sh.parts and not sh.systems:
-        assert "⟦" not in json.dumps(diagram(m, {}, {"*"}), ensure_ascii=False), example
 
 
 SAYS = "untrusted library, template l"

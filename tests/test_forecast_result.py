@@ -264,11 +264,12 @@ def test_a_model_read_as_a_remote_exposes_its_forecast_to_the_model_reading_it(t
         (here_dir / "shop.token").write_text(tok)
         (here_dir / "ergostat.yaml").write_text(textwrap.dedent(f"""
             name: reader
-            remotes:
+            systems:
               shop:
-                url: {a_url}
-                token-file: shop.token
-                every: 60s
+                remote:
+                  url: {a_url}
+                  token-file: shop.token
+                  every: 60s
             stocks:
               queue:
                 sensor: {{run: echo 1}}
@@ -293,7 +294,7 @@ def test_a_model_read_as_a_remote_exposes_its_forecast_to_the_model_reading_it(t
         code, own = _get(f"{a_url}/api/forecast?item=ticket/g1")               # the same answer read locally there
         assert code == 200 and own["items"] == {"ticket/g1": fc["items"]["ticket/g1"]}
         assert _get(f"{b_url}/api/forecast?remote=nope")[0] == 400
-        assert _get(f"{a_url}/remote/v1/forecast?" + "&".join(f"item=t/{n}" for n in range(201)), tok)[0] == 400
+        assert _get(f"{a_url}/api/remote/v1/forecast?" + "&".join(f"item=t/{n}" for n in range(201)), tok)[0] == 400
         with pytest.raises(remote_items.RemoteRefused):
             remote_items.forecast(here.model.spec, "shop", ["../events"])
     finally:

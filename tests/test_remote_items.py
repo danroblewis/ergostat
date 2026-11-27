@@ -19,15 +19,17 @@ from tests.ports import free_port
 
 LOCAL = """
 name: home
-remotes:
+systems:
   r:
-    url: http://127.0.0.1:1
-    token-file: r.token
-    every: 60s
+    remote:
+      url: http://127.0.0.1:1
+      token-file: r.token
+      every: 60s
   s:
-    url: http://127.0.0.1:2
-    token-file: r.token
-    every: 60s
+    remote:
+      url: http://127.0.0.1:2
+      token-file: r.token
+      every: 60s
 projections:
   thing:
     id: thing/*

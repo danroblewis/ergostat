@@ -197,32 +197,6 @@ def test_a_flow_work_moves_is_moved_by_a_block_or_said_to_come_from_outside(tmp_
     assert by["block-moves-no-flow@block.merger"]["links"] == ["no-visible-effect@block.merger"]
 
 
-def test_the_owners_thirteen_disconnected_stocks_and_a_block_never_seen_acting(tmp_path):
-    """The owner's shape (thirteen state stocks, each drained to a cloud, a goal and a block per step), with a record
-    where the items move through every state and one block (do-approved) never acts: its moves come from outside."""
-    from tests.test_chains import STATES, owners_model
-    p = project(tmp_path, owners_model(), "ff")
-    t0 = time.time() - 3600
-    for i in range(6):
-        it, t = f"ff/{i}", t0 + i * 120
-        p.events.add("ff.opened", item=it, source="person", at=t)
-        for j, s in enumerate(STATES[1:]):
-            b = f"do-{STATES[j]}"
-            if b == "do-approved":
-                p.events.add(f"ff.{s}", item=it, source="person", at=t + 5 * j + 2)
-                continue
-            run = p.events.add("agent.started", item=b, source="ergostat", at=t + 5 * j + 1)
-            p.events.add(f"ff.{s}", item=it, source=b, causedby=run["id"], at=t + 5 * j + 2)
-    got, by = found(p)
-    codes = mismatches(got)
-    assert "loops-not-connected@stock.ff-requested" in codes
-    assert by["loops-not-connected@stock.ff-requested"]["links"] == ["loops-not-connected@stock.ff-requested"]
-    assert sum(c.startswith("move-without-flow@") for c in codes) == 12      # each move seen, no flow carries it
-    assert "arrival-not-modelled@stock.ff-requested" in codes
-    n = by["declared-not-seen-acting@block.do-approved"]
-    assert n["pair"] == "blocks-process" and "moved by outside ergostat (person) 6 times" in n["message"]
-    k = got["projections"]["ff-ticket"]
-    assert k["agree"] < k["compared"]
 
 
 # ---- Blocks ↔ Process

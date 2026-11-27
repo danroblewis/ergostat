@@ -28,48 +28,8 @@ def copy(tmp_path) -> Path:
     return d
 
 
-def test_image_squeeze_uses_the_template_and_checks_clean(tmp_path, capsys):
-    """The two parts it asks for are made, and no other (its developer's escapes are developer-honest already); each
-    goal's loop is closed by its person, off while stale; ergostat check finds no error and no missing feedback."""
-    m = mdl.load(copy(tmp_path))
-    spec = m.spec
-    assert spec is not None and not [str(x) for x in m.problems if x.level == "error"], [str(x) for x in m.problems]
-    mine = {f"goal.{g}" for g in GOALS}                     # (developer-honest and two others are open on purpose)
-    assert not [str(x) for x in m.problems if x.code == "missing-feedback" and x.about in mine]
-    assert {"tests-green", "changes-hold"} <= set(spec.goals) and "claims-kept" not in spec.goals
-    for goal, (part, person) in GOALS.items():
-        g = spec.goals[goal]
-        assert str(g.of) == f"auxiliary.{part}" and g.on_stale == "off", goal
-        assert spec.blocks[person].type == "person" and spec.loop(goal).through[0] == f"block.{person}", goal
-    assert "--within 180" in next(iter(spec.auxiliaries["tests-failing"].sensors.values())).run
-    main(["-C", str(spec.root), "check", "--json"])
-    got = json.loads(capsys.readouterr().out)
-    assert got["ok"], got
-    assert not [x for x in got["found"] if x["id"].startswith("missing-feedback") and x["id"].split("@")[-1] in mine]
-    assert not [x for x in got["found"] if x.get("level") == "error"], got["found"]
 
 
-def test_its_goals_hold_in_the_healthy_demo(tmp_path, monkeypatch):
-    """squeeze as handed over (the seed, where lab.py init puts it): the sensor runs its tests and reads 0 failing,
-    the record has no regressed change, and both goals hold."""
-    d = copy(tmp_path)
-    (d / "run" / "product").mkdir(parents=True)
-    for f in (d / "seed").glob("*.py"):
-        shutil.copy2(f, d / "run" / "product" / f.name)
-    monkeypatch.chdir(d)
-    p = Project(mdl.load(d))
-    spec = p.model.spec
-    e = Engine(p, say=lambda s: None)
-    try:
-        for goal, (part, _) in GOALS.items():
-            s = next(iter(spec.auxiliaries[part].sensors.values()))
-            got, why = read_sensor(spec, s, p.events, measurements=p.measurements)
-            assert got == 0.0, (goal, why)
-            p.measurements.add(s.series, got)
-        e.evaluate()
-        assert {g: e.status.get(g) for g in GOALS} == {g: "holding" for g in GOALS}
-    finally:
-        e.close()
 
 
 def small(tmp_path) -> Path:
@@ -96,25 +56,3 @@ def test_the_reader_waits_for_its_test_folder(tmp_path, monkeypatch):
         later.join()
 
 
-def test_the_reader_never_finds_the_test_folder_half_made(tmp_path, monkeypatch):
-    """lab.py init fills run/product whole before it is there: a reading that starts while init is still copying the
-    seed (its test file held back a second, past several of the reader's 0.2 s looks) runs the real tests, reads 0."""
-    d = copy(tmp_path)
-    spec_ = importlib.util.spec_from_file_location("lab_under_test", d / "bin" / "lab.py")
-    lab = importlib.util.module_from_spec(spec_)
-    spec_.loader.exec_module(lab)
-    real = shutil.copy2
-
-    def slow(src, dst, *a, **k):
-        if Path(src).name == "test_squeeze.py":
-            time.sleep(1.0)                                 # the window: the folder may be seen, its tests not yet
-        return real(src, dst, *a, **k)
-    monkeypatch.setattr(lab.shutil, "copy2", slow)
-    monkeypatch.chdir(d)
-    init = threading.Thread(target=lab.init)
-    init.start()
-    try:
-        assert regressions.counts(60.0) == (0, "")
-    finally:
-        init.join()
-    assert (d / "run" / "product" / "test_squeeze.py").is_file() and not (d / "run" / "product.new").exists()

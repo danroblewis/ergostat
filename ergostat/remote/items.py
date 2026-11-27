@@ -1,5 +1,5 @@
 """A remote's items, read in place for the Items page (SPEC §4c): its counts, listings, details and forecast, asked of
-``/remote/v1/`` and kept in memory, bounded and failing closed.
+``/api/remote/v1/`` and kept in memory, bounded and failing closed.
 
 Each remote has one lock (``_lock(name)``), held across reading the cache, deciding whether to ask (fresh? a failure
 this period? the budget?), the ask, the write and the eviction. A period is the remote's ``every`` clamped to

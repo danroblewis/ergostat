@@ -37,9 +37,10 @@ flows:
 
 LOCAL = """
 name: support
-remotes:
+systems:
   m:
-    url: http://127.0.0.1:1
+    remote:
+      url: http://127.0.0.1:1
 stocks:
   m-b-open: {}                           # hand-written, beside remote m: named like its parts, none of them
 flows:

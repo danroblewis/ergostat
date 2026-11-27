@@ -616,45 +616,6 @@
         }
       }
     },
-    "remotes": {
-      "description": "Systems other ergostats run, read here (SPEC §4c): each brings in the remote's model as an external subsystem whose parts are named for it",
-      "type": "object",
-      "propertyNames": {
-        "$ref": "#/$defs/name"
-      },
-      "additionalProperties": {
-        "type": "object",
-        "required": [
-          "url"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "url": {
-            "type": "string",
-            "pattern": "^https?://",
-            "description": "the remote ergostat's page"
-          },
-          "token-file": {
-            "type": "string",
-            "description": "the file holding the token the remote made for this model"
-          },
-          "systems": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/name"
-            },
-            "description": "only these of its systems"
-          },
-          "within": {
-            "$ref": "#/$defs/name"
-          },
-          "every": {
-            "$ref": "#/$defs/duration"
-          },
-          "description": {"type": "string"}
-        }
-      }
-    },
     "library": {
       "description": "Folders of the owner's own templates (main file only; SPEC §2a)",
       "oneOf": [
@@ -2442,7 +2403,20 @@
           "items": {
             "$ref": "#/$defs/ref"
           },
-          "description": "The measures its box shows: stock, flow or auxiliary references"
+          "description": "The measures its box shows: stock, flow or auxiliary references (a remote system's: the remote's own names)"
+        },
+        "remote": {
+          "description": "A system another ergostat runs, read here (SPEC §4c): it brings in the remote's model, every part of it in this system; the system's name is the remote's name here",
+          "type": "object",
+          "required": ["url"],
+          "additionalProperties": false,
+          "properties": {
+            "url": {"type": "string", "pattern": "^https?://", "description": "the remote ergostat's page"},
+            "token-file": {"type": "string", "description": "the file holding the token the remote made for this model"},
+            "systems": {"type": "array", "items": {"$ref": "#/$defs/name"}, "description": "only these of its systems"},
+            "every": {"$ref": "#/$defs/duration"},
+            "tls": {"type": "object", "description": "mutual TLS: cert, key and (optional) ca"}
+          }
         }
       }
     },

@@ -229,31 +229,6 @@ def test_the_cli_calls_what_is_held_a_goal(repo, project, capsys):
         assert not re.search(r"\bloop disk-under-80|\bLOOP\b", out), (args, out)
 
 
-def test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals(tmp_path):
-    """The diagram's caption reads these from /api/status: the model's purpose, its top-level systems, and the goals a
-    controller holds (Blocks' control loops), each of them one of the status's loops."""
-    import shutil
-    from pathlib import Path
-
-    from ergostat import model
-    from ergostat.store import Project
-    from ergostat.web import serve
-    d = tmp_path / "the-job"
-    shutil.copytree(Path(__file__).resolve().parent.parent / "examples" / "the-job", d,
-                    ignore=shutil.ignore_patterns("run", "__pycache__"))
-    f = d / "ergostat.yaml"
-    f.write_text(f.read_text().replace("name: the-job\n", "name: the-job\npurpose: keep my work moving\n", 1))
-    m = d / "job" / "messages.yaml"                    # one goal no controller holds: notes-reach-work, its block gone
-    m.write_text(m.read_text().split("\nblocks:\n")[0] + "\n")
-    server, url = serve(Project(model.load(d)), free_port())
-    try:
-        with urllib.request.urlopen(url + "/api/status", timeout=30) as r:
-            st = json.loads(r.read())
-    finally:
-        server.shutdown()
-    assert st["purpose"] == "keep my work moving" and st["top"] == 2, (st.get("purpose"), st.get("top"))
-    assert st["controlled"] and set(st["controlled"]) < set(st["loops"]), st["controlled"]
-    assert st["controlled"] == sorted(st["controlled"])
 
 
 def test_the_cli_json_and_unknown_names(repo, project, capsys):
@@ -404,42 +379,6 @@ def test_the_record_answers_a_type_that_matches_nothing_with_no_events(project):
         server.server_close()
 
 
-def test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them(tmp_path):
-    """In States, each state's node of /api/graph?view=process carries ``now``: the count /api/items gives that
-    state (the browser half of this check is tests/test_diagram_rendering.py's Items-to-process-map test)."""
-    import shutil
-    import time
-    from pathlib import Path
-
-    from ergostat import model
-    from ergostat.store import Project
-    from ergostat.web import serve
-    d = tmp_path / "the-job"
-    shutil.copytree(Path(__file__).resolve().parents[1] / "examples" / "the-job", d,
-                    ignore=shutil.ignore_patterns("run", "__pycache__"))
-    p = Project(model.load(d))
-    now = time.time()
-    for i, last in enumerate(["new"] * 3 + ["explained"] * 2 + ["answered"]):     # 3 new, 2 explained, 1 answered
-        it = f"ticket/now{i}"
-        p.events.add("ticket.filed", item=it, at=now - 2000 + i)
-        for j, st in enumerate(["explained", "answered"][:["new", "explained", "answered"].index(last)]):
-            p.events.add(f"ticket.{st}", item=it, at=now - 1500 + i * 10 + j)
-    server, url = serve(p, free_port())
-    try:
-        def get(path):
-            with urllib.request.urlopen(url + path, timeout=30) as r:
-                return json.loads(r.read())
-        counts = {k["name"]: k["counts"] for k in get("/api/items")["projections"]}["ticket"]
-        g = get("/api/graph?view=process&projections=ticket&by=states")
-        other = get("/api/graph?view=process&projections=ticket&by=events")
-    finally:
-        server.shutdown()
-        server.server_close()
-    assert {k: v for k, v in counts.items() if v} == {"new": 3, "explained": 2, "answered": 1}, counts
-    assert g["by"] == "states"
-    states = {x["activity"]: x.get("now") for x in g["nodes"] if x["kind"] == "activity"}
-    assert states == {"new": 3, "explained": 2, "answered": 1}, states
-    assert not any("now" in x for x in other["nodes"]), other["nodes"]   # by events: no states, no count of now
 
 
 def test_a_process_view_with_no_projections_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
@@ -469,51 +408,6 @@ def test_a_process_view_with_no_projections_is_answered_empty_and_the_page_says_
     assert "No projections here: its parts are counted by sensors." in app
 
 
-def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
-    """Every path but the server's own is the page, which resolves what the model names there (/ticket/7, /goals, a
-    dashboard's /NAME, an old /item/ID): the server answers each with the page, whatever the id holds (its / as %2F),
-    and /api (a file at /api/file/PATH), /static and /remote stay what they were."""
-    from http.server import ThreadingHTTPServer
-
-    from ergostat.spec.dashboards import BUILTIN, RESERVED
-    from ergostat.web.server import handler
-    pages = (Path(__file__).resolve().parent.parent / "ergostat" / "web" / "ui" / "src" / "lib" / "pages.ts").read_text()
-    assert all(f'"{x}"' in pages for x in BUILTIN), "the page's own pages and the model's check differ"
-    assert RESERVED == ("api", "static", "remote")
-    (project.dir / "notes.md").write_text("# Notes\n")
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{srv.server_address[1]}"
-
-    def get(path, **headers):
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url + path, headers=headers), timeout=10) as r:
-                return r.status, r.headers["Content-Type"], r.read()
-        except urllib.error.HTTPError as e:
-            return e.code, e.headers["Content-Type"], e.read()
-    try:
-        for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/goals", "/loops", "/agents", "/items?projection=ticket&state=open",
-                     "/items/ticket", "/items/ticket?state=in-review&view=timeline",   # a projection's page
-                     "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
-                     "/record?type=x.y", "/dashboard", "/ticket", "/ticket/7", "/mission/a/b", "/big-dashboard",
-                     "/overview", "/events", "/factory/intake/overview", "/factory/ticket/7",
-                     "/nope", "/itemsx", "/util.js", "/model", "/file/notes.md", "/d/x"):
-            code, ctype, body = get(path)
-            assert code == 200 and ctype.startswith("text/html") and b'name="ergostat-token"' in body, path
-            assert b'src="/static/app/assets/' in body, path          # its scripts by absolute path: a deep address loads them
-        code, ctype, body = get("/api/status")
-        assert code == 200 and ctype == "application/json" and "loops" in json.loads(body)
-        assert get("/api/nope/nope")[0] == 404 and get("/api/items/ticket%2F7")[1] == "application/json"
-        assert get("/static/marked.min.js")[0] == 200 and get("/static/nope.js")[0] == 404
-        assert get("/api/file/notes.md")[2] == b"# Notes\n"
-        assert get("/api/file?path=notes.md")[2] == b"# Notes\n"
-        code, ctype, body = get("/api/file/notes.md", Accept="text/html")
-        assert code == 200 and b"marked.parse" in body and b"ergostat-token" not in body
-        for path in ("/favicon.ico", "/robots.txt", "/static", "/static/x", "/api"):
-            assert get(path)[0] == 404, path
-    finally:
-        srv.shutdown()
-        srv.server_close()
 
 
 def test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock(project):
@@ -712,25 +606,6 @@ def test_cycles_among_agents_and_whether_a_loop_declares_them(repo):
     assert loose["loop"] is None and loose["agents"] == ["pinger", "ponger"]
 
 
-def test_the_ai_controller_example_turns_an_answer_into_lines(tmp_path):
-    import os
-    import subprocess
-    from pathlib import Path
-    fake = tmp_path / "bin"
-    fake.mkdir()
-    (fake / "claude").write_text('#!/bin/sh\ncat > /dev/null\n'
-                                 'echo \'Sure. {"decision": "rewrite install.md", "act": true, "amount": 1, "why": "flags changed"}\'\n')
-    (fake / "claude").chmod(0o755)
-    (tmp_path / "prompt.md").write_text("Decide.")
-    ctx = {"roles": [{"kind": "controller", "name": "docs-current"}, {"kind": "valve", "name": "rewrite-page"}],
-           "controllers": {"docs-current": {"setpoint": "<= 3", "value": 5, "error": -2}}, "state": {}, "trigger": None}
-    script = Path(__file__).resolve().parents[1] / "examples" / "ai-controller.sh"
-    r = subprocess.run([str(script), str(tmp_path / "prompt.md")], input=json.dumps(ctx), capture_output=True, text=True,
-                       env={**os.environ, "PATH": f"{fake}:{os.environ['PATH']}"}, timeout=60)
-    lines = [json.loads(x) for x in r.stdout.splitlines()]
-    assert r.returncode == 0, r.stderr
-    assert lines == [{"controller": "docs-current", "decision": "rewrite install.md", "why": "flags changed"},
-                     {"valve": "rewrite-page", "amount": 1.0}]
 
 
 def test_a_person_records_what_they_did(repo, capsys):

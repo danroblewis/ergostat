@@ -170,7 +170,7 @@ def test_a_remote_is_read_over_mutual_tls_end_to_end(page, certs, tmp_path):  # 
 
 
 def test_a_client_without_a_certificate_or_with_another_cas_is_refused(page, certs):  # noqa: F811
-    assert https(page.port, "/remote/v1/status", page.token, cert=None) == (0, None)
+    assert https(page.port, "/api/remote/v1/status", page.token, cert=None) == (0, None)
     code, body, _, why = client.get(f"https://127.0.0.1:{page.port}", "status", page.token,
                                     tls=tls_of(certs, cert="stranger"))
     assert code == 0 and body is None and why
@@ -286,11 +286,12 @@ def test_mtls_config_is_checked(tmp_path, certs):  # noqa: F811
         assert [p for p in problems if p.code == "bad-web"], (i, problems)
     remote = """
 name: support
-remotes:
+systems:
   incidents:
-    url: URL
-    token-file: incidents.token
-    tls: TLS
+    remote:
+      url: URL
+      token-file: incidents.token
+      tls: TLS
 stocks:
   tickets:
     sensor: {run: echo 3}
@@ -310,9 +311,9 @@ stocks:
     assert [p for p in problems if p.code == "mtls-unreadable" and "tls.ca" in p.message], problems
 
 
-NOT_SERVED = ["/remote/v1x/status", "/remote/v1/../../api/status", "/remote/v1/%2e%2e/%2e%2e/api/status",
-              "/remote/v1/status/../../../api/status", "/remote//v1/status", "/api/status", "/", "/static/app.js",
-              "/api/file?path=ergostat.yaml", "/remote/v1/status%2F..%2F..%2Fapi%2Fstatus", "/remote/v1/", "/remote/v2/status"]
+NOT_SERVED = ["/api/remote/v1x/status", "/api/remote/v1/../../api/status", "/api/remote/v1/%2e%2e/%2e%2e/api/status",
+              "/api/remote/v1/status/../../../api/status", "/api/remote//v1/status", "/api/status", "/", "/static/app.js",
+              "/api/file?path=ergostat.yaml", "/api/remote/v1/status%2F..%2F..%2Fapi%2Fstatus", "/api/remote/v1/", "/api/remote/v2/status"]
 
 
 def test_only_get_of_the_remote_api_is_served(page, monkeypatch):
@@ -330,12 +331,12 @@ def test_only_get_of_the_remote_api_is_served(page, monkeypatch):
         code, body = https(page.port, path, page.token)
         assert code == 404 and body != page_status and b'"stocks"' not in body, (path, code, body)
     for method in ("HEAD", "POST", "PUT", "DELETE", "OPTIONS"):
-        assert https(page.port, "/remote/v1/status", page.token, method=method)[0] == 405, method
+        assert https(page.port, "/api/remote/v1/status", page.token, method=method)[0] == 405, method
     assert reached == []                                        # none of them reached the remote API, nor the page
-    assert https(page.port, "/remote/v1/status")[0] == 401
-    code, body = https(page.port, "/remote/v1/status", page.token)
+    assert https(page.port, "/api/remote/v1/status")[0] == 401
+    code, body = https(page.port, "/api/remote/v1/status", page.token)
     assert code == 200 and json.loads(body)["name"] == "incidents"
-    assert https(page.port, "/remote/v1/events?after=0&n=2", page.token)[0] == 200    # the query string is no segment
+    assert https(page.port, "/api/remote/v1/events?after=0&n=2", page.token)[0] == 200    # the query string is no segment
     assert len(reached) == 3
 
 
@@ -423,7 +424,7 @@ def test_slots_come_back_after_failed_handshakes_and_handler_errors(lst, certs, 
     srv = lst()
     url = f"https://127.0.0.1:{srv.port}"
     for _ in range(20):                                          # no client certificate: each handshake refused
-        assert https(srv.port, "/remote/v1/status", srv.token, cert=None) == (0, None)
+        assert https(srv.port, "/api/remote/v1/status", srv.token, cert=None) == (0, None)
     assert until(lambda: srv.lst.held() == 0, 5.0)
     assert client.get(url, "status", srv.token, tls=tls_of(certs))[0] == 200
 

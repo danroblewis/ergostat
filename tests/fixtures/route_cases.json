@@ -1,5 +1,5 @@
 {
- "about": "The address helpers' shared cases (ergostat/spec/routes.py, web/ui/src/lib/systemRoutes.ts): each model's files, what each path resolves to ([path, expected, why]), the address each thing is written at ([thing, scope, expected]) and the collisions. Run by tests/test_system_routes.py on both sides.",
+ "about": "The address helpers' shared cases (ergostat/spec/routes.py, web/ui/src/lib/systemRoutes.ts): each model's files, what each path resolves to ([path, expected, why]), the address each thing is written at ([thing, scope, expected]), the names shadowed by the fixed order ([scope, segment, kept [kind, name], lost [kind, name]]) and the things with no address ([kind, name]). Run by tests/test_system_routes.py on both sides.",
  "models": [
   {
    "name": "factory",
@@ -273,7 +273,7 @@
     [
      "/remote",
      null,
-     "reserved: the server's"
+     "remote is no longer the server's (its API is under /api/remote/): nothing here is named so"
     ],
     [
      "/nothing",
@@ -468,24 +468,233 @@
      "/"
     ]
    ],
-   "collisions": []
+   "shadowed": [],
+   "unaddressed": []
   },
   {
-   "name": "collisions",
+   "name": "order",
    "files": {
-    "ergostat.yaml": "name: collide\ninclude: [factory.yaml]\nsystems:\n  factory: {}\n  review: {within: factory}\n  api: {}\nprojections:\n  events: {id: ev/*, states: [a]}\nstocks:\n  seen: {unit: events, sensor: {projection: events, state: a}}\n  waiting: {system: review, unit: things, sensor: {manual: true}}\n",
-    "factory.yaml": "defaults:\n  system: factory\ndashboards:\n  review:\n    panels:\n      - {panel: chart, refs: stock.waiting}\n"
+    "ergostat.yaml": "name: order\ninclude: [factory.yaml]\nsystems:\n  factory: {description: makes things}\n  intake: {within: factory, description: takes work in}\n  ticket: {within: factory, description: a subsystem named as a projection}\n  work: {within: factory, description: named as a top-level projection}\nprojections:\n  ticket: {states: [new], system: intake}\n  work: {id: work/*, states: [a]}\nstocks:\n  arrived: {system: intake, unit: tickets, sensor: {projection: ticket, state: new}}\n  seen: {unit: tickets, sensor: {projection: ticket, state: new}}\n  doing: {unit: things, sensor: {projection: work, state: a}}\n  held: {system: work, unit: things, sensor: {manual: true}}\nflows:\n  pull: {system: intake, from: doing, to: arrived}\n",
+    "factory.yaml": "defaults:\n  system: factory\ndashboards:\n  intake-board:\n    panels:\n      - {panel: chart, refs: stock.arrived}\n"
    },
    "resolve": [
     [
-     "/events",
+     "/factory/ticket",
+     {
+      "scope": "ticket",
+      "kind": "system",
+      "name": "ticket"
+     },
+     "3 before 4: a subsystem before a projection"
+    ],
+    [
+     "/factory/ticket/1",
+     null,
+     "read in the subsystem, where 1 is nothing"
+    ],
+    [
+     "/ticket",
      {
       "scope": "",
-      "kind": "dashboard",
-      "name": "events"
+      "kind": "projection",
+      "name": "ticket"
      },
-     "a collision: the first claim kept"
+     "the shadowed projection, at the top-most scope where its name is free"
     ],
+    [
+     "/factory/intake/ticket/1",
+     {
+      "scope": "intake",
+      "kind": "item",
+      "name": "ticket",
+      "id": "factory/intake/ticket/1",
+      "redirect": "/ticket/1"
+     },
+     "the redirect skips factory, where the name is taken"
+    ],
+    [
+     "/factory/work",
+     {
+      "scope": "work",
+      "kind": "system",
+      "name": "work"
+     },
+     "a subsystem named as a top-level projection"
+    ],
+    [
+     "/work",
+     {
+      "scope": "",
+      "kind": "projection",
+      "name": "work"
+     },
+     "the projection where it is defined"
+    ],
+    [
+     "/factory/intake/work",
+     {
+      "scope": "intake",
+      "kind": "projection",
+      "name": "work",
+      "redirect": "/work"
+     },
+     "carried into intake: up to the top level"
+    ],
+    [
+     "/factory/intake-board",
+     {
+      "scope": "factory",
+      "kind": "dashboard",
+      "name": "factory.intake-board"
+     },
+     "1: a dashboard the model writes"
+    ],
+    [
+     "/factory/overview",
+     {
+      "scope": "factory",
+      "kind": "dashboard",
+      "name": "overview"
+     },
+     "2: a default"
+    ]
+   ],
+   "href": [
+    [
+     {
+      "kind": "projection",
+      "name": "ticket"
+     },
+     null,
+     "/ticket"
+    ],
+    [
+     {
+      "kind": "projection",
+      "name": "ticket"
+     },
+     "intake",
+     "/ticket"
+    ],
+    [
+     {
+      "kind": "projection",
+      "name": "ticket"
+     },
+     "factory",
+     "/ticket"
+    ],
+    [
+     {
+      "kind": "item",
+      "id": "factory/intake/ticket/1"
+     },
+     null,
+     "/ticket/1"
+    ],
+    [
+     {
+      "kind": "projection",
+      "name": "work"
+     },
+     "intake",
+     "/work"
+    ],
+    [
+     {
+      "kind": "system",
+      "name": "ticket"
+     },
+     null,
+     "/factory/ticket"
+    ]
+   ],
+   "shadowed": [
+    [
+     "factory",
+     "ticket",
+     [
+      "system",
+      "ticket"
+     ],
+     [
+      "projection",
+      "ticket"
+     ]
+    ],
+    [
+     "factory",
+     "work",
+     [
+      "system",
+      "work"
+     ],
+     [
+      "projection",
+      "work"
+     ]
+    ]
+   ],
+   "unaddressed": []
+  },
+  {
+   "name": "short",
+   "files": {
+    "ergostat.yaml": "name: short\nsystems:\n  work: {}\nuses:\n  questions:\n    use: respond-to\n    within: work\n    with:\n      within: 2h\n      answer: ./bin/answer.sh\n"
+   },
+   "resolve": [
+    [
+     "/work/questions/goals/on-time",
+     {
+      "scope": "questions",
+      "kind": "goal",
+      "name": "questions-on-time"
+     },
+     "an instance's goal by its short name inside it"
+    ],
+    [
+     "/work/questions/goals/questions-on-time",
+     null,
+     "not by its full name there"
+    ],
+    [
+     "/work/questions/agents/answer",
+     {
+      "scope": "questions",
+      "kind": "agent",
+      "name": "questions-answer"
+     },
+     "an instance's block by its short name"
+    ]
+   ],
+   "href": [
+    [
+     {
+      "kind": "goal",
+      "name": "questions-on-time"
+     },
+     null,
+     "/work/questions/goals/on-time"
+    ],
+    [
+     {
+      "kind": "agent",
+      "name": "questions-answer"
+     },
+     null,
+     "/work/questions/agents/answer"
+    ]
+   ],
+   "shadowed": [],
+   "unaddressed": []
+  },
+  {
+   "name": "unreachable",
+   "files": {
+    "ergostat.yaml": "name: unreachable\ninclude: [factory.yaml]\nsystems:\n  factory: {}\n  review: {within: factory}\n  goals: {within: factory}\n  api: {}\nprojections:\n  events: {id: ev/*, states: [a]}\n  static: {id: st/*, states: [a]}\nstocks:\n  seen: {unit: events, sensor: {projection: events, state: a}}\n  waiting: {system: review, unit: things, sensor: {manual: true}}\n",
+    "factory.yaml": "defaults:\n  system: factory\ndashboards:\n  review:\n    panels:\n      - {panel: chart, refs: stock.waiting}\n"
+   },
+   "resolve": [
     [
      "/factory/review",
      {
@@ -493,35 +702,64 @@
       "kind": "dashboard",
       "name": "factory.review"
      },
-     "a collision: the first claim kept"
+     "1 before 3: the model's dashboard"
+    ],
+    [
+     "/factory/goals",
+     {
+      "scope": "factory",
+      "kind": "dashboard",
+      "name": "goals"
+     },
+     "2 before 3: the default"
+    ],
+    [
+     "/events",
+     {
+      "scope": "",
+      "kind": "dashboard",
+      "name": "events"
+     },
+     "2 before 4: the default"
+    ],
+    [
+     "/api",
+     null,
+     "the server's"
     ]
    ],
-   "href": [],
-   "collisions": [
-    {
-     "scope": "",
-     "segment": "events",
-     "kinds": [
-      "dashboard",
-      "projection"
-     ]
-    },
-    {
-     "scope": "",
-     "segment": "api",
-     "kinds": [
-      "server",
-      "system"
-     ]
-    },
-    {
-     "scope": "factory",
-     "segment": "review",
-     "kinds": [
-      "dashboard",
-      "system"
-     ]
-    }
+   "href": [
+    [
+     {
+      "kind": "projection",
+      "name": "events"
+     },
+     null,
+     null
+    ]
+   ],
+   "shadowed": [],
+   "unaddressed": [
+    [
+     "system",
+     "review"
+    ],
+    [
+     "system",
+     "goals"
+    ],
+    [
+     "system",
+     "api"
+    ],
+    [
+     "projection",
+     "events"
+    ],
+    [
+     "projection",
+     "static"
+    ]
    ]
   }
  ]

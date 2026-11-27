@@ -829,8 +829,6 @@ loops:                          # optional: names for feedback loops (section 12
   ...
 uses:                           # optional: instances of templates (section 2a)
   ...
-remotes:                        # optional: systems other ergostats run, read here (section 4c)
-  ...
 runs:                           # optional, main file only (or ergostat.local.yaml): how runs are held (section 9.1)
   outlive_engine: false         # true: each run kept by a keeper of its own; stopping ergostat leaves it going
 web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
@@ -1317,17 +1315,30 @@ there and exogenous here (read as data, never integrated). In control terms it i
 controlled plant**: what we read of it is a measured disturbance for our loops, or a setpoint handed to
 us; we never close a loop through its actuators.
 
+A remote is a system: one written with `remote:` in place of what a system holds. Its key is the remote's name here
+(renaming the system renames the remote, which is how two remotes of one name, or one named as a local system, are
+told apart). It takes only `within:`, `description:`, `show:` and `remote:`; anything else is **unknown-key**. The
+old top-level `remotes:` section is an error.
+
 ```yaml
-remotes:
+systems:
   incidents:                          # its parts are incidents-PART, in the system incidents
-    url: http://127.0.0.1:8795        # https, or an SSH tunnel's loopback port
-    token-file: ~/.config/ergostat/incidents.token
-    systems: [triage]                 # optional: only these of its systems (and what is inside them)
     within: support                   # optional: the system it is drawn inside
-    every: 1m                         # how often its model and readings are read (default 1m, least 10s)
     show: [stock.open]                # optional: what its closed box shows, in its own names
     description: the incident desk
+    remote:
+      url: http://127.0.0.1:8795      # https, or an SSH tunnel's loopback port
+      token-file: ~/.config/ergostat/incidents.token
+      systems: [triage]               # optional: only these of its systems (and what is inside them)
+      every: 1m                       # how often its model and readings are read (default 1m, least 10s)
 ```
+
+Everything it brings is in that system. A part this model writes may still name the system (`system: incidents`):
+it is allowed and is a local part in it, beside the remote's (the simpler rule); within the system, a name the two
+share goes to the one defined there (section 4f, *Addresses*).
+
+`url`, `token-file`, `tls`, `systems` and `every` are under `remote:`; `within`, `description` and `show` are the
+system's own:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -1342,7 +1353,7 @@ remotes:
 
 **What it becomes here.** Each part it serves is put in under the remote's name (`stock.incidents-open`),
 as a template's instance names its parts (§2a), in the system `incidents` (its own systems inside it,
-`incidents-triage`), and points at the `remotes:` line (`ergostat.yaml:3 (remote incidents)`); each records its
+`incidents-triage`), and points at its system's line (`ergostat.yaml:3 (remote incidents)`); each records its
 system and its short name, the name the remote serves it by (§2a, *A part's system*):
 
 - its **blocks** are `type: external` whatever they are there (never started, leased or evaluated here),
@@ -1396,7 +1407,7 @@ in place like any system. In Process its projections' maps are drawn beside ours
 
 **Lines to a remote's items.** Where one of our items names a remote's item through a relation to the remote's projection
 (§5a, *A remote's projection*), the process map draws a related line, dashed, from the step our item was last at in the
-window to the step the remote says its item was last at (`at=` on `/remote/v1/process`, in the same request as its
+window to the step the remote says its item was last at (`at=` on `/api/remote/v1/process`, in the same request as its
 map). The ids sent are the distinct ids named, each 1 to 128 characters with no space or control character (any
 other is `bad-id`), sorted by id (never by time), as many as fit in 200 ids and 32,000 bytes of query (the rest
 `capped`); the remote refuses more than 200 (400). A link is drawn only when the remote's answer names its item with
@@ -1408,7 +1419,7 @@ decided before the request. A link not drawn is never dropped: `remotes.NAME.unl
 Several relations naming one id ask it once, and the answer is checked against each link's projection. No time of the
 remote's is compared with one of ours, and the line never gates (§5a). The remote's map as last read in the window
 is drawn when it does not answer, marked `cached`, its `at` used only when it was for exactly the ids sent now.
-Its closed box shows, in this order of precedence: (a) the `show:` on its `remotes:` entry; else (b) the
+Its closed box shows, in this order of precedence: (a) the `show:` on its system; else (b) the
 served `show:` of its top systems (those with no `within`, or with `systems:` the kept ones whose `within` is
 not kept), in the order it serves them, each part once, a part `systems:` leaves out cut; else (c) the
 measures of its goals that it serves (never a stand-in's); (d) a remote never read shows the parts its local
@@ -1465,28 +1476,28 @@ what admits.
 
 | Address | Answers |
 |---|---|
-| `/remote/v1/status` | name, its `instance` id, model version, now, the newest event's `seq`, whether it runs |
-| `/remote/v1/model` | its model, `format: ergostat-model/1`: the merged document after includes and templates, redacted (no commands, prompts, queries, sources, workspaces or actions), with its `instance` id, `via` on every part (below), and `version` (16 hex of the SHA-256 of the canonical JSON of its format, instance and sections); `ETag` is the version |
-| `/remote/v1/events?after=SEQ` | events after the cursor in `seq` order, `n` ≤ 1,000, filtered by `type`, `item`, `projection`, `since`, `until`; `next` (the cursor) and `more` |
-| `/remote/v1/items`, `/remote/v1/items/ID`, `/remote/v1/counts` | the item listing (`n` ≤ 500), one item, items by projection and state |
-| `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time, its `now` and its `instance`; at most 200 a call |
-| `/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
-| `/remote/v1/process` | its process map (§5b); with `at=ID` (repeated, each id whole, at most 200), `at`: the projection and the step each id asked was last at in the window (an id with no step there left out) |
-| `/remote/v1/forecast` | its forecast, `forecast/v1` (§5a, *The forecast*), as it last worked it out, without the levelled schedule (with `group=PARENT`, `by`, `at_least`, `confidence`: that group's counts asked, in `asked`, §5a *Group counts*; a bad value 400): of the items `item=ID` (repeated, at most 200; `items_missing` the ones it has no estimate for) and `projections=a,b`, else every item (at most 500, `items_left` the rest); never worked out on the request: 503 while the first is |
+| `/api/remote/v1/status` | name, its `instance` id, model version, now, the newest event's `seq`, whether it runs |
+| `/api/remote/v1/model` | its model, `format: ergostat-model/1`: the merged document after includes and templates, redacted (no commands, prompts, queries, sources, workspaces or actions), with its `instance` id, `via` on every part (below), and `version` (16 hex of the SHA-256 of the canonical JSON of its format, instance and sections); `ETag` is the version |
+| `/api/remote/v1/events?after=SEQ` | events after the cursor in `seq` order, `n` ≤ 1,000, filtered by `type`, `item`, `projection`, `since`, `until`; `next` (the cursor) and `more` |
+| `/api/remote/v1/items`, `/api/remote/v1/items/ID`, `/api/remote/v1/counts` | the item listing (`n` ≤ 500), one item, items by projection and state |
+| `/api/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time, its `now` and its `instance`; at most 200 a call |
+| `/api/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
+| `/api/remote/v1/process` | its process map (§5b); with `at=ID` (repeated, each id whole, at most 200), `at`: the projection and the step each id asked was last at in the window (an id with no step there left out) |
+| `/api/remote/v1/forecast` | its forecast, `forecast/v1` (§5a, *The forecast*), as it last worked it out, without the levelled schedule (with `group=PARENT`, `by`, `at_least`, `confidence`: that group's counts asked, in `asked`, §5a *Group counts*; a bad value 400): of the items `item=ID` (repeated, at most 200; `items_missing` the ones it has no estimate for) and `projections=a,b`, else every item (at most 500, `items_left` the rest); never worked out on the request: 503 while the first is |
 
 **A remote composed of remotes.** An ergostat M that composes a remote A serves A's parts on to its own
 consumer L, which composes them like any of M's (`stock.m-a-open`, in the system `m-a` within `m`).
 - *Instance id.* Each state folder holds `<state>/instance`: 16 lowercase hex and a newline, made once and
   kept. Only a missing file is made: the id is written and synced to a temp file of its own, published with
   `os.link` (a racer that loses keeps the winner's), and read again, so no reader sees it empty. A file that
-  is empty, is not 16 hex, or cannot be read (a directory, say) is refused, never rewritten: `/remote/v1/model`
+  is empty, is not 16 hex, or cannot be read (a directory, say) is refused, never rewritten: `/api/remote/v1/model`
   and `/status` then answer 503 (`this ergostat's instance id: WHY`), and a consumer whose own id is refused
   composes no remote (**remote-instance**; its box and source are still put, as for a remote never read).
 - *`via`.* Every served part carries `via`: the ids of the ergostats it passed through before reaching the
   server, origin first, never the server itself: `[]` for its own parts, A's `via` for the part plus A's
   `instance` for one imported from A. Stand-ins for missing references are not served. At L, a part's
   **chain** is its `via` plus M's `instance`; its depth is the chain's length (1 for M's own, 2 for A's). The box
-  system M makes for remote A is served with `via: []` and the `description:` the owner gave A in `remotes:`,
+  system M makes for remote A is served with `via: []` and the `description:` the owner gave A's system,
   else a generic text; the text naming A's url, which M shows locally, is never served.
 - *Checked before anything is composed*, in this order: a remote whose `instance` is missing or not 16 hex,
   any part with no `via`, a `via` that is not a list, holds an id that is not 16 hex or more than `VIA_MOST` =
@@ -1501,7 +1512,7 @@ consumer L, which composes them like any of M's (`stock.m-a-open`, in the system
 - *Names taken.* A remote's parts are put after every file and include is read. A local part always wins: a
   remote part whose name is defined here is not put (**remote-name-taken**, naming both; never
   `defined-twice`); between two remotes whose parts get the same name (remote `m`'s `a-open`, remote `m-a`'s
-  `open`) the first declared wins. Each remote's own box system is put when `remotes:` is read, before any
+  `open`) the first declared wins. Each remote's own box system is put when its system is read, before any
   remote's parts, so a box keeps its name against another remote's served system (remote `m-a`'s box `m-a`
   against remote `m`'s served system `a`) whichever is declared first. The part not put is cut from the
   rest of its remote, as above (a flow's end at it becomes a cloud, a cause or an equation naming it is
@@ -1540,13 +1551,13 @@ of them reaches the local record or fold.
 
 | Asked of the page | Answers |
 |---|---|
-| `/api/items?remote=NAME` (`projection`, `state`, `n` 1..500, `offset` 0..100,000) | `remote`, `url`, `ok`, `why`, `read`, `age`, `counts` (from `/remote/v1/counts`), `total`, `items` (each marked `remote`) |
+| `/api/items?remote=NAME` (`projection`, `state`, `n` 1..500, `offset` 0..100,000) | `remote`, `url`, `ok`, `why`, `read`, `age`, `counts` (from `/api/remote/v1/counts`), `total`, `items` (each marked `remote`) |
 | `/api/items/ID?remote=NAME` | `remote`, `ok`, `why`, `read`, `age`, `item` (the remote's own detail); 404 *no such item at NAME* on any 404 there, never a local item of the same id |
 | `/api/events?remote=NAME` (`n` ≤ 1,000, `type` a glob) | `remote`, `ok`, `why`, `read`, `age`, `events` from the cursor cache, in `seq` order, each marked `remote` |
-| `/api/forecast?remote=NAME` (`item=ID` repeated, at most 200, each id checked as for an item; `projections=a,b`; a group's counts asked, `group=PARENT`, `by`, `at_least`, `confidence`, its id checked as an item's) | `remote`, `ok`, `why`, `read`, `age`, `forecast` (the remote's `/remote/v1/forecast`, §5a *The forecast*); an answer not of schema `forecast/v1`, or a 503 while the remote works its first out, is a failure, never an empty forecast |
+| `/api/forecast?remote=NAME` (`item=ID` repeated, at most 200, each id checked as for an item; `projections=a,b`; a group's counts asked, `group=PARENT`, `by`, `at_least`, `confidence`, its id checked as an item's) | `remote`, `ok`, `why`, `read`, `age`, `forecast` (the remote's `/api/remote/v1/forecast`, §5a *The forecast*); an answer not of schema `forecast/v1`, or a 503 while the remote works its first out, is a failure, never an empty forecast |
 
 Without `remote=` these answer as before; `/api/items` also says `remotes` (each name and url) when the model has
-any. `NAME` must be a key of `remotes:` (else 400 *no remote NAME (this model's: …)*). An item `ID` (such as
+any. `NAME` must be a remote system of the model (else 400 *no remote NAME (this model's: …)*). An item `ID` (such as
 `incident/3`: a projection's ids hold a `/`) must be at most 200 characters of `/`-separated segments, each fully
 matching `[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*` (so no segment is empty or starts with `.`), and hold no `..`. This is
 checked before anything is sent (else 400), and the id then goes quoted whole as one path segment
@@ -1608,7 +1619,7 @@ fixed, not settings: 16 connections at once (one more is closed at once, never q
 handshake in all (however slowly its bytes come), then 10 s without a byte after it or between requests;
 past either the connection is closed. A client holding a certificate from `client-ca` that sends a byte
 now and then keeps its slot: only the handshake has a total bound. Only `GET` (any
-other method 405) of `/remote/v1/status`, `model`, `events`, `items`, `counts`, `readings`, `series` or
+other method 405) of `/api/remote/v1/status`, `model`, `events`, `items`, `counts`, `readings`, `series` or
 `process` and below, read on decoded path segments (none `.`, `..`, empty or holding a slash); any other
 path is 404 and never reaches the page. The token is still needed, as on the page (its 10 a second, and
 404 until one is made): the certificate admits the connection and the token names the consumer. The two are
@@ -1654,7 +1665,7 @@ that fails keeps the keys there were), `aud` holding the tag, `iss` the team's `
 `https://NAME`, and what it records says the email where a write from this machine says `owner` (who accepted a
 proposal, approved an action, answered the inbox, sent a message); the inbox counts it as the owner's own answer,
 never an agent's. Under a public name `/api/file/` never serves the state directory (its tokens). The push paths (`/api/events`, `/api/hooks/`,
-section 5c) and the remote API (`/remote/`, section 4c) keep their own tokens. Requests still come only from this
+section 5c) and the remote API (`/api/remote/`, section 4c) keep their own tokens. Requests still come only from this
 machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**), and names without `access`.
 
 | `web:` key | Meaning |
@@ -2099,30 +2110,38 @@ system that the model does not have (**unknown-ref**), each at its line. More th
 than `keep:`, is **bad-dashboard**. The name `default` is the model's own (below), so it cannot be declared.
 
 **Addresses.** The page's addresses are the model's, per system (section 8 of DESIGN.md; the design is
-docs/roadmap/systems-and-projections.md, *Addresses*). `/api`, `/static` and `/remote` are the server's. Every other
+docs/roadmap/systems-and-projections.md, *Addresses*). `/api` and `/static` are the server's (the remote API is under
+`/api/remote/`, so a system may be named `remote`). Every other
 address is read one segment at a time from the top level, by the same rules on both sides (`spec/routes.py` and
 `web/ui/src/lib/systemRoutes.ts`, over the table `GET /api/route-table` serves, checked against
-`tests/fixtures/route_cases.json`); in a scope a segment is, in order, a dashboard the model writes in that system (by
-its own name: `factory.review` is `/factory/review`), a default dashboard (below; `goals/NAME` and `agents/NAME` a
-goal's and an agent's own page, an agent being a block or an `agents:` entry), a projection the scope contains
-(section 4a, *What a system contains*: `NAME` its list, `NAME/REST` one of its items, REST being what its id glob's `*`
-matched, `factory/intake/ticket/1` at `/factory/ticket/1`; a projection whose glob is not `PREFIX*` writes the whole id)
-or a subsystem. So `/overview` is the top level's Overview, `/factory/intake/overview` intake's, `/factory/board` a
+`tests/fixtures/route_cases.json`); in a scope a name goes to the first of, in this fixed order: (1) a dashboard the
+model writes in that system (by its own name: `factory.review` is `/factory/review`), (2) a default dashboard (below;
+`goals/NAME` and `agents/NAME` a goal's and an agent's own page, an agent being a block or an `agents:` entry), (3) a
+subsystem, (4) a projection the scope contains (section 4a, *What a system contains*: `NAME` its list, `NAME/REST` one
+of its items, REST being what its id glob's `*` matched, `factory/intake/ticket/1` at `/factory/ticket/1`; a projection
+whose glob is not `PREFIX*` writes the whole id); between two of one rank, the one defined in that scope, then the
+first in the model's order. At the top level `api` and `static` go to the server first. A part a remote (section 4c)
+or a template's instance made is named, inside that system, by its short name (`spec.belongs`): the remote
+`incidents`'s subsystem `incidents-triage` is `/incidents/triage`, its goal `incidents-few-open`
+`/incidents/goals/few-open`; outside it, by its full name. So `/overview` is the top level's Overview, `/factory/intake/overview` intake's, `/factory/board` a
 dashboard written in factory, `/factory/qa/note/7` an item of qa's projection `note`. A system's own address
 (`/`, `/factory`) leads to its Overview. A model's dashboard named as a default replaces it there, and one named as a
 projection there is that projection's list (its items still under it); a projection's own `list` and `show` (its
 `dashboards:`, section 5a), and the `page:` dashboards, are drawn at its addresses. A projection, item, goal or agent
-read in a scope redirects (replacing the address) to the highest scope on that scope's chain that contains it
-(`/factory/intake/ticket/1234` to `/factory/ticket/1234` once a flow carries `ticket` into `factory`), never sideways;
-a thing is at no scope that does not contain it. Every link the page and ergostat write is at its canonical address
-(the top-most scope that contains it, read from where it is defined; an inbox entry's and a why's links are rewritten
+read in a scope redirects (replacing the address) to the highest scope on that scope's chain that it is at
+(`/factory/intake/ticket/1234` to `/factory/ticket/1234` once a flow carries `ticket` into `factory`; a scope where its
+name is taken is skipped), never sideways; a thing is at no scope that does not contain it, nor at one where it lost
+its name. Every link the page and ergostat write is at its canonical address (the top-most scope it is at, read from
+where it is defined; an inbox entry's and a why's links are rewritten
 by `spec/routes.py link`). `/item/ID` is the page of an id no projection, or several, see (one projection's id leads
 to its address). The old addresses lead to their new ones: `/record` to `/events`, `/diagram?system=S` to S's
 Diagrams, `/agent/NAME` to the agent's, `/PROJECTION` and `/PROJECTION/REST` of a projection not at the top level to
 where it is, `/items/NAME`, `/d/NAME`, `/loops`. `?builtin=1` on any address shows ergostat's own page all the same.
-There is no Dashboard page: `/dashboard` is an address like any other. Two things at one segment of one scope (a
-system and a dashboard both `review`; a projection named `events`; a top-level system `api`) are an
-**address-collision** (`spec/routes.py LEVEL`).
+There is no Dashboard page: `/dashboard` is an address like any other. A thing that loses its name at a scope (a
+projection `work` beside a subsystem `work`) is not addressed there: **address-shadowed**, a finding naming both and
+the scope. A thing some scope contains that is at none (a top-level system or projection named `api` or `static`, a
+subsystem named as a default or as a dashboard its parent writes, a projection named `events`) has no address:
+**address-unreachable**, an error. Two things never share an address: each name in a scope goes to one.
 
 **Dashboards per system.** Every dashboard is a system's (the top level's, "", when written in no system), and every
 one binds `$system`: a panel parameter written `system: $system` takes the system whose address it is drawn at. Each
@@ -2137,8 +2156,8 @@ system, and the top level, has the default dashboards, drawn by ergostat's own p
 | Agents | `/agents`, `/SYSTEM/agents` | `ladder`, `agents` (each `system: $system`), `daemons` |
 | Events | `/events`, `/SYSTEM/events` | `events` (`system: $system`): the events behind what it contains; the top level's, every event |
 
-Two things at one segment of one scope (a system and a dashboard both `review`; a projection named `events`; a
-top-level system `api`) are an **address-collision**, an error: the model does not load.
+A name two things want in one scope goes to one of them by the fixed order above (**address-shadowed**, a finding);
+only a thing left with no address anywhere is an error (**address-unreachable**): the model does not load.
 
 A system shows what it contains (section 4a): the top level what is defined in no system and what crosses between the
 top-level systems. What it contains and does not define (defined in another system, or ergostat's own) is
@@ -2957,7 +2976,7 @@ as its error (`eta_error` on the Timeline's answer, tried again as an answer wou
 **The forecast.** What the worker keeps is one stable result, `forecast/v1` (`numbers/forecast.py`), and every reader
 reads it: the Timeline (`eta_api.merge`: the same answers as the simulation's raw result gave it), the Items list, an
 item's page, `GET /api/forecast` (`item=ID`, repeated, at most 200; `projections=a,b`), a panel's SQL views (§4e) and a
-remote's reader (`/remote/v1/forecast`, §4c). It has the item keys above (`p50`, `p90`, `mean`, `start`, `dead`,
+remote's reader (`/api/remote/v1/forecast`, §4c). It has the item keys above (`p50`, `p90`, `mean`, `start`, `dead`,
 `out`, `runs`, `why`, `unscheduled`, what it waits in) and adds, per item, its `projection`, `state` and `basis` (what its
 wait now is drawn from: the block running or taking it, `sample` its recorded runs, or its state, `sample` its
 recorded stays and whose curve: own, its projection's, every projection's); per **projection** as before; per **group** (a parent named
@@ -2988,7 +3007,7 @@ the `yield`, the share out; `members`; and `by`, for each k up to 500, `[k, p50,
 are out in half and in nine tenths of the runs (null past the horizon). A member that neither comes out nor is lost
 within the horizon, or cannot move, counts as neither. An **ask** (`GET /api/forecast?group=PARENT`, with `by=` a time
 in Unix seconds, else the horizon; `at_least=N`, 1 to 10,000; `confidence=` a share between 0 and 1, with `at_least`;
-the same on `/remote/v1/forecast` and through a remote as `/api/forecast?remote=NAME&group=…`) is answered in `asked`:
+the same on `/api/remote/v1/forecast` and through a remote as `/api/forecast?remote=NAME&group=…`) is answered in `asked`:
 `out` and `lost` by then, `chance` (the share of runs with at least N out by then) and `start`: how many to start to
 get N out by then at that confidence, the fewest M with P(Binomial(M, y) ≥ N) at least the confidence, where y is the
 share of these members out by then over every run (exact, not a normal approximation). It takes each item started to
@@ -4781,7 +4800,7 @@ window and keeps it behind; when the dispatcher takes one while frozen items wai
 that cannot be read takes the plain order, said (a lost preference, never a stopped block). The completion estimates
 (section 5a) take items at the block by the same rule (`leases/frozen.py`'s `arrange`), from the list in force at
 their moment, and an item's why says its place in the window or that it is urgent. A remote reader sees both events
-through `/remote/v1/events`. A window by horizon (the items to start within a time) is not built: it needs a pass
+through `/api/remote/v1/events`. A window by horizon (the items to start within a time) is not built: it needs a pass
 that runs whether or not a page asks (docs/proposals/forecasts-and-promises.md, section 5). **Areas**, off unless
 declared: `areas: {touches: FIELD, holding: [STATE, ...], map: {AREA: {paths: [PATTERN, ...], owner: OWNER}}}` in
 `takes:` keeps items that would spoil each other's work from being worked at once. An item touches an area when a

@@ -248,11 +248,12 @@ def test_a_model_read_as_a_remote_exposes_its_group_counts(tmp_path, fresh):
         (here_dir / "shop.token").write_text(tok)
         (here_dir / "ergostat.yaml").write_text(textwrap.dedent(f"""
             name: reader
-            remotes:
+            systems:
               shop:
-                url: {a_url}
-                token-file: shop.token
-                every: 60s
+                remote:
+                  url: {a_url}
+                  token-file: shop.token
+                  every: 60s
             stocks:
               queue:
                 sensor: {{run: echo 1}}
@@ -268,7 +269,7 @@ def test_a_model_read_as_a_remote_exposes_its_group_counts(tmp_path, fresh):
         assert read["groups"]["lot/A"]["count"] == fc["groups"]["lot/A"]["count"]
         want = forecast.asked(fc, yields.parse({"group": "lot/A", "by": str(by), "at_least": "40", "confidence": "0.9"}))
         assert read["asked"] == want and "draws" not in read
-        assert _get(f"{a_url}/remote/v1/forecast?group=lot/A&at_least=-1", tok)[0] == 400
+        assert _get(f"{a_url}/api/remote/v1/forecast?group=lot/A&at_least=-1", tok)[0] == 400
         with pytest.raises(remote_items.RemoteRefused):
             remote_items.forecast(here.model.spec, "shop", ask={"group": "../events"})
     finally:

@@ -505,21 +505,3 @@ def test_the_gaps_own_system_keeps_its_chain_and_critical_path(tmp_path):
     assert mine["outside"] == [] and not any(x["projection"] == "session" for x in mine["items"])   # about a gap: not pulled
 
 
-def test_the_roadmaps_delivery_graph_draws_the_same_cards(tmp_path):
-    from pathlib import Path
-
-    from ergostat import process as pm
-    p = project(tmp_path, (Path(__file__).parent.parent / "examples" / "roadmap" / "ergostat.yaml").read_text())
-    ev = p.events
-    for n in (1, 2):
-        ev.add("epic.planned", item=f"epic/e{n}", data={"after": "epic/e1"} if n > 1 else {}, at=T0 + n)
-        ev.add("ticket.planned", item=f"ticket/e{n}-a", data={"parent": f"epic/e{n}"}, at=T0 + n)
-        ev.add("ticket.planned", item=f"ticket/e{n}-b", data={"parent": f"epic/e{n}", "blocked_by": f"ticket/e{n}-a"},
-               at=T0 + n)
-    ev.add("ticket.started", item="ticket/e1-a", at=T0 + 5)
-    spec = p.model.spec
-    assert set(pm.kinds_of(spec, "delivery")) == {"epic", "ticket"}
-    plain = pr.build(ev, spec, ["epic", "ticket"], T0 + 10, T0 - 10)
-    mine = pr.build(ev, spec, ["epic", "ticket"], T0 + 10, T0 - 10, own=pm.kinds_of(spec, "delivery"))
-    assert [x["id"] for x in mine["items"]] == [x["id"] for x in plain["items"]] and len(mine["items"]) == 6
-    assert mine["edges"] == plain["edges"] and mine["critical"] == plain["critical"] and mine["outside"] == []

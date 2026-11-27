@@ -1,4 +1,4 @@
-"""Asking a remote ergostat (SPEC §4c): one GET under ``/remote/v1/``, with the consumer's token, bounded in time
+"""Asking a remote ergostat (SPEC §4c): one GET under ``/api/remote/v1/``, with the consumer's token, bounded in time
 and in size (``BODY_MOST``). Never raises for the remote's failings: (status, body, etag, why) with status 0 when it did not answer."""
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def get(url: str, path: str, token: str | None, params: dict | None = None, etag
     """``tls`` (a remote's ``tls:``): read with that certificate and CA; a context that can't be made fails the read
     before anything is sent, never retried without it."""
     q = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None}, doseq=True)
-    full = f"{url.rstrip('/')}/remote/v1/{path.lstrip('/')}" + (f"?{q}" if q else "")
+    full = f"{url.rstrip('/')}/api/remote/v1/{path.lstrip('/')}" + (f"?{q}" if q else "")
     ctx = None
     if tls:
         from . import mtls

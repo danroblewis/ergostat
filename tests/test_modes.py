@@ -456,7 +456,7 @@ print("ergostat.numbers.modes" in sys.modules, "ergostat.numbers.extremes" in sy
 
 def test_check_never_imports_modes(tmp_path):
     _spec(tmp_path, TIMES, "times")
-    shutil.copytree(ROOT / "examples" / "first-loop", tmp_path / "first-loop")
+    shutil.copytree(ROOT / "tests" / "fixtures" / "first-loop", tmp_path / "first-loop")
 
     def run(d: str, what: str) -> list[str]:
         out = subprocess.run([sys.executable, "-I", "-c", CHECK, str(tmp_path / d), what], capture_output=True,

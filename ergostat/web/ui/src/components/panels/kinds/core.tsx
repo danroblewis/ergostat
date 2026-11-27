@@ -64,7 +64,7 @@ function GoalsBody({ def, every, refreshKey }: PanelBodyProps) {
       <Async state={loops}>
         {(data) => <GoalsTable loops={data} columns={goalColumns(def.columns)} caption={def.title || "Goals"}
           only={s ? Object.keys(data).filter((g) => s.has("goals", g) && (!asked || asked.includes(g))) : asked}
-          mark={(g) => ancillaryMark(s, "goals", g)} selected={def.selected ?? null} onOpen={open} />}
+          mark={(g) => ancillaryMark(s, "goals", g)} label={s ? (g) => s.label("goals", g) : undefined} selected={def.selected ?? null} onOpen={open} />}
       </Async>
     </div>
   );

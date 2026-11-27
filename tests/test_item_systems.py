@@ -26,39 +26,8 @@ def systems_of(demo: str) -> tuple[dict, list]:
     return {k: x["system"] for k, x in got.items()}, [(g["name"], g["projections"]) for g in groups(spec, got)]
 
 
-@pytest.mark.parametrize("demo, expected, order", [
-    ("image-squeeze",
-     {"hypothesis": "lab", "release": "lab", "session": "lab", "case": "benchmark", "ergostat.model-change": "modelling",
-      "ergostat.modelling-request": "modelling", "ergostat.claim": "lab", "ergostat.message": "lab", "ergostat.decision": "lab"},
-     ["lab", "benchmark", "modelling", "ergostat"]),
-    ("the-job",
-     {"mention": "awareness", "secret": "awareness", "pr": "delivery", "doc": "documents", "alert": "incidents",
-      "outage": "incidents", "action": "incidents", "note": "messages", "session": "modelling", "day": "rhythm",
-      "ramp": "safety", "ci": "safety", "review": "stewardship", "ticket": "support", "team-pr": "team", "update": "team",
-      "ergostat.model-change": "modelling", "ergostat.modelling-request": "modelling", "ergostat.message": "messages"},
-     ["delivery", "stewardship", "documents", "awareness", "incidents", "safety", "support", "team", "rhythm", "messages",
-      "modelling", "ergostat"]),
-    ("software-factory",
-     {"ticket": "factory", "pr": "other", "release": "other", "ergostat.model-change": "modelling",
-      "ergostat.modelling-request": "modelling"},
-     ["factory", "modelling", "ergostat", "other"]),
-])
-def test_each_demos_kinds_are_in_their_systems(demo, expected, order):
-    got, grouped = systems_of(demo)
-    assert got == {**{k: "ergostat" for k in BUILT_IN}, **expected}
-    assert [g for g, _ in grouped] == order
-    assert dict(grouped)["ergostat"] == [k for k in BUILT_IN if k not in expected]
 
 
-def test_why_each_was_decided():
-    spec, _ = sp.read(EXAMPLES / "software-factory" / "ergostat.yaml")
-    got = kind_systems(spec)
-    assert got["ticket"]["why"] == "counted in intake, delivery: all within factory"
-    assert got["pr"]["why"] == "nothing says"
-    assert got["ergostat.claim"]["why"] == "built in"
-    spec, _ = sp.read(EXAMPLES / "image-squeeze" / "ergostat.yaml")
-    assert kind_systems(spec)["hypothesis"]["why"] == "declared"
-    assert kind_systems(spec)["ergostat.decision"] == {"system": "lab", "why": "counted in lab"}   # where it is counted
 
 
 COUNTED = """

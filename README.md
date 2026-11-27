@@ -28,7 +28,7 @@ uv tool install git+ssh://git@github.com/danroblewis/ergostat   # private: needs
 brew install victoriametrics   # required: every reading is kept there (Linux: the single-node release binary);
                                # ergostat run starts it at 127.0.0.1:8428 when none runs
 cd <your repository>
-$EDITOR ergostat.yaml          # the model (below); examples/first-loop is the smallest whole one
+$EDITOR ergostat.yaml          # the model (below)
 ergostat check                 # errors with file:line, then findings (missing feedback, ...)
 ergostat run                   # in the background, with the web page
 ergostat                       # what needs attention
@@ -230,15 +230,6 @@ projection from the record (a directly-follows graph: states or events, how ofte
 checks are the command line's (`ergostat fit`, `ergostat proposals`, `ergostat check`). The header's "Last 1h" menu sets the window and
 looks at any past moment; "Back to live" returns. The page is a React app (`ergostat/web/ui`, its README.md), built into
 `ergostat/web/static/app` and committed, so Python needs nothing more at runtime.
-
-## Examples
-
-[`examples/`](examples/) holds twelve whole systems, each in its own folder with a README: start with
-`first-loop` (an inbox kept short, written by hand), then `plain-crontab` (cron one-liners) and
-`talking-scripts` (scripts that print sentences); the rest show loops in series, people filling
-roles, AI agents on the ladder, events between agents, systems at scale, and this machine measured
-for real. `cd examples/<name> && ergostat run` runs one; `scripts/demos.sh start` runs them all, and
-`scripts/demo_check.py` runs a fresh copy of each and checks its pages.
 
 ## Develop
 

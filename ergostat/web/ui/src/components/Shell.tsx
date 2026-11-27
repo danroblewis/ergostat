@@ -6,7 +6,7 @@ import { dashboardHref, diagramHref, projectionHref, scopeHref } from "../lib/hr
 import { DEFAULTS } from "../lib/pages";
 import type { ProjectionRoute } from "../lib/routes";
 import { ancillaryMark, scopedBy, type Scoped } from "../lib/scoped";
-import type { RouteTable } from "../lib/systemRoutes";
+import { nameAt, type RouteTable } from "../lib/systemRoutes";
 import { useAddress, useDashboards, type DashboardListed } from "../state/dashboards";
 import { goalsOff, useStatus, waitsOnYou, type SensorFailing } from "../state/status";
 import { WINDOW_WORDS, WINDOWS, type WindowKey, useTime } from "../state/time";
@@ -88,7 +88,7 @@ function SystemTree({ table, scope, carried }: { table: RouteTable | undefined; 
       <Menu.Item checked={scope === ""} onSelect={() => navigate(scopeHref("", "overview") + carried)}>{top}</Menu.Item>
       {rows.map(([x, depth]) => (
         <Menu.Item key={x} checked={scope === x} onSelect={() => navigate(scopeHref(x, "overview") + carried)}>
-          <span className="depth" style={{ width: `${depth * 1.1}em` }} aria-hidden="true" />{x}
+          <span className="depth" style={{ width: `${depth * 1.1}em` }} aria-hidden="true" />{table.scopes[x].name || x}
         </Menu.Item>
       ))}
     </Menu>
@@ -112,7 +112,8 @@ function NewDashboard() {
  *  ergostat's own) is greyer, its title saying where it is defined. */
 function ProjectionNav({ projections, carried, scoped }: { projections: ProjectionRoute[]; carried: string; scoped: Scoped | null }) {
   const navigate = useNavigate();
-  const { at } = useAddress();
+  const { at, table, scope } = useAddress();
+  const named = (n: string) => title(nameAt(table, "projections", n, scope));   // a remote's by its short name in it
   const here = at && (at.kind === "projection" || at.kind === "item") ? at.name : at?.projection ?? null;
   const to = (name: string) => projectionHref(name, "", scoped?.system) + carried;
   const seen = new Set<string>();
@@ -121,7 +122,7 @@ function ProjectionNav({ projections, carried, scoped }: { projections: Projecti
     const mark = ancillaryMark(scoped, "projections", p.name);
     if (!p.group) {
       out.push(<NavLink key={p.name} to={to(p.name)} title={mark.title}
-        className={({ isActive }) => [isActive || here === p.name ? "on" : "", mark.className || ""].join(" ").trim() || undefined}>{title(p.name)}</NavLink>);
+        className={({ isActive }) => [isActive || here === p.name ? "on" : "", mark.className || ""].join(" ").trim() || undefined}>{named(p.name)}</NavLink>);
     } else if (!seen.has(p.group)) {
       seen.add(p.group);
       const members = projections.filter((q) => q.group === p.group);
@@ -131,7 +132,7 @@ function ProjectionNav({ projections, carried, scoped }: { projections: Projecti
           buttonClassName={[members.some((q) => q.name === here) ? "on" : "", all ? "ancillary" : ""].join(" ").trim()}>
           {members.map((q) => <Menu.Item key={q.name} checked={q.name === here}
             onSelect={() => navigate(to(q.name))}>
-            <span {...ancillaryMark(scoped, "projections", q.name)}>{title(q.name)}</span></Menu.Item>)}
+            <span {...ancillaryMark(scoped, "projections", q.name)}>{named(q.name)}</span></Menu.Item>)}
         </Menu>);
     }
   }

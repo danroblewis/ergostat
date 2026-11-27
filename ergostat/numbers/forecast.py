@@ -1,7 +1,7 @@
 """The forecast (SPEC §5a, *The forecast*): the completion estimates as one stable, versioned answer, ``forecast/v1``,
 per item, per group and per stage, made from the one Monte Carlo (``eta.simulate`` over ``etamodel.read``'s inputs;
 no estimator of its own). The Timeline, an item's page, the Items tab, a dashboard's SQL views (``forecast_*``,
-datasources/_itemviews.py), ``GET /api/forecast`` and the remote API (``/remote/v1/forecast``) all read this answer.
+datasources/_itemviews.py), ``GET /api/forecast`` and the remote API (``/api/remote/v1/forecast``) all read this answer.
 
 Every answer (the whole, each item, kind, group and stage) says its **basis** (what it is drawn from), its **sample
 size** (``runs``: the simulation's runs; ``basis.sample``: the record's stays or runs its curve is drawn from) and

@@ -482,27 +482,6 @@ def test_the_stand_in_level_rises_and_its_correction_lowers_it(tmp_path, monkeyp
     assert float(run_lib(tmp_path, "standin", "level", "--name", "d", "--limit", "100").stdout) < v
 
 
-def test_add_use_shows_the_diff_and_writes_only_when_asked(tmp_path):
-    shutil_copy(tmp_path)
-    root = tmp_path / "job"
-    before = (root / "ergostat.yaml").read_text()
-    got = author.add(root, "pings", "re-ping", {"every": "1d", "limit": 2}, file="job/pings.yaml", within="delivery")
-    assert got["ok"] and got["written"] is False and "+  pings:" in got["diff"] and not (root / "job/pings.yaml").exists()
-    assert (root / "ergostat.yaml").read_text() == before, "a new file job/*.yaml is already included"
-    assert "pings-unanswered" in got["parts"]["stocks"]
-    got = author.add(root, "pings", "re-ping", {"every": "1d", "limit": 2}, file="job/pings.yaml", within="delivery", write=True)
-    assert got["written"] == ["job/pings.yaml"]
-    spec, ps = read(root / "ergostat.yaml")
-    assert spec.within["pings"] == "delivery" and not [p for p in ps if p.level == "error"]
-    with pytest.raises(author.AuthorError):
-        author.add(root, "pings", "re-ping", {}, file="job/pings.yaml")
-    got = author.add(root, "pings", "re-ping", {"every": "2d"}, file="job/pings.yaml", replace=True, write=True)
-    assert "every: 2d" in (root / "job/pings.yaml").read_text() and "limit" not in (root / "job/pings.yaml").read_text()
-    bad = author.add(root, "other", "re-ping", {"every": "never"}, file="extra/other.yaml", write=True)
-    assert not bad["ok"] and bad["written"] is False and not (root / "extra/other.yaml").exists()
-    good = author.add(root, "other", "keep-under", {"limit": 3}, file="extra/other.yaml", write=True)
-    assert good["written"] == ["extra/other.yaml", "ergostat.yaml"] and "  - extra/other.yaml" in (root / "ergostat.yaml").read_text()
-    assert "other" in load(root / "ergostat.yaml").uses
 
 
 def shutil_copy(tmp_path: Path) -> None:

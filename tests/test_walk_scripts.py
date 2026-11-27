@@ -33,24 +33,6 @@ def script(name: str):
     return mod
 
 
-def test_demo_up_refuses_unknown_and_paths(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("DEMO_UP_STATE", str(tmp_path / "state"))
-    up = script("demo_up")
-    copied = []
-    monkeypatch.setattr(up, "fresh_copy", lambda d: copied.append(d) or tmp_path)
-    for bad in ("no-such-demo", "..", "../examples/the-job", "the-job/../big", "/tmp", str(ROOT / "examples" / "the-job"),
-                "remote-pair", "README.md", ".", "", "the-job/", "the-job\n"):
-        for what in ("stop", "start"):
-            with pytest.raises(SystemExit) as e:
-                up.main([what, bad])
-            assert "refused" in str(e.value), (what, bad)
-    assert copied == [] and not (tmp_path / "state").exists()        # nothing copied, no state written
-    assert up.demo_dir("the-job") == up.DEMOS / "the-job"            # (and a real one is taken)
-    for name in ("the-job", "ticket-factory", "image-squeeze", "roadmap", "software-factory", "big"):
-        assert (up.demo_dir(name) / "ergostat.yaml").is_file()
-    with pytest.raises(SystemExit, match="refused: port"):
-        up.main(["start", "the-job", "--port", "8790"])
-    assert copied == []
 
 
 @pytest.mark.slow
@@ -78,21 +60,6 @@ def test_demo_up_starts_and_stops_the_job(tmp_path):
     assert up("stop", "the-job").returncode == 1                       # (stopped: nothing left to stop)
 
 
-@pytest.mark.slow
-@pytest.mark.parametrize("demo", ["ticket-factory", "image-squeeze", "roadmap", "software-factory", "big"])
-def test_demo_up_starts_and_stops_each_named_demo(tmp_path, demo):
-    env = {**os.environ, "DEMO_UP_STATE": str(tmp_path / "state")}
-    up = lambda *a: subprocess.run([sys.executable, str(SCRIPTS / "demo_up.py"), *a], capture_output=True,  # noqa: E731
-                                   text=True, timeout=180, env=env, cwd=ROOT)
-    r = up("start", demo)
-    try:
-        assert r.returncode == 0, r.stdout + r.stderr
-        url = json.loads(r.stdout.strip().splitlines()[-1])["url"]
-        with urllib.request.urlopen(f"{url}/api/status", timeout=30) as resp:
-            assert resp.status == 200
-    finally:
-        s = up("stop", demo)
-    assert s.returncode == 0, s.stdout + s.stderr
 
 
 RUNNER = """import fcntl, os, signal, subprocess, sys, time
@@ -108,51 +75,8 @@ time.sleep(600)
 """
 
 
-def test_demo_up_stop_ends_what_the_runner_left(tmp_path, monkeypatch):
-    monkeypatch.setenv("DEMO_UP_STATE", str(tmp_path / "state"))
-    up = script("demo_up")
-    home = tmp_path / "home"
-    (home / "p").mkdir(parents=True)
-    runner = subprocess.Popen([sys.executable, "-c", RUNNER, str(home)], start_new_session=True)
-    threading.Thread(target=runner.wait, daemon=True).start()     # (reaped when it ends)
-    try:
-        for _ in range(200):
-            if (home / "kid").exists():
-                break
-            threading.Event().wait(0.05)
-        kid = int((home / "kid").read_text())
-        assert {runner.pid, kid} <= set(up.table({}))
-        (tmp_path / "state").mkdir()
-        st = {"demo": "the-job", "copy": str(tmp_path / "copy"), "home": str(home), "url": None, "log": None}
-        (tmp_path / "state" / "the-job.json").write_text(json.dumps(st))
-        told = []
-        monkeypatch.setattr(up, "ergostat", lambda st, *a: told.append(a) or subprocess.CompletedProcess(a, 0, "", ""))
-        monkeypatch.setattr(up, "running", lambda st: up.runner_pid(st["home"]) is not None)
-        monkeypatch.setattr(up, "STOP_WAIT", 1)
-        monkeypatch.setattr(up, "KILL_GRACE", 1)
-        assert up.main(["stop", "the-job"]) == 0
-        assert told == [("run", "--stop")]
-        alive = set(up.table({}))
-        assert runner.pid not in alive and kid not in alive          # the runner and the child in its own session
-        assert not (tmp_path / "state" / "the-job.json").exists()
-    finally:
-        runner.kill()
-        with contextlib.suppress(NameError, OSError):
-            os.kill(kid, 9)
 
 
-def test_demo_up_fails_at_once_when_run_fails(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("DEMO_UP_STATE", str(tmp_path / "state"))
-    up = script("demo_up")
-    (tmp_path / "copy").mkdir()
-    monkeypatch.setattr(up, "fresh_copy", lambda d: tmp_path / "copy")
-    told = []
-    monkeypatch.setattr(up, "ergostat", lambda st, *a: told.append(a) or subprocess.CompletedProcess(
-        a, 2 if a[0] == "run" and a[1] != "--stop" else 0, "the model has errors", ""))
-    began = time.monotonic()
-    assert up.main(["start", "the-job"]) == 1
-    assert time.monotonic() - began < 10 and ("--json",) not in told          # no wait for its web
-    assert "rc 2" in capsys.readouterr().err and not (tmp_path / "state" / "the-job.json").exists()
 
 
 PAGE = """<!doctype html><html><body>

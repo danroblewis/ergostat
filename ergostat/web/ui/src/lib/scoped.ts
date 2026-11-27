@@ -1,4 +1,4 @@
-import type { RouteTable } from "./systemRoutes";
+import { nameAt, type RouteTable } from "./systemRoutes";
 
 /* What a system's dashboards show (SPEC §4f, Dashboards per system): the projections, goals and agents the system
    contains (spec/scope.py, carried in the route table), and of them the ancillary ones (contained, not defined there),
@@ -13,6 +13,8 @@ export type Scoped = {
   has: (kind: Plural, name: string) => boolean;
   /** where it is defined, when that is not this system (it is ancillary here); null when it is the system's own */
   ancillary: (kind: Plural, name: string) => string | null;
+  /** its name in this system: a remote's (or a template instance's) part by its short name inside it */
+  label: (kind: Plural, name: string) => string;
 };
 
 const where = (s: string | null) => (s === null ? "ergostat's own" : `defined in ${s === "" ? "the top level" : s}`);
@@ -28,6 +30,7 @@ export function scopedBy(t: RouteTable | null | undefined, system: unknown): Sco
       const x = of(kind, name);
       return !x || x.defined_in === system ? null : where(x.defined_in);
     },
+    label: (kind, name) => nameAt(t, kind, name, system),
   };
 }
 

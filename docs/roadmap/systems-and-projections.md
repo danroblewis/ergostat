@@ -58,7 +58,7 @@ A projection named `ticket` defined in `intake`, within `factory`, matches `fact
 
 ## Addresses
 
-`/api` and `/static` (and `/remote`) are the server's. Every other address is read one segment at a time from the top
+`/api` and `/static` are the server's (the remote API moved under `/api/remote/`). Every other address is read one segment at a time from the top
 level: each segment is, in that scope, a dashboard, a projection, `goals`, `agents`, or a subsystem.
 
     /overview                       the default system's Overview
@@ -75,8 +75,11 @@ A thing is at a scope's address only if that scope contains it. When `ticket`, d
 one redirects to the top-most. A link shared before the flow was added still works, and the owner sees that `ticket`
 now belongs to `factory` and may want to move its definition there. Nothing has to be refactored for it to work.
 
-Two things with one address in one scope (a subsystem and a dashboard both named `review` in `factory`) are an error
-of the model. A YAML error, or an address collision, stops the page: it shows the errors and nothing else.
+A name in a scope goes to one thing by a fixed order (2026-11-27, the owner): a dashboard the model writes there, a
+default dashboard, a subsystem, then a projection, goal or agent. The loser is not addressed there (a finding,
+`address-shadowed`); its address is the top-most scope where its name is free. Only a thing with no free scope at all
+(a top-level `api`, a projection named `events`) is an error. A remote is a system (`systems: NAME: {remote: ...}`),
+renamed by renaming the system, and its parts are named by their short names inside it (`/incidents/triage`). A YAML error, or a thing with no address, stops the page: it shows the errors and nothing else.
 
 The server (Python) and the page (TypeScript) each have the same address helpers (resolve an address to its scope and
 dashboard, and write the canonical address of a thing), checked against one shared file of cases.

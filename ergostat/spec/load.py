@@ -22,7 +22,7 @@ SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "che
             "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",
             "daemons": "daemon", "operating": "operating state"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
-       "defaults", "uses", "library", "libraries", "remotes", "budget", "operating", "runs", "dashboards",
+       "defaults", "uses", "library", "libraries", "budget", "operating", "runs", "dashboards",
        *SECTIONS}
 
 
@@ -197,7 +197,11 @@ def load(main: Path) -> Document:
                                         Where(path, 1), "not-a-map"))
             return
         for k in data:
-            if k not in TOP:
+            if k == "remotes":
+                doc.problems.append(Problem("error", "remotes: is not a section: a remote is a system, written under "
+                                            "systems: as NAME: {remote: {url: ..., token-file: ...}} (SPEC §4c)",
+                                            data.at(k), "unknown-key"))
+            elif k not in TOP:
                 doc.problems.append(Problem("error", f"unknown section {k!r} (known: {', '.join(sorted(TOP))})",
                                             data.at(k), "unknown-key"))
         if "name" in data:
@@ -302,6 +306,10 @@ def load(main: Path) -> Document:
                                             data.at(section), "not-a-map"))
                 continue
             for name, entry in body.items():
+                if section == "systems" and isinstance(entry, dict) and "remote" in entry:
+                    from ..remote import compose        # a remote is a system: one another ergostat runs (SPEC §4c)
+                    compose.one(doc, str(name), entry, body.at(name), defaults, put)
+                    continue
                 put(section, name, entry, body.at(name), defaults)
         if data.get("dashboards") is not None:
             from .dashboards import take as dashboards
@@ -309,9 +317,6 @@ def load(main: Path) -> Document:
         if data.get("uses") is not None:
             from ..library import uses
             uses.take(doc, data, defaults, put)
-        if data.get("remotes") is not None:
-            from ..remote import compose
-            compose.take(doc, data, defaults, put)
         inc = data.get("include")
         if inc is None:
             return

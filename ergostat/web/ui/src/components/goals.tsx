@@ -14,7 +14,7 @@ export function GoalCells({ g, columns, open, at }: { g: any; columns: GoalColum
     switch (c) {
       case "goal": return (
         <td key={c} className="nowrap">
-          <button className="name" type="button" onClick={(ev) => { ev.stopPropagation(); open(g.name); }}><b>{g.name}</b></button>
+          <button className="name" type="button" onClick={(ev) => { ev.stopPropagation(); open(g.name); }}><b>{g.label ?? g.name}</b></button>
           {g.open_loop && <span className="muted" title="Acts on its schedule, reads nothing"> open loop</span>}
         </td>);
       case "status": return <td key={c}><StatusWord status={goalWord(g)} /></td>;

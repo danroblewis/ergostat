@@ -3,7 +3,7 @@ its ``Live``, bounded by hard constants (never config). A connection takes a slo
 once; its handshake runs in its own thread and must be done within ``HANDSHAKE`` in all, however slowly the peer's
 bytes come (``ssl`` takes a socket's timeout as the handshake's total since 3.5); after it, the socket times out
 when ``IDLE`` passes without a byte (a peer with a certificate from ``client-ca`` that keeps sending a byte now and
-then keeps its slot). The handler serves ``GET /remote/v1/<endpoint>...`` only, on decoded path segments; anything
+then keeps its slot). The handler serves ``GET /api/remote/v1/<endpoint>...`` only, on decoded path segments; anything
 else is 404 (or 405) without reaching the page's routes. Stopping closes every open connection and joins its thread."""
 
 from __future__ import annotations
@@ -23,16 +23,16 @@ ENDPOINTS = frozenset({"status", "model", "events", "items", "counts", "readings
 
 
 def allowed(raw_path: str) -> bool:
-    """``/remote/v1/<endpoint>[/...]``: decoded segments, none of them ``.``, ``..``, empty (but a trailing one) or
+    """``/api/remote/v1/<endpoint>[/...]``: decoded segments, none of them ``.``, ``..``, empty (but a trailing one) or
     holding a slash."""
     path = raw_path.split("?", 1)[0].split("#", 1)[0]
     segs = [unquote(s) for s in path.split("/")]
     if segs[0] != "":
         return False
     segs = segs[1:]
-    if len(segs) > 3 and segs[-1] == "":
+    if len(segs) > 4 and segs[-1] == "":
         segs = segs[:-1]
-    return (len(segs) >= 3 and segs[0] == "remote" and segs[1] == "v1" and segs[2] in ENDPOINTS
+    return (len(segs) >= 4 and segs[:3] == ["api", "remote", "v1"] and segs[3] in ENDPOINTS
             and all(s not in ("", ".", "..") and "/" not in s and "\\" not in s for s in segs))
 
 
@@ -55,7 +55,7 @@ def handler(page):
 
         def do_GET(self):
             if not allowed(self.path):
-                return self._send(404, b'{"error": "only /remote/v1/ is served here"}', "application/json")
+                return self._send(404, b'{"error": "only /api/remote/v1/ is served here"}', "application/json")
             return self._remote(urlsplit(self.path))
     return Remote
 

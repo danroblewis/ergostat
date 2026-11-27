@@ -21,8 +21,8 @@ def read(path: Path, extremes: bool = True) -> tuple[Spec, list[Problem]]:
         from ..promnames import names_for
         problems += names_for(spec).problems()        # two parts' PromQL names that cannot be kept apart: refused
     if not any(p.level == "error" for p in problems):
-        from .routes import problems as collisions
-        problems += collisions(spec)                  # two things at one address of one scope (SPEC §4f)
+        from .routes import problems as addresses
+        problems += addresses(spec)                   # shadowed names (findings), things with no address (errors)
     if not any(p.level == "error" for p in problems):
         problems += findings(spec, extremes)
     return spec, problems

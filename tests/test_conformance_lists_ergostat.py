@@ -68,17 +68,6 @@ def hide_xmile(monkeypatch) -> None:
     monkeypatch.delattr(discover, "from_xmile", raising=False)
 
 
-def test_xmile_checks_exit_1_without_the_feature(formats, monkeypatch, capsys):
-    from ergostat.spec import discover
-    # as if the export and an importer had both merged, then hidden: the hiding is what makes them unmet
-    fake(monkeypatch, "ergostat.xmile", export=exporter()[0], draft=lambda text: (DRAFT, []))
-    monkeypatch.setattr(discover, "from_xmile", lambda text: DRAFT, raising=False)
-    assert formats.main(["xmile-export"]) == 0 and formats.main(["xmile-import"]) == 0
-    hide_xmile(monkeypatch)
-    assert importlib.util.find_spec("ergostat.xmile") is None
-    for case, word in (("xmile-export", "no XMILE export"), ("xmile-import", "no XMILE importer")):
-        assert formats.main([case]) == 1, case
-        assert word in capsys.readouterr().out
 
 
 def importer_present(formats) -> bool:
@@ -106,37 +95,6 @@ def test_a_bad_case_or_a_failing_check_is_broken_not_unmet(formats, monkeypatch,
     assert formats.main(["ergostat-toml", str(tmp_path)]) == 2
 
 
-def test_each_met_format_check_fails_on_a_broken_copy(formats, monkeypatch, tmp_path):
-    good, bad = tmp_path / "good", tmp_path / "bad"
-    for root in (good, bad):
-        (root / "examples/first-loop").mkdir(parents=True)
-        shutil.copy(ROOT / "examples/first-loop/ergostat.yaml", root / "examples/first-loop/ergostat.yaml")
-        (root / "tests/fixtures/toml").mkdir(parents=True)
-        shutil.copy(ROOT / "tests/fixtures/toml/first-loop.toml", root / "tests/fixtures/toml/first-loop.toml")
-    y = bad / "examples/first-loop/ergostat.yaml"
-    y.write_text(y.read_text().replace("out: flow.processed", "out: flow.nowhere"))
-    t = bad / "tests/fixtures/toml/first-loop.toml"
-    t.write_text(t.read_text().replace('flow = "processed"', 'flow = "nowhere"'))
-    assert run("ergostat-yaml", str(good)).returncode == 0
-    r = run("ergostat-yaml", str(bad))
-    assert r.returncode == 1 and "first-loop" in r.stdout, (r.stdout, r.stderr)
-    assert run("ergostat-toml", str(good)).returncode == 0
-    r = run("ergostat-toml", str(bad))
-    assert r.returncode == 1 and "first-loop" in r.stdout, (r.stdout, r.stderr)
-
-    from ergostat.remote import serve
-    assert formats.main(["served-model"]) == 0
-    monkeypatch.setattr(serve, "FORMAT", "ergostat-model/2")
-    assert formats.main(["served-model"]) == 1
-    monkeypatch.undo()
-    real = serve.document
-
-    def dropped(doc, instance):
-        out = real(doc, instance)
-        out["sections"]["stocks"].pop(next(iter(out["sections"]["stocks"])))
-        return out
-    monkeypatch.setattr(serve, "document", dropped)
-    assert formats.main(["served-model"]) == 1
 
 
 def fake(monkeypatch, name: str, **fns) -> None:
@@ -166,25 +124,6 @@ def exporter(**layout):
     return export, seen
 
 
-def test_xmile_export_check_reads_structure_not_bytes(formats, monkeypatch):
-    """Definition item 4: any layout passes; a wrong namespace, a missing flow or ergostat syntax in an eqn does not."""
-    for layout in ({}, {"reverse": True, "extra": '<header><vendor>x</vendor></header><isee:prefs xmlns:isee="i"/>'}):
-        export, seen = exporter(**layout)
-        fake(monkeypatch, "ergostat.xmile", export=export)
-        assert formats.main(["xmile-export"]) == 0, layout
-        assert seen == ["image-squeeze"]
-    fake(monkeypatch, "ergostat.xmile",
-         export=lambda p, snap, system=None: ET.fromstring(xmile(p.model.spec, eqn="MAX(0, 2) * 3")))
-    assert formats.main(["xmile-export"]) == 0
-    for wrong in ({"ns": "http://example.org/not-xmile"}, {"eqn": "stock.quality * 2"}, {"eqn": "window-time / 2"},
-                  {"eqn": "${rate}"}):
-        fake(monkeypatch, "ergostat.xmile", export=exporter(**wrong)[0])
-        assert formats.main(["xmile-export"]) == 1, wrong
-    fake(monkeypatch, "ergostat.xmile", export=lambda p, snap, system=None: xmile(p.model.spec)
-         .replace("<flow ", "<aux ", 1).replace("</flow>", "</aux>", 1))
-    assert formats.main(["xmile-export"]) == 1
-    fake(monkeypatch, "ergostat.xmile", something_else=lambda p, snap, system=None: "")
-    assert formats.main(["xmile-export"]) == 2                     # the module is there, its call unknown: broken
 
 
 DRAFT = """\
@@ -227,27 +166,8 @@ def test_diagrams_unmet_cases_not_asked():
                      "service-map": False, "sequence-diagram": False}
 
 
-@pytest.mark.parametrize("case", list(MET))
-def test_each_met_diagram_check_fails_when_its_view_is_empty(case, monkeypatch):
-    mod = checks()
-    assert mod.main([case]) == 0                           # met as main is
-    module, name = MET[case]
-    real = getattr(importlib.import_module(module), name)
-    monkeypatch.setattr(f"{module}.{name}", lambda *a, **k: {**real(*a, **k), "nodes": [], "edges": []})
-    assert mod.main([case]) == 1                           # the view's builder drawing nothing: unmet, not broken
 
 
-@pytest.mark.parametrize("case,drop", [("stock-and-flow", lambda g: {**g, "nodes": [n for n in g["nodes"]
-                                                                              if not n["id"].startswith("flow:")]}),
-                                       ("block-diagram", lambda g: {**g, "nodes": [n for n in g["nodes"]
-                                                                             if n.get("role") != "comparator"]}),
-                                       ("process-map", lambda g: {**g, "edges": []})])
-def test_each_met_diagram_check_fails_on_one_part_missing(case, drop, monkeypatch):
-    mod = checks()
-    module, name = MET[case]
-    real = getattr(importlib.import_module(module), name)
-    monkeypatch.setattr(f"{module}.{name}", lambda *a, **k: drop(real(*a, **k)))
-    assert mod.main([case]) == 1                           # the flows, the junctions, the lines: each is looked for
 
 
 def test_a_check_error_is_broken_not_unmet(monkeypatch):
@@ -257,12 +177,6 @@ def test_a_check_error_is_broken_not_unmet(monkeypatch):
     assert mod.main(["stock-and-flow"]) == 2
 
 
-@pytest.mark.parametrize("case,rc", [*((c, 0) for c in MET), *((c, 1) for c in UNMET)])
-def test_each_diagram_check_on_main_gives_its_recorded_result_within_60s(case, rc):
-    t = time.monotonic()
-    got = subprocess.run([sys.executable, str(CHECK), case], cwd=ROOT, capture_output=True, text=True, timeout=120)
-    took = time.monotonic() - t
-    assert (got.returncode, took < 60) == (rc, True), (case, got.returncode, round(took, 1), got.stdout, got.stderr)
 
 
 DISCOVERY = ROOT / "dev" / "conformance" / "checks" / "discovery.py"

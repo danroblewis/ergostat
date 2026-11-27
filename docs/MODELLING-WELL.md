@@ -10,7 +10,7 @@ methodical, "surprising only in the subject, never in the method or the words"
 Read [AGENT-GUIDE.md](AGENT-GUIDE.md) first (the method, the chain, the check-look-fix loop). This page assumes the
 model is already the right shape and asks: would a professional wince?
 
-The running example is [`examples/alert-triage`](../examples/alert-triage/): alerts from a pager are triaged, fanned
+The running example is `alert-triage` (an example no longer in the repository): alerts from a pager are triaged, fanned
 out into three facets investigated in parallel (logs, deploys, metrics), joined, summarised, and closed or escalated
 to the on-call engineer, who may send one back. Beside it, `examples/alert-triage/poor/` is **the same workflow
 modelled badly on purpose**: it loads, it runs, and every diagram below marked *poor* comes from it. Every YAML

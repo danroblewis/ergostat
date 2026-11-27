@@ -1,7 +1,7 @@
-"""``remotes:`` (SPEC §4c): each remote's served model put into this one as an external subsystem.
+"""A remote system (``systems: NAME: {remote: ...}``, SPEC §4c): each remote's served model put into this one as an external subsystem.
 
 Every part it serves becomes ``REMOTE-PART`` (as a template's instance names its parts, and with the same renaming:
-``library/expand.rename``), in the system ``REMOTE`` (its own systems inside it), pointing at the ``remotes:`` line
+``library/expand.rename``), in the system ``REMOTE`` (its own systems inside it), pointing at the system's line
 (``RemoteVia``). Its blocks become ``type: external`` (never run here), its sensors queries of the remote's same
 series (``readings.py``), its agents ``external: true`` (each keeps its rung); its projections stay there (the
 local fold never folds remote items). A local reference to a remote part that the remote no longer serves gets a
@@ -30,7 +30,8 @@ from ..spec.ir import NAME
 from ..spec.load import Map, Problem, Where
 from . import instance
 
-KEYS = {"url", "token-file", "systems", "within", "every", "description", "show", "tls"}
+KEYS = {"url", "token-file", "systems", "every", "tls"}               # under remote:
+SYSTEM_KEYS = {"within", "description", "show", "remote"}          # the system's own
 SHOW = re.compile(r"^(stock|flow|auxiliary)\.([a-z][a-z0-9-]*)$")
 EVERY, EVERY_LEAST = 60.0, 10.0
 IMPORTED = ("systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents")
@@ -38,7 +39,7 @@ BLOCK_KEEP = {"in", "out", "agent", "role", "description", "system"}
 KINDS = {"stock": "stocks", "flow": "flows", "auxiliary": "auxiliaries", "variable": "auxiliaries", "goal": "goals",
          "block": "blocks", "parameter": "parameters", "system": "systems"}
 STALE_RUNS = 3
-DEPTH_MOST, VIA_MOST, PARTS_MOST = 3, 8, 2000    # fixed: no remotes: key changes them
+DEPTH_MOST, VIA_MOST, PARTS_MOST = 3, 8, 2000    # fixed: no remote: key changes them
 PART_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 _OFFLINE: contextvars.ContextVar[bool] = contextvars.ContextVar("ergostat_remote_offline", default=False)
@@ -77,7 +78,7 @@ WHERE_TEXT = "remote: run by the ergostat at {}"     # a box's local text: serve
 
 
 class RemoteVia(Where):
-    """Where a remote's part was brought in: its ``remotes:`` entry, which remote it is, the chain of instance ids
+    """Where a remote's part was brought in: its system's entry, which remote it is, the chain of instance ids
     the part came through (origin first, the remote last; what serving it on names as its ``via``), and whether it
     is a stand-in (never served on)."""
 
@@ -99,20 +100,11 @@ def as_map(x, where: Where):
     return x
 
 
-def take(doc, data: Map, defaults: dict, put) -> None:
-    """A file's ``remotes:``: each entry checked, its model read from the cache (asked of the remote when the cache is
-    older than its ``every``), and its parts put in."""
-    body = data["remotes"]
-    if not isinstance(body, dict):
-        doc.problems.append(Problem("error", "remotes: a map, each entry a remote's name: its url: and token-file:",
-                                    data.at("remotes"), "not-a-map"))
-        return
-    for name, entry in body.items():
-        w = body.at(name) if hasattr(body, "at") else data.at("remotes")
-        one(doc, str(name), entry, w, defaults, put)
-
-
-def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
+def one(doc, name: str, system, w: Where | None, defaults: dict, put) -> None:
+    """A system written with ``remote:`` (``systems: NAME: {within?, description?, show?, remote: {url, token-file?,
+    tls?, systems?, every?}}``): the remote is that system, its name the system's key (renaming the system renames the
+    remote). Its entry checked, its model read from the cache (asked of the remote when the cache is older than its
+    ``every``), and its parts put in, each recorded as the system's (``spec.belongs``)."""
     def err(msg, where=None, code="bad-remote"):
         doc.problems.append(Problem("error", f"remote {name}: {msg}", where or w, code, f"system.{name}"))
 
@@ -120,12 +112,24 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         return err("a remote's name is lowercase letters, digits and -, starting with a letter", code="bad-name")
     if name in doc.remotes:
         return err(f"defined twice: here and at {doc.remotes[name]['where']}", code="defined-twice")
-    if not isinstance(entry, dict) or not entry.get("url"):
-        return err("give it url: (the remote ergostat's page, https or a tunnel's loopback port) and token-file:",
-                   code="missing-key")
-    for k in entry:
+    r = system.get("remote")
+    for k in system:
+        if k not in SYSTEM_KEYS:
+            err(f"unknown key {k!r}: a remote system has only {', '.join(sorted(SYSTEM_KEYS))} (what it holds comes "
+                f"from the remote)", system.at(k) if hasattr(system, "at") else w, "unknown-key")
+    if not isinstance(r, dict) or not r.get("url"):
+        return err("give it remote: {url: (the remote ergostat's page, https or a tunnel's loopback port), "
+                   "token-file:}", code="missing-key")
+    for k in r:
         if k not in KEYS:
-            err(f"unknown key {k!r} (known: {', '.join(sorted(KEYS))})", entry.at(k), "unknown-key")
+            err(f"remote: unknown key {k!r} (known: {', '.join(sorted(KEYS))}"
+                + ("; it is the system's own key, beside remote:" if k in SYSTEM_KEYS else "") + ")",
+                r.at(k) if hasattr(r, "at") else w, "unknown-key")
+    entry = Map({**{k: v for k, v in r.items() if k in KEYS},
+                 **{k: v for k, v in system.items() if k in SYSTEM_KEYS and k != "remote"}})
+    entry.where = getattr(system, "where", None)
+    entry.lines = {**{k: (r.at(k) if hasattr(r, "at") else w) for k in r},
+                   **{k: (system.at(k) if hasattr(system, "at") else w) for k in system}}
     url = str(entry["url"]).rstrip("/")
     if not re.match(r"^https?://", url):
         return err(f"url: {url!r} is not an http(s) address", entry.at("url"))

@@ -40,7 +40,7 @@ pytestmark = pytest.mark.skipif(not (ws.STATIC / "app" / "index.html").is_file()
 
 def project_with_items(d: Path) -> Project:
     """The first loop, with a few readings and three tickets on its record (one finished)."""
-    shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__", "inbox"))
+    shutil.copytree(ROOT / "tests" / "fixtures" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__", "inbox"))
     f = d / "ergostat.yaml"
     f.write_text(f.read_text() + PROJECTION)
     p = Project(mdl.load(d))

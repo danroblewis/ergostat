@@ -160,19 +160,6 @@ def test_a_small_spec_with_no_loops_still_gives_tables(tmp_path):
     assert tables(api(live, "export", {"view": ["blocks"]})["markdown"])["Control loops"] == []
 
 
-def test_software_factory_product_dynamics_matches_what_is_drawn():
-    import shutil
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp:                     # (a copy: the example is never written to)
-        d = Path(tmp) / "software-factory"
-        shutil.copytree(ROOT / "examples" / "software-factory", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
-        live = live_of(d)
-        q = {"view": ["dynamics"], "system": ["product"]}
-        t = tables(api(live, "export", q)["markdown"])
-        g = api(live, "graph", q)
-        assert sorted(r["name"] for r in t["Variables"]) == drawn_parts(g) and len(t["Variables"]) > 3
-        assert [r["name"] for r in t["Feedback loops"]] == [c["name"] for c, _ in side_list(g)]
-        assert t["Feedback loops"], "the product's loops close through the factory"
 
 
 @pytest.fixture(scope="module")

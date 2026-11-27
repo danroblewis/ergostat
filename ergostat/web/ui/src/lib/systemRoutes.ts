@@ -4,8 +4,13 @@
    node runs it as it is. The page's resolver (Resolve.tsx) and every link it writes (lib/hrefs.ts) are these. */
 
 export type Segment = { kind: "dashboard" | "projection" | "system"; name: string; default?: boolean; projection?: string };
-export type Scope = { within: string | null; path: string; segments: Record<string, Segment> };
-export type Thing = { defined_in: string | null; in: string[]; id?: string };
+/** A scope: its segment under its parent (`name`), its path, the names read in it (a name goes to one thing, by the
+ *  fixed order: routes.py), and the goals and agents under its goals/ and agents/ by their names there. */
+export type Scope = { within: string | null; name: string; path: string; segments: Record<string, Segment>;
+  goals: Record<string, string>; agents: Record<string, string> };
+/** `in`: the scopes that contain it; `at`: those where it holds its name, and that name (a remote's or a template's
+ *  part is named by its short name inside its own system). */
+export type Thing = { defined_in: string | null; in: string[]; at: Record<string, string>; id?: string };
 export type RouteTable = {
   reserved: string[];
   defaults: string[];
@@ -14,7 +19,9 @@ export type RouteTable = {
   goals: Record<string, Thing>;
   agents: Record<string, Thing>;
   dashboards: Record<string, string>;
-  collisions: { scope: string; segment: string; things: { kind: string; name: string }[]; message: string }[];
+  shadowed: { scope: string; segment: string; kept: { kind: string; name: string }; lost: { kind: string; name: string };
+    at: string | null; message: string }[];
+  unaddressed: { kind: string; name: string; message: string }[];
 };
 export type Resolved = {
   scope: string;
@@ -44,21 +51,22 @@ function chain(t: RouteTable, s: string | null): string[] {
   return out;
 }
 
-/** The highest scope on s's chain that contains the thing. */
+/** The highest scope on s's chain that the thing is at. */
 function top(t: RouteTable, thing: Thing, s: string | null): string | null {
   if (s === null) return null;
-  const on = chain(t, s).filter((x) => thing.in.includes(x));
+  const on = chain(t, s).filter((x) => x in thing.at);
   return on.length ? on[on.length - 1] : null;
 }
 
 function canonical(t: RouteTable, thing: Thing): string | null {
-  if (!thing.in.length) return null;
+  const at = Object.keys(thing.at);
+  if (!at.length) return null;
   if (thing.defined_in !== null) {
     const got = top(t, thing, thing.defined_in);
     if (got !== null) return got;
   }
-  let best = thing.in[0];
-  for (const x of thing.in) if (chain(t, x).length < chain(t, best).length) best = x;
+  let best = at[0];
+  for (const x of at) if (chain(t, x).length < chain(t, best).length) best = x;
   return best;
 }
 
@@ -95,24 +103,32 @@ function at(t: RouteTable, s: string, rest = ""): string {
   return rest ? `${base}/${rest}` : base || "/";
 }
 
+function table(t: RouteTable, kind: string): Record<string, Thing> {
+  return kind === "projection" || kind === "item" ? t.projections : kind === "goal" ? t.goals : t.agents;
+}
+
 function addr(t: RouteTable, kind: string, name: string, s: string, id?: string): string {
-  if (kind === "projection") return at(t, s, enc(name));
+  const seg = table(t, kind)[name].at[s] ?? name;
+  if (kind === "projection") return at(t, s, enc(seg));
   if (kind === "item") {
     const p = prefixOf(t.projections[name].id);
     const rest = p !== null && id!.startsWith(p) ? id!.slice(p.length) : id!;
-    return at(t, s, `${enc(name)}/${segs(rest)}`);
+    return at(t, s, `${enc(seg)}/${segs(rest)}`);
   }
-  return at(t, s, `${kind === "goal" ? "goals" : "agents"}/${enc(name)}`);
+  return at(t, s, `${kind === "goal" ? "goals" : "agents"}/${enc(seg)}`);
 }
 
-function table(t: RouteTable, kind: string): Record<string, Thing> {
-  return kind === "projection" || kind === "item" ? t.projections : kind === "goal" ? t.goals : t.agents;
+/** A projection's, goal's or agent's name in a scope (its short name inside the remote or template instance that made
+ *  it), else its own: for the nav bar's and a dashboard's words. */
+export function nameAt(t: RouteTable | null | undefined, kind: "projections" | "goals" | "agents", name: string,
+                       scope: string | null | undefined): string {
+  return (t && scope !== null && scope !== undefined && t[kind]?.[name]?.at?.[scope]) || name;
 }
 
 function thingAt(t: RouteTable, s: string, kind: "projection" | "item" | "goal" | "agent", name: string,
                  rest?: string): Resolved | null {
   const thing = table(t, kind)[name];
-  if (!thing || !thing.in.includes(s)) return null;
+  if (!thing || !(s in thing.at)) return null;
   const out: Resolved = { scope: s, kind, name };
   if (kind === "item") {
     const p = prefixOf(thing.id!);
@@ -148,8 +164,10 @@ export function resolve(t: RouteTable, path: string): Resolved | null {
       if (!rest.length) return { scope: s, kind: "dashboard", name: e.name, ...(e.projection ? { projection: e.projection } : {}) };
       if (e.projection) return thingAt(t, s, "item", e.projection, rest.join("/"));
       const show = SHOWS[parts[i]];
-      if (show && rest.length === 1 && (e.default || e.name === parts[i] || e.name.endsWith("." + parts[i])))
-        return thingAt(t, s, show, rest[0]);
+      if (show && rest.length === 1 && (e.default || e.name === parts[i] || e.name.endsWith("." + parts[i]))) {
+        const got = t.scopes[s][parts[i] as "goals" | "agents"]?.[rest[0]];
+        return got !== undefined ? thingAt(t, s, show, got) : null;
+      }
       return null;
     }
     return rest.length ? thingAt(t, s, "item", e.name, rest.join("/")) : thingAt(t, s, "projection", e.name);

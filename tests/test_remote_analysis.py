@@ -38,10 +38,11 @@ flows:
 """
 LOCAL = """\
 name: support
-remotes:
+systems:
   incidents:
-    url: http://127.0.0.1:1
-    token-file: incidents.token
+    remote:
+      url: http://127.0.0.1:1
+      token-file: incidents.token
 parameters:
   k: {value: 2}
 stocks:

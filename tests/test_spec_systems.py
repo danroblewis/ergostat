@@ -136,16 +136,6 @@ def test_the_diagram_folds_systems_into_boxes_opens_them_and_draws_one_alone(tmp
     assert not any(n["kind"] in ("system", "terminal") for n in flat["nodes"])
 
 
-def test_modelling_is_not_counted_beside_a_system_alone_at_its_level():
-    from pathlib import Path
-
-    from ergostat.spec import load
-    examples = Path(__file__).resolve().parent.parent / "examples"
-    job = load(examples / "the-job" / "ergostat.yaml")
-    assert job.subsystems(None) == ["job", "modelling"]
-    assert default_open(job, None) == {"job"}                            # job opens; its ten domains stay boxes
-    crontab = load(examples / "plain-crontab" / "ergostat.yaml")
-    assert crontab.subsystems(None) == ["modelling"] and default_open(crontab, None) == {"modelling"}   # alone: opened
 
 
 def test_a_model_without_systems_is_drawn_as_it_was(tmp_path):

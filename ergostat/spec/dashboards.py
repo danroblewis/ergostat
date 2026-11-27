@@ -16,7 +16,7 @@ SIZES = ("s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall")
 DASHBOARD_KEYS = {"title", "description", "window", "panels", "nav", "page", "system"}   # system: the system it is
 #                                                  the dashboard of, over its file's defaults: (named SYSTEM.NAME)
 # the server's own first parts of a path: nothing of the model's is drawn at them (every other path is the page's)
-RESERVED = ("api", "static", "remote")
+RESERVED = ("api", "static")
 # ergostat's own pages: each system's default dashboards (spec/routes.py DEFAULTS: at /SYSTEM/NAME, and at /NAME for
 # the top level), replaced there by the model's dashboard of that name, and an agent's and an item's page
 BUILTIN = ("overview", "diagrams", "goals", "agents", "events", "agent", "item")
@@ -311,17 +311,6 @@ def _dashboard(c, spec, exists, name: str, m, w, what: str, binds: tuple) -> Das
         if got is not None:
             d.panels.append(got)
     return d
-
-
-def routes(c, spec) -> None:
-    """A projection named as the server's own address has no page: a finding, never an error (the model runs). One
-    named as a default dashboard is an address collision (spec/routes.py)."""
-    for name, k in spec.items.items():
-        w = getattr(k, "where", None)
-        if name in RESERVED:
-            c.problems.append(Problem("finding", f"projection {name}: /{name} is the server's own address, so its items "
-                                      "have no page; rename it to have one", w, "unrouted-projection",
-                                      f"projections.{name}"))
 
 
 def _nav(c, m, what: str) -> str | None:

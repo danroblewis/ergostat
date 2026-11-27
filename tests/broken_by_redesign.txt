@@ -442,20 +442,6 @@ tests/test_queue.py::test_picks_says_why_its_batch_is_empty
 tests/test_queue.py::test_stall_limits_have_a_ceiling
 
 # tests/test_blockdiagram.py (14)
-tests/test_blockdiagram.py::test_a_reference_is_a_value_and_the_relay_says_its_threshold
-tests/test_blockdiagram.py::test_a_systems_letter_carries_its_name_once_closed_and_open[big]
-tests/test_blockdiagram.py::test_a_systems_letter_carries_its_name_once_closed_and_open[coordinator]
-tests/test_blockdiagram.py::test_a_transfer_function_block_takes_one_input_the_rest_enter_at_a_summing_junction_with_signs
-tests/test_blockdiagram.py::test_every_loop_that_acts_has_its_real_actuator_wired_into_the_world[big]
-tests/test_blockdiagram.py::test_every_loop_that_acts_has_its_real_actuator_wired_into_the_world[coordinator]
-tests/test_blockdiagram.py::test_every_sensor_on_a_feedback_path_is_a_block_and_a_measured_signal_is_named_for_its_variable
-tests/test_blockdiagram.py::test_every_system_has_the_same_letter_and_p_by_m_closed_and_open[big]
-tests/test_blockdiagram.py::test_every_system_has_the_same_letter_and_p_by_m_closed_and_open[coordinator]
-tests/test_blockdiagram.py::test_every_view_has_a_function_in_every_block_signs_at_every_junction_and_no_placeholder[big]
-tests/test_blockdiagram.py::test_every_view_has_a_function_in_every_block_signs_at_every_junction_and_no_placeholder[coordinator]
-tests/test_blockdiagram.py::test_every_wire_at_the_top_level_has_a_label_and_software_factory_closes_its_loop
-tests/test_blockdiagram.py::test_the_blocks_panels_use_control_words_only
-tests/test_blockdiagram.py::test_the_examples_uncoupled_top_systems_are_rows_in_model_order[big-rows0]
 
 # tests/test_factory_join.py (13)
 tests/test_factory_join.py::test_a_short_verdict_requests_a_sub_gap_before_reopening_the_parent
@@ -535,13 +521,6 @@ tests/test_queue_host.py::test_skips_that_cannot_be_compared_count_as_nowhere
 tests/test_queue_host.py::test_the_host_step_is_never_boxed
 
 # tests/test_scale_caches.py (7)
-tests/test_scale_caches.py::test_a_page_polling_has_the_whole_answer_from_its_values[coordinator]
-tests/test_scale_caches.py::test_the_causal_loops_links_and_served_are_the_callers_own
-tests/test_scale_caches.py::test_the_engine_measures_the_same_with_the_newest_kept_or_read_one_by_one
-tests/test_scale_caches.py::test_the_graph_matches_edges_to_loops_as_every_pair_did
-tests/test_scale_caches.py::test_the_lookups_answer_as_the_scans_did_on_a_scale_model
-tests/test_scale_caches.py::test_the_lookups_answer_as_the_scans_did_on_every_example[big]
-tests/test_scale_caches.py::test_the_lookups_answer_as_the_scans_did_on_every_example[coordinator]
 
 # tests/test_landing_goal.py (6)
 tests/test_landing_goal.py::test_a_stalled_queue_turns_the_goal_off_and_its_reason_names_the_batch_run_and_cause
@@ -592,8 +571,6 @@ tests/test_shards.py::test_every_part_in_exactly_one_shard[ticket-factory]
 tests/test_shards.py::test_same_plan_any_hash_seed
 
 # tests/test_changesets.py (2)
-tests/test_changesets.py::test_every_examples_items_fold_as_they_did_where_no_rules_were_added[big]
-tests/test_changesets.py::test_every_examples_items_fold_as_they_did_where_no_rules_were_added[coordinator]
 
 # tests/test_code_health_measures.py (2)
 tests/test_code_health_measures.py::test_check_on_the_root_model_reports_no_errors
@@ -628,12 +605,9 @@ tests/test_graph_cli_web.py::test_a_process_view_with_no_projections_is_answered
 tests/test_graph_cli_web.py::test_every_examples_loops_answer_carries_each_goals_word_and_row
 
 # tests/test_item_systems.py (2)
-tests/test_item_systems.py::test_each_demos_kinds_are_in_their_systems[software-factory-expected2-order2]
 tests/test_item_systems.py::test_the_list_says_each_kind_and_items_system
 
 # tests/test_library_diagram_marks.py (2)
-tests/test_library_diagram_marks.py::test_examples_drawn_as_before[big]
-tests/test_library_diagram_marks.py::test_examples_drawn_as_before[coordinator]
 
 # tests/test_library_trust.py (2)
 tests/test_library_trust.py::test_every_compile_key_classified
@@ -668,7 +642,6 @@ tests/test_upkeep_watched.py::test_few_restarts_goal_compiles
 tests/test_upkeep_watched.py::test_upkeep_draws_the_watchdog_and_watcher_as_external_blocks
 
 # tests/test_walk_scripts.py (2)
-tests/test_walk_scripts.py::test_demo_up_starts_and_stops_each_named_demo[big]
 tests/test_walk_scripts.py::test_demo_up_starts_and_stops_the_job
 
 # tests/test_cli_fallback.py (1)
@@ -786,4 +759,3 @@ tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped
 
 # tests/test_web_lanes.py (1)
 tests/test_web_lanes.py::test_a_reception_step_that_raises_closes_that_connection_only
-tests/test_dashboard_nav_page.py::test_a_kind_named_as_the_servers_address_is_a_finding[api-unrouted-projection]

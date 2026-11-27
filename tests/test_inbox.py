@@ -118,16 +118,6 @@ def test_a_persons_entry_says_what_its_number_moves(tmp_path):
     assert (att["flow"], att["unit"]) == ("reviewed", "jobs")                         # passed on to the side list
 
 
-def test_the_jobs_two_ended_person_asks_keep_their_number_along_the_flow_it_moves():
-    """the-job's approve-ramps (approved / rejected) and declare-incident (declared / dismissed): the number moves the
-    first flow only, so the entry names that flow and its stock's unit, and nothing makes either a yes or no."""
-    from pathlib import Path
-
-    from ergostat.spec import load
-    spec = load(Path(__file__).resolve().parent.parent / "examples" / "the-job" / "ergostat.yaml")
-    got = {n: entries._done_in(spec, spec.blocks[n]) for n in ("approve-ramps", "declare-incident")}
-    assert got == {"approve-ramps": {"flow": "ramps-approved", "unit": "ramps"},
-                   "declare-incident": {"flow": "outages-declared", "unit": "outages"}}, got
 
 
 def test_the_why_of_an_action_is_its_items_impact_and_tests(tmp_path):

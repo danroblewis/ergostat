@@ -1398,9 +1398,9 @@ def handler(project):
                 code, data = push(live, u.path, parse_qs(u.query), self.headers, self.client_address[0],
                                   self.rfile.read(n) if 0 < n <= PUSH_LIMIT else None, n)
                 return self._send(code, json.dumps(data, default=str).encode(), "application/json")
-            if u.path.startswith("/remote/"):                # read only, whoever asks (its token admits)
+            if u.path.startswith("/api/remote/"):                # read only, whoever asks (its token admits)
                 return self._remote(u)
-            if not self._local():                         # another machine may only push, or read /remote/
+            if not self._local():                         # another machine may only push, or read /api/remote/
                 return self._send(403, b'{"error": "only events may be pushed from another machine"}', "application/json")
             who = self._gate()
             if who is None:
@@ -1482,7 +1482,7 @@ def handler(project):
                     pass
                 return None
             try:
-                code, data = remote_api.answer(live, u.path.removeprefix("/remote/"), parse_qs(u.query))
+                code, data = remote_api.answer(live, u.path.removeprefix("/api/remote/"), parse_qs(u.query))
             except BadSet as e:
                 code, data = 400, {"error": str(e)}
             except Exception as e:                      # a broken request never takes the page down
@@ -1531,9 +1531,9 @@ def handler(project):
 
         def _get(self):
             u = urlsplit(self.path)
-            if u.path.startswith("/remote/"):                # read only, behind its token: from any machine (SPEC §4c)
+            if u.path.startswith("/api/remote/"):                # read only, behind its token: from any machine (SPEC §4c)
                 return self._remote(u)
-            if not self._local():                         # another machine may only push (intake: bind:) or read /remote/
+            if not self._local():                         # another machine may only push (intake: bind:) or read /api/remote/
                 return self._send(403, b"only events may be pushed from another machine", "text/plain")
             who = self._gate()
             if who is None:                                # another site's name, or no login under a public one

@@ -1,4 +1,4 @@
-"""A remote's process map, drawn beside this model's (SPEC §4c, §5b): read from the remote (``/remote/v1/process``),
+"""A remote's process map, drawn beside this model's (SPEC §4c, §5b): read from the remote (``/api/remote/v1/process``),
 kept for its ``every``, its kinds named as its parts are (``incidents-incident``) and marked remote.
 
 Lines between our items and its items come from a relation naming the remote's kind (``blocked_by:
