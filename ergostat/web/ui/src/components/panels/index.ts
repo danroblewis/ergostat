@@ -6,3 +6,4 @@ export { normalizeDashboard, normalizePanel } from "./normalize";
 export { endpointParams, usePanelApi } from "./usePanelApi";
 export type { DashboardDef, PanelDef, PanelKind, PanelBodyProps } from "./types";
 export { DeclaredDashboard, EVERY, Refresh, useDeclared } from "./Declared";
+export { EditableDashboard, useEditing, filled, type Editing, type SaveTarget } from "./EditableDashboard";

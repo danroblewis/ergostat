@@ -1025,10 +1025,10 @@ or when the same question is asked of the page again and again (SPEC §4f):
 
 A dashboards-only change alters no version and no replay: propose it with `kind: display` (SPEC §12e), and the
 judge passes it on `check` alone, without a replay; the owner accepts it like any change. A display proposal that
-touches anything but `dashboards:` is refused, so put any other edit in a change of its own. When the owner has
-arranged a draft on the Dashboard page, they press **Keep** themselves: the server makes the same display change
-from the draft (`query` panels, the page's own) and it waits for their Accept. Do not copy a draft's link into YAML
-by hand; point the owner at Keep.
+touches anything but dashboards is refused, so put any other edit in a change of its own. The owner edits any
+dashboard where it is drawn and presses **Save** themselves (SPEC §4f, *Editing in place*): the server makes the same
+display change and writes it at once, a projection's list and show under the projection in its own file. Do not
+copy what a page draws into YAML by hand; point the owner at Edit and Save.
 
 ## 3m. Why isn't this done: a model that can say what holds the work up
 

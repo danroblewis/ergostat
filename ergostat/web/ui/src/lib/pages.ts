@@ -1,10 +1,11 @@
 import type { DashboardDef, PanelDef } from "../components/panels/types";
 
 /* ergostat's own pages as the dashboards they are: each one's panels, as a dashboard under `dashboards:` would
-   declare them (SPEC §4f). A page draws these (with its own head and filters around them); the Dashboard page offers
-   each as a copy to start a draft from; a dashboard the model declares under a page's name is drawn at its address
-   instead (lib/routes.ts), and one declared with `page: agent|item|projection` is drawn for every agent, item or projection. A
-   page that shows one thing writes it `$agent`, `$item` or `$projection`: taken from the address. */
+   declare them (SPEC §4f). A page draws these (with its own head and filters around them), and is edited where it is
+   drawn (components/panels/EditableDashboard.tsx): saved, it is the model's own dashboard in its place (`goals`,
+   `agents`, `record` by name; `page: agent`; a projection's own `dashboards: list:` and `show:`), drawn at its address
+   instead (lib/routes.ts). A page that shows one thing writes it `$agent`, `$item` or `$projection`: taken from the
+   address. */
 
 export const full = (d: PanelDef): PanelDef => ({ size: "full", fit: true, ...d });
 

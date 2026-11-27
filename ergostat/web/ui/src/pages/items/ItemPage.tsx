@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AppLink, Page } from "../../components";
-import { DashboardView } from "../../components/panels/DashboardView";
+import { EditableDashboard, useEditing } from "../../components/panels/EditableDashboard";
 import { SharedAnswers } from "../../components/panels/shared";
 import { usePanelApi } from "../../components/panels/usePanelApi";
 import { ITEM_PANELS as PANELS } from "../../lib/pages";
@@ -10,7 +10,11 @@ import { knownProjections } from "../../lib/routes";
 /* /item/ID, a dashboard made in advance (pages.js pageItem): its panels are why it is not done, its projection, state, age
    and events; the path it took through its states; its relations both ways; its fields; what was refused; how it
    moved; its events; and each field's changes, asked for when the Changes fold is opened (or a field's "N changes").
-   The page asks the item's answer once and hands it to every panel; a part with nothing to say is not drawn. */
+   The page asks the item's answer once and hands it to every panel; a part with nothing to say is not drawn. Under a
+   projection's address, edited in place, it is saved as the projection's show dashboard (`dashboards: show:`), drawn
+   for each of its items in place of this one. */
+
+const BASE = { title: "", panels: PANELS };
 
 
 export default function ItemPage({ id, projection }: { id: string; projection?: string }) {
@@ -21,17 +25,20 @@ export default function ItemPage({ id, projection }: { id: string; projection?: 
     if (!("history" in c)) return;
     setChangesOf(c.history == null ? null : c.history === "all" ? "" : String(c.history));
   };
-  const panels = PANELS.map((d) => ({ ...d, item: id, ...(projection ? { projection } : {}), onParams,
-    ...(d.panel === "item-changes" ? { history: changesOf == null ? undefined : changesOf || "all" } : {}) }));
+  const ed = useEditing({ base: BASE, target: projection ? { projection, role: "show" } : null,
+    bind: { item: id, ...(projection ? { projection } : {}) } });
+  const decorate = (d: any) => ({ ...d, onParams,
+    ...(d.panel === "item-changes" ? { history: changesOf == null ? undefined : changesOf || "all" } : {}) });
   return (
     <Page title={id}>
+      <div className="page-edit">{ed.bar}</div>
       {item.error && !item.data ? (
         <p className="muted">Nothing is recorded about this id.</p>
       ) : (
         <SharedAnswers answers={[{ path: `items/${encodeURIComponent(id)}`, params: asked, state: item }]}>
           {item.data && !item.data.projection_of && id.includes("/") && <Unmodelled id={id} />}
           {item.data && !projection && (item.data.projections || []).length > 1 && <SeenBy id={id} d={item.data} />}
-          <DashboardView panels={panels} />
+          <EditableDashboard ed={ed} decorate={decorate} />
         </SharedAnswers>
       )}
     </Page>

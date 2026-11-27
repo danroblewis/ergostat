@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AppLink, Button, Check, Filters, Page } from "../../components";
-import { DashboardView, type PanelDef } from "../../components/panels";
+import { EditableDashboard, useEditing, type PanelDef } from "../../components/panels";
 import { useApi } from "../../hooks/useApi";
 import { stamp } from "../../lib/format";
+import { pageDashboard } from "../../lib/pages";
 
 /* The Record, a dashboard made by ergostat: one events panel (panels/kinds/record.tsx) as tall as what it shows, its
    parameters the address's. The filter (match=: an event's type, item or source), the scope (machine=, item=, about=,
@@ -12,7 +13,12 @@ import { stamp } from "../../lib/format";
    links and "Show runs" are the page's own, around the panel.
 
    window=1 is the old page's own "in the window" mode: the shared time window is ``window=`` too, so with window=1 the
-   window shown is the default hour, and choosing another window in the header replaces the scope. */
+   window shown is the default hour, and choosing another window in the header replaces the scope.
+
+   Edited in place, it is saved as the dashboard named record (its panels as ergostat's, without the address's filter),
+   drawn here in place of this page. */
+
+const BASE = pageDashboard("record");
 
 const SCOPE = ["about", "from", "to", "machine", "item", "remote"] as const;
 const EVERY = 3000;          // ms: the record is asked again this often
@@ -65,10 +71,17 @@ export default function RecordPage() {
     scope.to && `to ${stamp(+scope.to)}`,
   ].filter(Boolean);
   const key = JSON.stringify([match, runs, inWindow, scope]);
-  const panels = useMemo(() => [recordPanel(match, runs, inWindow, scope)], [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the address's filter, given to ergostat's own events panel (its words and size are the dashboard's)
+  const own = useMemo(() => {
+    const { panel: _p, id: _i, size: _s, fit: _f, ...params } = recordPanel(match, runs, inWindow, scope);
+    return params;
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ed = useEditing({ base: BASE, target: { name: "record" } });
+  const decorate = useMemo(() => (d: PanelDef) => (d.id === "record" && d.panel === "events" ? { ...d, ...own } : d), [own]);
 
   return (
     <Page title="Record">
+      <div className="page-edit">{ed.bar}</div>
       <Filters>
         <input
           type="search"
@@ -103,7 +116,7 @@ export default function RecordPage() {
           onChange={(ev) => set({ runs: ev.target.checked ? "1" : "" })}
         />
       </Filters>
-      <DashboardView panels={panels} every={EVERY} />
+      <EditableDashboard ed={ed} every={EVERY} decorate={decorate} />
     </Page>
   );
 }

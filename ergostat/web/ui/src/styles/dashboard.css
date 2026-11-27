@@ -79,3 +79,13 @@
   .dash-actions > * { flex: none; }
   .dash-title-input { flex: 1 1 0; }
 }
+/* editing a dashboard where it is drawn: the bar in its heading, a panel's own buttons in its head */
+.dash-edit-bar { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1); }
+.dash-edit-bar input { width: 12rem; }
+.dash-panel-tools { display: inline-flex; gap: var(--sp-0); }
+.page-edit { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--sp-1); margin: 0 0 var(--sp-2); }
+.page-edit:empty { display: none; }
+/* the nav bar's + for a new dashboard: seen on hover or focus, at the end of its dashboards */
+#nav .nav-new { opacity: 0; min-height: 0; padding: 0 var(--sp-1); color: var(--ink-2); transition: opacity 120ms; }
+#nav:hover .nav-new, #nav .nav-new:focus-visible { opacity: 1; }
+@media (pointer: coarse) { #nav .nav-new { opacity: 1; } }

@@ -76,7 +76,47 @@ def listing(p) -> list[dict]:
     spec = getattr(p.model, "spec", None)
     ds = [default(spec), *(getattr(spec, "dashboards", None) or {}).values()]
     return [{"name": d.name, "title": d.title, "description": d.description, "panels": len(d.panels),
-             "window": d.window, "declared": d.name != "default", "nav": d.nav, "page": d.page} for d in ds]
+             "window": d.window, "declared": d.name != "default", "nav": d.nav, "page": d.page,
+             "projection": d.projection, "role": d.role} for d in ds]
+
+
+def words_of(p, d: Dashboard, one) -> dict:
+    """The address's words a dashboard's ``$WORD`` panels take: its page's (``agent=NAME``, as asked); a projection's
+    own, or one named as a projection, that projection; a projection's show dashboard, the item asked for."""
+    spec = getattr(p.model, "spec", None)
+    out = {}
+    if d.projection:
+        out["projection"] = d.projection
+    elif d.page is None and spec is not None and d.name in spec.items:
+        out["projection"] = d.name
+    for word in {PAGES.get(d.page or ""), "item" if d.role == "show" else None, "projection"} - {None}:
+        if word not in out and one(word):
+            out[word] = one(word)
+    return out
+
+
+def kinds() -> dict:
+    """``GET /api/panel-kinds``: every kind of panel and the parameters it takes (spec/dashboards.py KINDS), each with
+    what it is (``text``, ``number``, ``flag``, ``list``, or ``choice`` with its words) and the one it cannot do
+    without: what the page's panel editor offers for a panel's settings."""
+    from ..spec import dashboards as sd
+
+    def of(kind: str, k: str) -> dict:
+        own = sd.CHECKS.get(kind, {}).get(k)
+        words = getattr(own, "words", None)
+        if k in sd.CHOICES or words:
+            return {"type": "choice", "words": list(sd.CHOICES.get(k) or words), "many": k in sd.LISTS}
+        if k in ("fit", "quiet", "replay", "fan", "runs", "window"):
+            return {"type": "flag"}
+        if k in ("points", "n", "per_projection", "from", "to"):
+            return {"type": "number"}
+        if k in sd.LISTS:
+            return {"type": "list"}
+        if k in ("queries", "display", "layout"):
+            return {"type": "data"}
+        return {"type": "text"}
+    return {kind: {"needs": sd.NEEDS.get(kind), "params": {k: of(kind, k) for k in sorted(params)}}
+            for kind, params in sd.KINDS.items()}
 
 
 class _Job:
@@ -208,10 +248,10 @@ def answer(live, p, name: str | None, q: dict, wait: bool = False) -> dict | Non
     if d is None:
         return None
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
-    word = PAGES.get(d.page or "")                 # in place of a page that takes a name: the address's, as agent=NAME
-    if word and one(word):
-        d = Dashboard(d.name, d.title, d.description, d.window, [bound(x, {word: one(word)}) for x in d.panels],
-                      d.system, d.where, d.nav, d.page)
+    words = words_of(p, d, one)                    # in place of a page that takes a name: the address's, as agent=NAME
+    if words:
+        d = Dashboard(d.name, d.title, d.description, d.window, [bound(x, words) for x in d.panels],
+                      d.system, d.where, d.nav, d.page, d.projection, d.role)
     if one("plain") == "1":                        # its declaration alone: a page whose panels ask for themselves
         return plain(d) if d.name != "default" else {**plain(d), "declared": False}
     window = _window(q) if one("since") else (d.window or _window({}))

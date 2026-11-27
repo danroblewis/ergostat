@@ -1,6 +1,6 @@
 import { useSearchParams } from "react-router-dom";
 import { ErrorNote, Filters, FinishedToggle, ProjectionBar, Page, PAGE_SIZES, SearchBox, StatesChoice } from "../../components";
-import { DashboardView } from "../../components/panels/DashboardView";
+import { EditableDashboard, useEditing } from "../../components/panels/EditableDashboard";
 import { itemListParams } from "../../components/panels/kinds/items";
 import { SharedAnswers } from "../../components/panels/shared";
 import type { PanelDef } from "../../components/panels/types";
@@ -12,11 +12,11 @@ import { PROJECTION_PANELS } from "../../lib/pages";
    model (projection-model: what counts it, the goals and loops it is in), its definition (projection-definition), and its items
    (item-list: a page at a time, searched and sorted by the server). The page asks each answer once and hands it to
    its panels; the list's filters are in its head. Every choice is in the address: state=, q=, finished=show, sort=PROJECTION:field, page=PROJECTION:N, size=,
-   states=all. */
+   states=all. Edited in place, it is saved as the projection's list dashboard (`dashboards: list:`, in the file the
+   projection is defined in), drawn at /PROJECTION in place of this one. */
 
 const SIZES = PAGE_SIZES;
-const TOP: PanelDef[] = PROJECTION_PANELS.filter((d) => d.panel !== "item-list");
-const LIST: PanelDef = PROJECTION_PANELS.find((d) => d.panel === "item-list")!;
+const BASE = { title: "", panels: PROJECTION_PANELS };
 
 export default function ProjectionPage({ projection }: { projection: string }) {
   const [q, setQ] = useSearchParams();
@@ -47,10 +47,13 @@ export default function ProjectionPage({ projection }: { projection: string }) {
     if ("finished" in c) out.finished = c.finished ? String(c.finished) : null;
     set(out);
   };
-  const list: PanelDef = { ...LIST, projection, state: state || undefined, q: needle || undefined, sort: sort || undefined,
+  // what the address chooses, given to the list's panel and the states' (the first of each kind: the page's own)
+  const listed = { state: state || undefined, q: needle || undefined, sort: sort || undefined,
     finished: showFin ? "show" : undefined, n: size, page: pg, onParams };
-  const top = TOP.map((d) => ({ ...d, projection, ...(d.panel === "projection-now" ? { states: all ? "all" : undefined } : {}) }));
-
+  const list: PanelDef = { panel: "item-list", projection, ...listed };
+  const ed = useEditing({ base: BASE, target: { projection, role: "list" }, bind: { projection } });
+  const decorate = (d: PanelDef): PanelDef => d.panel === "item-list" && d.projection === projection ? { ...d, ...listed }
+    : d.panel === "projection-now" ? { ...d, states: all ? "all" : d.states } : d;
   const asked = itemListParams(list);
   const items = usePanelApi<any>("items", asked, 5000);
   const fp = usePanelApi<any>(`projections/${encodeURIComponent(projection)}`, {}, 30000);
@@ -67,12 +70,13 @@ export default function ProjectionPage({ projection }: { projection: string }) {
       ) : (
         <h1>{projection}</h1>
       )}
+      {ed.bar && <div className="page-edit">{ed.bar}</div>}
       <SharedAnswers answers={[
         { path: "items", params: asked, state: items },
         { path: `projections/${encodeURIComponent(projection)}`, state: fp },
         { path: "items-flow", params: flowAsked, state: flow },
       ]}>
-        <DashboardView panels={[...top, list]} tools={(d) => d.panel === "projection-now" ? (
+        <EditableDashboard ed={ed} decorate={decorate} tools={(d) => d.panel === "projection-now" ? (
           <StatesChoice all={all} onChange={(v) => set({ states: v ? "all" : null }, true)} />
         ) : d.panel === "item-list" ? (
           <Filters>

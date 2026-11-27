@@ -713,6 +713,18 @@
         "panels": {"type": "array", "minItems": 1, "maxItems": 24, "items": {"$ref": "#/$defs/panel"}}
       }
     },
+    "projection-dashboard": {
+      "description": "A projection's own list or show dashboard (SPEC section 5a): drawn at the projection's addresses, so no nav or page.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["panels"],
+      "properties": {
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "window": {"$ref": "#/$defs/duration"},
+        "panels": {"type": "array", "minItems": 1, "maxItems": 24, "items": {"$ref": "#/$defs/panel"}}
+      }
+    },
     "panel": {
       "description": "One panel: its kind, its words, and exactly the parameters its endpoint takes (SPEC section 4f).",
       "type": "object",
@@ -2537,6 +2549,15 @@
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]*$",
           "description": "The nav bar menu the projection is shown in, labelled by the group's name, with the other projections of its group; without one, the projection is its own link in the nav bar."
+        },
+        "dashboards": {
+          "description": "The projection's own dashboards (SPEC section 5a, 4f): list, drawn at /PROJECTION (its panels may write $projection), and show, drawn for each of its items at /PROJECTION/REST ($item and $projection). Display only; saved here when the owner edits the page in place.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "list": {"$ref": "#/$defs/projection-dashboard"},
+            "show": {"$ref": "#/$defs/projection-dashboard"}
+          }
         },
         "pipeline": {
           "type": "object",

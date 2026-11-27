@@ -9,20 +9,29 @@ import { setProjections, type ProjectionRoute } from "../lib/routes";
 export type DashboardListed = {
   name: string; title: string; description?: string; panels: number; window?: number | null; declared: boolean;
   nav?: string | null; page?: string | null;
+  /** a projection's own (`projections: P: dashboards:`): P, and which (list at /P, show at /P/REST) */
+  projection?: string | null; role?: "list" | "show" | null;
 };
 type Routes = { dashboards: DashboardListed[]; projections: ProjectionRoute[]; reserved: string[]; builtin: string[] };
 
-const Ctx = createContext<{ list: DashboardListed[] | undefined; projections: ProjectionRoute[] | undefined; failed: boolean }>(
-  { list: undefined, projections: undefined, failed: false });
+type Known = { list: DashboardListed[] | undefined; projections: ProjectionRoute[] | undefined; failed: boolean;
+  /** ask again now (a dashboard was saved) */
+  refresh: () => void };
+const Ctx = createContext<Known>({ list: undefined, projections: undefined, failed: false, refresh: () => {} });
 
 export function DashboardsProvider({ children }: { children: ReactNode }) {
-  const { data, error } = useApi<Routes>("routes", {}, { every: 15000, window: false });
+  const { data, error, refresh } = useApi<Routes>("routes", {}, { every: 15000, window: false });
   useEffect(() => { if (data) setProjections(data.projections || []); }, [data]);
   if (data) setProjections(data.projections || []);          // before this render's links are built
-  return <Ctx.Provider value={{ list: data?.dashboards, projections: data?.projections, failed: !!error && !data }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ list: data?.dashboards, projections: data?.projections, failed: !!error && !data, refresh }}>{children}</Ctx.Provider>;
 }
 
 export const useDashboards = () => useContext(Ctx);
+
+/** A projection's own dashboard (`list` or `show`), when the model declares one. */
+export function ownOf(list: DashboardListed[] | undefined, projection: string, role: "list" | "show"): DashboardListed | undefined {
+  return (list || []).find((d) => d.projection === projection && d.role === role);
+}
 
 /** The dashboard declared for a page of one thing (`page: agent|item|projection`): undefined while not known, else it or null. */
 export function useTemplateFor(page: string): DashboardListed | null | undefined {

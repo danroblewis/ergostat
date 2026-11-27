@@ -773,6 +773,9 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         from ..spec.scope import TOP, scope         # worked out once per version of the model
         spec = getattr(m, "spec", None)
         return {"top": TOP, "systems": scope(spec) if spec is not None else {}}
+    if head == "panel-kinds":                       # every kind of panel and its parameters: the panel editor's
+        from . import dashboard_api
+        return dashboard_api.kinds()
     if head in ("dashboards", "dashboard"):         # the declared dashboards; one's every panel in one answer (SPEC §4f)
         from . import dashboard_api
         return dashboard_api.listing(p) if head == "dashboards" else dashboard_api.answer(live, p, name, q)
@@ -1433,9 +1436,12 @@ def handler(project):
                 elif u.path.startswith("/api/intent/"):    # a proposed decision or correction: the owner's answer
                     from .intent_api import post as intent
                     code, data = intent(live, u.path.removeprefix("/api/"), q)
-                elif u.path == "/api/propose" and q.get("keep") == ["dashboard"]:   # the Dashboard's Keep
+                elif u.path == "/api/propose" and q.get("keep") == ["dashboard"]:   # a dashboard kept, for Accept
                     from .numbers_api import keep
                     code, data = keep(live, body)
+                elif u.path in ("/api/dashboards/save", "/api/dashboards/reset"):   # edited in place: written now
+                    from .numbers_api import save
+                    code, data = save(live, body, _window(q), reset=u.path.endswith("/reset"))
                 else:
                     code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down

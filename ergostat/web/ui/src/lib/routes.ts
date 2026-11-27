@@ -1,19 +1,20 @@
 /* The page's addresses are the model's (SPEC §4f): /api, /static and /remote are the server's; every other path is
    resolved here, in this order:
-     1. a dashboard the model declares, at /NAME (named as a projection: that projection's page, its $projection the
+     1. a projection's own dashboards (`projections: P: dashboards:`): its list at /P, its show at /P/REST;
+     2. a dashboard the model declares, at /NAME (named as a projection: that projection's page, its $projection the
         projection);
-     2. a projection, at /NAME (its list) and /NAME/REST (one of its items: REST is what its id glob's * matched,
+     3. a projection, at /NAME (its list) and /NAME/REST (one of its items: REST is what its id glob's * matched,
         ticket/1 at /ticket/1; a projection whose glob is not PREFIX* writes the whole id). An id several projections
         match is an item of each, each at its own projection's address;
-     3. ergostat's own pages, each a dashboard of its own (lib/pages.ts) at its name: /diagram, /dashboard, /goals,
-        /agents, /record, /agent/NAME and /item/ID (any id, a projection's or not: an id one projection matches
-        leads to its item's address; one several match lists them).
+     4. ergostat's own pages, each a dashboard of its own (lib/pages.ts) at its name: /diagram, /goals, /agents,
+        /record, /agent/NAME and /item/ID (any id, a projection's or not: an id one projection matches leads to its
+        item's address; one several match lists them).
    ?builtin=1 shows ergostat's own page for an address whatever the model names there. The projections are set once the
    page has asked (/api/routes, state/dashboards.tsx); until then an item's link is /item/ID, which leads to the same. */
 
 export type ProjectionRoute = { name: string; id: string; declared?: boolean; group?: string | null };
 
-export const BUILTIN = ["diagram", "dashboard", "goals", "agents", "agent", "record", "item"] as const;
+export const BUILTIN = ["diagram", "goals", "agents", "agent", "record", "item"] as const;
 
 let projections: ProjectionRoute[] = [];
 const globs = new Map<string, RegExp>();

@@ -69,7 +69,7 @@ def board(tmp_path_factory):
 
 
 def test_every_items_kind_draws_on_a_declared_dashboard(browser, board):
-    pg = opened(browser, board + "/dashboard?name=tickets")
+    pg = opened(browser, board + "/tickets")
     pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('Tickets board')", timeout=WAIT)
     for kind in KINDS:
         pg.locator(f".panel.panel-kind-{kind}").first.wait_for(timeout=WAIT)

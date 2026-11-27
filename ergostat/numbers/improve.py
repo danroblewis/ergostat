@@ -683,7 +683,7 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
                        "control": "a change to what decides (a goal, a block or the judge)",
                        "measurement": "a change to how the world is read (a sensor)",
                        "description": "a part's description: what the diagrams say of it",
-                       "unit": "a part's unit", "display": "a dashboard declared: what the Dashboard page shows",
+                       "unit": "a part's unit", "display": "a dashboard declared: what a page shows",
                        "rename": "a part renamed, every reference with it, its history kept"}[kind]
         from . import structural as stc
         if stc.rewired(spec, after):                     # whoever made it: a chain rewired is the owner's to write
