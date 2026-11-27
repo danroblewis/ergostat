@@ -167,9 +167,48 @@ def _projection_line(spec, name: str) -> tuple[Path, int]:
     return f, at
 
 
-def _edit(p, spec, target: tuple, lines: list[str]) -> ye.Edit:
+def system_of(spec, draft) -> str:
+    """The system a dashboard is saved for (``system:`` of the draft: the system whose address it is drawn at), ""
+    the top level."""
+    s = draft.get("system") if isinstance(draft, dict) else None
+    if s in (None, ""):
+        return ""
+    from ..spec.scope import scope
+    if not isinstance(s, str) or s not in scope(spec):
+        raise pr.ProposalError(f"not kept: {s!r} is not a system of the model")
+    return s
+
+
+def _defaults_system(f: Path) -> str | None:
+    try:
+        data = yaml.safe_load("\n".join(ye.lines_of(f))) or {}
+    except (yaml.YAMLError, OSError):
+        return None
+    d = data.get("defaults") if isinstance(data, dict) else None
+    return d.get("system") if isinstance(d, dict) else None
+
+
+def system_file(spec, system: str) -> Path | None:
+    """The file a system's own things are written in (its ``defaults: system:`` is the system): where its dashboards
+    are saved. None: the model has none, so a dashboard of it is written in the main file with ``system:``."""
+    tables = (spec.dashboards, spec.stocks, spec.flows, spec.goals, spec.items, spec.blocks, spec.auxiliaries,
+              spec.agents, spec.parameters)
+    files = dict.fromkeys(Path(w.file) for t in tables for x in t.values()
+                          if (w := getattr(x, "where", None)) is not None and getattr(w, "file", None))
+    return next((f for f in files if _defaults_system(f) == system), None)
+
+
+def _with_system(lines: list[str], system: str, f: Path) -> list[str]:
+    """A system's dashboard entry, with ``system:`` when the file it is written in is not that system's own."""
+    if not system or _defaults_system(f) == system:
+        return lines
+    return [lines[0], f"    system: {json.dumps(system)}", *lines[1:]]
+
+
+def _edit(p, spec, target: tuple, lines: list[str], system: str = "") -> ye.Edit:
     """The entry added under ``dashboards:`` (or, a projection's own, under the projection's ``dashboards:`` in the
-    file it is defined in), or put in place of the one declared there."""
+    file it is defined in; a system's, in the system's own file, else the main file with ``system:``), or put in
+    place of the one declared there."""
     if target[0] == "projection":
         _, name, role = target
         old = spec.dashboards.get(f"{name}.{role}")
@@ -185,14 +224,15 @@ def _edit(p, spec, target: tuple, lines: list[str]) -> ye.Edit:
         if own is None:
             return ye.set_key(f, at, "dashboards", body)
         return ye.set_key(f, own, role, [x[2:] for x in body[1:]])
-    name = lines[0].strip().rstrip(":")
-    old = spec.dashboards.get(name)
+    full = target[1] or lines[0].strip().rstrip(":")
+    old = spec.dashboards.get(full)
     if old is None or old.where is None:
-        return ye.add_entries(p.model.path, "dashboards", [lines])
+        f = (system_file(spec, system) if system else None) or Path(p.model.path)
+        return ye.add_entries(f, "dashboards", [_with_system(lines, system, f)])
     f, at = Path(old.where.file), old.where.line
     ls = ye.lines_of(f)
     end, _ = ye.children(ls, at)
-    return ye.Edit(str(f), [ye.Hunk(at, ls[at - 1:end], _children(ls, at, lines))])
+    return ye.Edit(str(f), [ye.Hunk(at, ls[at - 1:end], _children(ls, at, _with_system(lines, old.system or "", f)))])
 
 
 def _removal(p, spec, target: tuple) -> tuple[str, ye.Edit]:
@@ -258,13 +298,21 @@ def _change(p, spec, target: tuple, edit: ye.Edit, title: str, made_by: str, sco
 
 def _made(p, spec, draft) -> tuple[tuple, ye.Edit]:
     target = target_of(spec, draft)
+    system = ""
+    if target[0] == "dashboard":                   # a system's: named SYSTEM.NAME, its entry NAME in its file
+        system = system_of(spec, draft)
+        local = str(draft.get("name") or "")
+        if system and local.startswith(system + "."):
+            local = local[len(system) + 1:]
+        draft = {**draft, "name": local} if local else draft
     name, lines = entry(spec, draft, own=target[2] if target[0] == "projection" else None)
     if target[0] == "dashboard":
-        target = ("dashboard", name)
-        if draft.get("new") and name in spec.dashboards:
-            raise pr.ProposalError(f"not saved: a dashboard named {name} is in the model already; name this one otherwise")
+        full = f"{system}.{name}" if system else name
+        target = ("dashboard", full)
+        if draft.get("new") and full in spec.dashboards:
+            raise pr.ProposalError(f"not saved: a dashboard named {full} is in the model already; name this one otherwise")
     try:
-        return target, _edit(p, spec, target, lines)
+        return target, _edit(p, spec, target, lines, system)
     except ye.EditError as e:
         raise pr.ProposalError(f"not kept: {e}") from None
 
@@ -298,7 +346,8 @@ def reset(p, draft, snap: dict, by: str = "owner") -> dict:
     d = draft if isinstance(draft, dict) else {}
     target = target_of(spec, d)
     if target[0] == "dashboard":
-        target = ("dashboard", str(d.get("name") or ""))
+        system, name = system_of(spec, d), str(d.get("name") or "")
+        target = ("dashboard", f"{system}.{name}" if system and not name.startswith(system + ".") else name)
     try:
         full, edit = _removal(p, spec, target)
     except ye.EditError as e:

@@ -5,6 +5,9 @@ import { useDetail } from "../../Detail";
 import { GoalDetail } from "../../GoalDetail";
 import { GoalControl, GoalParts, GoalRunbook } from "../../GoalParts";
 import { Async } from "../../ui";
+import { scopedBy } from "../../../lib/scoped";
+import { projectionsOfId } from "../../../lib/routes";
+import { useDashboards } from "../../../state/dashboards";
 import { useStatus } from "../../../state/status";
 import type { PanelBodyProps, PanelKind } from "../types";
 import { usePanelApi } from "../usePanelApi";
@@ -22,13 +25,19 @@ function useOpenGoal() {
   return useCallback((name: string) => detail.open(`goal:${name}`, <GoalDetail key={name} name={name} />), [detail]);
 }
 
-/** /api/status's attention, as the app already asks it every 5 s (state/status.tsx): never asked twice. */
+/** /api/status's attention, as the app already asks it every 5 s (state/status.tsx): never asked twice. `system`:
+ *  what is about a part that system contains (its goals, its agents, its projections' items); what names no part is
+ *  the top level's. */
 function AttentionBody({ def }: PanelBodyProps) {
   const { status } = useStatus();
   const onGoal = useOpenGoal();
+  const s = scopedBy(useDashboards().table, def.system);
+  const about = (a: any) => !s || (a.goal ? s.has("goals", a.goal)
+    : a.item ? projectionsOfId(String(a.item)).some((k) => s.has("projections", k.name)) || s.system === ""
+    : a.block || a.agent ? s.has("agents", a.block || a.agent) : s.system === "");
   return (
     <div className="panel-table">
-      <Attention attention={status?.attention || []} status={status} show={listOf(def.show) as AttentionPart[] | null} onGoal={onGoal} />
+      <Attention attention={(status?.attention || []).filter(about)} status={status} show={listOf(def.show) as AttentionPart[] | null} onGoal={onGoal} />
     </div>
   );
 }

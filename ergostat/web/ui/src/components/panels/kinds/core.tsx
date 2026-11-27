@@ -13,6 +13,8 @@ import type { GoalColumn } from "../../goals";
 import { ItemsTable } from "../../items";
 import { Markdown } from "../../Markdown";
 import { Async, Loading } from "../../ui";
+import { ancillaryMark, scopedBy } from "../../../lib/scoped";
+import { useDashboards } from "../../../state/dashboards";
 import type { PanelBodyProps, PanelDef, PanelKind } from "../types";
 import { usePanelApi } from "../usePanelApi";
 
@@ -47,30 +49,42 @@ export function goalColumns(v: unknown): GoalColumn[] {
   return known.length ? known : PANEL_COLUMNS;
 }
 
-/** Goals: each goal's row. `columns` (names, or `all`); a page may hand it `onOpen` (a click on a goal: else its
- *  detail opens beside the page) and `selected` (the goal shown as chosen). */
+/** Goals: each goal's row. `columns` (names, or `all`); `system`: the goals that system contains, an ancillary one
+ *  greyer; a page may hand it `onOpen` (a click on a goal: else its detail opens beside the page) and `selected` (the
+ *  goal shown as chosen). */
 function GoalsBody({ def, every, refreshKey }: PanelBodyProps) {
   const loops = usePanelApi<Record<string, any>>("loops", { perf: 1 }, every, refreshKey);
+  const s = scopedBy(useDashboards().table, def.system);
+  const asked = listOf(def.goals);
   const detail = useDetail();
   const open = typeof def.onOpen === "function" ? def.onOpen as (name: string) => void
     : (name: string) => detail.open(`goal:${name}`, <GoalDetail key={name} name={name} />);
   return (
     <div className="panel-table">
       <Async state={loops}>
-        {(data) => <GoalsTable loops={data} only={listOf(def.goals)} columns={goalColumns(def.columns)} caption={def.title || "Goals"}
-          selected={def.selected ?? null} onOpen={open} />}
+        {(data) => <GoalsTable loops={data} columns={goalColumns(def.columns)} caption={def.title || "Goals"}
+          only={s ? Object.keys(data).filter((g) => s.has("goals", g) && (!asked || asked.includes(g))) : asked}
+          mark={(g) => ancillaryMark(s, "goals", g)} selected={def.selected ?? null} onOpen={open} />}
       </Async>
     </div>
   );
 }
 
+/** A chart of stocks and flows: `refs`, or with none a system's (`system`: the stocks and flows spec/scope.py says it
+ *  contains, at most 8). */
 function ChartBody({ def, every, refreshKey }: PanelBodyProps) {
-  const got = usePanelApi<any>("series", paramsOf(def, "refs", "points", "replay", "fan"), every, refreshKey);
+  const own = listOf(def.refs);
+  const sc = usePanelApi<any>(!own && typeof def.system === "string" ? "scope" : null, {}, null);
+  const parts = sc.data?.systems?.[def.system]?.contains;
+  const refs = own || (parts ? [...(parts.stocks || []).map((r: any) => `stock.${r.name}`),
+    ...(parts.flows || []).map((r: any) => `flow.${r.name}`)].slice(0, 8) : null);
+  const got = usePanelApi<any>(refs?.length ? "series" : null, { ...paramsOf(def, "points", "replay", "fan"), refs }, every, refreshKey);
   const d = got.data;
+  if (refs && !refs.length) return <p className="muted">{def.system || "The top level"} has no stocks or flows of its own.</p>;
   if (!d) return got.error ? <p className="note lvl-error">{got.error.message}</p> : <Loading />;
   const series = (d.series || []).map((s: any) => ({ label: `${s.name}${s.unit ? ` (${s.unit}${s.per ? `/${s.per}` : ""})` : ""}`, values: s.values }));
   const units = new Set((d.series || []).map((s: any) => (s.per ? `/${s.per === "hour" ? "h" : s.per}` : s.unit || "")));
-  if (!series.length) return <p className="muted">Nothing of these in the model: {listOf(def.refs)?.join(", ")}.</p>;
+  if (!series.length) return <p className="muted">Nothing of these in the model: {refs?.join(", ")}.</p>;
   if (!series.some((s: any) => s.values.some((v: number | null) => v != null))) return <p className="muted">No readings of these in the window.</p>;
   return (
     <div className="panel-plot-col">
@@ -135,7 +149,7 @@ export const CORE: Record<string, PanelKind> = {
     </Suspense>) },
   note: { label: "Note", needs: "text", Body: NoteBody },
   goals: { label: "Goals", Body: GoalsBody },
-  chart: { label: "Chart of stocks and flows", needs: "refs", Body: ChartBody },
+  chart: { label: "Chart of stocks and flows", Body: ChartBody },
   items: { label: "Items", needs: "projection", Body: ItemsBody },
   states: { label: "A projection's states over time", needs: "projection", Body: StatesBody },
   "cycle-time": { label: "A projection's cycle time", needs: "projection", Body: CycleTimeBody },

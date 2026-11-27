@@ -304,23 +304,37 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded). The addresses are the
 model's: only `/api` (a project file at `/api/file/PATH`), `/static` and `/remote` are the server's, and the server
-answers every other path with the page, the React app in `ergostat/web/ui` built into `static/app`. The page resolves
-a path (`web/ui/src/lib/routes.ts`) in this order: a projection's own dashboards (its `dashboards: list:` at
-`/PROJECTION`, `show:` at `/PROJECTION/REST`); a dashboard the model declares, at `/NAME`; a projection, at
-`/PROJECTION` (its list) and `/PROJECTION/REST` (one item: REST is what the projection's id glob's `*` matched, so `ticket/1` is at
-`/ticket/1`; an id several projections match is an item of each, at each one's address, and `/item/ID` lists them); then ergostat's own pages, each a dashboard of its own at its name: `/diagram?view=blocks`,,
-`/goals`, `/agents`, `/agent/NAME`, `/record?type=T`, and `/item/ID` (any id, a projection's or not, the id encoded). The
-model's names come first, so a dashboard or projection named `goals` is drawn at `/goals`; `?builtin=1` shows ergostat's own
-page all the same. Old addresses (`/items/PROJECTION`, `/item/ID` of a projection's item, `/d/NAME`, `/loops`) lead to the new ones. The page routes with the History API: a plain click on one of its links draws
-the page in place; a ctrl-, cmd-, shift- or middle-click is the browser's. The page knows one project, the one it
-serves: there is no project list in its header (`ergostat projects` lists them).
+answers every other path with the page, the React app in `ergostat/web/ui` built into `static/app`. Every page is a
+dashboard of a system (cascading control: a system is made of subsystems), and the address says which: it is read one
+segment at a time from the top level (`web/ui/src/lib/systemRoutes.ts`, the same rules as `spec/routes.py`, over `GET
+/api/route-table`; SPEC §4f, *Addresses*), each segment a dashboard, a projection the scope contains, `goals/NAME`,
+`agents/NAME` or a subsystem: `/overview` (the top level's), `/factory/intake/overview`, `/factory/qa/note` (a
+projection's list), `/factory/ticket/1` (an item, REST what its id glob's `*` matched), `/factory/board` (a dashboard
+written in factory). A deeper address of a thing a higher scope also contains redirects to the top-most; every link is
+written at its canonical address. `/item/ID` is the page of an id no projection, or several, see. Old addresses
+(`/record`, `/diagram?system=S`, `/agent/NAME`, `/PROJECTION` of a projection not at the top level, `/items/PROJECTION`,
+`/d/NAME`, `/loops`) lead to their new ones; `?builtin=1` shows ergostat's own page where the model's replaces it.
+
+The header: top left, the **System** tree (the top level, by the model's name, then each system under the one it is
+within; choosing one goes to its Overview). The nav bar is the address's system's (no other state keeps it): its
+default dashboards (Overview, Diagrams, Goals, Agents, Events), the model's dashboards of that system with `nav:`, the
+hover `+`, a bar, then one entry per projection the system contains (a `group:` makes a menu of its members, labelled
+by the group; ergostat adds no menus of its own). What a system shows and does not define is ancillary there, drawn
+greyer (the `--ancillary` token) with a title saying where it is defined. Each default is ergostat's page, its panels
+scoped by `$system`: an Overview (what needs attention there, its goals, its stocks and flows, its projections), the
+Diagrams of that system, its Goals, its Agents, and its Events (those behind what it contains: its projections' items,
+its blocks' and agents' own; `GET /api/events?system=`). A dashboard the model writes in a system with one of those
+names replaces it there. The page routes with the History API: a plain click on one of its links draws the page in
+place; a ctrl-, cmd-, shift- or middle-click is the browser's. The page knows one project, the one it serves: there is
+no project list in its header (`ergostat projects` lists them).
 
 Every page that is a dashboard is edited where it is drawn (SPEC §4f, *Editing in place*): Edit in its heading, then
 move, remove, add and set up panels, and Save, which writes the YAML where the dashboard belongs and accepts it in the
 same step (`POST /api/dashboards/save`, `numbers/display.py save`): a projection's list and show under the projection,
-in the file it is defined in; a declared dashboard where it is; Goals, Agents and Record as the dashboards `goals`,
-`agents`, `record`; an agent's page as the `page: agent` dashboard. Reset to ergostat's takes a saved one out. A `+`
-shown on hover after the nav bar's dashboards starts a new one, saved under its name with `nav: true`. There is no
+in the file it is defined in; a declared dashboard where it is; a system's Overview, Goals, Agents and Events as the
+dashboards `overview`, `goals`, `agents`, `events` of that system, in its file (else the main file, with `system:`);
+an agent's page as the `page: agent` dashboard. Reset to ergostat's takes a saved one out. A `+` shown on hover after
+the nav bar's dashboards starts a new one of that system, saved under its name with `nav: true`. There is no
 Dashboard editor page (owner, 2026-11-26).
 
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
@@ -331,9 +345,9 @@ only when addressed to the server by its own name (the Host header is `127.0.0.1
 `[::1]` with its port: a page on another site whose name was pointed at 127.0.0.1, DNS rebinding,
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
-page can read. Pages: Diagram (dynamics, blocks and process views; the side panel:
-attention, goals and their control loops, feedback loops or the process map's projections, model changes, legend), Goals, Agents (one list, by rung), a page for each
-projection (its items, by state), Record (events, with runs hidden by default), and no more: the Model, Check and Guide pages were removed (owner, 2026-11-25); the model's fit, residuals,
+page can read. Pages, each system's: Overview, Diagrams (dynamics, blocks and process views; the side panel:
+attention, goals and their control loops, feedback loops or the process map's projections, model changes, legend), Goals, Agents (one list, by rung), Events (with runs hidden by default), and a
+page for each projection (its items, by state), and no more: the Model, Check and Guide pages were removed (owner, 2026-11-25); the model's fit, residuals,
 proposals and checks are the command line's (`ergostat fit`, `ergostat residual`, `ergostat proposals`, `ergostat
 accept`, `ergostat check`, `ergostat findings`) and the MCP tools'. When the model file has errors, the header's run
 state says "Model errors" and opens a small note with them. Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which

@@ -3,6 +3,9 @@ import { ApiError } from "../../../lib/api";
 import { AgentsTable, CostNote, DaemonsNote, DaemonsTable, LadderLine } from "../../agents/AgentsLists";
 import { Definition, LogTail, logFile, Place, RUNG_SECTION, Runs, rungOf, WhatItIs } from "../../agents/AgentSections";
 import { PanelFrame } from "../../charts/PanelView";
+import { ancillaryMark, scopedBy, type Scoped } from "../../../lib/scoped";
+import { scopeHref } from "../../../lib/hrefs";
+import { useDashboards } from "../../../state/dashboards";
 import { AppLink, Async, ErrorNote, Loading } from "../../ui";
 import type { PanelBodyProps, PanelDef, PanelKind } from "../types";
 import { usePanelApi } from "../usePanelApi";
@@ -14,16 +17,22 @@ import { asQueryPanel } from "./core";
 /** Whether an answer says the agent is not the model's (its endpoint's 404). */
 export const noAgent = (e: Error | null | undefined) => !!e && (e instanceof ApiError && e.status === 404 || /not in this snapshot/.test(e.message));
 
-function LadderBody({ every, refreshKey }: PanelBodyProps) {
+/** The agents a system contains (`system`), or every one. */
+const mine = (d: Record<string, any>, s: Scoped | null) => (s ? Object.fromEntries(Object.entries(d).filter(([n]) => s.has("agents", n))) : d);
+
+function LadderBody({ def, every, refreshKey }: PanelBodyProps) {
   const got = usePanelApi<Record<string, any>>("agents", {}, every, refreshKey);
-  return <Async state={got}>{(d) => <LadderLine agents={d} />}</Async>;
+  const s = scopedBy(useDashboards().table, def.system);
+  return <Async state={got}>{(d) => <LadderLine agents={mine(d, s)} />}</Async>;
 }
 
 function AgentsBody({ def, every, refreshKey }: PanelBodyProps) {
   const got = usePanelApi<Record<string, any>>("agents", {}, every, refreshKey);
+  const s = scopedBy(useDashboards().table, def.system);
   return (
     <div className="panel-table">
-      <Async state={got}>{(d) => <><AgentsTable agents={d} caption={def.title || "Agents, by rung"} /><CostNote /></>}</Async>
+      <Async state={got}>{(d) => <><AgentsTable agents={mine(d, s)} caption={def.title || "Agents, by rung"}
+        mark={(n) => ancillaryMark(s, "agents", n)} /><CostNote /></>}</Async>
     </div>
   );
 }
@@ -48,7 +57,7 @@ function agentKind(label: string, title: (a: any) => string, Part: (p: Part) => 
       let body: ReactNode;
       if (!name) body = <p className="note lvl-error">This panel names no agent (agent:).</p>;
       else if (a === undefined) {
-        body = noAgent(got.error) ? <p className="muted no-agent">{`No agent ${name} in the model · `}<AppLink to="/agents">every agent</AppLink></p>
+        body = noAgent(got.error) ? <p className="muted no-agent">{`No agent ${name} in the model · `}<AppLink to={scopeHref("", "agents")}>every agent</AppLink></p>
           : got.error ? <ErrorNote error={got.error} /> : <Loading />;
       } else body = <>{got.error && !noAgent(got.error) && <ErrorNote error={got.error} />}<Part a={a} name={name} def={def} every={every} refreshKey={refreshKey} /></>;
       return <PanelFrame panel={panel} tools={tools} className={`panel-kind-${def.panel} agent-part`}>{body}</PanelFrame>;

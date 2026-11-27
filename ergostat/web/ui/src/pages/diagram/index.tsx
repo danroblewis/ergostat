@@ -1,14 +1,16 @@
 import { useCallback, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Async, Fields, Menu, Segmented, Tabs, useDetail } from "../../components";
 import { DiagramCanvas, graphOf, usePartPanels, type Acts, type ViewKey } from "../../components/diagram";
 import { useApi } from "../../hooks/useApi";
+import { diagramHref } from "../../lib/hrefs";
 import { useStatus } from "../../state/status";
 import { Side } from "./Side";
 
-/* The Diagram page (diagram.js's pageDiagram): one control system, drawn three ways (Dynamics, Blocks, Process), the
-   view and what is drawn in the address (?view=, system=, open=, around=, item=, projection=; the Process view's projections=,
-   by=, paths=, show=), asked again every 2.5 s; a click opens a part's panel, the side lists what needs the owner.
+/* A system's Diagrams (/diagrams for the top level: everything; /SYSTEM/diagrams: that system), diagram.js's
+   pageDiagram: one control system, drawn three ways (Dynamics, Blocks, Process), the system its address's scope, the
+   view and what is drawn in the address (?view=, open=, around=, item=, projection=; the Process view's projections=,
+   by=, paths=, show=), asked again every 2.5 s; going into a system goes to its Diagrams; a click opens a part's panel, the side lists what needs the owner.
    The drawing is components/diagram's DiagramCanvas, as on any page; this page adds the toolbar, the side and the
    address. */
 
@@ -17,7 +19,7 @@ const VIEWS: { key: ViewKey; label: React.ReactNode; title: string }[] = [
   { key: "blocks", label: <>Blocks<span className="what"> · what is controlled</span></>, title: "The control system as a block diagram" },
   { key: "process", label: <>Process<span className="what"> · what happened</span></>, title: "The process map: how items really moved, from the record" },
 ];
-const KEEP = ["view", "system", "around", "open", "item", "projection", "projections", "by", "paths", "show", "window", "at"];
+const KEEP = ["view", "around", "open", "item", "projection", "projections", "by", "paths", "show", "window", "at"];
 
 function GoalPanel({ name }: { name: string }) {
   const st = useApi<any>(`loops/${encodeURIComponent(name)}`);
@@ -37,11 +39,12 @@ function GoalPanel({ name }: { name: string }) {
   );
 }
 
-export default function DiagramPage() {
+export default function DiagramPage({ system = "" }: { system?: string }) {
   const [q, setQ] = useSearchParams();
+  const navigate = useNavigate();
   const raw = q.get("view");
   const view: ViewKey = raw === "blocks" || raw === "process" ? raw : "dynamics";
-  const system = q.get("system") || "", around = q.get("around") || "";
+  const around = q.get("around") || "";
   const item = view !== "process" ? q.get("item") || "" : "", projection = view !== "process" && !item ? q.get("projection") || "" : "";
   const open = q.get("open");
   const show = q.get("show") || "";
@@ -72,7 +75,12 @@ export default function DiagramPage() {
     else now.add(name);
     go({ open: [...now].join(",") || "-" });
   }, [g, go]);
-  const drill = useCallback((name: string) => go({ system: name, open: "", around: "", item: "", projection: "" }), [go]);
+  const drill = useCallback((name: string) => {        // into a system: its own Diagrams, in this view
+    const keep = new URLSearchParams();
+    for (const k of ["window", "at"]) { const v = q.get(k); if (v) keep.set(k, v); }
+    const to = diagramHref({ system: name, view });
+    navigate(keep.size ? `${to}${to.includes("?") ? "&" : "?"}${keep}` : to);
+  }, [navigate, view, q]);
   const sysActs = useMemo(() => ({ toggleSystem, drill }), [toggleSystem, drill]);
   const pick = usePartPanels(g, view, sysActs);
   const onGoal = useCallback((name: string) => detail.open(`goal:${name}`, <GoalPanel name={name} />), [detail]);
@@ -104,7 +112,7 @@ export default function DiagramPage() {
         <div className="toolbar">
           <Tabs label="View" tabs={VIEWS} value={view} onChange={(v) => go({ view: v })} />
           <span className="sep" />
-          <select title="The system drawn" aria-label="System" value={system} onChange={(ev) => go({ system: ev.target.value, around: "", item: "", projection: "", open: "" })}>
+          <select title="The system drawn" aria-label="System" value={system} onChange={(ev) => drill(ev.target.value)}>
             {sysOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           {crumbs.length > 0 && (

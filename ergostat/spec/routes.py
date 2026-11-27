@@ -61,11 +61,13 @@ def table(spec) -> dict:
                  "agents": {}, "dashboards": {}, "collisions": []}
     for name, got in sc.items():
         out["scopes"][name] = {"within": got["within"], "path": _path(sc, name), "segments": {}}
-    for plural in ("projections", "goals", "agents"):
+    for plural, into in (("projections", "projections"), ("goals", "goals"), ("agents", "agents"),
+                         ("blocks", "agents")):     # a block is the page's agent too (/api/agents/NAME: its runs)
         for name, got in sc.items():
             for row in got["contains"].get(plural, []):
-                thing = out[plural].setdefault(row["name"], {"defined_in": row["defined_in"], "in": []})
-                thing["in"].append(name)
+                thing = out[into].setdefault(row["name"], {"defined_in": row["defined_in"], "in": []})
+                if name not in thing["in"]:
+                    thing["in"].append(name)
     for name, thing in out["projections"].items():
         k = spec.items.get(name)
         thing["id"] = k.id if k is not None else f"{name}/*"
@@ -321,3 +323,70 @@ def href(t: dict, thing: dict, scope_: str | None = None) -> str | None:
     s = _top(t, got, scope_) if scope_ is not None else None
     s = s if s is not None else _canonical(t, got)
     return None if s is None else _addr(t, kind, name, s, thing.get("id"))
+
+
+# ---- what the server writes with these: the table kept per version of the model, a system's events, old links
+
+def kept_table(spec) -> dict:
+    """``table(spec)``, worked out once per version of the model (kept with its lookups, as scope.py's)."""
+    if spec is None:
+        return table(None)
+    kept = spec.lookups().kept
+    key = (id(scope(spec)), id(spec.dashboards), len(spec.dashboards))
+    got = kept.get("route-table")
+    if got is None or got[0] != key:
+        got = kept["route-table"] = (key, table(spec))
+    return got[1]
+
+
+def events_of(spec, system: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """What a system's Events shows (SPEC §4f): the item globs of the projections it contains, and its blocks' and
+    agents' names (the sources of what they record): ``(globs, sources)``, both empty for a system the model has
+    not."""
+    got = scope(spec).get(system) if spec is not None else None
+    if got is None:
+        return (), ()
+    t = kept_table(spec)
+    globs = tuple(dict.fromkeys(t["projections"][r["name"]]["id"] for r in got["contains"].get("projections", [])
+                                if r["name"] in t["projections"]))
+    sources = tuple(dict.fromkeys(r["name"] for k in ("blocks", "agents") for r in got["contains"].get(k, [])))
+    return globs, sources
+
+
+def link(spec, path: str | None) -> str | None:
+    """A link ergostat writes (an inbox entry's, a why's evidence) at its canonical address: ``/item/ID`` at its
+    projection's (``/factory/ticket/12``; one no projection, or several, see stays ``/item/ID``), ``/agent/NAME`` at
+    the agent's, ``/diagram?...`` at the Diagrams of the system it names (``system=``), ``/record?...`` at
+    ``/events?...``. Anything else is returned as it is."""
+    if not path or spec is None or not path.startswith("/"):
+        return path
+    base, _, q = path.partition("?")
+    t = kept_table(spec)
+    tail = f"?{q}" if q else ""
+    if base.startswith("/item/"):
+        id_ = unquote(base[len("/item/"):])
+        seen = [n for n, k in t["projections"].items() if _glob_re(k["id"]).match(id_)]
+        got = href(t, {"kind": "item", "id": id_, "projection": seen[0]}) if len(seen) == 1 else None
+        return got + tail if got else path
+    if base.startswith("/agent/"):
+        got = href(t, {"kind": "agent", "name": unquote(base[len("/agent/"):])})
+        return got + tail if got else path
+    if base == "/diagram":
+        from urllib.parse import parse_qsl, urlencode
+        pairs = parse_qsl(q, keep_blank_values=True)
+        system = next((v for k, v in pairs if k == "system"), "")
+        rest = urlencode([(k, v) for k, v in pairs if k != "system"], safe="/,*")
+        at = href(t, {"kind": "dashboard", "name": "diagrams"}, system if system in t["scopes"] else TOP)
+        return (at or "/diagrams") + (f"?{rest}" if rest else "")
+    if base == "/record":
+        return "/events" + tail
+    return path
+
+
+def relinked(spec, x):
+    """An answer with every ``link`` in it (an inbox entry's, a why's evidence) at its canonical address (``link``)."""
+    if isinstance(x, dict):
+        return {k: link(spec, v) if k == "link" and isinstance(v, str) else relinked(spec, v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [relinked(spec, v) for v in x]
+    return x

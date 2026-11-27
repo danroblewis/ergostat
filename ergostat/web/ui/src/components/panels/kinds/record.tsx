@@ -8,11 +8,12 @@ import { paramsOf } from "./core";
 
 /* The record group's kinds of panel (each also declared in ergostat/spec/dashboards.py, its record block):
    - events: the record's events (GET /api/events), newest first, a run of identical ones folded, a click showing an
-     event in the side panel; `remote` names a remote whose events are shown instead, read there (SPEC §4c);
+     event in the side panel; `system` only those behind what that system contains ("" every one); `remote` names a
+     remote whose events are shown instead, read there (SPEC §4c);
    - goal-crossings, goal-decisions: what a goal's loop recorded in the window (GET /api/loops/{goal}). */
 
 /** What an events panel asks GET /api/events, by the endpoint's own names (none: its newest 80). */
-export const EVENTS_PARAMS = ["match", "item", "about", "machine", "runs", "window", "from", "to", "n"] as const;
+export const EVENTS_PARAMS = ["match", "item", "about", "machine", "runs", "window", "from", "to", "n", "system"] as const;
 
 const wrap = (def: PanelBodyProps["def"]) => (def.fit ? "panel-events" : "panel-table panel-events");
 

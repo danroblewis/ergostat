@@ -213,8 +213,9 @@ process each: [docs/DAEMONS.md](docs/DAEMONS.md).
 ## The web page
 
 `ergostat run` serves it at http://127.0.0.1:8781 (the next free port when taken); each page is its own
-address (`/items`, `/item/ticket%2F7`, `/diagram?view=blocks`), to open in a new tab, copy or reload. It opens on the
-control diagram, laid out by ELK: stocks as tanks, flows as pipes through valves (a bow tie) or
+address, read system by system (`/overview`, `/factory/intake/overview`, `/factory/ticket/7`, `/diagrams?view=blocks`),
+to open in a new tab, copy or reload; the System menu top left chooses the system whose dashboards and projections the
+nav bar shows. Its Diagrams draw the control diagram, laid out by ELK: stocks as tanks, flows as pipes through valves (a bow tie) or
 disturbances (a diamond), sensors as gauges, controllers as boxes with their setpoint and status,
 each part tagged with the agent that fills it (a lettered dot by its kind, and its schedule). A goal's control loop is coloured by its status;
 systems are drawn as outlines that may overlap; an open loop (a timer) has a clock where a feedback

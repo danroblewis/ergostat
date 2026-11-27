@@ -102,7 +102,7 @@ def test_the_header_names_the_pages_and_no_project_list(browser, site):
     pg = opened(browser, site + "/goals")
     pg.wait_for_selector("#nav a", timeout=WAIT)
     pg.wait_for_selector("#nav a:has-text('Ticket')", timeout=WAIT)     # the model's projections, after a bar
-    assert pg.locator("#nav a").all_inner_texts() == ["Diagram", "Goals", "Agents", "Record", "Ticket"]
+    assert pg.locator("#nav a").all_inner_texts() == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Ticket"]
     pg.locator("#nav a", has_text="Ticket").click()                      # each at /PROJECTION
     pg.wait_for_url("**/ticket", timeout=WAIT)
     assert pg.locator("select#project").count() == 0
@@ -142,7 +142,7 @@ def test_a_diagram_panel_is_added_in_place_and_cancel_forgets_it(browser, site):
 def test_the_panel_editor_offers_exactly_the_two_sources_and_shows_what_a_shortcut_asked(browser, site):
     """The Source select lists promql and sql and nothing else (NOTES.md, 2026-11-25); a shortcut's preview shows the
     SQL it wrote."""
-    pg = opened(browser, site + "/record")
+    pg = opened(browser, site + "/events")
     heading(pg)
     pg.get_by_role("button", name="Edit", exact=True).first.click()
     pg.get_by_role("button", name="Add panel").click()
@@ -258,7 +258,7 @@ def test_the_promql_editor_completes_the_sources_metric_names_and_highlights_a_f
     ("process", "Process map", False),
 ])
 def test_each_view_of_the_diagram_draws(browser, site, view, caption, nodes):
-    pg = opened(browser, f"{site}/diagram?view={view}")
+    pg = opened(browser, f"{site}/diagrams?view={view}")
     assert caption in heading(pg, "#diagram-caption")
     if nodes:                                               # the model's parts, laid out and drawn
         pg.wait_for_selector("svg.canvas g.node", timeout=WAIT)
@@ -271,7 +271,7 @@ def test_each_view_of_the_diagram_draws(browser, site, view, caption, nodes):
     ("/goals", "Goals", "inbox-short"),
     ("/agents", "Agents", "worker"),
     ("/ticket", "ticket", "ticket/2"),                    # a projection: its page at /PROJECTION
-    ("/record", "Record", "ticket"),
+    ("/events", "Events", "ticket"),                    # the top level's Events: every event
 ])
 def test_each_list_page_draws_its_heading_and_its_rows(browser, site, path, title, content):
     pg = opened(browser, site + path)
@@ -296,7 +296,7 @@ def test_an_item_page_draws_the_item_at_its_projections_address(browser, site, p
 
 
 def test_an_address_the_model_names_nothing_at_says_so(browser, site):
-    pg = opened(browser, site + "/diagram")
+    pg = opened(browser, site + "/diagrams")
     heading(pg, "#diagram-caption")
     pg.evaluate("() => { history.pushState(null, '', '/check'); dispatchEvent(new PopStateEvent('popstate')); }")
     pg.wait_for_function("() => document.querySelector('#main h1')?.textContent === 'Nothing here'", timeout=WAIT)

@@ -72,18 +72,18 @@ def test_each_record_kind_draws_on_a_declared_dashboard(browser, recorded):  # n
     crossings.first.wait_for(timeout=WAIT)
     assert crossings.count() == 2
     link = crossings.last.locator("a")                                    # the oldest: off, to the next crossing
-    assert re.fullmatch(rf"/record\?about={GOAL}&from=[\d.]+&to=[\d.]+", link.get_attribute("href"))
+    assert re.fullmatch(rf"/events\?about={GOAL}&from=[\d.]+&to=[\d.]+", link.get_attribute("href"))
     decisions = pg.locator(".panel.panel-kind-goal-decisions")
     decisions.locator("tbody tr").first.wait_for(timeout=WAIT)
     assert "run worker for N over" in decisions.inner_text()
-    assert decisions.get_by_role("link", name="Each one in the Record").get_attribute("href").startswith(
-        f"/record?item={GOAL}&match=controller.decided")
+    assert decisions.get_by_role("link", name="Each one in the Events").get_attribute("href").startswith(
+        f"/events?item={GOAL}&match=controller.decided")
     done.locator("tbody tr a.plain").first.click()                        # an event, whole, in the side panel
     pg.locator("#detail h2").wait_for(timeout=WAIT)
     assert pg.locator("#detail h2").inner_text() == "ticket.done"
     assert settled(pg, 2500) == []
-    link.click()                                                          # a crossing's link: the Record, scoped
-    pg.wait_for_url(re.compile(r".*/record\?about="), timeout=WAIT)
+    link.click()                                                          # a crossing's link: the Events, scoped
+    pg.wait_for_url(re.compile(r".*/events\?about="), timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('#main')?.innerText.includes('loop.off')", timeout=WAIT)
     assert f"of goal {GOAL}" in pg.locator(".filters").inner_text()
     assert settled(pg) == []
@@ -92,8 +92,9 @@ def test_each_record_kind_draws_on_a_declared_dashboard(browser, recorded):  # n
 
 def test_the_record_page_is_an_events_panel_and_filters_by_its_address(browser, recorded):  # noqa: F811
     _, url = recorded
-    pg = opened(browser, url + "/record")
-    assert heading(pg) == "Record"
+    pg = opened(browser, url + "/record")                                # the old address: the top level's Events
+    pg.wait_for_url(re.compile(r".*/events$"), timeout=WAIT)
+    assert heading(pg) == "Events"
     panel = pg.locator(".panel.panel-kind-events.panel-fit")
     panel.locator("tbody tr").first.wait_for(timeout=WAIT)
     assert "ticket/1" in panel.inner_text()
@@ -108,18 +109,18 @@ def test_the_record_page_is_an_events_panel_and_filters_by_its_address(browser, 
     assert settled(pg) == []
     pg.close()
 
-    pg = opened(browser, url + "/record?item=" + quote("ticket/2", safe=""))           # a scope: its words, its events
+    pg = opened(browser, url + "/events?item=" + quote("ticket/2", safe=""))           # a scope: its words, its events
     pg.wait_for_function("() => document.querySelector('.filters')?.innerText.includes('about ticket/2')", timeout=WAIT)
     pg.locator(".panel-kind-events tbody tr").first.wait_for(timeout=WAIT)
     assert set(pg.locator(".panel-kind-events tbody tr td:nth-child(3)").all_inner_texts()) == {"ticket/2"}
     assert settled(pg) == []
     pg.close()
 
-    pg = opened(browser, url + "/record?match=nothing.like.this&window=1")                # nothing matches: clear it
+    pg = opened(browser, url + "/events?match=nothing.like.this&window=1")                # nothing matches: clear it
     pg.locator("a.clear-filter").wait_for(timeout=WAIT)
     assert "in the window" in pg.locator(".filters").inner_text()
     pg.locator("a.clear-filter").click()
-    pg.wait_for_url(re.compile(r".*/record\?window=1$"), timeout=WAIT)
+    pg.wait_for_url(re.compile(r".*/events\?window=1$"), timeout=WAIT)
     pg.locator(".panel-kind-events tbody tr").first.wait_for(timeout=WAIT)
     assert settled(pg) == []
     pg.close()

@@ -1,20 +1,9 @@
-/* The page's addresses are the model's (SPEC §4f): /api, /static and /remote are the server's; every other path is
-   resolved here, in this order:
-     1. a projection's own dashboards (`projections: P: dashboards:`): its list at /P, its show at /P/REST;
-     2. a dashboard the model declares, at /NAME (named as a projection: that projection's page, its $projection the
-        projection);
-     3. a projection, at /NAME (its list) and /NAME/REST (one of its items: REST is what its id glob's * matched,
-        ticket/1 at /ticket/1; a projection whose glob is not PREFIX* writes the whole id). An id several projections
-        match is an item of each, each at its own projection's address;
-     4. ergostat's own pages, each a dashboard of its own (lib/pages.ts) at its name: /diagram, /goals, /agents,
-        /record, /agent/NAME and /item/ID (any id, a projection's or not: an id one projection matches leads to its
-        item's address; one several match lists them).
-   ?builtin=1 shows ergostat's own page for an address whatever the model names there. The projections are set once the
-   page has asked (/api/routes, state/dashboards.tsx); until then an item's link is /item/ID, which leads to the same. */
+/* The model's projections and their id globs (GET /api/routes, set by state/dashboards.tsx): which projections see an
+   id, and the id an address under a projection names. The addresses themselves are lib/systemRoutes.ts's (SPEC §4f,
+   Addresses), read over GET /api/route-table; until that table is here, an item's link is /item/ID or /PROJECTION/REST,
+   which the page leads to the same place (Resolve.tsx). */
 
-export type ProjectionRoute = { name: string; id: string; declared?: boolean; group?: string | null };
-
-export const BUILTIN = ["diagram", "goals", "agents", "agent", "record", "item"] as const;
+export type ProjectionRoute = { name: string; id: string; declared?: boolean; group?: string | null; system?: string };
 
 let projections: ProjectionRoute[] = [];
 const globs = new Map<string, RegExp>();

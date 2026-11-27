@@ -1,6 +1,7 @@
 import { crossingsTitle, decisionsTitle, GoalCrossings, GoalDecisions } from "./goalRecord";
 import { GoalControlBox, GoalParts, GoalRunbook } from "./GoalParts";
 import { ItemLink } from "./links";
+import { diagramHref } from "../lib/hrefs";
 import { AppLink, Async, StatusWord } from "./ui";
 import { useApi } from "../hooks/useApi";
 import { fmt, op } from "../lib/format";
@@ -47,7 +48,7 @@ export function GoalDetail({ name }: { name: string }) {
                 <GoalDecisions goal={name} lp={lp} />
               </>
             )}
-            <p><AppLink to={`/diagram?around=loop/${encodeURIComponent(name)}`}>Draw this loop alone</AppLink></p>
+            <p><AppLink to={diagramHref({ around: `loop/${name}` })}>Draw this loop alone</AppLink></p>
           </>
         );
       }}

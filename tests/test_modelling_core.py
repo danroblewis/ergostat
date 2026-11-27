@@ -343,7 +343,7 @@ def test_a_held_modelling_request_is_in_the_inbox(tmp_path):
     got = [e for e in en.entries(p) if e["kind"] == "request"]
     assert {e["id"] for e in got} == {f"request/{x}" for x in held | {r["id"]}}
     assert {e["id"]: e["verbs"] for e in got} == {f"request/{x}": ["deny"] for x in held} | {f"request/{r['id']}": ["approve", "deny"]}
-    assert f"/item/ergostat.modelling-request/{r['id']}" in {e["link"] for e in got}
+    assert f"/modelling/ergostat.modelling-request/{r['id']}" in {e["link"] for e in got}   # at its address
 
 
 # ---- the redesigner on its own (when: auto, the owner's decision): per system, bounded, never written without the owner

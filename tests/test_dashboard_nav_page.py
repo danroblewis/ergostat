@@ -86,8 +86,9 @@ def test_nav_and_page_are_checked_kept_and_listed(tmp_path, capsys):
                       "goals": (None, None), "one-agent": (None, "agent"), "ticket": (None, None)}
     from ergostat.web import server
     routes = server.api(server.Live(p), "routes", {})
-    assert [x for x in routes["projections"] if x["declared"]] == [{"name": "ticket", "id": "ticket/*", "declared": True, "group": None}]
-    assert {"name": "session", "id": "session/*", "declared": False, "group": None} in routes["projections"]      # ergostat's own: linked
+    assert [x for x in routes["projections"] if x["declared"]] == [{"name": "ticket", "id": "ticket/*", "declared": True, "group": None,
+                                                                    "system": ""}]
+    assert {"name": "session", "id": "session/*", "declared": False, "group": None, "system": ""} in routes["projections"]      # ergostat's own: linked
     assert routes["reserved"] == ["api", "static", "remote"]
     assert "goals" in routes["builtin"] and [x["name"] for x in routes["dashboards"]] == list(listed)
 
@@ -148,8 +149,8 @@ def test_keep_writes_nav_and_page_and_keeps_them_in_place(tmp_path):
     assert (d / "ergostat.yaml").read_text().count("crew-board:") == 1
 
 
-@pytest.mark.parametrize("kind, code", [("api", "unrouted-projection"), ("record", "projection-takes-page")])
-def test_a_kind_named_as_the_servers_address_or_ergostats_page_is_a_finding(tmp_path, kind, code):
+@pytest.mark.parametrize("kind, code", [("api", "unrouted-projection")])     # (one named as a default dashboard, like
+def test_a_kind_named_as_the_servers_address_is_a_finding(tmp_path, kind, code):  # events: spec/routes.py's collision)
     d = write(tmp_path, BOARD.replace("projections:\n", f"projections:\n  {kind}:\n    id: {kind}/*\n    states: [a]\n"))
     _, problems = read(d / "ergostat.yaml")
     assert [(x.level, x.code) for x in problems if x.about == f"projections.{kind}" and "projection" in x.code] == [("finding", code)]

@@ -112,9 +112,23 @@ Each step leaves main working.
 3. **The implied id.**
 4. **What a system contains.** The analysis, in `check` and `explain`, tested first.
 5. **Addresses.** The helpers on both sides, the shared cases, redirects to the top-most address, collisions and YAML
-   errors stopping the page.
+   errors stopping the page. *Built (2026-11-26):* the helpers and cases; the page resolves every address with them
+   (Resolve.tsx over GET /api/route-table) and redirects a deeper address to the top-most; every link the page writes is
+   canonical (lib/hrefs.ts), and so are the inbox's and why's (spec/routes.py `link`); the old addresses lead to the
+   new ones. A block is an agent for addresses (`/agents/NAME`, as the Agents page lists them). Collisions as errors,
+   and the page showing only the errors, are a separate change.
 6. **Dashboards per system.** The defaults, replacing by name, list and show dashboards for projections, goals and
-   agents, and the Events dashboard.
-7. **The shell.** The System tree and the nav bar.
+   agents, and the Events dashboard. *Built (2026-11-26):* each system's Overview (attention, goals, stocks and flows,
+   projections), Diagrams, Goals, Agents and Events, their panels scoped by `$system` (every dashboard binds it); a
+   model's dashboard of a default's name replaces it in its system; a dashboard is a system's by its file's `defaults:`
+   or its own `system:`; saving an edited default writes it into the system's file (else the main file with
+   `system:`); a system's Events are those its projections fold and its blocks and agents record (GET
+   /api/events?system=). The Record is gone (Events). Left: a goal's show dashboard is its detail (GoalPage), not yet a
+   dashboard of panels that can be customized; an agent's list and show are the Agents page and `page: agent` as
+   before.
+7. **The shell.** The System tree and the nav bar. *Built (2026-11-26):* the System tree top left (indented by
+   `within:`, the top level by the model's name), the nav bar the address's system's: its defaults, its dashboards with
+   `nav:`, the `+`, a bar, its projections (ancillary ones greyer, with where each is defined; `group:` menus). Left:
+   ancillary in a chart's legend.
 8. **Editing in place.** The `+`, editing any dashboard, saving with the projection or the system. The Dashboard
    editor page goes.

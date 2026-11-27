@@ -2,26 +2,35 @@ import type { DashboardDef, PanelDef } from "../components/panels/types";
 
 /* ergostat's own pages as the dashboards they are: each one's panels, as a dashboard under `dashboards:` would
    declare them (SPEC §4f). A page draws these (with its own head and filters around them), and is edited where it is
-   drawn (components/panels/EditableDashboard.tsx): saved, it is the model's own dashboard in its place (`goals`,
-   `agents`, `record` by name; `page: agent`; a projection's own `dashboards: list:` and `show:`), drawn at its address
-   instead (lib/routes.ts). A page that shows one thing writes it `$agent`, `$item` or `$projection`: taken from the
-   address. */
+   drawn (components/panels/EditableDashboard.tsx): saved, it is the model's own dashboard in its place (each system's
+   `overview`, `goals`, `agents`, `events` by name, in that system's file; `page: agent`; a projection's own
+   `dashboards: list:` and `show:`), drawn at its address instead (lib/systemRoutes.ts). Every one is a system's: its
+   panels write `$system`, the system whose address it is drawn at ("" the top level). A page that shows one thing
+   writes it `$agent`, `$item` or `$projection`: taken from the address. */
 
 export const full = (d: PanelDef): PanelDef => ({ size: "full", fit: true, ...d });
 
+/** A system's Overview: what needs attention there, its goals, its stocks and flows, its projections. */
+export const OVERVIEW_PANELS: PanelDef[] = [
+  { panel: "attention", id: "attention", title: "What needs attention", system: "$system" },
+  { panel: "goals", id: "goals", title: "Its goals", system: "$system" },
+  { panel: "chart", id: "parts", title: "Its stocks and flows", system: "$system", fit: false },
+  { panel: "projections", id: "projections", title: "Its projections", system: "$system" },
+].map(full);
+
 export const GOALS_PANELS: PanelDef[] = [
   { panel: "quiet-systems", id: "quiet", title: "Quiet systems", quiet: true },
-  { panel: "goals", id: "goals", title: "Every goal", columns: "all" },
+  { panel: "goals", id: "goals", title: "Every goal", columns: "all", system: "$system" },
 ].map(full);
 
 export const AGENTS_PANELS: PanelDef[] = [
-  { panel: "ladder", id: "ladder", title: "The ladder" },
-  { panel: "agents", id: "agents", title: "Agents, by rung" },
+  { panel: "ladder", id: "ladder", title: "The ladder", system: "$system" },
+  { panel: "agents", id: "agents", title: "Agents, by rung", system: "$system" },
   { panel: "daemons", id: "daemons", title: "Daemons" },
 ].map(full);
 
-
-export const RECORD_PANELS: PanelDef[] = [{ panel: "events", id: "record", title: "Events, newest first" }].map(full);
+/** A system's Events: those behind what it contains (its projections' items, its blocks' and agents' own). */
+export const EVENTS_PANELS: PanelDef[] = [{ panel: "events", id: "events", title: "Events, newest first", system: "$system" }].map(full);
 
 /** An agent's page, by the anchor each panel is drawn under. */
 export const AGENT_PANELS: PanelDef[] = [
@@ -53,13 +62,14 @@ export const PROJECTION_PANELS: PanelDef[] = [
   full({ panel: "item-list", id: "items", title: "Items", projection: "$projection" }),
 ];
 
-export type PageName = "goals" | "agents" | "record" | "agent" | "item" | "projection";
+export type PageName = "overview" | "goals" | "agents" | "events" | "agent" | "item" | "projection";
 
 /** ergostat's own pages made of panels, and the address's word one of one thing takes (`page:` names those). */
 export const PAGES: Record<PageName, { title: string; panels: PanelDef[]; binds?: "agent" | "item" | "projection" }> = {
+  overview: { title: "Overview", panels: OVERVIEW_PANELS },
   goals: { title: "Goals", panels: GOALS_PANELS },
   agents: { title: "Agents", panels: AGENTS_PANELS },
-  record: { title: "Record", panels: RECORD_PANELS },
+  events: { title: "Events", panels: EVENTS_PANELS },
   agent: { title: "An agent", panels: AGENT_PANELS, binds: "agent" },
   item: { title: "An item", panels: ITEM_PANELS, binds: "item" },
   projection: { title: "A projection", panels: PROJECTION_PANELS, binds: "projection" },
@@ -71,3 +81,9 @@ export function pageDashboard(page: PageName, bind: Record<string, string> = {})
   const fill = (v: unknown) => (typeof v === "string" && v.startsWith("$") && bind[v.slice(1)] != null ? bind[v.slice(1)] : v);
   return { title: p.title, panels: p.panels.map((d) => Object.fromEntries(Object.entries(d).map(([k, v]) => [k, fill(v)])) as PanelDef) };
 }
+
+/** The default dashboards every system has, in the nav bar's order, with their links' words (spec/routes.py
+ *  DEFAULTS). */
+export const DEFAULTS: [string, string][] = [
+  ["overview", "Overview"], ["diagrams", "Diagrams"], ["goals", "Goals"], ["agents", "Agents"], ["events", "Events"],
+];

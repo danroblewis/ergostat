@@ -140,8 +140,8 @@ def test_keep_refuses_an_edit_that_reaches_past_dashboards(tmp_path, monkeypatch
     p = project(tmp_path)
     made = display._edit
 
-    def wider(p, spec, name, lines):                       # the entry, and a goal's words written otherwise
-        e = made(p, spec, name, lines)
+    def wider(p, spec, name, lines, *more):                # the entry, and a goal's words written otherwise
+        e = made(p, spec, name, lines, *more)
         at = next(i for i, x in enumerate(p.model.path.read_text().split("\n"), 1) if 'hold: "< 5"' in x)
         return display.ye.Edit(e.file, [*e.hunks, display.ye.Hunk(at, ['    hold: "< 5"'], ['    hold: "<5"'])])
     monkeypatch.setattr(display, "_edit", wider)

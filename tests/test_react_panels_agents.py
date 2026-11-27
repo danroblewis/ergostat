@@ -75,7 +75,8 @@ def test_the_agents_page_draws_the_ladder_and_the_table(browser, crew):  # noqa:
 
 
 def test_an_agent_page_draws_each_section_under_its_anchor(browser, crew):  # noqa: F811
-    pg = opened(browser, crew + "/agent/worker#its-place")
+    pg = opened(browser, crew + "/agent/worker#its-place")        # the old address: at /agents/worker, its anchor kept
+    pg.wait_for_url("**/agents/worker#its-place", timeout=WAIT)
     assert heading(pg) == "worker"
     for anchor, kind in (("what-it-is", "agent-what"), ("its-definition", "agent-definition"), ("its-place", "agent-place"),
                          ("what-it-did", "agent-runs")):

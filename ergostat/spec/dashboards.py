@@ -13,15 +13,17 @@ from .load import Map, Problem
 
 MOST = 24                          # panels in one dashboard (docs/proposals/dashboard.md, section 6, rule 5)
 SIZES = ("s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall")
-DASHBOARD_KEYS = {"title", "description", "window", "panels", "nav", "page"}
+DASHBOARD_KEYS = {"title", "description", "window", "panels", "nav", "page", "system"}   # system: the system it is
+#                                                  the dashboard of, over its file's defaults: (named SYSTEM.NAME)
 # the server's own first parts of a path: nothing of the model's is drawn at them (every other path is the page's)
 RESERVED = ("api", "static", "remote")
-# ergostat's own pages, each a dashboard drawn at its name until the model's own dashboard or projection of that name
-# takes the address (web/ui/src/lib/routes.ts): a projection is at /PROJECTION, and its items at /PROJECTION/ID
-BUILTIN = ("diagram", "goals", "agents", "agent", "record", "item")
+# ergostat's own pages: each system's default dashboards (spec/routes.py DEFAULTS: at /SYSTEM/NAME, and at /NAME for
+# the top level), replaced there by the model's dashboard of that name, and an agent's and an item's page
+BUILTIN = ("overview", "diagrams", "goals", "agents", "events", "agent", "item")
 # the pages of one thing a dashboard may be drawn for (``page:``) → the address's word it binds: a panel's parameter
-# written ``$WORD`` (``agent: $agent``) takes it from the address (/agent/NAME, /PROJECTION/ID, /PROJECTION). A
-# dashboard named as a projection is that projection's page and binds ``$projection`` too
+# written ``$WORD`` (``agent: $agent``) takes it from the address (/agents/NAME, /PROJECTION/ID, /PROJECTION). A
+# dashboard named as a projection is that projection's page and binds ``$projection`` too. Every dashboard binds
+# ``$system``: the system whose address it is drawn at ("" the top level: everything)
 PAGES = {"agent": "agent", "item": "item", "projection": "projection"}
 # a projection's own dashboards (``projections: P: dashboards:``), each drawn where the projection is: ``list`` at /P,
 # ``show`` for each of its items at /P/REST → the address's words its panels may write ``$WORD`` for
@@ -33,8 +35,9 @@ ITEM_SET = {"projection", "state", "where", "moved", "moved_since", "moved_until
 # each kind of panel → the parameters it takes (those of its endpoint, by the same names)
 KINDS = {
     "note": {"text"},
-    "goals": {"goals", "columns"},                        # the loops rows (GET /api/loops), these goals or all; columns
-    "chart": {"refs", "points", "replay", "fan"},         # GET /api/series
+    "goals": {"goals", "columns", "system"},              # the loops rows (GET /api/loops), these goals or all, or a
+    #                                                       system's (spec/scope.py: what it contains); columns
+    "chart": {"refs", "points", "replay", "fan", "system"},   # GET /api/series: refs, or a system's stocks and flows
     "items": ITEM_SET,                                    # GET /api/items
     "states": {"projection", "points"},                   # GET /api/items-flow
     "cycle-time": {"projection", "points"},               # GET /api/items-flow
@@ -46,8 +49,8 @@ KINDS = {
 }
 # ---- the agents group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/agents.tsx): KIND → its parameters
 KINDS.update({
-    "ladder": set(),                                      # GET /api/agents: how many on each rung, and the exceptions
-    "agents": set(),                                      # GET /api/agents: every agent by rung, what its runs cost
+    "ladder": {"system"},                                 # GET /api/agents: how many on each rung, and the exceptions
+    "agents": {"system"},                                 # GET /api/agents: every agent by rung (a system's), their cost
     "daemons": set(),                                     # GET /api/daemons
     "agent-what": {"agent"},                              # GET /api/agents/AGENT (and its files): what it is, by rung
     "agent-definition": {"agent"},                        # GET /api/agents/AGENT: its block as written
@@ -63,7 +66,8 @@ _ITEM = {"item"}                      # one item, by its id (any id: it need not
 _ONE_ITEM = ("item-summary", "item-why", "item-path", "item-relations", "item-fields", "item-refused", "item-moves",
              "item-events", "item-changes")
 KINDS.update({
-    "projections": {"states"},                            # GET /api/items-overview: each system's projections, a card each
+    "projections": {"states", "system"},                  # GET /api/items-overview: each projection, a card each (a
+    #                                                       system's: those it contains)
     "items-by-projection": {"q", "finished", "per_projection"},   # GET /api/items: each projection's newest, by system
     "projection-now": {"projection", "points", "states"},  # GET /api/items-flow (and /api/projections/P): its states
     "projection-model": {"projection"},                   # GET /api/projections/P: what counts it, its goals and loops
@@ -106,7 +110,8 @@ CHECKS_ITEMS = {
 # ---- the record group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/record.tsx): KIND → its parameters
 KINDS.update({
     # GET /api/events: the record's events, newest first (the Record page's own); remote: a remote's, read there
-    "events": {"match", "item", "about", "machine", "runs", "window", "from", "to", "n", "remote"},
+    "events": {"match", "item", "about", "machine", "runs", "window", "from", "to", "n", "remote", "system"},
+    #   system: the events behind what that system contains (its projections' items, its blocks' and agents' own)
     "goal-crossings": {"goal"},                           # GET /api/loops/{goal}: its crossings in the window
     "goal-decisions": {"goal"},                           # GET /api/loops/{goal}: its controller's decisions, alike
 })
@@ -143,7 +148,8 @@ def _check_record(c, spec, kind: str, x, at, what: str) -> bool:
 
 # ---- the attention group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/attention.tsx): KIND → its parameters
 KINDS.update({
-    "attention": {"show"},                                # GET /api/status (its attention), these parts or all
+    "attention": {"show", "system"},                      # GET /api/status (its attention), these parts or all; a
+    #                                                       system's: what is about a part it contains
     "legend": {"view"},                                   # drawn by the page: how to read that view's drawing
     "feedback-loops": {"system"},                         # GET /api/graph?view=dynamics: its feedback loops
     "control-loops": {"system"},                          # GET /api/graph?view=blocks: its control loops
@@ -158,7 +164,7 @@ CHOICES_ATTENTION = {"view": ("dynamics", "blocks", "process"),             # a 
                      "show": ("waiting", "off", "housekeeping", "suggestions")}
 LISTS_ATTENTION = {"show"}
 
-NEEDS = {"query": "queries", "diagram": "address", "chart": "refs", "states": "projection", "cycle-time": "projection", "scope": "goal",
+NEEDS = {"query": "queries", "diagram": "address", "chart": "refs",   # (a chart: refs, or system) "states": "projection", "cycle-time": "projection", "scope": "goal",
          "items": "projection", "note": "text"}
 NEEDS.update({**NEEDS_AGENTS, **NEEDS_ITEMS, **NEEDS_RECORD, **NEEDS_ATTENTION})
 CHECKS = {**CHECKS_ITEMS}      # KIND → {parameter: its check}: a group's kinds' own parameters
@@ -178,9 +184,13 @@ def take(doc, data: Map, defaults: dict) -> None:
         doc.problems.append(Problem("error", "dashboards: must be a map, each dashboard keyed by its name",
                                     data.at("dashboards"), "not-a-map"))
         return
-    system = defaults.get("system")
     for name, entry in body.items():
         w = body.at(name)
+        own = entry.get("system") if isinstance(entry, dict) else None
+        if own is not None and (not isinstance(own, str) or not NAME.match(own)):
+            doc.problems.append(Problem("error", f"dashboard {name}.system: a system's name", w, "bad-name"))
+            continue
+        system = own or defaults.get("system")
         if not isinstance(name, str) or not NAME.match(name):
             doc.problems.append(Problem("error", f"dashboard {name}: a name is lowercase letters, digits and -, starting "
                                         "with a letter", w, "bad-name"))
@@ -233,8 +243,9 @@ def check(c, spec, exists) -> None:
                   "bad-dashboard")
             nav = None
         binds = (PAGES[page],) if page in PAGES else ()  # its panels read as that page's, though the page is taken
-        if not binds and name in spec.items:              # named as a projection: its page, its $projection it
+        if not binds and name.rsplit(".", 1)[-1] in spec.items:   # named as a projection: its page, its $projection it
             binds = ("projection",)
+        binds = (*binds, "system")                        # every dashboard: the system it is drawn in
         if page is not None and (other := next((x for x in spec.dashboards.values() if x.page == page), None)):
             c.err(f"{what}.page: the {page} page is drawn by dashboard {other.name} already", m.at("page"),
                   "defined-twice", f"dashboard.{other.name}")
@@ -265,7 +276,7 @@ def check(c, spec, exists) -> None:
                       "defined-twice", f"dashboard.{full}")
                 continue
             c.keys(x, OWN_KEYS, f"{what}.{role}")
-            d = _dashboard(c, spec, exists, full, x, w, f"{what}.{role}", binds)
+            d = _dashboard(c, spec, exists, full, x, w, f"{what}.{role}", (*binds, "system"))
             d.system, d.projection, d.role = spec.items[name].system, name, role
             spec.dashboards[full] = d
 
@@ -303,17 +314,13 @@ def _dashboard(c, spec, exists, name: str, m, w, what: str, binds: tuple) -> Das
 
 
 def routes(c, spec) -> None:
-    """Each projection is at /PROJECTION: one named as the server's own address has no page, and one named as one of
-    ergostat's own pages takes its address (ergostat's at ?builtin=1). Findings, never errors: the model runs."""
+    """A projection named as the server's own address has no page: a finding, never an error (the model runs). One
+    named as a default dashboard is an address collision (spec/routes.py)."""
     for name, k in spec.items.items():
         w = getattr(k, "where", None)
         if name in RESERVED:
             c.problems.append(Problem("finding", f"projection {name}: /{name} is the server's own address, so its items "
                                       "have no page; rename it to have one", w, "unrouted-projection",
-                                      f"projections.{name}"))
-        elif name in BUILTIN and name not in spec.dashboards:
-            c.problems.append(Problem("finding", f"projection {name} is at /{name}, in place of ergostat's own {name} "
-                                      f"page (still at /{name}?builtin=1)", w, "projection-takes-page",
                                       f"projections.{name}"))
 
 
@@ -344,7 +351,7 @@ def _panel(c, spec, exists, x, what: str, near, binds: tuple = ()) -> Panel | No
     size = x.get("size", "m")
     if size not in SIZES:
         c.err(f"{what}.size: one of {', '.join(SIZES)}", at("size"), "bad-dashboard")
-    if NEEDS.get(kind) and x.get(NEEDS[kind]) is None:
+    if NEEDS.get(kind) and x.get(NEEDS[kind]) is None and not (kind == "chart" and x.get("system") is not None):
         c.err(f"{what}: a {kind} panel needs {NEEDS[kind]}:", at("panel"), "bad-dashboard")
         return None
     params: dict = {}
@@ -363,7 +370,7 @@ def _panel(c, spec, exists, x, what: str, near, binds: tuple = ()) -> Panel | No
             if v[1:] not in binds or k != v[1:]:
                 c.err(f"{what}.{k}: {v!r} is taken from no address" + (
                       f" (this page's: {', '.join(f'{b}: ${b}' for b in binds)})" if binds else
-                      " (only a dashboard in place of the agent, item or projection page takes one)"), w,
+                      " (only $system, or in place of the agent, item or projection page its word)"), w,
                       "bad-dashboard")
                 ok = False
             else:
@@ -416,8 +423,10 @@ def _panel(c, spec, exists, x, what: str, near, binds: tuple = ()) -> Panel | No
             continue
         params.setdefault(k, v)
         ok = _refs(c, spec, exists, k, v, params, what, w) and ok
-    if ok and kind == "diagram" and not str(params.get("address", "")).startswith("/diagram"):
-        c.err(f"{what}.address: a Diagram address, like /diagram?view=blocks&system=NAME", at("address"), "bad-dashboard")
+    if ok and kind == "diagram" and not (str(params.get("address", "")).split("?")[0].rstrip("/") + "/").endswith(
+            ("/diagram/", "/diagrams/")):                 # a system's Diagrams (/SYSTEM/diagrams), or the old /diagram
+        c.err(f"{what}.address: a Diagram address, a system's Diagrams, like /diagrams?view=blocks or /SYSTEM/diagrams", at("address"),
+              "bad-dashboard")
         ok = False
     if ok and kind == "items" and not any(str(v).startswith("$") for v in params.values()):
         from .item_sets import BadSet, parse
@@ -577,5 +586,6 @@ def bound(p: Panel, address: dict) -> Panel:
     address does not give is left as written (its endpoint says it is not there)."""
     if not any(isinstance(v, str) and v.startswith("$") for v in p.params.values()):
         return p
-    params = {k: (address.get(v[1:]) or v) if isinstance(v, str) and v.startswith("$") else v for k, v in p.params.items()}
+    params = {k: (address[v[1:]] if address.get(v[1:]) is not None else v) if isinstance(v, str) and v.startswith("$")
+              else v for k, v in p.params.items()}
     return Panel(p.panel, p.title, p.size, p.note, params, p.where)

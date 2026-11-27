@@ -207,6 +207,11 @@ def entries(p, spec=None, now: float | None = None) -> list[dict]:
             except Exception:                               # one kind that cannot be read leaves the others
                 continue
         got.sort(key=lambda e: e["time"])
+        from ..spec.routes import relinked
+        try:
+            got = relinked(spec, got)                        # each link at its address (spec/routes.py)
+        except Exception:                                   # an unreadable table leaves the links as written
+            pass
         _CACHE.clear()
         _CACHE[key] = got
     return [{**e, "age": max(0.0, now - e["time"])} for e in got]

@@ -2034,8 +2034,8 @@ declared under `dashboards:`, compiled and checked as a system's `show:` is (sec
 error at its line instead of a blank panel. The design is `docs/proposals/dashboard.md`. People do not write it by
 hand: the Supervisor, or an agent on the owner's behalf, adds it (`docs/AGENT-GUIDE.md`).
 
-A panel may be a diagram, `{panel: diagram, address: /diagram?view=...&system=...}`, where the address is a Diagram
-address (it must begin `/diagram`).
+A panel may be a diagram, `{panel: diagram, address: /SYSTEM/diagrams?view=...}`, where the address is a system's
+Diagrams (`/diagrams?...` for the top level; the old `/diagram?...&system=...` is read too).
 It is drawn read-only, at its own size or larger, so no text is under 11 px. When it does not fit, its systems are
 closed, and if it still does not fit the panel says to open it on the Diagram. Nothing is asked until the panel is on
 screen. Only one model diagram on a page is drawn; any other is drawn when clicked. Its values come with each refresh
@@ -2064,19 +2064,19 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `panel` | Answered by | Its parameters |
 |---|---|---|
 | `note` | nothing: its text | `text` (needed) |
-| `goals` | `GET /api/loops`: each goal's row | `goals` (default all), `columns` (any of `goal`, `status`, `measure`, `value`, `bound`, `far`, `timeOff`, `backIn`, `spark`, `performance`, `acted`, `card`, or `all`; default the first six with `spark` and `card`) |
-| `chart` | `GET /api/series` | `refs` (stocks, flows, auxiliaries; needed), `points`, `replay`, `fan` |
+| `goals` | `GET /api/loops`: each goal's row | `goals` (default all), `system` (the goals it contains, an ancillary one greyer), `columns` (any of `goal`, `status`, `measure`, `value`, `bound`, `far`, `timeOff`, `backIn`, `spark`, `performance`, `acted`, `card`, or `all`; default the first six with `spark` and `card`) |
+| `chart` | `GET /api/series` | `refs` (stocks, flows, auxiliaries), or `system` (its stocks and flows, at most 8): one is needed; `points`, `replay`, `fan` |
 | `items` | `GET /api/items` (with each open item's estimate) | `projection` (needed), `state`, `where`, `moved`, `moved_since`, `moved_until`, `through`, `followed`, `search`, `n` |
 | `states`, `cycle-time` | `GET /api/items-flow` | `projection` (needed), `points` |
 | `scope` | `GET /api/loop-scope` | `goal` (needed), `points` |
 | `items-graph`, `timeline` | `GET /api/items-graph` (with its estimates) | `projections`, `system` |
 | `query` | `GET /api/query`: a chart of queries, as the panel editor writes it | `queries` (needed: 1 to 64, checked by the query engine's parser in the shape the page's `send` gives them: their own `id`, `label` and `hidden` left out, an `input` or `output` naming another query by id replaced by that query as written (one level), an `x.query` by id sent as a query of its own, a reference that leads nowhere or back along its path refused, queries asked alike sent once; every query is checked, a hidden one too, and no form's own adjustment is applied; a query's `projection` must be the model's), `form`, `display`, `layout` |
-| `diagram` | nothing: the page asks `GET /api/graph` itself | `address` (needed: a Diagram address, `/diagram?view=...`) |
-| `ladder` | `GET /api/agents`: how many agents fill each rung, and how many stand out (last run failed, never ran, behind) | none |
-| `agents` | `GET /api/agents`: every agent by rung, its roles, runs, schedule and what its runs cost in the window | none |
+| `diagram` | nothing: the page asks `GET /api/graph` itself | `address` (needed: a Diagrams address, `/SYSTEM/diagrams?view=...`) |
+| `ladder` | `GET /api/agents`: how many agents fill each rung, and how many stand out (last run failed, never ran, behind) | `system` |
+| `agents` | `GET /api/agents`: every agent by rung, its roles, runs, schedule and what its runs cost in the window | `system` (the agents it contains, an ancillary one greyer) |
 | `daemons` | `GET /api/daemons`: the long-lived processes runs and readings are handed to | none |
 | `agent-what`, `agent-definition`, `agent-place`, `agent-runs`, `agent-log` | `GET /api/agents/AGENT`: what it is by its rung; its block as written; its place (goals served, roles, who commands it); its runs and their cost; its log's end | `agent` (needed: a block of the model's) |
-| `projections` | `GET /api/items-overview`: each system's projections as cards | `states` (`all` or `groups`) |
+| `projections` | `GET /api/items-overview`: each system's projections as cards | `states` (`all` or `groups`), `system` (the projections it contains, an ancillary one greyer) |
 | `items-by-projection` | `GET /api/items`: each projection's newest under its system | `q`, `finished` (`hide`, `waits`, `show`), `per_projection` (1 to 500) |
 | `projection-now` | `GET /api/items-flow`: a projection's states over the window and how long its finished took | `projection` (needed), `points`, `states` |
 | `projection-model`, `projection-definition` | `GET /api/projections/PROJECTION`: what in the model counts it, its goals and loops; its definition | `projection` (needed) |
@@ -2084,9 +2084,9 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `item-summary`, `item-path`, `item-relations`, `item-fields`, `item-refused`, `item-moves`, `item-events` | `GET /api/items/ITEM`: one part of an item | `item` (needed: any id) |
 | `item-why` | `GET /api/why`: why it is not done (as the record is now) | `item` (needed) |
 | `item-changes` | `GET /api/items/ITEM?history=`: each field's changes | `item` (needed), `history` (a field, or `all`) |
-| `events` | `GET /api/events`: the record's events, newest first; with `remote`, that remote's, read there (section 4c) | `match` (a type as a glob, an item or a source), `item`, `about` (a goal), `machine`, `runs`, `window`, `from`, `to` (seconds since 1970), `n` (1 to 500), `remote` (a remote of the model's) |
-| `goal-crossings`, `goal-decisions` | `GET /api/loops/GOAL`: its crossings, each a link to the Record; its controller's decisions, alike when only their numbers differ | `goal` (needed) |
-| `attention` | `GET /api/status`: what asks for the owner | `show` (any of `waiting`, `off`, `housekeeping`, `suggestions`; all when left out) |
+| `events` | `GET /api/events`: the record's events, newest first; with `remote`, that remote's, read there (section 4c) | `match` (a type as a glob, an item or a source), `item`, `about` (a goal), `machine`, `runs`, `window`, `from`, `to` (seconds since 1970), `n` (1 to 500), `remote` (a remote of the model's), `system` (the events behind what it contains: those about an item of a projection it contains, or from one of its blocks or agents) |
+| `goal-crossings`, `goal-decisions` | `GET /api/loops/GOAL`: its crossings, each a link to the Events; its controller's decisions, alike when only their numbers differ | `goal` (needed) |
+| `attention` | `GET /api/status`: what asks for the owner | `show` (any of `waiting`, `off`, `housekeeping`, `suggestions`; all when left out), `system` (what is about a goal, agent or item it contains) |
 | `legend` | nothing: how to read a view's drawing | `view` (needed: `dynamics`, `blocks` or `process`) |
 | `feedback-loops`, `control-loops` | `GET /api/graph`: the feedback loops of the stock and flow diagram; the control loops of the block diagram | `system` |
 | `quiet-systems` | `GET /api/systems`: each system whose every goal holds | none |
@@ -2098,45 +2098,63 @@ reference to a stock, flow or auxiliary (or a sensor of one), a goal, a projecti
 system that the model does not have (**unknown-ref**), each at its line. More than 24 panels, or a `window` longer
 than `keep:`, is **bad-dashboard**. The name `default` is the model's own (below), so it cannot be declared.
 
-**Its address is its name.** The page's addresses are the model's (section 8 of DESIGN.md): `/api`, `/static` and
-`/remote` are the server's, and every other path is resolved in this order. A projection's own dashboards (its
-`dashboards:`, section 5a) first: its `list` at `/PROJECTION`, its `show` at `/PROJECTION/REST`. A dashboard is at `/NAME`
-(`/big-dashboard`; `/delivery.review` for one named by its file). A projection is at `/PROJECTION`, its list, and each of
-its items at `/PROJECTION/REST`, REST being what its id glob's `*` matched (`ticket/1` at `/ticket/1`; a projection whose glob is
-not `PREFIX*` writes the whole id). Then ergostat's own pages, each a dashboard of panels at its name: `diagram`,
-`goals`, `agents`, `record`, `agent/NAME` and `item/ID`. What the model names comes first: a dashboard
-named `goals` is drawn at `/goals` in place of ergostat's Goals page, and a dashboard named as a projection is that projection's
-page, its panels' `$projection` the projection. `?builtin=1` on any address shows ergostat's own page all the same. Each of
-ergostat's pages is made of these panels (`web/ui/src/lib/pages.ts`), so editing one where it is drawn (below) starts
-from ergostat's panels. There is no Dashboard page: `/dashboard` is an address like any other.
+**Addresses.** The page's addresses are the model's, per system (section 8 of DESIGN.md; the design is
+docs/roadmap/systems-and-projections.md, *Addresses*). `/api`, `/static` and `/remote` are the server's. Every other
+address is read one segment at a time from the top level, by the same rules on both sides (`spec/routes.py` and
+`web/ui/src/lib/systemRoutes.ts`, over the table `GET /api/route-table` serves, checked against
+`tests/fixtures/route_cases.json`); in a scope a segment is, in order, a dashboard the model writes in that system (by
+its own name: `factory.review` is `/factory/review`), a default dashboard (below; `goals/NAME` and `agents/NAME` a
+goal's and an agent's own page, an agent being a block or an `agents:` entry), a projection the scope contains
+(section 4a, *What a system contains*: `NAME` its list, `NAME/REST` one of its items, REST being what its id glob's `*`
+matched, `factory/intake/ticket/1` at `/factory/ticket/1`; a projection whose glob is not `PREFIX*` writes the whole id)
+or a subsystem. So `/overview` is the top level's Overview, `/factory/intake/overview` intake's, `/factory/board` a
+dashboard written in factory, `/factory/qa/note/7` an item of qa's projection `note`. A system's own address
+(`/`, `/factory`) leads to its Overview. A model's dashboard named as a default replaces it there, and one named as a
+projection there is that projection's list (its items still under it); a projection's own `list` and `show` (its
+`dashboards:`, section 5a), and the `page:` dashboards, are drawn at its addresses. A projection, item, goal or agent
+read in a scope redirects (replacing the address) to the highest scope on that scope's chain that contains it
+(`/factory/intake/ticket/1234` to `/factory/ticket/1234` once a flow carries `ticket` into `factory`), never sideways;
+a thing is at no scope that does not contain it. Every link the page and ergostat write is at its canonical address
+(the top-most scope that contains it, read from where it is defined; an inbox entry's and a why's links are rewritten
+by `spec/routes.py link`). `/item/ID` is the page of an id no projection, or several, see (one projection's id leads
+to its address). The old addresses lead to their new ones: `/record` to `/events`, `/diagram?system=S` to S's
+Diagrams, `/agent/NAME` to the agent's, `/PROJECTION` and `/PROJECTION/REST` of a projection not at the top level to
+where it is, `/items/NAME`, `/d/NAME`, `/loops`. `?builtin=1` on any address shows ergostat's own page all the same.
+There is no Dashboard page: `/dashboard` is an address like any other. Two things at one segment of one scope (a
+system and a dashboard both `review`; a projection named `events`; a top-level system `api`) are an
+**address-collision** (`spec/routes.py LEVEL`).
 
-`nav: true` (or the link's words, at most 40 characters) puts a dashboard in the header, after ergostat's pages and
-the menu of the model's projections. `page: agent`, `page: item` or `page: projection` draws a dashboard on every agent's, item's
-or projection's page instead (`/agent/NAME`, `/PROJECTION/REST`, `/PROJECTION`); its panels may write their parameter `$agent`, `$item`
-or `$projection` (`{panel: agent-runs, agent: $agent}`), taken from the address and checked there rather than against the
-model. `check` refuses a dashboard named `api`, `static` or `remote` (**bad-name**); a `page:` not one of those three
-(naming one of ergostat's own pages says to name the dashboard so instead), `nav:` and `page:` together, and a
-`$WORD` the dashboard does not take (**bad-dashboard**); and a second dashboard for one `page:` (**defined-twice**). A
-projection named `api`, `static` or `remote` has no page (**unrouted-projection**), and one named as one of ergostat's pages is
-drawn in its place (**projection-takes-page**): findings, not errors.
+**Dashboards per system.** Every dashboard is a system's (the top level's, "", when written in no system), and every
+one binds `$system`: a panel parameter written `system: $system` takes the system whose address it is drawn at. Each
+system, and the top level, has the default dashboards, drawn by ergostat's own pages, each made of these panels
+(`web/ui/src/lib/pages.ts`) scoped by `$system`:
 
-**Addresses per system (the helpers' rules; not yet the page's).** As designed in
-docs/roadmap/systems-and-projections.md, *Addresses*, and built as helpers the page does not use yet
-(`spec/routes.py` and `web/ui/src/lib/systemRoutes.ts`, over the table `GET /api/route-table` serves, checked against
-`tests/fixtures/route_cases.json`). An address is read one segment at a time from the top level; in a scope a segment
-is, in order, a dashboard the model writes in that system (by its own name: `factory.review` is `/factory/review`), a
-default dashboard (`overview`, `diagrams`, `goals`, `agents`, `events`; `goals/NAME` and `agents/NAME` a goal's and an
-agent's show dashboards), a projection the scope contains (section 4a, *What a system contains*: `NAME` its list,
-`NAME/REST` an item) or a subsystem. A model's dashboard named as a default replaces it there, and one named as a
-projection there is that projection's list (its items still under it). A projection, item, goal or agent read in a
-scope redirects to the highest scope on that scope's chain that contains it (`/factory/intake/ticket/1234` to
-`/factory/ticket/1234` once a flow carries `ticket` into `factory`), never sideways; a thing is at no scope that does
-not contain it. Two things at one segment of one scope (a system and a dashboard both `review`; a projection named
-`events`; a top-level system `api`) are an **address-collision**: a finding until the page reads these addresses, then
-an error.
+| Default | At | Its panels |
+|---|---|---|
+| Overview | `/overview`, `/SYSTEM/overview` | `attention`, `goals`, `chart` (its stocks and flows), `projections`, each with `system: $system` |
+| Diagrams | `/diagrams`, `/SYSTEM/diagrams` | the Diagram page, drawn for that system (the top level: everything) |
+| Goals | `/goals`, `/SYSTEM/goals` | `quiet-systems`, `goals` (every column, `system: $system`) |
+| Agents | `/agents`, `/SYSTEM/agents` | `ladder`, `agents` (each `system: $system`), `daemons` |
+| Events | `/events`, `/SYSTEM/events` | `events` (`system: $system`): the events behind what it contains; the top level's, every event |
 
-**Namespaced by its file.** A dashboard written in a file whose `defaults:` sets a system is named `SYSTEM.NAME`
-(`delivery.review` in `factory/delivery.yaml`), so two systems' files may each have an `overview`.
+A system shows what it contains (section 4a): the top level what is defined in no system and what crosses between the
+top-level systems. What it contains and does not define (defined in another system, or ergostat's own) is
+**ancillary** there, drawn greyer with a title saying where it is defined (in the nav bar, and in a scoped goals,
+agents and projections panel). A dashboard the model writes with one of these names in a system replaces that default
+there, and Reset to ergostat's takes it out again. There is no Record dashboard: Events is what it was.
+
+`nav: true` (or the link's words, at most 40 characters) puts a dashboard in its system's nav bar, after the
+defaults. `page: agent`, `page: item` or `page: projection` draws a dashboard on every agent's, item's or projection's
+page instead; its panels may write their parameter `$agent`, `$item` or `$projection` (`{panel: agent-runs, agent:
+$agent}`), taken from the address and checked there rather than against the model. `check` refuses a dashboard named
+`api`, `static` or `remote` (**bad-name**); a `page:` not one of those three (naming one of ergostat's own pages says
+to name the dashboard so instead), `nav:` and `page:` together, and a `$WORD` the dashboard does not take
+(**bad-dashboard**); and a second dashboard for one `page:` (**defined-twice**). A projection named `api`, `static` or
+`remote` has no page (**unrouted-projection**): a finding, not an error.
+
+**Namespaced by its system.** A dashboard written in a file whose `defaults:` sets a system, or with its own
+`system:`, is that system's and named `SYSTEM.NAME` (`delivery.review` in `factory/delivery.yaml`), so two systems may
+each have an `overview`.
 
 **Display only.** `dashboards:` is in no version hash (section 12e: the structure, the numbers, the control, the
 sensors): declaring, changing or removing one changes neither the model's version nor any replay. A change of
@@ -2145,7 +2163,7 @@ checked like any change, judged as a change of words (passed when `check` finds 
 and written only by the owner's Accept unless the judge's policy names `display: auto`.
 
 **Editing in place.** Every page that is a dashboard is edited where it is drawn: a projection's list and show, a
-declared dashboard, and ergostat's Goals, Agents, Record and agent pages. **Edit** in the page's heading; then a
+declared dashboard, each system's Overview, Goals, Agents and Events, and ergostat's agent pages. **Edit** in the page's heading; then a
 panel's own buttons move it earlier or later, remove it, or edit its settings (a chart of queries or a diagram in the
 query editor; any other kind its title, note, size, `tall`, `fit`, `quiet` and the parameters its kind takes, as
 `GET /api/panel-kinds` lists them from `check`'s own table); **Add panel** adds one of any kind; **Save** writes it;
@@ -2157,11 +2175,11 @@ out of the YAML (with a `dashboards:` it leaves empty), so ergostat's own is dra
 |---|---|
 | a projection's list (`/PROJECTION`) or one of its items (`/PROJECTION/REST`) | that projection's `dashboards: list:` or `show:` (section 5a), in the file the projection is defined in |
 | a declared dashboard | its own entry, where it is declared (in a system's file, under its own name there) |
-| ergostat's Goals, Agents or Record page | the dashboard `goals`, `agents` or `record`, in the main file |
+| a system's Overview, Goals, Agents or Events | the dashboard `overview`, `goals`, `agents` or `events` of that system: in the system's own file (one whose `defaults: system:` is it), else in the main file with `system:`; the top level's in the main file |
 | ergostat's page of an agent | the `page: agent` dashboard (named `agent`), in the main file |
-| the nav bar's **+** (shown on hover, after its dashboards) | a new dashboard, named when it is saved, with `nav: true`: at `/NAME`, in the nav bar |
+| the nav bar's **+** (shown on hover, after its dashboards) | a new dashboard of the nav bar's system, named when it is saved, with `nav: true`: at `/SYSTEM/NAME`, in that nav bar |
 
-Save sends the dashboard (`POST /api/dashboards/save`, JSON: `{projection, role}` or `{name, page, nav, new}`, with
+Save sends the dashboard (`POST /api/dashboards/save`, JSON: `{projection, role}` or `{name, page, nav, new, system}`, with
 `title`, `description`, `since` and `panels`; `POST /api/dashboards/reset` the same without its panels), and the
 server works out the YAML from it (`numbers/display.py`): its window when `keep:` holds it, each panel one JSON line
 (a `query` panel its `title`, `size`, `form`, `queries`, `note`, `display`, `layout`, `fit`, `quiet`; any other kind

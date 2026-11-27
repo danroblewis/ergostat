@@ -764,11 +764,11 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         spec = getattr(m, "spec", None)
         return {"dashboards": dashboard_api.listing(p), "reserved": list(RESERVED), "builtin": list(BUILTIN),
                 "projections": [{"name": k.name, "id": k.id, "declared": getattr(k, "where", None) is not None,
-                                 "group": k.group}
+                                 "group": k.group, "system": k.system or ""}
                           for k in (spec.items.values() if spec else [])]}      # declared: the model's, not ergostat's own
     if head == "route-table":                      # the page's addresses per system (SPEC §4f, Addresses): read by
-        from ..spec.routes import table as route_table     # web/ui/src/lib/systemRoutes.ts, by the same rules as Python's
-        return route_table(getattr(m, "spec", None))
+        from ..spec.routes import kept_table               # web/ui/src/lib/systemRoutes.ts, by the same rules as Python's
+        return kept_table(getattr(m, "spec", None))
     if head == "scope":                            # what each system contains, from the graph (SPEC §4a): read-only,
         from ..spec.scope import TOP, scope         # worked out once per version of the model
         spec = getattr(m, "spec", None)
@@ -782,13 +782,15 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     if head == "why":                             # why an item is not done (SPEC §5a), as the record is now
         if not one("item") or one("at"):
             raise BadSet("why: item=ID, as the record is now (never at=)")
+        from ..spec.routes import relinked
         from ..why import answer
-        return answer(p, one("item"))
+        return relinked(getattr(m, "spec", None), answer(p, one("item")))     # its links at their addresses
     if head == "held-up":                         # what holds the work up, ranked (SPEC §5a), as the record is now
         if one("at"):
             raise BadSet("held-up: as the record is now (never at=)")
+        from ..spec.routes import relinked
         from ..why import held
-        return held.answer(p)
+        return relinked(getattr(m, "spec", None), held.answer(p))
     at = None
     if one("at"):
         try:
@@ -1045,6 +1047,9 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         n = max(1, min(int(one("n") or 100), EVENTS_MOST))
         span = {"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}
         span |= {k: float(one(w)) for k, w in (("since", "from"), ("until", "to")) if one(w)}
+        if one("system"):                         # a system's Events: what is behind what it contains (SPEC §4f)
+            from ..spec.routes import events_of
+            span["scoped"] = events_of(getattr(m, "spec", None), one("system"))
         if one("about") or one("match"):          # the Record's filter box, or a crossing's goal (details.js)
             return _record_rows(p, m, snap, one("about"), one("match"), n, skip, span,
                                 {k: one(k) for k in ("item", "machine", "source") if one(k)})

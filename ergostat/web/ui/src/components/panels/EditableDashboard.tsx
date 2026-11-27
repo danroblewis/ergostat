@@ -13,12 +13,15 @@ import type { DashboardDef, PanelDef } from "./types";
 
    Where it is saved (``target``): a projection's own list or show ({projection, role}: under the projection's
    `dashboards:`, in the file it is defined in), or a dashboard under `dashboards:` by its name (a declared one where it
-   is; ergostat's Goals, Agents and Record pages as `goals`, `agents`, `record`; an agent's page as the `page: agent`
-   dashboard; a new one, named when it is saved, with `nav: true`). */
+   is; a system's Overview, Goals, Agents and Events as `overview`, `goals`, `agents`, `events` of that `system`, in its
+   file; an agent's page as the `page: agent` dashboard; a new one, named when it is saved, with `nav: true`, in the
+   system whose nav bar made it). */
 
 export type SaveTarget =
   | { projection: string; role: "list" | "show" }
-  | { name: string; page?: string | null; nav?: string | boolean | null; new?: boolean };
+  | { name: string; page?: string | null; nav?: string | boolean | null; new?: boolean;
+      /** the system it is saved for ("" or none: the top level, the main file) */
+      system?: string };
 
 const NAME = /^[a-z][a-z0-9-]{0,63}$/;
 
@@ -98,6 +101,7 @@ export function useEditing({ base, target, saved = false, bind, start = false, o
     setError(null);
     const where = "name" in target
       ? { name: isNew ? name : target.name, page: target.page ?? undefined, new: isNew || undefined,
+          system: target.system || undefined,
           nav: isNew ? true : target.nav === "" ? true : target.nav ?? undefined }
       : { projection: target.projection, role: target.role };
     const body = reset ? where : {
