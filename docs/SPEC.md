@@ -2115,6 +2115,21 @@ model. `check` refuses a dashboard named `api`, `static` or `remote` (**bad-name
 projection named `api`, `static` or `remote` has no page (**unrouted-projection**), and one named as one of ergostat's pages is
 drawn in its place (**projection-takes-page**): findings, not errors.
 
+**Addresses per system (the helpers' rules; not yet the page's).** As designed in
+docs/roadmap/systems-and-projections.md, *Addresses*, and built as helpers the page does not use yet
+(`spec/routes.py` and `web/ui/src/lib/systemRoutes.ts`, over the table `GET /api/route-table` serves, checked against
+`tests/fixtures/route_cases.json`). An address is read one segment at a time from the top level; in a scope a segment
+is, in order, a dashboard the model writes in that system (by its own name: `factory.review` is `/factory/review`), a
+default dashboard (`overview`, `diagrams`, `goals`, `agents`, `events`; `goals/NAME` and `agents/NAME` a goal's and an
+agent's show dashboards), a projection the scope contains (section 4a, *What a system contains*: `NAME` its list,
+`NAME/REST` an item) or a subsystem. A model's dashboard named as a default replaces it there, and one named as a
+projection there is that projection's list (its items still under it). A projection, item, goal or agent read in a
+scope redirects to the highest scope on that scope's chain that contains it (`/factory/intake/ticket/1234` to
+`/factory/ticket/1234` once a flow carries `ticket` into `factory`), never sideways; a thing is at no scope that does
+not contain it. Two things at one segment of one scope (a system and a dashboard both `review`; a projection named
+`events`; a top-level system `api`) are an **address-collision**: a finding until the page reads these addresses, then
+an error.
+
 **Namespaced by its file.** A dashboard written in a file whose `defaults:` sets a system is named `SYSTEM.NAME`
 (`delivery.review` in `factory/delivery.yaml`), so two systems' files may each have an `overview`.
 

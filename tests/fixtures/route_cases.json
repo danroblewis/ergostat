@@ -1,0 +1,528 @@
+{
+ "about": "The address helpers' shared cases (ergostat/spec/routes.py, web/ui/src/lib/systemRoutes.ts): each model's files, what each path resolves to ([path, expected, why]), the address each thing is written at ([thing, scope, expected]) and the collisions. Run by tests/test_system_routes.py on both sides.",
+ "models": [
+  {
+   "name": "factory",
+   "files": {
+    "ergostat.yaml": "name: routes\ninclude: [factory.yaml, intake.yaml]\nsystems:\n  factory: {description: makes things}\n  intake: {within: factory, description: takes work in}\n  qa: {within: factory, description: checks the work}\n  delivery: {within: factory, description: ships it}\nprojections:\n  ticket: {states: [new, shipped], system: intake}\n  note: {states: [open], system: qa}\n  report: {id: report/*, states: [sent], system: delivery}\n  run: {id: run/*, states: [going]}\nstocks:\n  arrived: {system: intake, unit: tickets, sensor: {projection: ticket, state: new}}\n  shipped: {system: delivery, unit: tickets, sensor: {projection: ticket, state: shipped}}\n  notes-open: {system: qa, unit: notes, sensor: {projection: note, state: open}}\n  reports-sent: {unit: reports, sensor: {projection: report, state: sent}}\n  runs: {unit: runs, sensor: {projection: run, state: going}}\nflows:\n  take-in: {system: intake, to: arrived}\ngoals:\n  full: {system: intake, stock: arrived, hold: \"<= 50\"}\nblocks:\n  gate: {system: intake, type: program, run: echo 1, in: goal.full, out: flow.take-in, agent: ops}\nagents:\n  ops: {kind: program}\ndashboards:\n  weekly:\n    panels:\n      - {panel: chart, refs: stock.runs}\n",
+    "factory.yaml": "defaults:\n  system: factory\ndashboards:\n  board:\n    panels:\n      - {panel: chart, refs: stock.shipped}\n  overview:\n    panels:\n      - {panel: chart, refs: stock.arrived}\n",
+    "intake.yaml": "defaults:\n  system: intake\ndashboards:\n  ticket:\n    panels:\n      - {panel: chart, refs: stock.arrived}\n"
+   },
+   "resolve": [
+    [
+     "/",
+     {
+      "scope": "",
+      "kind": "system",
+      "name": ""
+     },
+     "the top level's own address"
+    ],
+    [
+     "/overview",
+     {
+      "scope": "",
+      "kind": "dashboard",
+      "name": "overview"
+     },
+     "the default system's overview"
+    ],
+    [
+     "/diagrams",
+     {
+      "scope": "",
+      "kind": "dashboard",
+      "name": "diagrams"
+     },
+     "a top-level default"
+    ],
+    [
+     "/goals",
+     {
+      "scope": "",
+      "kind": "dashboard",
+      "name": "goals"
+     },
+     "a top-level default"
+    ],
+    [
+     "/agents",
+     {
+      "scope": "",
+      "kind": "dashboard",
+      "name": "agents"
+     },
+     "a top-level default"
+    ],
+    [
+     "/events",
+     {
+      "scope": "",
+      "kind": "dashboard",
+      "name": "events"
+     },
+     "a top-level default"
+    ],
+    [
+     "/factory",
+     {
+      "scope": "factory",
+      "kind": "system",
+      "name": "factory"
+     },
+     "a system's own address"
+    ],
+    [
+     "/factory/overview",
+     {
+      "scope": "factory",
+      "kind": "dashboard",
+      "name": "factory.overview"
+     },
+     "a system's overview: the model's own there"
+    ],
+    [
+     "/factory/diagrams",
+     {
+      "scope": "factory",
+      "kind": "dashboard",
+      "name": "diagrams"
+     },
+     "a system's default"
+    ],
+    [
+     "/factory/intake/overview",
+     {
+      "scope": "intake",
+      "kind": "dashboard",
+      "name": "overview"
+     },
+     "a nested system's overview"
+    ],
+    [
+     "/factory/qa/note",
+     {
+      "scope": "qa",
+      "kind": "projection",
+      "name": "note"
+     },
+     "a projection's list in a nested system"
+    ],
+    [
+     "/factory/qa/note/7",
+     {
+      "scope": "qa",
+      "kind": "item",
+      "name": "note",
+      "id": "factory/qa/note/7"
+     },
+     "an item in a nested system (implied id)"
+    ],
+    [
+     "/factory/note",
+     null,
+     "a projection that does not cross: the shorter address is absent"
+    ],
+    [
+     "/factory/note/7",
+     null,
+     "nor its items'"
+    ],
+    [
+     "/factory/ticket/1234",
+     {
+      "scope": "factory",
+      "kind": "item",
+      "name": "ticket",
+      "id": "factory/intake/ticket/1234"
+     },
+     "the top-most address"
+    ],
+    [
+     "/factory/intake/ticket/1234",
+     {
+      "scope": "intake",
+      "kind": "item",
+      "name": "ticket",
+      "id": "factory/intake/ticket/1234",
+      "redirect": "/factory/ticket/1234"
+     },
+     "the deeper address redirects to the top-most"
+    ],
+    [
+     "/factory/delivery/ticket",
+     {
+      "scope": "delivery",
+      "kind": "projection",
+      "name": "ticket",
+      "redirect": "/factory/ticket"
+     },
+     "ancillary in a sibling: redirected up its own chain"
+    ],
+    [
+     "/factory/intake/ticket",
+     {
+      "scope": "intake",
+      "kind": "dashboard",
+      "name": "intake.ticket",
+      "projection": "ticket"
+     },
+     "dashboards before projections: the model's dashboard is the projection's list there"
+    ],
+    [
+     "/factory/delivery/report/r/9",
+     {
+      "scope": "delivery",
+      "kind": "item",
+      "name": "report",
+      "id": "report/r/9",
+      "redirect": "/report/r/9"
+     },
+     "pulled up to the top level"
+    ],
+    [
+     "/report/r/9",
+     {
+      "scope": "",
+      "kind": "item",
+      "name": "report",
+      "id": "report/r/9"
+     },
+     "REST with a slash"
+    ],
+    [
+     "/run",
+     {
+      "scope": "",
+      "kind": "projection",
+      "name": "run"
+     },
+     "a top-level projection"
+    ],
+    [
+     "/factory/board",
+     {
+      "scope": "factory",
+      "kind": "dashboard",
+      "name": "factory.board"
+     },
+     "a model dashboard in a system"
+    ],
+    [
+     "/board",
+     null,
+     "a system's dashboard only in its system"
+    ],
+    [
+     "/weekly",
+     {
+      "scope": "",
+      "kind": "dashboard",
+      "name": "weekly"
+     },
+     "a top-level model dashboard"
+    ],
+    [
+     "/factory/intake/goals/full",
+     {
+      "scope": "intake",
+      "kind": "goal",
+      "name": "full"
+     },
+     "a goal's show dashboard"
+    ],
+    [
+     "/factory/goals/full",
+     null,
+     "a goal that does not cross"
+    ],
+    [
+     "/factory/intake/agents/ops",
+     {
+      "scope": "intake",
+      "kind": "agent",
+      "name": "ops",
+      "redirect": "/agents/ops"
+     },
+     "an agent carried into a subsystem redirects to where it is defined"
+    ],
+    [
+     "/agents/ops",
+     {
+      "scope": "",
+      "kind": "agent",
+      "name": "ops"
+     },
+     "an agent's show dashboard"
+    ],
+    [
+     "/agents/nobody",
+     null,
+     "no such agent"
+    ],
+    [
+     "/api/route-table",
+     null,
+     "reserved: the server's"
+    ],
+    [
+     "/static/app/index.js",
+     null,
+     "reserved: the server's"
+    ],
+    [
+     "/remote",
+     null,
+     "reserved: the server's"
+    ],
+    [
+     "/nothing",
+     null,
+     "nothing there"
+    ],
+    [
+     "/factory/intake/overview/extra",
+     null,
+     "a dashboard takes no more segments"
+    ],
+    [
+     "/factory/intake/ticket/1234?x=1",
+     {
+      "scope": "intake",
+      "kind": "item",
+      "name": "ticket",
+      "id": "factory/intake/ticket/1234",
+      "redirect": "/factory/ticket/1234"
+     },
+     "a query is not the address"
+    ]
+   ],
+   "href": [
+    [
+     {
+      "kind": "projection",
+      "name": "ticket"
+     },
+     null,
+     "/factory/ticket"
+    ],
+    [
+     {
+      "kind": "projection",
+      "name": "ticket"
+     },
+     "intake",
+     "/factory/ticket"
+    ],
+    [
+     {
+      "kind": "projection",
+      "name": "note"
+     },
+     null,
+     "/factory/qa/note"
+    ],
+    [
+     {
+      "kind": "projection",
+      "name": "note"
+     },
+     "intake",
+     "/factory/qa/note"
+    ],
+    [
+     {
+      "kind": "projection",
+      "name": "run"
+     },
+     null,
+     "/run"
+    ],
+    [
+     {
+      "kind": "projection",
+      "name": "report"
+     },
+     "delivery",
+     "/report"
+    ],
+    [
+     {
+      "kind": "item",
+      "id": "factory/intake/ticket/1234"
+     },
+     null,
+     "/factory/ticket/1234"
+    ],
+    [
+     {
+      "kind": "item",
+      "id": "factory/qa/note/7",
+      "projection": "note"
+     },
+     null,
+     "/factory/qa/note/7"
+    ],
+    [
+     {
+      "kind": "item",
+      "id": "report/r/9"
+     },
+     null,
+     "/report/r/9"
+    ],
+    [
+     {
+      "kind": "item",
+      "id": "unknown/1"
+     },
+     null,
+     null
+    ],
+    [
+     {
+      "kind": "goal",
+      "name": "full"
+     },
+     null,
+     "/factory/intake/goals/full"
+    ],
+    [
+     {
+      "kind": "agent",
+      "name": "ops"
+     },
+     null,
+     "/agents/ops"
+    ],
+    [
+     {
+      "kind": "agent",
+      "name": "ops"
+     },
+     "intake",
+     "/agents/ops"
+    ],
+    [
+     {
+      "kind": "dashboard",
+      "name": "factory.board"
+     },
+     null,
+     "/factory/board"
+    ],
+    [
+     {
+      "kind": "dashboard",
+      "name": "intake.ticket"
+     },
+     null,
+     "/factory/intake/ticket"
+    ],
+    [
+     {
+      "kind": "dashboard",
+      "name": "weekly"
+     },
+     null,
+     "/weekly"
+    ],
+    [
+     {
+      "kind": "dashboard",
+      "name": "overview"
+     },
+     null,
+     "/overview"
+    ],
+    [
+     {
+      "kind": "dashboard",
+      "name": "overview"
+     },
+     "intake",
+     "/factory/intake/overview"
+    ],
+    [
+     {
+      "kind": "dashboard",
+      "name": "nope"
+     },
+     null,
+     null
+    ],
+    [
+     {
+      "kind": "system",
+      "name": "intake"
+     },
+     null,
+     "/factory/intake"
+    ],
+    [
+     {
+      "kind": "system",
+      "name": ""
+     },
+     null,
+     "/"
+    ]
+   ],
+   "collisions": []
+  },
+  {
+   "name": "collisions",
+   "files": {
+    "ergostat.yaml": "name: collide\ninclude: [factory.yaml]\nsystems:\n  factory: {}\n  review: {within: factory}\n  api: {}\nprojections:\n  events: {id: ev/*, states: [a]}\nstocks:\n  seen: {unit: events, sensor: {projection: events, state: a}}\n  waiting: {system: review, unit: things, sensor: {manual: true}}\n",
+    "factory.yaml": "defaults:\n  system: factory\ndashboards:\n  review:\n    panels:\n      - {panel: chart, refs: stock.waiting}\n"
+   },
+   "resolve": [
+    [
+     "/events",
+     {
+      "scope": "",
+      "kind": "dashboard",
+      "name": "events"
+     },
+     "a collision: the first claim kept"
+    ],
+    [
+     "/factory/review",
+     {
+      "scope": "factory",
+      "kind": "dashboard",
+      "name": "factory.review"
+     },
+     "a collision: the first claim kept"
+    ]
+   ],
+   "href": [],
+   "collisions": [
+    {
+     "scope": "",
+     "segment": "events",
+     "kinds": [
+      "dashboard",
+      "projection"
+     ]
+    },
+    {
+     "scope": "",
+     "segment": "api",
+     "kinds": [
+      "server",
+      "system"
+     ]
+    },
+    {
+     "scope": "factory",
+     "segment": "review",
+     "kinds": [
+      "dashboard",
+      "system"
+     ]
+    }
+   ]
+  }
+ ]
+}

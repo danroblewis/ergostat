@@ -766,6 +766,9 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 "projections": [{"name": k.name, "id": k.id, "declared": getattr(k, "where", None) is not None,
                                  "group": k.group}
                           for k in (spec.items.values() if spec else [])]}      # declared: the model's, not ergostat's own
+    if head == "route-table":                      # the page's addresses per system (SPEC §4f, Addresses): read by
+        from ..spec.routes import table as route_table     # web/ui/src/lib/systemRoutes.ts, by the same rules as Python's
+        return route_table(getattr(m, "spec", None))
     if head == "scope":                            # what each system contains, from the graph (SPEC §4a): read-only,
         from ..spec.scope import TOP, scope         # worked out once per version of the model
         spec = getattr(m, "spec", None)
