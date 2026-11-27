@@ -28,7 +28,7 @@ remotes:
     url: http://127.0.0.1:2
     token-file: r.token
     every: 60s
-items:
+projections:
   thing:
     id: thing/*
 stocks:
@@ -62,9 +62,9 @@ class Fake:
         if self.queue:
             return 200, self.queue.pop(0), None, ""
         if path == "counts":
-            return 200, {"kinds": {"thing": {"open": 2}}, "total": 2}, None, ""
+            return 200, {"projections": {"thing": {"open": 2}}, "total": 2}, None, ""
         if path == "items":
-            return 200, {"items": [{"id": "t-1", "kind": "thing", "state": "open"}], "total": 2, "kinds": []}, None, ""
+            return 200, {"items": [{"id": "t-1", "projection": "thing", "state": "open"}], "total": 2, "projections": []}, None, ""
         if path.startswith("items/"):
             return 200, {"id": path[6:], "fields": {"from": "there"}, "record": []}, None, ""
         last = self.log[-1]["seq"] if self.log else 0
@@ -158,9 +158,9 @@ def test_repeated_listings_in_one_period_ask_the_remote_once_each(site):
         assert code == 200 and body["ok"] and body["items"][0]["remote"] == "r"
         assert body["counts"] == {"thing": {"open": 2}} and body["url"] == "http://127.0.0.1:1"
     for _ in range(20):
-        assert get(site, "/api/items?remote=r&kind=thing")[0] == 200
+        assert get(site, "/api/items?remote=r&projection=thing")[0] == 200
     assert len(site.fake.asked("counts")) == 1
-    assert [c[2].get("kind") for c in site.fake.asked("items")] == [None, "thing"]
+    assert [c[2].get("projection") for c in site.fake.asked("items")] == [None, "thing"]
     site.clock[0] += 61
     assert get(site, "/api/items?remote=r")[0] == 200
     assert len(site.fake.asked("counts")) == 2 and len(site.fake.asked("items")) == 3
@@ -392,7 +392,7 @@ def test_an_event_without_a_numeric_time_is_left_out_and_said(site):
 @pytest.mark.parametrize("what,body", [("items", {"items": "x"}), ("counts", []), ("events", {"events": None})])
 def test_an_unexpected_answer_is_a_failure(site, what, body):
     if what == "items":                                   # (counts answered well first, then the listing not)
-        site.fake.queue = [{"kinds": {}, "total": 0}, body]
+        site.fake.queue = [{"projections": {}, "total": 0}, body]
     else:
         site.fake.queue = [body] if what == "counts" else [{"last_seq": 3}, body]
     path = "/api/events?remote=r" if what == "events" else "/api/items?remote=r"
@@ -402,7 +402,7 @@ def test_an_unexpected_answer_is_a_failure(site, what, body):
     site.clock[0] += 61                                   # read well, then malformed: what was kept, marked
     assert get(site, path)[1]["ok"] is True
     site.clock[0] += 61
-    site.fake.queue = [body] if what != "items" else [{"kinds": {}, "total": 0}, body]
+    site.fake.queue = [body] if what != "items" else [{"projections": {}, "total": 0}, body]
     code, got = get(site, path)
     assert code == 200 and got["ok"] is False and got["why"] == "unexpected answer"
     assert got["events" if what == "events" else "items"]

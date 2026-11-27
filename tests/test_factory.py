@@ -39,10 +39,10 @@ from pathlib import Path
 rec = Path(__file__).with_name("record.json")
 db = json.loads(rec.read_text())
 args = sys.argv[1:]
-if args[0] == "item" and "--kind" in args:
-    kind = args[args.index("--kind") + 1]
+if args[0] == "item" and "--projection" in args:
+    kind = args[args.index("--projection") + 1]
     state = args[args.index("--state") + 1] if "--state" in args else None
-    got = [i for i in db["items"].values() if i["kind"] == kind and (state is None or i["state"] == state)]
+    got = [i for i in db["items"].values() if i["projection"] == kind and (state is None or i["state"] == state)]
     print(json.dumps({"items": got, "total": len(got)}))
 elif args[0] == "act":
     db.setdefault("acts", []).append(args)
@@ -259,7 +259,7 @@ def fold_line(db: dict, kinds: dict, line: dict, about: str | None = None) -> No
                                                                 ".dependencies", ".push-settled", ".groomed",
                                                                 ".resumed", ".need-met", ".released",
                                                                 ".reverted", ".stage-started", ".stage-finished")), line
-    it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
+    it = db["items"].setdefault(iid, {"id": iid, "projection": kind.name, "state": kind.states[0], "fields": {}})
     for op in line.get("patch") or []:                             # (RFC 6902, as flakes.py writes it: top level)
         k = op["path"][1:].replace("~1", "/").replace("~0", "~")
         if op["op"] == "remove":
@@ -332,7 +332,7 @@ def without_stacking(text: str) -> str:
     """A model file (or ergostat.yaml) as main had it before merge-pipeline-stacks-turned-on: no gaps-stacked,
     depends_on finish-to-start."""
     return re.sub(r"(?m)^  gaps-stacked:\n(?:    .*\n)*", "", text).replace(
-        "depends_on: {kind: gap, starts_at: [approved, queued, push-pending]}", "depends_on: gap")
+        "depends_on: {projection: gap, starts_at: [approved, queued, push-pending]}", "depends_on: gap")
 
 
 def factory_copy(where: Path, edit=lambda text: text) -> Path:
@@ -657,7 +657,7 @@ def flake_record(tmp_path, monkeypatch):
     """A real project holding the root model's flake kind, ergostat on it, and the factory's run dir under tmp_path:
     dev/bin/flakes.py as the writers call it."""
     text = (ROOT / "ergostat.yaml").read_text()
-    (tmp_path / "ergostat.yaml").write_text("name: flakes\nitems:" + text[text.index("\n  flake:\n"):
+    (tmp_path / "ergostat.yaml").write_text("name: flakes\nprojections:" + text[text.index("\n  flake:\n"):
                                                                          text.index("\n  situation:\n")] + "\n")
     (tmp_path / "factory.toml").write_text(f'[paths]\nrun = "{tmp_path / "run"}"\n')
     monkeypatch.setenv("FACTORY_CONFIG", str(tmp_path / "factory.toml"))
@@ -1396,12 +1396,12 @@ def test_flakes_few_names_the_oldest(tmp_path):
     assert [p for p in problems if p.level == "error"] == []
     mine = {"stock.flakes-open", "stock.flakes-open-hours", "flow.flakes-seen", "flow.flakes-fixed",
             "auxiliary.main-repair-hours", "auxiliary.flake-fix-hours", "parameter.flake-hours-most",
-            "parameter.main-repair-hours-most", "goal.flakes-few", "goal.main-repaired-fast", "items.flake",
+            "parameter.main-repair-hours-most", "goal.flakes-few", "goal.main-repaired-fast", "projections.flake",
             "system.guarantees"}
     allowed = module("fac").allowances((ROOT / "dev" / "records" / "regression-flake-measures.md").read_text())
     got = [f"{p.code} {p.about}: {p}" for p in problems if p.about in mine and f"{p.code} {p.about}" not in allowed]
     assert not got, "\n".join(got)
-    assert mine - {"items.flake", "system.guarantees"} <= {f"{k}.{n}" for k, d in (
+    assert mine - {"projections.flake", "system.guarantees"} <= {f"{k}.{n}" for k, d in (
         ("stock", spec.stocks), ("flow", spec.flows), ("auxiliary", spec.auxiliaries), ("parameter", spec.parameters),
         ("goal", spec.goals)) for n in d}
     gone = {"oldest-flake-fix", "main-repair-hasten", "time-to-main-broken", "flake-fix-time"}
@@ -1413,7 +1413,7 @@ def test_flakes_few_names_the_oldest(tmp_path):
     assert fast.hold.value == spec.parameters["main-repair-hours-most"].value == 24
     parts = yaml.safe_load((ROOT / "dev" / "model" / "guarantees-flakes.yaml").read_text())
     text = (ROOT / "ergostat.yaml").read_text()                      # (the kind as text: YAML 1.1 reads `on:` as true)
-    (tmp_path / "ergostat.yaml").write_text("name: f\nitems:" + text[text.index("\n  flake:\n"):
+    (tmp_path / "ergostat.yaml").write_text("name: f\nprojections:" + text[text.index("\n  flake:\n"):
                                                                      text.index("\n  intervention:\n")] + "\n" +
                                             yaml.safe_dump({"stocks": parts["stocks"], "goals": {
                                                 "flakes-few": parts["goals"]["flakes-few"]}}, sort_keys=False))
@@ -1626,7 +1626,7 @@ def long_record(tmp_path, monkeypatch, n: int = 600):
     is outside the last 500 that `ergostat item --json` carries; and gap/short, three events."""
     from ergostat import model as mdl
     from ergostat.store import Project
-    (tmp_path / "ergostat.yaml").write_text("name: timer\nitems:\n  gap:\n    id: gap/*\n    states: [ready, building, built]\n"
+    (tmp_path / "ergostat.yaml").write_text("name: timer\nprojections:\n  gap:\n    id: gap/*\n    states: [ready, building, built]\n"
                                             "    on: {gap.ready: ready, gap.started: building, gap.built: built}\n")
     p = Project(mdl.load(tmp_path))
     p.events.add("gap.ready", item="gap/long", source="test", at=100.0)
@@ -1649,7 +1649,7 @@ def test_the_timer_reads_a_gap_past_500_events(tmp_path, monkeypatch):
     assert d["record_total"] == 602 and len(d["record"]) == 500                # cut short: the build is not in it
     assert times.timing(d)["gates"]["implementor"] == {"minutes": 30.0, "at": 200.0}
     marks = tmp_path / "times.json"
-    gaps = json.loads(times.fac.ergostat("item", "--kind", "gap", "--json").stdout)["items"]
+    gaps = json.loads(times.fac.ergostat("item", "--projection", "gap", "--json").stdout)["items"]
     assert times.write(gaps, marks) == 2
     assert json.loads(marks.read_text())["gap/long"] == 603                     # read, and its own gap.timed counted
 
@@ -1658,8 +1658,8 @@ def test_one_unreadable_gap_does_not_stop_the_timer(tmp_path, monkeypatch, capsy
     """timer-long-records: a gap that cannot be read (here: not in the record, `ergostat item` exits 2) keeps its
     bookmark and fails the run by name, after every other gap was timed and the bookmark saved."""
     times = long_record(tmp_path, monkeypatch, n=0)
-    gaps = json.loads(times.fac.ergostat("item", "--kind", "gap", "--json").stdout)["items"]
-    gone = {"id": "gap/gone", "kind": "gap", "state": "ready", "events": 4, "fields": {}}
+    gaps = json.loads(times.fac.ergostat("item", "--projection", "gap", "--json").stdout)["items"]
+    gone = {"id": "gap/gone", "projection": "gap", "state": "ready", "events": 4, "fields": {}}
     marks = tmp_path / "times.json"
     with pytest.raises(SystemExit) as e:
         times.write([gone, *gaps], marks)                                       # the unreadable one is read first
@@ -2378,7 +2378,7 @@ def land(f: Factory, *names: str) -> dict[str, tuple[str, str]]:
     git(f.checkout, "push", "-q", "origin", "main")
     db, top = f.db(), got[names[-1]][0]
     for n, (_, head) in got.items():
-        db["items"][f"gap/{n}"] = {"id": f"gap/{n}", "kind": "gap", "state": "merged",
+        db["items"][f"gap/{n}"] = {"id": f"gap/{n}", "projection": "gap", "state": "merged",
                                    "fields": {"merged_at": 100.0, "reviewed_head": head, "main_sha": top}}
     f.record.write_text(json.dumps(db))
     return got
@@ -2436,7 +2436,7 @@ def test_an_unmatched_revert_still_counts_as_an_escape(tmp_path):
     assert f.run("upgrade.py", argv=["watch"])[0] == []                       # its id: a second read says nothing
     risk = module("risk")
     items = list(f.db()["items"].values())
-    gaps, ivs = [i for i in items if i["kind"] == "gap"], [i for i in items if i["kind"] == "intervention"]
+    gaps, ivs = [i for i in items if i["projection"] == "gap"], [i for i in items if i["projection"] == "intervention"]
     assert risk.evidence(gaps, ivs, [], []) == {1: [0, 0, 1, 1]}               # an escape, no gap blamed
     assert risk.found_since(gaps, ivs, time.time() - 86400) == 1
     assert risk.found_since(gaps, ivs, time.time() + 60) == 0
@@ -2478,7 +2478,7 @@ def test_check_reports_no_flow_without_a_sensor_in_pools_yaml(tmp_path, capsys, 
     assert [x for x in got["found"] if "escapes-found" in json.dumps(x)] == []
     f = Factory(tmp_path)
     db = f.db()
-    db["items"]["gap/alpha"] = {"id": "gap/alpha", "kind": "gap", "state": "merged",
+    db["items"]["gap/alpha"] = {"id": "gap/alpha", "projection": "gap", "state": "merged",
                                 "fields": {"merged_at": 100.0, "reverted": True, "reverted_at": time.time()}}
     f.record.write_text(json.dumps(db))
     r = subprocess.run([sys.executable, str(BIN / "pools.py"), "read", "escapes-day"], cwd=f.model, env=f.env,
@@ -3447,7 +3447,7 @@ def test_a_red_batch_is_bisected_to_the_failing_merge(tmp_path):
     db["items"]["gap/p"]["fields"]["queue_runs"][0]["minutes"] = 40            # (a run this fast reads 0 minutes)
     for g in "qrs":
         db["items"][f"gap/{g}"]["fields"]["queue_runs"] = db["items"]["gap/p"]["fields"]["queue_runs"]
-    db["items"]["gap/old"] = {"id": "gap/old", "kind": "gap", "state": "queue-failed",   # a run that landed nothing
+    db["items"]["gap/old"] = {"id": "gap/old", "projection": "gap", "state": "queue-failed",   # a run that landed nothing
                               "fields": {"queue_runs": [{"run": "y", "minutes": 20, "at": time.time()}]}}
     f.record.write_text(json.dumps(db))
     r = subprocess.run([sys.executable, str(BIN / "measure.py"), "merges-per-hour"], cwd=f.model, env=f.env,
@@ -4287,14 +4287,14 @@ def test_a_held_push_survives_later_runs(tmp_path):
 
 PUSH_MODEL = """
 name: t
-items:
+projections:
   gap:
     id: gap/*
     states: [approved, queued]
     on: {gap.approved: approved, gap.queued: queued}
 stocks:
   approved:
-    sensor: {items: gap, state: approved, every: 5s}
+    sensor: {projection: gap, state: approved, every: 5s}
 actions:
   push-main:
     run: "echo pushed >> pushed.txt"
@@ -4813,7 +4813,7 @@ def held(f: Factory, *gids: str, block: str = "implementor") -> None:
     """These gaps' runs under way (their leases held by ``block``); every other gap's run ended."""
     db = f.db()
     for g in [*gids, *[i for i in db["items"] if i.startswith("gap/")]]:
-        it = db["items"].setdefault(g, {"id": g, "kind": "gap", "state": "building", "fields": {}})
+        it = db["items"].setdefault(g, {"id": g, "projection": "gap", "state": "building", "fields": {}})
         it["fields"]["lease"] = {"block": block, "holder": f"run-{g[4:]}" if g in gids else None, "fence": 3}
     f.record.write_text(json.dumps(db))
 
@@ -5182,7 +5182,7 @@ def test_a_time_goal_off_reaches_the_managers_session(tmp_path):
     def again() -> list[dict]:
         db = f.db()
         for x in db["items"].values():
-            if x["kind"] == "situation":                                       # each answered, the schedule due again
+            if x["projection"] == "situation":                                       # each answered, the schedule due again
                 x["state"], x["fields"]["raised_at"] = "handled", f.now - 3 * 3600
         f.record.write_text(json.dumps(db))
         got = f.watch()
@@ -5461,7 +5461,7 @@ def test_a_park_waiting_on_a_gap_is_resumed_when_it_merges(tmp_path):
     r = f.item(gid)["fields"]
     assert r["resumed_as"] == "gap/alpha-thing-continued" and r["resumed_for"] == "waits_on"
     assert r["cleared"] == "gap/carried merged, on origin/main"
-    assert [i for i in f.db()["items"].values() if i["kind"] == "intervention"] == []   # a loop, not an intervention
+    assert [i for i in f.db()["items"].values() if i["projection"] == "intervention"] == []   # a loop, not an intervention
     assert resumed(f) == []                                                   # resumed once
     assert f.py("import measure; print(json.dumps([measure.reading(n, kind='waits_on') for n in "
                 "('parks', 'resumes')]))") == [1.0, 1.0]
@@ -6010,7 +6010,7 @@ def base_gap(f: Factory, name: str, files: dict[str, str], rank: int, state: str
     git(f.checkout, "push", "-q", str(drop), f"{name}:refs/heads/factory/{name}")
     git(f.checkout, "checkout", "-q", "main")
     db = f.db()
-    db["items"][f"gap/{name}"] = {"id": f"gap/{name}", "kind": "gap", "state": state,
+    db["items"][f"gap/{name}"] = {"id": f"gap/{name}", "projection": "gap", "state": state,
                                   "fields": {"branch": name, "rank": rank, "reviewed_head": sha}}
     f.record.write_text(json.dumps(db))
     return sha

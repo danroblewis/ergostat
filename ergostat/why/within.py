@@ -20,13 +20,13 @@ def relating(spec, kind: str | None) -> list[tuple[str, str]]:
 
 
 def said(spec, h) -> dict:
-    """One holder: its id, kind, state, and the first SHOWN of its kind's `show:` fields that hold a value."""
+    """One holder: its id, projection, state, and the first SHOWN of its projection's `show:` fields that hold a value."""
     shown = {}
     for f in spec.items[h.kind].show:
         v = h.fields.get(f)
         if len(shown) < SHOWN and isinstance(v, str | int | float) and not isinstance(v, bool) and v != "":
             shown[f] = v if not isinstance(v, str) else v[:60]
-    return {"item": h.id, "kind": h.kind, "state": h.state, "shown": shown}
+    return {"item": h.id, "projection": h.kind, "state": h.state, "shown": shown}
 
 
 def unfinished(ctx, kind: str) -> list:

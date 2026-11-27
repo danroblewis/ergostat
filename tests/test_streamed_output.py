@@ -23,7 +23,7 @@ PY = shlex.quote(sys.executable)
 
 FINDINGS = """
 name: s
-items:
+projections:
   finding:
     id: finding/*
     states: [new, kept]
@@ -226,7 +226,7 @@ def test_a_burst_of_ten_thousand_lines_from_a_program_that_never_reads_its_input
 
 LEASED = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -234,7 +234,7 @@ items:
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: 1
     run: {run}
     lease: {lease}

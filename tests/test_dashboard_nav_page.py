@@ -47,8 +47,8 @@ dashboards:
   ticket:
     title: Tickets, my way
     panels:
-      - {panel: kind-now, kind: $kind}
-items:
+      - {panel: projection-now, projection: $projection}
+projections:
   ticket:
     id: ticket/*
     states: [opened, done]
@@ -79,15 +79,15 @@ def test_nav_and_page_are_checked_kept_and_listed(tmp_path, capsys):
     assert ds["watch"].panels[0].params == {"columns": ["goal", "status", "value"]}
     assert ds["goals"].panels[0].params == {"quiet": True}
     assert ds["one-agent"].panels[0].params == {"agent": "$agent"}
-    assert ds["ticket"].panels[0].params == {"kind": "$kind"}          # named as a kind: its page, $kind the kind
+    assert ds["ticket"].panels[0].params == {"projection": "$projection"}   # named as a projection: its page, $projection it
     p = Project(mdl.load(d))
     listed = {x["name"]: (x["nav"], x["page"]) for x in dashboard_api.listing(p)}
     assert listed == {"default": (None, None), "crew": ("", None), "watch": ("On watch", None),
                       "goals": (None, None), "one-agent": (None, "agent"), "ticket": (None, None)}
     from ergostat.web import server
     routes = server.api(server.Live(p), "routes", {})
-    assert [x for x in routes["kinds"] if x["declared"]] == [{"name": "ticket", "id": "ticket/*", "declared": True}]
-    assert {"name": "session", "id": "session/*", "declared": False} in routes["kinds"]      # ergostat's own: linked
+    assert [x for x in routes["projections"] if x["declared"]] == [{"name": "ticket", "id": "ticket/*", "declared": True, "group": None}]
+    assert {"name": "session", "id": "session/*", "declared": False, "group": None} in routes["projections"]      # ergostat's own: linked
     assert routes["reserved"] == ["api", "static", "remote"]
     assert "goals" in routes["builtin"] and [x["name"] for x in routes["dashboards"]] == list(listed)
 
@@ -100,7 +100,7 @@ def test_nav_and_page_are_checked_kept_and_listed(tmp_path, capsys):
     ("    page: agent\n", "    page: agent\n    nav: true\n", "bad-dashboard"),
     ("    nav: true\n", "    page: agent\n", "defined-twice"),           # crew first: one-agent is the second
     ("  crew:\n", "  api:\n", "bad-name"),
-    ("      - {panel: kind-now, kind: $kind}", "      - {panel: kind-now, kind: $item}", "bad-dashboard"),
+    ("      - {panel: projection-now, projection: $projection}", "      - {panel: projection-now, projection: $item}", "bad-dashboard"),
     ("    page: agent\n", "    page: item\n", "bad-dashboard"),        # $agent: not the item page's word
     ("    page: agent\n", "", "bad-dashboard"),                     # $agent taken from no address
     ("columns: [goal, status, value]", "columns: [goal, nope]", "bad-dashboard"),
@@ -148,9 +148,24 @@ def test_keep_writes_nav_and_page_and_keeps_them_in_place(tmp_path):
     assert (d / "ergostat.yaml").read_text().count("crew-board:") == 1
 
 
-@pytest.mark.parametrize("kind, code", [("api", "unrouted-kind"), ("record", "kind-takes-page")])
+@pytest.mark.parametrize("kind, code", [("api", "unrouted-projection"), ("record", "projection-takes-page")])
 def test_a_kind_named_as_the_servers_address_or_ergostats_page_is_a_finding(tmp_path, kind, code):
-    d = write(tmp_path, BOARD.replace("items:\n", f"items:\n  {kind}:\n    id: {kind}/*\n    states: [a]\n"))
+    d = write(tmp_path, BOARD.replace("projections:\n", f"projections:\n  {kind}:\n    id: {kind}/*\n    states: [a]\n"))
     _, problems = read(d / "ergostat.yaml")
-    assert [(x.level, x.code) for x in problems if x.about == f"items.{kind}" and "kind" in x.code] == [("finding", code)]
+    assert [(x.level, x.code) for x in problems if x.about == f"projections.{kind}" and "projection" in x.code] == [("finding", code)]
     assert not [x for x in problems if x.level == "error"]
+
+
+def test_a_projections_group_is_checked_and_listed(tmp_path):
+    """`group:` puts a projection in the nav bar's menu of that name (with the others of its group); a bad name is an
+    error."""
+    p = write(tmp_path)
+    f = p / "ergostat.yaml"
+    f.write_text(f.read_text().replace("    on: {ticket.opened: opened, ticket.done: done}",
+                                       "    on: {ticket.opened: opened, ticket.done: done}\n    group: things"))
+    from ergostat.web import server
+    routes = server.api(server.Live(Project(mdl.load(p))), "routes", {})
+    assert [x["group"] for x in routes["projections"] if x["name"] == "ticket"] == ["things"]
+    f.write_text(f.read_text().replace("group: things", "group: Things!"))
+    _, problems = read(f)
+    assert [x.code for x in problems if x.level == "error"] == ["bad-group"]

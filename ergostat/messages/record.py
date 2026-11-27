@@ -5,7 +5,7 @@ sender: the text verbatim, who, when, what it is about when they said, how it ca
 classifier block) ``.routed`` (what it matched, how, and the work it was routed to) or ``.unrouted`` (why nothing), and
 then ``.delivered`` (each delivery: how, to which run, session, block or item), ``.queued`` (held for a session's next
 step), ``.answered`` (what the work said back) and ``.missed`` (the work finished without it, and was redone). The
-item, folded from them by its kind, is the message; the record is the only store."""
+item, folded from them by its projection, is the message; the record is the only store."""
 
 from __future__ import annotations
 

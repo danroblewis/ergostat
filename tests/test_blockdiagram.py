@@ -447,7 +447,7 @@ def test_the_alerts_loop_reads_through_a_labelled_sensor_and_its_collector():
     n = {x["id"]: x for x in g["nodes"]}
     sen = n["sen:stock.alerts-to-draft"]
     assert sen["role"] == "sensor" and sen["fn"]["expr"] == "e^(−sT)" and sen["fn"]["sampled"]
-    assert sen["fn"]["reads"] == "items: alert, fired, every 5 s"
+    assert sen["fn"]["reads"] == "projection: alert, fired, every 5 s"
     assert "every-alert-drafted" in sen["loops"]
     col = n["col:alerts-fired.main"]                     # watch.py alert: it records the alerts the count reads
     assert col["role"] == "collector" and col["fn"]["name"] == "watch.py alert"

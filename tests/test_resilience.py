@@ -13,14 +13,14 @@ from ergostat.store import Project
 
 MODEL = """
 name: rz
-items:
+projections:
   job:
     id: job/*
     states: [new, done]
     on:
       job.end: done
 stocks:
-  waiting: {unit: jobs, sensor: {items: job, state: new, every: 1s}}
+  waiting: {unit: jobs, sensor: {projection: job, state: new, every: 1s}}
 goals:
   few:
     stock: waiting
@@ -307,7 +307,7 @@ def test_a_hang_while_starting_is_restarted_after_the_deadline(tmp_path):
 
 def test_a_late_reading_from_a_replaced_pool_leaves_the_new_one_alone(tmp_path):
     from ergostat.spec.engine import Engine
-    text = ALARMED.replace("{unit: jobs, sensor: {items: job, state: new, every: 1s}}",
+    text = ALARMED.replace("{unit: jobs, sensor: {projection: job, state: new, every: 1s}}",
                            "{unit: jobs, sensor: {run: echo 4, every: 1s}}")
     p = Project(mdl.load(_repo(tmp_path, text)))
     e = Engine(p, say=lambda s: None)
@@ -405,7 +405,7 @@ def test_an_alarm_block_that_fails_is_no_longer_said_raised(tmp_path):
 
 def test_an_alarms_sensor_is_read_off_the_sensor_pool(tmp_path):
     from ergostat.spec.engine import Engine
-    text = ALARMED.replace("{unit: jobs, sensor: {items: job, state: new, every: 1s}}",
+    text = ALARMED.replace("{unit: jobs, sensor: {projection: job, state: new, every: 1s}}",
                            "{unit: jobs, sensor: {run: echo 4, every: 1s}}")
     p = Project(mdl.load(_repo(tmp_path, text)))
     e = Engine(p, say=lambda s: None)
@@ -485,7 +485,7 @@ def test_compact_projects_lists_and_deletes_only_folders_whose_repo_is_gone(tmp_
 
 TAKES = """
 name: rz
-items:
+projections:
   job:
     id: job/*
     states: [new, done]
@@ -497,7 +497,7 @@ items:
 blocks:
   doer:
     type: program
-    takes: {kind: job, at: new}
+    takes: {projection: job, at: new}
     pool: 2
     run: 'echo "$ERGOSTAT_ITEM $$" >> runs.log; exec sleep 600'
     lease: {ttl: 1m, attempts: 1}
@@ -505,7 +505,7 @@ blocks:
 DEAF_BLOCK = """
   deaf:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: 1
     lease: {ttl: 1m}
     daemon: {run: python3 deaf.py a}

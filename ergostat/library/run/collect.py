@@ -1,6 +1,6 @@
 """The event collector: a sensor on an arrival flow.
 
-    collect --name INST --kind K [--command CMD | --url URL | --stand-in RATE] [--id-field id] [--event arrived]
+    collect --name INST --projection K [--command CMD | --url URL | --stand-in RATE] [--id-field id] [--event arrived]
             [--event-field event] [--cursor-field F] [--path a.b] [--header 'K: V'] [--field F] [--changes] [--window 10m]
 
 Each poll reads records (a JSON array, an object holding one under ``--path``, or one JSON object per line) from
@@ -105,7 +105,7 @@ def stand_in(mem: dict, kind: str, rate: float, answer_after: float | None) -> l
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="collect")
     ap.add_argument("--name", required=True)
-    ap.add_argument("--kind", required=True)
+    ap.add_argument("--projection", dest="kind", required=True)
     ap.add_argument("--command", help="the source: a command printing records")
     ap.add_argument("--url", help="the source: an HTTP endpoint answering with records")
     ap.add_argument("--stand-in", type=float, default=120.0, metavar="RATE",
@@ -273,7 +273,7 @@ def _same(e: dict) -> str:
 
 
 def _rid(e: dict) -> str:
-    """An entry's own id in its source (its ``--id-field``), which ``fields:``, ``kind`` and ``event-field`` don't change."""
+    """An entry's own id in its source (its ``--id-field``), which ``fields:``, ``projection`` and ``event-field`` don't change."""
     return str(e.get("item") or "").partition("/")[2]
 
 

@@ -62,7 +62,7 @@ uses:
     use: collect
     with:
       command: python3 cluster.py events
-      kind: rescale
+      projection: rescale
       cursor-field: seq
       fields: [time, replicas, reason, message]
       poll: 10s

@@ -15,7 +15,7 @@ def say(event, item, data=None):
 
 def items(kind):
     cmd = shlex.split(os.environ.get("ERGOSTAT_CMD") or "ergostat -C .")
-    got = subprocess.run([*cmd, "item", "--kind", kind, "-n", "10000", "--json"], capture_output=True, text=True)
+    got = subprocess.run([*cmd, "item", "--projection", kind, "-n", "10000", "--json"], capture_output=True, text=True)
     try:
         return json.loads(got.stdout or "{}").get("items") or []
     except ValueError:

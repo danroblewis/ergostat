@@ -35,7 +35,7 @@ def context_kind() -> ItemKind:
     on[f"{CONTEXT}.used"] = "started"
     return ItemKind(CONTEXT, f"{CONTEXT}/*", list(CONTEXT_STATES), on,
                     ["recipe", "item", "block", "session", "chars", "cost_usd"], {}, None,
-                    "each use of a projection recipe: the context a block's run started from (its recipe, version and "
+                    "each use of a context recipe: the context a block's run started from (its recipe, version and "
                     "the hash of the text), and how the work turned out (built in, SPEC §12j)",
                     fold={"evidence": "replace"})
 

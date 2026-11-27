@@ -16,7 +16,7 @@ from ergostat import model as mdl
 from ergostat.store import Project
 
 MODEL = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [new, review, merging, done]
@@ -30,13 +30,13 @@ blocks:
   dev:
     type: program
     run: "true"
-    takes: {kind: ticket, at: new}
+    takes: {projection: ticket, at: new}
     pool: {pool}
     lease: {attempts: 9, ttl: 4h}
   merge:
     type: program
     run: "true"
-    takes: {kind: ticket, at: merging}
+    takes: {projection: ticket, at: merging}
     pool: 1
     lease: {ttl: 4h}
 """

@@ -1,7 +1,7 @@
 """What the Items page's Graph may draw of an ``/api/items-graph`` answer, and its connected groups (SPEC §5a,
 *Relations*; ``relations.js`` ``rgModel`` reads both).
 
-- **Drawable.** The items of the kinds asked (``asked`` on the answer's kinds), what they wait on through a
+- **Drawable.** The items of the projections asked (``asked`` on the answer's projections), what they wait on through a
   precedence relation however far back, and the parents of those. An item the answer holds only because a relation
   of another kind names it (a review of a gap) is not drawable. With no kind marked asked, every item is.
 - **Parts.** The drawable items joined by precedence links, as connected components (union-find). A parent link
@@ -20,12 +20,12 @@ def mark(ans: dict) -> dict:
     """``ans`` with ``part`` on each drawable item (the others have none); the items are copied, not changed."""
     items = ans.get("items") or []
     by = {x["id"]: x for x in items}
-    asked = {k["name"] for k in ans.get("kinds") or [] if k.get("asked")}
+    asked = {k["name"] for k in ans.get("projections") or [] if k.get("asked")}
     preds: dict[str, list[str]] = {}
     for e in ans.get("edges") or []:
         if e.get("kind") == "precedence" and e.get("from") in by and e.get("to") in by:
             preds.setdefault(e["to"], []).append(e["from"])
-    todo = [x["id"] for x in items if not asked or x.get("kind") in asked]
+    todo = [x["id"] for x in items if not asked or x.get("projection") in asked]
     seen: set[str] = set()
     while todo:                                           # each asked item and what it waits on, however far back
         a = todo.pop()

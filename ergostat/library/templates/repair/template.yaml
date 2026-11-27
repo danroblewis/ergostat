@@ -2,7 +2,7 @@ template: repair
 once: true
 description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report, answered by a person or, with approver ai, program or rule, by an AI, the owner's program or a rule behind a guard in code.
 reading: |
-  System dynamics: an aging chain of failures (the built-in kind ergostat.failure, one item a signature), filled as
+  System dynamics: an aging chain of failures (the built-in projection ergostat.failure, one item a signature), filled as
   programs fail (failures-found) and drained through a fix, its test and its approval; a fix that fails its test flows
   back (rework), one denied leaves (fixes-dismissed). An applied fix is judged by the runs of its block begun after
   it: verify runs that finished well verify it (fixes-verified; not a claim the failure is fixed), one that failed
@@ -50,11 +50,11 @@ actions:
     timeout: 5m
     description: "Approving reverts the applied fix in your repository with one new commit (git revert): the program goes back to what it was before the fix"
 stocks:
-  open-failures: {unit: failures, description: failures waiting for a fix, sensor: {items: ergostat.failure, state: open, every: "${count-every}"}}
-  fixing: {unit: failures, description: failures the fixer holds, each in a clone of its own, sensor: {items: ergostat.failure, state: leased, every: "${count-every}"}}
-  awaiting-approval: {unit: failures, description: fixes that passed their test, waiting for their approver, sensor: {items: ergostat.failure, state: awaiting-approval, every: "${count-every}"}}
-  applied-fixes: {unit: failures, description: fixes applied and being verified by the runs after them, sensor: {items: ergostat.failure, state: applied, every: "${count-every}"}}
-  regressed-fixes: {unit: failures, description: applied fixes a run after them failed, waiting for their revert, sensor: {items: ergostat.failure, state: regressed, every: "${count-every}"}}
+  open-failures: {unit: failures, description: failures waiting for a fix, sensor: {projection: ergostat.failure, state: open, every: "${count-every}"}}
+  fixing: {unit: failures, description: failures the fixer holds, each in a clone of its own, sensor: {projection: ergostat.failure, state: leased, every: "${count-every}"}}
+  awaiting-approval: {unit: failures, description: fixes that passed their test, waiting for their approver, sensor: {projection: ergostat.failure, state: awaiting-approval, every: "${count-every}"}}
+  applied-fixes: {unit: failures, description: fixes applied and being verified by the runs after them, sensor: {projection: ergostat.failure, state: applied, every: "${count-every}"}}
+  regressed-fixes: {unit: failures, description: applied fixes a run after them failed, waiting for their revert, sensor: {projection: ergostat.failure, state: regressed, every: "${count-every}"}}
 auxiliaries:
   repair-spend:
     unit: USD
@@ -65,17 +65,17 @@ auxiliaries:
     unit: failures
     driven-by: +flow.fixes-regressed
     description: fixes regressed over the last 14 days (a denied revert leaves one regressed for good; this window passes)
-    sensor: {items: ergostat.failure, entering: regressed, over: 14d}
+    sensor: {projection: ergostat.failure, entering: regressed, over: 14d}
 flows:
-  failures-found: {to: open-failures, description: "programs failing in a way not open already (new, or again after a fix)", sensor: {items: ergostat.failure, entering: open, over: 1h}}
-  fixes-started: {from: open-failures, to: fixing, driven-by: +stock.open-failures, sensor: {items: ergostat.failure, entering: leased, over: 1h}}
-  fixes-proposed: {from: fixing, to: awaiting-approval, driven-by: +stock.fixing, sensor: {items: ergostat.failure, entering: awaiting-approval, over: 1h}}
-  fixes-failed: {from: fixing, to: open-failures, driven-by: +stock.fixing, description: a fix that failed its test, given back (rework), sensor: {items: ergostat.failure, entering: open, where: {lease.back: open}, over: 1h}}
-  fixes-applied: {from: awaiting-approval, to: applied-fixes, driven-by: +stock.awaiting-approval, sensor: {items: ergostat.failure, entering: applied, over: 1h}}
-  fixes-verified: {from: applied-fixes, driven-by: +stock.applied-fixes, description: "fixes whose block then ran well verify times (not a claim the failure is fixed)", sensor: {items: ergostat.failure, entering: verified, over: 1h}}
-  fixes-regressed: {from: applied-fixes, to: regressed-fixes, driven-by: +stock.applied-fixes, description: fixes whose block failed again after them, sensor: {items: ergostat.failure, entering: regressed, over: 1h}}
-  fixes-reverted: {from: regressed-fixes, driven-by: +stock.regressed-fixes, description: regressed fixes reverted once their revert was approved, sensor: {items: ergostat.failure, entering: reverted, over: 1h}}
-  fixes-dismissed: {from: awaiting-approval, driven-by: +stock.awaiting-approval, description: fixes their approver denied, sensor: {items: ergostat.failure, entering: dismissed, over: 1h}}
+  failures-found: {to: open-failures, description: "programs failing in a way not open already (new, or again after a fix)", sensor: {projection: ergostat.failure, entering: open, over: 1h}}
+  fixes-started: {from: open-failures, to: fixing, driven-by: +stock.open-failures, sensor: {projection: ergostat.failure, entering: leased, over: 1h}}
+  fixes-proposed: {from: fixing, to: awaiting-approval, driven-by: +stock.fixing, sensor: {projection: ergostat.failure, entering: awaiting-approval, over: 1h}}
+  fixes-failed: {from: fixing, to: open-failures, driven-by: +stock.fixing, description: a fix that failed its test, given back (rework), sensor: {projection: ergostat.failure, entering: open, where: {lease.back: open}, over: 1h}}
+  fixes-applied: {from: awaiting-approval, to: applied-fixes, driven-by: +stock.awaiting-approval, sensor: {projection: ergostat.failure, entering: applied, over: 1h}}
+  fixes-verified: {from: applied-fixes, driven-by: +stock.applied-fixes, description: "fixes whose block then ran well verify times (not a claim the failure is fixed)", sensor: {projection: ergostat.failure, entering: verified, over: 1h}}
+  fixes-regressed: {from: applied-fixes, to: regressed-fixes, driven-by: +stock.applied-fixes, description: fixes whose block failed again after them, sensor: {projection: ergostat.failure, entering: regressed, over: 1h}}
+  fixes-reverted: {from: regressed-fixes, driven-by: +stock.regressed-fixes, description: regressed fixes reverted once their revert was approved, sensor: {projection: ergostat.failure, entering: reverted, over: 1h}}
+  fixes-dismissed: {from: awaiting-approval, driven-by: +stock.awaiting-approval, description: fixes their approver denied, sensor: {projection: ergostat.failure, entering: dismissed, over: 1h}}
 goals:
   no-open-failures: {stock: open-failures, hold: "<= 0", description: every failure is being fixed}
   fixes-answered: {stock: awaiting-approval, hold: "<= 0", description: every fix tested is answered by its approver}
@@ -84,7 +84,7 @@ blocks:
   repair-fix:
     type: ai
     goal: no-open-failures
-    takes: {kind: ergostat.failure, at: open, to: [awaiting-approval, dismissed]}
+    takes: {projection: ergostat.failure, at: open, to: [awaiting-approval, dismissed]}
     lease: {attempts: "${tries}"}
     actions: [apply-fix]
     model: ${model}

@@ -23,22 +23,22 @@ EXAMPLES = sorted(p for p in (ROOT / "examples").iterdir() if (p / "ergostat.yam
 STATES = ("requested triaged researched risk-assessed approved scheduled ramp-1 ramp-10 ramp-50 ramp-100 verified "
           "confirmed applied").split()
 CHAIN = {"outflow-not-chained", "inflow-not-chained", "state-stock-without-inflow", "move-without-flow",
-         "state-stocks-disconnected", "loops-not-connected", "chain-stock-not-a-count", "kind-enters-many-times"}
+         "state-stocks-disconnected", "loops-not-connected", "chain-stock-not-a-count", "projection-enters-many-times"}
 
 
 def owners_model(counted: str = "entering") -> str:
     """Thirteen stocks, one per state, each drained to a cloud: what the work agent wrote. ``counted``: each outflow
     measured as the items entering the next state, or leaving its own."""
-    out = ["name: ff-ramp", "items:", "  ff-ticket:", "    id: ff/*", f"    states: [{', '.join(STATES)}]", "    on:"]
+    out = ["name: ff-ramp", "projections:", "  ff-ticket:", "    id: ff/*", f"    states: [{', '.join(STATES)}]", "    on:"]
     out += [f"      ff.{s}: {s}" for s in STATES[1:]]
     out.append("stocks:")
     for s in STATES:
-        out += [f"  ff-{s}:", "    unit: tickets", "    sensor:", "      items: ff-ticket", f"      state: {s}", "      every: 10s"]
+        out += [f"  ff-{s}:", "    unit: tickets", "    sensor:", "      projection: ff-ticket", f"      state: {s}", "      every: 10s"]
     out.append("flows:")
     for i, s in enumerate(STATES):
         nxt = STATES[i + 1] if i + 1 < len(STATES) else None
         what = f"entering: {nxt}" if counted == "entering" and nxt else f"leaving: {s}"
-        out += [f"  ff-from-{s}:", f"    from: ff-{s}", f"    driven-by: [+stock.ff-{s}]", "    sensor:", "      items: ff-ticket",
+        out += [f"  ff-from-{s}:", f"    from: ff-{s}", f"    driven-by: [+stock.ff-{s}]", "    sensor:", "      projection: ff-ticket",
                 f"      {what}", "      over: 1h"]
     out.append("goals:")
     for s in STATES[:-1]:
@@ -93,7 +93,7 @@ def test_the_owners_model_is_found_with_each_fix_named_where_it_is_written(tmp_p
     by = {x.about: x for x in got if x.code == "outflow-not-chained"}
     first = by["flow.ff-from-requested"].message
     assert "write to: ff-triaged on flow ff-from-requested" in first
-    assert ("counts them entering triaged" if counted == "entering" else "the kind's states, requested before triaged") in first
+    assert ("counts them entering triaged" if counted == "entering" else "the projection's states, requested before triaged") in first
     assert "flow.ff-from-applied" not in by                       # the last one's outflow is the completions: right
     arrive = next(x for x in got if x.code == "state-stock-without-inflow")
     assert arrive.about == "stock.ff-requested" and \
@@ -140,30 +140,30 @@ def test_try_change_takes_a_chain_finding_as_evidence(tmp_path):
 
 RECORDED = """
 name: approvals
-items:
+projections:
   req:
     id: req/*
     states: [new, checked, approved, done]
     on: {req.checked: checked, req.approved: approved, req.reopened: new, req.done: done}
 stocks:
-  waiting: {unit: reqs, sensor: {items: req, state: new, every: 10s}}
-  checked: {unit: reqs, sensor: {items: req, state: checked, every: 10s}}
-  approved: {unit: reqs, sensor: {items: req, state: approved, every: 10s}}
+  waiting: {unit: reqs, sensor: {projection: req, state: new, every: 10s}}
+  checked: {unit: reqs, sensor: {projection: req, state: checked, every: 10s}}
+  approved: {unit: reqs, sensor: {projection: req, state: approved, every: 10s}}
 flows:
-  arriving: {to: waiting, sensor: {items: req, entering: new, over: 1h}}
-  checking: {from: waiting, to: checked, sensor: {items: req, entering: checked, over: 1h}}
+  arriving: {to: waiting, sensor: {projection: req, entering: new, over: 1h}}
+  checking: {from: waiting, to: checked, sensor: {projection: req, entering: checked, over: 1h}}
   approvals:
     to: approved
     sensor: {run: echo 1, every: 1m}
-  closing: {from: approved, sensor: {items: req, entering: done, over: 1h}}
+  closing: {from: approved, sensor: {projection: req, entering: done, over: 1h}}
 """
 
 
 def test_the_record_s_moves_find_a_flow_from_outside_and_a_move_no_flow_carries(tmp_path):
     d = _write(tmp_path / "rq", textwrap.dedent(RECORDED))
     before = _chain_findings(d)                                   # the structure alone: two arrivals, the order says
-    assert [(x.code, x.about) for x in before] == [("kind-enters-many-times", "items.req")]
-    assert "its items come from checked (the kind's states, checked before approved): write from: checked on flow " \
+    assert [(x.code, x.about) for x in before] == [("projection-enters-many-times", "projections.req")]
+    assert "its items come from checked (the projection's states, checked before approved): write from: checked on flow " \
         "approvals" in before[0].message
     p = Project(mdl.load(d))
     for i in range(3):
@@ -178,9 +178,9 @@ def test_the_record_s_moves_find_a_flow_from_outside_and_a_move_no_flow_carries(
     assert moves[("checked", "approved")] == 2 and moves[("checked", "new")] == 1   # the lease's hold taken out
     assert not any("leased" in m for m in moves)
     got = {f"{x.code}@{x.about}": x for x in _chain_findings(d)}
-    assert set(got) == {"kind-enters-many-times@items.req", "move-without-flow@stock.waiting",
+    assert set(got) == {"projection-enters-many-times@projections.req", "move-without-flow@stock.waiting",
                         "state-stocks-disconnected@stock.waiting"}         # approved: a piece of its own
-    once = got["kind-enters-many-times@items.req"]                # the chain's inflow-not-chained, said once, here
+    once = got["projection-enters-many-times@projections.req"]                # the chain's inflow-not-chained, said once, here
     assert "from: checked on flow approvals" in once.message and "2 moves from checked in the record" in once.message
     assert "flow checked-to-waiting from checked to waiting, measured as items of req entering new" in \
         got["move-without-flow@stock.waiting"].message
@@ -190,26 +190,26 @@ def test_a_stock_gathering_from_every_state_and_a_stage_between_are_chained(tmp_
     """The ticket factory's stopped (filled from outside by every item entering it, from many steps), and the steps
     template's work in progress (a stock of the items leased at a state, between it and the next), are a chain."""
     text = textwrap.dedent("""
-        items:
+        projections:
           job:
             id: job/*
             states: [new, built, shipped, stopped]
             on: {job.built: built, job.shipped: shipped, job.stopped: stopped}
         stocks:
-          new: {unit: jobs, sensor: {items: job, state: new}}
-          building: {unit: jobs, sensor: {items: job, state: leased, where: {lease.back: new}}}
-          built: {unit: jobs, sensor: {items: job, state: built}}
-          stopped: {unit: jobs, sensor: {items: job, state: stopped}}
+          new: {unit: jobs, sensor: {projection: job, state: new}}
+          building: {unit: jobs, sensor: {projection: job, state: leased, where: {lease.back: new}}}
+          built: {unit: jobs, sensor: {projection: job, state: built}}
+          stopped: {unit: jobs, sensor: {projection: job, state: stopped}}
         flows:
-          arriving: {to: new, sensor: {items: job, entering: new}}
+          arriving: {to: new, sensor: {projection: job, entering: new}}
           taken: {from: new, to: building}
-          made: {from: building, to: built, sensor: {items: job, entering: built}}
-          shipping: {from: built, sensor: {items: job, entering: shipped}}
-          stopping: {to: stopped, sensor: {items: job, entering: stopped}}
-          unsticking: {from: stopped, sensor: {items: job, leaving: stopped}}
+          made: {from: building, to: built, sensor: {projection: job, entering: built}}
+          shipping: {from: built, sensor: {projection: job, entering: shipped}}
+          stopping: {to: stopped, sensor: {projection: job, entering: stopped}}
+          unsticking: {from: stopped, sensor: {projection: job, leaving: stopped}}
         blocks:
-          build: {type: program, run: 'true', takes: {kind: job, at: new, to: [built, stopped]}, out: flow.made}
-          ship: {type: program, run: 'true', takes: {kind: job, at: built, to: [shipped, stopped]}, out: flow.shipping}
+          build: {type: program, run: 'true', takes: {projection: job, at: new, to: [built, stopped]}, out: flow.made}
+          ship: {type: program, run: 'true', takes: {projection: job, at: built, to: [shipped, stopped]}, out: flow.shipping}
     """)
     d = _write(tmp_path / "jobs", text)
     assert _chain_findings(d) == []
@@ -237,14 +237,14 @@ def test_a_move_through_states_with_no_stock_still_joins_the_stocks_either_side(
     """Blocks move the items from approved through each stage to at-100, none with a stock; the stock before
     (researched) drains to a cloud and the stock after (soaking) fills from one: they are one chain."""
     text = textwrap.dedent("""
-        items:
+        projections:
           ramp:
             id: ramp/*
             states: [requested, researched, approved, at-1, at-100, confirmed]
         stocks:
-          waiting: {unit: ramps, sensor: {items: ramp, state: requested}}
-          researched: {unit: ramps, sensor: {items: ramp, state: researched}}
-          soaking: {unit: ramps, sensor: {items: ramp, state: at-100}}
+          waiting: {unit: ramps, sensor: {projection: ramp, state: requested}}
+          researched: {unit: ramps, sensor: {projection: ramp, state: researched}}
+          soaking: {unit: ramps, sensor: {projection: ramp, state: at-100}}
         flows:
           arriving: {to: waiting}
           research: {from: waiting, to: researched}
@@ -252,8 +252,8 @@ def test_a_move_through_states_with_no_stock_still_joins_the_stocks_either_side(
           soak-start: {to: soaking}
           confirming: {from: soaking}
         blocks:
-          ramp-1: {type: program, run: 'true', takes: {kind: ramp, at: approved, to: [at-1]}, out: flow.soak-start}
-          ramp-100: {type: program, run: 'true', takes: {kind: ramp, at: at-1, to: [at-100]}}
+          ramp-1: {type: program, run: 'true', takes: {projection: ramp, at: approved, to: [at-1]}, out: flow.soak-start}
+          ramp-100: {type: program, run: 'true', takes: {projection: ramp, at: at-1, to: [at-100]}}
     """)
     d = _write(tmp_path / "ramps", text)
     got = {f"{x.code}@{x.about}": x for x in _chain_findings(d)}
@@ -264,16 +264,16 @@ def test_a_move_through_states_with_no_stock_still_joins_the_stocks_either_side(
 
 def test_a_stock_in_the_chain_read_as_an_age_is_found(tmp_path):
     text = textwrap.dedent("""
-        items:
+        projections:
           req: {id: req/*, states: [new, checked, done]}
         stocks:
-          new: {unit: reqs, sensor: {items: req, state: new}}
-          checked: {unit: reqs, sensor: {items: req, state: checked, measure: oldest}}
-          checked-oldest: {unit: h, sensor: {items: req, state: checked, measure: oldest}}
+          new: {unit: reqs, sensor: {projection: req, state: new}}
+          checked: {unit: reqs, sensor: {projection: req, state: checked, measure: oldest}}
+          checked-oldest: {unit: h, sensor: {projection: req, state: checked, measure: oldest}}
         flows:
-          arriving: {to: new, sensor: {items: req, entering: new}}
-          checking: {from: new, to: checked, sensor: {items: req, entering: checked}}
-          closing: {from: checked, sensor: {items: req, entering: done}}
+          arriving: {to: new, sensor: {projection: req, entering: new}}
+          checking: {from: new, to: checked, sensor: {projection: req, entering: checked}}
+          closing: {from: checked, sensor: {projection: req, entering: done}}
     """)
     got = [f"{x.code}@{x.about}" for x in _chain_findings(_write(tmp_path / "rq", text))]
     assert got == ["chain-stock-not-a-count@stock.checked"]       # the age beside the chain, with no flows, is fine

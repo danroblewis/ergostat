@@ -32,7 +32,7 @@ MODEL = """
 name: a
 runs:
   outlive_engine: true
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, done]
@@ -47,7 +47,7 @@ blocks:
   worker:
     type: program
     run: RUN
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     out: flow.did
 """
 

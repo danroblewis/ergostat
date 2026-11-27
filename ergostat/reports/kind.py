@@ -1,4 +1,4 @@
-"""The built-in item kind ``ergostat.report`` (SPEC §12m)."""
+"""The built-in projection ``ergostat.report`` (SPEC §12m)."""
 
 from __future__ import annotations
 

@@ -58,7 +58,7 @@ def record(type: str, item: str, data: dict | None = None, by: str = "lab") -> N
 
 
 def items(kind: str, state: str | None = None) -> list[dict]:
-    args = [*ergostat(), "item", "--kind", kind, "-n", "1000", "--json"] + (["--state", state] if state else [])
+    args = [*ergostat(), "item", "--projection", kind, "-n", "1000", "--json"] + (["--state", state] if state else [])
     return json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)["items"]
 
 

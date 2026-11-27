@@ -46,7 +46,7 @@ and the autoscaler in front of it. It grows a part at a time, and `ergostat chec
 model is missing as it grows.
 
 What makes it stick is that the model shows up where work already happens: in **design docs and
-proposals**, as a diagram and a projection that explain the change; in **postmortems**, as the
+proposals**, as a diagram and a simulation that explain the change; in **postmortems**, as the
 structure that explains the incident; in **planning**, as the forecast.
 
 Run on a server later, it can take part in the control: as another controller beside the existing
@@ -72,7 +72,7 @@ Where the impact comes from:
 - **Long-term health of what we sell.** Product features as stocks with their inflows and drains
   (adoption, regressions, churn), watched over months where other tools watch minutes.
 - **Clearer expectations.** For product and project managers: what the system can deliver, how
-  fast, at what cost, as a projection rather than a promise. Projects such as a software factory
+  fast, at what cost, as a simulation rather than a promise. Projects such as a software factory
   become a model with measurable goals.
 
 ## What to look at

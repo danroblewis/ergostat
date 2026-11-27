@@ -32,10 +32,10 @@ from .eta_synthetic import MODEL, generate
 from .test_eta import inputs, paused_inputs
 
 NOW = 1_790_000_000.0 + 8 * 3600
-GROUPED = MODEL.replace("blocked_by: ticket", "blocked_by: ticket\n      parent: {kind: ticket, group: true}")
+GROUPED = MODEL.replace("blocked_by: ticket", "blocked_by: ticket\n      parent: {projection: ticket, group: true}")
 
 
-ORDERED = GROUPED.replace("takes: {kind: ticket, at: new}", "takes: {kind: ticket, at: new, order: [-priority]}")
+ORDERED = GROUPED.replace("takes: {projection: ticket, at: new}", "takes: {projection: ticket, at: new, order: [-priority]}")
 
 
 def grouped(tmp_path, extra: str = "", now: float = NOW, model: str = GROUPED) -> Project:
@@ -97,10 +97,10 @@ def test_the_timeline_reads_the_forecast_and_shows_the_same_answers(tmp_path, mo
         for a, b in zip(new_t["items"], old_t["items"], strict=True):
             assert {k: a["eta"][k] for k in b["eta"]} == b["eta"], a["id"]          # every answer as before
             assert a.get("projected") == b.get("projected"), a["id"]                  # its bars too
-        said = {k: v for k, v in old_t["eta"].items() if k not in ("schema", "version", "computed", "kinds")}
+        said = {k: v for k, v in old_t["eta"].items() if k not in ("schema", "version", "computed", "projections")}
         assert {k: new_t["eta"][k] for k in said} == said                            # capacity, calibration...
-        for k, v in old_t["eta"]["kinds"].items():                                   # each kind's last finish
-            assert {x: new_t["eta"]["kinds"][k][x] for x in v} == v, k
+        for k, v in old_t["eta"]["projections"].items():                                   # each kind's last finish
+            assert {x: new_t["eta"]["projections"][k][x] for x in v} == v, k
         assert new_t["eta"]["schema"] == "forecast/v1" and new_t["eta"]["computed"] == NOW
 
 
@@ -114,7 +114,7 @@ def test_each_answer_states_its_basis_sample_and_when_computed(tmp_path, monkeyp
     assert fc["basis"]["since"] == NOW - etamodel.HISTORY and fc["basis"]["horizon"] == eta.HORIZON
     for i, e in fc["items"].items():
         b = e["basis"]
-        assert e["computed"] == NOW and e["runs"] == eta.RUNS and e["kind"] == "ticket", i
+        assert e["computed"] == NOW and e["runs"] == eta.RUNS and e["projection"] == "ticket", i
         assert b["from"] in ("block", "state") and isinstance(b["sample"], int) and b["sample"] >= 0, i
         x = inp.items[i]
         if x.state == "new":                                            # taken by dev: its recorded runs
@@ -125,11 +125,11 @@ def test_each_answer_states_its_basis_sample_and_when_computed(tmp_path, monkeyp
     g = fc["groups"]["ticket/g0"]
     assert g["basis"]["members"] == 4 and g["runs"] == eta.RUNS and g["computed"] == NOW
     assert g["p50"] >= max(fc["items"][f"ticket/g{n}"]["p50"] for n in range(4))   # its last member's finish
-    assert g["p50"] <= fc["kinds"]["ticket"]["p50"]
+    assert g["p50"] <= fc["projections"]["ticket"]["p50"]
     st = fc["stages"]["ticket/new"]
     assert st["open"] == sum(x.state == "new" for x in inp.items.values()) and st["computed"] == NOW
     assert st["p50"] >= max(e["p50"] for i, e in fc["items"].items() if inp.items[i].state == "new")
-    assert fc["kinds"]["ticket"]["basis"]["open"] == len(inp.items) and fc["kinds"]["ticket"]["runs"] == eta.RUNS
+    assert fc["projections"]["ticket"]["basis"]["open"] == len(inp.items) and fc["projections"]["ticket"]["runs"] == eta.RUNS
 
 
 def test_no_estimate_is_said_never_read_as_none():
@@ -154,7 +154,7 @@ def test_no_estimate_is_said_never_read_as_none():
     beyond.blocks[0].attempts = [etamodel.Attempt(eta.HORIZON * 2, "ack", "done")]
     beyond.blocks[0].run = etamodel.KM([eta.HORIZON * 2])
     got = forecast.build(beyond, eta.simulate(beyond, runs=20), {}, 1.0, 1, [], {})
-    assert got["items"]["t/0"]["none"].startswith("not finished within the 90 days") and got["kinds"]["t"]["none"]
+    assert got["items"]["t/0"]["none"].startswith("not finished within the 90 days") and got["projections"]["t"]["none"]
     bad = forecast.failed("KeyError: 'how'", 1.0, 3)
     assert bad["none"] == "the simulation failed: KeyError: 'how'" and bad["items"] == {} and bad["error"]
 
@@ -218,7 +218,7 @@ def ask(p, text: str) -> dict:
 
 def test_a_panel_queries_forecast_rows_and_aggregates_through_the_sql_views(tmp_path, fresh, monkeypatch):
     p = grouped(tmp_path, SQL, time.time())
-    r = ask(p, "select kind, p50 from forecast_kinds")                       # none yet: refused, never empty rows
+    r = ask(p, "select projection, p50 from forecast_projections")                       # none yet: refused, never empty rows
     assert r.get("error_kind") == "unknown" and "being worked out" in r["error"], r
     fc = eta_api.estimates(p, p.model, wait=30)
     r = ask(p, "select id, state, basis, p50, p90, runs, sample, computed, estimate from forecast_items order by id")
@@ -232,11 +232,11 @@ def test_a_panel_queries_forecast_rows_and_aggregates_through_the_sql_views(tmp_
     assert all(x[3] == fc["runs"] for x in r["rows"])
     r = ask(p, "select parent, open, p50 from forecast_groups")
     assert r["rows"] == [["ticket/g0", 4, fc["groups"]["ticket/g0"]["p50"]]]
-    r = ask(p, "select kind, count(*) as n, max(p90) as last from forecast_items group by kind")
+    r = ask(p, "select projection, count(*) as n, max(p90) as last from forecast_items group by projection")
     assert r["rows"] == [["ticket", len(fc["items"]), max(e["p90"] for e in fc["items"].values())]]
     assert ask(p, "delete from forecast_items").get("error_kind") == "refused"            # read only
     monkeypatch.setattr(eta_api, "current", lambda *a: forecast.failed("KeyError: 'how'", NOW, 1))
-    r = ask(p, "select kind, p50 from forecast_kinds")
+    r = ask(p, "select projection, p50 from forecast_projections")
     assert r.get("error_kind") == "unknown" and "no forecast: the simulation failed" in r["error"], r
 
 
@@ -287,9 +287,9 @@ def test_a_model_read_as_a_remote_exposes_its_forecast_to_the_model_reading_it(t
         assert read["schema"] == "forecast/v1" and read["version"] == fc["version"] and read["computed"] == fc["computed"]
         assert read["items"] == {i: fc["items"][i] for i in ids}                  # as the remote worked them out
         assert read["groups"]["ticket/g0"] == fc["groups"]["ticket/g0"] and "schedule" not in read
-        code, whole = _get(f"{b_url}/api/forecast?remote=shop&kinds=ticket")
+        code, whole = _get(f"{b_url}/api/forecast?remote=shop&projections=ticket")
         assert code == 200 and whole["forecast"]["items"] == fc["items"]
-        assert whole["forecast"]["kinds"] == fc["kinds"]
+        assert whole["forecast"]["projections"] == fc["projections"]
         code, own = _get(f"{a_url}/api/forecast?item=ticket/g1")               # the same answer read locally there
         assert code == 200 and own["items"] == {"ticket/g1": fc["items"]["ticket/g1"]}
         assert _get(f"{b_url}/api/forecast?remote=nope")[0] == 400

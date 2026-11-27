@@ -15,7 +15,7 @@ messages:
     review: [answered]
     ramp: [approved, rejected, broke, proved-fine]
 
-items:
+projections:
   note:
     id: note/*
     description: "a follow-up: a note of mine about work already finished, linked to it"
@@ -35,7 +35,7 @@ stocks:
     unit: messages
     description: routed to work and not yet delivered (waiting for the preparer's next run)
     sensor:
-      items: ergostat.message
+      projection: ergostat.message
       state: routed
       every: 5s
   messages-missed:
@@ -49,7 +49,7 @@ stocks:
     unit: notes
     description: notes on finished work, not yet in a morning brief
     sensor:
-      items: note
+      projection: note
       state: open
       every: 5s
 
@@ -64,7 +64,7 @@ flows:
     from: messages-awaiting
     description: my notes delivered to the work (a preparer's run, a follow-up)
     sensor:
-      items: ergostat.message
+      projection: ergostat.message
       entering: delivered
       over: 10m
   messages-unrouting:
@@ -72,7 +72,7 @@ flows:
     to: messages-unrouted
     description: notes that reached no work
     sensor:
-      items: ergostat.message
+      projection: ergostat.message
       entering: unrouted
       over: 10m
   messages-routed-by-hand:
@@ -80,7 +80,7 @@ flows:
     to: messages-awaiting
     description: notes I routed by hand (mine)
     sensor:
-      items: ergostat.message
+      projection: ergostat.message
       leaving: unrouted
       over: 10m
   messages-missing:
@@ -95,14 +95,14 @@ flows:
     to: follow-ups-open
     description: notes on finished work, made follow-ups
     sensor:
-      items: note
+      projection: note
       entering: open
       over: 10m
   follow-ups-briefed:
     from: follow-ups-open
     description: follow-ups the morning brief put in front of me
     sensor:
-      items: note
+      projection: note
       entering: briefed
       over: 10m
 

@@ -257,7 +257,7 @@ def state(p, spec: Spec, c: dict, params: dict) -> tuple[str, dict, str]:
         raise Unchecked("a state is checked on an item, with the state claimed ({\"state\": \"done\"})")
     k = it.kind_of(spec, item)
     if k is None or want not in k.states:
-        raise Unchecked(f"{item}'s kind has no state {want}" if k else f"no kind of item matches {item}")
+        raise Unchecked(f"{item}'s projection has no state {want}" if k else f"no projection matches {item}")
     got = it.one(p.events, spec, item)
     if got is None:
         return "contradicted", {"item": item}, f"nothing is recorded about {item}"

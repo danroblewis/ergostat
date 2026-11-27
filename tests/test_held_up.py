@@ -254,7 +254,7 @@ def test_an_empty_record_has_nothing_stuck(tmp_path):
 # ---- 3. eighteen goals off with one root: one root, the goals folded under it
 
 def goals_model(n: int) -> str:
-    stocks = "".join(f"  approved-{i}:\n    unit: gaps\n    sensor: {{items: gap, state: approved, where: {{area: a{i}}}, "
+    stocks = "".join(f"  approved-{i}:\n    unit: gaps\n    sensor: {{projection: gap, state: approved, where: {{area: a{i}}}, "
                      "every: 1m}\n" for i in range(n))
     goals = "".join(f"  few-approved-{i}:\n    stock: approved-{i}\n    hold: \"<= 0\"\n" for i in range(n))
     return FACTORY + f"stocks:\n{stocks}goals:\n{goals}"

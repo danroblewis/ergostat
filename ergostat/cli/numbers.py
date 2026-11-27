@@ -449,8 +449,8 @@ def cmd_improve(args) -> int:
     return 0
 
 
-def cmd_project(args) -> int:
-    """``ergostat project``: the model run on from now, with the loops running (``--closed``, the default where the model
+def cmd_simulate(args) -> int:
+    """``ergostat simulate``: the model run on from now, with the loops running (``--closed``, the default where the model
     has controllers: the goals, the built-ins and each machine block's identified model) or held (``--held``, open loop);
     ``--whatif NAME=V`` tries a parameter, an input's rate (``flow.NAME=20`` an hour, or ``=x2``), a setpoint
     (``goal.NAME=5``) or a pool (``block.NAME.pool=4``); ``--risk`` runs it many times over what it does not know."""

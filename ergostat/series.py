@@ -1,5 +1,5 @@
 """Behaviour over time, for the charts beside the model (docs/proposals/charts.md): a part's values
-over the window in equal buckets, a loop's scope (r, y, u, e) and an item kind's flow (its states
+over the window in equal buckets, a loop's scope (r, y, u, e) and a projection's flow (its states
 over time, and how long its finished items took).
 
 A stock's or an auxiliary's value is its sensors' last reading in each bucket. A flow's rate (per
@@ -394,7 +394,7 @@ def items_flow(p, snap: dict, kind: str, n: int = POINTS) -> dict | None:
     total = len(finished)
     if total > MAX_POINTS:                    # thinned evenly: the chart shows a thousand dots at most
         finished = finished[::-(-total // MAX_POINTS)]
-    return {"kind": kind, "states": k.states, "since": since, "until": until, "points": n, "times": [round(t, 3) for t in ts],
+    return {"projection": kind, "states": k.states, "since": since, "until": until, "points": n, "times": [round(t, 3) for t in ts],
             "counts": counts, "now": now, "finished_states": done, "finished": finished, "finished_total": total,
             "median": median}
 

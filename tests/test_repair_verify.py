@@ -584,9 +584,9 @@ def test_the_template_has_fixes_hold_and_check_finds_it_served(tmp_path, monkeyp
 
 
 def test_an_auxiliary_counts_moves_over_its_window_and_refuses_over_alone(tmp_path):
-    head = "name: t\nitems:\n  issue: {id: issue/*, states: [open, closed], on: {issue.seen: open}}\nauxiliaries:\n"
-    for sensor, error in (("{items: issue, entering: open, over: 1d}", None),
-                          ("{items: issue, state: open, over: 1d}", "items-on-stock")):
+    head = "name: t\nprojections:\n  issue: {id: issue/*, states: [open, closed], on: {issue.seen: open}}\nauxiliaries:\n"
+    for sensor, error in (("{projection: issue, entering: open, over: 1d}", None),
+                          ("{projection: issue, state: open, over: 1d}", "items-on-stock")):
         d = tmp_path / str(bool(error))
         d.mkdir()
         (d / "ergostat.yaml").write_text(head + f"  seen-lately: {{unit: issues, sensor: {sensor}}}\n")

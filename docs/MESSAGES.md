@@ -11,7 +11,7 @@ says things mid-work, and `examples/image-squeeze`, whose developer's session ta
 
 | Your question | Where |
 |---|---|
-| [How do I say something to the work?](#sending-a-message) | `ergostat message`, the Items page, an item's page, MCP |
+| [How do I say something to the work?](#sending-a-message) | `ergostat message`, the `ergostat.message` page, an item's page, MCP |
 | [Where does it go?](#how-it-is-routed) | what you named, ids and names in it, the classifier |
 | [How does running work get it?](#how-it-is-delivered) | a session's next turn, a run's input, a follow-up |
 | [Does a running `claude -p` session really take it mid-run?](#into-a-running-session) | yes: live, or resumed |
@@ -28,13 +28,13 @@ ergostat messages                      # each one: state, what it matched, where
 ergostat messages 1a2b3c4d5e           # one: routed to, delivered (how, to which run or session), the answer
 ```
 
-On the page: **Items → `ergostat.message`** has a Message box (an optional "about"), and every item's page has
+On the page: **`ergostat.message`**, the projection's page, has a Message box (an optional "about"), and every item's page has
 **Send a note about this**, with the messages about that item listed above it. An AI front-end relays the owner's
 words with the MCP tool `message` (`text`, `about`, `by`): verbatim, not summarised. A program that hears the owner
 somewhere else (a chat, the-job's simulated owner) relays them as a sensor's observation line,
 `{"message": {"text": "...", "by": "me"}}`.
 
-![The Items page's message kind: the Message box, and each message with what it matched and its outcome](screenshots/messages/items-messages.png)
+![The message projection's page: the Message box, and each message with what it matched and its outcome](screenshots/messages/items-messages.png)
 
 ## How it is routed
 
@@ -44,7 +44,7 @@ At once, the first of these that finds anything:
 2. **What its words name**: an item id (`hypothesis/3`), a part (`stock.queue`), a block's name as a word ("the
    developer should...").
 3. **The classifier**: by default ergostat's free stand-in, which scores the items by the words they share with the
-   message (the kind's name, the number in the id, the words of the item's shown fields) and takes the best. "That
+   message (the projection's name, the number in the id, the words of the item's shown fields) and takes the best. "That
    review of Ben's, the search one" is the open review whose author is Ben and whose title says search. A project can
    name a block to do this instead, typically an `ai` block on a cheap model:
 
@@ -70,7 +70,7 @@ when its command named the item), with that run's session.
 - **A running session** (a block whose run is `ergostat session ...`, below) gets it as its next turn, while it works.
 - **A block that is no session, or that is not running now**, gets it in its next run's input, under `messages`:
   each with its `id`, `text`, `by`, `sent` and the `items` it is about. The messages it gets are those routed to it
-  and those about open items of the kinds it works on (the kinds its flows' and goals' sensors count). the-job's
+  and those about open items of the projections it works on (the projections its flows' and goals' sensors count). the-job's
   preparers read them: "can wait" puts a review off half a working day, "first" briefs that ramp first, anything else
   goes into the draft.
 - **Finished work**, by the project's policy (`messages: {finished: ...}`): a **follow-up** (the default: a new item
@@ -95,7 +95,7 @@ blocks:
 ```
 
 `ergostat session ROLE` runs `claude -p` with a session id it chose, records the session as an item
-(`session/developer-<run>`, its transcript copied as it grows; declare a `session` kind with `formats: {transcript:
+(`session/developer-<run>`, its transcript copied as it grows; declare a `session` projection with `formats: {transcript:
 claude-session}` to see the conversation live), and keeps the session's input open (`--input-format stream-json`).
 A message routed to the run, its session, its block or an item it works on is written into that input. **This works
 mid-run**: Claude Code queues a message that arrives while it is working and gives it to the model at its next step,
@@ -143,7 +143,7 @@ it in time, the number this function exists to keep at zero.
 | `ergostat.messages.reached` | the share of last week's messages delivered |
 
 They are built-in measures: a sensor reads one (`builtin: ergostat.messages.unrouted`) on a stock or an auxiliary, and
-item sensors count messages like any items (`items: ergostat.message, state: routed`, `entering: delivered`). Both
+item sensors count messages like any items (`projection: ergostat.message, state: routed`, `entering: delivered`). Both
 examples model them (`examples/the-job/job/messages.yaml`, a system of its own within the job;
 `examples/image-squeeze/messages.yaml`, part of the lab): unrouted and awaiting as stocks, routed, delivered, unrouted
 and missed as flows, and a goal holding the unrouted at zero, which nothing but the owner answers.
@@ -153,11 +153,11 @@ stocks:
   messages-unrouted:
     sensor: {builtin: ergostat.messages.unrouted, every: 10s}
   messages-awaiting:
-    sensor: {items: ergostat.message, state: routed, every: 10s}
+    sensor: {projection: ergostat.message, state: routed, every: 10s}
 flows:
   messages-delivered:
     from: messages-awaiting
-    sensor: {items: ergostat.message, entering: delivered, over: 30m}
+    sensor: {projection: ergostat.message, entering: delivered, over: 30m}
 goals:
   messages-reach-work:
     stock: messages-unrouted

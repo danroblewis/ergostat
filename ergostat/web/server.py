@@ -35,7 +35,7 @@ EVENTS_MOST = 1000                   # the most events one answer carries (``n``
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
 KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # every path but the server's own (/api, /static, /remote: spec/dashboards.py RESERVED) is the page, whose routes the
-# model names: its dashboards, its kinds and their items, then ergostat's own pages (web/ui/src/lib/routes.ts, SPEC §4f)
+# model names: its dashboards, its projections and their items, then ergostat's own pages (web/ui/src/lib/routes.ts, SPEC §4f)
 NOT_PAGES = ("/favicon.ico", "/robots.txt")   # what browsers and crawlers ask for by themselves: never the page
 APP = "app/index.html"               # the page: the React app (web/ui), built into static/app
 
@@ -79,7 +79,7 @@ def _agent_place(p, spec, b, at: float) -> dict:
             n = len(taken_by(p.events, spec, x, at))
         except Exception:                                # said as not known on the page
             n = None
-        out["working"] = {"n": n, "kind": x.kind, "set": x.params()}
+        out["working"] = {"n": n, "projection": x.kind, "set": x.params()}
     return out
 
 
@@ -370,7 +370,7 @@ def _set_alone(p, spec, q, one, at: float) -> dict:
     n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
     got = item_sets.select(p.events, spec, want, until=at, n=n, offset=offset)
     k = spec.items[want.kind]
-    return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))), "kinds": []}
+    return {**_as_listed({**got, "projections": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))), "projections": []}
 
 
 def _tail(path, n: int) -> list[str]:
@@ -394,30 +394,30 @@ def _lease_of(fields: dict) -> dict:
 
 def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: str | None = None) -> dict:
     """The Items page's list: only the items matching its search (``q``, in the id or any field), the
-    newest ``per_kind`` of each kind (how many matched is ``matched``), and with ``shown`` each item's
+    newest ``per_projection`` of each projection (how many matched is ``matched``), and with ``shown`` each item's
     fields cut to its kind's columns. A kind whose items carry large fields (the model's changes)
     otherwise made every refresh of the list hundreds of KB, most of it never shown. The systems in
     ``hide`` (comma-separated: the page's collapsed groups) send no items, only their kinds' counts."""
     from ..actions.record import ACTION, who
-    items = [{**i, "fields": {**i["fields"], **who(i["fields"], i.get("state"))}} if i.get("kind") == ACTION else i for i in got["items"]]
+    items = [{**i, "fields": {**i["fields"], **who(i["fields"], i.get("state"))}} if i.get("projection") == ACTION else i for i in got["items"]]
     if hide:
         gone = set(hide.split(","))
         items = [i for i in items if i.get("system") not in gone]
     if needle:                                       # a kind's name (or plain title) matched keeps all of its items
         low = needle.strip().lower()
-        named = {k["name"] for k in got["kinds"] if low in f"{k['name']} {k.get('title') or ''}".lower()}
+        named = {k["name"] for k in got["projections"] if low in f"{k['name']} {k.get('title') or ''}".lower()}
         text = lambda i: i["id"] + " " + json.dumps(i["fields"], separators=(",", ":"), ensure_ascii=False, default=str)   # noqa: E731
-        items = [i for i in items if i.get("kind") in named or low in text(i).lower()]
+        items = [i for i in items if i.get("projection") in named or low in text(i).lower()]
     matched: dict[str, int] = {}
     kept = []
     for i in items:
-        k = i.get("kind") or ""
+        k = i.get("projection") or ""
         matched[k] = matched.get(k, 0) + 1
         if not per_kind or matched[k] <= per_kind:
             kept.append(i)
     if shown:
-        show = {k["name"]: set(k["show"]) for k in got["kinds"]}
-        kept = [{**i, "fields": {**{f: v for f, v in i["fields"].items() if f in show.get(i.get("kind") or "", ())},
+        show = {k["name"]: set(k["show"]) for k in got["projections"]}
+        kept = [{**i, "fields": {**{f: v for f, v in i["fields"].items() if f in show.get(i.get("projection") or "", ())},
                                  **_lease_of(i["fields"])}} for i in kept]
     return {**got, "items": kept, "matched": matched, "listed": len(got["items"])}
 
@@ -434,9 +434,9 @@ def _unfinished(p, spec, got: dict, kind: str | None, until: float, n: int, offs
     ``hidden`` (its count in each state left out), and its items paged by the index in its other states, never
     cut first and filtered after. The counts stay whole."""
     from ..spec import items as its
-    hid = {k["name"]: its.hidden_states(k) for k in got["kinds"]}
-    kinds = _with_hidden(got["kinds"])
-    got = {**got, "kinds": kinds, "total": got["total"] - sum(sum(k["hidden"].values()) for k in kinds
+    hid = {k["name"]: its.hidden_states(k) for k in got["projections"]}
+    kinds = _with_hidden(got["projections"])
+    got = {**got, "projections": kinds, "total": got["total"] - sum(sum(k["hidden"].values()) for k in kinds
                                                              if not kind or k["name"] == kind)}
     if not any(k["hidden"] for k in kinds if not kind or k["name"] == kind):
         return got
@@ -448,10 +448,10 @@ def _unfinished(p, spec, got: dict, kind: str | None, until: float, n: int, offs
         return {**got, "items": page(kind, vis(k), n, offset)}
     if pk:                                            # each kind's newest: those hiding something asked again (not folded)
         again = {k["name"] for k in kinds if k["hidden"] and k.get("system") not in folded}
-        items = [i for i in got["items"] if not any(k["hidden"] and k["name"] == i.get("kind") for k in kinds)]
+        items = [i for i in got["items"] if not any(k["hidden"] and k["name"] == i.get("projection") for k in kinds)]
         return {**got, "items": items + [i for k in kinds if k["name"] in again for i in page(k["name"], vis(k), pk, 0)]}
     each = [i for k in kinds for i in page(k["name"], vis(k) if k["hidden"] else None, offset + n, 0)]
-    each += page("", None, offset + n, 0) if got.get("unkinded") else []                  # the items of no kind
+    each += page("", None, offset + n, 0) if got.get("unprojected") else []                  # the items of no kind
     return {**got, "items": sorted(each, key=lambda i: -i["last"])[offset:offset + n]}
 
 
@@ -532,7 +532,7 @@ def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
     if fp is None:
         return None
     page = its.listing(p.events, spec, kind=kind, state="\0", until=snap["at"], n=1)     # counted by the index
-    fp["now"] = next((k["counts"] for k in page["kinds"] if k["name"] == kind), {})
+    fp["now"] = next((k["counts"] for k in page["projections"] if k["name"] == kind), {})
     f = its.finishes(p.events, spec, kind)
     states = [s["state"] for s in fp["definition"]["states"]]
     queue = finish_of(spec, kind, set())["queue"]                       # (where it waits: not read from the record)
@@ -552,7 +552,7 @@ def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
 
 def _subset(p, spec, snap: dict, item: str | None, kind: str | None) -> dict:
     """The parts the Dynamics and Blocks views draw alone for ``item=`` (what it passed through, as of the moment) or
-    ``kind=`` (what it touches): ``graph.touched``, with ``about`` for the page's chip; no parts when nothing counts it."""
+    ``projection=`` (what it touches): ``graph.touched``, with ``about`` for the page's chip; no parts when nothing counts it."""
     from types import SimpleNamespace
 
     from ..spec import items as its
@@ -560,7 +560,7 @@ def _subset(p, spec, snap: dict, item: str | None, kind: str | None) -> dict:
     d = None
     if item:
         d = its.detail(p.events, spec, item, until=snap["at"], history=0) if spec is not None else None
-        kind = (d or {}).get("kind")
+        kind = (d or {}).get("projection")
         fp = kind_footprint(spec, kind or "")
         steps = item_path(spec, SimpleNamespace(kind=kind, moves=d["moves"], fields=d["fields"])) if d and fp else []
         got = graph.touched(fp or {"counted_in": [], "taken_by": []}, steps)
@@ -568,10 +568,10 @@ def _subset(p, spec, snap: dict, item: str | None, kind: str | None) -> dict:
     else:
         fp = kind_footprint(spec, kind)
         got = graph.touched(fp or {"counted_in": [], "taken_by": []})
-        says = f"what kind {kind} touches" if fp else f"no kind {kind} in the model"
+        says = f"what projection {kind} touches" if fp else f"no projection {kind} in the model"
     if (d or fp) and not got["parts"]:
         says += ": not counted anywhere in the model"
-    return {**got, "about": {"item": item, "kind": kind, "says": says}}
+    return {**got, "about": {"item": item, "projection": kind, "says": says}}
 
 
 def _estimates(p, m, snap: dict, whatif: str | None) -> dict | None:
@@ -583,17 +583,17 @@ def _estimates(p, m, snap: dict, whatif: str | None) -> dict | None:
 
 
 def _process(p, m, snap: dict, q: dict, system: str | None) -> dict:
-    """The Process view (``process.py``): the kinds asked for (``kinds``, joined by commas), else the system's;
+    """The Process view (``process.py``): the projections asked for (``projections``, joined by commas), else the system's;
     ``by`` states or events; ``paths``, the frequency filter, a percentage."""
     from .. import process as pm
     spec = getattr(m, "spec", None)
     if spec is None or not getattr(spec, "items", None):
-        return {"kind": "process", "by": "states", "paths": 0, "kinds": [], "nodes": [], "edges": [], "events": 0,
+        return {"kind": "process", "by": "states", "paths": 0, "projections": [], "nodes": [], "edges": [], "events": 0,
                 "since": snap["at"] - snap["window"], "until": snap["at"], "capped": {}, "hidden": {"nodes": 0, "edges": 0},
                 "total": {"nodes": 0, "edges": 0}, "offered": [], "default": []}
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
     offered = pm.kinds_of(spec, system)
-    asked = [k for k in (one("kinds") or "").split(",") if k in spec.items]
+    asked = [k for k in (one("projections") or "").split(",") if k in spec.items]
     try:
         share = max(0.0, min(100.0, float(one("paths") or 0))) / 100
     except ValueError:
@@ -609,11 +609,11 @@ def _process(p, m, snap: dict, q: dict, system: str | None) -> dict:
     got["default"] = offered
     if got.get("by") == "states":                  # each state's node: how many are in it now, as Items counts them
         from ..spec.items import listing
-        now = {k["name"]: k["counts"] for k in listing(p.events, spec, state="\0", until=snap["at"], n=1)["kinds"]}
-        states = {k["name"]: k["states"] for k in got["kinds"] if k.get("by") == "states" and not k.get("remote")}
+        now = {k["name"]: k["counts"] for k in listing(p.events, spec, state="\0", until=snap["at"], n=1)["projections"]}
+        states = {k["name"]: k["states"] for k in got["projections"] if k.get("by") == "states" and not k.get("remote")}
         for x in got["nodes"]:
-            if x["kind"] == "activity" and x["activity"] in states.get(x["itemKind"], ()):
-                x["now"] = now.get(x["itemKind"], {}).get(x["activity"], 0)
+            if x["kind"] == "activity" and x["activity"] in states.get(x["projection"], ()):
+                x["now"] = now.get(x["projection"], {}).get(x["activity"], 0)
     return got
 
 
@@ -759,11 +759,12 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         from ..datasources._itemviews import stage_metrics
         return {"text": stage_metrics(p)}
     if head == "routes":                           # what the page's addresses name (SPEC §4f): the model's dashboards,
-        from . import dashboard_api                # its kinds with the globs their ids match, in order (the first
-        from ..spec.dashboards import BUILTIN       # kind that matches an id is its kind), and ergostat's own pages
+        from . import dashboard_api                # its projections with the globs their ids match, in order (the first
+        from ..spec.dashboards import BUILTIN       # that matches an id is its projection), and ergostat's own pages
         spec = getattr(m, "spec", None)
         return {"dashboards": dashboard_api.listing(p), "reserved": list(RESERVED), "builtin": list(BUILTIN),
-                "kinds": [{"name": k.name, "id": k.id, "declared": getattr(k, "where", None) is not None}
+                "projections": [{"name": k.name, "id": k.id, "declared": getattr(k, "where", None) is not None,
+                                 "group": k.group}
                           for k in (spec.items.values() if spec else [])]}      # declared: the model's, not ergostat's own
     if head in ("dashboards", "dashboard"):         # the declared dashboards; one's every panel in one answer (SPEC §4f)
         from . import dashboard_api
@@ -784,7 +785,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             at = float(one("at"))
         except ValueError:
             at = None
-    if head == "items" and name is None and one("alone") and one("kind") and "search" not in q:
+    if head == "items" and name is None and one("alone") and one("projection") and "search" not in q:
         return _set_alone(p, getattr(m, "spec", None), q, one, time.time() if at is None else at)
     if head == "items-overview":                  # the Items page's overview: from the item index, with no snapshot
         from .items_overview import overview
@@ -841,14 +842,14 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         if one("view") in ("process", "wiring"):    # the process map (the wiring it replaced still reaches it)
             # read again every 5s at most (on a long record it takes a second); a past moment's, kept
             key = ("process", snap["window"], snap["at"] if at is not None else int(time.time() // 5), live.mtime,
-                   system, one("kinds"), one("by"), one("paths"))
+                   system, one("projections"), one("by"), one("paths"))
             got = live.cached(key)
             if got is None:
                 got = _process(p, m, snap, q, system)
                 live.keep(key, got)
             return {**got, "attention": att}
-        sub = _subset(p, getattr(m, "spec", None), snap, one("item"), one("kind")) \
-            if one("item") or one("kind") else None   # what an item passed through, or what a kind touches (SPEC §5a)
+        sub = _subset(p, getattr(m, "spec", None), snap, one("item"), one("projection")) \
+            if one("item") or one("projection") else None   # what an item passed through, or what a projection touches
         if sub is not None and not sub["parts"]:
             return {"kind": one("view") or "dynamics", "nodes": [], "edges": [], "subset": sub["about"], "attention": att}
         if one("view") == "blocks":                 # the control view: the whole control system as a block diagram
@@ -1005,7 +1006,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 for n, a in snap["agents"].items()}
     if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
         return snap.get("daemons", {})
-    if head == "kinds":                           # what a kind touches (SPEC §5a, *What a kind touches*); None: 404
+    if head == "projections":                     # what a projection touches (SPEC §5a, *What a kind touches*); None: 404
         return _kind_now(p, getattr(m, "spec", None), name, snap) if name and len(parts) == 2 else None
     if head == "events" and "remote" in q:        # a remote's, from its cache (remote/events.py): never the local record
         if name is not None:
@@ -1020,7 +1021,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             raise remote_items.RemoteRefused(400, "a remote item's id is one path segment")
         if name is not None:
             return remote_items.detail(spec, one("remote"), name)
-        return remote_items.listing(spec, one("remote"), one("kind"), one("state"), one("n") or 100, one("offset") or 0)
+        return remote_items.listing(spec, one("remote"), one("projection"), one("state"), one("n") or 100, one("offset") or 0)
     if head == "events":
         if name:                                  # one event, by id
             return p.events.get(name)
@@ -1060,11 +1061,11 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 from types import SimpleNamespace
 
                 from ..spec.footprint import item_path
-                d["path"] = item_path(spec, SimpleNamespace(kind=d["kind"], moves=d["moves"], fields=d["fields"]))
-            if d and d.get("kind_of") and spec and d["kind_of"]["name"] in spec.items:   # its endings, as the process map counts them
+                d["path"] = item_path(spec, SimpleNamespace(kind=d["projection"], moves=d["moves"], fields=d["fields"]))
+            if d and d.get("projection_of") and spec and d["projection_of"]["name"] in spec.items:   # its endings, as the process map counts them
                 from ..process import _done
-                ends = _done(spec, p.events, spec.items[d["kind_of"]["name"]])
-                d["kind_of"]["final"] = [s for s in d["kind_of"]["states"] if s in ends]
+                ends = _done(spec, p.events, spec.items[d["projection_of"]["name"]])
+                d["projection_of"]["final"] = [s for s in d["projection_of"]["states"] if s in ends]
             return {**d, "cost": _item_cost(p, m, d["fields"], snap["at"])} if d else d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
@@ -1072,53 +1073,53 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             if one("at"):
                 raise BadSet("search: answers as of now; leave out at")
             if item_sets.asked(q) or one("alone"):           # never a filter silently dropped
-                raise BadSet("search: narrows by kind and one state only; leave out where, moved, through, followed, "
+                raise BadSet("search: narrows by projection and one state only; leave out where, moved, through, followed, "
                              "caused, alone and a list of states")
-            got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), n=n, offset=offset,
+            got = its.listing(p.events, spec, kind=one("projection"), state=one("state"), n=n, offset=offset,
                               search=one("search"))
             return _as_listed(got, None, 0, bool(one("shown")))
-        want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
+        want = item_sets.parse(q, snap["at"]) if one("projection") and (one("state") or one("alone") or item_sets.asked(q)) else None
         if want is not None and item_sets.asked(q):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
-            return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+            return _as_listed({**page, **got}, one("q"), int(one("per_projection") or 0), bool(one("shown")), one("hide"))
         fin = one("finished") or "hide"
         if fin not in ("hide", "waits", "show"):
             raise BadSet(f"finished={fin}: hide, waits or show")
         hide = fin != "show" and not one("state") and not one("q") and spec is not None   # never a searched or chosen state
-        paged = bool(one("kind")) and one("kind") in its.kinds_of(spec)   # a kind's page (SPEC §5a): searched, sorted
+        paged = bool(one("projection")) and one("projection") in its.kinds_of(spec)   # a projection's page (SPEC §5a): searched, sorted
         if paged:
             from ..spec.item_systems import kind_systems
-            frame = its.listing(p.events, spec, kind=one("kind"), state="\0", until=snap["at"], n=1)
+            frame = its.listing(p.events, spec, kind=one("projection"), state="\0", until=snap["at"], n=1)
             vis = None
             if hide:                                  # its page in its other states, paged by the index
-                frame = {**frame, "kinds": _with_hidden(frame["kinds"])}
-                k = next((k for k in frame["kinds"] if k["name"] == one("kind")), None)
+                frame = {**frame, "projections": _with_hidden(frame["projections"])}
+                k = next((k for k in frame["projections"] if k["name"] == one("projection")), None)
                 if k and k["hidden"]:
                     vis = [s for s in dict.fromkeys([*k["states"], *k["counts"]]) if s not in its.hidden_states(k)]
-            page = its.kind_page(p.events, spec, one("kind"), one("state"), snap["at"], n, max(0, offset),
+            page = its.kind_page(p.events, spec, one("projection"), one("state"), snap["at"], n, max(0, offset),
                                  (one("q") or "").strip() or None, one("sort") or None, states=vis)
             got = {**frame, **page, "items": [its._listed(i, its.kinds_of(spec), kind_systems(spec)) for i in page["items"]]}
         else:
-            got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
-        pk = int(one("per_kind") or 0)
-        if pk and not one("kind") and not one("state") and spec is not None:   # each kind's newest, however busy the rest
+            got = its.listing(p.events, spec, kind=one("projection"), state=one("state"), until=snap["at"], n=n, offset=offset)
+        pk = int(one("per_projection") or 0)
+        if pk and not one("projection") and not one("state") and spec is not None:   # each kind's newest, however busy the rest
             have = {}
             for i in got["items"]:
-                have[i.get("kind")] = have.get(i.get("kind"), 0) + 1
-            for k in got["kinds"]:
+                have[i.get("projection")] = have.get(i.get("projection"), 0) + 1
+            for k in got["projections"]:
                 if have.get(k["name"], 0) < min(pk, sum(k["counts"].values())):
                     more = its.listing(p.events, spec, kind=k["name"], until=snap["at"], n=pk)["items"]
-                    got["items"] = [i for i in got["items"] if i.get("kind") != k["name"]] + more
+                    got["items"] = [i for i in got["items"] if i.get("projection") != k["name"]] + more
         if hide and not paged:
-            got = _unfinished(p, spec, got, one("kind"), snap["at"], n, offset, pk, set((one("hide") or "").split(",")))
+            got = _unfinished(p, spec, got, one("projection"), snap["at"], n, offset, pk, set((one("hide") or "").split(",")))
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
-        out = _as_listed(got, None if paged else one("q"), 0 if paged else int(one("per_kind") or 0), bool(one("shown")),
+        out = _as_listed(got, None if paged else one("q"), 0 if paged else int(one("per_projection") or 0), bool(one("shown")),
                          one("hide"))
         if one("q") and not paged:                    # a finished match is listed, and counted apart (a kind's: its finished)
-            hid = {k["name"]: set(its.hidden_states(k)) for k in out["kinds"]}
-            out["finished_matched"] = {k: n_ for k in hid if (n_ := sum(i.get("kind") == k and i.get("state") in hid[k]
+            hid = {k["name"]: set(its.hidden_states(k)) for k in out["projections"]}
+            out["finished_matched"] = {k: n_ for k in hid if (n_ := sum(i.get("projection") == k and i.get("state") in hid[k]
                                                                       for i in out["items"]))}
         if getattr(spec, "remotes", None):            # each remote's own section, asked by the page on its own
             out["remotes"] = [{"name": k, "url": r["url"]} for k, r in spec.remotes.items()]
@@ -1181,7 +1182,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         from ..numbers.yields import parse as group_ask
         from ..remote import items as remote_items
         from .eta_api import current
-        ids, kinds = list(dict.fromkeys(q.get("item") or [])), [k for k in (one("kinds") or "").split(",") if k]
+        ids, kinds = list(dict.fromkeys(q.get("item") or [])), [k for k in (one("projections") or "").split(",") if k]
         try:                                          # a group's counts asked (SPEC §5a, Group counts)
             ask = group_ask({k: one(k) for k in ("group", "by", "at_least", "confidence") if k in q})
         except ValueError as e:
@@ -1199,10 +1200,10 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         from ..spec.grouptally import progress
         if abs(time.time() - snap["at"]) >= 5:
             raise BadSet("items-groups: answers as the record is now (never at=)")
-        return progress(p.events, getattr(m, "spec", None), one("kind") or "", one("by") or "", snap["at"],
+        return progress(p.events, getattr(m, "spec", None), one("projection") or "", one("by") or "", snap["at"],
                         snap["at"] - snap["window"], one("points") or 60)
     if head == "items-flow":
-        return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
+        return series.items_flow(p, snap, one("projection") or "", int(one("points") or series.POINTS))
     if head == "residuals":
         return snap["residuals"]
     if head == "parts":

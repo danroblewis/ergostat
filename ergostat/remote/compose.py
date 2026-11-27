@@ -3,7 +3,7 @@
 Every part it serves becomes ``REMOTE-PART`` (as a template's instance names its parts, and with the same renaming:
 ``library/expand.rename``), in the system ``REMOTE`` (its own systems inside it), pointing at the ``remotes:`` line
 (``RemoteVia``). Its blocks become ``type: external`` (never run here), its sensors queries of the remote's same
-series (``readings.py``), its agents ``external: true`` (each keeps its rung); its item kinds stay there (the
+series (``readings.py``), its agents ``external: true`` (each keeps its rung); its projections stay there (the
 local fold never folds remote items). A local reference to a remote part that the remote no longer serves gets a
 stand-in and a ``remote-reference-unresolved`` finding, so the model still loads; a local block that outputs to a
 remote part is an error (``remote-output``).
@@ -175,7 +175,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
                                  **({"within": str(parent)} if parent else {})}, via), via, {})
     info = {"url": url, "token_file": str(token_file) if token_file else None, "every": every, "dir": str(d),
             "where": via, "within": parent, "systems": list(only) if only else None, "version": None, "fetched": None,
-            "name": None, "parts": {}, "names": {}, "kinds": {}, "missing": [], "status": st, "show": None,
+            "name": None, "parts": {}, "names": {}, "projections": {}, "missing": [], "status": st, "show": None,
             "tls": tls}
     doc.remotes[name] = info
     if not st.get("ok", True) or st.get("ok") is None and served is None:
@@ -207,7 +207,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         return
     info.update(version=served.get("version"), fetched=served.get("fetched"), name=served.get("name"))
     secs = served.get("sections") or {}
-    info["kinds"] = {k: v for k, v in (secs.get("items") or {}).items() if isinstance(v, dict)}
+    info["projections"] = {k: v for k, v in (secs.get("projections") or {}).items() if isinstance(v, dict)}
     info["served_parameters"] = sorted(secs.get("parameters") or {})   # every one, systems: or not (taken names)
     made = parts(name, secs, only, every, cut)
     for section, entries in made.items():
@@ -388,7 +388,7 @@ def parts(remote: str, secs: dict, only: list[str] | None, every: float, cut=fro
             if kept(section, v):
                 chosen.setdefault(section, {})[n] = v or {}
     renames = {section: {n: f"{remote}-{n}" for n in (secs.get(section) or {})} for section in IMPORTED}
-    renames["items"] = {}
+    renames["projections"] = {}
     gone = {f"{remote}-{n}" for section in IMPORTED for n in (secs.get(section) or {})
             if n not in chosen.get(section, {})}
     moved = {m.group(2) for b in (secs.get("blocks") or {}).values() if isinstance(b, dict)

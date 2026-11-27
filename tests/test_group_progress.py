@@ -34,8 +34,8 @@ def factory_text() -> str:
     said = text[text.index("\nmessages:\n"):text.index("\nagents:\n")]
     done, paused = (", ".join(re.findall(r"\b(?:gap|milestone): \[[^\]]*\]", said.split(f"  {k}:")[1].split("\n  ")[0]))
                     for k in ("done", "paused"))
-    return (f"name: t\nitems:{kinds}\nmessages:\n  done: {{{done}}}\n  paused: {{{paused}}}\n"
-            "blocks:\n  build:\n    type: program\n    run: 'true'\n    takes: {kind: gap, at: [ready], to: [built]}\n")
+    return (f"name: t\nprojections:{kinds}\nmessages:\n  done: {{{done}}}\n  paused: {{{paused}}}\n"
+            "blocks:\n  build:\n    type: program\n    run: 'true'\n    takes: {projection: gap, at: [ready], to: [built]}\n")
 
 
 def project(tmp_path, text: str) -> Project:
@@ -161,7 +161,7 @@ def test_a_milestones_row_links_to_exactly_its_gaps(rec):
 def test_what_is_not_one_is_refused(rec):
     with pytest.raises(BadSet, match="not a group relation"):
         gt.progress(rec.events, rec.model.spec, "gap", "parent", T0, T0 - 1)     # (parent folds as a set of ids)
-    with pytest.raises(BadSet, match="no such kind"):
+    with pytest.raises(BadSet, match="no such projection"):
         gt.progress(rec.events, rec.model.spec, "nothing", "milestone", T0, T0 - 1)
     for bad in ("1", "201", "x", "²"):
         with pytest.raises(BadSet, match="points="):
@@ -179,13 +179,13 @@ def test_past_its_bound_it_is_refused_never_cut(rec, monkeypatch):
 
 def test_done_when_is_a_groups_map_of_its_states(tmp_path):
     base = """
-    items:
+    projections:
       epic: {id: epic/*, states: [open, done]}
       ticket:
         id: ticket/*
         states: [open, done, dropped]
         relations:
-          epic: {kind: epic, group: true, done_when: %s}
+          epic: {projection: epic, group: true, done_when: %s}
         fold: {epic: replace}
     """
     for ok, v in ((True, "{done: {why: [fixed, shipped]}}"), (False, "{nowhere: {why: x}}"), (False, "{done: {}}"),
@@ -202,7 +202,7 @@ def test_done_when_is_a_groups_map_of_its_states(tmp_path):
 
 TICKETS = """
 name: t
-items:
+projections:
   epic:
     id: epic/*
     states: [open, doing, done]
@@ -212,7 +212,7 @@ items:
     states: [todo, doing, done]
     on: {ticket.started: doing, ticket.done: done}
     relations:
-      epic: {kind: epic, group: true}
+      epic: {projection: epic, group: true}
     fold: {epic: replace}
 messages:
   done: {epic: [done], ticket: [done]}
@@ -220,7 +220,7 @@ messages:
 
 
 def test_items_groups_answers_any_kind_by_its_group_as_a_category_by_stack_table(rec, tmp_path):
-    """``/api/items-groups?kind=K&by=REL`` is a table (rows the categories, ``stacks`` the series) for the factory's
+    """``/api/items-groups?projection=K&by=REL`` is a table (rows the categories, ``stacks`` the series) for the factory's
     gaps by milestone and, the same with no code of its own, for any model's group relation: the Items listing names
     the relations it is offered for."""
     from ergostat.web import serve
@@ -235,12 +235,12 @@ def test_items_groups_answers_any_kind_by_its_group_as_a_category_by_stack_table
                               (other, "ticket", "epic", {"epic/e1": [2, 1, 0, 0], None: [0, 0, 1, 0]})):
         server, url = serve(p, free_port())
         try:
-            with urllib.request.urlopen(f"{url}/api/items-groups?kind={kind}&by={by}", timeout=30) as r:
+            with urllib.request.urlopen(f"{url}/api/items-groups?projection={kind}&by={by}", timeout=30) as r:
                 got = json.loads(r.read())
-            with urllib.request.urlopen(f"{url}/api/items?kind={kind}", timeout=30) as r:
+            with urllib.request.urlopen(f"{url}/api/items?projection={kind}", timeout=30) as r:
                 listed = json.loads(r.read())
             with pytest.raises(urllib.error.HTTPError) as e:
-                urllib.request.urlopen(f"{url}/api/items-groups?kind={kind}&by=nothing", timeout=30)
+                urllib.request.urlopen(f"{url}/api/items-groups?projection={kind}&by=nothing", timeout=30)
             assert e.value.code == 400
         finally:
             server.shutdown()
@@ -249,12 +249,12 @@ def test_items_groups_answers_any_kind_by_its_group_as_a_category_by_stack_table
         table = {r["id"]: [r["counts"][s] for s in got["stacks"]] for r in got["rows"]}
         assert {k: table[k] for k in want} == want
         assert all(len(r["done"]) == len(got["times"]) for r in got["rows"])     # each category's series over time
-        assert next(k for k in listed["kinds"] if k["name"] == kind)["progress"] == [by]
+        assert next(k for k in listed["projections"] if k["name"] == kind)["progress"] == [by]
 
 
 # a dashboard panel as saved (dashboard.js): a stacked bar chart, one query per state group, each a category by milestone
 PANEL = {"title": "gaps by milestone", "form": "bar", "options": {"stack": "stacked"},
-         "queries": [{"id": "abcd"[n], "source": "counts", "kind": "gap", "agg": "last", "label": s,
+         "queries": [{"id": "abcd"[n], "source": "counts", "projection": "gap", "agg": "last", "label": s,
                       "x": {"type": "category", "by": "milestone"}, "where": {"state_group": s}}
                      for n, s in enumerate(gt.STACKS)]}
 
@@ -283,7 +283,7 @@ def test_a_dashboard_panel_charts_gaps_by_milestone_stacked_by_state_group(rec):
     assert chart == want
     assert chart["milestone/m-a"] == {"done": 3, "in progress": 3, "waiting": 4, "stopped": 1}
     assert chart["milestone/m-b"] == {"done": 0, "in progress": 1, "waiting": 2, "stopped": 0}
-    by = api(Live(rec), "query/fields", {})["sources"]["items"]["kinds"]["gap"]["group_by"]
+    by = api(Live(rec), "query/fields", {})["sources"]["items"]["projections"]["gap"]["group_by"]
     assert {"milestone", "state_group"} <= set(by)
 
 
@@ -303,7 +303,7 @@ def test_milestones_status_says_each_milestones_progress(rec, monkeypatch):
     def ergostat(*args, check=True):
         from types import SimpleNamespace
         got = answer(rec)
-        assert list(args) == ["item", "--kind", "gap", "--groups", "milestone", "--json"]
+        assert list(args) == ["item", "--projection", "gap", "--groups", "milestone", "--json"]
         return SimpleNamespace(stdout=json.dumps(got), returncode=0)
 
     monkeypatch.setattr(fac, "items", items)

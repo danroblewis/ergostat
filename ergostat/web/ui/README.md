@@ -2,7 +2,7 @@
 
 ergostat's page. It is built into `../static/app/` and served by ergostat's own server at every path but `/api`,
 `/static` and `/remote`; the page resolves the path itself (`src/lib/routes.ts`, `src/Resolve.tsx`): the model's
-dashboards at `/NAME`, its kinds at `/KIND` and their items at `/KIND/REST`, then ergostat's own pages. Python needs nothing at runtime: the built files are
+dashboards at `/NAME`, its projections at `/PROJECTION` and their items at `/PROJECTION/REST`, then ergostat's own pages. Python needs nothing at runtime: the built files are
 committed. The old vanilla-JS page it was ported from is gone (2026-11-25), with its Model, Check and Guide pages, the
 header's project list and `ergostat snapshot`.
 
@@ -18,7 +18,7 @@ header's project list and `ergostat snapshot`.
                              page loaded lazily
       styles/                the page's styles (style.css, panels.css, plots.css, panel-editor.css, dashboard.css)
       lib/                   pure functions: api.ts (apiGet, apiPost, apiSend), format.ts (fmt, dur, ago, stamp,
-                             rateText, op, holdText, windowNote, plural...), rung.ts, hrefs.ts (itemHref, kindHref,
+                             rateText, op, holdText, windowNote, plural...), rung.ts, hrefs.ts (itemHref, projectionHref,
                              agentHref, diagramHref), goals.ts (a goal in words), query.ts (what a panel asks /api/query),
                              pages.ts (each of the page's own pages as its panels: PAGES, pageDashboard)
       state/                 app-wide context: time.tsx (window and moment, in the address), status.tsx (/api/status
@@ -29,9 +29,9 @@ header's project list and `ergostat snapshot`.
       components/            the components any page is composed of (index.ts):
         ui.tsx, Table, Menu,   Page, Section, Table/DataTable/Fields, Dl, Menu, Tabs, Detail (the side panel:
         Detail, Markdown       useDetail().open(key, node)), Markdown, Code, StatusWord, Rung, Button, Select...
-        links.tsx            AgentLink, ItemLink (here or on a remote), KindLink
+        links.tsx            AgentLink, ItemLink (here or on a remote), ProjectionLink
         events.tsx           EventsTable (compact, fold), EventDetail, useShowEvent(), changeOf
-        items.tsx            KindBar, ItemsTable, FieldValue
+        items.tsx            ProjectionBar, ItemsTable, FieldValue
         goals.tsx            GoalCells: one goal's row in the columns asked for
         charts/              Chart (uPlot), Plot, PanelView (a query's panel from its answer), QueryPanel and
                              usePanelResults (a panel that asks for its own answer), Spark, FlowChart
@@ -42,7 +42,7 @@ header's project list and `ergostat snapshot`.
                              DeclaredDashboard (one the model declares, by name), InPlace (a page, or the dashboard
                              declared in its place, lazily loaded). Each
                              asks its own endpoint with exactly its parameters; GETs of one address under way at once
-                             are one request (lib/api.ts). A new kind: its component, its KINDS entry here and in
+                             are one request (lib/api.ts). A new kind of panel: its component, its KINDS entry here and in
                              spec/dashboards.py, then `uv run python scripts/panel_schema.py` for the schema.
         diagram/             imported from "components/diagram" (it brings ELK): Diagram (asks for its own graph:
                              <Diagram view="blocks" system="x" />), DiagramCanvas (draws a graph a page has), the
@@ -80,7 +80,7 @@ Every page has a route and draws from the real API; none is at parity with the o
   display options.
 - **Goals / Agents:** the goal panel's charts (scope, forecast, step response, Bode, fit) and MathML; the agent page's
   run and cost charts, resources fold and version spans.
-- **Items:** the Graph and Timeline views, item sets, set chips (`where=`, `moved=`...), built-in kinds' views
+- **Items:** the Graph and Timeline views, item sets, set chips (`where=`, `moved=`...), built-in projections' views
   (claims, decisions, messages, gated actions, reports), notes, Impact, leases, remote items.
 - **Record:** its `window=1` scope shares the `window` parameter with the header's window, as on the old page.
 

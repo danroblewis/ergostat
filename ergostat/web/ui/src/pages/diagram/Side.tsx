@@ -1,11 +1,12 @@
 import { AppLink, Fold } from "../../components";
 import { Attention, ControlLoops, FeedbackLoops, feedbackCount, Legend, LEGEND_TYPE } from "../../components/Attention";
 import { ago } from "../../lib/format";
+import { projectionHref } from "../../lib/hrefs";
 import { useStatus } from "../../state/status";
 
 /* The list beside the diagram (diagram.js's renderSide), drawn from the attention panels' components: what waits for
    the owner, how to read the drawing (legend), the goals off, the model's housekeeping, suggestions (attention), then
-   the view's own list (feedback-loops, control-loops, and the process map's kinds of item). */
+   the view's own list (feedback-loops, control-loops, and the process map's projections). */
 
 export function Side({ g, view, onGoal, onPick }: { g: any; view: string; onGoal: (goal: string) => void; onPick: (n: any) => void }) {
   const { status: st } = useStatus();
@@ -29,9 +30,9 @@ export function Side({ g, view, onGoal, onPick }: { g: any; view: string; onGoal
         </Fold>
       )}
       {view === "process" && (
-        <Fold className="loops" open summary={<>Kinds of item <span className="muted">{(g?.kinds || []).length}</span></>}>
-          {(g?.kinds || []).map((k: any) => (
-            <div key={k.name}><AppLink to={`/items/${encodeURIComponent(k.name)}`}>{k.name}</AppLink> <span className="muted">{k.items} item{k.items === 1 ? "" : "s"} · {k.by}</span></div>
+        <Fold className="loops" open summary={<>Projections <span className="muted">{(g?.projections || []).length}</span></>}>
+          {(g?.projections || []).map((k: any) => (
+            <div key={k.name}><AppLink to={projectionHref(k.name)}>{k.name}</AppLink> <span className="muted">{k.items} item{k.items === 1 ? "" : "s"} · {k.by}</span></div>
           ))}
           {g?.since && <p className="muted small">since {ago(g.since)}{g.capped ? ", capped" : ""}</p>}
           {(g?.nodes || []).filter((n: any) => n.now).map((n: any) => (

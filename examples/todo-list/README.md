@@ -10,8 +10,8 @@ or VPN is done in one sitting.
 cd examples/todo-list
 ergostat check
 ergostat run                                  # prints the page's address
-ergostat item --kind todo                     # every to-do and its state
-ergostat item --kind todo-batch               # one batch a place: bastion-1, lab-vpn, anywhere
+ergostat item --projection todo                     # every to-do and its state
+ergostat item --projection todo-batch               # one batch a place: bastion-1, lab-vpn, anywhere
 ergostat item todo-batch/bastion-1            # its sitting: both to-dos, the one due first first, every step in order
 ergostat why todo/clean-cache                 # waiting: on todo/request-access, and what happens next
 ergostat inbox                                # the person asked to do a sitting (and to write up the new one)

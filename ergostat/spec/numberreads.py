@@ -1,4 +1,4 @@
-"""Reading the item index's numbers (``itemnumbers.py``): which fields each kind has, and one field's changes over a
+"""Reading the item index's numbers (``itemnumbers.py``): which fields each projection has, and one field's changes over a
 window. Each read holds the index's lock (``Index.guard``) and touches no document and no event."""
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ from .itemnumbers import unit_of
 
 
 def fields_of(ix) -> dict[str, list[dict]]:
-    """Per kind, its numeric fields: the name, the unit its name declares, and how many items hold it now."""
+    """Per projection, its numeric fields: the name, the unit its name declares, and how many items hold it now."""
     def read():
         return ix.db.execute("select kind, field, count(*) from numbers group by kind, field").fetchall()
     out: dict[str, list[dict]] = {}

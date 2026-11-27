@@ -184,7 +184,7 @@ def test_the_diagram_draws_auxiliaries_two_way_flows_and_signed_influences(tmp_p
 def test_a_sensor_records_what_it_observed_about_items_and_never_a_command(tmp_path):
     """The benchmark: one command reads the score and reports each case it measured."""
     p = project(tmp_path, """
-items:
+projections:
   case:
     id: case/*
     states: [unmet, met]

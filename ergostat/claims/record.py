@@ -50,7 +50,7 @@ def model_of(spec: Spec, block: str, raw: dict) -> str | None:
 
 def about_of(spec: Spec, raw) -> dict:
     """What a claim is about, as one of ``item``, ``file``, ``part``, ``commit`` (with an optional ``repo``), ``dir``,
-    ``run`` or ``suite``. Written as a map, or as text: ``hypothesis/3`` (an id a kind of item matches), ``stock.x``
+    ``run`` or ``suite``. Written as a map, or as text: ``hypothesis/3`` (an id a projection matches), ``stock.x``
     (a part), a commit's hash, a file in the project, or any of them with its key first (``file:docs/a.md``)."""
     if raw is None or raw == "":
         return {}

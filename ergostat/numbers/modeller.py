@@ -80,14 +80,14 @@ def neighbourhood(spec: Spec, refs: list[str]) -> list[str]:
     want = [r for r in refs if r and r != "model"]
     near = set(want)
     for r in want:
-        if r.startswith("items."):
+        if r.startswith("projections."):
             k = r.split(".", 1)[1]
             near |= {f"stock.{n}" for n, st in spec.stocks.items()
                      if any((s.items or {}).get("kind") == k for s in st.sensors.values())}
             near |= {f"flow.{n}" for n, f in spec.flows.items()
                      if any((s.items or {}).get("kind") == k for s in f.sensors.values())}
             near |= {f"block.{n}" for n, b in spec.blocks.items() if b.takes and b.takes.kind == k}
-    near |= gt.neighbourhood(spec, [r for r in near if not r.startswith("items.")])
+    near |= gt.neighbourhood(spec, [r for r in near if not r.startswith("projections.")])
     order = sorted(near, key=lambda r: (r not in want, r))
     return order
 
@@ -96,7 +96,7 @@ def prompt(p, spec: Spec, reqs: list[dict], feedback: list[str] | None = None) -
     guide = GUIDE.read_text(encoding="utf-8")
     lines = [guide, "", "## The model", "",
              f"Files: {', '.join(str(Path(f).resolve().relative_to(Path(spec.root).resolve())) for f in spec.files)}. "
-             f"Item kinds: " + "; ".join(f"{k} ({', '.join(x.states)})" for k, x in spec.items.items()
+             f"Projections: " + "; ".join(f"{k} ({', '.join(x.states)})" for k, x in spec.items.items()
                                           if not k.startswith("ergostat.")), "", "## The requests", ""]
     refs: list[str] = []
     for r in reqs:

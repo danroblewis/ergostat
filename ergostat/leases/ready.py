@@ -1,7 +1,7 @@
-"""What the dispatcher looks at, kept as the record grows (docs/proposals/scale.md, #5): of each kind of the model's
+"""What the dispatcher looks at, kept as the record grows (docs/proposals/scale.md, #5): of each projection of the model's
 own, the items a block may take (in a state some block takes from) and the items held under a lease (in any state),
 read from the item index once and then only for the items an event since was about. The dispatcher's look and the
-watchdog's pass read these instead of every item of every kind, every second, for every block.
+watchdog's pass read these instead of every item of every projection, every second, for every block.
 
 The record stays the truth: a new model (another set of kinds or of states taken), a record that went back or was
 rolled up (its generation), or a record with no item index on disk, and the items are read whole again (or, without
@@ -17,7 +17,7 @@ from .fold import held
 
 class Ready:
     def __init__(self):
-        self.key = None                    # what the items were chosen by: the kinds and the states taken from
+        self.key = None                    # what the items were chosen by: the projections and the states taken from
         self.spec = None                   # the model they were chosen for
         self.ix = None
         self.gen = None
@@ -39,7 +39,7 @@ class Ready:
 
     def follow(self, events, spec, kinds, blocks):
         """Brought up to date with the record; returns the item index (None: there is none, read every item).
-        ``kinds`` and ``blocks``: the kinds watched and the blocks that take items, asked for only of a new model."""
+        ``kinds`` and ``blocks``: the projections watched and the blocks that take items, asked for only of a new model."""
         last, gen = events.last_seq(), events.generation() if hasattr(events, "generation") else None
         if spec is self.spec and self.ix is not None and (last, gen) == (self.seq, self.gen):
             return self.ix                                  # nothing new
@@ -70,7 +70,7 @@ class Ready:
         return ix
 
     def of(self, kind: str) -> list:
-        """A kind's items kept, the latest first (as ``items.project`` lists them)."""
+        """A projection's items kept, the latest first (as ``items.project`` lists them)."""
         return sorted(self.items.get(kind, {}).values(), key=lambda i: -i.last)
 
 

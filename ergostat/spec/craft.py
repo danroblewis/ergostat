@@ -3,12 +3,12 @@ professional in its discipline would have drawn it, beyond being correct. ``chec
 ``note``): never an error, never counted with the findings, but work for the modelling subsystem like any finding
 (``numbers/requests.py``), each with the part it is about and why.
 
-- ``no-description``: a stock, flow, auxiliary, parameter, goal, block, item kind or agent with no description (the
+- ``no-description``: a stock, flow, auxiliary, parameter, goal, block, projection or agent with no description (the
   diagrams show nothing when a reader clicks it);
 - ``no-equation``: a flow between two stocks with no equation nor declared rate (replayed, never projected);
 - ``collector-undescribed``: a sensor that reads the outside (``run:``, ``query:``) with no description (the Blocks
   view titles the collector with its command);
-- ``event-names-mixed``: an item kind whose events are not all ``KIND.verb-past``;
+- ``event-names-mixed``: a projection whose events are not all ``PROJECTION.verb-past``;
 - ``queue-goal-tolerance``: a goal served by a block that takes the items its stock counts, with a tolerance (or a
   setpoint above 0) that lets items wait unseen, since the block runs only while the goal is off;
 - ``schedule-removed``: a machine block with ``every:`` or ``cron:``, no ``takes:`` or ``on:``, and a ``goal:``: the
@@ -47,15 +47,15 @@ def past(verb: str) -> bool:
 
 
 def canonical(kind: str, event: str, state: str) -> str:
-    """The event type a move into ``state`` reads best as: the kind, then the state (when it reads as a past tense),
-    else the event's own verb made the kind's."""
+    """The event type a move into ``state`` reads best as: the projection, then the state (when it reads as a past tense),
+    else the event's own verb made the projection's."""
     tail = event.split(".")[-1]
     verb = state if past(state) else tail
     return f"{kind}.{verb}"
 
 
 def event_forms(spec: Spec, kind: str) -> list[tuple[str, str, str]]:
-    """The events of a kind not written ``KIND.verb-past``: ``(event, state, the name it reads best as)``."""
+    """The events of a projection not written ``PROJECTION.verb-past``: ``(event, state, the name it reads best as)``."""
     k = spec.items[kind]
     out = []
     for ev, st in k.on.items():
@@ -73,14 +73,14 @@ def notes(spec: Spec, say) -> None:
     for _sec, kind, table in (("stocks", "stock", spec.stocks), ("flows", "flow", spec.flows),
                              ("auxiliaries", "auxiliary", spec.auxiliaries), ("parameters", "parameter", spec.parameters),
                              ("goals", "goal", spec.goals), ("blocks", "block", spec.blocks),
-                             ("items", "items", {n: k for n, k in spec.items.items() if not n.startswith("ergostat.")}),
+                             ("projections", "projection", {n: k for n, k in spec.items.items() if not n.startswith("ergostat.")}),
                              ("agents", "agent", spec.agents)):
         for n, x in table.items():
             if _made(x) or _said(x) or getattr(x, "implied", False):
                 continue
             say("no-description", f"{kind} {n}: no description, so the diagrams show nothing when a reader clicks it: "
                 f"one line a newcomer can read without the YAML, in the world's words"
-                + (" (for a flow, what decides it)" if kind == "flow" else ""), getattr(x, "where", None), f"{kind}.{n}")
+                + (" (for a flow, what decides it)" if kind == "flow" else ""), getattr(x, "where", None), f"projections.{n}" if kind == "projection" else f"{kind}.{n}")
     for n, f in spec.flows.items():
         if _made(f) or not (f.source and f.target) or f.equation is not None or f.rate is not None:
             continue
@@ -105,8 +105,8 @@ def notes(spec: Spec, say) -> None:
         odd = event_forms(spec, kind)
         if odd:
             said = ", ".join(f"{e} → {c}" for e, _, c in odd[:6]) + ("…" if len(odd) > 6 else "")
-            say("event-names-mixed", f"items {kind}: {len(odd)} of its {len(k.on)} event types are not {kind}.verb-past "
-                f"(the kind, then what happened): {said}", k.where, f"items.{kind}")
+            say("event-names-mixed", f"projection {kind}: {len(odd)} of its {len(k.on)} event types are not {kind}.verb-past "
+                f"(the projection, then what happened): {said}", k.where, f"projections.{kind}")
     for n, b in spec.blocks.items():
         by = [c.name for c in spec.commanders_of(n) if c.implied]
         if _made(b) or not (b.every or b.cron) or not b.machine or not by or b.takes or b.on:
@@ -143,7 +143,7 @@ def notes(spec: Spec, say) -> None:
 
 
 def _states_counted(st) -> dict[str, set[str]]:
-    """The item kinds and states a stock's sensors count (``items: K, state: S``, a list of states too)."""
+    """The projections and states a stock's sensors count (``projection: K, state: S``, a list of states too)."""
     out: dict[str, set[str]] = {}
     for s in st.sensors.values():
         it = s.items or {}
@@ -154,7 +154,7 @@ def _states_counted(st) -> dict[str, set[str]]:
 
 
 def plural(word: str) -> str:
-    """A kind's name as the unit of what a stock of it counts: alert → alerts, inquiry → inquiries."""
+    """A projection's name as the unit of what a stock of it counts: alert → alerts, inquiry → inquiries."""
     w = word.strip()
     if not w:
         return w

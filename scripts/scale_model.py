@@ -2,7 +2,7 @@
 
     uv run python scripts/scale_model.py N OUT_DIR [--per-system 15] [--rate 6] [--step-seconds 3] [--seed 1] [--handoff 0.1]
 
-N workflows, each a connected chain like docs/AGENT-GUIDE.md's example and examples/ticket-factory: an item kind
+N workflows, each a connected chain like docs/AGENT-GUIDE.md's example and examples/ticket-factory: a projection
 with 4 to 8 states, a stock per waiting state, chained flows (in from outside, out to done and dropped), a collector
 that finds the work, a step block per waiting state taking its items under leases, and goals. About half are
 written as plain YAML; the other half use the built-in `steps` template (`uses:`), which makes its own chain of
@@ -92,25 +92,25 @@ def intake(w: dict) -> str:
 
 def plain_workflow(w: dict, by: dict, rate: float, step_seconds: float) -> dict:
     n, st = w["name"], w["states"]
-    out: dict = {"items": {}, "stocks": {}, "auxiliaries": {}, "flows": {}, "parameters": {}, "goals": {}, "blocks": {}}
+    out: dict = {"projections": {}, "stocks": {}, "auxiliaries": {}, "flows": {}, "parameters": {}, "goals": {}, "blocks": {}}
     on = {f"{n}.{s}": s for s in st[1:]}
     on.update({f"{n}.new": "new", f"{n}.done": "done", f"{n}.dropped": "dropped"})
-    out["items"][n] = {"id": f"{n}/*", "description": f"a piece of work of kind {n}",
+    out["projections"][n] = {"id": f"{n}/*", "description": f"a piece of work of projection {n}",
                        "states": [*st, "done", "dropped"], "on": on, "show": ["title"], "lease": {"attempts": 3}}
     for s in st:
         out["stocks"][f"{n}-{s}"] = {"unit": "items", "description": f"{n} items waiting at {s}",
-                                     "sensor": {"items": n, "state": s, "every": EVERY}}
+                                     "sensor": {"projection": n, "state": s, "every": EVERY}}
     out["auxiliaries"][f"{n}-oldest"] = {"unit": "hours", "description": f"how long the oldest {n} item has waited",
                                          "driven-by": [f"+stock.{n}-{s}" for s in st],
-                                         "sensor": {"items": n, "state": list(st), "measure": "oldest", "every": EVERY}}
+                                         "sensor": {"projection": n, "state": list(st), "measure": "oldest", "every": EVERY}}
     out["flows"][f"{n}-arriving"] = {"to": f"{n}-new", "description": f"new {n} items, as the collector finds them",
-                                     "sensor": {"items": n, "entering": "new", "over": OVER}}
+                                     "sensor": {"projection": n, "entering": "new", "over": OVER}}
     for a, b in zip(st, st[1:], strict=False):
         out["flows"][f"{n}-{b}"] = {"from": f"{n}-{a}", "to": f"{n}-{b}", "driven-by": [f"+stock.{n}-{a}"],
                                     "equation": f"stock.{n}-{a} / {n}-{a}-time",
-                                    "sensor": {"items": n, "entering": b, "over": OVER}}
+                                    "sensor": {"projection": n, "entering": b, "over": OVER}}
     done = {"from": f"{n}-{st[-1]}", "driven-by": [f"+stock.{n}-{st[-1]}"], "equation": f"stock.{n}-{st[-1]} / {n}-{st[-1]}-time",
-            "sensor": {"items": n, "entering": "done", "over": OVER}}
+            "sensor": {"projection": n, "entering": "done", "over": OVER}}
     if w["handoff"]:
         done["to"] = intake(by[w["handoff"]])
         done["description"] = f"finished {n} items, handed on to {w['handoff']}"
@@ -118,15 +118,15 @@ def plain_workflow(w: dict, by: dict, rate: float, step_seconds: float) -> dict:
     mid = st[len(st) // 2]
     out["flows"][f"{n}-dropped"] = {"from": f"{n}-{mid}", "driven-by": [f"+stock.{n}-{mid}"],
                                     "description": f"{n} items dropped: not worth doing, or dropped by on-call",
-                                    "sensor": {"items": n, "entering": "dropped", "over": OVER}}
+                                    "sensor": {"projection": n, "entering": "dropped", "over": OVER}}
     if len(st) > 1:
         out["flows"][f"{n}-expedited"] = {"from": f"{n}-{st[0]}", "to": f"{n}-{st[1]}", "driven-by": [f"+stock.{n}-{st[0]}"],
                                           "description": f"{n} items a person pushed on past the queue",
-                                          "sensor": {"items": n, "entering": st[1], "where": {"expedited": "yes"}, "over": OVER}}
+                                          "sensor": {"projection": n, "entering": st[1], "where": {"expedited": "yes"}, "over": OVER}}
     if w.get("lead_sheds"):
         out["flows"][f"{n}-shed"] = {"from": f"{n}-{st[0]}", "driven-by": [f"+stock.{n}-{st[0]}"],
                                      "description": f"{n} items the incident lead shed",
-                                     "sensor": {"items": n, "entering": "dropped", "where": {"shed": "yes"}, "over": OVER}}
+                                     "sensor": {"projection": n, "entering": "dropped", "where": {"shed": "yes"}, "over": OVER}}
     for s in st:
         out["parameters"][f"{n}-{s}-time"] = {"value": f"{max(1, round(step_seconds))}s", "estimate": True,
                                               "description": f"how long step {s} takes"}
@@ -141,7 +141,7 @@ def plain_workflow(w: dict, by: dict, rate: float, step_seconds: float) -> dict:
         leaving = f"flow.{n}-{nxt}" if nxt != "done" else f"flow.{n}-done"
         out["blocks"][f"{n}-{s}"] = {"type": "program", "agent": f"pool-{sys_}", "goal": f"{n}-{s}-clear",
                                      "run": f"python3 bin/step.py {n}.{nxt} {step_seconds:g}",
-                                     "takes": {"kind": n, "at": s, "to": [nxt, "dropped"]}, "pool": 2,
+                                     "takes": {"projection": n, "at": s, "to": [nxt, "dropped"]}, "pool": 2,
                                      "out": leaving}
     out["blocks"][f"{n}-chase"] = {"type": "person", "agent": f"lead-{sys_}", "goal": f"{n}-prompt",
                                    "ask": f"A {n} item has waited over two hours: look at why.",
@@ -150,14 +150,14 @@ def plain_workflow(w: dict, by: dict, rate: float, step_seconds: float) -> dict:
 
 
 def template_workflow(w: dict, rate: float, step_seconds: float) -> dict:
-    return {"use": "steps", "within": w["system"], "description": f"a piece of work of kind {w['name']}, step by step",
-            "with": {"kind": w["name"], "pool": 2, "poll": "1m", "stand-in-rate": rate,
+    return {"use": "steps", "within": w["system"], "description": f"a piece of work of projection {w['name']}, step by step",
+            "with": {"projection": w["name"], "pool": 2, "poll": "1m", "stand-in-rate": rate,
                      "steps": [{"name": s, "run": f"python3 bin/step.py - {step_seconds:g}"} for s in w["states"]]}}
 
 
 def system_file(s: dict, by: dict, rate: float, step_seconds: float) -> dict:
     doc: dict = {"defaults": {"system": s["name"]}}
-    parts: dict = {k: {} for k in ("items", "stocks", "auxiliaries", "flows", "parameters", "goals", "blocks")}
+    parts: dict = {k: {} for k in ("projections", "stocks", "auxiliaries", "flows", "parameters", "goals", "blocks")}
     uses = {}
     for name in s["workflows"]:
         w = by[name]
@@ -183,30 +183,30 @@ def system_file(s: dict, by: dict, rate: float, step_seconds: float) -> dict:
 
 MODELLING = {
     "defaults": {"system": "modelling"},
-    "items": {"session": {"id": "session/*", "states": ["open", "done", "failed", "lost"],
+    "projections": {"session": {"id": "session/*", "states": ["open", "done", "failed", "lost"],
                           "on": {"session.ran": "done", "session.failed": "failed", "session.lost": "lost"},
                           "show": ["role", "model", "cost_usd", "seconds"]}},
     "stocks": {
         "model-error": {"unit": "1", "description": "the scaled error of the model's replay on the record",
                         "sensor": {"builtin": "ergostat.model.fit", "every": "1m"}},
-        **{f"{k}-changes": {"unit": "changes", "sensor": {"items": "ergostat.model-change", "state": s, "every": EVERY},
+        **{f"{k}-changes": {"unit": "changes", "sensor": {"projection": "ergostat.model-change", "state": s, "every": EVERY},
                             **({"cumulative": True} if s == "accepted" else {})}
            for k, s in (("pending", "checked"), ("testing", "testing"), ("passed", "passed"), ("accepted", "accepted"))}},
     "flows": {
         "model-drift": {"to": "model-error", "two-way": True, "sensor": {"changes": "rest", "over": OVER, "every": "1m"}},
         "model-mended": {"from": "model-error", "driven-by": ["+stock.model-error", {"cause": "+flow.changes-accepted", "instant": True}],
-                         "sensor": {"items": "ergostat.model-change", "entering": "accepted", "sum": "fit_gained", "over": OVER}},
-        "changes-made": {"to": "pending-changes", "sensor": {"items": "ergostat.model-change", "entering": "checked", "over": OVER}},
+                         "sensor": {"projection": "ergostat.model-change", "entering": "accepted", "sum": "fit_gained", "over": OVER}},
+        "changes-made": {"to": "pending-changes", "sensor": {"projection": "ergostat.model-change", "entering": "checked", "over": OVER}},
         "changes-superseded": {"from": "pending-changes", "driven-by": "+stock.pending-changes",
-                               "sensor": {"items": "ergostat.model-change", "entering": "superseded", "over": OVER}},
+                               "sensor": {"projection": "ergostat.model-change", "entering": "superseded", "over": OVER}},
         "tests-started": {"from": "pending-changes", "to": "testing-changes", "driven-by": "+stock.pending-changes",
-                          "sensor": {"items": "ergostat.model-change", "entering": "testing", "over": OVER}},
+                          "sensor": {"projection": "ergostat.model-change", "entering": "testing", "over": OVER}},
         "changes-passed": {"from": "testing-changes", "to": "passed-changes", "driven-by": "+stock.testing-changes",
-                           "sensor": {"items": "ergostat.model-change", "entering": "passed", "over": OVER}},
+                           "sensor": {"projection": "ergostat.model-change", "entering": "passed", "over": OVER}},
         "changes-failed": {"from": "testing-changes", "driven-by": "+stock.testing-changes",
-                           "sensor": {"items": "ergostat.model-change", "entering": "failed", "over": OVER}},
+                           "sensor": {"projection": "ergostat.model-change", "entering": "failed", "over": OVER}},
         "changes-accepted": {"from": "passed-changes", "to": "accepted-changes", "driven-by": "+stock.passed-changes",
-                             "sensor": {"items": "ergostat.model-change", "entering": "accepted", "over": OVER}}},
+                             "sensor": {"projection": "ergostat.model-change", "entering": "accepted", "over": OVER}}},
     "goals": {"model-fits": {"stock": "model-error", "hold": "<= 0.05", "description": "the model follows the record"}},
     "blocks": {
         "improver": {"type": "program", "agent": "modeller", "goal": "model-fits", "run": "python3 bin/improver.py",

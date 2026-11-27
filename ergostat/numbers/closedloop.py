@@ -474,7 +474,7 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
 def projection(p, spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan | None = None,
                points: int | None = None, loops: str = "closed", inputs: str = "hold", whatif: WhatIf | None = None,
                models: dict[str, BlockModel] | None = None, held: set[str] | None = None) -> dict:
-    """The projection the page and ``ergostat project`` draw: with the loops running (each machine block's model
+    """The projection the page and ``ergostat simulate`` draw: with the loops running (each machine block's model
     identified on the reference window), or held. ``{"projection", "models", "start"}``."""
     if loops != "closed":
         return {"projection": sim.project(spec, data, run, horizon, pl, points, inputs, held=held), "models": {}, "start": None}

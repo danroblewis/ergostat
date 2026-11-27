@@ -157,12 +157,12 @@ def blocks(c, spec) -> None:
                       b.where, "unknown-ref", f"context.{raw['recipe']}")
             else:
                 it = raw.get("item")
-                if it is not None and not (isinstance(it, str) or isinstance(it, dict) and isinstance(it.get("kind"), str)
-                                           and set(it) <= {"kind", "state", "pick"} and it.get("pick", "oldest") in PICKS):
+                if it is not None and not (isinstance(it, str) or isinstance(it, dict) and isinstance(it.get("projection"), str)
+                                           and set(it) <= {"projection", "state", "pick"} and it.get("pick", "oldest") in PICKS):
                     c.err(f"{what}.item: the item its run works on when its command names none: an id ({{item}} and "
-                          f"{{run}} filled in), or {{kind: K, state: [S, ...], pick: oldest|newest}}", b.where, "bad-context")
-                elif isinstance(it, dict) and it["kind"] not in spec.items:
-                    c.err(f"{what}.item.kind: {it['kind']!r} is not a kind of item" + c.suggest(it["kind"], spec.items),
+                          f"{{run}} filled in), or {{projection: P, state: [S, ...], pick: oldest|newest}}", b.where, "bad-context")
+                elif isinstance(it, dict) and it["projection"] not in spec.items:
+                    c.err(f"{what}.item.projection: {it['projection']!r} is not a projection" + c.suggest(it["projection"], spec.items),
                           b.where, "unknown-ref")
                 else:
                     if isinstance(it, dict) and isinstance(it.get("state"), str):

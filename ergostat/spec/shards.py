@@ -1,6 +1,6 @@
 """Engine shards (SPEC §9.8): every part of the model assigned to one shard, by top-level system, worked out from the
 graph and never declared (invariant 8). Shards are merged where a process-local lock would be split (a shared agent, a
-taken kind, a daemon); every value one shard reads from another that exists only in memory is listed as a wire. Pure:
+taken projection, a daemon); every value one shard reads from another that exists only in memory is listed as a wire. Pure:
 ``plan(spec)`` changes nothing, and every loop runs over sorted names, so the plan is the same whatever the hash seed."""
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class Plan:
     where: dict[str, str] = field(repr=False)     # a part's key → its shard
 
     def of(self, ref) -> str:
-        """The shard a part is in: a Ref, or a key (stock.x, stock.x.sensor, goal.x, agent.x, kind.x, daemon.x). KeyError if
+        """The shard a part is in: a Ref, or a key (stock.x, stock.x.sensor, goal.x, agent.x, projection.x, daemon.x). KeyError if
         not in the spec: never a default. A stock's estimate or uncertainty is the stock's (its observer's)."""
         r = ref if isinstance(ref, Ref) else Ref.parse(ref)
         if r is not None and r.kind == "stock" and r.port in PORTS and key(r) not in self.where:
@@ -107,7 +107,7 @@ def plan(spec, most: int = MAX_SHARDS) -> Plan:
     shared: dict[tuple, list] = {}
     for name, b in sorted(spec.blocks.items()):
         taken = b.takes and joined.get(b.takes.kind, b.takes.kind)
-        for because, via in (("agent", b.agent), ("kind", taken), ("daemon", b.params.get("daemon"))):
+        for because, via in (("agent", b.agent), ("projection", taken), ("daemon", b.params.get("daemon"))):
             if via and isinstance(via, str):
                 shared.setdefault((because, via), []).append(seed[f"block.{name}"])
     for s in spec.sensors():                     # a sensor's daemon too: one process, started by one shard (SPEC §9.7)
@@ -125,7 +125,7 @@ def plan(spec, most: int = MAX_SHARDS) -> Plan:
         group = joined.get(name, name)
         on = sorted(n for n, b in spec.blocks.items() if b.takes and joined.get(b.takes.kind, b.takes.kind) == group)
         chain = spec.chain(k.system) if not name.startswith("ergostat.") else []
-        seed[f"kind.{name}"] = seed[f"block.{on[0]}"] if on else (1, chain[-1]) if chain else _LEAD
+        seed[f"projection.{name}"] = seed[f"block.{on[0]}"] if on else (1, chain[-1]) if chain else _LEAD
     for name in sorted(getattr(spec, "daemons", None) or {}):    # a daemon: with what it serves (merged), else the lead
         on = sorted(shared.get(("daemon", name), ()))
         seed[f"daemon.{name}"] = on[0] if on else _LEAD
@@ -158,7 +158,7 @@ def planned(spec) -> Plan:
 
 
 def _join_kinds(spec) -> dict[str, str]:
-    """Kinds tied by a join (a parent, and the kinds whose relation names it), each to its group's first kind by name."""
+    """Kinds tied by a join (a parent, and the projections whose relation names it), each to its group's first kind by name."""
     up: dict[str, str] = {}
     find = partial(_root, up)
     for name, k in sorted(spec.items.items()):

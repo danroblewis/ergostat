@@ -14,7 +14,7 @@ from ergostat.store import Project
 
 MODEL = """
 name: t
-items:
+projections:
   epic:
     id: epic/*
     states: [planned, underway, shipped]
@@ -28,11 +28,11 @@ items:
     relations: {parent: epic}
 stocks:
   underway:
-    sensor: {items: epic, state: underway, every: 1h}
+    sensor: {projection: epic, state: underway, every: 1h}
 flows:
   shipped:
     from: underway
-    sensor: {items: epic, entering: shipped, over: 1h}
+    sensor: {projection: epic, entering: shipped, over: 1h}
 """
 
 
@@ -139,7 +139,7 @@ def test_a_join_is_checked(tmp_path):
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(bad))
     _, problems = read(tmp_path / "ergostat.yaml")
     said = "\n".join(x.message for x in problems if x.level == "error")
-    assert "no kind names epic by a relation 'epic_of'" in said
+    assert "no projection names epic by a relation 'epic_of'" in said
     assert "'gone' is not a state of epic" in said
     assert "children: (a relation), all: or any:" in said
 

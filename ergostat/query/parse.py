@@ -11,7 +11,7 @@ from ..durations import parse_duration
 from ..spec.item_sets import BadSet
 
 SOURCES = ("items", "moves", "counts", "series", "events", "frequency", "graph")
-DIAGRAMS = ("dependency", "process", "service")     # the graphs ergostat works out itself (graphs.py), by kind
+DIAGRAMS = ("dependency", "process", "service")     # the graphs ergostat works out itself (graphs.py), by name
 AGGS = ("count", "sum", "avg", "min", "max", "last", "p50", "p90", "p95", "p99", "ohlc")
 NO_AGG = "none"            # each item counts by itself (an X of type field, or a category's spread)
 TRANSFORMS = ("none", "rate", "delta", "cumulative", "moving_avg")
@@ -23,7 +23,7 @@ MOST_POINTS = 1000
 POINTS = 120
 MOST_WINDOW = 400 * 86400.0
 MOST_AVERAGED = 200         # buckets in a moving average
-KEYS = {"id", "source", "kind", "field", "where", "group_by", "agg", "transform", "rate_per", "bucket", "window",
+KEYS = {"id", "source", "projection", "field", "where", "group_by", "agg", "transform", "rate_per", "bucket", "window",
         "measure", "state", "series", "type", "first_only", "include_open", "x", "input", "output", "segments", "model",
         "diagram"}
 DEFAULT_AGG = {"items": "sum", "moves": "count", "counts": "last", "series": "avg", "events": "count", "frequency": "avg",
@@ -76,7 +76,7 @@ class Query:
     model: str | None = None
     first_only: bool = False        # entries: only each item's first entry to the state, never a return to it
     include_open: bool = False      # time_in_state: also the items in the state now, at their age so far
-    diagram: str | None = None      # graph: which of ergostat's own graphs (DIAGRAMS); ``kind`` narrows it to one kind
+    diagram: str | None = None      # graph: which of ergostat's own graphs (DIAGRAMS); ``projection`` narrows it to one projection
 
 
 @dataclass(frozen=True)
@@ -226,9 +226,9 @@ def _x(d: dict, who: str, depth: int) -> X | None:
     if ty == "query" and got.query is None:
         raise BadQuery(f"{who}: x.query is missing (the id of another query in this request)")
     if ty == "field" and not got.field:
-        raise BadQuery(f"{who}: x.field is missing (a numeric field of the kind)")
+        raise BadQuery(f"{who}: x.field is missing (a numeric field of the projection)")
     if ty == "category" and not got.by:
-        raise BadQuery(f"{who}: x.by is missing (state, kind or a low-cardinality field)")
+        raise BadQuery(f"{who}: x.by is missing (state, projection or a low-cardinality field)")
     if ty == "bins" and got.field and got.query is not None:
         raise BadQuery(f"{who}: x takes a field or a query to bin, not both")
     return got
@@ -270,11 +270,11 @@ def _query(d, i: int, depth: int = 0) -> Query | SourceQuery:
     if source is None:
         raise BadQuery(f"{who}: source is missing (one of {', '.join(SOURCES)})")
     if source == "graph" or "diagram" in d:
-        extra = sorted(set(d) - {"id", "source", "diagram", "kind"})
+        extra = sorted(set(d) - {"id", "source", "diagram", "projection"})
         if depth or source != "graph" or extra or d.get("diagram") not in DIAGRAMS:
-            raise BadQuery(f"{who}: a graph is asked as {{source: graph, diagram: {' | '.join(DIAGRAMS)}, kind?}}, "
+            raise BadQuery(f"{who}: a graph is asked as {{source: graph, diagram: {' | '.join(DIAGRAMS)}, projection?}}, "
                            f"and is never an X, an input or an output" + (f"; {extra[0]!r} is not one of its keys" if extra else ""))
-        return Query(id=str(id_), source=source, agg="count", kind=_text(d, "kind", who), diagram=d["diagram"])
+        return Query(id=str(id_), source=source, agg="count", kind=_text(d, "projection", who), diagram=d["diagram"])
     measure = _word(d, "measure", MEASURES, None, who)
     if source == "moves" and measure is None:
         raise BadQuery(f"{who}: measure is missing (one of {', '.join(MEASURES)})")
@@ -286,7 +286,7 @@ def _query(d, i: int, depth: int = 0) -> Query | SourceQuery:
         raise BadQuery(f"{who}: agg 'none' is only for an x of type field, where each point is one item, "
                        "or category, where each category answers with its items' spread")
     q = Query(id=str(id_), source=source, agg=agg, x=x,
-              transform=_word(d, "transform", TRANSFORMS, "none", who), kind=_text(d, "kind", who),
+              transform=_word(d, "transform", TRANSFORMS, "none", who), kind=_text(d, "projection", who),
               field=_text(d, "field", who), where=_where(d, who), group_by=_text(d, "group_by", who),
               rate_per=_word(d, "rate_per", tuple(RATE_PER), None, who), bucket=_bucket(d, who),
               window=_window(d, who), measure=measure,
@@ -298,7 +298,7 @@ def _query(d, i: int, depth: int = 0) -> Query | SourceQuery:
     if source == "items" and not q.field and x and x.type == "bins" and x.field:
         q = replace(q, field=x.field)
     if source == "items" and not q.field:
-        raise BadQuery(f"{who}: field is missing (a numeric field of the kind)")
+        raise BadQuery(f"{who}: field is missing (a numeric field of the projection)")
     if source == "series" and not q.series:
         raise BadQuery(f"{who}: series is missing (a metric's name)")
     return q

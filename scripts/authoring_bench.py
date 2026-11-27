@@ -65,7 +65,7 @@ REQUESTS = [
               "it running: a ramp request arrives from our tracker (bin/flag-requests.sh prints the open ones as JSON), "
               "is researched (what the flag touches, who owns it, the risk), approved by me, ramped in stages (1%, 10%, "
               "50%, 100%, checking the error rate before each next stage) and confirmed once it has run at 100% for a "
-              "day. Write the item kind and its stocks, flows, goals and blocks yourself, one per stage, rather than "
+              "day. Write the projection and its stocks, flows, goals and blocks yourself, one per stage, rather than "
               "using a template."),
     ("triage", "Model our alert triage in ergostat.yaml, so I can see it in the three diagrams and keep it running. "
                "Alerts come from our pager: bin/pager-alerts.sh prints the new ones as JSON (one per line, each with an "
@@ -74,7 +74,7 @@ REQUESTS = [
                "an AI agent: the service's logs, its recent deploys, and its metrics. Once all three are done, an AI "
                "agent writes a summary from their findings; most alerts are then closed, but some are escalated to "
                "the on-call engineer (a person), who either handles it or sends it back for more investigation. Write "
-               "the item kinds and their stocks, flows, goals and blocks yourself rather than using a template, with "
+               "the projections and their stocks, flows, goals and blocks yourself rather than using a template, with "
                "stand-in scripts for each step so it runs here."),
 ]
 HARNESS = ("The owner is away and cannot answer questions: make reasonable assumptions and list them at the end. The "

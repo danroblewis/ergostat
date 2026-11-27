@@ -669,7 +669,7 @@ def test_the_job_replays_at_a_day_and_a_week_without_blowing_up(tmp_path, hours)
 
 TICKETS = """\
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, done]
@@ -688,13 +688,13 @@ flows:
   opened:
     to: open-tickets
     sensor:
-      items: ticket
+      projection: ticket
       entering: open
       over: 10m
   closed:
     from: open-tickets
     sensor:
-      items: ticket
+      projection: ticket
       entering: done
       over: 10m
   queued:

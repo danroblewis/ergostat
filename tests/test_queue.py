@@ -457,7 +457,7 @@ FLAKY = "tests/test_x.py::test_y"
 def seen_flake(f: Factory) -> str:
     iid = f"flake/{module('fac').slug(FLAKY, 80)}"
     db = f.db()
-    db["items"][iid] = {"id": iid, "kind": "flake", "state": "seen", "fields": {"test": FLAKY, "times": 1,
+    db["items"][iid] = {"id": iid, "projection": "flake", "state": "seen", "fields": {"test": FLAKY, "times": 1,
                                                                                  "green_passes": 0}}
     f.record.write_text(json.dumps(db))
     return iid

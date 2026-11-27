@@ -1,4 +1,4 @@
-"""A block's take order (SPEC §9.5, `takes: {order: ...}`), for any kind of item: the dispatcher's order, and the
+"""A block's take order (SPEC §9.5, `takes: {order: ...}`), for any projection: the dispatcher's order, and the
 completion estimates' queue (SPEC §5a), by one comparator, so the Timeline shows the order the block will take items
 in; and a block switched off now is projected not to take anything."""
 
@@ -17,7 +17,7 @@ from ergostat.spec import read
 from ergostat.store import Project
 
 MODEL = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, fix, doing, done]
@@ -29,7 +29,7 @@ blocks:
   dev:
     type: program
     run: "true"
-    takes: {kind: ticket, at: [fix, todo], to: [done], unblocked: true, order: [-priority]}
+    takes: {projection: ticket, at: [fix, todo], to: [done], unblocked: true, order: [-priority]}
 """
 
 

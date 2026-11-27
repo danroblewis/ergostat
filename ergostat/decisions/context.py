@@ -145,5 +145,5 @@ def render(p, kind: str, scope: str | None = None, budget: int = 8000, proposed:
         if lines:
             text += "\n" + head + "".join(lines)
     if rest:
-        text += f"\n{rest} more not shown: `ergostat item --kind {kind}` lists them.\n"
+        text += f"\n{rest} more not shown: `ergostat item --projection {kind}` lists them.\n"
     return text

@@ -1,5 +1,5 @@
 """The charts' data (docs/proposals/charts.md): parts' values bucketed over the window, flow rates by
-each source, a loop's scope and an item kind's flow."""
+each source, a loop's scope and a projection's flow."""
 
 import textwrap
 import time
@@ -51,7 +51,7 @@ def test_flow_rates_come_from_valves_and_else_from_the_stocks_changes(project):
 
 
 MODEL = """
-items:
+projections:
   pr:
     id: pr/*
     states: [open, review, merged, closed]
@@ -63,13 +63,13 @@ stocks:
   in-review:
     unit: prs
     sensor:
-      items: pr
+      projection: pr
       state: review
 flows:
   merging:
     from: in-review
     sensor:
-      items: pr
+      projection: pr
       entering: merged
       over: 10m
 auxiliaries:
@@ -154,11 +154,11 @@ def test_an_item_kind_flows_through_its_states_and_its_finished_items_have_cycle
     p.events.add("pr.opened", item="pr/2", at=t0 + 100)
     p.events.add("pr.closed", item="pr/2", at=t0 + 900)                   # took 800s
     p.events.add("pr.opened", item="pr/3", at=t0 + 200)                   # still open
-    fl = get(p, "items-flow", kind="pr", points=10)
+    fl = get(p, "items-flow", projection="pr", points=10)
     assert fl["states"] == ["open", "review", "merged", "closed"] and len(fl["times"]) == 10
     assert fl["counts"]["open"][0] == 1 and fl["counts"]["open"][3] == 3 - 1        # at 350s: 1 in review
     last = {s: c[-1] for s, c in fl["counts"].items()}
     assert last == {"open": 1, "review": 0, "merged": 1, "closed": 1} and fl["now"] == last
     assert fl["finished_states"] == ["merged", "closed"]                   # no item left them
     assert [(f["id"], f["took"]) for f in fl["finished"]] == [("pr/1", 600), ("pr/2", 800)] and fl["median"] == 700
-    assert get(p, "items-flow", kind="nope") is None
+    assert get(p, "items-flow", projection="nope") is None

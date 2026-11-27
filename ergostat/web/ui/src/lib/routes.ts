@@ -1,25 +1,26 @@
 /* The page's addresses are the model's (SPEC §4f): /api, /static and /remote are the server's; every other path is
    resolved here, in this order:
-     1. a dashboard the model declares, at /NAME (named as a kind: that kind's page, its $kind the kind);
-     2. a kind of item, at /KIND (its list) and /KIND/REST (one of its items: REST is what its id glob's * matched,
-        ticket/1 at /ticket/1; a kind whose glob is not PREFIX* writes the whole id);
+     1. a dashboard the model declares, at /NAME (named as a projection: that projection's page, its $projection the
+        projection);
+     2. a projection, at /NAME (its list) and /NAME/REST (one of its items: REST is what its id glob's * matched,
+        ticket/1 at /ticket/1; a projection whose glob is not PREFIX* writes the whole id);
      3. ergostat's own pages, each a dashboard of its own (lib/pages.ts) at its name: /diagram, /dashboard, /goals,
-        /agents, /record, /agent/NAME and /item/ID (any id, a kind's or not).
-   ?builtin=1 shows ergostat's own page for an address whatever the model names there. The kinds are set once the
+        /agents, /record, /agent/NAME and /item/ID (any id, a projection's or not).
+   ?builtin=1 shows ergostat's own page for an address whatever the model names there. The projections are set once the
    page has asked (/api/routes, state/dashboards.tsx); until then an item's link is /item/ID, which leads to the same. */
 
-export type KindRoute = { name: string; id: string; declared?: boolean };
+export type ProjectionRoute = { name: string; id: string; declared?: boolean; group?: string | null };
 
 export const BUILTIN = ["diagram", "dashboard", "goals", "agents", "agent", "record", "item"] as const;
 
-let kinds: KindRoute[] = [];
+let projections: ProjectionRoute[] = [];
 const globs = new Map<string, RegExp>();
 
-/** The kinds of item, in the model's order (the first whose glob matches an id is its kind). */
-export function setKinds(k: KindRoute[]): void {
-  kinds = k;
+/** The model's projections, in its order (an item's address is under the first whose glob matches its id). */
+export function setProjections(p: ProjectionRoute[]): void {
+  projections = p;
 }
-export const knownKinds = () => kinds;
+export const knownProjections = () => projections;
 
 /** fnmatch's glob as a RegExp: `*` anything (a / too), `?` one character, `[...]` one of them. */
 function globRe(g: string): RegExp {
@@ -48,23 +49,23 @@ function prefixOf(glob: string): string | null {
   return /[*?[]/.test(p) ? null : p;
 }
 
-export const kindOfId = (id: string) => kinds.find((k) => globRe(k.id).test(id));
-export const isKind = (name: string) => kinds.some((k) => k.name === name);
+export const projectionOfId = (id: string) => projections.find((k) => globRe(k.id).test(id));
+export const isProjection = (name: string) => projections.some((k) => k.name === name);
 
 const segs = (s: string) => s.split("/").map(encodeURIComponent).join("/");
 
-/** An item's own address, /KIND/REST; null when no kind is known to match it (then /item/ID). */
+/** An item's own address, /PROJECTION/REST; null when no projection is known to match it (then /item/ID). */
 export function itemPath(id: string): string | null {
-  const k = kindOfId(id);
+  const k = projectionOfId(id);
   if (!k) return null;
   const p = prefixOf(k.id);
   const rest = p != null && id.startsWith(p) ? id.slice(p.length) : id;
   return rest ? `/${encodeURIComponent(k.name)}/${segs(rest)}` : null;
 }
 
-/** The id an address under a kind names: its glob's prefix and REST (or REST, the whole id). */
-export function idOf(kind: string, rest: string): string {
-  const k = kinds.find((x) => x.name === kind);
+/** The id an address under a projection names: its glob's prefix and REST (or REST, the whole id). */
+export function idOf(projection: string, rest: string): string {
+  const k = projections.find((x) => x.name === projection);
   const p = k ? prefixOf(k.id) : null;
   return p != null ? p + rest : rest;
 }

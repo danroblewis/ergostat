@@ -64,7 +64,7 @@ def p(tmp_path):
         name: sq
         stocks:
           queue: {unit: tickets}
-        items:
+        projections:
           ticket:
             id: ticket/*
             states: [open, doing, done, dropped]
@@ -96,7 +96,7 @@ def index_file(p):
 
 
 def test_writes_attach_pragma_and_the_index_s_own_tables_are_refused(p):
-    assert rows(p, "select kind, count(*) as n from transitions group by kind") == [["ticket", 16]]
+    assert rows(p, "select projection, count(*) as n from transitions group by projection") == [["ticket", 16]]
     before = sqlite3.connect(index_file(p)).execute("select count(*) from moves").fetchone()
     for text in [
         "insert into transitions(id) values ('x')", "delete from item_spans", "update item_fields set value = 1",
@@ -195,19 +195,19 @@ def test_the_views_survive_an_index_layout_change(p, monkeypatch):
                            "item_stages", "stage_estimates", "item_progress",   # (the stages': tests/test_stages.py)
                            "item_state_groups"}
     assert {v: cols for v, (cols, _) in before.items() if v != "session"} == {
-        "transitions": ["id", "kind", "at", "from_state", "to_state", "event", "type"],
-        "item_list": ["id", "kind", "state", "first", "last", "entered", "events"],
-        "item_numbers": ["id", "kind", "field", "at", "value", "delta"],
-        "item_labels": ["id", "kind", "label", "value"],
+        "transitions": ["id", "projection", "at", "from_state", "to_state", "event", "type"],
+        "item_list": ["id", "projection", "state", "first", "last", "entered", "events"],
+        "item_numbers": ["id", "projection", "field", "at", "value", "delta"],
+        "item_labels": ["id", "projection", "label", "value"],
         "events": ["type", "source", "at", "n"],
-        "item_state_groups": ["id", "kind", "state_group"],
-        "item_fields": ["id", "kind", "field", "value"],
-        "item_spans": ["id", "kind", "state", "entered", "left", "entry", "reason"],
+        "item_state_groups": ["id", "projection", "state_group"],
+        "item_fields": ["id", "projection", "field", "value"],
+        "item_spans": ["id", "projection", "state", "entered", "left", "entry", "reason"],
         "ticket": ["id", "state", "first", "last", "entered", "events", "owner", "size"],
-        "item_stages": ["id", "kind", "span", "stage", "run", "run_kind", "state", "outcome", "started", "finished",
+        "item_stages": ["id", "projection", "span", "stage", "run", "run_kind", "state", "outcome", "started", "finished",
                         "seconds"],
-        "stage_estimates": ["kind", "run_kind", "stage", "expected", "samples"],
-        "item_progress": ["id", "kind", "run", "run_kind", "stage", "note", "elapsed", "expected", "samples", "left"]}
+        "stage_estimates": ["projection", "run_kind", "stage", "expected", "samples"],
+        "item_progress": ["id", "projection", "run", "run_kind", "stage", "note", "elapsed", "expected", "samples", "left"]}
     assert len(before["item_spans"][1]) == len(SPANS) and len(before["item_fields"][1]) == 10
     path = index_file(p)
     c = sqlite3.connect(path, isolation_level=None)               # another layout: columns reordered and added, a table
@@ -277,7 +277,7 @@ def test_an_answer_with_a_time_column_is_series_and_the_editor_is_offered_views_
     r = ask(p, "select id, state from ticket")
     assert r.get("error_kind") == "refused" and "column of numbers" in r["error"], r
     got = datasources.suggest("sql", "metrics", project=p)
-    assert got == {"suggestions": ["events", "forecast_group_by", "forecast_groups", "forecast_items", "forecast_kinds",
+    assert got == {"suggestions": ["events", "forecast_group_by", "forecast_groups", "forecast_items", "forecast_projections",
                                    "forecast_stages", "item_fields", "item_labels", "item_list", "item_numbers",
                                    "item_progress", "item_spans", "item_stages", "item_state_groups", "session",
                                    "stage_estimates", "ticket", "transitions"], "more": False}

@@ -99,7 +99,7 @@ about the block.
 
 **The command line**: `ergostat claims` (the trust table and the latest contradicted claims), `ergostat claims ID`
 (one claim with its evidence), `ergostat claims --check` (check what was made and left unchecked when ergostat
-stopped), `ergostat item --kind ergostat.claim`; for an AI agent, the MCP tool `trust`.
+stopped), `ergostat item --projection ergostat.claim`; for an AI agent, the MCP tool `trust`.
 
 ## Trust as a goal
 
@@ -122,7 +122,7 @@ goals:
     hold: "<= 0.1"
 ```
 
-and the claims are counted like any items (`items: ergostat.claim, state: contradicted`), so their flow is in the
+and the claims are counted like any items (`projection: ergostat.claim, state: contradicted`), so their flow is in the
 model too (image-squeeze's `contradicted-claims` and `claims-contradicted`). Nothing in image-squeeze acts on the
 goal (`check` says so: missing feedback): nothing makes an agent truthful, and a loop that reads trust, such as one
 that sends a less trusted block's work to a deeper review, is for a project to design.

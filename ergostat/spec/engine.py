@@ -1993,7 +1993,7 @@ class Engine:
         if not self.leads():                                     # (the lead's alone: SPEC §9.8)
             return
         if self.ingester is not None:
-            self.ingester.spec = self.spec                       # (swapped: it reads the new model's item kinds)
+            self.ingester.spec = self.spec                       # (swapped: it reads the new model's projections)
             return
         ing = transcripts.Ingester(self.p, self.spec)
         if ing.kinds():                                          # sessions whose transcripts become events (SPEC §5a)

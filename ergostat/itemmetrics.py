@@ -59,17 +59,17 @@ MOST_WAIT = 3600.0           # the longest wait after faults in a row before the
 STATE = "itemmetrics.json"
 
 HELP = {
-    ITEMS: "Items of a kind in each state now (a stock).",
-    TRANS: "Moves of a kind's items from one state to another (a flow); from=\"(new)\" is an arrival, to=\"(gone)\" an "
+    ITEMS: "Items of a projection in each state now (a stock).",
+    TRANS: "Moves of a projection's items from one state to another (a flow); from=\"(new)\" is an arrival, to=\"(gone)\" an "
            "item the index forgot when its events were pruned.",
-    LAST: "When the latest move of a kind's items from one state to another was, in seconds since the epoch.",
-    LEAD: "How long a kind's items took from their arrival to reaching a state (to=\"prod\": the lead time to prod), observed "
+    LAST: "When the latest move of a projection's items from one state to another was, in seconds since the epoch.",
+    LEAD: "How long a projection's items took from their arrival to reaching a state (to=\"prod\": the lead time to prod), observed "
           "on that move.",
-    STAY: "How long a kind's items stayed in a state, observed when they leave it: an item still in the state is not "
+    STAY: "How long a projection's items stayed in a state, observed when they leave it: an item still in the state is not "
           "counted, so this cannot see stuck work (ask the item views in SQL, open items censored, for that).",
-    FIELD: "What a kind's items' numeric field went up by, added over its items (a fall is not counted).",
+    FIELD: "What a projection's items' numeric field went up by, added over its items (a fall is not counted).",
     EVENTS: "Events about items the index folded, by type and source.",
-    REBUILT: "Times the item index was made again (a kind edited, a new layout, a damaged file, a reindex): its gauge "
+    REBUILT: "Times the item index was made again (a projection edited, a new layout, a damaged file, a reindex): its gauge "
              "is counted afresh while each counter is held, so across one a gauge's change need not equal its net "
              "transitions.",
 }

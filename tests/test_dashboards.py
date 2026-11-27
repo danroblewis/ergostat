@@ -21,7 +21,7 @@ systems:
   desk:
     description: where tickets wait
     show: [stock.queue]
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, doing, done]
@@ -30,14 +30,14 @@ stocks:
   queue:
     system: desk
     sensor:
-      items: ticket
+      projection: ticket
       state: [open, doing]
 flows:
   closed:
     system: desk
     from: queue
     sensor:
-      items: ticket
+      projection: ticket
       entering: done
 goals:
   short-queue:
@@ -52,11 +52,11 @@ dashboards:
     panels:
       - {panel: goals, size: full}
       - {panel: chart, refs: [stock.queue, flow.closed], size: m}
-      - {panel: items, kind: ticket, state: doing, size: m}
-      - {panel: states, kind: ticket, note: by state}
-      - {panel: cycle-time, kind: ticket, size: s}
+      - {panel: items, projection: ticket, state: doing, size: m}
+      - {panel: states, projection: ticket, note: by state}
+      - {panel: cycle-time, projection: ticket, size: s}
       - {panel: scope, goal: short-queue}
-      - {panel: timeline, kinds: ticket}
+      - {panel: timeline, projections: ticket}
       - {panel: note, text: "Tickets are counted from their events."}
 """
 
@@ -124,11 +124,11 @@ def test_a_spec_naming_stock_nope_fails_check_with_unknown_ref_at_its_line(tmp_p
     ("{panel: goals, size: full}", "{panel: goals, colour: red}", "unknown-key", ""),
     ("{panel: goals, size: full}", "{panel: goals, goals: [long-queue]}", "unknown-ref", "goal.long-queue"),
     ("{panel: scope, goal: short-queue}", "{panel: scope, goal: nope}", "unknown-ref", "goal.nope"),
-    ("{panel: states, kind: ticket, note: by state}", "{panel: states, kind: tickets}", "unknown-ref", "items.tickets"),
-    ("{panel: timeline, kinds: ticket}", "{panel: timeline, kinds: [ticket, epic]}", "unknown-ref", "items.epic"),
-    ("{panel: items, kind: ticket, state: doing, size: m}", "{panel: items, kind: ticket, state: waiting}", "unknown-ref",
-     "items.ticket"),
-    ("{panel: timeline, kinds: ticket}", "{panel: timeline, system: floor}", "unknown-ref", "system.floor"),
+    ("{panel: states, projection: ticket, note: by state}", "{panel: states, projection: tickets}", "unknown-ref", "projections.tickets"),
+    ("{panel: timeline, projections: ticket}", "{panel: timeline, projections: [ticket, epic]}", "unknown-ref", "projections.epic"),
+    ("{panel: items, projection: ticket, state: doing, size: m}", "{panel: items, projection: ticket, state: waiting}", "unknown-ref",
+     "projections.ticket"),
+    ("{panel: timeline, projections: ticket}", "{panel: timeline, system: floor}", "unknown-ref", "system.floor"),
     ("{panel: chart, refs: [stock.queue, flow.closed], size: m}", "{panel: chart, refs: [auxiliary.x]}", "unknown-ref",
      "auxiliary.x"),
     ("{panel: chart, refs: [stock.queue, flow.closed], size: m}", "{panel: chart, refs: [goal.short-queue]}", "wrong-kind",
@@ -136,9 +136,9 @@ def test_a_spec_naming_stock_nope_fails_check_with_unknown_ref_at_its_line(tmp_p
     ("    window: 2h", "    window: 90d", "bad-dashboard", ""),
     ("    window: 2h", "    window: .nan", "bad-duration", ""),
     ("    title: The desk", "    title: [The, desk]", "bad-dashboard", ""),
-    ("{panel: items, kind: ticket, state: doing, size: m}", "{panel: items, kind: ticket, n: 501}", "bad-dashboard", ""),
-    ("{panel: cycle-time, kind: ticket, size: s}", "{panel: cycle-time, kind: ticket, size: xl}", "bad-dashboard", ""),
-    ("{panel: items, kind: ticket, state: doing, size: m}", "{panel: items, kind: ticket, moved: doing}", "bad-dashboard",
+    ("{panel: items, projection: ticket, state: doing, size: m}", "{panel: items, projection: ticket, n: 501}", "bad-dashboard", ""),
+    ("{panel: cycle-time, projection: ticket, size: s}", "{panel: cycle-time, projection: ticket, size: xl}", "bad-dashboard", ""),
+    ("{panel: items, projection: ticket, state: doing, size: m}", "{panel: items, projection: ticket, moved: doing}", "bad-dashboard",
      ""),
     ("    title: The desk", "    owner: me", "unknown-key", ""),
 ])
@@ -236,7 +236,7 @@ OTHER = MODEL + """\
       - {panel: timeline}
       - {panel: chart, refs: [stock.queue, flow.closed], size: m}
       - {panel: note, text: other words}
-      - {panel: items, kind: ticket}
+      - {panel: items, projection: ticket}
 """
 
 

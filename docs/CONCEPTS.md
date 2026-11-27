@@ -227,8 +227,8 @@ them (stock and flow). ergostat lets people write in loops and shows them the st
 they produce, announcing the coupling it finds.
 
 A third view, **process**, draws what the record says the work actually did: process mining's
-process map, a directly-follows graph per kind of item (each state or event, how often, and which
-came next on one item, rework and all), with the lines where work on one kind caused work on
+process map, a directly-follows graph per projection (each state or event, how often, and which
+came next on one item, rework and all), with the lines where work on one projection caused work on
 another. It answers *how the work really moved*, to hold against the model of how it should.
 
 ## 7. The software factory

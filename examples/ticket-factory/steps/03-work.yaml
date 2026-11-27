@@ -8,7 +8,7 @@ stocks:
     unit: tickets
     description: the change made and committed; no pull request yet
     sensor:
-      items: ticket
+      projection: ticket
       state: worked
       every: 3s
 
@@ -19,7 +19,7 @@ flows:
     driven-by: [+stock.located]
     equation: stock.located / work-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: worked
       over: 10m
 
@@ -42,7 +42,7 @@ blocks:
     agent: ai
     prompt: prompts/work.md
     run: python3 bin/step.py work          # a process per run: an AI session of minutes, its CPU and cost its own
-    takes: {kind: ticket, at: located, to: [worked, stopped]}
+    takes: {projection: ticket, at: located, to: [worked, stopped]}
     pool: 1
     lease: {ttl: 20m, attempts: 2}
     workspace: code

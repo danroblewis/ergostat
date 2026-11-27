@@ -3,7 +3,7 @@ scratch copy each measured on the same record:
 
 - **findings**: what ``check`` finds (not the craft notes, not what no change to the model answers), resolved and
   introduced (a finding about a part renamed is the same finding);
-- **chain pieces**: each kind's state stocks in groups no flow joins, beyond one a kind;
+- **chain pieces**: each projection's state stocks in groups no flow joins, beyond one a projection;
 - **coherence**: each kind's score on the record (its agreements over its comparisons, ``coherence.py``), and the
   mismatches, the three views held against each other over the record as it is (what Blocks ↔ Process says of the runs
   of a block the change adds is left out: the record holds none of its runs, and cannot); when it cannot be compared
@@ -60,7 +60,7 @@ def notes(problems) -> set[str]:
 
 
 def pieces(spec: Spec) -> dict[str, int]:
-    """Each chained kind's state stocks: how many groups no flow joins."""
+    """Each chained projection's state stocks: how many groups no flow joins."""
     from ..spec import chains
     out = {}
     for k, c in chains._kinds(spec).items():
@@ -139,13 +139,13 @@ UNSEEN = ("declared-not-seen-acting", "not-seen-acting")   # a block's runs on t
 
 
 def coherence(p, spec: Spec, problems, since: float, until: float, new_blocks: set[str] | None = None) -> dict:
-    """Each kind's score and the mismatches over the record. A block the change adds (or renames) has no runs on the
+    """Each projection's score and the mismatches over the record. A block the change adds (or renames) has no runs on the
     record, so what Blocks ↔ Process says of its runs is left out (said as ``unseen``), not counted against it."""
     from .. import coherence as co
     try:
         got = co.compare(spec, p.events, since, until, [x for x in problems if x.level != "error"])
     except Exception as e:                          # a record that cannot be read now says nothing either way
-        return {"kinds": {}, "mismatches": [], "error": f"{type(e).__name__}: {e}"}
+        return {"projections": {}, "mismatches": [], "error": f"{type(e).__name__}: {e}"}
     new_blocks = new_blocks or set()
     moved_new = {f"{t.kind}.{t.name}" for b in new_blocks if b[6:] in spec.blocks for t in spec.blocks[b[6:]].targets()}
     moved_old = {f"{t.kind}.{t.name}" for n, b in spec.blocks.items() if f"block.{n}" not in new_blocks for t in b.targets()}
@@ -154,13 +154,13 @@ def coherence(p, spec: Spec, problems, since: float, until: float, new_blocks: s
         (f["code"] == "moved-without-its-block" and f["about"] in moved_new and f["about"] not in moved_old))]
     less = {}
     for f in unseen:
-        less[f["kind"]] = less.get(f["kind"], 0) + 1
-    kinds = {k: {"agree": x["agree"], "compared": max(x["agree"], x["compared"] - less.get(k, 0))} for k, x in got["kinds"].items()
+        less[f["projection"]] = less.get(f["projection"], 0) + 1
+    kinds = {k: {"agree": x["agree"], "compared": max(x["agree"], x["compared"] - less.get(k, 0))} for k, x in got["projections"].items()
              if not k.startswith("ergostat.") and x["compared"]}
     gone = {f["id"] for f in unseen}
     mm = sorted({f["id"] for f in got["findings"] if f["level"] == "mismatch" and f["id"] not in gone
-                 and not str(f.get("kind") or "").startswith("ergostat.")})
-    return {"kinds": kinds, "mismatches": mm, "unseen": sorted(gone)}
+                 and not str(f.get("projection") or "").startswith("ergostat.")})
+    return {"projections": kinds, "mismatches": mm, "unseen": sorted(gone)}
 
 
 def fit(p, spec: Spec) -> dict:
@@ -314,23 +314,23 @@ def score(p, before: Spec, problems_before, after: Spec, problems_after, window:
         if a is None or a < r2 - EQ_DROP:
             lost.append(f"{r}: its equation explained its flow (R² {r2:.2f}); with the change "
                         + ("it has none that is fitted" if a is None else f"R² {a:.2f}"))
-    # coherence per kind, over the kinds both compare
+    # coherence per projection, over the projections both compare
     kinds = {}
-    for k in sorted(set(cb["kinds"]) | set(ca["kinds"])):
-        x, y = cb["kinds"].get(k), ca["kinds"].get(k)
+    for k in sorted(set(cb["projections"]) | set(ca["projections"])):
+        x, y = cb["projections"].get(k), ca["projections"].get(k)
         kinds[k] = {"before": _share(x), "after": _share(y), "said_before": _ratio(x), "said_after": _ratio(y)}
     coh_up = sum(1 for v in kinds.values() if v["before"] is not None and v["after"] is not None and v["after"] > v["before"] + 1e-9)
     coh_down = [k for k, v in kinds.items() if v["before"] is not None and (v["after"] is None or v["after"] < v["before"] - 1e-9)]
     # a record that cannot be compared on a side never counts for the change; what is worse still counts against it (a
     # kind compared before and not after is down)
-    unmeasured = [(s, c.get("error") or "no kind is compared on the record") for s, c in (("before", cb), ("after", ca))
-                  if c.get("error") or not c["kinds"]]
+    unmeasured = [(s, c.get("error") or "no projection is compared on the record") for s, c in (("before", cb), ("after", ca))
+                  if c.get("error") or not c["projections"]]
     coh_up = 0 if unmeasured else coh_up
     card = {
         "findings": {"before": len(fb), "after": len(fa), "resolved": sorted(fb_r - fa), "introduced": sorted(fa - fb_r)},
         "pieces": {"before": sum(max(0, n - 1) for n in pb.values()), "after": sum(max(0, n - 1) for n in pa.values()),
-                   "by_kind": {k: {"before": pb.get(k), "after": pa.get(k)} for k in sorted(set(pb) | set(pa))}},
-        "coherence": {"kinds": kinds, "mismatches_before": len(cb["mismatches"]), "mismatches_after": len(ca["mismatches"]),
+                   "by_projection": {k: {"before": pb.get(k), "after": pa.get(k)} for k in sorted(set(pb) | set(pa))}},
+        "coherence": {"projections": kinds, "mismatches_before": len(cb["mismatches"]), "mismatches_after": len(ca["mismatches"]),
                       "resolved": sorted(set(cb["mismatches"]) - set(ca["mismatches"])),
                       "introduced": sorted(set(ca["mismatches"]) - set(cb["mismatches"])), "since": since, "until": until,
                       "unseen": ca.get("unseen") or [], "measurable": not unmeasured,
@@ -376,9 +376,9 @@ def verdict(card: dict, coh_up: int = 0, coh_down: list | None = None, fit_count
         bad.append(f"{len(f['introduced'])} finding{'s' if len(f['introduced']) != 1 else ''} introduced "
                    f"({', '.join(f['introduced'][:3])}), {len(f['resolved'])} resolved")
     if net_p > 0:
-        good.append(f"the chains joined ({pc['before']} → {pc['after']} pieces beyond one a kind)")
+        good.append(f"the chains joined ({pc['before']} → {pc['after']} pieces beyond one a projection)")
     elif net_p < 0:
-        bad.append(f"the chains in more pieces ({pc['before']} → {pc['after']} beyond one a kind)")
+        bad.append(f"the chains in more pieces ({pc['before']} → {pc['after']} beyond one a projection)")
     if net_m > 0:
         good.append(f"{net_m} coherence mismatch{'es' if net_m != 1 else ''} fewer on the record")
     elif net_m < 0:
@@ -428,11 +428,11 @@ def lines(card: dict) -> list[str]:
     f, pc, co, cr, ft = card["findings"], card["pieces"], card["coherence"], card["craft"], card["fit"]
     out = [f"verdict     {card['why']}",
            f"findings    {f['before']} → {f['after']}  (resolved {len(f['resolved'])}, introduced {len(f['introduced'])})",
-           f"chains      {pc['before']} → {pc['after']} pieces beyond one a kind"
-           + ("  (" + ", ".join(f"{k} {v['before']}→{v['after']}" for k, v in pc["by_kind"].items()) + ")" if pc["by_kind"] else ""),
+           f"chains      {pc['before']} → {pc['after']} pieces beyond one a projection"
+           + ("  (" + ", ".join(f"{k} {v['before']}→{v['after']}" for k, v in pc["by_projection"].items()) + ")" if pc["by_projection"] else ""),
            f"coherence   mismatches {co['mismatches_before']} → {co['mismatches_after']}"
-           + ("  (" + ", ".join(f"{k} {v['said_before'] or '–'}→{v['said_after'] or '–'}" for k, v in co["kinds"].items()) + ")"
-              if co["kinds"] else ""),
+           + ("  (" + ", ".join(f"{k} {v['said_before'] or '–'}→{v['said_after'] or '–'}" for k, v in co["projections"].items()) + ")"
+              if co["projections"] else ""),
            f"craft       notes {cr['before']} → {cr['after']}  (closed {len(cr['closed'])}, opened {len(cr['opened'])})",
            f"fit         {ft.get('says')}"]
     sy = card.get("systems")

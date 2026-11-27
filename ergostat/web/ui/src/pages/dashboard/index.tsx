@@ -103,7 +103,7 @@ function Draft() {
     let gone = false;
     (async () => {
       const fields = await apiGet("query/fields");
-      const infos = (await apiGet("items", { n: 1, eta: 0 }).catch(() => null))?.kinds || [];
+      const infos = (await apiGet("items", { n: 1, eta: 0 }).catch(() => null))?.projections || [];
       if (!gone) setD(normalizeDashboard(defaultDashboard(fields, infos, queuesOf(fields, infos))));
     })().catch((e) => { if (!gone) setFailed(e); });
     return () => { gone = true; };
@@ -167,16 +167,16 @@ const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
 /** The pages of one thing a dashboard may be drawn for (`page:`). */
 const FOR = (Object.keys(PAGES) as PageName[]).filter((k) => PAGES[k].binds);
 
-/** Its name, which is its address (/NAME: a page's or a kind's name draws it there instead), whether it is in the
- *  header's navigation, and whether it is drawn for every agent, item or kind instead. */
+/** Its name, which is its address (/NAME: a page's or a projection's name draws it there instead), whether it is in the
+ *  header's navigation, and whether it is drawn for every agent, item or projection instead. */
 function KeepWhere({ d, onPropose, onClose }: { d: DashboardDef; onPropose: (d: DashboardDef) => void; onClose: () => void }) {
-  const { kinds } = useDashboards();
+  const { projections } = useDashboards();
   const [name, setName] = useState(d.name || slug(d.title));
   const [nav, setNav] = useState(d.nav != null);
   const [page, setPage] = useState(d.page || "");
   const binds = page ? PAGES[page as PageName]?.binds : undefined;
   const bound = d.panels.some((x) => Object.values(x).some((v) => typeof v === "string" && v.startsWith("$")));
-  const isKind = (kinds || []).some((k) => k.name === name);
+  const isProjection = (projections || []).some((k) => k.name === name);
   const own = (BUILTIN as readonly string[]).includes(name);
   return (
     <>
@@ -189,10 +189,10 @@ function KeepWhere({ d, onPropose, onClose }: { d: DashboardDef; onPropose: (d: 
       </span>
       <p className="muted small">
         {page ? `Drawn on every ${page}'s page, in place of ergostat's own; its panels may write ${binds}: $${binds}.`
-          : isKind ? `At /${name}: the ${name} kind's page, in place of ergostat's own; its panels may write kind: $kind.`
+          : isProjection ? `At /${name}: the ${name} projection's page, in place of ergostat's own; its panels may write projection: $projection.`
           : own ? `At /${name}, in place of ergostat's own ${name} page.` : `At /${name}.`}
       </p>
-      {bound && !binds && !isKind && <p className="lvl-error small">A panel takes $agent, $item or $kind from an address: choose what it is drawn for.</p>}
+      {bound && !binds && !isProjection && <p className="lvl-error small">A panel takes $agent, $item or $projection from an address: choose what it is drawn for.</p>}
       <span style={{ display: "flex", gap: "var(--sp-2)" }}>
         <Button className="primary" disabled={!/^[a-z][a-z0-9-]*$/.test(name)}
           onClick={() => onPropose({ ...d, name, nav: nav && !page ? (d.nav || true) as any : null, page: page || null })}>Propose</Button>

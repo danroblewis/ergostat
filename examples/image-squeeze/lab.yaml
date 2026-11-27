@@ -4,7 +4,7 @@
 defaults:
   system: lab
 
-items:
+projections:
   hypothesis:
     id: hypothesis/*
     states: [proposed, building, testing, kept, dropped]
@@ -75,7 +75,7 @@ stocks:
     description: claims the lab's agents made that ergostat checked and the record contradicted (Items → ergostat.claim)
     cumulative: true                    # each one stays on the record
     sensor:
-      items: ergostat.claim
+      projection: ergostat.claim
       state: contradicted
       every: 10s
   ai-spend:
@@ -89,14 +89,14 @@ stocks:
     unit: sessions
     description: Claude Code sessions running now (FACTORY_AI=claude; at most one each for the researcher and the developer)
     sensor:
-      items: session
+      projection: session
       state: open
       every: 5s
   ideas:
     unit: hypotheses
     description: proposed, waiting to be built
     sensor:
-      items: hypothesis
+      projection: hypothesis
       state: proposed
       every: 5s
   building:
@@ -104,14 +104,14 @@ stocks:
     description: being built by a developer run that holds its lease, not yet submitted (a run that stops or goes silent
       loses its lease, and the hypothesis goes back to the ideas, to be taken again)
     sensor:
-      items: hypothesis
+      projection: hypothesis
       state: building
       every: 5s
   experiments:
     unit: hypotheses
     description: running against production (one at a time, for there is one candidate)
     sensor:
-      items: hypothesis
+      projection: hypothesis
       state: testing
       every: 5s
   improvements:
@@ -119,7 +119,7 @@ stocks:
     description: kept, and now part of production
     cumulative: true                    # every hypothesis kept so far: a kept one stays kept
     sensor:
-      items: hypothesis
+      projection: hypothesis
       state: kept
       every: 5s
 
@@ -128,7 +128,7 @@ flows:
     to: contradicted-claims
     description: claims contradicted by ergostat's checks, as they are checked
     sensor:
-      items: ergostat.claim
+      projection: ergostat.claim
       entering: contradicted
       over: 30m
   spending:
@@ -142,13 +142,13 @@ flows:
   sessions-started:
     to: sessions
     sensor:
-      items: session
+      projection: session
       entering: open
       over: 30m
   sessions-ended:
     from: sessions
     sensor:
-      items: session
+      projection: session
       leaving: open
       over: 30m
   # The pipeline of hypotheses, an aging chain: each stage can only take what the one before holds
@@ -203,7 +203,7 @@ blocks:
     type: ai
     goal: one-running                       # while no experiment is running ...
     takes:                                  # ... it takes the oldest idea: one run, holding a lease on it (SPEC §9.5),
-      kind: hypothesis                      # renewed by what the run records about it (its session's lines too); a run
+      projection: hypothesis                      # renewed by what the run records about it (its session's lines too); a run
       at: proposed                          # that ends with it unsubmitted, or goes silent past its TTL, gives it back,
       to: [testing, dropped]                # and after three attempts it is a dead letter (ergostat lease)
     lease: {ttl: 25m}                       # a little over its timeout: an AI agent's default is 40m

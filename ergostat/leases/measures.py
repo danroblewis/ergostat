@@ -1,4 +1,4 @@
-"""The leases on items, as measures (SPEC §9.5): ``ergostat.leases.*``, each narrowed to one kind or one block by
+"""The leases on items, as measures (SPEC §9.5): ``ergostat.leases.*``, each narrowed to one projection or one block by
 ``@NAME``. ``held``, ``dead`` and ``overdue`` are levels, now; ``expired`` counts the expiries over the last day. A
 sensor reads one (``builtin: ergostat.leases.expired``) on a stock or an auxiliary, so a goal can hold it: the
 watchdog loop, drawn."""

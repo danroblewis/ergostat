@@ -10,19 +10,19 @@ stocks:
   main-failing-tests:
     unit: tests
     description: tests failing on main (main-broken), each a break of main's guarantee until main-mend sees it pass
-    sensor: {items: flake, state: main-broken, every: 1m}
+    sensor: {projection: flake, state: main-broken, every: 1m}
 
 flows:
   main-tests-broken:
     to: main-failing-tests
     description: a test found failing on clean main too (flake.main-broken)
-    sensor: {items: flake, entering: main-broken, over: 1d}
+    sensor: {projection: flake, entering: main-broken, over: 1d}
   main-tests-fixed:
     from: main-failing-tests
     description: a main-broken test passed twice alone on the pushed main (flake.main-fixed, by main-mend)
     driven-by: [+stock.main-failing-tests]
     equation: stock.main-failing-tests / main-repair-time
-    sensor: {items: flake, entering: fixed, where: {fixed_by: main-mend}, over: 1d}
+    sensor: {projection: flake, entering: fixed, where: {fixed_by: main-mend}, over: 1d}
 
 parameters:
   main-repair-time:
@@ -45,7 +45,7 @@ blocks:
     type: person
     agent: coordinator
     description: the coordinator has a test failing on main fixed; main-mend sees it pass and records it fixed
-    ask: "A test fails on main (ergostat item --kind flake --state main-broken): request its fix; main-mend clears it once it passes twice alone on the pushed main."
+    ask: "A test fails on main (ergostat item --projection flake --state main-broken): request its fix; main-mend clears it once it passes twice alone on the pushed main."
     in: goal.main-green.off
     out: flow.main-tests-fixed
 

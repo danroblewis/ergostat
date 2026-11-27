@@ -25,7 +25,7 @@ if "ergostat.decision" in args and db.get("decisions_fail") == "exit":
     db.setdefault("added", []).append({"event": args[2], "item": args[args.index("--item") + 1],
                                        "data": json.loads(args[args.index("--data") + 1])})
     rec.write_text(json.dumps(db))
-elif args[0] == "item" and "--kind" not in args:
+elif args[0] == "item" and "--projection" not in args:
     if args[1] not in db["items"]:
         sys.exit(f"no item {args[1]}")
     print(json.dumps(db["items"][args[1]]))
@@ -511,7 +511,7 @@ def test_librarian_proposes_from_a_finding(tmp_path):
     said = librarian(f, "review/a-1", ["gate 1: not first", "dev/bin/x.py:3: checks the pool then takes a slot"],
                      [shape])
     assert said == ["lesson.proposed", "review.measured"]
-    seen = [i for i in f.db()["items"].values() if i["kind"] == "lesson"][0]
+    seen = [i for i in f.db()["items"].values() if i["projection"] == "lesson"][0]
     assert seen["id"].startswith("lesson/seen-lesson-1-") and seen["state"] == "proposed"
     assert seen["fields"]["text"] == "a pool slot taken after its check" and seen["fields"]["findings"] == [
         "dev/bin/x.py:3: checks the pool then takes a slot"]           # the gate's own finding is not classified
@@ -728,7 +728,7 @@ def test_a_denied_lesson_is_settled_and_stops_counting(tmp_path):
     assert spec.goals["lessons-decided"].of.name == "lessons-proposed"
     counted = [s.items for s in spec.stocks["lessons-proposed"].sensors.values()][0]
     assert counted["state"] == ["proposed"] and "denied" in spec.items["lesson"].states
-    assert sorted(i["id"] for i in f.db()["items"].values() if i["kind"] == counted["kind"] and
+    assert sorted(i["id"] for i in f.db()["items"].values() if i["projection"] == counted["kind"] and
                   i["state"] in counted["state"]) == ["lesson/seen-lesson-2-bbb", "lesson/seen-lesson-3-ccc"]
 
 
@@ -891,7 +891,7 @@ def test_a_gap_whose_id_is_not_its_branch_is_one_item(tmp_path):
     f.run("intake.py")
     said, _ = f.run("implement.py", gid)
     assert said == ["gap.started", "gap.built"]
-    mine = [i for i in f.db()["items"].values() if i["kind"] == "gap" and i["fields"].get("branch") == branch]
+    mine = [i for i in f.db()["items"].values() if i["projection"] == "gap" and i["fields"].get("branch") == branch]
     assert [i["id"] for i in mine] == [gid] and f"gap/{branch}" not in f.db()["items"]     # one item, taken once
     assert [i["id"] for i in f.db()["items"].values() if i["state"] == "ready"] == []
 
@@ -1114,7 +1114,7 @@ def test_unknown_kind_refused_nothing_retired(case, tmp_path):
     (dev / "knowledge" / f"{name.replace('_', '-')}.md").write_text(text)
     assert sync(f, dev, ok=False) == []                                 # no retired, no proposed, no found: nothing
     assert "refused, nothing recorded" in f.stderr
-    assert all(i["state"] == "active" for i in f.db()["items"].values() if i["kind"] == "knowledge")
+    assert all(i["state"] == "active" for i in f.db()["items"].values() if i["projection"] == "knowledge")
 
 
 def test_sync_proposes_each_decision_once(tmp_path):
@@ -1342,7 +1342,7 @@ SEEN = {"kind": "seen", "lesson": "lesson-1", "text": "an approval written over 
 NEW = {"kind": "entry", "name": "Stale cache", "text": "a cache read after the merge", "reviews": ["review/b-1",
                                                                                                     "review/c-1"]}
 REAL_LESSONS = BIN.parent / "knowledge" / "review-lessons.md"
-LESSONS_FAIL = FAKE_MORE.replace('args = sys.argv[1:]\n', 'args = sys.argv[1:]\nif "--kind" in args and "lesson" in '
+LESSONS_FAIL = FAKE_MORE.replace('args = sys.argv[1:]\n', 'args = sys.argv[1:]\nif "--projection" in args and "lesson" in '
                                  'args and db.get("lessons_fail"):\n    sys.exit("the record is busy")\n', 1)
 
 
@@ -1381,7 +1381,7 @@ def test_an_approved_lesson_is_applied_with_no_gap(tmp_path):
     assert new["fields"]["entry"].startswith("Stale cache\nSeen as: a cache read after the merge.\n**Check:**")
     assert new["fields"]["lesson"] == "lesson-14" and new["fields"]["number"] == 14     # numbered past the seed's 13
     db = f.db()
-    assert not [i for i in db["items"].values() if i["kind"] in ("gap", "session")] and not db.get("acts")
+    assert not [i for i in db["items"].values() if i["projection"] in ("gap", "session")] and not db.get("acts")
     assert not (f.model / "run" / "defs").is_dir() or not list((f.model / "run" / "defs").iterdir())
     assert f.run("lesson.py", "lesson/new-stale-cache", argv=("apply",))[0] == []         # applied once (lesson-1)
     f.tool("lesson.py", "request", "lesson/new-stale-cache", ok=False)                     # not proposed any more
@@ -1515,7 +1515,7 @@ def settled(f: Instance) -> list[str]:
     """A run of lesson-settle (the migration), then lesson-apply on each lesson it approved."""
     f.tool("lesson.py", "settle")
     said = f.drain()
-    for lid in sorted(i for i, it in f.db()["items"].items() if it["kind"] == "lesson" and it["state"] == "approved"):
+    for lid in sorted(i for i, it in f.db()["items"].items() if it["projection"] == "lesson" and it["state"] == "approved"):
         said += f.run("lesson.py", lid, argv=("apply",))[0]
     return sorted(said)
 
@@ -1537,7 +1537,7 @@ def test_the_migration_is_idempotent_and_touches_only_linked_gaps(tmp_path):
     db["items"]["gap/knowledge-seen-lesson-6-fff"]["fields"]["lease"] = {"holder": "implementor", "fence": 1}
     db["items"]["gap/knowledge-seen-lesson-3-ccc"]["state"] = "leased"            # a reviewer holds it, at built
     f.record.write_text(json.dumps({**db, "take_on_close": "gap/knowledge-seen-lesson-7-ggg"}))
-    before = {i: g["state"] for i, g in f.db()["items"].items() if g["kind"] == "gap"}
+    before = {i: g["state"] for i, g in f.db()["items"].items() if g["projection"] == "gap"}
     assert settled(f) == ["gap.closed"] * 3 + ["lesson.applied", "lesson.applied", "lesson.approved", "lesson.approved"]
     assert f.item("lesson/seen-lesson-7-ggg")["state"] == "requested"            # taken as it closed: not applied
     assert f.item("lesson/seen-lesson-6-fff")["state"] == "requested"            # held by a lease: left alone
@@ -2124,6 +2124,6 @@ def test_no_gap_requested_for_a_finding(tmp_path):
     assert said == ["research.asked", "research.answered", "lesson.proposed", "lesson.applied", "lesson.approved",
                     "lesson.retired", "lesson.retired"]
     db = f.db()
-    assert not [i for i in db["items"].values() if i["kind"] == "gap"]
+    assert not [i for i in db["items"].values() if i["projection"] == "gap"]
     assert [a[1] for a in db["acts"]] == ["knowledge-change"]
     assert not (f.model / "run" / "defs").is_dir() or not list((f.model / "run" / "defs").iterdir())

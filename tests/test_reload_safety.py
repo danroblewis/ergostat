@@ -15,7 +15,7 @@ from ergostat.store import Project
 
 KINDS = """
 name: rs
-items:
+projections:
   job:
     id: job/*
     states: [new, doing, done]
@@ -23,12 +23,12 @@ items:
       job.start: doing
       job.end: done
 stocks:
-  waiting: {unit: jobs, sensor: {items: job, state: new, every: 1s}}
-  doing: {unit: jobs, sensor: {items: job, state: doing, every: 1s}}
-  done: {unit: jobs, sensor: {items: job, state: done, every: 1s}}
+  waiting: {unit: jobs, sensor: {projection: job, state: new, every: 1s}}
+  doing: {unit: jobs, sensor: {projection: job, state: doing, every: 1s}}
+  done: {unit: jobs, sensor: {projection: job, state: done, every: 1s}}
 flows:
-  starting: {from: waiting, to: doing, sensor: {items: job, entering: doing, over: 1h}}
-  ending: {from: doing, to: done, sensor: {items: job, entering: done, over: 1h}}
+  starting: {from: waiting, to: doing, sensor: {projection: job, entering: doing, over: 1h}}
+  ending: {from: doing, to: done, sensor: {projection: job, entering: done, over: 1h}}
 """
 
 

@@ -12,7 +12,7 @@ from ergostat.spec import items as its
 from ergostat.store import Project
 
 MODEL = """
-items:
+projections:
   gap:
     id: gap/*
     states: [open, building, merged]
@@ -80,7 +80,7 @@ def test_a_parent_depending_on_its_child_and_a_grandchild_on_its_grandparent_are
 
 TWO = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -92,11 +92,11 @@ items:
 blocks:
   first:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     run: "sleep 30"
   second:
     type: program
-    takes: {kind: part, at: ready}
+    takes: {projection: part, at: ready}
     run: "sleep 30"
 """
 

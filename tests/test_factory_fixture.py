@@ -25,7 +25,7 @@ def test_its_sizes_match_the_factorys_measured_shape(factory_state):
     p = factory_state.project()
     spec = p.model.spec
     assert sorted(set(spec.systems) - set(ff.SYSTEMS)) == ["modelling", "upkeep"], sorted(spec.systems)
-    by = {k["name"]: k["counts"] for k in its.listing(p.events, spec, n=1)["kinds"]}
+    by = {k["name"]: k["counts"] for k in its.listing(p.events, spec, n=1)["projections"]}
     mine = {k: sum(v.values()) for k, v in by.items() if k in ff.KINDS}
     assert mine == {k: n for k, (n, _, _) in ff.KINDS.items()} and sum(mine.values()) == 1500, by
     assert by["gap"].get("parked") == 40 and by["gap"].get("dead") == 10, by["gap"]
@@ -75,5 +75,5 @@ def test_the_page_server_answers_status_and_items_from_it(factory_state):
         status, listed = get(url + "/api/status"), get(url + "/api/items")
     loops, (upkeep,) = status["loops"], [g for g in factory_state.stats["off"] if g != ff.OFF_GOAL]
     assert loops[ff.OFF_GOAL]["status"] == "holding" and loops[upkeep]["status"] == "off", (loops[ff.OFF_GOAL], loops[upkeep])
-    gap = next(k for k in listed["kinds"] if k["name"] == "gap")
+    gap = next(k for k in listed["projections"] if k["name"] == "gap")
     assert sum(gap["counts"].values()) == 430 and gap["counts"]["parked"] == 40 and listed["items"], list(listed)

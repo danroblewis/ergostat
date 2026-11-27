@@ -242,7 +242,7 @@ def health(cfg: dict, since: float = 0.0) -> dict:
     got = engine(cfg, sha, "sensor", SENSOR, "--json")
     readings = json.loads(got.stdout).get("now", {}).get("readings", []) if got.returncode == 0 else []
     out["sensors"] = any(float(r["at"]) >= since for r in readings)
-    got = engine(cfg, sha, "item", "--kind", "gap", "--json", "-n", "1")
+    got = engine(cfg, sha, "item", "--projection", "gap", "--json", "-n", "1")
     out["record"] = got.returncode == 0 and "items" in json.loads(got.stdout or "{}")
     got = engine(cfg, sha, "block", "merge-queue", "--json")
     out["queue"] = got.returncode == 0

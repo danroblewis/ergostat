@@ -13,7 +13,7 @@ of the item's events (by ``seq``) all older than the horizon is rolled up. A tra
 (``claude.*``) are rolled up with the rest, and the snapshot keeps both folds: without them (its
 ``set``, what counting items reads) and with them (``rollup.transcript``).
 
-The archive: ``archive/<kind>/<YYYY-MM>.jsonl.gz`` (gzip members appended, one per roll-up, an
+The archive: ``archive/<projection>/<YYYY-MM>.jsonl.gz`` (gzip members appended, one per roll-up, an
 event per line) and ``<YYYY-MM>.idx.jsonl`` beside it (per item and member: where it is, how many,
 first and last time). The item page's full history reads it (``archived``)."""
 
@@ -46,7 +46,7 @@ def _month(t: float) -> str:
 
 
 class Archive:
-    """The events rolled up out of the record, per item kind and month, compressed."""
+    """The events rolled up out of the record, per projection and month, compressed."""
 
     def __init__(self, directory: Path):
         self.dir = directory / "archive"
@@ -246,7 +246,7 @@ def compact(p, now: float | None = None, cap: float | None = None, dry: bool = F
             continue
         by_kind: dict[str, list] = {}
         for id, k, pre, after in todo:
-            by_kind.setdefault(k.name if k else "unkinded", []).append((id, k, pre))
+            by_kind.setdefault(k.name if k else "unprojected", []).append((id, k, pre))
             rest[id] = [(e["seq"], e["time"]) for e in after if not e["type"].startswith(TRANSCRIPT_TYPES[:-1])]
         for kind, rows in by_kind.items():
             segs = arc.write(kind, [e for *_, pre in rows for e in pre if e["type"] != SNAPSHOT])

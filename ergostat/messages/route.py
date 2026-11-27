@@ -58,7 +58,7 @@ def route_done_states(spec: Spec, kind, items=None, left=None, reached=None) -> 
 
 
 def work_items(p, spec: Spec, text: str | None = None, ids=None) -> list[dict]:
-    """The items of the model's own kinds a message can concern: its id, kind, state, fields, and whether it is
+    """The items of the model's own projections a message can concern: its id, projection, state, fields, and whether it is
     finished. Every open one; a finished one only when ``text`` names it (its id, or the number in its id) or it is
     among ``ids``. (Every item at all when ``text`` and ``ids`` are both None and there is no item index.) Read from
     the item index: a record of half a million finished items reads only the few it names."""
@@ -73,7 +73,7 @@ def work_items(p, spec: Spec, text: str | None = None, ids=None) -> list[dict]:
     def add(it, k, done) -> None:
         if it.id not in seen:
             seen.add(it.id)
-            out.append({"id": it.id, "kind": k.name, "state": it.state, "fields": it.fields, "last": it.last,
+            out.append({"id": it.id, "projection": k.name, "state": it.state, "fields": it.fields, "last": it.last,
                         "entered": it.entered, "finished": bool(it.state and it.state in done)})
     for name, k in spec.items.items():
         if name in OWN_KINDS:
@@ -103,7 +103,7 @@ def _every_work_item(p, spec: Spec) -> list[dict]:
         got = its.project(p.events, spec, name)
         done = route_done_states(spec, k, got)
         for it in got:
-            out.append({"id": it.id, "kind": name, "state": it.state, "fields": it.fields, "last": it.last,
+            out.append({"id": it.id, "projection": name, "state": it.state, "fields": it.fields, "last": it.last,
                         "entered": it.entered, "finished": bool(it.state and it.state in done)})
     return out
 
@@ -224,18 +224,18 @@ def _words(v) -> set[str]:
 def standin(spec: Spec, text: str, items: list[dict], runs: list[dict]) -> tuple[list[str], str]:
     """ergostat's free classifier: the open items scored by the words they share with the message. Their kind's name
     (or its plural, or each of its words) +2; the number in their id +3; each word of their shown fields (and title)
-    +1, at most 3, other kinds' names aside (a note that says "review" is not a review). Finished items only when
+    +1, at most 3, other projections' names aside (a note that says "review" is not a review). Finished items only when
     their number is said. The best scores of 2 or more win, open items first, then those being worked on now, then
     the newest; at most ``MOST``. Returns the items and why."""
     words = words_of(text)
     nums = set(re.findall(r"\b\d{2,}\b", text))
     busy = {i for r in runs for i in r["items"]}
-    kind_words = {w for k in spec.items for w in (k, k + "s", *k.split("-"))}   # a kind's name counts for its own items
+    kind_words = {w for k in spec.items for w in (k, k + "s", *k.split("-"))}   # a projection's name counts for its own items
     scored = []
     for it in items:
-        if it["kind"] in OWN_KINDS:
+        if it["projection"] in OWN_KINDS:
             continue
-        k = spec.items[it["kind"]]
+        k = spec.items[it["projection"]]
         tail = it["id"].rsplit("/", 1)[-1]
         numbered = tail in nums or any(n in re.findall(r"\d+", tail) for n in nums)
         if it["finished"] and not numbered:             # finished work only when its number is said
@@ -244,7 +244,7 @@ def standin(spec: Spec, text: str, items: list[dict], runs: list[dict]) -> tuple
         names = {k.name, k.name + "s", *k.name.split("-")} - STOP
         if names & words:
             score += 2
-            why.append(f"its kind, {k.name}")
+            why.append(f"its projection, {k.name}")
         if numbered:
             score += 3
             why.append(f"its number, {tail}")
@@ -258,7 +258,7 @@ def standin(spec: Spec, text: str, items: list[dict], runs: list[dict]) -> tuple
         if score >= 2:
             scored.append((score, not it["finished"], it["id"] in busy, it["last"], it["id"], why))
     if not scored:
-        return [], "no open item shares its words (its kind's name, its number, its fields)"
+        return [], "no open item shares its words (its projection's name, its number, its fields)"
     scored.sort(reverse=True)
     best = scored[0][0]
     top = [x for x in scored if x[0] == best][:MOST]

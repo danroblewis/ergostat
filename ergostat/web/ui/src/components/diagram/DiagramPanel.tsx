@@ -11,7 +11,7 @@ export function DiagramPanel({ def, tools }: { def: PanelDef; tools?: ReactNode 
   return (
     <PanelFrame panel={{ id: def.id || "", title: def.title || "", note: def.note, size: def.size, tall: def.tall, form: "diagram", queries: [] }}
       tools={tools} className="panel-form-diagram">
-      <Diagram view={d.view} system={d.system} item={d.item} kind={d.kind} around={d.around} kinds={d.kinds} height="100%" className="in-panel" />
+      <Diagram view={d.view} system={d.system} item={d.item} projection={d.projection} around={d.around} projections={d.projections} height="100%" className="in-panel" />
     </PanelFrame>
   );
 }

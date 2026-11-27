@@ -215,6 +215,8 @@ def _compiled(b) -> dict:
         if getattr(b, k) is not None:
             out[k] = dataclasses.asdict(getattr(b, k))
     if b.takes is not None:
+        t = out["takes"]
+        out["takes"] = {"projection": t.pop("kind"), **t}      # as the model writes it (takes: {projection: K, ...})
         out["pool"] = b.pool
     return out
 

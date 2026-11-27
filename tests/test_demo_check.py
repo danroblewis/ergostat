@@ -32,7 +32,7 @@ def page(record: list[dict], snap_at: float, fields: dict | None = None):
         if "/api/events?" in url:
             return [e for e in record if unquote(url.split("item=")[1].split("&")[0]) == e["item"]]
         if url.endswith("/api/items"):
-            return {"items": [{"id": ITEM, "kind": "ergostat.workspace"}]}
+            return {"items": [{"id": ITEM, "projection": "ergostat.workspace"}]}
         upto = [e for e in record if e["time"] <= snap_at]
         got: dict = {}
         for e in upto:

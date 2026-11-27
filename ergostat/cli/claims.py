@@ -58,5 +58,5 @@ def cmd_claims(args) -> int:
         print(c("\nContradicted", "bold"))
         print(table(["CLAIM", "BLOCK", "SAYS", "WHY"], [[x["id"].split("/", 1)[1], x["block"] or "", x["says"][:50],
                                                        (x["why"] or "")[:90]] for x in t["contradicted"][:10]], ""))
-    print(c("\nergostat claims ID: one, with its evidence · ergostat item --kind ergostat.claim: all of them", "dim"))
+    print(c("\nergostat claims ID: one, with its evidence · ergostat item --projection ergostat.claim: all of them", "dim"))
     return 0

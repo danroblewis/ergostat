@@ -1,4 +1,4 @@
-"""A lease's terms (SPEC §9.5): its TTL and the attempts an item is allowed, the block's over its kind's over its tier's
+"""A lease's terms (SPEC §9.5): its TTL and the attempts an item is allowed, the block's over its projection's over its tier's
 (the model's ``leases:``) over the defaults. A program's TTL is at least its timeout: a run is never expired while it
 is still allowed to run silent."""
 
@@ -17,10 +17,10 @@ def tier_of(spec: Spec, b: Block) -> str:
 
 def terms(spec: Spec, b: Block) -> dict:
     """``{"ttl": seconds, "attempts": n, "tier": rung, "from": {"ttl": where, "attempts": where}}``: each from the first
-    that says it, the block, its kind, its tier in ``leases:``, the default."""
+    that says it, the block, its projection, its tier in ``leases:``, the default."""
     tier = tier_of(spec, b)
     kind = spec.items.get(b.takes.kind) if b.takes else None
-    layers = [("block", b.lease), ("kind", kind.lease if kind else None), ("leases", spec.leases.get(tier))]
+    layers = [("block", b.lease), ("projection", kind.lease if kind else None), ("leases", spec.leases.get(tier))]
     out: dict = {"tier": tier, "from": {}}
     for key, default in (("ttl", LEASE_TTL.get(tier, LEASE_TTL["program"])), ("attempts", LEASE_ATTEMPTS)):
         for name, t in layers:

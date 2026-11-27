@@ -1,4 +1,4 @@
-"""milestones: groups of gaps finished together (the owner, 2026-11-22), the item kind `milestone` (ergostat.yaml):
+"""milestones: groups of gaps finished together (the owner, 2026-11-22), the projection `milestone` (ergostat.yaml):
 waiting, active, completed (final: no event moves one out of it).
 
   milestones.py pass        (every minute, no AI; dev/model/milestones.yaml) first each active milestone that is done:
@@ -641,10 +641,10 @@ def status(cfg: dict) -> str:
 
 
 def progress_rows() -> tuple[dict, str]:
-    """Each milestone's progress as ergostat counts it from its item index (``ergostat item --kind gap --groups
+    """Each milestone's progress as ergostat counts it from its item index (``ergostat item --projection gap --groups
     milestone``: ergostat/spec/grouptally.py), by id (None: the gaps naming none); or, not read, why."""
     try:
-        got = json.loads(fac.ergostat("item", "--kind", "gap", "--groups", "milestone", "--json").stdout)
+        got = json.loads(fac.ergostat("item", "--projection", "gap", "--groups", "milestone", "--json").stdout)
         return {r["id"]: r for r in got["rows"]}, ""
     except (OSError, RuntimeError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as e:
         return {}, f"not read ({e})"

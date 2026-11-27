@@ -14,7 +14,7 @@ from ergostat.store import Project
 
 MODEL = """
 name: t
-items:
+projections:
   epic: {id: epic/*, states: [planned, underway, shipped]}
   ticket:
     id: ticket/*
@@ -24,10 +24,10 @@ items:
 stocks:
   review-age:
     unit: hours
-    sensor: {items: ticket, state: review, measure: oldest, every: 0.2s}
+    sensor: {projection: ticket, state: review, measure: oldest, every: 0.2s}
   open-tickets:
     unit: tickets
-    sensor: {items: ticket, state: [todo, doing, review], every: 0.2s}
+    sensor: {projection: ticket, state: [todo, doing, review], every: 0.2s}
 flows:
   reviewing: {from: review-age}
   closing: {from: open-tickets}

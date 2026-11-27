@@ -23,7 +23,7 @@ PY = sys.executable
 
 BASE = """
 name: t
-items:
+projections:
   review:
     id: review/*
     states: [requested, briefed, answered]
@@ -40,16 +40,16 @@ items:
     on: {session.ran: done, session.failed: failed, session.lost: lost}
 stocks:
   to-brief:
-    sensor: {items: review, state: requested, every: 5s}
+    sensor: {projection: review, state: requested, every: 5s}
   ramps-pending:
-    sensor: {items: ramp, state: pending, every: 5s}
+    sensor: {projection: ramp, state: pending, every: 5s}
 flows:
   briefing:
     from: to-brief
-    sensor: {items: review, entering: briefed, over: 10m}
+    sensor: {projection: review, entering: briefed, over: 10m}
   researching:
     from: ramps-pending
-    sensor: {items: ramp, entering: briefed, over: 10m}
+    sensor: {projection: ramp, entering: briefed, over: 10m}
 """
 
 
@@ -139,7 +139,7 @@ def test_a_classifier_block_routes_what_nothing_names(tmp_path):
         raw = sys.stdin.read()
         ctx = json.loads(raw[raw.rfind(chr(10) + "{") + 1:])   # its input, after its prompt
         m = ctx["message"]
-        pick = [c["id"] for c in ctx["candidates"] if c["kind"] == "ramp"]
+        pick = [c["id"] for c in ctx["candidates"] if c["projection"] == "ramp"]
         print(json.dumps({"route": {"message": m["id"], "to": pick, "why": "it is about rollouts"}}))
     """))
     p = project(tmp_path, BRIEFER + f"""

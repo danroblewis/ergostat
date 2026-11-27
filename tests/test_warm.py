@@ -94,7 +94,7 @@ def block(daemon: str, lease: str = "{ttl: 1m}", pool: int = 6) -> str:
 blocks:
   triage:
     type: program
-    takes: {{kind: ticket, at: ready}}
+    takes: {{projection: ticket, at: ready}}
     pool: {pool}
     lease: {lease}
     daemon: {daemon}

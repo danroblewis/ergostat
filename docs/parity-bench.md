@@ -2,8 +2,8 @@
 
 How much of a long session's knowledge does a fresh session recover from a given starting context? This is F3 of
 [the harness parity plan](proposals/harness-parity-plan.md): the measure every later item is scored by. Each
-starting context (a *variant*) is plain text, so any projection can be measured: the built-ins below, a file
-written by hand, or `ergostat context RECIPE > FILE` once projection recipes land (decisions and corrections, 2.10,
+starting context (a *variant*) is plain text, so any context can be measured: the built-ins below, a file
+written by hand, or `ergostat context RECIPE > FILE` once context recipes land (decisions and corrections, 2.10,
 2.12, 2.13).
 
 ## What it runs

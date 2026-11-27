@@ -13,7 +13,7 @@ import { PanelBox, normalizePanel } from "../../components/panels";
    that reason. A query is written in its source's language, or made from one of the shortcuts that write it (item
    fields, moves, items per state and events write SQL; a metric series writes PromQL); a shortcut's answer says what
    it asked (``compiled``), shown under the preview, so it is plainly just SQL or PromQL. A preview asks the query as
-   it stands. A diagram panel has no queries: it names a view, and the system, item or kind drawn. */
+   it stands. A diagram panel has no queries: it names a view, and the system, item or projection drawn. */
 
 /* Each shortcut, the source it writes its query for, and its words. */
 const SHORTCUTS: [string, string, string][] = [["items", "sql", "Item fields"], ["moves", "sql", "Item moves"],
@@ -100,7 +100,7 @@ function saved(p: Panel): Panel {
   return { ...rest, title };
 }
 
-/** A diagram panel's own fields: the view, and what is drawn (a system, or what an item or a kind passed through). */
+/** A diagram panel's own fields: the view, and what is drawn (a system, or what an item or a projection passed through). */
 function DiagramFields({ p, set }: { p: Panel; set: (patch: Partial<Panel>) => void }) {
   const { status } = useStatus();
   const d = p.diagram || {};
@@ -113,7 +113,7 @@ function DiagramFields({ p, set }: { p: Panel; set: (patch: Partial<Panel>) => v
       <label>System<br /><Select aria-label="System" value={d.system || ""} onChange={(e) => put({ system: e.target.value })}
         options={[{ value: "", label: "Everything" }, ...systems.map((x) => ({ value: x, label: x }))]} /></label>
       <label>Only what an item passed through<br /><input value={d.item || ""} onChange={(e) => put({ item: e.target.value })} placeholder="an item's id" /></label>
-      <label>Only what a kind touches<br /><input value={d.kind || ""} onChange={(e) => put({ kind: e.target.value })} placeholder="a kind's name" /></label>
+      <label>Only what a projection touches<br /><input value={d.projection || ""} onChange={(e) => put({ projection: e.target.value })} placeholder="a projection's name" /></label>
     </div>
   );
 }
@@ -152,9 +152,10 @@ function QueryRow({ q, fields, sources, listed, onChange, onRemove }: {
   const shortcut = SHORTCUTS.some(([k]) => k === q.source);
   const ds = shortcut ? undefined : listed.find((d) => d.name === src);   // written in the source's own language
   const set = (patch: Record<string, any>) => onChange({ ...q, ...patch });
-  const kinds = Object.keys(fields?.sources?.[q.source]?.kinds || fields?.sources?.items?.kinds || {});
-  const kind = fields?.sources?.items?.kinds?.[q.kind] || fields?.sources?.[q.source]?.kinds?.[q.kind];
-  const states: string[] = kind?.states || [];
+  const named = fields?.sources?.[q.source]?.projections || fields?.sources?.items?.projections || {};
+  const projections: string[] = Array.isArray(named) ? named : Object.keys(named);   // counts names them in a list
+  const projection = fields?.sources?.items?.projections?.[q.projection] || fields?.sources?.[q.source]?.projections?.[q.projection];
+  const states: string[] = projection?.states || [];
   const known = sources.some((s) => s.value === src);
   const opts = known ? sources : [...sources, { value: src, label: `${src} (not offered by this server)` }];
   const shortcuts = [{ value: "", label: `Written in ${listed.find((d) => d.name === src)?.language ?? src}` },
@@ -176,12 +177,12 @@ function QueryRow({ q, fields, sources, listed, onChange, onRemove }: {
         </label>
         <label>Label<br /><input value={q.label || ""} onChange={(e) => set({ label: e.target.value || undefined })} /></label>
         {!ds && ["items", "moves", "counts"].includes(q.source) && (
-          <label>Kind<br /><Select value={q.kind || ""} onChange={(e) => set({ kind: e.target.value, state: undefined, field: undefined })}
-            options={[{ value: "", label: "Choose…" }, ...kinds.map((k) => ({ value: k, label: k }))]} /></label>
+          <label>Projection<br /><Select value={q.projection || ""} onChange={(e) => set({ projection: e.target.value, state: undefined, field: undefined })}
+            options={[{ value: "", label: "Choose…" }, ...projections.map((k) => ({ value: k, label: k }))]} /></label>
         )}
         {q.source === "items" && (
           <label>Field<br /><Select value={q.field || ""} onChange={(e) => set({ field: e.target.value })}
-            options={[{ value: "", label: "Choose…" }, ...(kind?.fields || []).map((f: any) => ({ value: f.name, label: f.name }))]} /></label>
+            options={[{ value: "", label: "Choose…" }, ...(projection?.fields || []).map((f: any) => ({ value: f.name, label: f.name }))]} /></label>
         )}
         {q.source === "moves" && (
           <label>Measure<br /><Select value={q.measure || "entries"} onChange={(e) => set({ measure: e.target.value })} options={MEASURES.map(([value, label]) => ({ value, label }))} /></label>

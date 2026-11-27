@@ -28,7 +28,7 @@ FILES = [f"ergostat/m{j}.py" for j in range(30)]
 def factory_kinds() -> str:
     """The factory's gap and milestone kinds, as its ergostat.yaml declares them (risk-score: included)."""
     text = (ROOT / "ergostat.yaml").read_text()
-    return "name: factory-record\nitems:" + text[text.index("\n  gap:\n"):text.index("\n  review:\n")] + "\n"
+    return "name: factory-record\nprojections:" + text[text.index("\n  gap:\n"):text.index("\n  review:\n")] + "\n"
 
 
 def project(tmp_path, text: str) -> Project:
@@ -118,9 +118,9 @@ def test_a_backtest_on_a_factory_record_shows_calibration(tmp_path, capsys):
     assert bt["auc"] >= best - 0.1 and bt["brier"] < bt["brier_base_rate"], (bt, best)    # near the truth; better
     assert bt["failed"] == sum(f for _, f in truth)                          # than the base rate; reverts counted
     assert sum(b["attempts"] for b in bt["bands"]) == 790
-    assert main(["-C", str(tmp_path), "item", "--kind", "gap", "--risk-score", "--backtest", "--json"]) == 0
+    assert main(["-C", str(tmp_path), "item", "--projection", "gap", "--risk-score", "--backtest", "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == bt
-    assert main(["-C", str(tmp_path), "item", "--kind", "gap", "--risk-score", "--backtest"]) == 0
+    assert main(["-C", str(tmp_path), "item", "--projection", "gap", "--risk-score", "--backtest"]) == 0
     out = capsys.readouterr().out
     assert "MEAN SCORE" in out and "790 scored of 800 judged" in out
 
@@ -134,7 +134,7 @@ def test_the_score_is_on_each_item_and_queryable(tmp_path, capsys):
         p.events.add_many([{"at": T0 + 10 ** 6 + i, "type": "gap.found", "item": f"gap/g{i}", "data": {"source": "plan"}},
                            {"at": T0 + 10 ** 6 + i, "type": "gap.built", "item": f"gap/g{i}",
                             "data": {"paths": paths, "net_lines": 900 if i == 900 else 10, "built_by": "opus"}}])
-    assert main(["-C", str(tmp_path), "item", "--kind", "gap", "--risk-score", "--json"]) == 0
+    assert main(["-C", str(tmp_path), "item", "--projection", "gap", "--risk-score", "--json"]) == 0
     got = json.loads(capsys.readouterr().out)
     rows = {r["id"]: r for r in got["items"]}
     assert len(rows) == 202 and got["judged"] == 200 and all(r["score"] is not None for r in rows.values())
@@ -146,12 +146,12 @@ def test_the_score_is_on_each_item_and_queryable(tmp_path, capsys):
     assert d["risk_score"]["score"] == hot["score"] and d["risk_score"]["judged"] == 200
     assert main(["-C", str(tmp_path), "item", "gap/g900", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["risk_score"]["score"] == hot["score"]
-    assert main(["-C", str(tmp_path), "item", "--kind", "gap", "--risk-score", "-n", "300"]) == 0
+    assert main(["-C", str(tmp_path), "item", "--projection", "gap", "--risk-score", "-n", "300"]) == 0
     out = capsys.readouterr().out.splitlines()
     assert out[0].split() == ["ITEM", "STATE", "RISK", "WHY", "(FAILED/JUDGED)"]
     assert [x.split()[0] for x in out[1:-1]] == [r["id"] for r in got["items"]]            # highest first
     assert f"{hot['score']:.3f}" in next(x for x in out if x.startswith("gap/g900 "))
-    assert main(["-C", str(tmp_path), "item", "--kind", "milestone", "--risk-score"]) == 2    # declares none
+    assert main(["-C", str(tmp_path), "item", "--projection", "milestone", "--risk-score"]) == 2    # declares none
     assert main(["-C", str(tmp_path), "item", "--risk-score"]) == 2
     p.events.add("milestone.added", item="milestone/m", data={}, at=T0 + 2 * 10 ** 6)
     assert "risk_score" not in its.detail(p.events, p.model.spec, "milestone/m")          # off unless declared
@@ -293,7 +293,7 @@ def test_the_factory_records_what_its_score_reads(tmp_path):
 
 KIND = """
 name: t
-items:
+projections:
   change:
     id: change/*
     states: [open, ready, landed, failed]

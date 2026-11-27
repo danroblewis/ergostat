@@ -118,10 +118,10 @@ def answer(live, path: str, q: dict):
     if head == "events":
         n = max(1, min(_int(q, "n", 100) or 100, EVENTS_MOST))
         after = _int(q, "after", 0) or 0
-        kind = (q.get("kind") or [None])[0]
+        kind = (q.get("projection") or [None])[0]
         glob = spec.items[kind].id if spec is not None and kind in spec.items else None
         if kind and glob is None:
-            return 400, {"error": f"no kind {kind!r}"}
+            return 400, {"error": f"no projection {kind!r}"}
         last = p.events.last_seq()
         until_seq = after + n                                       # the cursor moves by at most n a page
         evs = p.events.query(n=None, type=(q.get("type") or [None])[0], item=(q.get("item") or [None])[0],
@@ -137,13 +137,13 @@ def answer(live, path: str, q: dict):
             got = its.detail(p.events, spec, "/".join(rest))
             return (200, got) if got is not None else (404, {"error": "no such item"})
         n = max(1, min(_int(q, "n", 100) or 100, ITEMS_MOST))
-        got = its.listing(p.events, spec, kind=(q.get("kind") or [None])[0], state=(q.get("state") or [None])[0], n=n,
+        got = its.listing(p.events, spec, kind=(q.get("projection") or [None])[0], state=(q.get("state") or [None])[0], n=n,
                           offset=_int(q, "offset", 0) or 0)
         return 200, got
     if head == "counts":
         from ..spec import items as its
         got = its.listing(p.events, spec, n=1)
-        return 200, {"kinds": {k["name"]: k["counts"] for k in got["kinds"]}, "total": got["total"]}
+        return 200, {"projections": {k["name"]: k["counts"] for k in got["projections"]}, "total": got["total"]}
     if head == "readings":
         series, refs = _list(q, "series"), _list(q, "ref")
         if len(series) + len(refs) > READINGS_MOST:
@@ -171,12 +171,12 @@ def answer(live, path: str, q: dict):
         return 200, {"name": name, "since": since, "until": until, "points": pts}
     if head == "process":
         if spec is None:
-            return 200, {"kind": "process", "kinds": [], "nodes": [], "edges": []}
+            return 200, {"kind": "process", "projections": [], "nodes": [], "edges": []}
         from .. import process as pm
         from .. import state as st
         now = time.time()
         since = _float(q, "since") or now - st.WINDOW
-        kinds = [k for k in ",".join(q.get("kinds") or []).split(",") if k in spec.items] or pm.kinds_of(spec, None)
+        kinds = [k for k in ",".join(q.get("projections") or []).split(",") if k in spec.items] or pm.kinds_of(spec, None)
         at = list(dict.fromkeys(q.get("at") or []))       # each id whole, as given: never split on ","
         if len(at) > AT_MOST:
             return 400, {"error": f"at most {AT_MOST} items a call (at=)"}
@@ -197,5 +197,5 @@ def answer(live, path: str, q: dict):
         est = current(p, m)
         if est is None:
             return 503, {"error": "the forecast is being worked out; ask again shortly"}
-        return 200, shaped(est, ids if "item" in q else None, _list(q, "kinds") or None, ITEMS_MOST, ask)
+        return 200, shaped(est, ids if "item" in q else None, _list(q, "projections") or None, ITEMS_MOST, ask)
     return 404, {"error": f"no {head} here (status, model, events, items, counts, readings, series, process, forecast)"}

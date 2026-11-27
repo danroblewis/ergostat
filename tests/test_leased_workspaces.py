@@ -24,7 +24,7 @@ PY = sys.executable
 
 MODEL = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, review, done]
@@ -32,11 +32,11 @@ items:
     show: [title]
 stocks:
   open-tickets:
-    sensor: {items: ticket, state: open, every: 5s}
+    sensor: {projection: ticket, state: open, every: 5s}
 flows:
   closed:
     from: open-tickets
-    sensor: {items: ticket, entering: done, over: 10m}
+    sensor: {projection: ticket, entering: done, over: 10m}
 workspaces:
   code:
     repo: product
@@ -54,7 +54,7 @@ blocks:
   dev:
     type: ai
     prompt: "Fix it."
-    takes: {kind: ticket, at: open, to: review}
+    takes: {projection: ticket, at: open, to: review}
     lease: {ttl: 5m, attempts: 3}
     workspace: code
     tools: [Read, Edit, Bash]

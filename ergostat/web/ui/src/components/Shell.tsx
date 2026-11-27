@@ -5,6 +5,7 @@ import { dashboardHref, useDashboards } from "../state/dashboards";
 import { goalsOff, useStatus, waitsOnYou } from "../state/status";
 import { WINDOW_WORDS, WINDOWS, type WindowKey, useTime } from "../state/time";
 import { Menu } from "./Menu";
+import type { ProjectionRoute } from "../lib/routes";
 
 /* The app's frame: the header (brand, run state, what waits for the owner, the pages, the window) and the
    page beneath it. */
@@ -16,7 +17,8 @@ const NAV: [string, string][] = [
 export function Shell({ children }: { children: ReactNode }) {
   const { since } = useTime();
   const carried = since === "1h" ? "" : `?window=${since}`;   // the window chosen, carried to the page gone to
-  const { list, kinds } = useDashboards();   // the model's kinds (each at /KIND) and dashboards with nav: (at /NAME)
+  const { list, projections } = useDashboards();   // the model's projections (each at /NAME) and dashboards with nav:
+  const own = (projections || []).filter((p) => p.declared);   // the model's own, not ergostat's
   const navDashboards: [string, string][] = (list || []).filter((d) => d.nav != null)
     .map((d) => [dashboardHref(d.name), d.nav || d.title || d.name]);
   return (
@@ -31,10 +33,11 @@ export function Shell({ children }: { children: ReactNode }) {
           {NAV.map(([to, label]) => (
             <NavLink key={to} to={to + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
           ))}
-          {kinds?.some((k) => k.declared) && <KindsMenu kinds={kinds.filter((k) => k.declared).map((k) => k.name)} carried={carried} />}
           {navDashboards.map(([to, label]) => (
             <NavLink key={to} to={to + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
           ))}
+          {own.length > 0 && <span className="nav-bar-sep" aria-hidden="true" />}
+          <ProjectionNav projections={own} carried={carried} />
         </nav>
         <span id="when"><WindowMenu /></span>
       </header>
@@ -43,16 +46,32 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-/** The model's kinds of item, each at its own address (/KIND): its list, and its items under it. */
-function KindsMenu({ kinds, carried }: { kinds: string[]; carried: string }) {
+/** The model's projections after a bar, each its own link to its list (/NAME); those the model gives one `group:` are
+ *  one menu, labelled by the group, in the place of the group's first. */
+function ProjectionNav({ projections, carried }: { projections: ProjectionRoute[]; carried: string }) {
   const navigate = useNavigate();
   const head = decodeURIComponent(useLocation().pathname.split("/")[1] || "");
-  return (
-    <Menu label="Kinds" buttonClassName={`kinds-menu${kinds.includes(head) ? " on" : ""}`} title="Each kind of item, at its own address">
-      {kinds.map((k) => <Menu.Item key={k} checked={k === head} onSelect={() => navigate(`/${encodeURIComponent(k)}${carried}`)}>{k}</Menu.Item>)}
-    </Menu>
-  );
+  const seen = new Set<string>();
+  const out: ReactNode[] = [];
+  for (const p of projections) {
+    if (!p.group) {
+      out.push(<NavLink key={p.name} to={`/${encodeURIComponent(p.name)}${carried}`}
+        className={({ isActive }) => (isActive ? "on" : undefined)}>{title(p.name)}</NavLink>);
+    } else if (!seen.has(p.group)) {
+      seen.add(p.group);
+      const members = projections.filter((q) => q.group === p.group);
+      out.push(
+        <Menu key={`group:${p.group}`} label={title(p.group)} buttonClassName={members.some((q) => q.name === head) ? "on" : ""}>
+          {members.map((q) => <Menu.Item key={q.name} checked={q.name === head}
+            onSelect={() => navigate(`/${encodeURIComponent(q.name)}${carried}`)}>{title(q.name)}</Menu.Item>)}
+        </Menu>);
+    }
+  }
+  return <>{out}</>;
 }
+
+/** A name as a link's words: ready-for-review → Ready for review. */
+const title = (n: string) => { const w = n.replace(/[-_]+/g, " "); return w.charAt(0).toUpperCase() + w.slice(1); };
 
 function RunState() {
   const { status: st } = useStatus();

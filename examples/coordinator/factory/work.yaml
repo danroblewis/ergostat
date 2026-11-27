@@ -8,7 +8,7 @@
 defaults:
   system: work
 
-items:
+projections:
   work:
     id: work/*
     description: an item of work - the owner's direction, a proposal the factory made itself, or a removal
@@ -44,49 +44,49 @@ stocks:
     unit: items
     description: work the factory proposed itself, waiting at the door (u10)
     sensor:
-      items: work
+      projection: work
       state: proposed
       every: 5s
   ready-work:
     unit: items
     description: work to do - admitted, directed, sent back or reopened, waiting for a worker (CV3)
     sensor:
-      items: work
+      projection: work
       state: ready
       every: 5s
   runs-in-flight:
     unit: items
     description: items leased to a worker and running (each run one item)
     sensor:
-      items: work
+      projection: work
       state: leased
       every: 5s
   reported-done:
     unit: items
     description: work a run reported done, being checked (the acceptance step)
     sensor:
-      items: work
+      projection: work
       state: reported
       every: 5s
   accepted-work:
     unit: items
     description: work accepted and landed on the mainline
     sensor:
-      items: work
+      projection: work
       state: accepted
       every: 10s
   dead-letter:
     unit: items
     description: items whose runs failed three times, waiting for the diagnoser
     sensor:
-      items: work
+      projection: work
       state: dead-letter
       every: 5s
   declined-work:
     unit: items
     description: proposals declined at the door - kept and reviewed, never dropped (LP6)
     sensor:
-      items: work
+      projection: work
       state: declined
       every: 10s
 
@@ -114,7 +114,7 @@ flows:
         instant: true                 # a worker proposes its follow-ups as its work lands (a coflow)
     equation: proposals-per-item * flow.accepted
     sensor:
-      items: work
+      projection: work
       entering: proposed
       where:
         origin: [proposed, removal]   # every item arrives in proposed first; the owner's directions move on at once
@@ -123,7 +123,7 @@ flows:
     from: proposed-work
     to: ready-work
     sensor:
-      items: work
+      projection: work
       entering: ready
       where:
         via: admitted
@@ -132,7 +132,7 @@ flows:
     from: proposed-work
     to: declined-work
     sensor:
-      items: work
+      projection: work
       entering: declined
       over: 10m
   resurrected:
@@ -141,7 +141,7 @@ flows:
     description: what the owner takes back from the declined (one of LP6's two error signals)
     driven-by: [+stock.declined-work, +auxiliary.owner-present]
     sensor:
-      items: work
+      projection: work
       entering: ready
       where:
         via: resurrected
@@ -151,7 +151,7 @@ flows:
     to: runs-in-flight
     description: dispatch (u1) - a ready item leased to a worker
     sensor:
-      items: work
+      projection: work
       entering: leased
       over: 10m
   expired:
@@ -159,7 +159,7 @@ flows:
     to: ready-work
     description: a run silent past its lease - expired, its item requeued (LP5)
     sensor:
-      items: work
+      projection: work
       entering: ready
       where:
         via: expired
@@ -168,7 +168,7 @@ flows:
     from: runs-in-flight
     to: dead-letter
     sensor:
-      items: work
+      projection: work
       entering: dead-letter
       over: 10m
   redriven:
@@ -176,7 +176,7 @@ flows:
     to: ready-work
     description: redriven with the diagnoser's hints
     sensor:
-      items: work
+      projection: work
       entering: ready
       where:
         via: redriven
@@ -189,7 +189,7 @@ flows:
     driven-by: [+stock.runs-in-flight]
     equation: stock.runs-in-flight / run-time
     sensor:
-      items: work
+      projection: work
       entering: reported
       over: 10m
   accepted:
@@ -197,7 +197,7 @@ flows:
     to: accepted-work
     description: accepted and merged (u3, u4)
     sensor:
-      items: work
+      projection: work
       entering: accepted
       over: 10m
   rejected:
@@ -205,7 +205,7 @@ flows:
     to: ready-work
     description: sent back by the acceptance check - rework caught before it landed (CV2)
     sensor:
-      items: work
+      projection: work
       entering: ready
       where:
         via: rejected
@@ -221,7 +221,7 @@ flows:
       - +stock.accepted-work
     equation: MIN(flow.rework-found, stock.accepted-work / discovery-time)
     sensor:
-      items: work
+      projection: work
       entering: ready
       where:
         via: reopened

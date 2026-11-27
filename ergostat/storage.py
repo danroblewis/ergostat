@@ -12,7 +12,7 @@ the SQLite one in ``store.py`` (``Events``), and one conformance suite holds eve
                                        # optional: the command ergostat supervises (the daemon victoriametrics)
       rollup:
         after: 7d                      # an item's events older than this become one snapshot
-        kinds: {session: 1d}           # per item kind
+        projections: {session: 1d}     # per projection
         every: 1h                      # how often the engine rolls up and forgets
       items:
         idle: 1d                       # an item with no event for this long is read from the item index, not kept folded in memory
@@ -61,7 +61,7 @@ class Storage:
     logs: dict[str, float] = field(default_factory=lambda: dict(LOGS))   # the caps on the logs (bytes; transcripts: s)
 
     def horizon(self, kind: str | None) -> float | None:
-        """How old an item's events are before they are rolled up: its kind's, else the default."""
+        """How old an item's events are before they are rolled up: its projection's, else the default."""
         return self.rollup_kinds.get(kind or "", self.rollup_after)
 
 
@@ -124,12 +124,12 @@ def parse(raw, problems: list[str]) -> Storage:
         if not isinstance(ro, dict):
             ro = {"after": ro}
         for k in ro:
-            if k not in ("after", "kinds", "every"):
-                problems.append(f"storage.rollup: unknown key {k!r} (known: after, kinds, every)")
+            if k not in ("after", "projections", "every"):
+                problems.append(f"storage.rollup: unknown key {k!r} (known: after, projections, every)")
         if "after" in ro:
             s.rollup_after = _dur(ro["after"], "storage.rollup.after", problems)
-        for kind, v in (ro.get("kinds") or {}).items():
-            got = _dur(v, f"storage.rollup.kinds.{kind}", problems)
+        for kind, v in (ro.get("projections") or {}).items():
+            got = _dur(v, f"storage.rollup.projections.{kind}", problems)
             s.rollup_kinds[str(kind)] = got          # type: ignore[assignment]
         if "every" in ro:
             s.every = _dur(ro["every"], "storage.rollup.every", problems) or EVERY

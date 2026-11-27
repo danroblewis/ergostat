@@ -1,5 +1,5 @@
 """The graphs ergostat works out itself, each as a ``graph`` of one named kind for a panel (SPEC §4e, *A graph*; the
-chart catalog's §2.2): ``{"source": "graph", "diagram": D, "kind"?: K}``.
+chart catalog's §2.2): ``{"source": "graph", "diagram": D, "projection"?: K}``.
 
 - ``dependency``: the Items page's precedence network (``precedence.py``, through ``web/relations_api.py``), an item a
   node and a precedence relation an edge from what comes first (``blocks``, or ``met`` once precedence.py counts it
@@ -63,7 +63,7 @@ def dependency(ans: dict) -> tuple[dict, dict]:
         items = [{**x, "slack": None, "critical": None, "lf": None} for x in items]
         prec = [{**e, "critical": None} for e in prec]
     frame = {"shape": "graph", "kind": "dependency",
-             "nodes": {"id": list(by), "label": [x.get("title") or x["id"] for x in items], "type": _col(items, "kind"),
+             "nodes": {"id": list(by), "label": [x.get("title") or x["id"] for x in items], "type": _col(items, "projection"),
                        "group": _col(items, "group"), "health": ["unhealthy" if x.get("cycle") else "ok" for x in items],
                        "fields": [{"name": "slack", "unit": "s", "role": "slack", "values": _col(items, "slack")},
                                   {"name": "duration", "unit": "s", "values": _col(items, "duration")},
@@ -93,7 +93,7 @@ def process(ans: dict) -> tuple[dict, dict]:
     ns, es, total = ans["nodes"], ans["edges"], ans.get("total") or {}
     capped = ans.get("capped") or {}
     frame = {"shape": "graph", "kind": "process",
-             "nodes": {"id": _col(ns, "id"), "label": _col(ns, "label"), "type": _col(ns, "kind"), "group": _col(ns, "itemKind"),
+             "nodes": {"id": _col(ns, "id"), "label": _col(ns, "label"), "type": _col(ns, "kind"), "group": _col(ns, "projection"),
                        "fields": [{"name": "count", "unit": "", "role": "count", "values": _col(ns, "count")},
                                   {"name": "items", "unit": "", "values": _col(ns, "items")}]},
              "edges": {"id": _col(es, "id"), "source": _col(es, "source"), "target": _col(es, "target"),
@@ -184,7 +184,7 @@ def _made(p, diagram: str, kinds: list[str], since: float, until: float, past: b
         snap = {"at": until, "window": until - since}
         if diagram == "dependency":
             from ..web.relations_api import graph
-            ans = graph(p, p.model, snap, {"kinds": [",".join(kinds)]} if kinds else {})
+            ans = graph(p, p.model, snap, {"projections": [",".join(kinds)]} if kinds else {})
         elif diagram == "process":
             from .. import process as pm
             spec = p.model.spec
@@ -207,7 +207,7 @@ def answer(p, q, since: float, until: float, past: bool, work) -> dict:
     if spec is None and q.diagram != "service":
         raise Unanswerable(f"this model declares no items to draw a {q.diagram} graph of")
     if q.kind is not None and (q.diagram == "service" or q.kind not in spec.items):
-        raise Unanswerable(f"a {q.diagram} graph takes no kind" if q.diagram == "service"
-                           else f"kind {q.kind!r} is not in the model")
+        raise Unanswerable(f"a {q.diagram} graph takes no projection" if q.diagram == "service"
+                           else f"projection {q.kind!r} is not in the model")
     ans, read = _made(p, q.diagram, [q.kind] if q.kind else [], since, until, past, work)
     return {"id": q.id, **drawn(*ADAPT[q.diagram](ans)), "read_log": read and q.diagram != "dependency"}

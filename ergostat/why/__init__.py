@@ -106,23 +106,23 @@ def waits(ctx: Ctx, it) -> list[tuple[str, str, object]]:
 
 
 def now_of(ctx: Ctx, it, info: dict | None) -> dict:
-    """Its state, for how long, and whether that is unusual against its kind's stays in that state."""
+    """Its state, for how long, and whether that is unusual against its projection's stays in that state."""
     secs = max(0.0, ctx.now - it.entered) if it.entered else None
     out = {"state": it.state, "since": it.entered or None, "for": secs, "usual": None, "unusual": None}
     if info is None or it.state is None or secs is None:
-        out["said"] = "its kind has no states, so it is never finished" if info is None else "it has no state"
+        out["said"] = "its projection has no states, so it is never finished" if info is None else "it has no state"
         return out
     with ctx.ix.lock:
         stays = sorted(ctx.ix.stays(it.kind, 2000, info["finished"])[0].get(it.state) or [])
     if len(stays) < FEWEST:
-        out["said"] = (f"{len(stays)} stay{'s' if len(stays) != 1 else ''} in {it.state} recorded for its kind: too few "
+        out["said"] = (f"{len(stays)} stay{'s' if len(stays) != 1 else ''} in {it.state} recorded for its projection: too few "
                        f"to say whether this is unusual")
         return out
     shorter = sum(1 for s in stays if s < secs)
     top = stays[min(len(stays) - 1, int(USUAL * len(stays)))]
     out["usual"] = {"median": stays[len(stays) // 2], "p90": top, "stays": len(stays), "longer_than": shorter / len(stays)}
     out["unusual"] = secs > top
-    out["said"] = (f"longer than {round(100 * shorter / len(stays))}% of the {len(stays)} stays its kind made in "
+    out["said"] = (f"longer than {round(100 * shorter / len(stays))}% of the {len(stays)} stays its projection made in "
                    f"{it.state} (median {_dur(stays[len(stays) // 2])})" + (": unusual" if out["unusual"] else ""))
     return out
 
@@ -140,9 +140,9 @@ def here(ctx: Ctx, it, iid: str) -> tuple[list, dict | None]:
                         evidence=[ev("no event about this id in the item index", item_link(iid))])
     info = ctx.info(it.kind)
     if info is None:
-        return [], root("unknown", iid, f"{iid} has no kind with states ({it.kind or 'no kind matches its id'}), so it "
-                        "is never finished", "the owner", "declare its kind's states in the model, or remove the link",
-                        evidence=[ev("its kind in the model", item_link(iid))])
+        return [], root("unknown", iid, f"{iid} has no projection with states ({it.kind or 'no projection matches its id'}), so it "
+                        "is never finished", "the owner", "declare its projection's states in the model, or remove the link",
+                        evidence=[ev("its projection in the model", item_link(iid))])
     if it.state == DEAD:
         return [], _parked(it, "a dead letter: its attempts ran out", f"ergostat lease {iid} --redrive")
     if it.state in info["paused"]:
@@ -226,7 +226,7 @@ def answer(p, iid: str, now: float | None = None, engine: dict | None = None) ->
         out["summary"] = summary(out)
         return out
     if info is not None and info["lives_on"]:            # (a pool is held, never done: nothing to follow)
-        out["missing"].append(f"its kind, {it.kind}, has no finished state (it lives on), so it is never done")
+        out["missing"].append(f"its projection, {it.kind}, has no finished state (it lives on), so it is never done")
         out["summary"] = summary(out)
         return out
     roots, cut = walk(ctx, it, iid)
@@ -242,7 +242,7 @@ def answer(p, iid: str, now: float | None = None, engine: dict | None = None) ->
         r = out["root"] = roots[0]
         got = ctx.items(r["path"])
         out["chain"] = [{"item": x, "state": getattr(got.get(x), "state", None),
-                         "kind": getattr(got.get(x), "kind", None)} for x in r["path"]]
+                         "projection": getattr(got.get(x), "kind", None)} for x in r["path"]]
         out["next"] = {"owner": r["owner"], "action": r["action"], "command": r["command"]}
         out["evidence"] = [e for x in roots for e in x["evidence"]]
         if r["kind"] == "unknown":

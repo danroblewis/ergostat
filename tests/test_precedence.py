@@ -22,7 +22,7 @@ T0 = 1_700_000_000.0
 MEDIAN = 1200.0                      # 20 min doing
 
 MODEL = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, doing, done]
@@ -35,30 +35,30 @@ blocks:
   worker:
     type: program
     run: "true"
-    takes: {kind: ticket, at: todo}
+    takes: {projection: ticket, at: todo}
     pool: 6
 """
 
 GAPS = """
-items:
+projections:
   gap:
     id: gap/*
     states: [ready, doing, review, fix, approved, merged]
     on: {gap.opened: ready, gap.started: doing, gap.reviewed: review, gap.failed: fix, gap.approved: approved,
          gap.merged: merged}
     relations:
-      depends_on: {kind: gap, starts_at: [approved]}
+      depends_on: {projection: gap, starts_at: [approved]}
 messages:
   done: {gap: [merged]}
 blocks:
   dev:
     type: program
     run: "true"
-    takes: {kind: gap, at: [ready], to: [merged], unblocked: true}
+    takes: {projection: gap, at: [ready], to: [merged], unblocked: true}
   queue:
     type: program
     run: "true"
-    takes: {kind: gap, at: [approved], to: [merged]}
+    takes: {projection: gap, at: [approved], to: [merged]}
 """
 
 
@@ -174,7 +174,7 @@ def test_levelled_pass_uses_measured_concurrency(tmp_path):
 
 
 REVIEWED = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, doing, review, reviewing, done]
@@ -185,12 +185,12 @@ blocks:
   worker:
     type: program
     run: "true"
-    takes: {kind: ticket, at: todo}
+    takes: {projection: ticket, at: todo}
     pool: 6
   reviewer:
     type: program
     run: "true"
-    takes: {kind: ticket, at: review}
+    takes: {projection: ticket, at: review}
     pool: 1
 """
 
@@ -281,7 +281,7 @@ def test_starts_at_leaves_the_critical_path_finish_to_start(tmp_path):
     assert by["gap/a"]["ef"] - now == pytest.approx(293)               # 300 s in approved, 7 s of it gone
     assert by["gap/b"]["es"] - now == pytest.approx(293)               # the dependent is projected after it ends
     assert g["critical"] == ["gap/a", "gap/b"]
-    assert g["kinds"][0]["relations"]["depends_on"]["starts_at"] == ["approved"]
+    assert g["projections"][0]["relations"]["depends_on"]["starts_at"] == ["approved"]
     q = record(tmp_path / "fix", "fix")
     by = {x["id"]: x for x in pr.build(q.events, q.model.spec, ["gap"], now, now)["items"]}
     assert by["gap/b"]["status"] == "blocked" and by["gap/b"]["waiting"] == ["gap/a"]

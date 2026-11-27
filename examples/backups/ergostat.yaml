@@ -1,7 +1,7 @@
 # Backups, then copies sent off site. One simulated hour passes every two seconds.
 name: backups
 
-items:
+projections:
   backup:                        # each backup the job takes, until its copy is off site
     id: backup/*
     states: [taken, offsite]
@@ -20,7 +20,7 @@ stocks:
     unit: backups
     description: backups taken but not yet copied off site
     sensor:                      # counted from the record: the backups still in taken
-      items: backup
+      projection: backup
       state: taken
       every: 3s
 

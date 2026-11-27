@@ -10,7 +10,7 @@ remotes:
     every: 10s
     description: the incident desk, run by the on-call team's ergostat
 
-items:
+projections:
   ticket:
     id: ticket/*
     states: [waiting, answered]

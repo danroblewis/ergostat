@@ -1,4 +1,4 @@
-"""The intent judge's measures (SPEC §12i), over the last ``WEEK`` of record, each for every kind it judges or, with
+"""The intent judge's measures (SPEC §12i), over the last ``WEEK`` of record, each for every projection it judges or, with
 ``@KIND``, one: ``ergostat.intent.false-done@hypothesis``.
 
 - ``false-done``: of the work **accepted**, the share the owner later found not done as meant (reopened, followed
@@ -32,7 +32,7 @@ def kinds_of(spec: Spec) -> dict[str, IntentKind]:
 
 
 def table(p, spec: Spec, since: float | None = None, now: float | None = None, kind: str | None = None) -> dict:
-    """Every count and rate over the window (the last week by default), by kind and in all; the latest verdicts held."""
+    """Every count and rate over the window (the last week by default), by projection and in all; the latest verdicts held."""
     now = time.time() if now is None else now
     since = now - WEEK if since is None else since
     kinds = kinds_of(spec)
@@ -40,8 +40,8 @@ def table(p, spec: Spec, since: float | None = None, now: float | None = None, k
     eps = outcomes.episodes(p, spec, kinds, since, now, vs)
 
     def score(kind_: str | None) -> dict:
-        es = [e for e in eps if kind_ is None or e["kind"] == kind_]
-        ws = [v for v in vs.values() if kind_ is None or v.get("kind") == kind_]
+        es = [e for e in eps if kind_ is None or e["projection"] == kind_]
+        ws = [v for v in vs.values() if kind_ is None or v.get("projection") == kind_]
         acc = [e for e in es if e["accepted"]]
         found = [e for e in acc if e["found"]]
         bad = [e for e in es if e["held"] or e["found"]]
@@ -58,7 +58,7 @@ def table(p, spec: Spec, since: float | None = None, now: float | None = None, k
         return out
     names = [kind] if kind else sorted(kinds)
     held = sorted((v for v in vs.values() if v.get("verdict") in record.HELD), key=lambda v: -(v.get("verdict_time") or 0))
-    return {"since": since, "until": now, "all": score(kind), "kinds": {k: score(k) for k in names},
+    return {"since": since, "until": now, "all": score(kind), "projections": {k: score(k) for k in names},
             "held": [{k: v.get(k) for k in ("id", "work", "verdict", "why", "state", "mode", "model", "verdict_time")}
                      for v in held[:20]],
             "latest": [{k: v.get(k) for k in ("id", "work", "verdict", "why", "state", "mode", "model", "verdict_time",
@@ -69,7 +69,7 @@ def table(p, spec: Spec, since: float | None = None, now: float | None = None, k
 def measure(p, name: str, now: float | None = None) -> float:
     m = INTENT.match(name)
     if not m:
-        raise ValueError(f"no measure {name!r}: {', '.join(INTENT_MEASURES)} (each with @KIND for one kind)")
+        raise ValueError(f"no measure {name!r}: {', '.join(INTENT_MEASURES)} (each with @PROJECTION for one projection)")
     what, kind = m.group(1), m.group(2)
     spec = getattr(p.model, "spec", None)
     if spec is None:

@@ -25,7 +25,7 @@ def milestone_answer(n_extra: int = 0, per: int = 6) -> dict:
     items, edges = [], []
 
     def item(a, kind, state, status, at, waiting=(), title="", done_at=None):
-        x = {"id": a, "kind": kind, "state": state, "status": status, "title": title, "first": at, "last": at,
+        x = {"id": a, "projection": kind, "state": state, "status": status, "title": title, "first": at, "last": at,
              "group": None, "waiting": list(waiting), "segments": [[state, at, done_at or at + 600]]}
         if status != "done":
             x.update(es=at + 600, ef=at + 1200, projected=[["building", at + 600, at + 1200]])
@@ -83,12 +83,12 @@ def milestone_answer(n_extra: int = 0, per: int = 6) -> dict:
             x["children"]["done"] += by[e["to"]]["status"] == "done"
     kinds = [{"name": "gap", "asked": True, "states": ["ready", "building", "merged"]},
              {"name": "milestone", "asked": False, "states": ["waiting", "active", "completed"]}]
-    return {"items": items, "edges": edges, "kinds": kinds, "asked": ["gap"], "now": T0 + 2000, "since": T0 - 100,
+    return {"items": items, "edges": edges, "projections": kinds, "asked": ["gap"], "now": T0 + 2000, "since": T0 - 100,
             "end": T0 + 5000, "critical": [], "cycles": [], "capped": {}, "assumed": None}
 
 
 MODEL = """
-items:
+projections:
   gap:
     id: gap/*
     states: [ready, building, merged]
@@ -96,7 +96,7 @@ items:
     relations:
       depends_on: gap
       parent: gap
-      milestone: {kind: milestone, group: true, precedence: false, inverse: gaps}
+      milestone: {projection: milestone, group: true, precedence: false, inverse: gaps}
   milestone:
     id: milestone/*
     states: [waiting, active, completed]
@@ -121,9 +121,9 @@ def test_a_real_answer_has_the_shape_the_frames_are_read_from(tmp_path):
     ev.add("gap.defined", item="gap/2", data={"milestone": "milestone/b", "depends_on": "gap/1"}, at=now - 70)
     ev.add("gap.defined", item="gap/3", data={"milestone": "milestone/b", "parent": "gap/2"}, at=now - 60)
     ev.add("gap.started", item="gap/1", at=now - 50)
-    ans = relations_api.graph(p, m, {"at": now, "window": 3600}, {"kinds": ["gap"]})
+    ans = relations_api.graph(p, m, {"at": now, "window": 3600}, {"projections": ["gap"]})
     by = {x["id"]: x for x in ans["items"]}
-    kinds = {k["name"]: k.get("asked") for k in ans["kinds"]}
+    kinds = {k["name"]: k.get("asked") for k in ans["projections"]}
     assert kinds["gap"] and not kinds["milestone"]                     # the frame's kind is not asked
     groups = {(e["from"], e["to"], e["rel"]) for e in ans["edges"] if e["kind"] == "group"}
     assert {("milestone/a", "gap/1", "milestone"), ("milestone/b", "gap/2", "milestone"),

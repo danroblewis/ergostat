@@ -15,7 +15,7 @@ export function graphOf(view: ViewKey, data: any): any | undefined {
 export function emptyText(g: any, view: ViewKey): string | null {
   if (!g || g.nodes.length) return null;
   if (view === "process")
-    return (g.kinds || []).length ? `Nothing on the record in the window for ${g.kinds.map((k: any) => k.name).join(", ")}.` : "No kinds of item here: its parts are counted by sensors.";
+    return (g.projections || []).length ? `Nothing on the record in the window for ${g.projections.map((k: any) => k.name).join(", ")}.` : "No projections here: its parts are counted by sensors.";
   return g.subset ? `${g.subset.says}.` : view === "blocks" ? "No control system here: no goal, and no block that acts." : "Nothing to draw: the model is empty.";
 }
 

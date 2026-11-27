@@ -9,9 +9,9 @@ declared, so both are read from the block as compiled and from the record, decla
   rung's record never mixes with the one it replaced, nor a block made again under its name with the one removed:
   - **may / did**, for item work: one row per ``takes.to`` state (0 when never reached), the lease ends that left the
     item elsewhere (``other``: given back, a dead letter, expired), and the ends whose take is not in the record
-    (``unattributed``, of the kind it takes: they may be another block's), each by its take's ``seq``;
+    (``unattributed``, of the projection it takes: they may be another block's), each by its take's ``seq``;
   - **said / carried out**, for a controller: its ``controller.decided`` words, numbers taken out, once per run (a
-    block serving two goals writes each line once per goal), and per ``out`` port the commands acted on as each kind of
+    block serving two goals writes each line once per goal), and per ``out`` port the commands acted on as each projection of
     port records them. A block another block also commands records only its last commander, so its row says ``shared
     with`` and counts nothing; a goal (a setpoint) records nothing, said ``not recorded``."""
 
@@ -29,7 +29,7 @@ ROWS = (("what it works", ("takes", "on", "in")), ("what it may move", ("out", "
         ("what it may use", ("tools", "read", "read-only", "network", "workdir", "workspace")),
         ("what it costs and how long", ("model", "timeout", "max-cost")), ("how it is answered", ("parse", "goal", "until")))
 OWN_MODULE = {"judge": "ergostat.intent.judge"}
-OWN_KEYS = ("judge", "kinds", "model", "max-cost", "threshold")
+OWN_KEYS = ("judge", "projections", "model", "max-cost", "threshold")
 
 
 def _plain(v):
@@ -48,7 +48,10 @@ def _value(spec, b, k: str):
            "out": {p: [str(r) for r in rs] for p, rs in b.outputs.items()} or None, "max": b.max, "min": b.min,
            "model": b.params.get("model") or (a.model if a else None), "timeout": b.timeout,
            "max-cost": spec.budget.max_cost if spec.budget is not None else None}
-    return _plain(got[k] if k in got else b.params.get(k))
+    v = _plain(got[k] if k in got else b.params.get(k))
+    if k == "takes" and isinstance(v, dict) and "kind" in v:          # as written: takes: {projection: K, ...}
+        v = {"projection": v.pop("kind"), **v}
+    return v
 
 
 def spec_rows(p, spec, b, lo: float, hi: float) -> list:
@@ -57,7 +60,8 @@ def spec_rows(p, spec, b, lo: float, hi: float) -> list:
         from .web.agent_spec import _doc
         mod = OWN_MODULE.get(b.type)
         pol = b.params.get("intent")
-        keys = [[k, _plain(b.params.get(k, getattr(pol, k.replace("-", "_"), None)))] for k in OWN_KEYS]
+        keys = [[k, _plain(b.params.get(k, getattr(pol, {"projections": "kinds"}.get(k, k.replace("-", "_")), None)))]
+                for k in OWN_KEYS]
         return [["computed by", [["module", f"ergostat's own: {mod}" if mod else f"ergostat's built-in {b.type}"],
                                  *([["what it does", _doc(mod)]] if mod and _doc(mod) else [])]],
                 ["its keys", [kv for kv in keys if kv[1] not in (None, "", [], {})]]]

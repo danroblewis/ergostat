@@ -28,7 +28,7 @@ PY = shlex.quote(sys.executable)
 
 MODEL = """
 name: calls
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -44,7 +44,7 @@ blocks:
   probe:
     type: program
     run: {run}
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 2
     actions: [noop, ask]
 """
@@ -184,17 +184,17 @@ def test_the_socket_lists_items_as_the_command_does(engine, tmp_path):
     assert wait_for(lambda: all(its.one(p.events, p.model.spec, f"job/{n}").state == "done" for n in (1, 2, 3)))
     assert wait_for(lambda: not its.one(p.events, p.model.spec, "job/3").fields.get("lease", {}).get("holder"), 5)
     time.sleep(0.3)                                               # (the last run's ending recorded)
-    got = client.call("items", path=e.socket, root=str(tmp_path), kind="job", state="done")
-    r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "item", "--kind", "job", "--state", "done",
+    got = client.call("items", path=e.socket, root=str(tmp_path), projection="job", state="done")
+    r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "item", "--projection", "job", "--state", "done",
                         "--json"], capture_output=True, text=True, env={**os.environ, "ERGOSTAT_NO_SOCKET": "1"})
     assert r.returncode == 0, r.stderr
     assert got == json.loads(r.stdout)
     assert sorted(i["id"] for i in got["items"]) == ["job/1", "job/2", "job/3"]
-    assert client.call("items", path=e.socket, root=str(tmp_path), kind="job", state="ready")["items"] == []
+    assert client.call("items", path=e.socket, root=str(tmp_path), projection="job", state="ready")["items"] == []
 
 
 def test_the_socket_pages_through_more_items_than_one_listing_holds(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("name: many\nitems:\n  doc:\n    id: doc/*\n    states: [open]\n"
+    (tmp_path / "ergostat.yaml").write_text("name: many\nprojections:\n  doc:\n    id: doc/*\n    states: [open]\n"
                                             "    on: {doc.opened: open}\n")
     p = Project(mdl.load(tmp_path))
     for n in range(600):
@@ -202,8 +202,8 @@ def test_the_socket_pages_through_more_items_than_one_listing_holds(tmp_path):
     e = Engine(p, say=lambda s: None)
     e.start_all()
     try:
-        first = client.call("items", path=e.socket, root=str(tmp_path), kind="doc")
-        rest = client.call("items", path=e.socket, root=str(tmp_path), kind="doc", offset=len(first["items"]))
+        first = client.call("items", path=e.socket, root=str(tmp_path), projection="doc")
+        rest = client.call("items", path=e.socket, root=str(tmp_path), projection="doc", offset=len(first["items"]))
     finally:
         e.close()
     assert first["total"] == 600 and len(first["items"]) == its.LISTED == 500

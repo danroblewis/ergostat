@@ -104,7 +104,7 @@ ROLE --model M` (as the block's `run:`, `$ERGOSTAT_CMD session ...`) gets a mess
 Everything else it prints goes to its log. `ERGOSTAT_COMMAND` holds the amount too, for a shell
 one-liner (`find tmp -mmin +60 -delete -print | head -n "$ERGOSTAT_COMMAND" | wc -l`).
 `ERGOSTAT_CMD` runs this ergostat on this project, so a block (or the AI agent it starts) can read
-and record items while it works: `$ERGOSTAT_CMD item --kind ticket --state open --json`.
+and record items while it works: `$ERGOSTAT_CMD item --projection ticket --state open --json`.
 
 A block nothing commands runs on its own schedule (`every: 5m`, `cron: "0 3 * * *"`): an open loop,
 which `check` points out. One that a goal or another block commands runs while the command holds,
@@ -115,7 +115,7 @@ once per fresh reading, and never twice at once.
 ```yaml
   developer:
     type: ai
-    takes: {kind: ticket, at: ready}   # a run for each ticket that reaches ready
+    takes: {projection: ticket, at: ready}   # a run for each ticket that reaches ready
     pool: 3                            # at most three at once
     run: $ERGOSTAT_CMD session developer --model sonnet
 ```
@@ -125,7 +125,7 @@ stock (which needs a sensor) reads now, read at each dispatch and never more tha
 block drains: nothing running is stopped, and no new run starts until fewer are going. With no reading it starts
 nothing new, and says so.
 
-Each run holds a **lease** on its item: its input carries the item (`item`: id, kind, state, fields) and the lease
+Each run holds a **lease** on its item: its input carries the item (`item`: id, projection, state, fields) and the lease
 (`lease`: fence, ttl, expires, attempt); its environment `ERGOSTAT_ITEM` and `ERGOSTAT_LEASE` (the fencing number);
 an event line that names no item is about it. Whatever the run records about the item (`$ERGOSTAT_CMD event --add`,
 its session's transcript, `$ERGOSTAT_CMD lease --renew`) keeps the lease. When the run ends, the lease ends: ack if
@@ -180,10 +180,10 @@ ergostat records `person.asked` when the goal goes off; the person answers with
 An event about an id with a `/` in it (`ticket/12`, `github/pull_request/4231`) is about an item.
 A block reports one with `{"event": "ticket.started", "item": "ticket/12", "data": {"title": "..."}}`;
 something outside reports with `ergostat event --add ticket.opened --item ticket/12 --data '{...}'`
-(or `record_event` over MCP). A kind of item gives it states, and a stock can count them:
+(or `record_event` over MCP). A projection gives its items states, and a stock can count them:
 
 ```yaml
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, doing, done]
@@ -194,18 +194,18 @@ stocks:
   backlog:
     unit: tickets
     sensor:
-      items: ticket
+      projection: ticket
       state: open
       every: 30s
 ```
 
 Each event is a changeset to the item's fields. Its `data` replaces each field it names, unless
-the kind folds that field otherwise (`fold: {notes: append, hours: sum, labels: union}`; also
+the projection folds that field otherwise (`fold: {notes: append, hours: sum, labels: union}`; also
 `min`, `max`, `merge`, `first`). Or it carries a JSON Patch in place of `data`, applied whole or
 refused with why (a refused patch does not move the item's state either): `{"event": "ticket.tagged", "item": "ticket/12", "patch": [{"op": "add", "path":
 "/labels/-", "value": "bug"}]}` (`ergostat event --add ... --patch '[...]'`), or the whole document,
 `"set": {...}`.
 
-`ergostat item` lists them by kind and state; `ergostat item ticket/12` shows one, how it moved,
+`ergostat item` lists them by projection and state; `ergostat item ticket/12` shows one, how it moved,
 and every event about it; `--history` shows every change to each field, with the event that made
 it. The page's Items tab shows the same.

@@ -22,7 +22,7 @@ ACTS = ("add", "redrive", "renew", "nack", "check", "about", "reopen", "now", "d
 READ_WHAT = {"remote": ("proposals",)}
 # the read topics' other flags, each one that only reads (tests/test_cli_fallback.py holds every flag to one list or
 # the other); what decides is the record, which the fallback opens refusing every write
-READ_FLAGS = ("n", "kind", "state", "history", "type", "item", "source", "follow", "runs", "data", "patch", "set_", "by",
+READ_FLAGS = ("n", "projection", "kind", "state", "history", "type", "item", "source", "follow", "runs", "data", "patch", "set_", "by",
               "to", "why", "after", "no_count", "all", "around", "depth", "list", "wiring", "blocks", "open", "note",
               "command", "stats", "search", "near", "path_to", "about_item", "backfilled", "from_",
               "replace", "groups", "risk_score", "backtest")

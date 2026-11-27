@@ -19,28 +19,28 @@ from ergostat.store import Project
 
 BASE = """
 name: coh
-items:
+projections:
   ticket:
     id: ticket/*
     states: [new, doing, review, done]
     on: {ticket.started: doing, ticket.submitted: review, ticket.merged: done, ticket.reopened: doing}
 stocks:
-  new: {unit: tickets, sensor: {items: ticket, state: new}}
-  doing: {unit: tickets, sensor: {items: ticket, state: doing}}
-  review: {unit: tickets, sensor: {items: ticket, state: review}}
+  new: {unit: tickets, sensor: {projection: ticket, state: new}}
+  doing: {unit: tickets, sensor: {projection: ticket, state: doing}}
+  review: {unit: tickets, sensor: {projection: ticket, state: review}}
 flows:
-  arriving: {to: new, sensor: {items: ticket, entering: new}}
-  start: {from: new, to: doing, sensor: {items: ticket, entering: doing}}
-  submit: {from: doing, to: review, sensor: {items: ticket, entering: review}}
-  merge: {from: review, sensor: {items: ticket, entering: done}}
+  arriving: {to: new, sensor: {projection: ticket, entering: new}}
+  start: {from: new, to: doing, sensor: {projection: ticket, entering: doing}}
+  submit: {from: doing, to: review, sensor: {projection: ticket, entering: review}}
+  merge: {from: review, sensor: {projection: ticket, entering: done}}
 goals:
   new-clear: {stock: new, hold: "<= 0"}
   doing-clear: {stock: doing, hold: "<= 0"}
   review-clear: {stock: review, hold: "<= 0"}
 blocks:
-  starter: {type: program, run: 'true', goal: new-clear, takes: {kind: ticket, at: new, to: [doing]}, out: flow.start}
-  worker: {type: program, run: 'true', goal: doing-clear, takes: {kind: ticket, at: doing, to: [review]}, out: flow.submit}
-  merger: {type: program, run: 'true', goal: review-clear, takes: {kind: ticket, at: review, to: [done]}, out: flow.merge}
+  starter: {type: program, run: 'true', goal: new-clear, takes: {projection: ticket, at: new, to: [doing]}, out: flow.start}
+  worker: {type: program, run: 'true', goal: doing-clear, takes: {projection: ticket, at: doing, to: [review]}, out: flow.submit}
+  merger: {type: program, run: 'true', goal: review-clear, takes: {projection: ticket, at: review, to: [done]}, out: flow.merge}
 """
 
 PATH = (("ticket.started", "starter"), ("ticket.submitted", "worker"), ("ticket.merged", "merger"))
@@ -86,7 +86,7 @@ def test_a_coherent_model_and_record_agree_everywhere(tmp_path):
     p = project(tmp_path)
     work(p)
     got, _ = found(p)
-    k = got["kinds"]["ticket"]
+    k = got["projections"]["ticket"]
     assert mismatches(got) == [] and k["needs"] is None
     assert k["agree"] == k["compared"] and k["compared"] >= 15
     assert all(k["pairs"][x]["compared"] for x in co.PAIRS)            # every pair compared something
@@ -97,7 +97,7 @@ def test_too_little_record_says_how_much_more_it_needs(tmp_path):
     p = project(tmp_path)
     work(p, n=2)
     got, _ = found(p)
-    k = got["kinds"]["ticket"]
+    k = got["projections"]["ticket"]
     assert k["needs"].startswith("2 more moves and 1 more item of ticket in the window (has 8 moves of 2 items")
     assert k["pairs"]["process-dynamics"]["compared"] == 0 and k["pairs"]["blocks-process"]["compared"] == 0
     assert k["pairs"]["dynamics-blocks"]["compared"] > 0                # the model alone is always compared
@@ -132,8 +132,8 @@ def test_a_step_the_record_skips_and_an_order_it_contradicts(tmp_path):
 
 
 def test_arrivals_and_completions_match_the_chain_s_ends(tmp_path):
-    text = BASE.replace("  merge: {from: review, sensor: {items: ticket, entering: done}}\n", "").replace(", out: flow.merge}", "}")
-    text = text.replace("  arriving: {to: new, sensor: {items: ticket, entering: new}}\n", "")
+    text = BASE.replace("  merge: {from: review, sensor: {projection: ticket, entering: done}}\n", "").replace(", out: flow.merge}", "}")
+    text = text.replace("  arriving: {to: new, sensor: {projection: ticket, entering: new}}\n", "")
     p = project(tmp_path, text)
     work(p)
     got, by = found(p)
@@ -145,15 +145,15 @@ def test_arrivals_and_completions_match_the_chain_s_ends(tmp_path):
 
 
 def test_a_modelled_flow_the_record_never_moved_is_said_not_counted(tmp_path):
-    text = BASE.replace("flows:\n", "flows:\n  bounced: {from: review, to: new, sensor: {items: ticket, entering: new, "
+    text = BASE.replace("flows:\n", "flows:\n  bounced: {from: review, to: new, sensor: {projection: ticket, entering: new, "
                                     "where: {bounced: true}}}\n")
     p = project(tmp_path, text)
     work(p)
     got = co.compare(p.model.spec, p.events, problems=[], quiet={})
-    f = next(x for x in got["findings"] if x["id"] == "flow-not-seen@items.ticket")
+    f = next(x for x in got["findings"] if x["id"] == "flow-not-seen@projections.ticket")
     assert f["level"] == "note" and "Quiet is not absent" in f["message"] and "in the window: bounced." in f["message"]
-    assert got["kinds"]["ticket"]["unseen"] == ["bounced"] and mismatches(got) == []
-    k = got["kinds"]["ticket"]
+    assert got["projections"]["ticket"]["unseen"] == ["bounced"] and mismatches(got) == []
+    k = got["projections"]["ticket"]
     assert k["agree"] == k["compared"]                                 # not counted against
     quiet = {"flow.bounced": {"says": "it never moved (at most 0 an hour)"}}
     g2 = co.compare(p.model.spec, p.events, problems=[], quiet=quiet)
@@ -177,20 +177,20 @@ def test_a_stock_where_work_waits_needs_a_goal_and_a_loop(tmp_path):
 
 
 def test_a_flow_work_moves_is_moved_by_a_block_or_said_to_come_from_outside(tmp_path):
-    text = BASE.replace("  submit: {from: doing, to: review, sensor: {items: ticket, entering: review}}",
+    text = BASE.replace("  submit: {from: doing, to: review, sensor: {projection: ticket, entering: review}}",
                         "  submit: {from: doing, to: review}") \
-        .replace("worker: {type: program, run: 'true', goal: doing-clear, takes: {kind: ticket, at: doing, to: [review]}, "
+        .replace("worker: {type: program, run: 'true', goal: doing-clear, takes: {projection: ticket, at: doing, to: [review]}, "
                  "out: flow.submit}", "worker: {type: program, run: 'true', goal: doing-clear, out: flow.start}")
-    text = text.replace("starter: {type: program, run: 'true', goal: new-clear, takes: {kind: ticket, at: new, to: [doing]}, "
-                        "out: flow.start}", "starter: {type: program, run: 'true', goal: new-clear, takes: {kind: ticket, "
+    text = text.replace("starter: {type: program, run: 'true', goal: new-clear, takes: {projection: ticket, at: new, to: [doing]}, "
+                        "out: flow.start}", "starter: {type: program, run: 'true', goal: new-clear, takes: {projection: ticket, "
                         "at: new, to: [doing]}, out: block.worker}")
     p = project(tmp_path, text)
     got, by = found(p)
     f = by["flow-moved-by-nothing@flow.submit"]
     assert "no block moves it and nothing measures it" in f["message"] and "type: external, out: flow.submit" in f["fix"]
     assert "flow-moved-by-nothing@flow.arriving" not in by            # an observed rate from outside: said, fine
-    assert got["kinds"]["ticket"]["movers"]["arriving"] == "outside (observed by its sensor)"
-    assert got["kinds"]["ticket"]["movers"]["merge"] == "block merger"
+    assert got["projections"]["ticket"]["movers"]["arriving"] == "outside (observed by its sensor)"
+    assert got["projections"]["ticket"]["movers"]["merge"] == "block merger"
     # a block that takes the items and moves no flow: the other direction
     q = project(tmp_path, BASE.replace(", out: flow.merge}", "}"), "q")
     got, by = found(q)
@@ -221,7 +221,7 @@ def test_the_owners_thirteen_disconnected_stocks_and_a_block_never_seen_acting(t
     assert "arrival-not-modelled@stock.ff-requested" in codes
     n = by["declared-not-seen-acting@block.do-approved"]
     assert n["pair"] == "blocks-process" and "moved by outside ergostat (person) 6 times" in n["message"]
-    k = got["kinds"]["ff-ticket"]
+    k = got["projections"]["ff-ticket"]
     assert k["agree"] < k["compared"]
 
 
@@ -248,7 +248,7 @@ def test_a_move_from_outside_where_the_model_says_a_block_moves_it(tmp_path):
     # said as an outside rate, it agrees
     text = BASE.replace(", out: flow.merge}", "}").replace("  merger: {type: program", "  merging: {type: external, "
                                                                                        "out: flow.merge}\n  merger: {type: program")
-    q = project(tmp_path, text.replace("merger: {type: program, run: 'true', goal: review-clear, takes: {kind: ticket, at: "
+    q = project(tmp_path, text.replace("merger: {type: program, run: 'true', goal: review-clear, takes: {projection: ticket, at: "
                                        "review, to: [done]}}\n", ""), "q")
     work(q, by={"ticket.merged": None})
     got, by = found(q)
@@ -264,7 +264,7 @@ def test_check_says_coherence_in_its_text_and_json(tmp_path, capsys):
     assert "Coherence" in out and "ticket: " in out and "Blocks ↔ Process" in out and "acts-undeclared" in out
     main(["-C", str(p.model.spec.root), "check", "--json"])
     j = json.loads(capsys.readouterr().out)
-    assert j["coherence"]["kinds"]["ticket"]["compared"] > 0
+    assert j["coherence"]["projections"]["ticket"]["compared"] > 0
     assert any(f["id"] == "acts-undeclared@block.worker" for f in j["coherence"]["findings"])
 
 
@@ -287,7 +287,7 @@ def test_the_examples_model_alone_has_no_dynamics_blocks_mismatch(example):
     spec, _ = read(root / "ergostat.yaml")
     got = co.compare(spec, None, problems=[])
     assert mismatches(got) == []
-    assert all(k["needs"] == "a record (none yet)" for k in got["kinds"].values())
+    assert all(k["needs"] == "a record (none yet)" for k in got["projections"].values())
 
 
 def _fresh(example: str, dest: Path) -> Path:
@@ -324,5 +324,5 @@ def test_the_coherent_examples_agree_after_a_short_run_on_their_stand_ins(tmp_pa
         p = Project(mdl.load(d))
         got = co.of_project(p, p.model.spec)
         assert mismatches(got) == [], (d.name, [f["message"] for f in got["findings"] if f["level"] == "mismatch"])
-        compared += sum(x["compared"] for x in got["kinds"].values() if not x["needs"])
+        compared += sum(x["compared"] for x in got["projections"].values() if not x["needs"])
     assert compared > 20                                  # the record was compared, not only waited for

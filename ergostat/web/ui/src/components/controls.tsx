@@ -79,7 +79,7 @@ export function FinishedNote({ n, states, onShow }: { n: number; states: string[
   );
 }
 
-/** A thing's label-value row under its title (an item's kind, state, age; an agent's kind, system, schedule): a value
+/** A thing's label-value row under its title (an item's projection, state, age; an agent's kind, system, schedule): a value
  *  that is empty leaves its label out. */
 export function Meta({ rows }: { rows: [string, ReactNode][] }) {
   return (

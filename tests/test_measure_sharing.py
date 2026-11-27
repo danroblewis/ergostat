@@ -127,12 +127,12 @@ here = Path(__file__).parent
 args = sys.argv[1:]
 with open(here / "calls.log", "a") as f:
     f.write(" ".join(args) + "\n")
-if args[0] == "item" and "--kind" in args:
+if args[0] == "item" and "--projection" in args:
     time.sleep(0.5)                           # a slow listing: the others arrive while it runs
     if (here / "fail").exists():
         sys.exit("the record cannot be read")
-    kind = args[args.index("--kind") + 1]
-    got = [i for i in json.loads((here / "record.json").read_text()) if i["kind"] == kind]
+    kind = args[args.index("--projection") + 1]
+    got = [i for i in json.loads((here / "record.json").read_text()) if i["projection"] == kind]
     print(json.dumps({"items": got, "total": len(got)}))
 else:
     sys.exit(f"the fake ergostat does not know {args}")
@@ -141,7 +141,7 @@ else:
 
 def gap(n: int, merged_h: float, ready_h: float) -> dict:
     now = time.time()
-    return {"id": f"gap/g{n}", "kind": "gap", "state": "merged",
+    return {"id": f"gap/g{n}", "projection": "gap", "state": "merged",
             "fields": {"merged_at": now - merged_h * 3600, "ready_at": now - ready_h * 3600}}
 
 
@@ -158,7 +158,7 @@ def test_concurrent_measure_readings_of_one_kind_make_one_listing(tmp_path):
     assert all(r.returncode == 0 for r in runs), [o[1] for o in out]
     assert out[0][0].strip() == out[4][0].strip() == "3.0"                # (2h and 4h from ready to merged)
     calls = (tmp_path / "calls.log").read_text().splitlines()
-    assert calls == ["item --kind gap --json -n 5000"]                     # six readings at once, one listing
+    assert calls == ["item --projection gap --json -n 5000"]                     # six readings at once, one listing
 
 
 def test_without_the_engines_state_folder_nothing_is_shared(tmp_path, monkeypatch):

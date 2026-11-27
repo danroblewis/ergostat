@@ -45,7 +45,7 @@ class Rendered:
 
 def item_for(p, spec, sel, command_item: str | None = None, block: str | None = None, run: str | None = None):
     """The item a run works on: the one its command names, else the block's ``context.item``: an id (``{block}``
-    and ``{run}`` filled in), or the oldest (newest) item of a kind in one of the states."""
+    and ``{run}`` filled in), or the oldest (newest) item of a projection in one of the states."""
     from ..spec import items as its
     if command_item:
         return its.one(p.events, spec, str(command_item))
@@ -55,7 +55,7 @@ def item_for(p, spec, sel, command_item: str | None = None, block: str | None = 
         iid = For(p, spec, None, block, run).fill(sel)
         return its.one(p.events, spec, iid) if iid else None
     states = sel.get("state")
-    got = [i for i in its.project(p.events, spec, sel["kind"], transcript=False) if not states or i.state in states]
+    got = [i for i in its.project(p.events, spec, sel["projection"], transcript=False) if not states or i.state in states]
     if states:                                           # the earlier state first: one left building before a new one
         got.sort(key=lambda i: (states.index(i.state), i.first if sel.get("pick", "oldest") == "oldest" else -i.first))
     else:

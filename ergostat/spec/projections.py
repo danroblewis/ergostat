@@ -1,6 +1,6 @@
 """What the status reads from the event log, kept as tables of the item index (SPEC §4b), folded with it.
 
-The item index (``itemindex.py``) folds the model's item kinds; beside them it keeps, in the same file, under the same
+The item index (``itemindex.py``) folds the model's projections; beside them it keeps, in the same file, under the same
 write lock and in the same transaction as the chunk they came in, the record's own items and events that the status
 answer (``state.py``: the inbox and its stats, interventions, actions, requests, proposals, lease attention,
 crossings, unrouted messages, drafted reports) reads with ``events.query``:
@@ -19,7 +19,7 @@ crossings, unrouted messages, drafted reports) reads with ``events.query``:
   (``segments.TALLIES``), with its time.
 
 What depends on the model's blocks, goals or files (which entries wait, a class's record, an alarm's readings) is
-worked out from these when read: the index is shared by every model with the same item kinds. The record stays the
+worked out from these when read: the index is shared by every model with the same projections. The record stays the
 truth: the tables are emptied and built again with the index, and after events are taken out (a roll-up, a prune: the
 record's generation changed) ``records``, ``marks`` and ``voids`` are folded again from what the record still holds,
 and an ask whose event is gone is dropped. ``tests/test_index_projections.py`` holds each equal to a fresh read."""
@@ -48,7 +48,7 @@ from .ir import (
 )
 from .items import SNAPSHOT, Item, fold
 
-FAMILIES = {                 # name: (item prefix and type prefix, its kind, the event it must start with, its class field)
+FAMILIES = {                 # name: (item prefix and type prefix, its projection, the event it must start with, its class field)
     "action": (ACTION, action_kind, f"{ACTION}.requested", ("class", "action")),
     "message": (MESSAGE, message_kind, None, ()),
     "report": (REPORT, report_kind, f"{REPORT}.drafted", ()),

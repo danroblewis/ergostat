@@ -2,7 +2,7 @@
 # Its parts are in factory/: intake (tickets filed into the backlog) and delivery (developed,
 # reviewed, deployed), two systems within the factory.
 
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, doing, review, merged, live, dropped]
@@ -34,8 +34,8 @@ dashboards:
     window: 7d
     panels:
       - {panel: goals, size: full}
-      - {panel: states, kind: ticket, size: l, note: Where tickets wait}
-      - {panel: cycle-time, kind: ticket, size: s}
+      - {panel: states, projection: ticket, size: l, note: Where tickets wait}
+      - {panel: cycle-time, projection: ticket, size: s}
       - {panel: chart, title: Backlog and review, refs: [stock.backlog, stock.in-review], replay: true, size: m}
-      - {panel: items, kind: ticket, state: review, size: m}
+      - {panel: items, projection: ticket, state: review, size: m}
       - {panel: scope, goal: reviews-done, size: m}

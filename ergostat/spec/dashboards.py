@@ -16,27 +16,27 @@ SIZES = ("s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall")
 DASHBOARD_KEYS = {"title", "description", "window", "panels", "nav", "page"}
 # the server's own first parts of a path: nothing of the model's is drawn at them (every other path is the page's)
 RESERVED = ("api", "static", "remote")
-# ergostat's own pages, each a dashboard drawn at its name until the model's own dashboard or kind of that name takes
-# the address (web/ui/src/lib/routes.ts): a kind of item is at /KIND, and its items at /KIND/ID
+# ergostat's own pages, each a dashboard drawn at its name until the model's own dashboard or projection of that name
+# takes the address (web/ui/src/lib/routes.ts): a projection is at /PROJECTION, and its items at /PROJECTION/ID
 BUILTIN = ("diagram", "dashboard", "goals", "agents", "agent", "record", "item")
 # the pages of one thing a dashboard may be drawn for (``page:``) → the address's word it binds: a panel's parameter
-# written ``$WORD`` (``agent: $agent``) takes it from the address (/agent/NAME, /KIND/ID, /KIND). A dashboard named
-# as a kind is that kind's page and binds ``$kind`` too
-PAGES = {"agent": "agent", "item": "item", "kind": "kind"}
+# written ``$WORD`` (``agent: $agent``) takes it from the address (/agent/NAME, /PROJECTION/ID, /PROJECTION). A
+# dashboard named as a projection is that projection's page and binds ``$projection`` too
+PAGES = {"agent": "agent", "item": "item", "projection": "projection"}
 PANEL_KEYS = {"panel", "title", "size", "note", "fit", "quiet"}   # fit: as tall as what it shows (a page made of panels);
 #                                                  quiet: not drawn while it has nothing to say (an item's part, quiet systems)
-ITEM_SET = {"kind", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"}
+ITEM_SET = {"projection", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"}
 # each kind of panel → the parameters it takes (those of its endpoint, by the same names)
 KINDS = {
     "note": {"text"},
     "goals": {"goals", "columns"},                        # the loops rows (GET /api/loops), these goals or all; columns
     "chart": {"refs", "points", "replay", "fan"},         # GET /api/series
     "items": ITEM_SET,                                    # GET /api/items
-    "states": {"kind", "points"},                         # GET /api/items-flow
-    "cycle-time": {"kind", "points"},                     # GET /api/items-flow
+    "states": {"projection", "points"},                   # GET /api/items-flow
+    "cycle-time": {"projection", "points"},               # GET /api/items-flow
     "scope": {"goal", "points"},                          # GET /api/loop-scope
-    "items-graph": {"kinds", "system"},                   # GET /api/items-graph
-    "timeline": {"kinds", "system"},                      # GET /api/items-graph
+    "items-graph": {"projections", "system"},             # GET /api/items-graph
+    "timeline": {"projections", "system"},                # GET /api/items-graph
     "query": {"form", "queries", "display", "layout"},   # the page's own panel, as a kept draft holds it (GET /api/query)
     "diagram": {"address"},                               # a Diagram address, drawn by the page (it asks GET /api/graph)
 }
@@ -59,16 +59,17 @@ _ITEM = {"item"}                      # one item, by its id (any id: it need not
 _ONE_ITEM = ("item-summary", "item-why", "item-path", "item-relations", "item-fields", "item-refused", "item-moves",
              "item-events", "item-changes")
 KINDS.update({
-    "kinds": {"states"},                                  # GET /api/items-overview: each system's kinds, a card each
-    "items-by-kind": {"q", "finished", "per_kind"},       # GET /api/items: each kind's newest, under its system
-    "kind-now": {"kind", "points", "states"},             # GET /api/items-flow (and /api/kinds/KIND): its states
-    "kind-model": {"kind"},                               # GET /api/kinds/KIND: what counts it, its goals and loops
-    "kind-definition": {"kind"},                          # GET /api/kinds/KIND: its definition
-    "item-list": {"kind", "state", "q", "sort", "finished", "n"},   # GET /api/items: one kind's, paged, searched, sorted
+    "projections": {"states"},                            # GET /api/items-overview: each system's projections, a card each
+    "items-by-projection": {"q", "finished", "per_projection"},   # GET /api/items: each projection's newest, by system
+    "projection-now": {"projection", "points", "states"},  # GET /api/items-flow (and /api/projections/P): its states
+    "projection-model": {"projection"},                   # GET /api/projections/P: what counts it, its goals and loops
+    "projection-definition": {"projection"},              # GET /api/projections/P: its definition
+    "item-list": {"projection", "state", "q", "sort", "finished", "n"},   # GET /api/items: one projection's, paged
     **{k: _ITEM for k in _ONE_ITEM},                      # GET /api/items/ITEM (item-why: GET /api/why?item=ITEM)
     "item-changes": _ITEM | {"history"},                  # GET /api/items/ITEM?history=FIELD|all: each field's changes
 })
-NEEDS_ITEMS: dict[str, str] = {"kind-now": "kind", "kind-model": "kind", "kind-definition": "kind", "item-list": "kind",
+NEEDS_ITEMS: dict[str, str] = {"projection-now": "projection", "projection-model": "projection",
+                               "projection-definition": "projection", "item-list": "projection",
                                **{k: "item" for k in _ONE_ITEM}}
 
 
@@ -87,9 +88,9 @@ def _whole(low: int, top: int):
 
 # KIND → {parameter: its check, None or what it must be}: read before the shared checks (which then check its names)
 CHECKS_ITEMS = {
-    "kinds": {"states": _one_of("all", "groups")},
-    "items-by-kind": {"q": _text, "finished": _one_of("hide", "waits", "show"), "per_kind": _whole(1, 500)},
-    "kind-now": {"states": _one_of("all", "groups")},
+    "projections": {"states": _one_of("all", "groups")},
+    "items-by-projection": {"q": _text, "finished": _one_of("hide", "waits", "show"), "per_projection": _whole(1, 500)},
+    "projection-now": {"states": _one_of("all", "groups")},
     "item-list": {"state": _text, "q": _text, "sort": _text, "finished": _one_of("hide", "waits", "show")},
     **{k: {"item": _text} for k in _ONE_ITEM},
     "item-changes": {"item": _text, "history": _text},
@@ -150,11 +151,12 @@ CHOICES_ATTENTION = {"view": ("dynamics", "blocks", "process"),             # a 
                      "show": ("waiting", "off", "housekeeping", "suggestions")}
 LISTS_ATTENTION = {"show"}
 
-NEEDS = {"query": "queries", "diagram": "address", "chart": "refs", "states": "kind", "cycle-time": "kind", "scope": "goal", "items": "kind", "note": "text"}
+NEEDS = {"query": "queries", "diagram": "address", "chart": "refs", "states": "projection", "cycle-time": "projection", "scope": "goal",
+         "items": "projection", "note": "text"}
 NEEDS.update({**NEEDS_AGENTS, **NEEDS_ITEMS, **NEEDS_RECORD, **NEEDS_ATTENTION})
 CHECKS = {**CHECKS_ITEMS}      # KIND → {parameter: its check}: a group's kinds' own parameters
 TEXTS = {"text", "address", "moved", "moved_since", "moved_until", "through", "followed", "search"}
-LISTS = {"refs", "goals", "kinds", "state", "where"}     # a list, or one string (comma-separated as the address writes it)
+LISTS = {"refs", "goals", "projections", "state", "where"}     # a list, or one string (comma-separated as the address writes it)
 LISTS |= LISTS_ATTENTION | {"columns"}
 # a goals panel's columns (web/ui/src/components/GoalsTable.tsx ALL_COLUMNS), or all of them
 GOAL_COLUMNS = ("goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted",
@@ -230,7 +232,7 @@ def check(c, spec, exists) -> None:
                   f"/{page}", m.at("page"), "bad-dashboard")
             page = None
         elif page is not None and (not isinstance(page, str) or page not in PAGES):
-            c.err(f"{what}.page: one of {', '.join(PAGES)} (every agent's, item's or kind's page)", m.at("page"),
+            c.err(f"{what}.page: one of {', '.join(PAGES)} (every agent's, item's or projection's page)", m.at("page"),
                   "bad-dashboard")
             page = None
         elif page is not None and nav is not None:
@@ -238,8 +240,8 @@ def check(c, spec, exists) -> None:
                   "bad-dashboard")
             nav = None
         binds = PAGES.get(page or "")                    # its panels read as that page's, though the page is taken
-        if binds is None and name in spec.items:          # named as a kind: that kind's page, its $kind the kind
-            binds = "kind"
+        if binds is None and name in spec.items:          # named as a projection: its page, its $projection it
+            binds = "projection"
         if page is not None and (other := next((x for x in spec.dashboards.values() if x.page == page), None)):
             c.err(f"{what}.page: the {page} page is drawn by dashboard {other.name} already", m.at("page"),
                   "defined-twice", f"dashboard.{other.name}")
@@ -261,16 +263,18 @@ def check(c, spec, exists) -> None:
 
 
 def routes(c, spec) -> None:
-    """Each kind of item is at /KIND: a kind named as the server's own address has no page, and one named as one of
+    """Each projection is at /PROJECTION: one named as the server's own address has no page, and one named as one of
     ergostat's own pages takes its address (ergostat's at ?builtin=1). Findings, never errors: the model runs."""
     for name, k in spec.items.items():
         w = getattr(k, "where", None)
         if name in RESERVED:
-            c.problems.append(Problem("finding", f"kind {name}: /{name} is the server's own address, so its items have "
-                                      "no page; rename it to have one", w, "unrouted-kind", f"items.{name}"))
+            c.problems.append(Problem("finding", f"projection {name}: /{name} is the server's own address, so its items "
+                                      "have no page; rename it to have one", w, "unrouted-projection",
+                                      f"projections.{name}"))
         elif name in BUILTIN and name not in spec.dashboards:
-            c.problems.append(Problem("finding", f"kind {name} is at /{name}, in place of ergostat's own {name} page "
-                                      f"(still at /{name}?builtin=1)", w, "kind-takes-page", f"items.{name}"))
+            c.problems.append(Problem("finding", f"projection {name} is at /{name}, in place of ergostat's own {name} "
+                                      f"page (still at /{name}?builtin=1)", w, "projection-takes-page",
+                                      f"projections.{name}"))
 
 
 def _nav(c, m, what: str) -> str | None:
@@ -318,7 +322,7 @@ def _panel(c, spec, exists, x, what: str, near, binds: str | None = None) -> Pan
         if isinstance(v, str) and v.startswith("$"):      # taken from the page's address (page:)
             if binds is None or v != f"${binds}" or k != binds:
                 c.err(f"{what}.{k}: {v!r} is taken from no address" + (f" (this page's is ${binds}, as {binds}: ${binds})"
-                      if binds else " (only a dashboard in place of the agent, item or kind page takes one)"), w,
+                      if binds else " (only a dashboard in place of the agent, item or projection page takes one)"), w,
                       "bad-dashboard")
                 ok = False
             else:
@@ -346,7 +350,7 @@ def _panel(c, spec, exists, x, what: str, near, binds: str | None = None) -> Pan
                 c.err(f"{what}.{k}: true or false", w, "bad-dashboard")
                 ok = False
                 continue
-        elif k in TEXTS or k in ("kind", "goal", "system", "agent"):
+        elif k in TEXTS or k in ("projection", "goal", "system", "agent"):
             if not isinstance(v, str) or not v:
                 c.err(f"{what}.{k}: text", w, "bad-dashboard")
                 ok = False
@@ -433,7 +437,7 @@ def sent(v) -> tuple[list, list]:
 
 def _queries(c, spec, v, what: str, w) -> bool:
     """A query panel's queries, as the query engine reads them (``query.parse``): each must be asked as written, and
-    the kind of item each reads the model's."""
+    the projection each reads the model's."""
     from ..query.parse import MOST_QUERIES, BadQuery, Refused, parse
     if not isinstance(v, list) or not 1 <= len(v) <= MOST_QUERIES:
         c.err(f"{what}.queries: a list of 1 to {MOST_QUERIES} queries", w, "bad-dashboard")
@@ -451,10 +455,10 @@ def _queries(c, spec, v, what: str, w) -> bool:
             c.err(f"{what}.queries: {whose}: {q.error}", w, "bad-dashboard")
             ok = False
     for x in v:
-        k = x.get("kind") if isinstance(x, dict) else None
+        k = x.get("projection") if isinstance(x, dict) else None
         if k is not None and k not in spec.items:
-            c.err(f"{what}.queries: {k!r} is not a kind of item" + c.suggest(str(k), spec.items), w, "unknown-ref",
-                  f"items.{k}")
+            c.err(f"{what}.queries: {k!r} is not a projection" + c.suggest(str(k), spec.items), w, "unknown-ref",
+                  f"projections.{k}")
             ok = False
     return ok
 
@@ -482,21 +486,21 @@ def _refs(c, spec, exists, k: str, v, params: dict, what: str, w) -> bool:
         for g in [v] if k == "goal" else v:
             if g not in spec.goals:
                 ok = bad(f"{g!r} is not a goal" + c.suggest(g, spec.goals), str(Ref("goal", g)))
-    elif k in ("kind", "kinds"):
-        for n in [v] if k == "kind" else v:
+    elif k in ("projection", "projections"):
+        for n in [v] if k == "projection" else v:
             if n not in spec.items:
-                ok = bad(f"{n!r} is not a kind of item" + c.suggest(n, spec.items), f"items.{n}")
+                ok = bad(f"{n!r} is not a projection" + c.suggest(n, spec.items), f"projections.{n}")
     elif k == "system" and v not in spec.systems and v not in {x.system for t in (spec.stocks, spec.flows, spec.goals,
                                                                                     spec.blocks) for x in t.values()}:
         ok = bad(f"{v!r} is not a system" + c.suggest(v, spec.systems), f"system.{v}")
     elif k == "agent" and v not in spec.blocks:          # the model's agents are its blocks
         ok = bad(f"{v!r} is not an agent" + c.suggest(v, spec.blocks), f"block.{v}")
     elif k == "state":
-        kind = spec.items.get(params.get("kind") or "")
+        kind = spec.items.get(params.get("projection") or "")
         for s in v:
             if kind is not None and s not in kind.states:
                 ok = bad(f"{kind.name} has no state {s!r} (its states: {', '.join(kind.states) or 'none'})" +
-                         c.suggest(s, kind.states), f"items.{kind.name}")
+                         c.suggest(s, kind.states), f"projections.{kind.name}")
     return ok
 
 

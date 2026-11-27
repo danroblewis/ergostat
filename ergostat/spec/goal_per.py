@@ -15,7 +15,7 @@ SHOWN = 20             # the most that break a goal named in its event and its s
 
 
 def sensor_of(spec, g):
-    """The ``items:`` sensor on the stock a goal is about, or None."""
+    """The ``projection:`` sensor on the stock a goal is about, or None."""
     st = spec.stocks.get(g.of.name) if g.of.kind == "stock" else None
     return next((s for s in (st.sensors.values() if st else ()) if s.items), None)
 

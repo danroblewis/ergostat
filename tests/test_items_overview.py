@@ -72,7 +72,7 @@ def test_the_overview_answers_the_factorys_record_in_under_200ms_with_no_event_l
         took.append(time.perf_counter() - t0)
     assert seen == [], seen                                             # the event log never read
     assert min(took) < 0.2, took
-    kinds = {k["name"]: k for k in d["kinds"]}
+    kinds = {k["name"]: k for k in d["projections"]}
     assert len(kinds) >= 25, len(kinds)
     assert [s["name"] for s in d["systems"]][:4] == list(factory_shape.SYSTEMS)
     gap = kinds["gap"]
@@ -88,7 +88,7 @@ def test_the_overview_answers_the_factorys_record_in_under_200ms_with_no_event_l
     assert 0 < gap["arrived"] <= 700 and gap["rate_in"] == pytest.approx(gap["arrived"] / ((d["until"] - d["since"]) / 3600))
     assert gap["left"] > 0 and gap["rate_out"] > 0
     assert not gap["quiet"]
-    quiet = [k for k in d["kinds"] if k["quiet"]]
+    quiet = [k for k in d["projections"] if k["quiet"]]
     assert quiet and all(k["total"] == 0 for k in quiet if k["name"].startswith("ergostat.")), quiet
 
 
@@ -101,10 +101,10 @@ def test_the_overview_counts_an_item_changed_after_the_moment_as_it_stood(factor
     at = time.time()
     p.events.add("gap.done", item="gap/0", at=at + 5)
     p.events.add("gap.queued", item="gap/new", at=at + 6)
-    then = {k["name"]: k for k in overview(p, at, 86400)["kinds"]}["gap"]
-    old = {k["name"]: k for k in before["kinds"]}["gap"]
+    then = {k["name"]: k for k in overview(p, at, 86400)["projections"]}["gap"]
+    old = {k["name"]: k for k in before["projections"]}["gap"]
     assert then["now"] == old["now"] and then["total"] == 700
-    now = {k["name"]: k for k in overview(p, time.time() + 10, 86400)["kinds"]}["gap"]
+    now = {k["name"]: k for k in overview(p, time.time() + 10, 86400)["projections"]}["gap"]
     assert now["total"] == 701 and now["now"]["done"] >= old["now"].get("done", 0)
 
 
@@ -121,7 +121,7 @@ def test_out_counts_only_the_cards_finished_never_a_paused_or_leased_state_never
     d.mkdir()
     st = ["open", "leased", "parked", "done"]
     (d / "ergostat.yaml").write_text(
-        "name: out-rule\nitems:\n  job:\n    id: job/*\n    states: [" + ", ".join(st) + "]\n    on: {"
+        "name: out-rule\nprojections:\n  job:\n    id: job/*\n    states: [" + ", ".join(st) + "]\n    on: {"
         + ", ".join(f"job.{s}: {s}" for s in st) + "}\nmessages:\n  paused: {job: [parked]}\n")
     p = Project(mdl.load(d))
     t = time.time() - 3600
@@ -135,7 +135,7 @@ def test_out_counts_only_the_cards_finished_never_a_paused_or_leased_state_never
     p.events.add("job.done", item="job/4", at=at + 5)
     p.events.add("job.done", item="job/5", at=at + 6)
     got = overview(p, at, 86400)
-    job = {k["name"]: k for k in got["kinds"]}["job"]
+    job = {k["name"]: k for k in got["projections"]}["job"]
     assert job["finished"] == ["done"], job["finished"]
     assert job["total"] == 5 and job["unfinished"] == 3
     assert job["left"] == 2, job["left"]
@@ -150,4 +150,4 @@ def test_the_endpoint_is_one_answer_and_takes_no_snapshot(factory, monkeypatch):
         raise AssertionError("a snapshot was taken")
     monkeypatch.setattr(state, "snapshot", no)
     d = api(Live(factory), "items-overview", {"since": ["1d"]})
-    assert d["until"] - d["since"] <= 86400 + 1 and {k["name"] for k in d["kinds"]} >= {"gap", "session"}
+    assert d["until"] - d["since"] <= 86400 + 1 and {k["name"] for k in d["projections"]} >= {"gap", "session"}

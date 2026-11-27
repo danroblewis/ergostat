@@ -27,10 +27,10 @@ exports:      # what the rest of a model may read; the fast loop (picked-up, its
   - flow.answered
   - goal.on-time
 params:
-  kind:
+  projection:
     type: name
     default: ${name}
-    description: the kind of item; its ids are KIND/<the record's id>, its events KIND.arrived and KIND.answered
+    description: the projection; its ids are PROJECTION/<the record's id>, its events PROJECTION.arrived and PROJECTION.answered
   within:
     type: duration
     default: 4h
@@ -68,7 +68,7 @@ params:
   answer:
     type: command
     stand-in: a pretend answer
-    description: the command run on each waiting item, one run each, given it on standard input ({id, kind, state, fields}) and in $ITEM_ID, $ITEM_FIELDS; exit 0 when answered; the last JSON object it prints is folded into the item
+    description: the command run on each waiting item, one run each, given it on standard input ({id, projection, state, fields}) and in $ITEM_ID, $ITEM_FIELDS; exit 0 when answered; the last JSON object it prints is folded into the item
   rung:
     type: rung
     default: program
@@ -88,20 +88,20 @@ params:
   escalate:
     default: Items have waited past their time unanswered. Look at the oldest and answer it, or say why not.
     description: what a person is asked when the commitment is missed; false for nobody
-items:
-  ${kind}:
-    id: ${kind}/*
+projections:
+  ${projection}:
+    id: ${projection}/*
     description: an item that arrived and wants an answer
     states: [waiting, leased, answered, dead]
     on:
-      ${kind}.answered: answered
+      ${projection}.answered: answered
     show: [title, from, result]
 stocks:
   waiting:
     unit: items
     description: arrived, not answered yet (waiting, being answered, or given up on after every try)
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: [waiting, leased, dead]
       every: 10s
 auxiliaries:
@@ -110,7 +110,7 @@ auxiliaries:
     description: how long the oldest unanswered item has waited since it arrived, in hours
     driven-by: [+stock.waiting]
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: [waiting, leased, dead]
       measure: age
       every: 10s
@@ -119,14 +119,14 @@ flows:
     to: waiting
     description: items arriving from the source, as the collector sees them (per hour, over ten minutes)
     sensor:
-      run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} ${cursor-field:arg} ${path:arg} --stand-in ${stand-in-rate} --window 600
+      run: ${lib} collect --name ${name} --projection ${projection} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} ${cursor-field:arg} ${path:arg} --stand-in ${stand-in-rate} --window 600
       every: ${poll}
       averages: 10m
   answered:
     from: waiting
     description: items the answer block answered
     sensor:
-      items: ${kind}
+      projection: ${projection}
       entering: answered
       over: 10m
   answered-by-hand:
@@ -148,13 +148,13 @@ blocks:
     goal: picked-up
     prompt: ${prompt}
     takes:
-      kind: ${kind}
+      projection: ${projection}
       at: waiting
       to: answered
     pool: ${pool}
     lease:
       attempts: ${tries}
-    run: ${lib} each --kind ${kind} --state waiting --done answered --run ${answer:quote} --flow flow.answered
+    run: ${lib} each --projection ${projection} --state waiting --done answered --run ${answer:quote} --flow flow.answered
     out: flow.answered
   escalate:
     if: ${escalate}

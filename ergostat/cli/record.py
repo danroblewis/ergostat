@@ -125,21 +125,21 @@ def cmd_item(args) -> int:
     if not args.name:
         args.n = max(1, min(args.n, its.LISTED))
         try:
-            got = its.listing(p.events, spec, kind=args.kind, state=args.state, search=search)
+            got = its.listing(p.events, spec, kind=args.projection, state=args.state, search=search)
         except BadSet as e:
             print(str(e), file=sys.stderr)
             return 2
         if args.json:
             return out_json(got)
-        for k in got["kinds"]:
+        for k in got["projections"]:
             counts = " · ".join(f"{s} {k['counts'].get(s, 0)}" for s in k["states"]) or f"{sum(k['counts'].values())} items"
             print(f"{c(k['name'], 'accent')} {c(k['id'], 'dim')}  {counts}")
-        if got["kinds"]:
+        if got["projections"]:
             print()
-        show = sorted({f for k in got["kinds"] for f in k["show"] if args.kind in (None, k["name"])})
-        rows = [[i["id"], i["kind"] or "-", i["state"] or "-", *[str(i["fields"].get(f, ""))[:30] for f in show],
+        show = sorted({f for k in got["projections"] for f in k["show"] if args.projection in (None, k["name"])})
+        rows = [[i["id"], i["projection"] or "-", i["state"] or "-", *[str(i["fields"].get(f, ""))[:30] for f in show],
                  str(i["events"]), i["latest"], ago(i["entered"] or i["first"]), ago(i["last"])] for i in got["items"][:args.n]]
-        print(table(["ITEM", "KIND", "STATE", *[f.upper() for f in show], "EVENTS", "LATEST", "IN STATE SINCE", "LAST"], rows,
+        print(table(["ITEM", "PROJECTION", "STATE", *[f.upper() for f in show], "EVENTS", "LATEST", "IN STATE SINCE", "LAST"], rows,
                     f"no item's fields contain every word of {search!r}" if search is not None else
                     "no items yet: an item is what events with an id like ticket/12 are about "
                     "(a block prints {\"event\": \"ticket.opened\", \"item\": \"ticket/12\"})"))
@@ -164,7 +164,7 @@ def cmd_item(args) -> int:
         return 0
     if args.json:
         return out_json(d)
-    kind = f" · {d['kind']}" if d["kind"] else " · no kind (no items: entry matches it)"
+    kind = f" · {d['projection']}" if d["projection"] else " · no projection (no projections: entry matches it)"
     state = f" · {c(d['state'], 'accent')} since {ago(d['entered'])}" if d["state"] else ""
     print(f"{c('item', 'dim')} {args.name}{kind}{state} · {d['events']} events, first {ago(d['first'])}")
     for k, v in sorted(d["fields"].items()):
@@ -208,13 +208,13 @@ def _item_graph(args) -> int:
 
 
 def _item_risk(args) -> int:
-    """``item --kind K --risk-score [--backtest]`` (``numbers/itemrisk.py``): each item's score now, or the backtest."""
+    """``item --projection K --risk-score [--backtest]`` (``numbers/itemrisk.py``): each item's score now, or the backtest."""
     from ..numbers import itemrisk
     p = open_project(args)
     spec = getattr(p.model, "spec", None)
-    k = (getattr(spec, "items", None) or {}).get(args.kind or "")
+    k = (getattr(spec, "items", None) or {}).get(args.projection or "")
     if args.name or not args.risk_score or getattr(args, "at", None) or k is None or k.risk is None:
-        print("--risk-score: with --kind K, a kind that declares risk-score:, as the record is now (--backtest: with "
+        print("--risk-score: with --projection K, a projection that declares risk-score:, as the record is now (--backtest: with "
               "it; never with an item or --at)", file=sys.stderr)
         return 2
     if args.backtest:
@@ -242,16 +242,16 @@ def _item_risk(args) -> int:
 
 
 def _item_groups(args) -> int:
-    """``item --kind K --groups REL`` (``spec/grouptally.py``): each group's progress, as the record is now; over the
+    """``item --projection K --groups REL`` (``spec/grouptally.py``): each group's progress, as the record is now; over the
     last day for its completion over time (``--json``)."""
     from ..spec.grouptally import progress
     from ..spec.item_sets import BadSet
-    if args.name or not args.kind or getattr(args, "at", None):
-        print("--groups: with --kind, of no one item, as the record is now (never with --at)", file=sys.stderr)
+    if args.name or not args.projection or getattr(args, "at", None):
+        print("--groups: with --projection, of no one item, as the record is now (never with --at)", file=sys.stderr)
         return 2
     p, now = open_project(args), time.time()
     try:
-        got = progress(p.events, getattr(p.model, "spec", None), args.kind, args.groups, now, now - 86400.0)
+        got = progress(p.events, getattr(p.model, "spec", None), args.projection, args.groups, now, now - 86400.0)
     except BadSet as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -261,7 +261,7 @@ def _item_groups(args) -> int:
              *[str(r["counts"][s]) for s in got["stacks"]], str(r["total"]), str(r["left"]), str(r["summaries"]),
              ", ".join(r["waits_on"])] for r in got["rows"]]
     print(table(["GROUP", "STATE", *[s.upper() for s in got["stacks"]], "OF", "LEFT", "SPLIT", "WAITS ON"], rows,
-                f"no {args.kind} names a {args.groups}"))
+                f"no {args.projection} names a {args.groups}"))
     if got["odd_n"]:
         print(c(f"{got['odd_n']} whose {args.groups} is not one id, counted in none: {', '.join(got['odd'])}", "warn"))
     return 0

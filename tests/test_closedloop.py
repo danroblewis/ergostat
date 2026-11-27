@@ -174,7 +174,7 @@ def test_a_draining_blocks_identified_model_is_little_s_law_from_its_record(tmp_
 
 TAKES = """\
 name: t
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -182,19 +182,19 @@ items:
 stocks:
   ready:
     unit: jobs
-    sensor: {items: job, state: ready, every: 5s}
+    sensor: {projection: job, state: ready, every: 5s}
 flows:
   arrivals:
     to: ready
     sensor: {manual: true}
   worked:
     from: ready
-    sensor: {items: job, entering: done, over: 10m}
+    sensor: {projection: job, entering: done, over: 10m}
 blocks:
   developer:
     type: program
     run: "true"
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 3
     lease: {ttl: 30m}
     out: flow.worked

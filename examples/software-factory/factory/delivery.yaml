@@ -7,14 +7,14 @@ stocks:
   in-review:
     unit: tickets
     sensor:
-      items: ticket
+      projection: ticket
       state: review
       every: 5s
   awaiting-deploy:
     unit: tickets
     description: merged into main, not yet in production
     sensor:
-      items: ticket
+      projection: ticket
       state: merged
       every: 5s
 
@@ -26,20 +26,20 @@ flows:
     from: in-review
     to: backlog
     sensor:
-      items: ticket
+      projection: ticket
       leaving: review
       over: 10m
   merged:
     from: in-review
     to: awaiting-deploy
     sensor:
-      items: ticket
+      projection: ticket
       entering: merged
       over: 10m
   deployed:
     from: awaiting-deploy
     sensor:
-      items: ticket
+      projection: ticket
       entering: live
       over: 10m
 
@@ -87,4 +87,4 @@ dashboards:
     description: what waits on review
     panels:
       - {panel: chart, refs: [stock.in-review, flow.merged, flow.rejected], size: l}
-      - {panel: items, kind: pr, state: review, size: m}
+      - {panel: items, projection: pr, state: review, size: m}

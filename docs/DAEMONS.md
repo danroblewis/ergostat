@@ -38,7 +38,7 @@ Keep `run:` when:
 - each run must be isolated: a block whose runs should share nothing (memory, open files, a crash) is safer as a
   process each, and its CPU and memory are then measured per run. A daemon's are measured only for the daemon
   as a whole.
-- the readings come from items or from Prometheus: `items:` and `query:` sensors start no process already.
+- the readings come from items or from Prometheus: `projection:` and `query:` sensors start no process already.
 
 ## The protocol in plain words
 
@@ -370,7 +370,7 @@ daemon works them, eight at once; and the files they leave are counted by the da
 # Jobs worked by one long-lived worker, many at once, and the finished ones counted by a second daemon.
 name: daemon-demo
 
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -381,7 +381,7 @@ stocks:
   ready:
     unit: jobs
     description: jobs waiting for the worker
-    sensor: {items: job, state: ready, every: 3s}
+    sensor: {projection: job, state: ready, every: 3s}
   finished:
     unit: jobs
     cumulative: true
@@ -394,14 +394,14 @@ flows:
   arrivals:
     to: ready
     description: jobs opened from outside
-    sensor: {items: job, entering: ready, over: 10m}
+    sensor: {projection: job, entering: ready, over: 10m}
   working:
     from: ready
     to: finished
     description: jobs the worker finished
     driven-by: [+stock.ready]
     equation: stock.ready / job-time
-    sensor: {items: job, entering: done, over: 10m}
+    sensor: {projection: job, entering: done, over: 10m}
 
 parameters:
   job-time: {value: 3s, estimate: true, description: roughly how long a job takes}
@@ -423,7 +423,7 @@ blocks:
   worker:
     type: program
     goal: nothing-waits
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 8
     lease: {ttl: 1m, attempts: 3}
     daemon: {run: python3 bin/worker.py, concurrency: 8, heartbeat: 30s}
@@ -566,7 +566,7 @@ wait                                                    # the job under way fini
 <!-- example: shell-jobs, file: ergostat.yaml -->
 ```yaml
 name: shell-jobs
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -574,14 +574,14 @@ items:
 stocks:
   ready:
     unit: jobs
-    sensor: {items: job, state: ready, every: 3s}
+    sensor: {projection: job, state: ready, every: 3s}
 goals:
   nothing-waits: {stock: ready, hold: "<= 0", tolerance: 0}
 blocks:
   worker:
     type: program
     goal: nothing-waits
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 1
     lease: {ttl: 1m}
     daemon: {run: sh bin/worker.sh, concurrency: 1}

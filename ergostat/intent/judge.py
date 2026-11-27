@@ -1,6 +1,6 @@
 """The intent judge's pass (SPEC §12i): ergostat's own, on the judge block's clock (``type: judge``, ``judge: intent``).
 
-Each pass, for every kind the judge holds (``kinds:``), every item that entered its judged state (``at``) within
+Each pass, for every projection the judge holds (``projections:``), every item that entered its judged state (``at``) within
 ``within`` and has no verdict for that moment is judged: its brief made (``brief.py``), recorded as asked, judged by
 the stand-in or, with ``model:``, by a model (``ai.py``), and the verdict recorded with its evidence, on a verdict item
 and on the work (its field ``intent``). A verdict that the work is not done as meant (unmet, contradicted) is held:
@@ -78,7 +78,7 @@ def sweep_missed(p, spec: Spec, block: str, now: float | None = None) -> int:
     n = 0
     vs = [v for v in record.stored(p, since=now - WEEK).values() if v["state"] in ("met", "unjudged")]
     for v in vs:
-        kk = pol.kinds.get(v.get("kind") or "")
+        kk = pol.kinds.get(v.get("projection") or "")
         if kk is None:
             continue
         it = its.one(p.events, spec, v["work"])

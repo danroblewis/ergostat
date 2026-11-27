@@ -15,14 +15,14 @@ stocks:
     system: shipping
     description: Done in Jira
     sensor:
-      items: ticket
+      projection: ticket
       state: done
       every: 3s
   stopped:
     unit: tickets
     description: stopped at a step (a denied or failed action, a repository not allowed); its stopped_why says
     sensor:
-      items: ticket
+      projection: ticket
       state: stopped
       every: 3s
   actions-waiting:
@@ -50,7 +50,7 @@ stocks:
     cumulative: true
     description: daily summaries written
     sensor:
-      items: report
+      projection: report
       every: 10s
 
 auxiliaries:
@@ -72,28 +72,28 @@ flows:
     to: stopped
     description: tickets a step stopped
     sensor:
-      items: ticket
+      projection: ticket
       entering: stopped
       over: 10m
   unsticking:
     from: stopped
     description: stopped tickets the owner sent back (bin/tickets.py retry)
     sensor:
-      items: ticket
+      projection: ticket
       leaving: stopped
       over: 10m
   actions-asked:
     to: actions-waiting
     description: outward acts whose gate is approve, asked for
     sensor:
-      items: ergostat.action
+      projection: ergostat.action
       entering: requested
       over: 10m
   approvals:
     from: actions-waiting
     description: approved or denied by the owner
     sensor:
-      items: ergostat.action
+      projection: ergostat.action
       leaving: requested
       over: 10m
   ai-spending:
@@ -121,7 +121,7 @@ flows:
   reports-written:
     to: reports
     sensor:
-      items: report
+      projection: report
       entering: written
       over: 1h
 
@@ -183,7 +183,7 @@ dashboards:
     window: 1d
     panels:
       - {panel: goals, goals: [nothing-awaits-approval, none-stopped], size: full}
-      - {panel: cycle-time, kind: ticket, size: m}
+      - {panel: cycle-time, projection: ticket, size: m}
       - {panel: chart, refs: [stock.actions-waiting, flow.approvals, auxiliary.cycle-hours], replay: true, size: m}
-      - {panel: timeline, kinds: ticket, size: m}
-      - {panel: items, kind: ticket, state: stopped, size: m}
+      - {panel: timeline, projections: ticket, size: m}
+      - {panel: items, projection: ticket, state: stopped, size: m}

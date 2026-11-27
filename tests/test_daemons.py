@@ -71,7 +71,7 @@ def block(daemon: str, lease: str = "{ttl: 1m}", pool: int = 6) -> str:
 blocks:
   worker:
     type: program
-    takes: {{kind: ticket, at: ready}}
+    takes: {{projection: ticket, at: ready}}
     pool: {pool}
     lease: {lease}
     daemon: {daemon}
@@ -466,8 +466,8 @@ def test_blocks_sharing_a_daemon_share_its_room(tmp_path):
 daemons:
   shared: {run: python3 d.py, concurrency: 2}
 blocks:
-  a: {type: program, takes: {kind: ticket, at: ready, where: {team: a}}, pool: 5, daemon: shared}
-  b: {type: program, takes: {kind: ticket, at: ready, where: {team: b}}, pool: 5, daemon: shared}
+  a: {type: program, takes: {projection: ticket, at: ready, where: {team: a}}, pool: 5, daemon: shared}
+  b: {type: program, takes: {projection: ticket, at: ready, where: {team: b}}, pool: 5, daemon: shared}
 """
     p = setup(tmp_path, two)
     for i in range(6):
@@ -686,7 +686,7 @@ def _failed_warm_run(tmp_path, mode: str, timeout: str) -> dict:
 blocks:
   worker:
     type: program
-    takes: {{kind: ticket, at: ready}}
+    takes: {{projection: ticket, at: ready}}
     timeout: {timeout}
     lease: {{ttl: 1m}}
     daemon: {{run: python3 burn.py {mode}, warm: true, concurrency: 1, restart: {{backoff: [5s, 5s]}}}}

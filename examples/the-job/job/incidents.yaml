@@ -6,7 +6,7 @@
 defaults:
   system: incidents
 
-items:
+projections:
   alert:
     id: alert/*
     description: a page from my rotation, and its alert ticket
@@ -38,35 +38,35 @@ stocks:
   alerts-to-draft:
     unit: alerts
     sensor:
-      items: alert
+      projection: alert
       state: fired
       every: 5s
   alerts-drafted:
     unit: alerts
     description: a usefulness comment drafted, waiting for me to post it
     sensor:
-      items: alert
+      projection: alert
       state: drafted
       every: 5s
   outages-suspected:
     unit: outages
     description: grouped by the pager, not yet declared or dismissed
     sensor:
-      items: outage
+      projection: outage
       state: suspected
       every: 5s
   outages-to-review:
     unit: outages
     description: declared, their postmortem not held yet (being resolved, or resolved and waiting for it)
     sensor:
-      items: outage
+      projection: outage
       state: [declared, resolved]
       every: 5s
   actions-to-plan:
     unit: actions
     description: assigned to me, with no owner, date and first step yet
     sensor:
-      items: action
+      projection: action
       state: open
       every: 5s
 
@@ -114,7 +114,7 @@ auxiliaries:
     description: alerts with no usefulness comment after half a working day
     driven-by: [+stock.alerts-to-draft, +stock.alerts-drafted]
     sensor:
-      items: alert
+      projection: alert
       state: [fired, drafted]
       where:
         late: "yes"
@@ -138,14 +138,14 @@ flows:
     description: alerts' usefulness comments drafted, the more preparers at once the faster (the drafting capacity)
     driven-by: +stock.drafting-capacity
     sensor:
-      items: alert
+      projection: alert
       entering: drafted
       over: 10m
   comments-posted:
     from: alerts-drafted
     description: a usefulness comment posted on its alert ticket, by me (mine)
     sensor:
-      items: alert
+      projection: alert
       entering: commented
       over: 10m
   outages-noticed:
@@ -164,14 +164,14 @@ flows:
     to: outages-to-review
     description: an outage declared an incident, and its command taken, by me (mine)
     sensor:
-      items: outage
+      projection: outage
       entering: declared
       over: 10m
   outages-dismissed:
     from: outages-suspected
     description: a suspected outage dismissed, by me (mine)
     sensor:
-      items: outage
+      projection: outage
       entering: dismissed
       over: 10m
   postmortems:
@@ -179,7 +179,7 @@ flows:
     description: a declared outage, resolved, has its postmortem (hours after it is resolved)
     driven-by: +stock.outages-to-review
     sensor:
-      items: outage
+      projection: outage
       entering: reviewed
       over: 10m
   actions-filed:
@@ -196,7 +196,7 @@ flows:
   action-planning:
     from: actions-to-plan
     sensor:
-      items: action
+      projection: action
       entering: planned
       over: 10m
 
@@ -226,7 +226,7 @@ blocks:
     goal: every-alert-drafted
     prompt: prompts/alert-companion.md
     run: python3 bin/prepare.py alert-comment
-    takes: {kind: alert, at: fired}
+    takes: {projection: alert, at: fired}
     pool: {now: stock.drafting-capacity, most: 3}   # the setting the capacity law steps (rhythm.yaml), never above 3
     max: 1
     out: flow.comment-drafting
@@ -253,7 +253,7 @@ blocks:
     goal: actions-planned
     prompt: prompts/action-planner.md
     run: python3 bin/prepare.py action-plan
-    takes: {kind: action, at: open}
+    takes: {projection: action, at: open}
     pool: 2
     max: 1
     out: flow.action-planning

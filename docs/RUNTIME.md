@@ -41,7 +41,7 @@ flowchart LR
 Everything ergostat knows, and everything that happens, is an **event** in one append-only log in the project's
 state folder (`~/.ergostat/<project>/events/`). There is no message broker: the log is the bus. A sensor's
 observation, a run starting and ending, a lease taken, a webhook from Jira, the owner approving a change: each is a
-line in the log, and everything else (an item's state, a lease, the Items page) is folded from those lines.
+line in the log, and everything else (an item's state, a lease, a projection's page) is folded from those lines.
 
 **Two backends.** The default, `segments`, keeps the newest events in `head.jsonl`, one JSON line each, and every
 32,768 events seals them into a compressed segment with an index (by item, by type, by time), so a question about one
@@ -94,7 +94,7 @@ A sensor measures one stock or one flow. How it reads decides what it costs:
 
 | Sensor | How it reads | Processes started |
 |---|---|---|
-| `items:` | a count of items in a state, or moving between states, kept up to date as the record folds | none |
+| `projection:` | a count of a projection's items in a state, or moving between states, kept up to date as the record folds | none |
 | `changes:` | a flow's rate, worked out from its stock's own readings | none |
 | `builtin:` | one of ergostat's own measures (the model's fit, costs, leases) | one per reading (`ergostat measure`) |
 | `query:` | a PromQL query to a Prometheus source, or another ergostat's reading | none (an HTTP request, on the pool) |

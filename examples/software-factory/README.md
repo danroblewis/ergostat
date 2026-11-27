@@ -27,7 +27,7 @@ Open the page `ergostat run` prints, or use the command line:
 
 ```bash
 ergostat loop                    # every goal: holding or off, and how fast it comes back
-ergostat item --kind ticket      # the tickets, by state
+ergostat item --projection ticket      # the tickets, by state
 ergostat explain no-live-bugs    # the whole loop, part by part
 ergostat run --stop
 ```

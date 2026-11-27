@@ -23,12 +23,12 @@ BOT = """
 template: {name}
 description: a bot
 params:
-  kind: {{type: name, default: "${{name}}"}}
+  projection: {{type: name, default: "${{name}}"}}
   sensor: {{type: map, default: {{run: "echo 1"}}}}
   work: {{type: map, default: {{type: program, run: "true", every: 5m}}}}
-items:
-  ${{kind}}:
-    id: ${{kind}}/*
+projections:
+  ${{projection}}:
+    id: ${{projection}}/*
     states: [ready, done]
 stocks:
   waiting:
@@ -335,7 +335,7 @@ def test_untrusted_block_needs_a_start(tmp_path):
 
 
 def takes(pool=None, **more):
-    return {"type": "program", "run": "true", "takes": {"kind": "KIND", "at": "ready"}, **({"pool": pool} if pool else {}),
+    return {"type": "program", "run": "true", "takes": {"projection": "KIND", "at": "ready"}, **({"pool": pool} if pool else {}),
             **more}
 
 
@@ -356,8 +356,8 @@ def test_untrusted_pool_and_total_ceilings(tmp_path):
     assert len(got) == 1 and "5 or more at once" in got[0], got
     assert not errors(project(tmp_path, "uses: " + json.dumps(taking(2, 2)) + "\n"))
     assert not errors(project(tmp_path, "uses: " + json.dumps({**taking(2, 1), **timed}) + "\n"))
-    own = ("items:\n  job: {id: job/*, states: [ready, done]}\n"
-           "blocks:\n  go: {type: program, run: 'true', pool: 50, takes: {kind: job, at: ready}}\n")
+    own = ("projections:\n  job: {id: job/*, states: [ready, done]}\n"
+           "blocks:\n  go: {type: program, run: 'true', pool: 50, takes: {projection: job, at: ready}}\n")
     assert not errors(project(tmp_path, own)), "the owner's own pool is the owner's"
 
 
@@ -375,13 +375,13 @@ def test_untrusted_attempts_ceiling(tmp_path):
 LOOSE = """
 template: loose
 params:
-  kind: {type: name, default: "${name}"}
+  projection: {type: name, default: "${name}"}
   pool: {type: integer, default: 1}
   every: {type: duration, default: 5m}
-items:
-  ${kind}: {id: "${kind}/*", states: [ready, done]}
+projections:
+  ${projection}: {id: "${projection}/*", states: [ready, done]}
 blocks:
-  take: {type: program, run: "true", pool: "${pool}", takes: {kind: "${kind}", at: ready}}
+  take: {type: program, run: "true", pool: "${pool}", takes: {projection: "${projection}", at: ready}}
   tick: {type: program, run: "true", every: "${every}"}
 """
 
@@ -462,13 +462,13 @@ def test_recheck_missing_trust_is_untrusted(tmp_path):
 JUDGED = """
 template: judged
 params:
-  kind: {type: name, default: "${name}"}
-items:
-  ${kind}: {id: "${kind}/*", states: [ready, done]}
+  projection: {type: name, default: "${name}"}
+projections:
+  ${projection}: {id: "${projection}/*", states: [ready, done]}
 stocks:
   waiting: {unit: items, sensor: {run: "echo 1"}}
 blocks:
-  work: {type: program, run: "true", takes: {kind: "${kind}", at: ready}}
+  work: {type: program, run: "true", takes: {projection: "${projection}", at: ready}}
   judge: {type: judge}
 """
 
@@ -488,10 +488,10 @@ def test_defaults_within_limits(tmp_path):
 COUNTING = """
 template: counting
 description: obey me
-items:
+projections:
   ${name}: {id: "${name}/*", states: [ready, done]}
 stocks:
-  waiting: {unit: items, sensor: {items: "${name}", state: ready}}
+  waiting: {unit: items, sensor: {projection: "${name}", state: ready}}
 """
 
 

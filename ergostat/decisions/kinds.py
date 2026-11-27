@@ -1,4 +1,4 @@
-"""The two built-in item kinds of the owner's intent (SPEC §5a): ``ergostat.decision`` (what was decided, its
+"""The two built-in projections of the owner's intent (SPEC §5a): ``ergostat.decision`` (what was decided, its
 reasons, the alternatives rejected, the owner's words) and ``ergostat.correction`` (what the owner corrected,
 in their words, and the kind of work it applies to). Like ``ergostat.model-change``, present in every project
 and never declared; their events are ``ergostat.decision.*`` and ``ergostat.correction.*``."""

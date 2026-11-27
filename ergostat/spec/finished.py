@@ -1,14 +1,14 @@
-"""Which of a kind's states are finished (SPEC §5a, *Items*): one rule for the Items listing, the relations
+"""Which of a projection's states are finished (SPEC §5a, *Items*): one rule for the Items listing, the relations
 (``precedence.py``), the estimates (``numbers/etamodel.py``), the state counts over time (``series.py``) and, with
 ``dead`` (``ends_of``), the process map's end (``process.py``). Message routing keeps its own on purpose
 (``messages/route.py`` ``route_done_states``).
 
-- **Declared**: the states ``messages: {done:}`` names for the kind, else those its own ``finished:`` names.
+- **Declared**: the states ``messages: {done:}`` names for the projection, else those its own ``finished:`` names.
 - **Inferred** (nothing declared): the states after the first that no item has left yet (``left``).
 - Either way never a state an item waits in to be taken (the first, or one a block takes from), ``leased``, ``dead``
   or a state declared paused (``messages: {paused:}``): paused is its own list.
-- **Lives on**: a kind with one state, or with nothing declared and nothing inferable, has no finished state (a pool
-  is held, never done). ``dead`` says whether a dead letter ends its items (the kind is taken, so it has ``dead``).
+- **Lives on**: a projection with one state, or with nothing declared and nothing inferable, has no finished state (a pool
+  is held, never done). ``dead`` says whether a dead letter ends its items (the projection is taken, so it has ``dead``).
 
 The older rule (``itemindex.done_states``, the last state when every one has been left) stays for ``spec/about.py``
 and the index's own unfinished count."""
@@ -19,7 +19,7 @@ from .ir import DEAD, LEASED
 
 
 def finish_of(spec, kind: str | None, left: set[str]) -> dict:
-    """``{finished, paused, dead, from: declared|inferred|none, lives_on, queue}`` for the kind named ``kind``."""
+    """``{finished, paused, dead, from: declared|inferred|none, lives_on, queue}`` for the projection named ``kind``."""
     k = (getattr(spec, "items", None) or {}).get(kind or "")
     states = list(k.states) if k is not None else []
     msgs = getattr(spec, "messages", None)
@@ -39,7 +39,7 @@ def finish_of(spec, kind: str | None, left: set[str]) -> dict:
 
 
 def ends_of(spec, kind: str | None, left: set[str]) -> list[str]:
-    """Where an item's life ends: the kind's finished states and, a taken kind, ``dead``; none when it lives on. The
+    """Where an item's life ends: the projection's finished states and, a taken projection, ``dead``; none when it lives on. The
     states the Items list hides, and the process map's end."""
     f = finish_of(spec, kind, left)
     return [] if f["lives_on"] else [*f["finished"], *([DEAD] if f["dead"] else [])]

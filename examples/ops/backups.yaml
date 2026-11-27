@@ -2,7 +2,7 @@
 defaults:
   system: backups
 
-items:
+projections:
   backup:                        # each backup the job takes, until its copy is off site
     id: backup/*
     states: [taken, offsite]
@@ -19,7 +19,7 @@ stocks:
   copies-not-offsite:
     unit: backups
     sensor:                      # counted from the record: the backups still in taken
-      items: backup
+      projection: backup
       state: taken
       every: 3s
 

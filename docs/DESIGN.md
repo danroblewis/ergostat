@@ -155,7 +155,7 @@ The control diagram is the product's main view. Conventions:
   (`--frame`, square-cornered) joining L marks at its corners (`--frame-mark`, 13 px arms, 8 px when nested),
   its name in muted type on the top edge with the line broken behind it (one ink: no colour per system), labels
   never stacked. Modelling's hairline is dashed (its corners solid), a cascade's inner loop in Blocks dotted, a
-  remote's kind in Process dashed. A closed system's outline is `--frame-mark` at 1.2 px, so the top level is not
+  remote's projection in Process dashed. A closed system's outline is `--frame-mark` at 1.2 px, so the top level is not
   ruled by its boxes; with a goal in it off it is full ink at 2 px. A chain of loops in series folds into rows at the pipes that
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
   would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
@@ -168,11 +168,11 @@ The control diagram is the product's main view. Conventions:
   less) each view opens fitted to the canvas down to 7.7px text (the Process view's map still at no
   less than 11px), and a drawing still too big is centred on its first part (a system box, else a stock).
 - **The process view** (`process.py`, `process.js`; SPEC §5b) is process mining's process map: a
-  directly-follows graph per item kind, from the record in the window (the states items entered, or
-  the event types about them), each kind's map laid out left to right in time order in a frame of its
-  own, how often as line weight, rework marked, and dashed lines where an event on one kind's item
+  directly-follows graph per projection, from the record in the window (the states items entered, or
+  the event types about them), each projection's map laid out left to right in time order in a frame of its
+  own, how often as line weight, rework marked, and dashed lines where an event on one projection's item
   caused one on another's. It replaced the wiring view (machines and what passed between them),
-  which stays on the command line (`ergostat system --wiring`). Its nodes and its kinds' frames are put by
+  which stays on the command line (`ergostat system --wiring`). Its nodes and its projections' frames are put by
   hand as the other views' parts are (below).
 - **A goal's state in the dynamics view** is said on its gap: a goal not holding has the server's word after the gap's
   value (`36 · off by 36`, the one phrase of how far; `no feedback` for an open goal; `stale`, `unknown` muted),
@@ -221,13 +221,13 @@ The control diagram is the product's main view. Conventions:
   system's box and its open outline (or frame) share one. A pin clicked, or "Unpin all parts" (⋯), lets
   the layout place it again. The Blocks view is laid out by its own ELK graph (`blocks.js`); the pins
   are applied to that layout afterwards, as to the Dynamics view's (`places.js`). So is the Process view's
-  (`process.js`): a node (an activity, a start or an end) or the chosen ones, and a kind's frame by its top
-  with its whole map, pinned in its own set (apart from the other two views'), each node from its kind's
-  frame; a line within a kind keeps ELK's way while its two ends moved together (a frame dragged) and that
-  way crosses no node, and is routed by libavoid otherwise, as the dashed lines between kinds always are.
-  A pin is kept by the node's name (its kind and activity), not per States or Events: a node drawn in both
+  (`process.js`): a node (an activity, a start or an end) or the chosen ones, and a projection's frame by its top
+  with its whole map, pinned in its own set (apart from the other two views'), each node from its projection's
+  frame; a line within a projection keeps ELK's way while its two ends moved together (a frame dragged) and that
+  way crosses no node, and is routed by libavoid otherwise, as the dashed lines between projections always are.
+  A pin is kept by the node's name (its projection and activity), not per States or Events: a node drawn in both
   stays where it was put in both, and the frames too; it holds through the map refreshed in place and laid
-  out again as events come, and whichever kinds are drawn.
+  out again as events come, and whichever projections are drawn.
 - **The caption.** One line under the view switch, the page's only h1 and the diagram's accessible name
   (`aria-labelledby`), names the drawing by its discipline, the model with its purpose (`purpose:`), the
   number of top-level systems, and the verdict as that view counts it: "Stock-and-flow diagram (system
@@ -298,12 +298,12 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded). The addresses are the
 model's: only `/api` (a project file at `/api/file/PATH`), `/static` and `/remote` are the server's, and the server
 answers every other path with the page, the React app in `ergostat/web/ui` built into `static/app`. The page resolves
-a path (`web/ui/src/lib/routes.ts`) in this order: a dashboard the model declares, at `/NAME`; a kind of item, at
-`/KIND` (its list) and `/KIND/REST` (one item: REST is what the kind's id glob's `*` matched, so `ticket/1` is at
+a path (`web/ui/src/lib/routes.ts`) in this order: a dashboard the model declares, at `/NAME`; a projection, at
+`/PROJECTION` (its list) and `/PROJECTION/REST` (one item: REST is what the projection's id glob's `*` matched, so `ticket/1` is at
 `/ticket/1`); then ergostat's own pages, each a dashboard of its own at its name: `/diagram?view=blocks`, `/dashboard`,
-`/goals`, `/agents`, `/agent/NAME`, `/record?type=T`, and `/item/ID` (any id, a kind's or not, the id encoded). The
-model's names come first, so a dashboard or kind named `goals` is drawn at `/goals`; `?builtin=1` shows ergostat's own
-page all the same. Old addresses (`/items/KIND`, `/item/ID` of a kind, `/d/NAME`, `/loops`) lead to the new ones. The page routes with the History API: a plain click on one of its links draws
+`/goals`, `/agents`, `/agent/NAME`, `/record?type=T`, and `/item/ID` (any id, a projection's or not, the id encoded). The
+model's names come first, so a dashboard or projection named `goals` is drawn at `/goals`; `?builtin=1` shows ergostat's own
+page all the same. Old addresses (`/items/PROJECTION`, `/item/ID` of a projection's item, `/d/NAME`, `/loops`) lead to the new ones. The page routes with the History API: a plain click on one of its links draws
 the page in place; a ctrl-, cmd-, shift- or middle-click is the browser's. The page knows one project, the one it
 serves: there is no project list in its header (`ergostat projects` lists them).
 
@@ -316,17 +316,17 @@ only when addressed to the server by its own name (the Host header is `127.0.0.1
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
 page can read. Pages: Dashboard (first in the header), Diagram (dynamics, blocks and process views; the side panel:
-attention, goals and their control loops, feedback loops or the process map's kinds, model changes, legend), Goals, Agents (one list, by rung), Items (the
-record folded by id, by kind and state), Record (events, with runs hidden by default), and no more: the Model, Check and Guide pages were removed (owner, 2026-11-25); the model's fit, residuals,
+attention, goals and their control loops, feedback loops or the process map's projections, model changes, legend), Goals, Agents (one list, by rung), a page for each
+projection (its items, by state), Record (events, with runs hidden by default), and no more: the Model, Check and Guide pages were removed (owner, 2026-11-25); the model's fit, residuals,
 proposals and checks are the command line's (`ergostat fit`, `ergostat residual`, `ergostat proposals`, `ergostat
 accept`, `ergostat check`, `ergostat findings`) and the MCP tools'. When the model file has errors, the header's run
 state says "Model errors" and opens a small note with them. Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which
 takes the side panel's place. Behaviour over time sits beside the structure, never on a page of
 its own (`docs/proposals/charts.md`, drawn with uPlot, vendored): a part's panel in the dynamics
 view opens with its causes strip (it, then what drives it, on one time axis; where the model works a part
-out, its replay dashed over the measured line and its projection past now dashed and lighter: open
-loop, the controllers held, so it is left out downstream of a flow a block sets; the projection's
-Monte Carlo fan shaded, a short projection given the chart's last quarter on its own time axis, the
+out, its replay dashed over the measured line and its run forward past now dashed and lighter: open
+loop, the controllers held, so it is left out downstream of a flow a block sets; the run forward's
+Monte Carlo fan shaded, a short run forward given the chart's last quarter on its own time axis, the
 spread over the record on request, a what-if in the accent: SPEC §12c), a
 valve's and an auxiliary's panel show its equation in MathML with each parameter's value and
 provenance, its calibrations side by side, and any proposal for it, with Accept (each value may be
@@ -342,8 +342,8 @@ loop's y comes out of shows that loop's process identified (K, τ, θ, how sure,
 response and Bode plot, with Accept, or a step test to Approve, or why none is offered yet), and its
 controller's panel the closed loop with it (margins, at the worst the process could be too, its own
 delay, what the linear numbers leave out, step response, Bode) and a SIMC tuning or a detuning (SPEC
-§12c); a block's dead band is drawn before its law as a dead zone; the Items page draws each
-kind's cumulative flow and cycle times. Every
+§12c); a block's dead band is drawn before its law as a dead zone; each projection's page draws
+its cumulative flow and cycle times. Every
 chart in one place shares its cursor and covers the page's window. One control in the header
 holds the window and the moment: its menu sets the window and slides the page to a past moment
 (the API's `at`), with "Back to live". Light theme first, a dark one from the same tokens; usable at
@@ -390,9 +390,9 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   plain); one blue accent for interaction only (links, focus, the selected thing, what is pointed
   at), never for data or decoration. Lines in charts are ink; a setpoint is a muted dash. The one
   line in the accent is a what-if: not the record nor the model, but values the owner is trying
-  now, which go when they put them back (interaction state, so the accent). A projection's fan is
+  now, which go when they put them back (interaction state, so the accent). A run forward's fan is
   two greys of its own (`--fan-90`, `--fan-50`, darker than the gridlines so it never reads as one): nine
-  in ten of its runs, and half. A projection too short to see on the window's axis gets the last
+  in ten of its runs, and half. A run forward too short to see on the window's axis gets the last
   quarter of the chart, on a time axis of its own past now (+20s, +40s). A loop's dominance draws it in
   ink and the loops competing at the same stock in the muted grey.
 
@@ -436,7 +436,7 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   real symbols: ≤, ≥, =, ≠, −, ×, and … for an ellipsis. Subscripts are subscripts (K<sub>p</sub>,
   not K_p).
 - **Times.** One formatter (`stamp` in `util.js`): `2026-11-22 04:03:55 PST`, the date, the time and
-  the browser's zone by its short name, on the Record, a goal's Crossings, the Items page and an item's
+  the browser's zone by its short name, on the Record, a goal's Crossings, a projection's page and an item's
   page. A field named `*_at`, `raised`, `since` or `started` holding epoch seconds or ISO text is
   shown the same way.
 - **Copy.** No paragraph under a page's title: what a thing is belongs to the Guide. Labels are

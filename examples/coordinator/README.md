@@ -25,7 +25,7 @@ cp -r examples/coordinator /tmp/coordinator && cd /tmp/coordinator
 ergostat run                          # the designed Coordinator
 COORD_POLICY=harness ergostat run     # the same blocks with the harness's policy as it was: the controllers "off"
 ergostat loop                         # each goal, holding or off
-ergostat item --kind work             # the work items, by state
+ergostat item --projection work             # the work items, by state
 ergostat run --stop
 ```
 

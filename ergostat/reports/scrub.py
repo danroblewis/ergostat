@@ -9,7 +9,7 @@ Removed, each replaced by a stand-in that is the same wherever the same thing wa
 - file paths: ergostat's own reduced to package-relative (``ergostat/spec/engine.py``), Python's to
   ``python3.12/...``, any other replaced;
 - ticket keys (``ABC-123``) and ``@mentions``;
-- the names in the model: parts, item kinds (and the ids of their items), systems, sources, agents, parameters,
+- the names in the model: parts, projections (and the ids of their items), systems, sources, agents, parameters,
   templates' uses, pools, contexts; and this machine's user and host names.
 
 Every replacement is logged with the original, its stand-in, the rule and why, so the owner can check the scrubbing;
@@ -76,7 +76,7 @@ Piece = tuple[str, bool]
 @dataclass
 class Scrubber:
     names: dict[str, str] = field(default_factory=dict)      # a name in the model → what it is (stock, flow, kind, ...)
-    kinds: set[str] = field(default_factory=set)             # item kinds' id prefixes: their ids are items' (ticket/12)
+    kinds: set[str] = field(default_factory=set)             # projections' id prefixes: their ids are items' (ticket/12)
     deny: list[str] = field(default_factory=list)            # the owner's denylist: terms, or re:PATTERN
     public: set[str] = field(default_factory=set)            # names that are ergostat's own (built-in templates' parts)
     removed: dict[tuple[str, str], Removed] = field(default_factory=dict)
@@ -172,7 +172,7 @@ class Scrubber:
             name, rest = m.group(1), m.group(2)
             original, what = self._lower.get(name.lower(), (name, "name"))
             head = self.stand_in(original, "name", what)
-            if rest and what == "kind":
+            if rest and what == "projection":
                 return head + "/" + self.stand_in(original + rest, "item", "item")
             if rest:                                      # a name then a path: its path scrubbed on its own
                 return head + self.scrub(rest)
@@ -327,7 +327,7 @@ def public_names() -> set[str]:
 
 
 def model_names(spec) -> tuple[dict[str, str], set[str]]:
-    """Every name the owner gave in the model, with what it names; and the id prefixes of their item kinds."""
+    """Every name the owner gave in the model, with what it names; and the id prefixes of their projections."""
     names: dict[str, str] = {}
     kinds: set[str] = set()
     if spec is None:
@@ -346,11 +346,11 @@ def model_names(spec) -> tuple[dict[str, str], set[str]]:
     for k in (spec.items or {}).values():
         if k.name.startswith("ergostat."):
             continue
-        put(k.name, "kind")
+        put(k.name, "projection")
         prefix = k.id.split("/", 1)[0] if "/" in k.id else k.id.rstrip("*")
         if prefix and not any(ch in prefix for ch in "*?["):
-            put(prefix, "kind")
-            names[prefix] = "kind"
+            put(prefix, "projection")
+            names[prefix] = "projection"
             kinds.add(prefix)
         for st in k.states:
             if st.lower() not in COMMON:

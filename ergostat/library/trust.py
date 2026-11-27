@@ -47,10 +47,10 @@ NARROW = {"name": re.compile(r"[a-z][a-z0-9-]{0,63}"),
 # Every option of ``ergostat.library.run``'s programs, in exactly one of these (tests/test_library_provenance.py).
 # Data: a name, a count or a time the program reads as data, never runs; a value not ergostat's own may follow one.
 LIB_DATA_FLAGS = frozenset({
-    "--name", "--kind", "--state", "--done", "--failed", "--stuck", "--flow", "--pinged-flow", "--gave-up-flow",
+    "--name", "--projection", "--state", "--done", "--failed", "--stuck", "--flow", "--pinged-flow", "--gave-up-flow",
     "--every", "--limit", "--stand-in", "--answer-after", "--window", "--id-field", "--event", "--event-field",
     "--cursor-field", "--path", "--field", "--changes", "--title", "--cron", "--fail", "--say", "--rise", "--cut",
-    "--no-coherence", "--no-extremes", "--mirror", "--position", "--batch-kind", "--states", "--met", "--target", "--min",
+    "--no-coherence", "--no-extremes", "--mirror", "--position", "--batch-projection", "--states", "--met", "--target", "--min",
     "--threshold", "--side"})
 # Never: what is run (a command, a renderer), read from outside (a URL, headers naming the environment), where files
 # are written or removed, and the limits on processes, calls, money and time.
@@ -81,8 +81,8 @@ CLAIMED = {"inferred": (NO, "says ergostat inferred it, which a library may not 
            "formerly": (NO, "says it is a part renamed, which carries another part's record over to it")}
 
 SENSOR = {     # where sensors live: stocks.X.sensor(s), flows.X.sensor(s), auxiliaries.X.sensor(s)
-    "items": (S, "counts items of a kind from the record ergostat already keeps; runs nothing"),
-    "state": (L, "which states of the kind are counted"),
+    "projection": (S, "counts items of a projection from the record ergostat already keeps; runs nothing"),
+    "state": (L, "which states of the projection are counted"),
     "entering": (S, "a flow counted as items enter this state"),
     "leaving": (S, "a flow counted as items leave this state"),
     "where": (M, "which items are counted, by their fields"),
@@ -113,14 +113,14 @@ DRIVEN = {"driven-by": (one_of(L, LINK, list_of(one_of(S, LINK))), "the causes d
 PROCESS = {"gain": (S, "the loop's process gain"), "time-constant": (S, "its time constant"),
            "dead-time": (S, "its dead time"), "integrating": (S, "an integrating process"),
            "identified": (S, "words on where the numbers came from"), "description": (S, "words shown with it")}
-REL = {"kind": (L, "the kind it names"), "precedence": (S, "it orders the work"), "inverse": (S, "the reverse's name"),
+REL = {"projection": (L, "the projection it names"), "precedence": (S, "it orders the work"), "inverse": (S, "the reverse's name"),
        "group": (S, "it groups items"), "description": (S, "words shown with it")}
 JOIN = {"children": (S, "the relation children name it by"), "all": (L, "the states all must reach"),
         "any": (L, "the states any must reach"), "to": (S, "the state it moves to")}
 
 SYSTEM = {"description": (S, "words shown with it"), "within": (S, "the system it is drawn in"),
           "show": (L, "parts shown on its box")}
-ITEM = {**COMMON, "id": (S, "which ids are this kind"), "states": (L, "its states"),
+ITEM = {**COMMON, "id": (S, "which ids are this projection's"), "states": (L, "its states"),
         "final": (L, "its states no event moves it out of"), "finished": (L, "its states that count as finished"),
         "lost": (L, "its finished states that are a loss"),
         "moves-from": (M, "the only states an event moves it out of"),
@@ -130,6 +130,7 @@ ITEM = {**COMMON, "id": (S, "which ids are this kind"), "states": (L, "its state
         "join": (one_of(JOIN, list_of(JOIN)), "a parent moved on by its children's states"),
         "about": (S, "the field naming the parts it is about; only check reads it"),
         "attention": (S, "the field whose latest item's words are shown on the attention list"),
+        "group": (S, "the nav bar menu it is shown in"),
         "pipeline": (NO, "adds a row to the owner's default dashboard, which only the owner says"),
         "risk-score": (NO, "says what counts as a failure, which checks may be routed by: only the owner says"),
         "lease": (NO, "makes its items a work queue that blocks take and run")}
@@ -198,7 +199,7 @@ REFUSED_TYPES = {"external": "stands for something acting outside", "judge": "ju
 SOURCE = {k: (T, why) for k, why in (("type", "the kind of source"), ("url", "where it is read from"),
                                      ("token-file", "the file its token is read from"), ("tls", "its certificates"))}
 
-ALLOWED = {"systems": SYSTEM, "items": ITEM, "parameters": PARAMETER, "auxiliaries": AUXILIARY, "stocks": STOCK,
+ALLOWED = {"systems": SYSTEM, "projections": ITEM, "parameters": PARAMETER, "auxiliaries": AUXILIARY, "stocks": STOCK,
            "flows": FLOW, "goals": GOAL, "blocks": BLOCK, "uses": USE, "sources": SOURCE}
 REFUSED = {"agents": "who acts, and on which rung", "workspaces": "folders and repositories runs work in",
            "compute": "the machines runs execute on",

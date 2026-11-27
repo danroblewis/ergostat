@@ -210,7 +210,7 @@ def _section_file(spec: Spec, near) -> Path:
 # ---- check's findings, each made a change
 
 CHAIN_CODES = ("outflow-not-chained", "inflow-not-chained", "state-stock-without-inflow", "move-without-flow",
-               "state-stocks-disconnected", "loops-not-connected", "kind-enters-many-times")
+               "state-stocks-disconnected", "loops-not-connected", "projection-enters-many-times")
 
 
 def _chain_edges(spec: Spec, renamed: dict[str, str] | None = None) -> set[tuple[str, str]]:
@@ -245,7 +245,7 @@ def chain_edits(spec: Spec, fixes) -> list[ye.Edit]:
             path = _section_file(spec, spec.stocks[x.source])      # beside the stock its items come from
             stocks.setdefault(path, []).append(
                 [f"  {x.stock}:"] + ([f"    unit: {x.unit}"] if x.unit else []) + [f"    description: {x.description}",
-                 "    sensor:", f"      items: {x.kind}", f"      state: {x.entering}", f"    inferred: {PENDING}"])
+                 "    sensor:", f"      projection: {x.kind}", f"      state: {x.entering}", f"    inferred: {PENDING}"])
         elif x.op == "retarget":
             f = spec.flows[x.flow]
             ye.own(f.where, f"flow {f.name}")
@@ -262,7 +262,7 @@ def chain_edits(spec: Spec, fixes) -> list[ye.Edit]:
             lines = [f"  {x.flow}:"] + ([f"    from: {x.source}"] if x.source else []) + \
                 ([f"    to: {x.target}"] if x.target else []) + [f"    description: {x.description}"] + \
                 ([f"    driven-by: +stock.{x.source}"] if x.source else []) + \
-                ["    sensor:", f"      items: {x.kind}", f"      entering: {x.entering}"] + \
+                ["    sensor:", f"      projection: {x.kind}", f"      entering: {x.entering}"] + \
                 (["      where:"] + [f"        {k}: {v}" for k, v in x.where.items()] if x.where else []) + \
                 ["      over: 1h", f"    inferred: {PENDING}"]
             adds.setdefault(path, []).append(lines)
@@ -287,10 +287,10 @@ def chained(c: Ctx) -> None:
             c.not_made.append({"title": f"{x.code} on {x.about}", "code": x.code, "why": str(e)})
             continue
         whole = x.code == "state-stocks-disconnected"
-        once = x.code == "kind-enters-many-times"
+        once = x.code == "projection-enters-many-times"
         parts = sorted({f"stock.{s}" for f in x.fixes for s in (f.source, f.target, f.stock) if s} |
                        {f"flow.{f.flow}" for f in x.fixes if f.op in ("retarget", "remove")})
-        kind = x.message.split(":", 1)[0].removeprefix("items ") if whole or once else ""
+        kind = x.message.split(":", 1)[0].removeprefix("projection ") if whole or once else ""
         c.add("a kind's state stocks chained" if whole else "one arrival for a kind" if once else "a move carried by a flow",
               x.code, x.about,
               f"Chain the state stocks of {kind}" if whole else f"One arrival for {kind}, its other inflows from "

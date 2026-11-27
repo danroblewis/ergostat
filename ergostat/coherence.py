@@ -52,7 +52,7 @@ class Finding:
     level: str = "mismatch"                          # mismatch (counted against) or note (said, not counted)
 
     def as_dict(self) -> dict:
-        return {"pair": self.pair, "code": self.code, "kind": self.kind, "about": self.about, "id": f"{self.code}@{self.about}",
+        return {"pair": self.pair, "code": self.code, "projection": self.kind, "about": self.about, "id": f"{self.code}@{self.about}",
                 "message": self.message, "fix": self.fix, "links": self.links, "level": self.level,
                 "file": str(self.where.file) if self.where else None, "line": self.where.line if self.where else None}
 
@@ -297,8 +297,8 @@ def compare(spec, events, since: float | None = None, until: float | None = None
             if need is None and n_moves:
                 stocked = sorted({s for st in spec.stocks.values() for x in st.sensors.values()
                                   if x.items and x.items.get("kind") == k for s in (x.items.get("state") or [])})
-                found.append(Finding("process-dynamics", "kind-not-chained", k, f"items.{k}",
-                                     f"items {k}: {n_moves} moves of {n_items} items in the window, but "
+                found.append(Finding("process-dynamics", "projection-not-chained", k, f"projections.{k}",
+                                     f"projection {k}: {n_moves} moves of {n_items} items in the window, but "
                                      + (f"only {', '.join(stocked)} has a stock" if stocked else "no stock counts its states")
                                      + ": the Dynamics view does not show how its items move. If they are work that waits "
                                      "and moves, give each state where they wait a stock (items: " + k + ", state: S) and "
@@ -329,8 +329,8 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                                  + ", but no block moves it and nothing measures it: the model does not say what moves "
                                  "this work, nor how much", f.where,
                                  fix=f"the block that moves it (out: flow.{f.name}, or one taking the items there: takes: "
-                                     f"{{kind: {k}, at: ...}}); if it is moved outside ergostat, an external block (type: "
-                                     f"external, out: flow.{f.name}) or a sensor that observes it (items: {k}, entering: ...)"))
+                                     f"{{projection: {k}, at: ...}}); if it is moved outside ergostat, an external block (type: "
+                                     f"external, out: flow.{f.name}) or a sensor that observes it (projection: {k}, entering: ...)"))
         movers[k] = {f: ("block " + m[1] + (" (external)" if spec.blocks[m[1]].type == "external" else "")
                          if m[0] == "block" else "ergostat's leases" if m[0] == "lease" else f"outside ({m[1]})")
                      for f, m in moved_by.items() if m}
@@ -465,8 +465,8 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                 unseen.append(f.name)
         if unseen or unexercised:
             names = unseen + unexercised
-            found.append(Finding("process-dynamics", "flow-not-seen", k, f"items.{k}",
-                                 f"items {k}: no item moved along {'this flow' if len(names) == 1 else 'these flows'} in the "
+            found.append(Finding("process-dynamics", "flow-not-seen", k, f"projections.{k}",
+                                 f"projection {k}: no item moved along {'this flow' if len(names) == 1 else 'these flows'} in the "
                                  f"window: {', '.join(names)}"
                                  + (f" ({', '.join(unexercised)}: not exercised by the record)" if unexercised else "")
                                  + ". Quiet is not absent: a path taken rarely (a retry, a dead letter, a step later than "
@@ -575,8 +575,8 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                                      "$ERGOSTAT_CMD event --add during the run, so causedby names it); if something else "
                                      "does the work, the model should say so (that block's out:, or an external block)"))
         if idle:
-            found.append(Finding("blocks-process", "not-seen-acting", k, f"items.{k}",
-                                 f"items {k}: no work reached {'this block' if len(idle) == 1 else 'these blocks'} in the "
+            found.append(Finding("blocks-process", "not-seen-acting", k, f"projections.{k}",
+                                 f"projection {k}: no work reached {'this block' if len(idle) == 1 else 'these blocks'} in the "
                                  f"window (no item came to the states they take, nor moved along their flows), so none "
                                  f"was seen acting: {', '.join(idle)}", spec.items[k].where, level="note"))
             kinds_info[k]["idle"] = idle
@@ -585,7 +585,7 @@ def compare(spec, events, since: float | None = None, until: float | None = None
         a, c = scores[k].total()
         out_kinds[k] = {**info, "agree": a, "compared": c, "movers": movers.get(k, {}),
                         "pairs": {p: {"agree": scores[k].agree[p], "compared": scores[k].compared[p]} for p in PAIRS}}
-    return {"since": since, "until": until, "kinds": out_kinds, "findings": [f.as_dict() for f in found],
+    return {"since": since, "until": until, "projections": out_kinds, "findings": [f.as_dict() for f in found],
             "pairs": PAIRS, "most": {"moves": MIN_MOVES, "items": MIN_ITEMS},
             "capped": dict(w.capped) if w is not None else {}}
 
@@ -616,7 +616,7 @@ def _undeclared_fix(k: str, p: str | None, s: str, t, carriers: set[str]) -> str
     if p is None:
         return f"out: flow.{sorted(carriers)[0]}" if carriers else f"a flow from outside into {s}'s stock, as its out:"
     if t is None or t.kind != k:
-        return f"takes: {{kind: {k}, at: {p}, to: [{s}]}}{out}"
+        return f"takes: {{projection: {k}, at: {p}, to: [{s}]}}{out}"
     if p in t.at:
         return f"add {s} to its takes: to:{out}"
     return f"add {p} to its takes: at: (and {s} to its to:){out}"
@@ -707,9 +707,9 @@ def score_line(k: str, x: dict) -> str:
 
 
 def lines(got: dict) -> list[tuple[str, str]]:
-    """The section as (style, line) pairs: each kind's score, then the findings grouped by pair."""
+    """The section as (style, line) pairs: each projection's score, then the findings grouped by pair."""
     out: list[tuple[str, str]] = []
-    for k, x in got["kinds"].items():
+    for k, x in got["projections"].items():
         out.append(("ok" if x["agree"] == x["compared"] and not x.get("needs") else "warn" if x["compared"] else "dim",
                     score_line(k, x)))
     for pair, title in PAIRS.items():

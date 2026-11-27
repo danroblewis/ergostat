@@ -49,7 +49,7 @@ def record(type: str, item: str, data: dict | None = None, by: str = "factory") 
 
 
 def tickets() -> list[dict]:
-    out = subprocess.run([*ergostat(), "item", "--kind", "ticket", "-n", "1000", "--json"], check=True,
+    out = subprocess.run([*ergostat(), "item", "--projection", "ticket", "-n", "1000", "--json"], check=True,
                          capture_output=True, text=True).stdout
     return json.loads(out)["items"]
 
@@ -201,7 +201,7 @@ def submit(ticket: str, note: str, by: str) -> bool:
 # ---- the reviewer
 
 def waiting() -> dict | None:
-    out = subprocess.run([*ergostat(), "item", "--kind", "pr", "--state", "review", "-n", "1000", "--json"], check=True,
+    out = subprocess.run([*ergostat(), "item", "--projection", "pr", "--state", "review", "-n", "1000", "--json"], check=True,
                          capture_output=True, text=True).stdout
     prs = sorted(json.loads(out)["items"], key=lambda p: p["first"])
     return prs[0] if prs else None

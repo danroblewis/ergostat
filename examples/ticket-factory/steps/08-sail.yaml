@@ -7,7 +7,7 @@ stocks:
     unit: tickets
     description: labelled SAIL; CI watched
     sensor:
-      items: ticket
+      projection: ticket
       state: sailed
       every: 3s
 
@@ -18,7 +18,7 @@ flows:
     driven-by: [+stock.approved]
     equation: stock.approved / sail-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: sailed
       over: 10m
 
@@ -39,7 +39,7 @@ blocks:
     type: program
     goal: approved-sailed
     daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
-    takes: {kind: ticket, at: approved, to: [sailed, stopped]}
+    takes: {projection: ticket, at: approved, to: [sailed, stopped]}
     pool: 3
     actions: [pr-label]
     out: flow.sail

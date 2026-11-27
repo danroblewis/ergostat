@@ -25,7 +25,7 @@ from ergostat.store import Project
 G = 1 << 30
 MODEL = """
 name: t
-items:
+projections:
   batch:
     id: batch/*
     states: [ready, landed, failed]
@@ -35,7 +35,7 @@ blocks:
     type: program
     run: "true"
     pool: 8
-    takes: {kind: batch, at: ready, to: [landed, failed]LANES}
+    takes: {projection: batch, at: ready, to: [landed, failed]LANES}
 """
 LANES = ", lanes: {apart: paths, most: 4, ahead: AHEAD, within: {cpu: 8, memory: 8g}, each: {cpu: 2, memory: 2g}, passed: landed}"
 

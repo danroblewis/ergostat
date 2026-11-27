@@ -85,6 +85,6 @@ def listing(p, spec) -> list[dict]:
         for it in its.project(p.events, spec, kind, transcript=False):
             lease = it.fields.get("lease")
             if isinstance(lease, dict):
-                out.append({"item": it.id, "kind": it.kind, "state": it.state, "held": bool(held(it.fields)),
+                out.append({"item": it.id, "projection": it.kind, "state": it.state, "held": bool(held(it.fields)),
                             **{k: v for k, v in lease.items() if k != "history"}, "tries": len(lease.get("history") or [])})
     return sorted(out, key=lambda x: (not x["held"], x["state"] != DEAD, -(x.get("taken") or 0)))

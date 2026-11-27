@@ -1,4 +1,4 @@
-"""Which system each item kind is in (item_systems.py): declared where the model declares it, otherwise where it
+"""Which system each projection is in (item_systems.py): declared where the model declares it, otherwise where it
 is counted (ergostat's own kinds too: the model's changes under modelling), ergostat's own that nothing counts in
 ergostat, otherwise other; and the Items list says so."""
 
@@ -23,7 +23,7 @@ BUILT_IN = ["ergostat.model-change", "ergostat.modelling-request",
 def systems_of(demo: str) -> tuple[dict, list]:
     spec, _ = sp.read(EXAMPLES / demo / "ergostat.yaml")
     got = kind_systems(spec)
-    return {k: x["system"] for k, x in got.items()}, [(g["name"], g["kinds"]) for g in groups(spec, got)]
+    return {k: x["system"] for k, x in got.items()}, [(g["name"], g["projections"]) for g in groups(spec, got)]
 
 
 @pytest.mark.parametrize("demo, expected, order", [
@@ -65,7 +65,7 @@ COUNTED = """
 systems:
   a: {}
   b: {}
-items:
+projections:
   job:
     id: job/*
     states: [open, done]
@@ -79,19 +79,19 @@ stocks:
   open-a:
     system: a
     unit: jobs
-    sensor: {items: job, state: open}
+    sensor: {projection: job, state: open}
   done-b:
     system: b
     unit: jobs
-    sensor: {items: job, state: done}
+    sensor: {projection: job, state: done}
   later-b:
     system: b
     unit: jobs
-    sensor: {items: job, state: open}
+    sensor: {projection: job, state: open}
   mine-a:
     system: a
     unit: jobs
-    sensor: {items: mine}
+    sensor: {projection: mine}
 """
 
 
@@ -114,9 +114,9 @@ def test_the_list_says_each_kind_and_items_system(tmp_path):
     p.events.add("job.opened", item="job/1", data={}, at=t)
     p.events.add("x.seen", item="stray/1", data={}, at=t)                # no kind: other
     got = its.listing(p.events, p.model.spec)
-    assert {k["name"]: k["system"] for k in got["kinds"]}["job"] == "b"
+    assert {k["name"]: k["system"] for k in got["projections"]}["job"] == "b"
     assert {i["id"]: i["system"] for i in got["items"]} == {"job/1": "b", "stray/1": "other"}
-    assert [(g["name"], g["kinds"]) for g in got["systems"]] == [("b", ["job", "mine"]), ("ergostat", BUILT_IN),
+    assert [(g["name"], g["projections"]) for g in got["systems"]] == [("b", ["job", "mine"]), ("ergostat", BUILT_IN),
                                                                 ("other", ["lone"])]
     assert its.detail(p.events, p.model.spec, "job/1")["system"] == "b"
 
@@ -128,8 +128,8 @@ def test_a_collapsed_system_sends_no_items(tmp_path):
     p.events.add("job.opened", item="job/1", data={}, at=t)
     p.events.add("lone.seen", item="lone/1", data={}, at=t)
     live = Live(p)
-    every = api(live, "items", {"shown": ["1"], "per_kind": ["25"]})
+    every = api(live, "items", {"shown": ["1"], "per_projection": ["25"]})
     assert {i["id"] for i in every["items"]} == {"job/1", "lone/1"}
-    got = api(live, "items", {"shown": ["1"], "per_kind": ["25"], "hide": ["b,ergostat"]})
+    got = api(live, "items", {"shown": ["1"], "per_projection": ["25"], "hide": ["b,ergostat"]})
     assert [i["id"] for i in got["items"]] == ["lone/1"]
-    assert {k["name"]: k["counts"] for k in got["kinds"]}["job"] == {"open": 1}       # its count still said
+    assert {k["name"]: k["counts"] for k in got["projections"]}["job"] == {"open": 1}       # its count still said

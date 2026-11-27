@@ -2,7 +2,7 @@ import { lazy, Suspense, useMemo } from "react";
 import { dur } from "../../../lib/format";
 import type { Panel } from "../../../lib/query";
 import { Chart } from "../../charts/Chart";
-import { KindStates } from "../../charts/KindStates";
+import { ProjectionStates } from "../../charts/ProjectionStates";
 import { PanelFrame } from "../../charts/PanelView";
 import { Plot } from "../../charts/Plot";
 import { QueryPanel } from "../../charts/QueryPanel";
@@ -80,14 +80,14 @@ function ChartBody({ def, every, refreshKey }: PanelBodyProps) {
 }
 
 function ItemsBody({ def, every, refreshKey }: PanelBodyProps) {
-  const got = usePanelApi<any>("items", { shown: 1, n: 25, ...paramsOf(def, "kind", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n") }, every, refreshKey);
+  const got = usePanelApi<any>("items", { shown: 1, n: 25, ...paramsOf(def, "projection", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n") }, every, refreshKey);
   return (
     <div className="panel-table">
       <Async state={got}>
         {(d) => {
-          const k = (d.kinds || []).find((x: any) => x.name === def.kind);
-          const its = (d.items || []).filter((i: any) => !def.kind || i.kind === def.kind);
-          return its.length ? <ItemsTable items={its} show={k?.show || []} caption={def.title || `${def.kind} items`} />
+          const k = (d.projections || []).find((x: any) => x.name === def.projection);
+          const its = (d.items || []).filter((i: any) => !def.projection || i.projection === def.projection);
+          return its.length ? <ItemsTable items={its} show={k?.show || []} caption={def.title || `${def.projection} items`} />
             : <p className="muted">No items{def.state ? ` in ${def.state}` : ""}.</p>;
         }}
       </Async>
@@ -96,13 +96,13 @@ function ItemsBody({ def, every, refreshKey }: PanelBodyProps) {
 }
 
 function StatesBody({ def, every, refreshKey }: PanelBodyProps) {
-  const flow = usePanelApi<any>("items-flow", paramsOf(def, "kind", "points"), every, refreshKey);
-  const fp = usePanelApi<any>(def.kind ? `kinds/${encodeURIComponent(def.kind)}` : null, {}, every, refreshKey);
-  return <KindStates flow={flow.data} fp={fp.data} all={false} />;
+  const flow = usePanelApi<any>("items-flow", paramsOf(def, "projection", "points"), every, refreshKey);
+  const fp = usePanelApi<any>(def.projection ? `projections/${encodeURIComponent(def.projection)}` : null, {}, every, refreshKey);
+  return <ProjectionStates flow={flow.data} fp={fp.data} all={false} />;
 }
 
 function CycleTimeBody({ def, every, refreshKey }: PanelBodyProps) {
-  const flow = usePanelApi<any>("items-flow", paramsOf(def, "kind", "points"), every, refreshKey);
+  const flow = usePanelApi<any>("items-flow", paramsOf(def, "projection", "points"), every, refreshKey);
   const d = flow.data;
   const since = flow.data?.since, until = flow.data?.until;
   const options = useMemo(() => ({                      // dots over the window, however few finished in it
@@ -111,7 +111,7 @@ function CycleTimeBody({ def, every, refreshKey }: PanelBodyProps) {
     axes: [{}, { size: 56, values: (_u: unknown, vs: number[]) => vs.map((v) => dur(v)) }],
   }), [since, until]);
   if (!d) return flow.error ? <p className="note lvl-error">{flow.error.message}</p> : <Loading />;
-  if (!d.finished?.length) return <p className="muted">No {def.kind} finished in the window.</p>;
+  if (!d.finished?.length) return <p className="muted">No {def.projection} finished in the window.</p>;
   return (
     <div>
       <Chart times={d.finished.map((f: any) => f.time)} series={[{ label: "took", values: d.finished.map((f: any) => f.took) }]}
@@ -136,9 +136,9 @@ export const CORE: Record<string, PanelKind> = {
   note: { label: "Note", needs: "text", Body: NoteBody },
   goals: { label: "Goals", Body: GoalsBody },
   chart: { label: "Chart of stocks and flows", needs: "refs", Body: ChartBody },
-  items: { label: "Items", needs: "kind", Body: ItemsBody },
-  states: { label: "A kind's states over time", needs: "kind", Body: StatesBody },
-  "cycle-time": { label: "A kind's cycle time", needs: "kind", Body: CycleTimeBody },
+  items: { label: "Items", needs: "projection", Body: ItemsBody },
+  states: { label: "A projection's states over time", needs: "projection", Body: StatesBody },
+  "cycle-time": { label: "A projection's cycle time", needs: "projection", Body: CycleTimeBody },
   scope: { label: "A goal's scope", needs: "goal", Body: NotDrawn },
   "items-graph": { label: "Items graph", Body: NotDrawn },
   timeline: { label: "Timeline", Body: NotDrawn },

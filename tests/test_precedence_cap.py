@@ -17,7 +17,7 @@ from ergostat.spec import items as its
 from ergostat.store import Project
 
 MODEL = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, doing, done]
@@ -33,7 +33,7 @@ blocks:
   dev:
     type: program
     run: "true"
-    takes: {kind: ticket, at: [todo], to: [done], unblocked: true}
+    takes: {projection: ticket, at: [todo], to: [done], unblocked: true}
 """
 
 N = pr.MOST_PULLED + 5          # more dependencies than the graph holds: the last ones (by id) are cut from it

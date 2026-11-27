@@ -300,7 +300,7 @@ def test_removals_recorded_by_class(simp, repo, monkeypatch, capsys):
     gaps = {"gap/simplify-ergostat-big-20261121": {"source": "simplifier", "branch": "simplify-ergostat-big-20261121"},
             "gap/plain": {"source": "request", "branch": "plain"}}
     monkeypatch.setattr(fac, "ergostat", lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps(
-        {"id": a[1], "kind": "gap", "state": "merged", "fields": gaps[a[1]]}), ""))
+        {"id": a[1], "projection": "gap", "state": "merged", "fields": gaps[a[1]]}), ""))
     event = {"type": "gap.merged", "data": {"main_sha": merged, "pre": pre}}
 
     assert simp.removals(simp.cfg, {"event": {**event, "item": "gap/plain"}}) == 0
@@ -337,7 +337,7 @@ def test_removals_read_only_the_gaps_own_merge_in_a_batch(simp, repo, monkeypatc
         shas[name] = git(repo, "rev-parse", "HEAD")
     fac = sys.modules["fac"]
     monkeypatch.setattr(fac, "ergostat", lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps(
-        {"id": a[1], "kind": "gap", "state": "merged",
+        {"id": a[1], "projection": "gap", "state": "merged",
          "fields": {"source": "simplifier", "branch": "simplify-ergostat-big-20261121"}}), ""))
     event = {"type": "gap.merged", "item": "gap/simplify-ergostat-big-20261121",
              "data": {"main_sha": shas["after"], "pre": pre}}               # (the batch's head, as queue.py says it)

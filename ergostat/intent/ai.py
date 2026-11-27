@@ -29,7 +29,7 @@ Answer with one JSON line and nothing else (no prose, no code fences):
 
 def render(brief: dict) -> str:
     w = brief["work"]
-    out = [f"# The work: {w['id']} ({w['kind']})", "",
+    out = [f"# The work: {w['id']} ({w['projection']})", "",
            f"It entered `{w['at']}` (it says it is done); it is now `{w['state']}`.", ""]
     if w.get("done_when"):
         out += ["## Done when (the owner's words, verbatim)", "", f"> {w['done_when']}", ""]

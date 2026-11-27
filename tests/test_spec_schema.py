@@ -53,7 +53,7 @@ def test_a_queue_s_faults_say_what_reads_healthy(faults, ok):
 def test_a_relation_may_say_the_states_its_targets_stop_blocking_at(starts_at, ok):
     """SPEC §5a, *Relations*: ``starts_at``, a state or a list of them."""
     model = yaml.safe_load((ROOT / "docs/spec-examples/relations.yaml").read_text())
-    model["items"]["ticket"]["relations"]["blocked_by"] = {"kind": "ticket", "starts_at": starts_at}
+    model["projections"]["ticket"]["relations"]["blocked_by"] = {"projection": "ticket", "starts_at": starts_at}
     assert (not list(VALIDATOR.iter_errors(model))) == ok
 
 

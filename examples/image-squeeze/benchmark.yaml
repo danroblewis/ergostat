@@ -6,7 +6,7 @@
 defaults:
   system: benchmark
 
-items:
+projections:
   case:
     id: case/*
     states: [unmet, met]
@@ -20,7 +20,7 @@ stocks:
     unit: cases
     description: benchmark cases squeeze meets, what the product can do
     sensor:
-      items: case
+      projection: case
       state: met
       every: 10s
   # How good squeeze is on the cases, as points: the percentage fewer kilobytes per megapixel it needs
@@ -60,14 +60,14 @@ flows:
       - {cause: +flow.kept, instant: true}
       - +auxiliary.cases-per-release
     sensor:
-      items: case
+      projection: case
       entering: met
       over: 30m
   lost:
     from: capabilities                     # a release that breaks something it could: the rollback refuses a candidate that
                                            # loses a case production meets, so nothing in the model drives this (a disturbance)
     sensor:
-      items: case
+      projection: case
       leaving: met
       over: 30m
   benchmark-points-gained:

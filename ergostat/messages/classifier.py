@@ -21,8 +21,8 @@ def context(spec: Spec, msg: dict, items: list[dict], runs: list[dict]) -> dict:
     open_.sort(key=lambda x: (x["id"] not in busy, -x["last"]))
     cands = []
     for x in open_[:CANDIDATES]:
-        k = spec.items[x["kind"]]
-        cands.append({"id": x["id"], "kind": x["kind"], "state": x["state"],
+        k = spec.items[x["projection"]]
+        cands.append({"id": x["id"], "projection": x["projection"], "state": x["state"],
                       "fields": {f: x["fields"][f] for f in [*k.show, "title"] if f in x["fields"]
                                  and not str(x["fields"][f]).startswith("file:")},
                       **({"worked_on_by": busy[x["id"]]["block"]} if x["id"] in busy else {})})

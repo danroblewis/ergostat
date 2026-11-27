@@ -86,18 +86,18 @@ def test_owner_command_whole_slot_allowed(tmp_path):
 
 def test_owner_command_through_builtin_allowed(tmp_path):
     # collect's default poll (1m) and its 30s count: the gate allows them (trusted words), bounds.py's floor does not
-    path = write(tmp_path, {"cmd": CMD}, {"l": L(body=COLLECT.format(more=", kind: tickets"))})
+    path = write(tmp_path, {"cmd": CMD}, {"l": L(body=COLLECT.format(more=", projection: tickets"))})
     run = next(iter(gate_allows(path).flows["u-c-arriving"].sensors.values())).run
-    assert run.startswith(LIB + " collect ") and f"--command '{CMD}'" in run and "--kind tickets " in run, run
+    assert run.startswith(LIB + " collect ") and f"--command '{CMD}'" in run and "--projection tickets " in run, run
     # with the owner's poll and the arrivals into the library's own stock (no 30s count), it compiles whole
-    body = "stocks:\n  s: {unit: items}\n" + COLLECT.format(more=", kind: tickets, into: u-s, poll: '${p}'")
+    body = "stocks:\n  s: {unit: items}\n" + COLLECT.format(more=", projection: tickets, into: u-s, poll: '${p}'")
     path = write(tmp_path, {"cmd": CMD, "p": "10m"}, {"l": L("{cmd: {type: command}, p: {type: duration}}", body)})
     run = next(iter(compiles(path).flows["u-c-arriving"].sensors.values())).run
-    assert f"--command '{CMD}'" in run and "--kind tickets " in run, run
+    assert f"--command '{CMD}'" in run and "--projection tickets " in run, run
 
 
 def test_library_every_refused(tmp_path):
-    path = write(tmp_path, {"cmd": CMD}, {"l": L(body=COLLECT.format(more=", kind: tickets, poll: 1m"))})
+    path = write(tmp_path, {"cmd": CMD}, {"l": L(body=COLLECT.format(more=", projection: tickets, poll: 1m"))})
     assert "flows.u-c-arriving.sensor.every" in refused_once(path)
 
 
@@ -146,16 +146,16 @@ def test_command_mark_lost_through_non_command_param(tmp_path):
 
 
 def test_nested_library_literal_sandboxed(tmp_path):
-    l2 = "template: l2\nitems:\n  k: {id: k/*}\nuses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"
+    l2 = "template: l2\nprojections:\n  k: {id: k/*}\nuses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body="stocks:\n  s: {unit: u}\nuses:\n  in:\n    use: l2\n"), "l2": l2})
     assert "./fetch.sh" in sandboxed(path, "u-in-c-arriving").run
 
 
 @pytest.mark.parametrize("own", ["params:\n  x: {type: name}\nstocks:\n  s: {unit: u}\nflows:\n  f:\n    to: s\n"
                                  "    sensor: {run: 'sh -c ${x:quote}'}\n",
-                                 "params:\n  kind: {type: name}\nblocks:\n  b: {type: program, run: '${lib} each --kind ${kind}'}\n"])
+                                 "params:\n  projection: {type: name}\nblocks:\n  b: {type: program, run: '${lib} each --projection ${projection}'}\n"])
 def test_library_value_into_owner_folder_template_run_refused(tmp_path, own):
-    name = "x" if "x:" in own else "kind"
+    name = "x" if "x:" in own else "projection"
     body = f"uses:\n  o:\n    use: of\n    with: {{{name}: tickets}}\n"
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body=body)}, {"of": "template: of\n" + own})
     if "sensor" in own:                         # a sensor's: sandboxed
@@ -171,12 +171,12 @@ COLLECT_KV = "uses:\n  c:\n    use: collect\n    with: {{command: '${{cmd}}', {k
 
 
 @pytest.mark.parametrize("template, key, value, ok", [
-    ("collect", "kind", "rm\n", SBX), ("collect", "kind", "a" * 65, SBX), ("collect", "kind", "Tickets", False),
+    ("collect", "projection", "rm\n", SBX), ("collect", "projection", "a" * 65, SBX), ("collect", "projection", "Tickets", False),
     ("re-ping", "every", "5m\n", False), ("re-ping", "every", " 5m", False), ("re-ping", "every", "1e3s", False),
     ("re-ping", "limit", "1e9", False), ("collect", "stand-in-rate", "nan", SBX),
     ("re-ping", "every", "0ms", False), ("re-ping", "limit", 101, False), ("collect", "stand-in-rate", 100000, SBX),
-    ("collect", "kind", "tickets", True), ("re-ping", "every", "5m", True), ("re-ping", "every", "1.5h", True),
-    ("re-ping", "limit", 3, True), ("collect", "kind", "a" * 64, True)])
+    ("collect", "projection", "tickets", True), ("re-ping", "every", "5m", True), ("re-ping", "every", "1.5h", True),
+    ("re-ping", "limit", 3, True), ("collect", "projection", "a" * 64, True)])
 def test_narrow_value_patterns(tmp_path, template, key, value, ok):
     """A value R2 refuses: a block refused at the use; a sensor's run sandboxed (SBX: library/runs.py)."""
     body = (COLLECT_KV if template == "collect" else REPING).format(k=key, v=json.dumps(value))
@@ -311,11 +311,11 @@ def test_builtin_run_slots_take_narrow_values_only_as_arguments(tmp_path):
                         t.name, slot, m.group(0))
     assert seen > 40
     fixture = tmp_path / "fx.yaml"
-    fixture.write_text("template: fx\nparams:\n  kind: {type: name}\n  title: {type: string}\nblocks:\n"
-                       "  a: {type: program, run: 'sh -c ${kind}'}\n  b: {type: program, run: '${lib} x --run ${kind}'}\n"
+    fixture.write_text("template: fx\nparams:\n  projection: {type: name}\n  title: {type: string}\nblocks:\n"
+                       "  a: {type: program, run: 'sh -c ${projection}'}\n  b: {type: program, run: '${lib} x --run ${projection}'}\n"
                        "  c: {type: program, run: '${lib} report --title ${title:quote}'}\n")
     found = checked(tp.read(fixture, False, "owner"))
-    assert [(s, r) for s, r, _ in found] == [("sh -c ${kind}", "${kind}"), ("${lib} x --run ${kind}", "${kind}"),
+    assert [(s, r) for s, r, _ in found] == [("sh -c ${projection}", "${projection}"), ("${lib} x --run ${projection}", "${projection}"),
                                              ("${lib} report --title ${title:quote}", "${title:quote}")], found
 
 
@@ -351,7 +351,7 @@ def test_every_lib_flag_classified(monkeypatch):
     sources = "".join(p.read_text() for p in (ROOT / "ergostat/library/run").glob("*.py"))
     assert len(got) == sources.count("argparse.ArgumentParser(")         # every parser reached
     assert unclassified(got) == [] and not trust.LIB_DATA_FLAGS & trust.LIB_EXEC_FLAGS
-    assert {"--run", "--render", "--command"} <= trust.LIB_EXEC_FLAGS and {"--kind", "--every"} <= trust.LIB_DATA_FLAGS
+    assert {"--run", "--render", "--command"} <= trust.LIB_EXEC_FLAGS and {"--projection", "--every"} <= trust.LIB_DATA_FLAGS
     assert unclassified(options(monkeypatch, "--zzz-extra")) == [f"{p} --zzz-extra" for p in sorted(got)]
 
 

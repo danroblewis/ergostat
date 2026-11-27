@@ -278,7 +278,7 @@ def test_the_engine_measures_the_same_with_the_newest_kept_or_read_one_by_one(tm
 
 DISPATCHED = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, review, done]
@@ -290,12 +290,12 @@ items:
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: AT}
+    takes: {projection: ticket, at: AT}
     pool: 2
     run: "true"
   checker:
     type: program
-    takes: {kind: ticket, at: review}
+    takes: {projection: ticket, at: review}
     run: "true"
 """
 

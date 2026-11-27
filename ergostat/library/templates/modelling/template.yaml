@@ -9,11 +9,11 @@ reading: |
   written never shows in it; model-drift is the residual, the error's net change less model-mended, two-way: the
   record moving on, the world drifting from the model, and a better fit that no change explains. It is one flow, not
   drift beside an "unexplained improvement", because nothing measures the two apart. The changes to the model are items of
-  ergostat's built-in kind ergostat.model-change, whoever made them (the improver's propose lines and ergostat's own
+  ergostat's built-in projection ergostat.model-change, whoever made them (the improver's propose lines and ergostat's own
   finders alike), counted by state as an aging chain: made and checked (pending-changes), under test
   (changes-testing), passed (passed-changes), written (accepted-changes, a running total); a change made against a
   version of the model since changed leaves as superseded, one the judge fails leaves as failed.
-  What check finds (its findings, a kind's chain, the craft notes, the coherence mismatches once there is record) is
+  What check finds (its findings, a projection's chain, the craft notes, the coherence mismatches once there is record) is
   work for it too: each a request (ergostat.modelling-request), raised by a collector (requests-raised), counted while it
   is not answered (unanswered-requests) and answered when check no longer finds it. A stock with no unit raises none:
   it is a property of the model, a check finding (no-unit) the Dynamics view marks 'unit ?', so requests-handled never
@@ -75,7 +75,7 @@ params:
   sessions:
     type: bool
     default: false
-    description: keep each run of the improver as an item of kind session (session/*, its role, model, cost, turns and time), for an improver that reports session.ran, session.failed and session.lost
+    description: keep each run of the improver as an item of the projection session (session/*, its role, model, cost, turns and time), for an improver that reports session.ran, session.failed and session.lost
   rules:
     type: bool
     default: true
@@ -161,7 +161,7 @@ params:
   accept:
     type: any
     description: 'who writes a change the judge passed: owner or auto, or a map of kind (parameter, equation, structure, description, unit, rename, redesign) to either (the judge''s own default: owner for every kind; accept: auto promotes parameter, equation, structure, description and unit; a rename and a redesign only when named, rename: auto, redesign: auto; a change that rewires a chain or removes a part, and a redesign that changes control, always wait for the owner; a redesign is judged on the record it has, its fit allowed 10% worse)'
-items:
+projections:
   session:
     if: ${sessions}
     id: session/*
@@ -182,28 +182,28 @@ stocks:
     unit: changes
     description: changes to the model made and checked, waiting for the judge
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       state: checked
       every: ${count-every}
   changes-testing:
     unit: changes
     description: changes being replayed on the record that comes after them
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       state: testing
       every: ${count-every}
   passed-changes:
     unit: changes
     description: passed by the judge, waiting to be written (by the owner, for a change to the structure)
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       state: passed
       every: ${count-every}
   unanswered-requests:
     unit: requests
     description: what check finds that modelling is still working on (open, or with a change waiting); one held for the owner or more record leaves the count, so requests-handled can be met
     sensor:
-      items: ergostat.modelling-request
+      projection: ergostat.modelling-request
       state: [open, proposed]
       every: ${count-every}
   answered-requests:
@@ -211,7 +211,7 @@ stocks:
     description: requests answered, check no longer finding them
     cumulative: true
     sensor:
-      items: ergostat.modelling-request
+      projection: ergostat.modelling-request
       state: answered
       every: ${count-every}
   accepted-changes:
@@ -219,7 +219,7 @@ stocks:
     description: changes accepted and written into the model
     cumulative: true
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       state: accepted
       every: ${count-every}
 flows:
@@ -238,7 +238,7 @@ flows:
       - +stock.model-error
       - {cause: +flow.changes-accepted, instant: true}
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: accepted
       sum: fit_gained
       over: ${over}
@@ -246,7 +246,7 @@ flows:
     to: pending-changes
     description: changes made by the improver and ergostat's own finders (each checked at once, or refused)
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: made
       where: {made_by: [improver, improver-by-hand, ergostat, owner]}
       over: ${over}
@@ -256,7 +256,7 @@ flows:
     description: changes the rule tier made for the requests (each checked at once, or refused)
     driven-by: +stock.unanswered-requests
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: made
       where: {made_by: fixer}
       over: ${over}
@@ -267,7 +267,7 @@ flows:
     description: change sets the redesigner made, each many edits judged together (or refused)
     driven-by: +stock.unanswered-requests
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: made
       where: {made_by: redesigner}
       over: ${over}
@@ -277,7 +277,7 @@ flows:
     description: changes the AI tier made for the requests (each checked at once, or refused)
     driven-by: +stock.unanswered-requests
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: made
       where: {made_by: modeller}
       over: ${over}
@@ -296,14 +296,14 @@ flows:
       - +stock.unanswered-requests
       - {cause: +flow.changes-accepted, instant: true}
     sensor:
-      items: ergostat.modelling-request
+      projection: ergostat.modelling-request
       entering: answered
       over: ${over}
   changes-superseded:                 # made against a version of the model since changed
     from: pending-changes
     driven-by: +stock.pending-changes
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: superseded
       over: ${over}
   tests-started:
@@ -311,7 +311,7 @@ flows:
     to: changes-testing
     driven-by: +stock.pending-changes
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: testing
       over: ${over}
   changes-passed:
@@ -319,14 +319,14 @@ flows:
     to: passed-changes
     driven-by: +stock.changes-testing
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: passed
       over: ${over}
   changes-failed:
     from: changes-testing
     driven-by: +stock.changes-testing
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: failed
       over: ${over}
   changes-sent-back:
@@ -336,7 +336,7 @@ flows:
     description: passed changes the reviewer rejected or sent back to their author with its findings
     driven-by: +stock.passed-changes
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       leaving: passed
       where: {review.verdict: [reject, revise]}
       over: ${over}
@@ -345,7 +345,7 @@ flows:
     to: accepted-changes
     driven-by: +stock.passed-changes
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: accepted
       over: ${over}
 goals:

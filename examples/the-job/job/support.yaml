@@ -5,7 +5,7 @@
 defaults:
   system: support
 
-items:
+projections:
   ticket:
     id: ticket/*
     description: a customer ticket assigned to me
@@ -19,14 +19,14 @@ stocks:
   tickets-to-explain:
     unit: tickets
     sensor:
-      items: ticket
+      projection: ticket
       state: new
       every: 5s
   tickets-explained:
     unit: tickets
     description: the command explained and checked, waiting for my decision
     sensor:
-      items: ticket
+      projection: ticket
       state: explained
       every: 5s
 
@@ -36,7 +36,7 @@ auxiliaries:
     description: tickets near their SLA (three quarters of a working day) with no response
     driven-by: [+stock.tickets-to-explain, +stock.tickets-explained]
     sensor:
-      items: ticket
+      projection: ticket
       state: [new, explained]
       where:
         late: "yes"
@@ -52,14 +52,14 @@ flows:
     from: tickets-to-explain
     to: tickets-explained
     sensor:
-      items: ticket
+      projection: ticket
       entering: explained
       over: 10m
   tickets-answered:
     from: tickets-explained
     description: a customer answered, its command run or refused by me (mine)
     sensor:
-      items: ticket
+      projection: ticket
       entering: answered
       over: 10m
 
@@ -81,7 +81,7 @@ blocks:
     goal: every-ticket-explained
     prompt: prompts/command-explainer.md
     run: python3 bin/prepare.py ticket-explain
-    takes: {kind: ticket, at: new}
+    takes: {projection: ticket, at: new}
     pool: 2
     max: 1
     out: flow.explaining

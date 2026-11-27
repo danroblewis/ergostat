@@ -13,13 +13,13 @@ COMMANDS = {"run", "command", "cmd", "exec"}
 
 
 def stats(spec) -> dict:
-    """Counts only: how many of each part, block type, sensor kind, item kind and template, never which."""
+    """Counts only: how many of each part, block type, sensor kind, projection and template, never which."""
     if spec is None:
         return {}
     blocks = Counter(b.type for b in spec.blocks.values())
     sensors: Counter = Counter()
     for s in spec.sensors():
-        sensors["builtin" if s.builtin else "items" if s.items else "changes" if s.changes else "query" if s.query
+        sensors["builtin" if s.builtin else "projection" if s.items else "changes" if s.changes else "query" if s.query
                 else "manual" if s.manual else "command" if s.run else "other"] += 1
     own = [k for k in spec.items.values() if not k.name.startswith("ergostat.")]
     templates = Counter()
@@ -34,8 +34,8 @@ def stats(spec) -> dict:
         "parameters": len(spec.parameters), "goals": len(spec.goals), "blocks": len(spec.blocks),
         "blocks by type": dict(sorted(blocks.items())), "sensors by kind": dict(sorted(sensors.items())),
         "agents by kind": dict(sorted(Counter(a.kind or "unknown" for a in spec.agents.values()).items())),
-        "item kinds": len(own), "states per item kind": sorted(len(k.states) for k in own),
-        "item kinds with relations": sum(1 for k in own if k.relations),
+        "projections": len(own), "states per projection": sorted(len(k.states) for k in own),
+        "projections with relations": sum(1 for k in own if k.relations),
         "systems": len(spec.systems), "systems nested deepest": depth,
         "sources by type": dict(sorted(Counter(s.type for s in spec.sources.values()).items())),
         "template uses": dict(sorted(templates.items())), "remotes": len(spec.remotes or {}),
@@ -113,7 +113,7 @@ def repro(path: Path | None, scrubber, parts: list[str] | None = None) -> str | 
         return None
     if parts:
         want = {str(p).split(".", 1)[1] if "." in str(p) and str(p).split(".", 1)[0] in
-                {"stock", "flow", "auxiliary", "goal", "block", "agent", "system", "source", "parameter", "item", "kind"}
+                {"stock", "flow", "auxiliary", "goal", "block", "agent", "system", "source", "parameter", "item", "kind", "projection"}
                 else str(p) for p in parts}
         chosen = {k for k in entries if k[1] in want}
         if not chosen:

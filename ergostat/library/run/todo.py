@@ -1,14 +1,14 @@
 """A person's to-dos grouped by where they must be done (``use: todo``): one batch for each access context.
 
-    todo batches --kind K --batch-kind B --met done,answered [--states ready,in-progress]
+    todo batches --projection K --batch-projection B --met done,answered [--states ready,in-progress]
 
-Reads the to-dos of kind ``K`` in those states and groups them by their ``where`` (a host, a bastion, a VPN;
+Reads the to-dos of projection ``K`` in those states and groups them by their ``where`` (a host, a bastion, a VPN;
 ``anywhere`` when it names none), so that everything for one place is done in one sitting. Each group is the item
 ``B/<where>``: its to-dos in the order to do them (the earliest ``due`` first, then the longest ready, then by id)
 and every one's instructions in order, as one text (``sitting``). Says ``B.grouped`` for a group that is new or
 changed, and ``B.cleared`` for one with nothing left in it; a group as the record already has it is not said again.
 First, a waiting to-do whose wait (what its ``waits_on`` named since it last entered waiting) is over, every item
-named in a ``--met`` state (done, answered), is said ready again (``K.freed``, which the kind's ``moves-from:`` lets
+named in a ``--met`` state (done, answered), is said ready again (``K.freed``, which the projection's ``moves-from:`` lets
 move it only out of waiting, and its ``if-unchanged:`` only when nothing was recorded of the to-do since it was read:
 its ``read`` is the count of events judged, so a drop or a new wait since stays as recorded), grouped on the next pass;
 one whose prerequisite ended without happening (dropped) stays waiting, said in its ``stuck`` field (``K.stuck``),
@@ -35,7 +35,7 @@ def where_of(it) -> str:
 
 
 def key_of(where: str) -> str:
-    """The batch's id under its kind: the place as it was written when that is already an id's name, else its
+    """The batch's id under its projection: the place as it was written when that is already an id's name, else its
     letters and digits and a short hash of the whole text (so two places that read alike never share a batch)."""
     slug = re.sub(r"[^a-z0-9]+", "-", where.lower()).strip("-")[:48]
     if slug == where:
@@ -97,8 +97,8 @@ def groups(todos: list) -> dict[str, dict]:
 
 def batches(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="todo batches")
-    ap.add_argument("--kind", required=True)
-    ap.add_argument("--batch-kind", required=True)
+    ap.add_argument("--projection", dest="kind", required=True)
+    ap.add_argument("--batch-projection", dest="batch_kind", required=True)
     ap.add_argument("--states", default="ready,in-progress")
     ap.add_argument("--met", required=True,
                     help="the states in which what a to-do waits on has happened (done,answered); finished any other "
@@ -158,7 +158,7 @@ def free(p, kind: str, met: set[str]) -> int:
     known = {i.id: i for i in its.project(p.events, spec)}
     for was in waiting:
         evs = p.events.query(item=was.id, n=None)          # the to-do folded from the very events judged: what is
-        it = its.fold(was.id, evs, spec.items[kind])       # said carries their count (read), and the kind's
+        it = its.fold(was.id, evs, spec.items[kind])       # said carries their count (read), and the projection's
         if it.state != "waiting":                          # if-unchanged: refuses it once another lands (SPEC §5a)
             if it.fields.get("stuck") is not None:         # left waiting by any event: its old reason is not its own
                 say({"event": f"{kind}.stuck", "item": it.id, "data": {"stuck": None, "read": it.n}})
@@ -189,7 +189,7 @@ def finished(spec, kind: str) -> list[str]:
 
 def main(argv: list[str]) -> int:
     if not argv or argv[0] != "batches":
-        print("usage: python -m ergostat.library.run todo batches --kind K --batch-kind B --met S,... [--states S,...]",
+        print("usage: python -m ergostat.library.run todo batches --projection K --batch-projection B --met S,... [--states S,...]",
               file=sys.stderr)
         return 2
     return batches(argv[1:])

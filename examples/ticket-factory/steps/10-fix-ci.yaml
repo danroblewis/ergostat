@@ -9,7 +9,7 @@ flows:
     driven-by: [+stock.ci-failed]
     equation: stock.ci-failed / fix-ci-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: sailed
       over: 10m
 
@@ -32,7 +32,7 @@ blocks:
     agent: ai
     prompt: prompts/ci.md
     run: python3 bin/step.py fix-ci        # a process per run: an AI session of minutes, its CPU and cost its own
-    takes: {kind: ticket, at: ci-failed, to: [sailed, stopped]}
+    takes: {projection: ticket, at: ci-failed, to: [sailed, stopped]}
     pool: 1
     lease: {ttl: 20m, attempts: 2}
     workspace: code

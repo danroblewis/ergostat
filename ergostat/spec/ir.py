@@ -98,19 +98,19 @@ MODEL_MEASURES = {                 # the model's own quality (SPEC §12e), read 
     "ergostat.model.reviews-rejected": "changes the reviewer rejected over the last week",
     "ergostat.model.review-misses": "changes the reviewer passed that the prediction check later flagged for revert",
 }
-MODEL_CHANGE = "ergostat.model-change"   # the built-in item kind: every change to the model, made, judged and decided
+MODEL_CHANGE = "ergostat.model-change"   # the built-in projection: every change to the model, made, judged and decided
 MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded",
                        "verified", "regressed",   # verified, regressed: an accepted change scored again later (SPEC §12f)
                        "inconclusive"]            # the record held out could not tell it from the model as it is
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted", "inconclusive")
-MODELLING_REQUEST = "ergostat.modelling-request"   # the built-in item kind: work for modelling, raised from what check finds
+MODELLING_REQUEST = "ergostat.modelling-request"   # the built-in projection: work for modelling, raised from what check finds
 MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered", "dismissed"]
-CLAIM = "ergostat.claim"          # the built-in item kind: what a block said it did, checked against the record (SPEC §12g)
+CLAIM = "ergostat.claim"          # the built-in projection: what a block said it did, checked against the record (SPEC §12g)
 CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
-DECISION = "ergostat.decision"    # the built-in item kinds of the owner's intent (SPEC §5a): what was decided,
+DECISION = "ergostat.decision"    # the built-in projections of the owner's intent (SPEC §5a): what was decided,
 CORRECTION = "ergostat.correction"   # and what the owner corrected (decisions/kinds.py)
-CONTEXT = "ergostat.context"      # the built-in item kind: one use of a projection recipe, and its outcome (SPEC §12j)
+CONTEXT = "ergostat.context"      # the built-in projection: one use of a context recipe, and its outcome (SPEC §12j)
 CONTEXT_MEASURE = re.compile(r"^ergostat\.context\.([a-z][a-z0-9-]*)\.(outcome|cost|uses|succeeded|failed)$")
 CONTEXT_MEASURES = {               # how the work a recipe started turned out (SPEC §12j), over the last week
     "ergostat.context.RECIPE.outcome": "of the uses of the recipe whose outcome is known over the last week, the share "
@@ -131,7 +131,7 @@ TRUST_MEASURES = {                 # how far a block's claims hold (SPEC §12g),
     "ergostat.trust.claims": "claims made over the last week",
 }
 
-MESSAGE = "ergostat.message"      # the built-in item kind: the owner's messages, routed to the work they concern (SPEC §12h)
+MESSAGE = "ergostat.message"      # the built-in projection: the owner's messages, routed to the work they concern (SPEC §12h)
 MESSAGE_STATES = ["received", "unrouted", "routed", "delivered", "answered"]   # unrouted: routed by hand later
 MESSAGE_MEASURES = {               # how the owner's messages reach the work (SPEC §12h)
     "ergostat.messages.unrouted": "messages that reached no work, now (each needs attention)",
@@ -147,15 +147,15 @@ MESSAGE_MEASURES = {               # how the owner's messages reach the work (SP
                                  "is received)",
 }
 
-VERDICT = "ergostat.verdict"      # the built-in item kind: the intent judge's verdict on a piece of work (SPEC §12i)
+VERDICT = "ergostat.verdict"      # the built-in projection: the intent judge's verdict on a piece of work (SPEC §12i)
 VERDICT_STATES = ["asked", "met", "unmet", "contradicted", "unjudged", "overruled", "missed"]
 JUDGE_MODES = ("model", "intent")  # a judge block's judge: of changes to the model (SPEC §12e), or of work (§12i)
 INTENT_PORTS = ("judged", "met", "held")   # what an intent judge moved on a pass: judged, passed, held back
 INTENT = re.compile(r"^ergostat\.intent\.(false-done|false-done-tests|accepted|reopened|judged|met|unmet|contradicted|"
                     r"held|unjudged|overruled|cost)(?:@([A-Za-z0-9][A-Za-z0-9._/-]*))?$")   # ergostat.intent.false-done@hypothesis
-INTENT_MEASURES = {                # how far finished work holds to what the owner meant (SPEC §12i); @KIND narrows them
+INTENT_MEASURES = {                # how far finished work holds to what the owner meant (SPEC §12i); @PROJECTION narrows them
     "ergostat.intent.false-done": "of the work accepted over the last week, the share the owner later reopened, followed "
-                                  "up or corrected (0 while none is accepted); @KIND for one kind of item",
+                                  "up or corrected (0 while none is accepted); @PROJECTION for one projection",
     "ergostat.intent.false-done-tests": "the same had the tests alone decided: of the work that reached its judged state "
                                         "over the last week, the share found not done as meant, by the intent judge (not "
                                         "overruled) or by the owner after it was accepted",
@@ -173,7 +173,7 @@ INTENT_MEASURES = {                # how far finished work holds to what the own
     "ergostat.intent.cost": "dollars the intent judge spent over the last week",
 }
 
-ACTION = "ergostat.action"        # the built-in item kind: a gated action an AI session asked for (SPEC §12k)
+ACTION = "ergostat.action"        # the built-in projection: a gated action an AI session asked for (SPEC §12k)
 ACTION_STATES = ["requested", "approved", "ran", "failed", "denied"]
 GATES = ("auto", "approve", "deny")   # an action's gate: run at once, held for the owner, or never run
 ACTIONS = re.compile(r"^ergostat\.actions\.(held|approved|auto|denied|ran|failed)(?:@([a-z][a-z0-9-]*))?$")
@@ -200,7 +200,7 @@ INBOX_MEASURES = {                 # what waits on a person (SPEC §12o)
     "ergostat.interventions.blocked-hours": "hours the interventions blocked their processes over the last day",
     "ergostat.interventions.top-share": "the share of the interventions over the window from the top class",
 }
-WORKSPACE = "ergostat.workspace"  # the built-in item kind: one workspace of a pool, and whose it is (SPEC §12k)
+WORKSPACE = "ergostat.workspace"  # the built-in projection: one workspace of a pool, and whose it is (SPEC §12k)
 WORKSPACE_STATES = ["free", "in-use", "held", "quarantined"]
 WORKSPACES = re.compile(r"^ergostat\.workspaces\.(free|in-use|held|quarantined)(?:@([a-z][a-z0-9-]*))?$")
 WORKSPACES_MEASURES = {            # the workspace pools, now (SPEC §12k); @POOL narrows them
@@ -225,8 +225,8 @@ COST_MEASURES = {                  # what the runs cost (SPEC §9.1), over the l
 
 
 LEASES = re.compile(r"^ergostat\.leases\.(held|expired|dead|overdue)(?:@([a-z][a-z0-9-]*))?$")   # ergostat.leases.dead@ticket
-LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or @BLOCK narrows them
-    "ergostat.leases.held": "leases held now: items a run is working on; @KIND or @BLOCK for one kind or block",
+LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @PROJECTION or @BLOCK narrows them
+    "ergostat.leases.held": "leases held now: items a run is working on; @PROJECTION or @BLOCK for one projection or block",
     "ergostat.leases.expired": "leases that expired over the last day: a run silent past its TTL (each needs attention)",
     "ergostat.leases.dead": "dead letters now: items given up on after their attempts (each needs attention)",
     "ergostat.leases.overdue": "leases held now past their expiry, not yet expired: 0 while the watchdog keeps up",
@@ -408,13 +408,13 @@ def action_kind() -> ItemKind:
                     final={"denied": {"ran": "ran despite denial", "failed": "ran despite denial"}})   # (SPEC §12r)
 
 
-SESSION = "session"              # the built-in item kind for AI sessions, unless the model declares its own (SPEC §12h)
+SESSION = "session"              # the built-in projection for AI sessions, unless the model declares its own (SPEC §12h)
 SESSION_STATES = ("running", "ran", "failed", "lost")
 
 
 def session_kind() -> ItemKind:
     """Every AI session a run starts (``ergostat session``): its transcript, shown as the conversation, its cost and turns.
-    Built in so that an ``ai`` block's sessions are items without the model declaring a kind for them."""
+    Built in so that an ``ai`` block's sessions are items without the model declaring a projection for them."""
     on = {"session.started": "running", "session.ran": "ran", "session.failed": "failed", "session.lost": "lost"}
     return ItemKind(SESSION, f"{SESSION}/*", list(SESSION_STATES), on, ["role", "model", "turns", "cost_usd", "seconds"],
                     {"transcript": "claude-session"}, None,
@@ -423,7 +423,7 @@ def session_kind() -> ItemKind:
                           "tokens_in": "sum", "tokens_out": "sum"}, finished=["ran", "failed", "lost"], lost=["failed", "lost"])
 
 
-BYPASS = "ergostat.bypass"        # the built-in item kind: the owner's bypass lease on a class (SPEC §12k)
+BYPASS = "ergostat.bypass"        # the built-in projection: the owner's bypass lease on a class (SPEC §12k)
 
 
 def bypass_kind() -> ItemKind:
@@ -433,7 +433,7 @@ def bypass_kind() -> ItemKind:
                     "SPEC §12k)", sealed=True)
 
 
-MODEL_REQUEST = "ergostat.model-request"   # the built-in item kind: a class of intervention to model away (SPEC §12p)
+MODEL_REQUEST = "ergostat.model-request"   # the built-in projection: a class of intervention to model away (SPEC §12p)
 MODEL_REQUEST_STATES = ["open", "investing", "verifying", "suppressed", "resolved"]
 
 
@@ -464,7 +464,7 @@ def verdict_kind() -> ItemKind:
 
 @dataclass
 class IntentKind:
-    """What an intent judge holds one kind of item to (SPEC §12i): judged when an item enters ``at`` (the work says it
+    """What an intent judge holds one projection to (SPEC §12i): judged when an item enters ``at`` (the work says it
     is done, its tests passed); counted as accepted when it enters one of ``accepted``; held to the confirmed decisions
     whose scope names one of ``scope`` (or that name no scope), the corrections for ``work`` (kinds of work), and the
     owner's messages about it; its change read from the git repository ``repo`` (its ``commit`` or ``branch`` field,
@@ -481,7 +481,7 @@ class IntentKind:
 
 @dataclass
 class IntentPolicy:
-    """An intent judge's policy (``judge: intent``, SPEC §12i): the kinds it judges, how (``model``: an AI on that
+    """An intent judge's policy (``judge: intent``, SPEC §12i): the projections it judges, how (``model``: an AI on that
     model, else ergostat's free stand-in), at most ``max_cost`` dollars a verdict, and what a verdict that the work is
     not done as meant does (``held``: ``attention``, the default, or ``reopen``)."""
     kinds: dict[str, IntentKind] = field(default_factory=dict)
@@ -496,8 +496,8 @@ class Messages:
     """How the owner's messages are handled (``messages:``, SPEC §12h). ``classifier``: a block that routes a message
     no id or name in it routes (else ergostat's stand-in, matching words); ``finished``: what a message about finished
     work does, ``follow-up`` (a new item linked to it), ``reopen`` (the item moves back) or ``attention`` (it waits for
-    the owner); ``follow_up``: the kind a follow-up is made as (else the finished item's own); ``reopen_to``: by kind,
-    the state reopening moves an item to (else its kind's first); ``done``: by kind, the states an item is finished in
+    the owner); ``follow_up``: the projection a follow-up is made as (else the finished item's own); ``reopen_to``: by kind,
+    the state reopening moves an item to (else its projection's first); ``done``: by kind, the states an item is finished in
     (else those the record shows no item leaving)."""
     classifier: str | None = None
     finished: str = "follow-up"
@@ -513,7 +513,7 @@ class ClaimCheck:
     """A check the project declares (``claims:``, SPEC §12g): ``tests``, the project's test command, which checks
     "tests pass"; any other name, a kind of claim of its own, checked by its command's exit code. ``in``: where the
     command runs (and the repository a claim's commit is taken from), from the model's folder; ``says``: a pattern
-    over what a claim says that makes it this kind."""
+    over what a claim says that makes it this projection."""
     name: str
     run: str
     in_: str = "."
@@ -802,7 +802,7 @@ class Block:
     takes: Takes | None = None   # the items it works, one run per item, each leased (SPEC §9.5)
     pool: int = 1                # the most runs of it at once, when it takes items (``pool: N``, or ``most:``)
     pool_now: Ref | None = None  # ``pool: {now: stock.S}``: the pool read from S at each dispatch, at most ``pool``
-    lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
+    lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its projection's and its tier's
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
     untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
@@ -849,11 +849,11 @@ class Block:
         return out
 
 
-LEASED, DEAD = "leased", "dead"     # the states a taken kind gains (SPEC §9.5): held by a run; given up on after its attempts
+LEASED, DEAD = "leased", "dead"     # the states a taken projection gains (SPEC §9.5): held by a run; given up on after its attempts
 WORKED = ("ergostat.failure",)    # the built-in kinds a model's blocks may take and lease (SPEC §12r)
 
 
-def own_kind(name: str) -> bool:                    # a kind the model's blocks work on: its own, or one of WORKED
+def own_kind(name: str) -> bool:                    # a projection the model's blocks work on: its own, or one of WORKED
     return not name.startswith("ergostat.") or name in WORKED
 
 
@@ -866,7 +866,7 @@ KIND_OF_TYPE = {"program": "program", "ai": "ai", "person": "person", "external"
 
 @dataclass
 class LeaseTerms:
-    """A lease's terms (SPEC §9.5), as written for a tier, a kind or a block: what is left out is taken from the next."""
+    """A lease's terms (SPEC §9.5), as written for a tier, a projection or a block: what is left out is taken from the next."""
 
     ttl: float | None = None        # seconds a run may go silent before its lease expires
     attempts: int | None = None     # counted attempts before the item is a dead letter
@@ -915,7 +915,7 @@ class Trigger:
 
 @dataclass
 class Takes:
-    """What a block takes (SPEC §9.5): the items of a kind in a state, each leased to a run of its own."""
+    """What a block takes (SPEC §9.5): the items of a projection in a state, each leased to a run of its own."""
 
     kind: str
     at: list[str]                   # the states it takes from (the first: where an item goes back to, by default)
@@ -979,16 +979,16 @@ class Frozen:
 
 @dataclass
 class Relation:
-    """A kind's typed relation to other items (SPEC §5a, *Relations*): a field holding the ids it relates to, folded as a
+    """A projection's typed relation to other items (SPEC §5a, *Relations*): a field holding the ids it relates to, folded as a
     set. Never enforced: what it says is read, for derived state, the critical path and the Items page's views."""
 
     name: str                       # the field: blocked_by
-    kinds: list[str]                # the kinds it may name (a target of another kind is still kept, and said)
+    kinds: list[str]                # the projections it may name (a target of another kind is still kept, and said)
     precedence: bool = False        # its targets come first: this item is not ready until each is finished
     inverse: str = ""               # the other direction's name, derived (blocks, children)
     group: bool = False             # a parent: the Graph view groups by it
     remote: str = ""                # names a remote's kind (incidents-incident): the remote; never precedence (§4c)
-    there: str = ""                 # the kind's name at that remote (incident)
+    there: str = ""                 # the projection's name at that remote (incident)
     # precedence: the target's states (not finished) in which it no longer blocks; the CPM stays finish-to-start
     starts_at: list[str] = field(default_factory=list)
     # a group's: a finished state of the item's: the fields it counts as done work in, for each group's progress
@@ -1011,7 +1011,7 @@ class Agent:
 
 @dataclass
 class ItemKind:
-    """A kind of item (SPEC §5a): which ids are this kind, the states they move through, and the
+    """A projection (SPEC §5a): which ids are this projection, the states they move through, and the
     event types that move them."""
 
     name: str
@@ -1034,6 +1034,7 @@ class ItemKind:
     about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
     moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
     if_unchanged: tuple = ()   # event types applied only to the item as read: their data's `read` is its event count then
+    group: str | None = None       # the nav bar menu it is shown in (`group:`), with the others of its group
     attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
     pipeline: dict | None = None   # its items record stages (ergostat/stages.py): {title, stages, waiting}
     risk: dict | None = None       # risk-score: {at, failed, passed, undone, from, least} (numbers/itemrisk.py); off when None
@@ -1149,7 +1150,7 @@ class Spec:
     improve: Improve = field(default_factory=Improve)                  # the judge block's policy (SPEC §12e)
     claims: dict[str, ClaimCheck] = field(default_factory=dict)       # the checks the project declares (SPEC §12g)
     messages: Messages = field(default_factory=Messages)               # how the owner's messages are routed (SPEC §12h)
-    contexts: dict = field(default_factory=dict)                       # name → Recipe: the projection recipes (SPEC §12j)
+    contexts: dict = field(default_factory=dict)                       # name → Recipe: the context recipes (SPEC §12j)
     actions: dict[str, Action] = field(default_factory=dict)           # the gated actions sessions may ask for (SPEC §12k)
     notify: object = None                   # inbox.config.Notify: where what waits on a person is sent (SPEC §12o)
     workspaces: dict[str, WorkspacePool] = field(default_factory=dict)  # the workspace pools (SPEC §12k)

@@ -99,8 +99,8 @@ def measured_coherence(monkeypatch, after_raises: bool = False, mismatches_befor
         calls.append(spec)
         if after_raises and len(calls) % 2 == 0:
             raise OSError("the record cannot be read")
-        return {"kinds": {"job": {"agree": 3, "compared": 4}},
-                "findings": [{"level": "mismatch", "id": f"m{i}", "kind": "job", "code": "c", "about": "x"}
+        return {"projections": {"job": {"agree": 3, "compared": 4}},
+                "findings": [{"level": "mismatch", "id": f"m{i}", "projection": "job", "code": "c", "about": "x"}
                              for i in range(mismatches_before if len(calls) % 2 else 0)]}
     monkeypatch.setattr(co, "compare", compare)
 
@@ -167,7 +167,7 @@ def test_coherence_that_cannot_be_compared_never_makes_it_better(tmp_path, monke
     p, made = world(tmp_path / "w", BASE)
     spec, problems = read(p.model.path)
     card = sc.score(p, spec, problems, spec, problems, at=made, fit_counts=False)   # (a) no kind compared either side
-    assert card["coherence"]["measurable"] is False and "no kind is compared" in card["coherence"]["says"]
+    assert card["coherence"]["measurable"] is False and "no projection is compared" in card["coherence"]["says"]
     assert card["verdict"] != "better"
     measured_coherence(monkeypatch, after_raises=True, mismatches_before=2)       # (b) the after side cannot be read
     card = sc.score(p, spec, problems, spec, problems, at=made, fit_counts=False)

@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SHAPE = """
 template: shape
 description: structure only
-items:
+projections:
   ticket:
     id: "${name}-ticket/*"
     states: [open, done]
@@ -33,12 +33,12 @@ items:
 stocks:
   open:
     unit: items
-    sensor: {items: "${name}-ticket", state: open}
+    sensor: {projection: "${name}-ticket", state: open}
 flows:
   closing:
     from: open
     unit: items
-    sensor: {items: "${name}-ticket", leaving: open, over: 1h}
+    sensor: {projection: "${name}-ticket", leaving: open, over: 1h}
 goals:
   few:
     stock: open
@@ -217,13 +217,13 @@ CASES = {
     "on-stale": ("blocks:\n  x: {type: onoff, goal: g, on-stale: hold}\n", "blocks.u-x.on-stale"),
     "sensor-push": ("flows:\n  f: {to: s, sensor: {push: true}}\n", "flows.u-f.sensor.push"),
     "sensor-daemon": ("auxiliaries:\n  a: {sensor: {daemon: x}}\n", "auxiliaries.u-a.sensor.daemon"),
-    "sensor-every": ("stocks:\n  t: {unit: u, sensors: {n: {items: k, every: 1s}}}\n", "stocks.u-t.sensors.n.every"),
-    "sensor-parse": ("stocks:\n  t: {unit: u, sensor: {items: k, parse: x}}\n", "stocks.u-t.sensor.parse"),
+    "sensor-every": ("stocks:\n  t: {unit: u, sensors: {n: {projection: k, every: 1s}}}\n", "stocks.u-t.sensors.n.every"),
+    "sensor-parse": ("stocks:\n  t: {unit: u, sensor: {projection: k, parse: x}}\n", "stocks.u-t.sensor.parse"),
     "agents": ("agents:\n  bob: {kind: person}\n", "agents"),
     "workspaces": ("workspaces:\n  w: {type: git, repo: .}\n", "workspaces"),
     "actions": ("actions:\n  push: {run: echo}\n", "actions"),
     "parameter-inferred": ("parameters:\n  x: {value: 1, inferred: true}\n", "parameters.u-x.inferred"),
-    "item-lease": ("items:\n  k: {id: k/*, lease: {ttl: 1h}}\n", "items.u-k.lease"),
+    "item-lease": ("projections:\n  k: {id: k/*, lease: {ttl: 1h}}\n", "projections.u-k.lease"),
     "goal-owner": ("goals:\n  g: {stock: s, hold: '<= 1', owner: ana}\n", "goals.u-g.owner"),
     "after-substitution": ("goals:\n  g: ${how}\n", "goals.u-g.run"),
     "map-under-a-value": ("stocks:\n  t: {unit: {run: echo 1}}\n", "stocks.u-t.unit"),
@@ -309,11 +309,11 @@ def test_nested_chain_refused_whole(tmp_path):
           u:
             use: t1
         """, {"own": {"t1": "template: t1\nstocks:\n  s: {unit: u}\nflows:\n  f: {to: s}\nuses:\n  mid:\n    use: l\n"},
-              "lib": {"l": "template: l\nitems:\n  k: {id: k/*}\nblocks:\n  b: {type: compare, above: 1, in: stock.x}\n"
+              "lib": {"l": "template: l\nprojections:\n  k: {id: k/*}\nblocks:\n  b: {type: compare, above: 1, in: stock.x}\n"
                            "  r: {type: program, run: ./fetch.sh, every: 10m}\n"}})
     refused_once(path)
     doc = load(path)
-    assert doc.uses == {} and not doc.sections["items"] and not doc.sections["systems"]
+    assert doc.uses == {} and not doc.sections["projections"] and not doc.sections["systems"]
     spec, _ = read(path)
     assert not spec.stocks and not spec.flows and not spec.blocks and not [k for k in spec.items if k[:9] != "ergostat."]
 
@@ -388,7 +388,7 @@ def test_every_compile_key_classified():
     kinds = (set(trust.BLOCK_TYPES), set(trust.MACHINE_TYPES), set(trust.REFUSED_TYPES))
     assert set(c.TYPE_KEYS) == set.union(*kinds) and sum(map(len, kinds)) == len(c.TYPE_KEYS)    # each in one
     assert {"ai", "person", "program"} == set(trust.MACHINE_TYPES)
-    groups = [("sensor", trust.SENSOR, c.SENSOR_KEYS | c.ITEM_SENSOR_KEYS), ("items", trust.ITEM, c.ITEM_KEYS),
+    groups = [("sensor", trust.SENSOR, c.SENSOR_KEYS | c.ITEM_SENSOR_KEYS), ("projections", trust.ITEM, c.ITEM_KEYS),
               ("stocks", trust.STOCK, c.STOCK_KEYS), ("flows", trust.FLOW, c.FLOW_KEYS),
               ("driven-by", trust.LINK, c.LINK_KEYS), ("goals", trust.GOAL, c.GOAL_KEYS),
               ("process", trust.PROCESS, c.PROCESS_KEYS), ("auxiliaries", trust.AUXILIARY, c.AUXILIARY_KEYS),

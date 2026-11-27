@@ -3,7 +3,7 @@ for the owner to confirm, with the event it came from as its source:
 
 - **a dismissal with a reason**: the owner dismissing a proposed change to the model, a decision or a
   correction (``*.dismissed`` from the owner, with its reason): the reason corrects what made the proposal;
-- **an item reopened**: an item moved back to an earlier state of its kind, or by an event named
+- **an item reopened**: an item moved back to an earlier state of its projection, or by an event named
   ``*.reopened``, with the reason its event gives (``reason``, ``why``, ``note``); one with no reason is not
   a correction anyone can learn from, and is passed by;
 - **a message classed as a correction**: an ``ergostat.message`` (the owner's words, SPEC §5a) whose data

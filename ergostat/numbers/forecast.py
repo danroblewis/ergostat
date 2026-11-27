@@ -116,12 +116,12 @@ def build(inp, sim: dict, why: dict, computed: float, seq, whatif: list, sources
         elif e.get("out"):                             # (counted out in some runs: said after reasons' words)
             r["why"] = "; ".join(filter(None, [r.get("why"), e["why"]]))
         e.update(r)
-        e["kind"], e["state"] = inp.items[i].kind, inp.items[i].state
+        e["projection"], e["state"] = inp.items[i].kind, inp.items[i].state
         e["basis"] = _item_basis(inp, inp.items[i])
         items[i] = _said(e, runs, computed, f"not scheduled: {x['why']}" if x.get("unscheduled") else beyond)
     kinds = {k: _said({**v, "basis": {"open": v["open"], "visits": v["visits"]}}, runs, computed,
                       beyond if v["open"] else "no open item that can move")
-             for k, v in sim.get("kinds", {}).items()}
+             for k, v in sim.get("projections", {}).items()}
     groups, stages, draws = {}, {}, {}
     for name, v in sim.get("sets", {}).items():
         what, _, key = name.partition(":")
@@ -138,12 +138,12 @@ def build(inp, sim: dict, why: dict, computed: float, seq, whatif: list, sources
             groups[key] = e
         else:
             kind, _, state = key.partition("/")
-            stages[key] = {"kind": kind, "state": state, **e}
+            stages[key] = {"projection": kind, "state": state, **e}
     out = {"schema": SCHEMA, "version": None, "seq": seq, "at": inp.at, "computed": computed, "runs": runs,
            "basis": {"since": inp.at - HISTORY, "seed": seed, "horizon": HORIZON, "flags": sim.get("flags", {}),
                      "whatif": whatif, "assumed": assumed, "capacity": sim.get("capacity", {}),
                      "limit": sim.get("limit", {}), "sources": sources},
-           "items": items if runs else {}, "kinds": kinds, "groups": groups, "groups_left": left, "stages": stages,
+           "items": items if runs else {}, "projections": kinds, "groups": groups, "groups_left": left, "stages": stages,
            # (the Timeline's own, as eta_api.merge reads them)
            "schedule": sim.get("schedule", {}), "capacity": sim.get("capacity", {}), "limit": sim.get("limit", {}),
            "sources": sources, "assumed": assumed, "whatif": whatif, "flags": sim.get("flags", {}),
@@ -156,7 +156,7 @@ def build(inp, sim: dict, why: dict, computed: float, seq, whatif: list, sources
 def failed(words: str, computed: float, seq, error: bool = True) -> dict:
     """A forecast that could not be worked out (``error``, as the Timeline reads it), or of nothing: no estimate,
     and why."""
-    return {"schema": SCHEMA, "version": None, "seq": seq, "computed": computed, "runs": 0, "items": {}, "kinds": {},
+    return {"schema": SCHEMA, "version": None, "seq": seq, "computed": computed, "runs": 0, "items": {}, "projections": {},
             "groups": {}, "stages": {}, **({"error": words} if error else {}),
             "none": f"the simulation failed: {words}" if error else words}
 
@@ -175,7 +175,7 @@ def asked(fc: dict, ask: dict) -> dict:
 def served(fc: dict, items: list[str] | None = None, kinds: list[str] | None = None, most: int = 500,
            ask: dict | None = None) -> dict:
     """The forecast as another reader is given it (``/api/forecast``, the remote API): without the levelled schedule
-    (the Timeline's own) or the kept runs, only the ``items`` and ``kinds`` asked for (all when not asked), at most
+    (the Timeline's own) or the kept runs, only the ``items`` and ``projections`` asked for (all when not asked), at most
     ``most`` items, the rest counted in ``items_left``; with ``ask``, its answer (``asked``)."""
     got = {k: v for k, v in fc.items() if k not in ("schedule", "capacity", "limit", "sources", "assumed", "whatif",
                                                      "flags", "calibration", "draws")}
@@ -183,12 +183,12 @@ def served(fc: dict, items: list[str] | None = None, kinds: list[str] | None = N
         got["asked"] = asked(fc, ask)
     every = fc.get("items") or {}
     want = [i for i in (items if items is not None else sorted(every)) if i in every
-            and (not kinds or every[i].get("kind") in kinds)]
+            and (not kinds or every[i].get("projection") in kinds)]
     got["items"] = {i: every[i] for i in want[:most]}
     got["items_left"] = max(0, len(want) - most)
     if items is not None:
         got["items_missing"] = [i for i in items if i not in every]
     if kinds:
-        got["kinds"] = {k: v for k, v in (fc.get("kinds") or {}).items() if k in kinds}
-        got["stages"] = {k: v for k, v in (fc.get("stages") or {}).items() if v["kind"] in kinds}
+        got["projections"] = {k: v for k, v in (fc.get("projections") or {}).items() if k in kinds}
+        got["stages"] = {k: v for k, v in (fc.get("stages") or {}).items() if v["projection"] in kinds}
     return got

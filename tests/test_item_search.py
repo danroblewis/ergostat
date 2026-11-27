@@ -22,7 +22,7 @@ from ergostat.store import Project
 
 T0 = 1_700_000_000.0
 MODEL = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, done]
@@ -178,10 +178,10 @@ def test_search_cli_and_api_agree(tmp_path, capsys):
     try:
         code, got = get("?search=alpha%20beta")
         assert code == 200 and [i["id"] for i in got["items"]] == [i["id"] for i in cli["items"]]
-        assert [i["id"] for i in get("?search=alpha&kind=ticket&n=1")[1]["items"]] == ["ticket/2"]
-        for q in ("?search=", "?search=%20", "?search=alpha&at=1700000000", "?search=alpha&kind=ticket&where=title:x",
-                  "?search=alpha&where=title:x", "?search=alpha&kind=ticket&state=open,done",
-                  "?search=alpha&kind=ticket&state=open&alone=1"):
+        assert [i["id"] for i in get("?search=alpha&projection=ticket&n=1")[1]["items"]] == ["ticket/2"]
+        for q in ("?search=", "?search=%20", "?search=alpha&at=1700000000", "?search=alpha&projection=ticket&where=title:x",
+                  "?search=alpha&where=title:x", "?search=alpha&projection=ticket&state=open,done",
+                  "?search=alpha&projection=ticket&state=open&alone=1"):
             assert get(q)[0] == 400, q                                       # never "everything"
     finally:
         srv.shutdown()
@@ -259,20 +259,20 @@ def test_the_api_pages_searches_and_sorts_one_kind(tmp_path):
     _many(p, 120)
     srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(p))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{srv.server_address[1]}/api/items?kind=ticket&finished=show"   # every item, the finished too
+    url = f"http://127.0.0.1:{srv.server_address[1]}/api/items?projection=ticket&finished=show"   # every item, the finished too
 
     def get(q, base=url):
         with urllib.request.urlopen(base + q, timeout=10) as r:
             return json.loads(r.read())
     try:
         plain = get("&n=200", url.replace("&finished=show", ""))               # by default the finished are left out
-        ticket = next(k for k in plain["kinds"] if k["name"] == "ticket")
+        ticket = next(k for k in plain["projections"] if k["name"] == "ticket")
         assert plain["total"] == 80 and len(plain["items"]) == 80 and ticket["hidden"] == {"done": 40}
         assert all(i["state"] != "done" for i in plain["items"])
         assert get("&n=25&q=ticket/3", url.replace("&finished=show", ""))["total"] == 11   # 3, 30-39: a search hides nothing
         got = get("&n=25&offset=100")
         assert got["total"] == 120 and got["offset"] == 100 and [i["id"] for i in got["items"]][-1] == "ticket/0"
-        assert len(got["items"]) == 20 and {"ticket", "note"} <= {k["name"] for k in got["kinds"]}
+        assert len(got["items"]) == 20 and {"ticket", "note"} <= {k["name"] for k in got["projections"]}
         assert get("&n=25&offset=500")["offset"] == 100                         # past the end: the last page
         s = get("&n=25&q=ticket/1")                                             # 1, 10-19, 100-119: 31 of them
         assert s["total"] == 31 and s["finished"] == sum(1 for i in [1, *range(10, 20), *range(100, 120)] if i % 3 == 0)

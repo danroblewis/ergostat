@@ -164,7 +164,7 @@ def decisions() -> dict[str, dict]:
 def held() -> list[dict]:
     """Every ergostat.decision item, in any state. A failed lookup raises, and one that did not give them all is
     refused: never taken as "none"."""
-    got = json.loads(fac.ergostat("item", "--kind", DECISION, "--json").stdout)
+    got = json.loads(fac.ergostat("item", "--projection", DECISION, "--json").stdout)
     if got["total"] != len(got["items"]):
         raise Refused(f"the record gave {len(got['items'])} of {got['total']} {DECISION} items")
     return got["items"]

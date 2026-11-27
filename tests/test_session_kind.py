@@ -14,13 +14,13 @@ def write(tmp_path, body):
 def test_a_model_gets_the_built_in_session_kind_with_its_transcript_shown_as_a_conversation(tmp_path):
     m = write(tmp_path, """
         name: t
-        items:
+        projections:
           ticket: {id: ticket/*, states: [open, done]}
         blocks:
           dev:
             type: ai
             prompt: do it
-            takes: {kind: ticket, at: open, to: [done]}
+            takes: {projection: ticket, at: open, to: [done]}
         """)
     k = m.spec.items[SESSION]
     assert k.matches("session/dev-12") and k.formats == {"transcript": "claude-session"}
@@ -31,7 +31,7 @@ def test_a_model_gets_the_built_in_session_kind_with_its_transcript_shown_as_a_c
 def test_a_declared_session_kind_is_kept_and_not_replaced(tmp_path):
     m = write(tmp_path, """
         name: t
-        items:
+        projections:
           talk: {id: session/*, states: [open, closed], show: [model]}
         """)
     assert SESSION not in m.spec.items and m.spec.items["talk"].show == ["model"]

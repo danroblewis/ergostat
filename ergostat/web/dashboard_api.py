@@ -36,8 +36,9 @@ PATHS = {"goals": "loops", "chart": "series", "items": "items", "states": "items
 # each group's kinds of panel → the endpoint that answers them (the path after /api/; a group's own block)
 PATHS.update({"ladder": "agents", "agents": "agents", "daemons": "daemons", **{k: "agents/{agent}" for k in (
     "agent-what", "agent-definition", "agent-place", "agent-runs", "agent-log")}})   # agents
-PATHS.update({"kinds": "items-overview", "items-by-kind": "items", "kind-now": "items-flow", "kind-model": "kinds/{kind}",
-              "kind-definition": "kinds/{kind}", "item-list": "items", "item-why": "why", "item-summary": "items/{item}",
+PATHS.update({"projections": "items-overview", "items-by-projection": "items", "projection-now": "items-flow",
+              "projection-model": "projections/{projection}", "projection-definition": "projections/{projection}",
+              "item-list": "items", "item-why": "why", "item-summary": "items/{item}",
               "item-path": "items/{item}", "item-relations": "items/{item}", "item-fields": "items/{item}",
               "item-refused": "items/{item}", "item-moves": "items/{item}", "item-events": "items/{item}",
               "item-changes": "items/{item}"})   # items

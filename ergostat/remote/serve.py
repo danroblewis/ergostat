@@ -13,13 +13,13 @@ import json
 from pathlib import Path
 
 FORMAT = "ergostat-model/1"
-SERVED = ("systems", "items", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents")
-SENSOR_KINDS = ("items", "run", "query", "manual", "changes", "builtin")
+SERVED = ("systems", "projections", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents")
+SENSOR_KINDS = ("projection", "run", "query", "manual", "changes", "builtin")
 SENSOR_KEEP = {"every", "cron", "unit", "description", "averages", "state", "entering", "leaving", "over", "measure",
-               "items", "changes", "builtin", "manual"}
+               "projection", "changes", "builtin", "manual"}
 PART_KEEP = {
     "systems": {"description", "within", "show"},
-    "items": {"id", "states", "show", "description", "system"},
+    "projections": {"id", "states", "show", "description", "system"},
     "parameters": {"value", "unit", "estimate", "table", "range", "description", "system"},
     "auxiliaries": {"unit", "driven-by", "exogenous", "equation", "description", "system"},
     "stocks": {"unit", "limit", "initial", "cumulative", "rate-unit", "description", "system"},

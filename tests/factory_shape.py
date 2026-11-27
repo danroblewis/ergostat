@@ -1,5 +1,5 @@
 """A generated record of the factory's shape, for the Items overview's tests (items-one-section-per-kind-closed): about
-25 item kinds (the model's own and ergostat's built-in ones) in four systems, 700 gaps and 2,500 sessions over a week,
+25 projections (the model's own and ergostat's built-in ones) in four systems, 700 gaps and 2,500 sessions over a week,
 each moving through its states, with a few hundred items of each other kind."""
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ OTHERS = 120
 def model_yaml() -> str:
     lines = ["name: factory-shape", "systems:"]
     lines += [f"  {s}:\n    description: the {s} side" for s in SYSTEMS]
-    lines.append("items:")
+    lines.append("projections:")
     for s, kinds in SYSTEMS.items():
         for k in kinds:
             on = ", ".join(f"{k}.{st}: {st}" for st in STATES)

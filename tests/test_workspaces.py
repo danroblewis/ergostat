@@ -36,7 +36,7 @@ def make_repo(d: Path) -> Path:
 
 MODEL = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, review, done]
@@ -44,11 +44,11 @@ items:
     show: [title]
 stocks:
   open-tickets:
-    sensor: {items: ticket, state: open, every: 5s}
+    sensor: {projection: ticket, state: open, every: 5s}
 flows:
   closed:
     from: open-tickets
-    sensor: {items: ticket, entering: done, over: 10m}
+    sensor: {projection: ticket, entering: done, over: 10m}
 workspaces:
   code:
     repo: product

@@ -9,7 +9,7 @@ flows:
     driven-by: [+stock.merged]
     equation: stock.merged / close-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: done
       over: 10m
 
@@ -30,7 +30,7 @@ blocks:
     type: program
     goal: merged-closed
     daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
-    takes: {kind: ticket, at: merged, to: [done, stopped]}
+    takes: {projection: ticket, at: merged, to: [done, stopped]}
     pool: 3
     actions: [jira-transition, jira-comment]
     out: flow.close

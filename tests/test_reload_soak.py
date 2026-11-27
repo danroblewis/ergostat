@@ -25,7 +25,7 @@ MAIN = """
 name: soak
 include:
   - parts/*.yaml
-items:
+projections:
   job:
     id: job/*
     states: [new, doing, done]
@@ -36,7 +36,7 @@ stocks:
   doing:
     unit: jobs
     sensor:
-      items: job
+      projection: job
       state: doing
       every: 0.5s
 goals:

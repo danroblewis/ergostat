@@ -6,7 +6,7 @@ reading: |
   and other sensors count them. It never acts on what it reads.
   System dynamics: the inflow of whatever the source holds, into a stock: its own running total of items seen
   (`collected`), or a stock of yours (`into`), so that another template (or your own parts) drains it. A record
-  that names an event (`event-field`) moves its item to the state the kind's `on` gives it.
+  that names an event (`event-field`) moves its item to the state the projection's `on` gives it.
 example: |
   uses:
     deploys:
@@ -18,10 +18,10 @@ example: |
         fields: [service, version, finished_at, status]
         poll: 5m
 params:
-  kind:
+  projection:
     type: name
     default: ${name}
-    description: the kind of item; ids KIND/<the record's id>, events KIND.<event>
+    description: the projection; ids PROJECTION/<the record's id>, events PROJECTION.<event>
   command:
     type: command
     stand-in: a made-up feed
@@ -38,7 +38,7 @@ params:
     description: the field of a record that names it
   event:
     default: arrived
-    description: the event a new record is (KIND.arrived)
+    description: the event a new record is (PROJECTION.arrived)
   event-field:
     default: event
     description: a record's field that names its event instead (answered, closed), when it has one
@@ -59,7 +59,7 @@ params:
   changes:
     type: bool
     default: false
-    description: record a record seen again with different fields, as KIND.changed
+    description: record a record seen again with different fields, as PROJECTION.changed
   poll:
     type: duration
     default: 1m
@@ -71,21 +71,21 @@ params:
   states:
     type: list
     default: [new]
-    description: the kind's states; a new item starts in the first
+    description: the projection's states; a new item starts in the first
   on:
     type: map
-    description: "which events move an item to which state (KIND.closed: closed), as the kind's on:"
+    description: "which events move an item to which state (PROJECTION.closed: closed), as the projection's on:"
   into:
     type: name
     description: a stock of yours (its whole name) the arrivals flow into, instead of the running total collected
-  declare-kind:
+  declare-projection:
     type: bool
     default: true
-    description: false when the kind is declared elsewhere (by your parts, or another template)
-items:
-  ${kind}:
-    if: ${declare-kind}
-    id: ${kind}/*
+    description: false when the projection is declared elsewhere (by your parts, or another template)
+projections:
+  ${projection}:
+    if: ${declare-projection}
+    id: ${projection}/*
     description: what the collector ${name} saw
     states: ${states}
     on: ${on}
@@ -96,13 +96,13 @@ stocks:
     cumulative: true
     description: every item the collector has seen, a running total
     sensor:
-      items: ${kind}
+      projection: ${projection}
       every: 30s
 flows:
   arriving:
     to: ${into|collected}
     description: new items, as the collector sees them (per hour, over ten minutes)
     sensor:
-      run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} --event ${event:quote} --event-field ${event-field:quote} ${cursor-field:arg} ${path:arg} ${fields:arg} ${changes:arg} ${mirror:arg} --position ${position:quote} --stand-in ${stand-in-rate} --window 600
+      run: ${lib} collect --name ${name} --projection ${projection} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} --event ${event:quote} --event-field ${event-field:quote} ${cursor-field:arg} ${path:arg} ${fields:arg} ${changes:arg} ${mirror:arg} --position ${position:quote} --stand-in ${stand-in-rate} --window 600
       every: ${poll}
       averages: 10m

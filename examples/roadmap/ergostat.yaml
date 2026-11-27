@@ -13,7 +13,7 @@ systems:
   delivery:
     description: the tickets, from todo to done
 
-items:
+projections:
   epic:
     id: epic/*
     description: a piece of the roadmap, shipped when all its tickets are done
@@ -43,47 +43,47 @@ stocks:
     unit: tickets
     system: delivery
     description: planned, not started (ready, or waiting on another)
-    sensor: {items: ticket, state: todo, every: 3s}
+    sensor: {projection: ticket, state: todo, every: 3s}
   in-progress:
     unit: tickets
     system: delivery
     description: being worked
-    sensor: {items: ticket, state: doing, every: 3s}
+    sensor: {projection: ticket, state: doing, every: 3s}
   in-review:
     unit: tickets
     system: delivery
     description: worked, waiting for review or being reviewed
-    sensor: {items: ticket, state: review, every: 3s}
+    sensor: {projection: ticket, state: review, every: 3s}
   epics-underway:
     unit: epics
     system: delivery
     description: epics with a ticket started, not shipped
-    sensor: {items: epic, state: underway, every: 3s}
+    sensor: {projection: epic, state: underway, every: 3s}
 
 flows:
   planned:
     to: todo
     system: delivery
     description: "the roadmap's load: tickets planned, on the planner's own schedule"
-    sensor: {items: ticket, entering: todo, over: 2m}
+    sensor: {projection: ticket, entering: todo, over: 2m}
   started:
     from: todo
     to: in-progress
     system: delivery
-    sensor: {items: ticket, entering: doing, over: 2m}
+    sensor: {projection: ticket, entering: doing, over: 2m}
   submitted:
     from: in-progress
     to: in-review
     system: delivery
-    sensor: {items: ticket, entering: review, over: 2m}
+    sensor: {projection: ticket, entering: review, over: 2m}
   finished:
     from: in-review
     system: delivery
-    sensor: {items: ticket, entering: done, over: 2m}
+    sensor: {projection: ticket, entering: done, over: 2m}
   shipped:
     from: epics-underway
     system: delivery
-    sensor: {items: epic, entering: shipped, over: 5m}
+    sensor: {projection: epic, entering: shipped, over: 5m}
 
 goals:
   in-review-clear:
@@ -108,7 +108,7 @@ blocks:
     type: program
     goal: nothing-ready-waits
     run: python3 bin/work.py
-    takes: {kind: ticket, at: todo, to: [review], unblocked: true}
+    takes: {projection: ticket, at: todo, to: [review], unblocked: true}
     pool: 2
     out: [flow.started, flow.submitted]
     description: a stand-in that works a ticket for a few seconds; takes only unblocked tickets, the critical first
@@ -116,7 +116,7 @@ blocks:
     type: program
     goal: in-review-clear
     run: python3 bin/review.py
-    takes: {kind: ticket, at: review, to: [done]}
+    takes: {projection: ticket, at: review, to: [done]}
     pool: 1
     out: flow.finished
     description: a stand-in that approves a ticket after a moment

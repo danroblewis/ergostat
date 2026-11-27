@@ -15,10 +15,10 @@ example: |
         cron: "30 8 * * 1-5"          # 08:30 on working days
         render: ./bin/morning.sh       # prints the report as Markdown
 params:
-  kind:
+  projection:
     type: name
     default: ${name}
-    description: the kind of item; one item a report, KIND/<date>
+    description: the projection; one item a report, PROJECTION/<date>
   cron:
     type: cron
     default: "0 9 * * 1-5"
@@ -32,18 +32,18 @@ params:
     description: where the reports are kept, in the project's folder
   title:
     default: ""
-    description: the report's title (default, the kind and the date)
+    description: the report's title (default, the projection and the date)
   check:
     type: duration
     default: 1m
     description: how often the clock is read
-items:
-  ${kind}:
-    id: ${kind}/*
+projections:
+  ${projection}:
+    id: ${projection}/*
     description: one report, its file in report
     states: [written]
     on:
-      ${kind}.written: written
+      ${projection}.written: written
     show: [title, report]
     formats:
       report: markdown
@@ -52,14 +52,14 @@ stocks:
     unit: reports
     description: a scheduled time has passed and no report was written since (1), or not (0)
     sensor:
-      run: ${lib} due --kind ${kind} --cron ${cron:quote}
+      run: ${lib} due --projection ${projection} --cron ${cron:quote}
       every: ${check}
   written:
     unit: reports
     cumulative: true
     description: every report written, a running total
     sensor:
-      items: ${kind}
+      projection: ${projection}
       every: 30s
 flows:
   falling-due:
@@ -81,7 +81,7 @@ blocks:
   writer:
     type: program
     goal: on-time
-    run: ${lib} report --kind ${kind} --cron ${cron:quote} --render ${render:quote} --folder ${folder:quote} --title ${title:quote} --flow flow.writing
+    run: ${lib} report --projection ${projection} --cron ${cron:quote} --render ${render:quote} --folder ${folder:quote} --title ${title:quote} --flow flow.writing
     max: 1
     every: 30s
     out: flow.writing

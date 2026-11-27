@@ -21,7 +21,7 @@ def summary(a: dict) -> str:
     if not a["known"]:
         return f"{a['item']}: the record cannot say why it is not done: " + "; ".join(a["missing"]) + "."
     if a["done"]:
-        return f"{_now(a)}, which its kind counts as finished: it is done."
+        return f"{_now(a)}, which its projection counts as finished: it is done."
     r = a.get("root")
     from .within import words
     if r is None:

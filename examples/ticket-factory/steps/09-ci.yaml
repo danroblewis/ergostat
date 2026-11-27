@@ -8,14 +8,14 @@ stocks:
     unit: tickets
     description: CI passed; not merged yet
     sensor:
-      items: ticket
+      projection: ticket
       state: ci-green
       every: 3s
   ci-failed:
     unit: tickets
     description: CI failed; not fixed yet
     sensor:
-      items: ticket
+      projection: ticket
       state: ci-failed
       every: 3s
 
@@ -27,7 +27,7 @@ flows:
     driven-by: [+stock.sailed]
     equation: (1 - ci-fail-share) * stock.sailed / ci-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: ci-green
       over: 10m
   ci-failing:
@@ -37,7 +37,7 @@ flows:
     driven-by: [+stock.sailed]
     equation: ci-fail-share * stock.sailed / ci-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: ci-failed
       over: 10m
 
@@ -63,6 +63,6 @@ blocks:
     type: program
     goal: ci-watched
     daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
-    takes: {kind: ticket, at: sailed, to: [ci-green, ci-failed, stopped]}
+    takes: {projection: ticket, at: sailed, to: [ci-green, ci-failed, stopped]}
     pool: 3
     out: [flow.ci, flow.ci-failing]

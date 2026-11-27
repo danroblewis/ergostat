@@ -42,7 +42,7 @@ proposal for the judge (that is the modelling subsystem's, which alone changes a
 | `re-ping` | something you asked of someone, reminded until they answer | no question a period without a reminder; at `limit`, a person takes over | a feed whose questions are answered after a while; a reminder that sends nothing |
 | `daily-report` | a report on a schedule | every scheduled report written | a summary of the model now |
 | `keep-under` | a measured level held under a limit | the level under `limit` | a level that creeps up; a correction that takes a tenth off |
-| `steps` | a kind of item worked through steps in order, by programs or AI agents | nothing waits at a step; nothing stays stuck | a made-up feed; steps that do nothing |
+| `steps` | a projection worked through steps in order, by programs or AI agents | nothing waits at a step; nothing stays stuck | a made-up feed; steps that do nothing |
 | `collect` | recording what a command or an API says, as items | (an instrument: none) | a made-up feed |
 | `todo` | your own to-dos, with instructions, done by hand in batches by where (a bastion, a VPN) | nothing new left unwritten; nothing ready left undone | to-dos you record (no feed: nothing made up) |
 | `modelling` | the model itself, improved as a loop of its own (every model should have one) | the model's replay off the record by at most `fit` | an improver that proposes nothing of its own and asks ergostat's finders to look again |
@@ -179,7 +179,7 @@ uses:
 - **A program step** (`run:`) is given its item on standard input; exit 0 moves it on, anything else gives it back.
   Its lease's TTL is the program tier's (5 minutes, or `timeout` when longer) unless `ttl` says.
 - **An AI agent step** (`prompt:`, a file or the text; `model`, `tools`) is a Claude Code session on its item. It
-  moves the item on by saying `{"event": "KIND.STEP-done"}` (the prompt should tell it so: `regressions.draft-revert-done`
+  moves the item on by saying `{"event": "PROJECTION.STEP-done"}` (the prompt should tell it so: `regressions.draft-revert-done`
   here), or gives it back with `{"nack": "why"}`. Its lease's TTL is the AI tier's (40 minutes) unless `ai-ttl`
   says; it may run for `ai-timeout` (30m). With `workspace`, each item has a git worktree of its own, on its own
   branch, kept across its steps, attempts and review, and cleaned once it is done (SPEC §12k). With `actions`, the
@@ -201,7 +201,7 @@ uses:
 ```
 
 - **Control:** an instrument, not a controller: the sensor on an arrival flow. Each record it has not seen (by id,
-  and by event when a record names one) is recorded once, as an event about the item `KIND/<id>`; the number it
+  and by event when a record names one) is recorded once, as an event about the item `PROJECTION/<id>`; the number it
   reads is the new items per hour. It never acts on what it reads.
 - **System dynamics:** the inflow of whatever the source holds, into its own running total, or into a stock of
   yours (`into:`) that something else drains. `respond-to`, `re-ping` and `steps` each have one inside.
@@ -238,16 +238,16 @@ uses:
       threshold: 0.3
       for: 5m                             # past the threshold this long before it fires
       signal-query: {source: prom, promql: 'histogram_quantile(0.99, sum(rate(checkout_seconds_bucket[5m])) by (le))'}
-      pages: checkout-page                # the item kind of its pages (their events come from the alerting system)
+      pages: checkout-page                # the projection of its pages (their events come from the alerting system)
 ```
 
 - **Control:** an observed controller with the declared law `alert-rule`: on-off, 0 or 1, firing once the signal is
   past `threshold` (`side`: above or below) for `for`, resolving as soon as it is back. It holds no goal itself.
 - **System dynamics:** a stock of alerts firing, its two-way flow their firing and resolving; the signal an
   auxiliary nothing here controls. The stock is always measured, by the `firing` command or `firing-query` (or
-  the stand-in): ergostat never runs the rule, so it makes no pages. `pages: KIND` declares their item kind (states
+  the stand-in): ergostat never runs the rule, so it makes no pages. `pages: PROJECTION` declares their projection (states
   firing, resolved); its events must come from the alerting system, posted as
-  `ergostat event --add KIND.fired --item KIND/ID` (and `KIND.resolved`), or they never appear.
+  `ergostat event --add PROJECTION.fired --item PROJECTION/ID` (and `PROJECTION.resolved`), or they never appear.
 
 ### todo
 
@@ -298,7 +298,7 @@ uses:
         unit: auto                        # removal always waits for the owner)
 ```
 
-- **Requests and tiers:** everything `check` finds (findings, a kind's chain, the craft notes, the coherence
+- **Requests and tiers:** everything `check` finds (findings, a projection's chain, the craft notes, the coherence
   mismatches once there is record) is a request (`ergostat.modelling-request`), raised by the collector on
   `requests-raised` (every `requests-every`, 2m) and counted while unanswered (`unanswered-requests`, held at 0 by
   the goal `requests-handled`). The `fixer` block (the rule tier, every `rules-every`, 1m) proposes the changes a rule makes
@@ -334,7 +334,7 @@ uses:
   left out); the improver's `every` (3m) and `timeout` (15m); `sessions: true` keeps each improver run as a
   `session` item, for an improver that reports `session.ran`.
 - **System dynamics:** `model-error` drained by what the changes written took off it (`model-mended`, each
-  change's `fit_gained`) and moved either way by the rest (`model-drift`: the record moving on, the world drifting); the changes to the model (items of ergostat's kind `ergostat.model-change`, whoever
+  change's `fit_gained`) and moved either way by the rest (`model-drift`: the record moving on, the world drifting); the changes to the model (items of ergostat's projection `ergostat.model-change`, whoever
   made them) an aging chain by state: `pending-changes` (checked) → `changes-testing` → `passed-changes` →
   `accepted-changes` (a running total), leaving as superseded or failed.
 - **Once a model, names as written:** unlike the other templates, its parts are not prefixed: they are
@@ -348,16 +348,16 @@ uses:
 ## From a described workflow to a model
 
 A workflow described in words ("a feature-flag ramp request is researched, approved, ramped in stages and
-confirmed") is one item kind moving through states, and its model is **one chain**: a stock per state that waits, and
+confirmed") is one projection moving through states, and its model is **one chain**: a stock per state that waits, and
 a flow from each state's stock into the next one's, never an outflow to a cloud. The method, in order:
 
-1. the item kind and its states, in order (`items:`, `states:`, `on:`);
-2. one stock per state that waits, counted by an `items:` sensor (`state: S`): a count, never `measure: oldest`;
+1. the projection and its states, in order (`projections:`, `states:`, `on:`);
+2. one stock per state that waits, counted by a `projection:` sensor (`state: S`): a count, never `measure: oldest`;
 3. one flow per move, from the state's stock to the next one's, measured from the item moves (`entering: NEXT`);
    arrivals in from outside at the start, completions out at the end;
 4. a collector that finds the work (`collect`, `into:` the first stock, or the source's sensor) feeding the first
    stock;
-5. one block per step that does the work: `takes: {kind, at, to}`, with `pool` and `lease`, and `goal:` the goal on
+5. one block per step that does the work: `takes: {projection, at, to}`, with `pool` and `lease`, and `goal:` the goal on
    the stock it drains;
 6. goals on what matters: nothing waiting at a state, or the age of its oldest item (a stock of its own beside the
    chain, `measure: oldest`, with no flows), throughput, dead letters;
@@ -365,13 +365,13 @@ a flow from each state's stock into the next one's, never an outflow to a cloud.
 8. `ergostat check`, and every structure finding fixed: `outflow-not-chained` (an outflow to a cloud whose items go
    on to the next state's stock: `to:` it), `state-stock-without-inflow`, `move-without-flow`,
    `state-stocks-disconnected` and `loops-not-connected`, each with the edit that fixes it. Then look at both
-   diagrams (`/diagram?view=dynamics` and `view=blocks`): one connected chain per kind, arrivals in at the start,
+   diagrams (`/diagram?view=dynamics` and `view=blocks`): one connected chain per projection, arrivals in at the start,
    completions out at the end, each step's loop sharing the chain's stocks, and no stock without an inflow unless
    things come from it;
 9. last, **reconcile the three views**: run it (a minute on its stand-ins, `try_use`, or the live record), then
    `ergostat check` again (or the MCP `coherence` tool). Its Coherence section holds what the items really did (the
-   Process view) against the chain (Dynamics) and what moves the work (Blocks): a score per kind, and each mismatch
-   with its file, line and fix. Fix the model, or the blocks, until every kind agrees (`N of N agree`); a kind that
+   Process view) against the chain (Dynamics) and what moves the work (Blocks): a score per projection, and each mismatch
+   with its file, line and fix. Fix the model, or the blocks, until every projection agrees (`N of N agree`); a projection that
    needs more record has not run long enough. A move the record shows and no flow carries is a missing flow (rework
    needs one running back); a flow no block moves needs its block, or an external one; a block seen moving what it
    does not declare needs its `takes:` or `out:`; a block with work that something else moved on is not recording its
@@ -381,7 +381,7 @@ When every state is a step a block works on, `steps` is this method in one entry
 `examples/ticket-factory` is the worked example (its `ticket.yaml`, `factory/intake.yaml` and `steps/*.yaml`; the
 skill quotes them).
 
-**Why no `workflow` template.** A kind and an ordered list of states, chained, with a sensor per stock and a slot per
+**Why no `workflow` template.** A projection and an ordered list of states, chained, with a sensor per stock and a slot per
 step for a block, is what `steps` already makes: its states are the step list, each step's stock flows through the
 items it is working on into the next step's, the collector feeds the first and the last fills a running total. A
 second template that differs only in naming the states for outcomes rather than steps would be two names for one

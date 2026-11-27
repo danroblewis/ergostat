@@ -63,7 +63,7 @@ def _shown(v) -> str:
 def ambiguous(text: str, read, key: bool = False) -> str | None:
     """What is wrong with a plain scalar ``text`` that the loader read as ``read``, and how to write it, or None."""
     if text in WORDS:
-        if key:                                       # the format's own keys (an item kind's on:) are words
+        if key:                                       # the format's own keys (a projection's on:) are words
             return None
         return (f"{text} is read as the text {text!r} here and in YAML 1.2, but as a boolean by YAML 1.1 readers; "
                 f"write \"{text}\" (quoted) for the text, or {'true' if text.lower() in ('yes', 'on') else 'false'} "

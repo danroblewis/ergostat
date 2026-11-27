@@ -139,7 +139,7 @@ def _described(spec: Spec) -> dict:
     out: dict = {}
     for kind, t in (("stock", spec.stocks), ("flow", spec.flows), ("auxiliary", spec.auxiliaries),
                     ("parameter", spec.parameters), ("goal", spec.goals), ("block", spec.blocks), ("agent", spec.agents),
-                    ("items", spec.items)):
+                    ("projections", spec.items)):
         for n, x in t.items():
             out[f"{kind}.{n}"] = (getattr(x, "description", "") or "").strip()
             for s in (getattr(x, "sensors", None) or {}).values():
@@ -188,14 +188,14 @@ def _kinds(spec: Spec) -> dict:
 
 
 def items(spec: Spec) -> str:
-    """The item kinds: their ids, states and the events that move them."""
+    """The projections: their ids, states and the events that move them."""
     return _hash(_kinds(spec))
 
 
 def renamed_parts(before: Spec, after: Spec) -> dict[str, str] | None:
     """The parts a change renames (``{"stock.old": "stock.new"}``): each new part says ``formerly:`` its old name, and
     the model is the same but for the names: its structure, its control, every sensor (what each part reads), every
-    number (parameters' values and tables, declared rates) and every item kind (states and the events that move them).
+    number (parameters' values and tables, declared rates) and every projection (states and the events that move them).
     None when it is not a rename."""
     out: dict[str, str] = {}
     for kind, a, b in (("stock", before.stocks, after.stocks), ("flow", before.flows, after.flows),

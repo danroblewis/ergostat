@@ -3,7 +3,7 @@
 defaults:
   system: alerts
 
-items:
+projections:
   alert:
     id: alert/*
     description: a page from the pager, from firing to closed
@@ -62,30 +62,30 @@ stocks:
   new-alerts:
     unit: alerts
     description: fired, not triaged yet
-    sensor: {items: alert, state: new, every: 2s}
+    sensor: {projection: alert, state: new, every: 2s}
   alerts-triaged:
     unit: alerts
     description: worth a look, their facets not opened yet
-    sensor: {items: alert, state: triaged, every: 2s}
+    sensor: {projection: alert, state: triaged, every: 2s}
   alerts-investigating:
     unit: alerts
     description: their facets open; waiting for the last one to finish (the join)
-    sensor: {items: alert, state: investigating, every: 2s}
+    sensor: {projection: alert, state: investigating, every: 2s}
   alerts-summarising:
     unit: alerts
     description: every facet done, the summary not written yet
-    sensor: {items: alert, state: summarising, every: 2s}
+    sensor: {projection: alert, state: summarising, every: 2s}
   alerts-escalated:
     unit: alerts
     description: summarised and handed to the on-call engineer, not answered yet
-    sensor: {items: alert, state: escalated, every: 2s}
+    sensor: {projection: alert, state: escalated, every: 2s}
 
 auxiliaries:
   oldest-new-alert:
     unit: hours
     description: how long the oldest untriaged alert has waited
     driven-by: [+stock.new-alerts]
-    sensor: {items: alert, state: new, measure: oldest, every: 2s}
+    sensor: {projection: alert, state: new, measure: oldest, every: 2s}
 
 flows:
   alerts-fired:
@@ -102,20 +102,20 @@ flows:
     description: triaged as worth a look
     driven-by: [+stock.new-alerts]
     equation: (1 - noise-share) * stock.new-alerts / triage-time
-    sensor: {items: alert, entering: triaged, where: {via: triage}, over: 10m}
+    sensor: {projection: alert, entering: triaged, where: {via: triage}, over: 10m}
   alerts-dismissed:
     from: new-alerts
     description: triaged as noise
     driven-by: [+stock.new-alerts]
     equation: noise-share * stock.new-alerts / triage-time
-    sensor: {items: alert, entering: dismissed, over: 10m}
+    sensor: {projection: alert, entering: dismissed, over: 10m}
   facets-opened-for:
     from: alerts-triaged
     to: alerts-investigating
     description: alerts whose facets were opened (the fan-out)
     driven-by: [+stock.alerts-triaged]
     equation: stock.alerts-triaged / fan-out-time
-    sensor: {items: alert, entering: investigating, over: 10m}
+    sensor: {projection: alert, entering: investigating, over: 10m}
   alerts-investigated:
     from: alerts-investigating
     to: alerts-summarising
@@ -124,33 +124,33 @@ flows:
       - cause: +flow.facets-done
         instant: true                 # the join moves the alert as its last facet finishes
     equation: flow.facets-done / facets-per-alert
-    sensor: {items: alert, entering: summarising, over: 10m}
+    sensor: {projection: alert, entering: summarising, over: 10m}
   alerts-summarised:
     from: alerts-summarising
     description: summarised and closed with no one woken
     driven-by: [+stock.alerts-summarising]
     equation: (1 - escalate-share) * stock.alerts-summarising / summarise-time
-    sensor: {items: alert, entering: closed, where: {via: summary}, over: 10m}
+    sensor: {projection: alert, entering: closed, where: {via: summary}, over: 10m}
   alerts-escalated:
     from: alerts-summarising
     to: alerts-escalated
     description: summarised and handed to the on-call
     driven-by: [+stock.alerts-summarising]
     equation: escalate-share * stock.alerts-summarising / summarise-time
-    sensor: {items: alert, entering: escalated, over: 10m}
+    sensor: {projection: alert, entering: escalated, over: 10m}
   escalations-handled:
     from: alerts-escalated
     description: escalations the on-call handled and closed
     driven-by: [+stock.alerts-escalated]
     equation: (1 - reopen-share) * stock.alerts-escalated / answer-time
-    sensor: {items: alert, entering: closed, where: {via: on-call}, over: 10m}
+    sensor: {projection: alert, entering: closed, where: {via: on-call}, over: 10m}
   alerts-reopened:
     from: alerts-escalated
     to: alerts-triaged
     description: escalations the on-call sent back for more investigation (rework)
     driven-by: [+stock.alerts-escalated]
     equation: reopen-share * stock.alerts-escalated / answer-time
-    sensor: {items: alert, entering: triaged, where: {via: reopened}, over: 10m}
+    sensor: {projection: alert, entering: triaged, where: {via: reopened}, over: 10m}
 
 goals:                                # an item step's goal: nothing waits, so its block works each item as it comes
   new-alerts-triaged:
@@ -188,7 +188,7 @@ blocks:
     goal: new-alerts-triaged
     prompt: prompts/triage.md
     run: python3 bin/step.py triage      # the stand-in; leave run: out to give the prompt to claude -p
-    takes: {kind: alert, at: new, to: [triaged, dismissed]}
+    takes: {projection: alert, at: new, to: [triaged, dismissed]}
     pool: 2
     out: [flow.alerts-triaged, flow.alerts-dismissed]
   fan-out:
@@ -196,7 +196,7 @@ blocks:
     description: opens one facet item per line of inquiry (logs, deploys, metrics), each citing its alert
     goal: facets-opened
     run: python3 bin/step.py fan-out
-    takes: {kind: alert, at: triaged, to: [investigating]}
+    takes: {projection: alert, at: triaged, to: [investigating]}
     pool: 2
     out: [flow.facets-opened-for, flow.facets-opened]
   summarise:
@@ -206,7 +206,7 @@ blocks:
     goal: summaries-written
     prompt: prompts/summarise.md
     run: python3 bin/step.py summarise   # the stand-in
-    takes: {kind: alert, at: summarising, to: [closed, escalated]}
+    takes: {projection: alert, at: summarising, to: [closed, escalated]}
     pool: 2
     out: [flow.alerts-summarised, flow.alerts-escalated]
   on-call:

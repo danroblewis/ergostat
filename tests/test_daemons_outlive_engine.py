@@ -61,7 +61,7 @@ while True:
 
 MODEL = """
 name: a
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, done]
@@ -69,7 +69,7 @@ items:
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     daemon: {run: RUN, outlive-engine: true}
 """
 

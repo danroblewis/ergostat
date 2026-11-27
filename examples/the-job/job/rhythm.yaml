@@ -5,7 +5,7 @@
 defaults:
   system: rhythm
 
-items:
+projections:
   day:
     id: day/*
     description: a working day, its morning brief and its ledger
@@ -24,21 +24,21 @@ stocks:
     unit: days
     description: started, and no morning brief yet
     sensor:
-      items: day
+      projection: day
       state: started
       every: 5s
   days-under-way:
     unit: days
     description: briefed, and not over yet (the working day itself)
     sensor:
-      items: day
+      projection: day
       state: briefed
       every: 5s
   days-to-record:
     unit: days
     description: ended, and not in the ledger yet
     sensor:
-      items: day
+      projection: day
       state: ended
       every: 5s
   drafting-capacity:
@@ -58,20 +58,20 @@ flows:
     from: days-to-brief
     to: days-under-way
     sensor:
-      items: day
+      projection: day
       entering: briefed
       over: 10m
   days-ending:
     from: days-under-way
     to: days-to-record
     sensor:
-      items: day
+      projection: day
       entering: ended
       over: 10m
   ledgers-written:
     from: days-to-record
     sensor:
-      items: day
+      projection: day
       entering: recorded
       over: 10m
   capacity-steps:

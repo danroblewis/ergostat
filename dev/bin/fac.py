@@ -161,7 +161,7 @@ def items(kind: str, state: str | None = None) -> list[dict]:
     LISTED), so with no state, when one listing does not carry them all, each state is listed on its own and the
     lists joined (past 500 gaps the intake read merged and closed gaps as new and opened them again)."""
     def one(st):
-        args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", st] if st else [])
+        args = ["item", "--projection", kind, "--json", "-n", "5000"] + (["--state", st] if st else [])
         got = json.loads(ergostat(*args).stdout)
         if len(got.get("items", [])) < int(got.get("total") or 0):    # (a state past the cap: said, as before)
             print(f"items({kind!r}, {st!r}): {got.get('total')} items, the listing carries "
@@ -169,10 +169,10 @@ def items(kind: str, state: str | None = None) -> list[dict]:
         return got.get("items", [])
     if state:
         return one(state)
-    got = json.loads(ergostat("item", "--kind", kind, "--json", "-n", "5000").stdout)
+    got = json.loads(ergostat("item", "--projection", kind, "--json", "-n", "5000").stdout)
     if len(got.get("items", [])) >= int(got.get("total") or 0):   # (all of them in one listing: one snapshot, one start)
         return got.get("items", [])
-    head =[ln for ln in ergostat("item", "--kind", kind).stdout.splitlines() if ln.startswith(f"{kind} ")]
+    head =[ln for ln in ergostat("item", "--projection", kind).stdout.splitlines() if ln.startswith(f"{kind} ")]
     states = re.findall(r"([a-z][a-z-]*) \d+", head[0].split("  ", 2)[-1]) if head else []
     if not states:
         return one(None)
@@ -899,5 +899,5 @@ def read_input() -> dict:
         if not iid:
             raise RuntimeError("no item: this program runs for the item its block takes ($ERGOSTAT_ITEM)")
         it = json.loads(ergostat("item", iid, "--json").stdout)
-        given = {"item": {k: it[k] for k in ("id", "kind", "state", "fields")}, "lease": it["fields"].get("lease")}
+        given = {"item": {k: it[k] for k in ("id", "projection", "state", "fields")}, "lease": it["fields"].get("lease")}
     return given

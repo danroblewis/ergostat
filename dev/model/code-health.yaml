@@ -16,7 +16,7 @@ systems:
            auxiliary.code-net-lines, auxiliary.code-long-functions, auxiliary.code-duplicates,
            auxiliary.code-dead-candidates, auxiliary.code-coverage]
 
-items:
+projections:
   removal:
     id: removal/*
     description: one removal a merged simplification made, from its commit's Removed trailer - class, path, name, lines
@@ -32,7 +32,7 @@ stocks:
     unit: removals
     cumulative: true                   # every removal merged so far: a running total, never drained
     description: removals merged by simplification gaps, by class (dead, duplicate, over-general, wrong-layer, speculative, unclassified)
-    sensor: {items: removal, state: recorded, every: 10m}
+    sensor: {projection: removal, state: recorded, every: 10m}
 
 auxiliaries:
   days-since-simplify:
@@ -133,11 +133,11 @@ flows:
     system: open-gaps
     to: gaps-open
     description: a gap asked for by the simplifier - one module, its evidence and the rules of a simplification
-    sensor: {items: gap, entering: open, where: {source: simplifier}, over: 1d}
+    sensor: {projection: gap, entering: open, where: {source: simplifier}, over: 1d}
   removals-merged:
     to: removals-recorded
     description: a simplification merged - one removal per Removed trailer of its commits
-    sensor: {items: removal, entering: recorded, over: 1d}
+    sensor: {projection: removal, entering: recorded, over: 1d}
 
 blocks:
   simplify-when:

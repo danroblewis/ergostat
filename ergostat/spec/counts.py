@@ -1,11 +1,11 @@
-"""Counts of items kept as the record folds (docs/proposals/scale.md, #4): what an ``items:`` sensor reads, at once,
+"""Counts of items kept as the record folds (docs/proposals/scale.md, #4): what a ``projection:`` sensor reads, at once,
 instead of asking the item index for every reading (SPEC §5a, §9.1).
 
 The item index (``itemindex.py``) already records every item (``items``) and every move of every item (``moves``),
 whichever process folded them. ``Counts`` follows those two tables as they grow, by their row numbers:
 
-- **how many** of each kind are in each state: a move takes one from the state it left and adds one to the state it
-  reached; an item of a kind without states is counted when its row first appears;
+- **how many** of each projection are in each state: a move takes one from the state it left and adds one to the state it
+  reached; an item of a projection without states is counted when its row first appears;
 - **groups**, for a sensor on a stock that needs more than a plain count (``where:``, ``measure: oldest`` or
   ``age``): the members themselves, with when each entered its state and was first seen, the oldest of each found in
   a heap. An item a move or an event touched is read again, so one whose fields or state changed joins or leaves;
@@ -37,7 +37,7 @@ INF = float("inf")
 
 
 def transcript_of(spec, s) -> bool:
-    """Which fold a sensor counts from: with a transcript's lines, when its kind moves on them or its ``where`` reads
+    """Which fold a sensor counts from: with a transcript's lines, when its projection moves on them or its ``where`` reads
     a field they fold into (as ``items.measure`` decides)."""
     q = s.items or {}
     k = spec.items.get(q.get("kind"))
@@ -53,7 +53,7 @@ def _wants(where: dict, fields: dict) -> bool:
 
 
 class Group:
-    """The items of a kind in some states (``()``: any) matching ``where``: who they are, when each entered its state
+    """The items of a projection in some states (``()``: any) matching ``where``: who they are, when each entered its state
     and was first seen."""
 
     def __init__(self, kind: str, states: tuple, where: dict):
@@ -90,7 +90,7 @@ class Group:
 
 
 class Window:
-    """The moves of a kind's items into (``dst``) or out of (``frm``) a state, for the last ``over`` seconds at least:
+    """The moves of a projection's items into (``dst``) or out of (``frm``) a state, for the last ``over`` seconds at least:
     ``(time, item)``, in time order. With ``where``: whether each of their items matches it now."""
 
     def __init__(self, kind: str, col: str, state: str, where: dict, over: float):

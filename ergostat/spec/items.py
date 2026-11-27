@@ -51,7 +51,7 @@ class Item:
     rolled: int = 0                  # a transcript's lines rolled into its snapshot, when they are not folded
 
     def as_dict(self, moves: bool = False, history: bool = False) -> dict:
-        d = {"id": self.id, "kind": self.kind, "state": self.state, "fields": self.fields, "first": self.first,
+        d = {"id": self.id, "projection": self.kind, "state": self.state, "fields": self.fields, "first": self.first,
              "last": self.last, "entered": self.entered, "events": self.n, "latest": self.latest}
         if moves:
             d["moves"] = self.moves
@@ -585,16 +585,16 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
     from .grouptally import offered
     from .item_systems import OTHER, TITLES, groups, kind_systems
     where = kind_systems(spec)              # each kind's system (item_systems.py): the page groups by it
-    unkinded = sum(counts.get("", {}).values())
-    systems = groups(spec, {**where, **({"": {"system": OTHER}} if unkinded else {})})
+    unprojected = sum(counts.get("", {}).values())
+    systems = groups(spec, {**where, **({"": {"system": OTHER}} if unprojected else {})})
     for g in systems:
-        g["kinds"] = [k for k in g["kinds"] if k]
-    return {"kinds": [{"name": k.name, "title": TITLES.get(k.name), "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
+        g["projections"] = [k for k in g["projections"] if k]
+    return {"projections": [{"name": k.name, "title": TITLES.get(k.name), "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "relations": {r: x.kinds for r, x in k.relations.items()},
                        "progress": [r for r, x in k.relations.items() if offered(k, x)],   # (grouptally.py)
                        "counts": counts.get(k.name, {}), **finishes(events, spec, k.name)} for k in kinds.values()],
-            "systems": systems, "unkinded": unkinded,
+            "systems": systems, "unprojected": unprojected,
             "total": total, "offset": offset,
             "items": [_listed(i, kinds, where) for i in page]}
 
@@ -767,7 +767,7 @@ def detail(events, spec, id: str, until: float | None = None, history: int | Non
             "rollup": {k_: v for k_, v in (snap["data"].get("rollup") or {}).items() if k_ not in ("moves", "refused")}
             if snap else None,
             "record_total": len(own),
-            "kind_of": {"name": k.name, "id": k.id, "states": k.states, "on": k.on, "show": k.show, "formats": k.formats,
+            "projection_of": {"name": k.name, "id": k.id, "states": k.states, "on": k.on, "show": k.show, "formats": k.formats,
                         "fold": k.fold} if k else None,
             "transcript_events": len(evs) - len(own),
             "relations": related(events, spec, it, k),
@@ -799,11 +799,11 @@ def related(events, spec, it: Item, k) -> dict | None:
     from ..precedence import Kinds, starts, status
     info = Kinds(spec, ix)
     title = lambda x: x.fields.get("title") if isinstance(x.fields.get("title"), str) else ""      # noqa: E731
-    out["items"] = {i: {"kind": x.kind, "state": x.state, "title": title(x), "done": status(x, info[x.kind], []) == "done"}
+    out["items"] = {i: {"projection": x.kind, "state": x.state, "title": title(x), "done": status(x, info[x.kind], []) == "done"}
                     for i, x in seen.items()}
     prec = {r: rel for r, rel in (k.relations.items() if k else []) if rel.precedence}
     out["waiting"] = [i for r in prec for i in out["out"].get(r, []) if not (out["items"].get(i) or {}).get("done")
                       and not (i in seen and starts(seen[i], prec[r]))]
-    out["relations"] = {r: {"kinds": rel.kinds, "precedence": rel.precedence, "inverse": rel.inverse, "group": rel.group,
+    out["relations"] = {r: {"projections": rel.kinds, "precedence": rel.precedence, "inverse": rel.inverse, "group": rel.group,
                             "starts_at": rel.starts_at} for r, rel in (k.relations.items() if k else [])}
     return out

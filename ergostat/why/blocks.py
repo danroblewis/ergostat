@@ -147,7 +147,7 @@ def taken(ctx, it, info) -> dict:
                         [ev(moved, item_link(it.id), at=it.entered)], since=it.entered)
         return root("nothing", it.id, f"nothing takes {it.kind} items from {it.state}: no block's takes: names it, and "
                     "nothing it waits on is unfinished", "the owner",
-                    f"add a block that takes: {{kind: {it.kind}, at: [{it.state}]}}, or record the event that moves it",
+                    f"add a block that takes: {{projection: {it.kind}, at: [{it.state}]}}, or record the event that moves it",
                     None, [ev(moved, item_link(it.id), at=it.entered)], since=it.entered)
     got = [r for r in (_block(ctx, b, it) for b in bs) if r is not None]
     if got:

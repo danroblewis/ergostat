@@ -2,13 +2,13 @@
 that went through a flow in a span, as one filter the side panel and the Items page share, so a panel's
 list and its link to the Items page are the same set.
 
-A set is a kind, and either the states its items are in now (``state``), or the moves its items made in
+A set is a projection, and either the states its items are in now (``state``), or the moves its items made in
 a span (``moved``: from some states to others, between two times); either may also match fields
 (``where``). It is read from the item index (``items.in_states_page``, ``items.moved_items``): a state's items counted
-and paged there, a span's moves read there alone, never every item of a kind folded.
+and paged there, a span's moves read there alone, never every item of a projection folded.
 
-What a part's set is comes from the model alone (``of_part``): a stock's (or an auxiliary's) ``items:``
-sensor; a flow's own ``items:`` sensor, else the item states of the stocks it drains and fills; else the
+What a part's set is comes from the model alone (``of_part``): a stock's (or an auxiliary's) ``projection:``
+sensor; a flow's own ``projection:`` sensor, else the item states of the stocks it drains and fills; else the
 events that measure it (its valve's openings, its sensor's observations); else nothing, said with why."""
 
 from __future__ import annotations
@@ -46,8 +46,8 @@ class ItemSet:
         return self.through is not None or self.followed is not None or bool(self.caused)
 
     def params(self) -> dict[str, list[str]]:
-        """The set as the Items page's address and the API's query say it (``/items?kind=pr&state=waiting``)."""
-        q: dict[str, list[str]] = {"kind": [self.kind]}
+        """The set as the Items page's address and the API's query say it (``/items?projection=pr&state=waiting``)."""
+        q: dict[str, list[str]] = {"projection": [self.kind]}
         if self.states:
             q["state"] = [",".join(self.states)]
         if self.where:
@@ -127,13 +127,13 @@ def asked(q: dict) -> bool:
 
 
 def parse(q: dict, now: float | None = None) -> ItemSet | None:
-    """The set an Items query names (``kind``, ``state``, ``where``, ``moved`` with ``moved_since`` and
-    ``moved_until``), or None when it names no kind and nothing else."""
+    """The set an Items query names (``projection``, ``state``, ``where``, ``moved`` with ``moved_since`` and
+    ``moved_until``), or None when it names no projection and nothing else."""
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
-    kind = one("kind")
+    kind = one("projection")
     if not kind:
         if asked(q):
-            raise BadSet("a filter on state, where or moved needs kind=")
+            raise BadSet("a filter on state, where or moved needs projection=")
         return None
     s = ItemSet(kind, states=[x for x in (one("state") or "").split(",") if x])
     for w in q.get("where") or []:
@@ -165,7 +165,7 @@ def parse(q: dict, now: float | None = None) -> ItemSet | None:
         k, sep, rest = c.partition(":")
         a, sep2, b = rest.partition(">")
         if not sep or not sep2 or not k or not a or not b:
-            raise BadSet(f"caused={c}: KIND:A>B, an activity on an item of KIND, and the one it caused here")
+            raise BadSet(f"caused={c}: PROJECTION:A>B, an activity on an item of PROJECTION, and the one it caused here")
         s.caused.append((k, a, b))
     if s.process():
         now = now or time.time()
@@ -183,7 +183,7 @@ def select(events, spec, s: ItemSet, until: float | None = None, n: int = its.LI
     kinds = its.kinds_of(spec)
     k = kinds.get(s.kind)
     if k is None:
-        raise BadSet(f"kind={s.kind}: no such kind of item")
+        raise BadSet(f"projection={s.kind}: no such projection")
     bad = [x for x in [*s.states, *((s.moved or ([], []))[0]), *((s.moved or ([], []))[1])] if x not in k.states]
     if bad:
         raise BadSet(f"{s.kind} has no state {', '.join(bad)} (its states: {', '.join(k.states) or 'none'})")
@@ -225,7 +225,7 @@ def _through(events, spec, s: ItemSet, kinds: dict, n: int, offset: int) -> dict
     from .. import process as pm
     for k, _, _ in s.caused:
         if k not in kinds and k != pm.SCHEDULE:
-            raise BadSet(f"caused: no such kind of item as {k}")
+            raise BadSet(f"caused: no such projection as {k}")
     got = pm.items_through(events, spec, s.kind, s.since, s.until, s.by, s.through, s.followed, s.caused or None)
     if s.moved is not None:
         moved = {i.id for i in its.moved_items(events, spec, s.kind, "to" if s.moved[1] else "from",
@@ -253,7 +253,7 @@ def _items_sensor(part):
 
 
 def _stock_set(spec, name: str):
-    """The states and fields a stock's (or an auxiliary's) ``items:`` sensor counts: (sensor, kind, states,
+    """The states and fields a stock's (or an auxiliary's) ``projection:`` sensor counts: (sensor, kind, states,
     where), or None."""
     part = spec.stocks.get(name) or spec.auxiliaries.get(name)
     s = _items_sensor(part) if part is not None else None
@@ -271,7 +271,7 @@ def of_part(spec, kind: str, name: str, since: float, until: float, model=None) 
     """What a part's items are: ``{"set": params, "says", "how"}`` for a set of items, ``{"events": ...}``
     for a flow measured by events (its valve's openings, its sensor's observations), or ``{"none": why}``."""
     if spec is None:
-        return {"none": "the model declares no kinds of item"}
+        return {"none": "the model declares no projections"}
     if kind in ("stock", "auxiliary"):
         got = _stock_set(spec, name)
         if got is None:
@@ -311,7 +311,7 @@ def of_part(spec, kind: str, name: str, since: float, until: float, model=None) 
         return {"set": x.params(), "says": x.says(),
                 "how": f"its stocks count {k} items: a move from {froms} to {tos} is one going through it"}
     if sides:
-        return {"none": f"its stocks count different kinds of item ({', '.join(sorted({x[1] for x in sides}))})"}
+        return {"none": f"its stocks count different projections ({', '.join(sorted({x[1] for x in sides}))})"}
     ev = _events_of(spec, f, model)
     if ev:
         return {"events": ev}
@@ -381,7 +381,7 @@ def events_items(events, ev: dict, since: float, until: float) -> dict:
 
 def counted_by(spec, kind: str, name: str) -> dict | None:
     """What a stock's or a flow's sensor counts, in plain words, for the first line of its side panel (``says``, and
-    ``kind`` when items): the unit alone did not say a stock was items of a kind. None when its sensor reads neither
+    ``projection`` when items): the unit alone did not say a stock was items of a projection. None when its sensor reads neither
     items, its stock's changes nor a daemon (``read by daemon NAME``)."""
     if kind == "sensor":                              # one sensor of a part: PART.SENSOR
         s = next((x for x in (spec.sensors() if spec else ()) if f"{x.of.name}.{x.name}" == name), None)
@@ -401,11 +401,11 @@ def counted_by(spec, kind: str, name: str) -> dict | None:
     where = "".join(f", where {f} is {' or '.join(vs)}" for f, vs in _where(q.get("where")).items())
     if kind == "flow":
         move = f"entering {q['entering']}" if q.get("entering") else f"leaving {q.get('leaving')}"
-        return {"kind": q["kind"], "says": f"Items of kind {q['kind']} {move}{where}"
+        return {"projection": q["kind"], "says": f"Items of projection {q['kind']} {move}{where}"
                 + (f", summing their {q['sum']}" if q.get("sum") else "")}
     states = " or ".join(q.get("state") or []) or "any state"
     lead = {"oldest": "The hours the oldest has been in its state, of", "age": "The hours since the oldest was first seen, of"}
-    return {"kind": q["kind"], "says": f"{lead.get(q.get('measure'), 'Counts')} items of kind {q['kind']} in state {states}{where}"}
+    return {"projection": q["kind"], "says": f"{lead.get(q.get('measure'), 'Counts')} items of projection {q['kind']} in state {states}{where}"}
 
 
 def taken_by(events, spec, s: ItemSet, until: float | None) -> list:
@@ -419,7 +419,7 @@ def taken_by(events, spec, s: ItemSet, until: float | None) -> list:
 
 def leased_by(events, spec, flow: str, until: float) -> list[dict]:
     """The blocks that take items (``takes:``, leased one to a run) and move this flow: for its valve's panel, each
-    with its kind, how many it has taken now (``taken``: a lease with a holder, whatever the item's state), the Items
+    with its projection, how many it has taken now (``taken``: a lease with a holder, whatever the item's state), the Items
     page's set of exactly those (``set``), and how many wait for it (``waiting``: in its ``at`` states, matching its
     ``where``, not taken)."""
     from ..leases.fold import held
@@ -429,6 +429,6 @@ def leased_by(events, spec, flow: str, until: float) -> list[dict]:
         if b.takes and Ref("flow", flow) in b.targets():
             x = ItemSet(b.takes.kind, taken=b.name)
             _, _, at = its.in_states(events, spec, x.kind, b.takes.at, b.takes.where or {}, until=until, items=True)
-            out.append({"block": b.name, "agent": b.agent, "kind": x.kind, "taken": len(taken_by(events, spec, x, until)),
+            out.append({"block": b.name, "agent": b.agent, "projection": x.kind, "taken": len(taken_by(events, spec, x, until)),
                         "waiting": sum(1 for i in at if not held(i.fields)), "at": list(b.takes.at), "set": x.params()})
     return out

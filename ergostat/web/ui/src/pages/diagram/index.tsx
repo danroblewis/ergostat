@@ -7,7 +7,7 @@ import { useStatus } from "../../state/status";
 import { Side } from "./Side";
 
 /* The Diagram page (diagram.js's pageDiagram): one control system, drawn three ways (Dynamics, Blocks, Process), the
-   view and what is drawn in the address (?view=, system=, open=, around=, item=, kind=; the Process view's kinds=,
+   view and what is drawn in the address (?view=, system=, open=, around=, item=, projection=; the Process view's projections=,
    by=, paths=, show=), asked again every 2.5 s; a click opens a part's panel, the side lists what needs the owner.
    The drawing is components/diagram's DiagramCanvas, as on any page; this page adds the toolbar, the side and the
    address. */
@@ -17,7 +17,7 @@ const VIEWS: { key: ViewKey; label: React.ReactNode; title: string }[] = [
   { key: "blocks", label: <>Blocks<span className="what"> · what is controlled</span></>, title: "The control system as a block diagram" },
   { key: "process", label: <>Process<span className="what"> · what happened</span></>, title: "The process map: how items really moved, from the record" },
 ];
-const KEEP = ["view", "system", "around", "open", "item", "kind", "kinds", "by", "paths", "show", "window", "at"];
+const KEEP = ["view", "system", "around", "open", "item", "projection", "projections", "by", "paths", "show", "window", "at"];
 
 function GoalPanel({ name }: { name: string }) {
   const st = useApi<any>(`loops/${encodeURIComponent(name)}`);
@@ -42,7 +42,7 @@ export default function DiagramPage() {
   const raw = q.get("view");
   const view: ViewKey = raw === "blocks" || raw === "process" ? raw : "dynamics";
   const system = q.get("system") || "", around = q.get("around") || "";
-  const item = view !== "process" ? q.get("item") || "" : "", kind = view !== "process" && !item ? q.get("kind") || "" : "";
+  const item = view !== "process" ? q.get("item") || "" : "", projection = view !== "process" && !item ? q.get("projection") || "" : "";
   const open = q.get("open");
   const show = q.get("show") || "";
   const { status } = useStatus();
@@ -59,9 +59,9 @@ export default function DiagramPage() {
   }, [setQ]);
 
   const params = {
-    view, system, around, item, kind,
+    view, system, around, item, projection,
     ...(open != null && view !== "process" ? { open } : {}),
-    ...(view === "process" ? { kinds: q.get("kinds") || "", by: q.get("by") || "", paths: q.get("paths") || "" } : {}),
+    ...(view === "process" ? { projections: q.get("projections") || "", by: q.get("by") || "", paths: q.get("paths") || "" } : {}),
   };
   const st = useApi<any>("graph", params, { every: 2500 });
   const g = graphOf(view, st.data);
@@ -72,7 +72,7 @@ export default function DiagramPage() {
     else now.add(name);
     go({ open: [...now].join(",") || "-" });
   }, [g, go]);
-  const drill = useCallback((name: string) => go({ system: name, open: "", around: "", item: "", kind: "" }), [go]);
+  const drill = useCallback((name: string) => go({ system: name, open: "", around: "", item: "", projection: "" }), [go]);
   const sysActs = useMemo(() => ({ toggleSystem, drill }), [toggleSystem, drill]);
   const pick = usePartPanels(g, view, sysActs);
   const onGoal = useCallback((name: string) => detail.open(`goal:${name}`, <GoalPanel name={name} />), [detail]);
@@ -98,13 +98,13 @@ export default function DiagramPage() {
 
   return (
     <div className="diagram">
-      <DiagramCanvas g={g} view={view} show={show} acts={acts} scope={`${view}|${system}|${around}|${item}|${kind}`}
+      <DiagramCanvas g={g} view={view} show={show} acts={acts} scope={`${view}|${system}|${around}|${item}|${projection}`}
         labelledBy="diagram-caption" file={file} onBackground={detail.close}
         waiting={st.error ? <>The server is not answering. Is ergostat still running? ({st.error.message})</> : "Loading…"}>
         <div className="toolbar">
           <Tabs label="View" tabs={VIEWS} value={view} onChange={(v) => go({ view: v })} />
           <span className="sep" />
-          <select title="The system drawn" aria-label="System" value={system} onChange={(ev) => go({ system: ev.target.value, around: "", item: "", kind: "", open: "" })}>
+          <select title="The system drawn" aria-label="System" value={system} onChange={(ev) => go({ system: ev.target.value, around: "", item: "", projection: "", open: "" })}>
             {sysOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           {crumbs.length > 0 && (
@@ -129,9 +129,9 @@ export default function DiagramPage() {
             </>
           )}
           {around && <span className="around">around <b>{around}</b> <button type="button" className="ghost" aria-label="Clear" onClick={() => go({ around: "" })}>×</button></span>}
-          {(item || kind) && (
-            <span className="around subset">{item ? <>what <b>{item}</b> passed through </> : <>what kind <b>{kind}</b> touches </>}
-              <button type="button" className="ghost" aria-label="Clear" onClick={() => go({ item: "", kind: "" })}>×</button></span>
+          {(item || projection) && (
+            <span className="around subset">{item ? <>what <b>{item}</b> passed through </> : <>what every <b>{projection}</b> touches </>}
+              <button type="button" className="ghost" aria-label="Clear" onClick={() => go({ item: "", projection: "" })}>×</button></span>
           )}
           {view !== "process" && (
             <Menu label="⋯" className="dots" title="More: open or close every system">

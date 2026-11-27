@@ -13,10 +13,10 @@ from ergostat.store import Project
 
 MODEL = """\
 name: traces-more
-items:
+projections:
   issue: {id: issue/*, states: [open, closed], on: {issue.seen: open}}
 stocks:
-  open-issues: {unit: issues, cumulative: true, sensor: {items: issue, state: open, every: 1h}}
+  open-issues: {unit: issues, cumulative: true, sensor: {projection: issue, state: open, every: 1h}}
 blocks:
   collector:
     type: program

@@ -21,7 +21,7 @@
 #   fix-ci        ci-failed       sailed          triage the log, fix, push, run again
 #   merge         ci-green        merged          merge if the repository allows it (or stop at approved)
 #   close         merged          done            the issue to Done; the workspace given back
-items:
+projections:
   ticket:
     id: ticket/*
     description: a Jira issue labelled for the factory, from pick-up to Done
@@ -59,8 +59,8 @@ items:
     lease: {attempts: 3}               # a step whose runs fail three times (exit not 0): a dead letter
     relations:                         # Jira's links, recorded by the watcher (ticket.linked); never enforced
       blocked_by: ticket
-      duplicates: {kind: ticket, inverse: duplicated_by}
-      relates_to: {kind: ticket, precedence: false}
+      duplicates: {projection: ticket, inverse: duplicated_by}
+      relates_to: {projection: ticket, precedence: false}
       parent: ticket                   # an epic or a sub-task's parent never found: an id never recorded
 
   report:

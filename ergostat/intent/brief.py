@@ -128,7 +128,7 @@ def build(p, spec: Spec, kk: IntentKind, it, entry: dict) -> dict:
     """The brief for judging ``it`` (a folded item) at ``entry`` (its move into ``kk.at``)."""
     f = dict(it.fields)
     done_when = f.get("done_when") or f.get("done-when") or (f.get("note") if f.get("follows") and f.get("message") else None)
-    work = {"id": it.id, "kind": it.kind, "state": it.state, "at": kk.at, "entered": entry["time"],
+    work = {"id": it.id, "projection": it.kind, "state": it.state, "at": kk.at, "entered": entry["time"],
             "entry_event": entry["event"], "done_when": str(done_when) if done_when else None,
             "fields": {k: _short(v) for k, v in f.items() if k not in SKIP_FIELDS and not str(k).startswith("_")}}
     terms = {w for s in [*kk.scope, it.kind or ""] for w in words(s) if len(w) > 1}

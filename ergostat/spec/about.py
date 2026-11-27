@@ -1,4 +1,4 @@
-"""Items about parts of the model (SPEC §5a, *About*): a kind that declares ``about: FIELD`` names, in that field of
+"""Items about parts of the model (SPEC §5a, *About*): a projection that declares ``about: FIELD`` names, in that field of
 each of its items, the parts of the model the item bears on (``goal.x``, ``stock.y``, ``flow.z``, ``auxiliary.w``,
 ``block.v``: the text form a claim's ``about`` uses). The item index keeps each item→part link (``itemindex.ABOUT``),
 so the open items about a part are one lookup: ``explain`` ends with them (at most 5), a ``check`` finding about a
@@ -34,7 +34,7 @@ def declared(spec) -> bool:
 
 
 def _label(it, k) -> str:
-    """An item's title, else its first field with a value (those its kind shows first)."""
+    """An item's title, else its first field with a value (those its projection shows first)."""
     f, skip = it.fields, getattr(k, "about", None)
     v = f.get("title")
     if v in (None, "", []):

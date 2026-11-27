@@ -3,8 +3,8 @@ import type { DashboardDef, PanelDef } from "../components/panels/types";
 /* ergostat's own pages as the dashboards they are: each one's panels, as a dashboard under `dashboards:` would
    declare them (SPEC §4f). A page draws these (with its own head and filters around them); the Dashboard page offers
    each as a copy to start a draft from; a dashboard the model declares under a page's name is drawn at its address
-   instead (lib/routes.ts), and one declared with `page: agent|item|kind` is drawn for every agent, item or kind. A
-   page that shows one thing writes it `$agent`, `$item` or `$kind`: taken from the address. */
+   instead (lib/routes.ts), and one declared with `page: agent|item|projection` is drawn for every agent, item or projection. A
+   page that shows one thing writes it `$agent`, `$item` or `$projection`: taken from the address. */
 
 export const full = (d: PanelDef): PanelDef => ({ size: "full", fit: true, ...d });
 
@@ -44,24 +44,24 @@ export const ITEM_PANELS: PanelDef[] = [
   { panel: "item-changes", id: "changes" },
 ].map((d) => full({ ...d, item: "$item" }));
 
-/** A kind's page: its state now, its place in the model, its definition, then its items. */
-export const KIND_PANELS: PanelDef[] = [
-  { panel: "kind-now", id: "now", title: "Now", size: "m", fit: true, kind: "$kind" },
-  { panel: "kind-model", id: "model", title: "In the model", size: "m", fit: true, kind: "$kind" },
-  full({ panel: "kind-definition", id: "definition", title: "Definition", folded: true, kind: "$kind" }),
-  full({ panel: "item-list", id: "items", title: "Items", kind: "$kind" }),
+/** A projection's page: its state now, its place in the model, its definition, then its items. */
+export const PROJECTION_PANELS: PanelDef[] = [
+  { panel: "projection-now", id: "now", title: "Now", size: "m", fit: true, projection: "$projection" },
+  { panel: "projection-model", id: "model", title: "In the model", size: "m", fit: true, projection: "$projection" },
+  full({ panel: "projection-definition", id: "definition", title: "Definition", folded: true, projection: "$projection" }),
+  full({ panel: "item-list", id: "items", title: "Items", projection: "$projection" }),
 ];
 
-export type PageName = "goals" | "agents" | "record" | "agent" | "item" | "kind";
+export type PageName = "goals" | "agents" | "record" | "agent" | "item" | "projection";
 
 /** ergostat's own pages made of panels, and the address's word one of one thing takes (`page:` names those). */
-export const PAGES: Record<PageName, { title: string; panels: PanelDef[]; binds?: "agent" | "item" | "kind" }> = {
+export const PAGES: Record<PageName, { title: string; panels: PanelDef[]; binds?: "agent" | "item" | "projection" }> = {
   goals: { title: "Goals", panels: GOALS_PANELS },
   agents: { title: "Agents", panels: AGENTS_PANELS },
   record: { title: "Record", panels: RECORD_PANELS },
   agent: { title: "An agent", panels: AGENT_PANELS, binds: "agent" },
   item: { title: "An item", panels: ITEM_PANELS, binds: "item" },
-  kind: { title: "A kind of item", panels: KIND_PANELS, binds: "kind" },
+  projection: { title: "A projection", panels: PROJECTION_PANELS, binds: "projection" },
 };
 
 /** A page as a dashboard: its title and panels, `$WORD`s filled in from `bind` when given. */

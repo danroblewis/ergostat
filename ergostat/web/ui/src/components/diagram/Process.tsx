@@ -3,7 +3,7 @@ import { pmNodeSub, PM, type Layout } from "./layout";
 import { dur } from "../../lib/format";
 import type { Acts } from "./Dynamics";
 
-/* The Process view: how items moved, from the record (process.js's pmNode, pmEdgeContent), each kind in its frame. */
+/* The Process view: how items moved, from the record (process.js's pmNode, pmEdgeContent), each projection in its frame. */
 
 export const pmLabel = (e: any, show: string) =>
   e.kind === "related" ? (show === "times" ? e.relation : `${e.relation} ${e.count}`)
@@ -41,9 +41,9 @@ export function ProcessDrawing({ g, lay, acts, show }: { g: any; lay: Layout; ac
     <>
       <g className="pm-frames">
         {lay.hulls.map((f) => {
-          const k = (g.kinds || []).find((x: any) => x.name === f.name) || {};
+          const k = (g.projections || []).find((x: any) => x.name === f.name) || {};
           return (
-            <g key={f.name} className="pm-frame hull" data-kind={f.name}>
+            <g key={f.name} className="pm-frame hull" data-projection={f.name}>
               <rect x={f.x} y={f.y} width={f.width} height={f.height} rx={6} fill="none" stroke="var(--frame, #bbb)" />
               <text x={f.x + 14} y={f.y + 18} className="pm-title">
                 {f.name}<tspan className="t-sub" dx={8}>{`${k.items ?? ""} item${k.items === 1 ? "" : "s"}${k.by ? ` · ${k.by}` : ""}`}</tspan>

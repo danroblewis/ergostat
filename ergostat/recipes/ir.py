@@ -1,4 +1,4 @@
-"""What a projection recipe is (SPEC §12j): a name, a version, and a list of parts, each with a budget, rendered in
+"""What a context recipe is (SPEC §12j): a name, a version, and a list of parts, each with a budget, rendered in
 order into one Markdown starting context."""
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 
-from ..spec.ir import CONTEXT  # noqa: F401  (the built-in item kind: one use of a recipe, and its outcome)
+from ..spec.ir import CONTEXT  # noqa: F401  (the built-in projection: one use of a recipe, and its outcome)
 from ..spec.load import Where
 
 CONTEXT_STATES = ["started", "succeeded", "failed"]

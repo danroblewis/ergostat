@@ -58,12 +58,12 @@ def fetched(spec, name: str, since: float, by: str | None, at: tuple[str, ...] =
 
 
 def renamed(name: str, got: dict) -> dict:
-    """The remote's map with its kinds named as its parts are here, so they never meet this model's."""
+    """The remote's map with its projections named as its parts are here, so they never meet this model's."""
     k = lambda x: f"{name}-{x}"                     # noqa: E731
     ids = {}
     nodes = []
     for n in got.get("nodes") or []:
-        new = {**n, "itemKind": k(n["itemKind"]), "id": f"p:{k(n['itemKind'])}:{n.get('activity')}", "remote": name}
+        new = {**n, "projection": k(n["projection"]), "id": f"p:{k(n['projection'])}:{n.get('activity')}", "remote": name}
         ids[n["id"]] = new["id"]
         nodes.append(new)
     edges = []
@@ -71,9 +71,9 @@ def renamed(name: str, got: dict) -> dict:
         if e.get("source") not in ids or e.get("target") not in ids:
             continue
         edges.append({**e, "id": f"r:{name}:{e['id']}", "source": ids[e["source"]], "target": ids[e["target"]],
-                      **({"itemKind": k(e["itemKind"])} if e.get("itemKind") else {}), "remote": name})
-    kinds = [{**x, "name": k(x["name"]), "remote": name} for x in got.get("kinds") or []]
-    return {"nodes": nodes, "edges": edges, "kinds": kinds}
+                      **({"projection": k(e["projection"])} if e.get("projection") else {}), "remote": name})
+    kinds = [{**x, "name": k(x["name"]), "remote": name} for x in got.get("projections") or []]
+    return {"nodes": nodes, "edges": edges, "projections": kinds}
 
 
 def sendable(x) -> bool:
@@ -100,13 +100,13 @@ def why_not(link: dict, name: str, body, at, drawn: set, here: set) -> str | Non
     if body is None:
         return "unreachable"
     got = at.get(link["target"]) if isinstance(at, dict) else None
-    if not isinstance(got, dict) or not isinstance(got.get("kind"), str) or not isinstance(got.get("activity"), str):
+    if not isinstance(got, dict) or not isinstance(got.get("projection"), str) or not isinstance(got.get("activity"), str):
         return "not-answered"
-    if got["kind"] != link["there"]:
-        return "other-kind"
-    if f"p:{name}-{got['kind']}:{got['activity']}" not in drawn:
+    if got["projection"] != link["there"]:
+        return "other-projection"
+    if f"p:{name}-{got['projection']}:{got['activity']}" not in drawn:
         return "not-drawn"
-    return None if f"p:{link['kind']}:{link['activity']}" in here else "not-drawn-here"
+    return None if f"p:{link['projection']}:{link['activity']}" in here else "not-drawn-here"
 
 
 def lines(name: str, links: list[dict], body, bad, capped, drawn: set, here: set) -> tuple[list[dict], dict]:
@@ -122,10 +122,10 @@ def lines(name: str, links: list[dict], body, bad, capped, drawn: set, here: set
             unlinked[why] = unlinked.get(why, 0) + 1
             continue
         b, rk = at[t]["activity"], f"{name}-{x['there']}"
-        key = f"x:{name}:{x['relation']}:{x['kind']}:{x['activity']}>{rk}:{b}"
+        key = f"x:{name}:{x['relation']}:{x['projection']}:{x['activity']}>{rk}:{b}"
         e = edges.setdefault(key, {"id": key, "kind": "related", "remote": name, "relation": x["relation"],
-                                   "source": f"p:{x['kind']}:{x['activity']}", "target": f"p:{rk}:{b}",
-                                   "itemKind": x["kind"], "relKind": rk, "from": x["activity"], "to": b, "count": 0,
+                                   "source": f"p:{x['projection']}:{x['activity']}", "target": f"p:{rk}:{b}",
+                                   "projection": x["projection"], "relProjection": rk, "from": x["activity"], "to": b, "count": 0,
                                    "rework": False, "returns": 0, "self": False, "median": None, "timed": 0, "_i": set(), "_t": set()})
         e["count"] += 1
         e["_i"].add(x["item"])
@@ -144,7 +144,7 @@ def merge(spec, got: dict, system: str | None, since: float, by: str | None) -> 
         return got
     mine = system_remote(spec, system)
     out = {**got, "nodes": list(got.get("nodes") or []), "edges": list(got.get("edges") or []),
-           "kinds": list(got.get("kinds") or []), "remotes": {}}
+           "projections": list(got.get("projections") or []), "remotes": {}}
     here = {n["id"] for n in out["nodes"]}
     for name in remotes:
         if system and name != mine:
@@ -153,10 +153,10 @@ def merge(spec, got: dict, system: str | None, since: float, by: str | None) -> 
         taken, bad, capped = chosen([x["target"] for x in links])
         body, why, cached = fetched(spec, name, since, by, tuple(taken))
         out["remotes"][name] = {"ok": body is not None and not cached, "why": why, **({"cached": True} if cached else {})}
-        r = renamed(name, body) if body is not None else {"nodes": [], "edges": [], "kinds": []}
+        r = renamed(name, body) if body is not None else {"nodes": [], "edges": [], "projections": []}
         drawn, unlinked = lines(name, links, body, bad, capped, {n["id"] for n in r["nodes"]}, here)
         out["remotes"][name].update(linked=sum(e["count"] for e in drawn), unlinked=unlinked)
         out["nodes"] += r["nodes"]
         out["edges"] += r["edges"] + drawn
-        out["kinds"] += r["kinds"]
+        out["projections"] += r["projections"]
     return out

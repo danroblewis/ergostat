@@ -35,16 +35,16 @@ def around(spec: Spec, refs, but: str | None = None) -> tuple[list[str], list[st
 
 
 def touches(p, spec: Spec, block: str) -> dict:
-    """What else the block touches, whether it writes, and the items of the kind it takes, by state."""
+    """What else the block touches, whether it writes, and the items of the projection it takes, by state."""
     b = spec.blocks[block]
     readers, goals = around(spec, {str(t) for t in b.targets() if t.kind == "flow"}, block)
     acts = [{"name": a, "gate": spec.actions[a].gate if a in spec.actions else "?"} for a in b.params.get("actions") or []]
     items = None
     if b.takes:
         from ..spec import items as its
-        counts = (next((k for k in its.listing(p.events, spec, kind=b.takes.kind, n=1)["kinds"] if k["name"] == b.takes.kind),
+        counts = (next((k for k in its.listing(p.events, spec, kind=b.takes.kind, n=1)["projections"] if k["name"] == b.takes.kind),
                        {}).get("counts") or {})
-        items = {"kind": b.takes.kind, "states": {s: counts.get(s, 0) for s in b.takes.at}, "dead": counts.get(DEAD, 0)}
+        items = {"projection": b.takes.kind, "states": {s: counts.get(s, 0) for s in b.takes.at}, "dead": counts.get(DEAD, 0)}
     return {"touches": {"blocks": readers, "goals": goals, "commands": sorted(t.name for t in b.targets() if t.kind in ("block", "goal")),
                         "actions": acts}, "read_only": not acts, "writes": [a["name"] for a in acts], "items": items}
 
@@ -55,10 +55,10 @@ def rollback(t: dict, commit: str | None, block: str) -> dict:
     said = f"{how}: {block} fails again as before"
     if it:
         waiting = ", ".join(f"{n} in {s}" for s, n in it["states"].items())
-        said += (f"; the {it['kind']} items it moved stay where they are, the ones it would take next wait ({waiting} now), "
+        said += (f"; the {it['projection']} items it moved stay where they are, the ones it would take next wait ({waiting} now), "
                  f"and a run in flight gives its item back when its lease expires")
         if it["dead"]:
-            said += (f". {it['dead']} {it['kind']} items are dead letters now (given up on after their attempts): the fix does "
+            said += (f". {it['dead']} {it['projection']} items are dead letters now (given up on after their attempts): the fix does "
                      f"not bring them back; redrive them once it is in (ergostat lease ITEM --redrive)")
     if t["writes"]:
         said += f"; what its actions did outside ({', '.join(t['writes'])}) is not undone by the revert"

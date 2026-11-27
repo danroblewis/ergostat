@@ -1,4 +1,4 @@
-"""The intent judge on the page (SPEC §12i): ``GET /api/verdicts`` (the counts and rates by kind, the latest verdicts),
+"""The intent judge on the page (SPEC §12i): ``GET /api/verdicts`` (the counts and rates by projection, the latest verdicts),
 and the owner's acts, ``POST /api/verdict/overrule?id=ID&reason=R`` (a verdict was wrong) and ``POST
 /api/verdict/reopen?item=ITEM&reason=R`` (work accepted that was not done as meant goes back). Each is the owner's
 own act, recorded as an event (``intent/record.py``); neither changes the model."""
@@ -14,7 +14,7 @@ def table(p, snap) -> dict | None:
     if spec is None:
         return None
     t = measures.table(p, spec, now=snap["at"])
-    return {k: t[k] for k in ("since", "until", "all", "kinds", "held")}
+    return {k: t[k] for k in ("since", "until", "all", "projections", "held")}
 
 
 def post(live, path: str, q: dict) -> tuple[int, dict]:

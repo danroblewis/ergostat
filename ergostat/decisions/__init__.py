@@ -1,8 +1,8 @@
-"""Decisions and corrections (SPEC §5a, the built-in kinds; harness parity §2.12, §2.13): what the owner
+"""Decisions and corrections (SPEC §5a, the built-in projections; harness parity §2.12, §2.13): what the owner
 decided, and what the owner corrected, kept as items folded from the record so that every later session
 can start from them.
 
-- ``kinds``: the two built-in item kinds, ``ergostat.decision`` and ``ergostat.correction``;
+- ``kinds``: the two built-in projections, ``ergostat.decision`` and ``ergostat.correction``;
 - ``acts``: proposing one (checked first), and the owner's acts on it (confirm, dismiss, supersede, retire);
 - ``transcript``: a Claude Code transcript read as turns (who said what, where, when);
 - ``standin`` and ``ai``: the two extractors, heuristics on the owner's turns and a model reading them;

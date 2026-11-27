@@ -1,6 +1,6 @@
 """The Process view (SPEC §5b): the process map of process mining, a directly-follows graph (DFG) read
 from the record (van der Aalst, *Process Mining: Data Science in Action*; the map Disco and Celonis
-draw), object-centric (van der Aalst's object-centric process mining, OCEL): one map per item kind,
+draw), object-centric (van der Aalst's object-centric process mining, OCEL): one map per projection,
 and between the maps the lines where an event on an item of one kind caused (``causedby``) an event on
 an item of another, which show work fanning out and joining back.
 
@@ -378,7 +378,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         if x is None:
             role = "schedule" if kind == SCHEDULE else "start" if act == START else "end" if act == END else "activity"
             label = {"start": "start", "end": "end", "schedule": f"{act} · {_every(spec, act)}"}.get(role, act)
-            x = nodes[nid(kind, act)] = {"id": nid(kind, act), "kind": role, "itemKind": kind, "activity": act,
+            x = nodes[nid(kind, act)] = {"id": nid(kind, act), "kind": role, "projection": kind, "activity": act,
                                          "label": label, "count": 0, "_items": set()}
         return x
 
@@ -411,7 +411,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
             e = edges.get(key)
             if e is None:
                 e = edges[key] = {"id": key, "kind": "follows", "source": nid(kind, a), "target": nid(kind, b),
-                                  "itemKind": kind, "from": a, "to": b, "count": 0, "returns": 0, "_times": [],
+                                  "projection": kind, "from": a, "to": b, "count": 0, "returns": 0, "_times": [],
                                   "_items": set()}
             e["count"] += 1
             e["returns"] += back
@@ -433,7 +433,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         key = f"c:{ck}:{ca}>{ek}:{ea}"
         e = edges.get(key)
         if e is None:
-            e = edges[key] = {"id": key, "kind": "caused", "source": nid(ck, ca), "target": nid(ek, ea), "itemKind": ek,
+            e = edges[key] = {"id": key, "kind": "caused", "source": nid(ck, ca), "target": nid(ek, ea), "projection": ek,
                               "causeKind": ck, "from": ca, "to": ea, "count": 0, "_times": [], "_items": set(), "_causes": set(),
                               "_types": {}}
         e["count"] += 1
@@ -448,7 +448,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         kind, it = w.kind_of[id], w.folded.get(id)
         for rel in spec.items[kind].relations.values() if it is not None else ():
             if rel.remote:
-                remote_links += [{"item": id, "kind": kind, "activity": steps[-1][1], "relation": rel.name,
+                remote_links += [{"item": id, "projection": kind, "activity": steps[-1][1], "relation": rel.name,
                                   "remote": rel.remote, "there": rel.there, "target": t}
                                  for t in ids_in(it.fields.get(rel.name))]
                 continue
@@ -463,7 +463,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
                 e = edges.get(key)
                 if e is None:
                     e = edges[key] = {"id": key, "kind": "related", "source": nid(kind, a), "target": nid(tk, b),
-                                      "itemKind": kind, "relKind": tk, "relation": rel.name, "from": a, "to": b, "count": 0,
+                                      "projection": kind, "relProjection": tk, "relation": rel.name, "from": a, "to": b, "count": 0,
                                       "_times": [], "_items": set(), "_targets": set()}
                 e["count"] += 1
                 e["_items"].add(id)
@@ -471,7 +471,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
     # the order of each kind's activities: a state's place in the declared states; an event's, its usual place in its runs
     order: dict[str, float] = {}
     for x in nodes.values():
-        k = spec.items.get(x["itemKind"])
+        k = spec.items.get(x["projection"])
         a = x["activity"]
         if k is None:
             order[x["id"]] = 0.0
@@ -482,7 +482,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         elif by == "states" and k.states and a in k.states:
             order[x["id"]] = float(k.states.index(a))
         else:                                  # an event: its usual place in its items' runs (the first, 0)
-            order[x["id"]] = median(pos.get((x["itemKind"], a), [0.0]))
+            order[x["id"]] = median(pos.get((x["projection"], a), [0.0]))
     for e in edges.values():
         e["rework"] = e.get("returns", 0) > 0              # a repeated step on one item (SPEC §5b), never other items' order
         e["self"] = e["source"] == e["target"]
@@ -493,10 +493,10 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         joined = {x for e in edges.values() for x in (e["source"], e["target"])}
         top: dict[str, int] = {}
         for e in edges.values():
-            g = e["kind"] if e["kind"] != "follows" else e["itemKind"]
+            g = e["kind"] if e["kind"] != "follows" else e["projection"]
             top[g] = max(top.get(g, 0), e["count"])
         keep = {k: e for k, e in edges.items()
-                if e["count"] >= paths * top[e["kind"] if e["kind"] != "follows" else e["itemKind"]]}
+                if e["count"] >= paths * top[e["kind"] if e["kind"] != "follows" else e["projection"]]}
         hidden["edges"] = len(edges) - len(keep)
         edges = keep
         ends = {x for e in edges.values() for x in (e["source"], e["target"])}
@@ -514,8 +514,8 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         edges = dict(sorted(edges.items(), key=lambda kv: -kv[1]["count"])[:MOST_EDGES])
         capped["edges"] = True
     out_nodes = []
-    kinds = [SCHEDULE, *kinds] if any(x["itemKind"] == SCHEDULE for x in nodes.values()) else kinds
-    for x in sorted(nodes.values(), key=lambda x: (kinds.index(x["itemKind"]), order[x["id"]], x["activity"])):
+    kinds = [SCHEDULE, *kinds] if any(x["projection"] == SCHEDULE for x in nodes.values()) else kinds
+    for x in sorted(nodes.values(), key=lambda x: (kinds.index(x["projection"]), order[x["id"]], x["activity"])):
         out_nodes.append({**{k: v for k, v in x.items() if not k.startswith("_")}, "items": len(x["_items"]),
                           "order": order[x["id"]]})
     out_edges = []
@@ -529,7 +529,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         if e["kind"] == "related":
             d.update(targets=len(e["_targets"]))
         out_edges.append(d)
-    present = {x["itemKind"] for x in out_nodes}
+    present = {x["projection"] for x in out_nodes}
     info = []
     for k in kinds:
         if k == SCHEDULE:                                      # the blocks on a schedule whose runs caused something
@@ -539,12 +539,12 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         info.append({"name": k, "states": list(ki.states), "drawn": k in present,
                      "by": by if (by == "events" or ki.states) else "events",
                      "items": sum(1 for id in w.steps if w.kind_of.get(id) == k), "returns": returns.get(k, 0)})
-    out = {"kind": "process", "by": by, "paths": paths, "kinds": info, "nodes": out_nodes, "edges": out_edges,
+    out = {"kind": "process", "by": by, "paths": paths, "projections": info, "nodes": out_nodes, "edges": out_edges,
            "since": since, "until": until, "events": len(w.evs), "capped": {k: v for k, v in capped.items() if v},
            "total": total, "hidden": hidden, "most": {"nodes": MOST_NODES, "edges": MOST_EDGES, "events": MOST_EVENTS},
            "remote_links": remote_links}
     if at is not None:                  # where each item asked was last (a consumer's lines to it, SPEC §4c)
-        out["at"] = {i: {"kind": w.kind_of[i], "activity": w.steps[i][-1][1]} for i in at if i in w.steps}
+        out["at"] = {i: {"projection": w.kind_of[i], "activity": w.steps[i][-1][1]} for i in at if i in w.steps}
     return out
 
 

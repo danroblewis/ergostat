@@ -12,22 +12,22 @@ stocks:
   flakes-open:
     unit: tests
     description: flakes seen and not fixed (seen), each a test that failed in a suite and passed alone
-    sensor: {items: flake, state: seen, every: 1m}
+    sensor: {projection: flake, state: seen, every: 1m}
   flakes-open-hours:
     unit: hours
     description: hours the oldest seen flake has been seen; flakes-few holds each seen flake by its own
-    sensor: {items: flake, state: seen, measure: oldest, every: 1m}
+    sensor: {projection: flake, state: seen, measure: oldest, every: 1m}
 
 flows:
   flakes-seen:
     to: flakes-open
     description: flakes seen (flake.seen), each a test made seen, first or again after a fix
-    sensor: {items: flake, entering: seen, over: 1d}
+    sensor: {projection: flake, entering: seen, over: 1d}
   flakes-fixed:
     from: flakes-open
     description: flakes leaving seen, each fixed (by green runs or by hand) or found failing on main too (main-broken)
     driven-by: [+stock.flakes-open]
-    sensor: {items: flake, leaving: seen, over: 1d}   # every move out of seen, so the two flows add up to flakes-open
+    sensor: {projection: flake, leaving: seen, over: 1d}   # every move out of seen, so the two flows add up to flakes-open
 
 auxiliaries:
   main-repair-hours:

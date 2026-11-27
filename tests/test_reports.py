@@ -19,7 +19,7 @@ systems:
   payments-core: {description: the payments team's system}
 sources:
   acmeprom: {type: prometheus, url: "http://prom.acme-internal.corp:9090"}
-items:
+projections:
   zebraticket:
     id: zebraticket/*
     states: [triage-queue, sorting-hat, done]
@@ -28,7 +28,7 @@ stocks:
   invoices-pending:
     unit: invoices
     system: payments-core
-    sensor: {items: zebraticket, state: triage-queue, every: 5s}
+    sensor: {projection: zebraticket, state: triage-queue, every: 5s}
 flows:
   invoices-arriving: {to: invoices-pending}
   invoices-settled: {from: invoices-pending}
@@ -98,7 +98,7 @@ def test_planted_secrets_never_reach_the_text_and_the_log_says_what_went(proj, o
     assert leaked(got["title"]) == [] and leaked(record.issue_url(got["title"], got["labels"])) == []
     assert text.startswith("Title: ") and "\nLabels: " in text
     assert "## What went wrong" in text and "## The model's shape" in text and "## Reproduction" in text
-    assert "block-1" in text and "kind-1/" in text            # stand-ins, the same wherever the same name was
+    assert "block-1" in text and "projection-1/" in text            # stand-ins, the same wherever the same name was
     assert "| stocks | 1 |" in text and "program 1" in text  # counts of parts and kinds stay
     assert "ergostat 0.1.0" in text and "Python" in text
     log = json.loads(Path(got["scrub_file"]).read_text())

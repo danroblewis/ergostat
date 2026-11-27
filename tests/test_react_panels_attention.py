@@ -73,7 +73,7 @@ def test_each_attention_kind_draws_on_a_declared_dashboard(browser, declared):  
 
 
 @pytest.mark.parametrize("view, own", [("dynamics", "Feedback loops"), ("blocks", "Control loops"),
-                                       ("process", "Kinds of item")])
+                                       ("process", "Projections")])
 def test_the_diagram_side_list_still_draws(browser, site, view, own):  # noqa: F811
     pg = opened(browser, f"{site}/diagram?view={view}")
     heading(pg, "#diagram-caption")

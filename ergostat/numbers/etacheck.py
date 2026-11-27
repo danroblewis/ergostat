@@ -43,7 +43,7 @@ def score(inputs: list, end: float, flags: eta.Flags | None = None, runs: int = 
           latest: bool = False) -> dict:
     """The estimates at each of ``inputs`` (read with ``truth``, earliest first) against what happened by ``end``:
     ``{"items", "unresolved", "not_worked_out", "mae" (seconds, of the p50), "coverage" (by the p90), "p50" (the share
-    finished by their p50), "bias" (seconds, the mean − actual), "kinds": {kind: the same}}``. Each estimate judged is
+    finished by their p50), "bias" (seconds, the mean − actual), "projections": {projection: the same}}``. Each estimate judged is
     counted, an item open at several cuts once a cut; ``latest``: only its latest judged cut's, so ``items`` counts
     items."""
     whole, kinds = _tally(), {}
@@ -68,7 +68,7 @@ def score(inputs: list, end: float, flags: eta.Flags | None = None, runs: int = 
                      x["mean"] - done if x.get("mean") is not None else None)
             for t in (whole, kinds[inp.items[i].kind]):
                 t["got"].append(j)
-    return {**_said(whole, latest), "kinds": {k: _said(t, latest) for k, t in kinds.items()}}
+    return {**_said(whole, latest), "projections": {k: _said(t, latest) for k, t in kinds.items()}}
 
 
 def cuts(now: float, n: int = CUTS, over: float = WEEK) -> list[float]:
@@ -83,7 +83,7 @@ def calibration(p, spec, kinds: list[str], now: float, runs: int = RUNS, budget:
     at = cuts(now)
     last = p.events.query(n=1, until=now)
     end = min(now, last[0]["time"]) if last else now
-    got = score([read(p, spec, kinds, t, truth=True) for t in at], end, runs=runs, budget=budget, latest=True)["kinds"]
+    got = score([read(p, spec, kinds, t, truth=True) for t in at], end, runs=runs, budget=budget, latest=True)["projections"]
     out = {}
     for k in kinds:
         g = got.get(k) or {"items": 0, "coverage": None, "mae": None}

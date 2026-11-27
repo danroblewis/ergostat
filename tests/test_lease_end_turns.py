@@ -24,7 +24,7 @@ BIN = str(Path(__file__).resolve().parent.parent / "dev" / "bin")
 
 MODEL = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -36,13 +36,13 @@ items:
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: 4
     run: "true"
     lease: {lease}
   other:
     type: program
-    takes: {kind: note, at: new}
+    takes: {projection: note, at: new}
     pool: 1
     run: "true"
     lease: {ttl: 1m}

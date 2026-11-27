@@ -143,7 +143,7 @@ def _ignored(q: Query, agg_fits: bool) -> list[str]:
 def by_field(a: Asking, q: Query) -> dict:
     from ..spec.itemnumbers import unit_of
     x = q.x
-    extra = tuple(f for f in (x.size, x.color_by) if f and f not in ("state", "kind"))
+    extra = tuple(f for f in (x.size, x.color_by) if f and f not in ("state", "projection"))
     groups, left = _item_points(a, q, x.field, q.field, points.MOST_POINTS, extra)
     groups, folded = _capped(groups)
     out = []

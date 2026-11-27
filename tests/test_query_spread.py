@@ -7,7 +7,7 @@ import pytest
 from ergostat.query import spread
 from tests.test_query_engine import T, _ask, _record
 
-COST = {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "none", "x": {"type": "category", "by": "state"}}
+COST = {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "none", "x": {"type": "category", "by": "state"}}
 
 
 @pytest.fixture
@@ -58,8 +58,8 @@ def test_it_reads_no_event_log(p, monkeypatch):
 @pytest.mark.parametrize(
     "query,word",
     [
-        ({"source": "counts", "kind": "ticket", "agg": "none", "x": {"type": "category", "by": "state"}}, "numeric field of items"),
-        ({"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "none"}, "only for an x of type field"),
+        ({"source": "counts", "projection": "ticket", "agg": "none", "x": {"type": "category", "by": "state"}}, "numeric field of items"),
+        ({"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "none"}, "only for an x of type field"),
     ],
 )
 def test_what_has_no_spread_is_refused_in_words(p, query, word):
@@ -71,8 +71,8 @@ def test_a_set_alone_needs_no_snapshot_and_counts_past_its_page(p, monkeypatch):
 
     live = Live(p)
     monkeypatch.setattr(live, "snapshot", lambda *a, **k: pytest.fail("the whole state was worked out"))
-    got = api(live, "items", {"kind": ["ticket"], "state": ["doing"], "alone": ["1"], "n": ["2"]})
-    assert got["total"] == 5 and len(got["items"]) == 2 and got["kinds"] == []
+    got = api(live, "items", {"projection": ["ticket"], "state": ["doing"], "alone": ["1"], "n": ["2"]})
+    assert got["total"] == 5 and len(got["items"]) == 2 and got["projections"] == []
 
 
 @pytest.mark.parametrize("agg,doing,done", [("count", 5, 1), ("sum", 110, 3.5), ("avg", 22, 3.5), ("max", 100, 3.5), ("min", 1, 3.5),

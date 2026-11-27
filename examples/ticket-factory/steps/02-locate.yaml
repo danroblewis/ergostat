@@ -7,7 +7,7 @@ stocks:
     unit: tickets
     description: its repository found and fetched; not worked yet
     sensor:
-      items: ticket
+      projection: ticket
       state: located
       every: 3s
 
@@ -18,7 +18,7 @@ flows:
     driven-by: [+stock.picked]
     equation: stock.picked / locate-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: located
       over: 10m
 
@@ -39,6 +39,6 @@ blocks:
     type: program
     goal: picked-located
     daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
-    takes: {kind: ticket, at: picked, to: [located, stopped]}
+    takes: {projection: ticket, at: picked, to: [located, stopped]}
     pool: 3
     out: flow.locate

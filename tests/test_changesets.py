@@ -99,7 +99,7 @@ def test_copy_and_whole_document_and_what_changed():
 
 
 MODEL = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, done]
@@ -223,12 +223,12 @@ def test_history_per_path_and_the_item_as_of_any_time(tmp_path):
 
 
 def test_fold_rules_are_compile_checked(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("items:\n  t:\n    id: t/*\n    fold:\n      a: apend\n      b: sum\n")
+    (tmp_path / "ergostat.yaml").write_text("projections:\n  t:\n    id: t/*\n    fold:\n      a: apend\n      b: sum\n")
     spec, problems = read(tmp_path / "ergostat.yaml")
     bad = [x for x in problems if x.code == "bad-fold"]
     assert bad and "apend" in bad[0].message and "append" in bad[0].message
     assert spec.items["t"].fold == {"b": "sum"}
-    (tmp_path / "ergostat.yaml").write_text("items:\n  t:\n    id: t/*\n    fold: [a]\n")
+    (tmp_path / "ergostat.yaml").write_text("projections:\n  t:\n    id: t/*\n    fold: [a]\n")
     _, problems = read(tmp_path / "ergostat.yaml")
     assert any(x.code == "not-a-map" for x in problems)
 

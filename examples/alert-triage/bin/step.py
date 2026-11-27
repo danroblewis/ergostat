@@ -43,7 +43,7 @@ def ergostat() -> list[str]:
 
 
 def items(kind: str) -> list[dict]:
-    got = subprocess.run([*ergostat(), "item", "--kind", kind, "-n", "10000", "--json"], capture_output=True, text=True)
+    got = subprocess.run([*ergostat(), "item", "--projection", kind, "-n", "10000", "--json"], capture_output=True, text=True)
     try:
         return json.loads(got.stdout or "{}").get("items") or []
     except ValueError:

@@ -7,7 +7,7 @@ stocks:
     unit: tickets
     description: merged (or stopped at approved); the issue not Done yet
     sensor:
-      items: ticket
+      projection: ticket
       state: merged
       every: 3s
 
@@ -18,7 +18,7 @@ flows:
     driven-by: [+stock.ci-green]
     equation: stock.ci-green / merge-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: merged
       over: 10m
 
@@ -39,7 +39,7 @@ blocks:
     type: program
     goal: green-merged
     daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
-    takes: {kind: ticket, at: ci-green, to: [merged, stopped]}
+    takes: {projection: ticket, at: ci-green, to: [merged, stopped]}
     pool: 3
     actions: [pr-merge]
     out: flow.merge

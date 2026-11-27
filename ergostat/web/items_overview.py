@@ -1,4 +1,4 @@
-"""``GET /api/items-overview``: the Items page's overview (SPEC §5a, *The overview*): for each item kind, under its
+"""``GET /api/items-overview``: the Items page's overview (SPEC §5a, *The overview*): for each projection, under its
 system, how many are unfinished and in all, its states over the window in a few buckets, and its rate in and out.
 One answer for the whole page, read from the item index (``itemindex.py``: its counts, its moves, its arrivals) and
 never from the event log: an item changed since the moment shown is folded again from its own events only, as every
@@ -80,8 +80,8 @@ def overview(p, at: float, window: float, n: int = POINTS) -> dict:
         card = {"name": k.name, "title": TITLES.get(k.name), "id": k.id, "system": where[k.name]["system"],
                 "states": k.states, "progress": [r for r, x in k.relations.items() if offered(k, x)]}   # (grouptally.py)
         if got is None:
-            out.append({**card, "why": "not indexed: open the kind's own page" if its._index(p.events, spec, False) is None
-                        else "most items changed since this moment: open the kind's own page"})
+            out.append({**card, "why": "not indexed: open the projection's own page" if its._index(p.events, spec, False) is None
+                        else "most items changed since this moment: open the projection's own page"})
             continue
         ix, counts, win, late, left = got
         mine = [i for i in late.values() if i.kind == k.name]
@@ -100,7 +100,7 @@ def overview(p, at: float, window: float, n: int = POINTS) -> dict:
                      "lives_on": f["lives_on"], "group": sg, "now": now, "total": total, "unfinished": total - done,
                      "arrived": arrived, "rate_in": arrived / hours})
         if k.states and flow is None:
-            card["why"] = "most items changed since this moment: open the kind's own page"
+            card["why"] = "most items changed since this moment: open the projection's own page"
         elif flow is not None:
             fc = flow[0]
             gone = finished_in(ix, k.name, f["finished"], mine, since, until)
@@ -112,7 +112,7 @@ def overview(p, at: float, window: float, n: int = POINTS) -> dict:
         unkinded = sum(read[False][1].get("", {}).values())
     systems = groups(spec, {**where, **({"": {"system": OTHER}} if unkinded else {})})
     for g in systems:
-        g["kinds"] = [x for x in g["kinds"] if x]
+        g["projections"] = [x for x in g["projections"] if x]
     return {"since": since, "until": until, "points": n, "times": [round(t, 3) for t in ts], "groups": list(GROUPS),
-            "systems": systems, "kinds": out, "unkinded": unkinded,
+            "systems": systems, "projections": out, "unprojected": unkinded,
             "remotes": [{"name": r, "url": x["url"]} for r, x in (getattr(spec, "remotes", None) or {}).items()]}

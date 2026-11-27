@@ -11,7 +11,7 @@ stocks:
   situations-raised:
     unit: situations
     description: sessions raised by the watch, waiting for the pipeline manager - each carries every standing trigger
-    sensor: {items: situation, state: raised, every: 1m}
+    sensor: {projection: situation, state: raised, every: 1m}
 
 auxiliaries:
   stuck-gaps:
@@ -61,17 +61,17 @@ flows:
     to: situations-raised
     description: a session raised - on the schedule, or at once on a broken merge pipeline - when something changed since the last
     driven-by: [+auxiliary.stuck-gaps, +stock.interventions-open, +auxiliary.pipeline-broken-minutes, +auxiliary.minutes-since-manager]
-    sensor: {items: situation, entering: raised, over: 1d}
+    sensor: {projection: situation, entering: raised, over: 1d}
   situations-handled:
     from: situations-raised
     description: the session looked, and its calls ran (each checked by manage.py, each an intervention by pipeline-manager)
     driven-by: [+stock.situations-raised]
     equation: stock.situations-raised / manage-time
-    sensor: {items: situation, entering: handled, over: 1d}
+    sensor: {projection: situation, entering: handled, over: 1d}
   situations-failed:
     from: situations-raised
     description: a session that failed on its last attempt
-    sensor: {items: situation, entering: failed, over: 1d}
+    sensor: {projection: situation, entering: failed, over: 1d}
 
 parameters:
   manage-time:
@@ -172,7 +172,7 @@ blocks:
     description: one session sees the whole pipeline, in a read-only clone of main - acts on every trigger through manage.py, reviews the velocity record and proposes a change or asks the researcher; the gated acts are asked
     run: python3 dev/bin/manager.py
     prompt: dev/prompts/pipeline_manager.md
-    takes: {kind: situation, at: raised, to: [handled, failed, superseded]}
+    takes: {projection: situation, at: raised, to: [handled, failed, superseded]}
     pool: 1
     lease: {ttl: 60m, attempts: 2}
     timeout: 1h

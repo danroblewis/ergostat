@@ -2,9 +2,9 @@ template: upkeep
 once: true
 description: ergostat's own upkeep as loops of the model - its item-index files, the record's roll-up and forgetting, and the measurements' retention, each a stock held under a goal and done by a program on the rule rung instead of by the engine on its own; the interlocks stay in ergostat's code. The engine's watchdog, the outer watcher (with its heartbeat goal), and when asked lease expiry and a workspace pool, drawn as loops whose controllers stay ergostat's code.
 reading: |
-  System dynamics: the item-index files (each an on-disk fold of the record for one shape of the model's item kinds)
+  System dynamics: the item-index files (each an on-disk fold of the record for one shape of the model's projections)
   are a stock (index-files, read by ergostat's built-in measure ergostat.upkeep.index-files: the live
-  <hash>[.n].db files under the state directory's items folder), filled as each change to the model's item kinds
+  <hash>[.n].db files under the state directory's items folder), filled as each change to the model's projections
   makes a new one (index-files-made, the stock's rises) and drained as they are tidied away (index-files-tidied, its
   falls). Files another process still held when they were due go are retired (retired-index-files, read by
   ergostat.upkeep.retired-index-files): never opened again, removed once no process holds them
@@ -55,7 +55,7 @@ params:
     default: 6
     min: 1
     max: 64
-    description: the most live item-index files kept (a few shapes of the model's kinds at once), from 1 to 64
+    description: the most live item-index files kept (a few shapes of the model's projections at once), from 1 to 64
   tidy-every:
     type: duration
     default: 10m
@@ -156,7 +156,7 @@ stocks:
 flows:
   index-files-made:
     to: index-files
-    description: a new index file, made on each change to the model's item kinds
+    description: a new index file, made on each change to the model's projections
     sensor:
       changes: rises
       over: ${over}

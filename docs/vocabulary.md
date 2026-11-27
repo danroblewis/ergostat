@@ -178,7 +178,9 @@ causes in the dynamics view.
 
 ## Items and leases
 
-Three words, fixed for what follows:
+A **projection** is a way of looking at a set of events, declared under `projections:`: it folds the events whose ids
+it matches into its own table, and one id's row is an **item** (a projection's items). Several projections may look
+at the same events. Three words, fixed for what follows:
 
 - a goal is **holding** (or off);
 - an item a block has leased is **taken**, or **being worked by** that block, never "held";

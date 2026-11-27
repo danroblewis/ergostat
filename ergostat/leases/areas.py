@@ -88,7 +88,7 @@ def area(c, name, ar, at, w: str) -> Area | None:
 
 
 def check(c, spec, b) -> None:
-    """The holding states are the kind's; a block owner is a block of the model. Else the option is refused whole."""
+    """The holding states are the projection's; a block owner is a block of the model. Else the option is refused whole."""
     a, k = b.takes.areas, spec.items.get(b.takes.kind)
     if a is None or k is None:
         return

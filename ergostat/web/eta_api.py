@@ -46,7 +46,7 @@ def estimates(p, m, whatif: str | None = None, wait: float = 0.0) -> dict | None
         raw = dict(x.split(":", 1) for x in (whatif or "").split(",") if ":" in x)
         w = parse_whatif(spec, {k: v for k, v in raw.items() if k.startswith("block.")})[1]
     except WhatIfError as e:
-        return {"error": str(e), "items": {}, "kinds": {}}
+        return {"error": str(e), "items": {}, "projections": {}}
     ev = p.events
     mark = (ev.last_seq(), ev.generation() if hasattr(ev, "generation") else None)
     key = (id(spec), tuple(sorted(w.pools.items())), tuple(sorted(w.failures.items())))
@@ -82,7 +82,7 @@ def current(p, m) -> dict | None:
     and for a model with no kind to forecast, a forecast saying so (never None, which is 'being worked out')."""
     if not kinds_of(getattr(m, "spec", None)):
         from ..numbers.forecast import failed
-        return failed("this model has no item kind with states: nothing to forecast", time.time(), None, error=False)
+        return failed("this model has no projection with states: nothing to forecast", time.time(), None, error=False)
     return estimates(p, m)
 
 
@@ -183,7 +183,7 @@ def merge(ans: dict, est: dict | None) -> dict:
         items.append(x)
     return {**ans, "items": items, "eta": {"schema": est.get("schema"), "version": est.get("version"),
                                            "computed": est.get("computed"), "at": est["at"], "runs": est["runs"],
-                                           "kinds": est["kinds"],
+                                           "projections": est["projections"],
                                            "capacity": est["capacity"], "sources": est.get("sources") or {},
                                            "limit": est.get("limit") or {}, "assumed": est.get("assumed") or {},
                                            "whatif": est.get("whatif") or [],

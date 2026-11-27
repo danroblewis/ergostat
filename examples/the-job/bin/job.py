@@ -27,7 +27,7 @@ def ergostat() -> list[str]:
 
 def items(kind: str, state: str | None = None) -> list[dict]:
     """The items of a kind (in a state), oldest first, as ergostat has folded them from the record."""
-    args = [*ergostat(), "item", "--kind", kind, "-n", "2000", "--json"] + (["--state", state] if state else [])
+    args = [*ergostat(), "item", "--projection", kind, "-n", "2000", "--json"] + (["--state", state] if state else [])
     got = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)["items"]
     return sorted(got, key=lambda i: i["first"])
 

@@ -96,7 +96,7 @@ async function run(graph: any, g: any): Promise<Layout> {
   };
   walk(lay, 0, 0);
   const children = flat.filter((c: any) => !c.frame);
-  const frames = flat.filter((c: any) => c.frame).map((c) => ({ name: c.id.replace(/^(kind|open):/, ""), x: c.x, y: c.y, width: c.width, height: c.height }));
+  const frames = flat.filter((c: any) => c.frame).map((c) => ({ name: c.id.replace(/^(projection|open):/, ""), x: c.x, y: c.y, width: c.width, height: c.height }));
   return { children, edges, width: lay.width, height: lay.height, hulls: frames.length ? frames : hullsOf(g, children) };
 }
 function shift(e: any, dx: number, dy: number) {
@@ -201,7 +201,7 @@ export async function layoutBlocks(g: any): Promise<Layout> {
   return run({ id: "root", layoutOptions: { ...BASE, "elk.layered.spacing.nodeNodeBetweenLayers": "64", "elk.spacing.nodeNode": "36" }, children, edges }, { ...g, open: [] });
 }
 
-/* ---- the Process view (process.js: each kind's map in its frame, activities left to right in time order) */
+/* ---- the Process view (process.js: each projection's map in its frame, activities left to right in time order) */
 export const PM = { PAD: 22, TITLE: 26, H: 44, PILL: 28 };
 export const pmNodeSub = (n: any) =>
   (n.now != null ? `now ${n.now} · ` : "") + `${n.count}×` + (n.items !== n.count ? ` · ${n.items} item${n.items === 1 ? "" : "s"}` : "");
@@ -210,8 +210,8 @@ export function pmNodeSize(n: any): [number, number] {
   return [Math.round(Math.max(96, textWidth(n.label) * 1.08 + 28, textWidth(pmNodeSub(n)) * 0.95 + 24)), PM.H];
 }
 export async function layoutProcess(g: any, label: (e: any) => string): Promise<Layout> {
-  const kinds: string[] = [...new Set<string>(g.nodes.map((n: any) => n.itemKind))];
-  const kindOf = Object.fromEntries(g.nodes.map((n: any) => [n.id, n.itemKind]));
+  const projections: string[] = [...new Set<string>(g.nodes.map((n: any) => n.projection))];
+  const projectionOf = Object.fromEntries(g.nodes.map((n: any) => [n.id, n.projection]));
   const opts = {
     "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.edgeRouting": "ORTHOGONAL",
     "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES", "elk.layered.cycleBreaking.strategy": "MODEL_ORDER",
@@ -219,14 +219,14 @@ export async function layoutProcess(g: any, label: (e: any) => string): Promise<
     "elk.spacing.nodeNode": "30", "elk.spacing.edgeNode": "16", "elk.edgeLabels.placement": "CENTER",
     "elk.padding": `[top=${PM.PAD + PM.TITLE},left=${PM.PAD},bottom=${PM.PAD},right=${PM.PAD}]`,
   };
-  // each kind's map laid out alone, then stacked, one under another (process.js lays them out alone too)
+  // each projection's map laid out alone, then stacked, one under another (process.js lays them out alone too)
   const out: Layout = { children: [], edges: [], width: 0, height: 0, hulls: [] };
   let y = 0;
-  for (const k of kinds) {
+  for (const k of projections) {
     const graph = {
-      id: "kind:" + k, layoutOptions: opts,
-      children: g.nodes.filter((n: any) => n.itemKind === k).map((n: any) => { const [w, h] = pmNodeSize(n); return { id: n.id, width: w, height: h }; }),
-      edges: g.edges.filter((e: any) => kindOf[e.source] === k && kindOf[e.target] === k).map((e: any) => {
+      id: "projection:" + k, layoutOptions: opts,
+      children: g.nodes.filter((n: any) => n.projection === k).map((n: any) => { const [w, h] = pmNodeSize(n); return { id: n.id, width: w, height: h }; }),
+      edges: g.edges.filter((e: any) => projectionOf[e.source] === k && projectionOf[e.target] === k).map((e: any) => {
         const t = label(e);
         return { id: e.id, sources: [e.source], targets: [e.target], labels: t ? [{ text: t, width: textWidth(t) + 8, height: 14 }] : [] };
       }),

@@ -48,7 +48,7 @@ def add(p, iid, event, at, **data):
 
 def batcher(p, capsys, record=True) -> list[dict]:
     """One pass of the batcher, as its block runs it; what it says is recorded, as the engine records a block's lines."""
-    assert todo.main(["batches", "--kind", "todo", "--batch-kind", "todo-batch", "--met", "done,answered",
+    assert todo.main(["batches", "--projection", "todo", "--batch-projection", "todo-batch", "--met", "done,answered",
                       "--flow", "flow.todo-freed"]) == 0
     lines = [json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith("{")]
     for x in lines:
@@ -345,7 +345,7 @@ def test_an_event_written_from_a_reading_is_refused_without_the_count_it_read(tm
         assert it.state == "waiting" and "x" not in it.fields and it.refused[-1]["form"] == "read", data
     it = its.fold("todo/b", [wait, {"id": "e2", "time": 2.0, "type": "todo.freed", "data": {"x": 1, "read": 1}}], k)
     assert it.state == "ready" and it.fields == {"title": "b", "x": 1} and not it.refused
-    bad = MODEL + "items:\n  x:\n    id: x/*\n    states: [a, b]\n    on: {x.b: b}\n    if-unchanged: x.b\n"
+    bad = MODEL + "projections:\n  x:\n    id: x/*\n    states: [a, b]\n    on: {x.b: b}\n    if-unchanged: x.b\n"
     (tmp_path / "ergostat.yaml").write_text(bad)
     assert "bad-if-unchanged" in {x.code for x in read(tmp_path / "ergostat.yaml")[1] if x.level == "error"}
 
@@ -394,13 +394,13 @@ def test_why_says_its_status_what_it_waits_on_and_what_happens_next(tmp_path, mo
     assert g["root"]["kind"] == "missing" and g["root"]["item"] == "todo-wait/never"
 
     d = why(p, "todo/old")
-    assert d["done"] and d["summary"].endswith("which its kind counts as finished: it is done.")
+    assert d["done"] and d["summary"].endswith("which its projection counts as finished: it is done.")
     assert summary(d) == d["summary"]
 
 
 ASKED = """
 name: t
-items:
+projections:
   note:
     id: note/*
     states: [new, open, shut]
@@ -409,7 +409,7 @@ items:
 stocks:
   open-notes:
     unit: notes
-    sensor: {items: note, state: open, every: 1m{where}}
+    sensor: {projection: note, state: open, every: 1m{where}}
 goals:
   none-open: {stock: open-notes, hold: "<= 0"}
 blocks:
@@ -433,7 +433,7 @@ def test_a_kind_declares_its_own_finished_states(tmp_path, monkeypatch):
     add(p, "todo/a", "todo.ready", 60, title="a")
     assert p.model.spec.items["todo"].finished == ["done", "dropped"]
     assert not why(p, "todo/a")["done"]
-    bad = MODEL + "items:\n  x:\n    id: x/*\n    states: [a, b]\n    finished: [a, c]\n    on: {x.b: b}\n"
+    bad = MODEL + "projections:\n  x:\n    id: x/*\n    states: [a, b]\n    finished: [a, c]\n    on: {x.b: b}\n"
     for more, code in (("", "bad-finished"), ("    moves-from: {x.b: [c]}\n", "bad-moves-from"),
                        ("    moves-from: {x.z: [a]}\n", "bad-moves-from")):
         (tmp_path / "ergostat.yaml").write_text(bad + more)

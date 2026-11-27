@@ -4,7 +4,7 @@
 defaults:
   system: investigation
 
-items:
+projections:
   facet:
     id: facet/*
     description: one line of inquiry into one alert - its logs, its deploys or its metrics
@@ -28,12 +28,12 @@ stocks:
   open-facets:
     unit: facets
     description: facets opened, not investigated yet
-    sensor: {items: facet, state: open, every: 2s}
+    sensor: {projection: facet, state: open, every: 2s}
   facets-investigated:
     unit: facets
     cumulative: true                  # every facet investigated so far: it never drains
     description: facets investigated, with their findings
-    sensor: {items: facet, state: done, every: 2s}
+    sensor: {projection: facet, state: done, every: 2s}
 
 flows:
   facets-opened:
@@ -43,14 +43,14 @@ flows:
       - cause: +flow.facets-opened-for
         instant: true                 # the fan-out opens them as it moves the alert
     equation: facets-per-alert * flow.facets-opened-for
-    sensor: {items: facet, entering: open, over: 10m}
+    sensor: {projection: facet, entering: open, over: 10m}
   facets-done:
     from: open-facets
     to: facets-investigated
     description: facets investigated
     driven-by: [+stock.open-facets]
     equation: stock.open-facets / investigate-time
-    sensor: {items: facet, entering: done, over: 10m}
+    sensor: {projection: facet, entering: done, over: 10m}
 
 goals:
   facets-investigated:
@@ -68,6 +68,6 @@ blocks:
     in: [+stock.alerts-investigating]   # it also works off the alerts waiting on their facets
     prompt: prompts/investigate.md
     run: python3 bin/step.py investigate # the stand-in
-    takes: {kind: facet, at: open, to: [done]}
+    takes: {projection: facet, at: open, to: [done]}
     pool: 3
     out: [flow.facets-done, flow.alerts-investigated]

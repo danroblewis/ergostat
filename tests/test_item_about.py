@@ -58,7 +58,7 @@ blocks:
     run: echo 1
     every: 1h
     out: flow.in-b
-items:
+projections:
   knowledge:
     id: knowledge/*
     states: [active, retired]

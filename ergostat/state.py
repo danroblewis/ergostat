@@ -482,8 +482,8 @@ _FINDINGS: dict = {}
 
 
 def findings(project) -> list[dict]:
-    """For each kind with ``attention: FIELD`` (SPEC §5a): its latest item (by its latest event, then its id) whose
-    FIELD has words, and those words. Worked out again only when the record changes. A kind that cannot be read is
+    """For each projection with ``attention: FIELD`` (SPEC §5a): its latest item (by its latest event, then its id) whose
+    FIELD has words, and those words. Worked out again only when the record changes. One that cannot be read is
     said as unread, never left out."""
     spec = getattr(project.model, "spec", None)
     kinds = [k for k in (spec.items.values() if spec is not None else ()) if k.attention]
@@ -500,12 +500,12 @@ def findings(project) -> list[dict]:
             got = [i for i in its.project(ev, spec, k.name, transcript=False)
                    if isinstance(i.fields.get(k.attention), str) and i.fields[k.attention].strip()]
         except Exception as e:
-            out.append({"kind": k.name, "item": None, "field": k.attention, "says": None,
+            out.append({"projection": k.name, "item": None, "field": k.attention, "says": None,
                         "error": f"{type(e).__name__}: {e}"[:200]})
             continue
         if got:
             i = max(got, key=lambda x: (x.last, x.id))
-            out.append({"kind": k.name, "item": i.id, "field": k.attention, "says": i.fields[k.attention].strip()})
+            out.append({"projection": k.name, "item": i.id, "field": k.attention, "says": i.fields[k.attention].strip()})
     _FINDINGS.clear()
     _FINDINGS[key] = out
     return out

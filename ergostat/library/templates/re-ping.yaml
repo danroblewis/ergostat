@@ -19,10 +19,10 @@ example: |
         command: ./bin/my-open-asks.sh        # the questions I asked and am waiting on; an answered one has "event": "answered"
         ping: ./bin/remind.sh                 # writes the reminder as a draft for me to send
 params:
-  kind:
+  projection:
     type: name
     default: ${name}
-    description: the kind of item; its ids are KIND/<id>; its events KIND.arrived, KIND.pinged, KIND.answered, KIND.gave-up
+    description: the projection; its ids are PROJECTION/<id>; its events PROJECTION.arrived, PROJECTION.pinged, PROJECTION.answered, PROJECTION.gave-up
   every:
     type: duration
     default: 1d
@@ -64,14 +64,14 @@ params:
   take-over:
     default: Questions went unanswered after every reminder. Take each over yourself, then say so.
     description: what a person is asked once a question is given up on; false for nobody
-items:
-  ${kind}:
-    id: ${kind}/*
+projections:
+  ${projection}:
+    id: ${projection}/*
     description: something asked of someone else, waiting for their answer
     states: [waiting, answered, given-up]
     on:
-      ${kind}.answered: answered
-      ${kind}.gave-up: given-up
+      ${projection}.answered: answered
+      ${projection}.gave-up: given-up
     fold:
       pings: sum
     show: [title, from, pings]
@@ -80,14 +80,14 @@ stocks:
     unit: questions
     description: asked, not answered yet (reminded or not)
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: waiting
       every: 10s
   given-up:
     unit: questions
     description: reminded the most times, still unanswered, for a person to take over
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: given-up
       every: 10s
   pings-sent:
@@ -100,7 +100,7 @@ auxiliaries:
     description: how long the oldest unanswered question has waited, in hours
     driven-by: [+stock.unanswered]
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: waiting
       measure: oldest
       every: 10s
@@ -109,7 +109,7 @@ flows:
     to: unanswered
     description: questions asked, as the collector sees them
     sensor:
-      run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} --stand-in ${stand-in-rate} --answer-after ${stand-in-answer-after:seconds} --window 600
+      run: ${lib} collect --name ${name} --projection ${projection} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} --stand-in ${stand-in-rate} --answer-after ${stand-in-answer-after:seconds} --window 600
       every: ${poll}
       averages: 10m
   answered:
@@ -117,7 +117,7 @@ flows:
     description: questions the other side answered
     driven-by: [+stock.unanswered]
     sensor:
-      items: ${kind}
+      projection: ${projection}
       entering: answered
       over: 10m
   giving-up:
@@ -145,7 +145,7 @@ blocks:
   pinger:
     type: program
     goal: reminded
-    run: ${lib} ping --kind ${kind} --state waiting --every ${every:seconds} --limit ${limit} --run ${ping:quote} --pinged-flow flow.pinging --gave-up-flow flow.giving-up
+    run: ${lib} ping --projection ${projection} --state waiting --every ${every:seconds} --limit ${limit} --run ${ping:quote} --pinged-flow flow.pinging --gave-up-flow flow.giving-up
     every: 30s
     out: [flow.pinging, flow.giving-up]
   take-over:

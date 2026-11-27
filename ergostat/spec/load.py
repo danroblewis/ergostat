@@ -16,7 +16,7 @@ from . import files
 FILE = "ergostat.yaml"
 LOCAL = "ergostat.local.yaml"     # beside the main file, untracked: this machine's settings only (SPEC §2)
 PER_MACHINE = {"web": None, "intake": {"bind", "allow"}, "runs": {"outlive_engine"}}   # what LOCAL may set (and keys)
-SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
+SECTIONS = ("sources", "systems", "projections", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
             "loops", "claims", "contexts", "actions", "workspaces", "compute", "leases", "daemons", "operating")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",

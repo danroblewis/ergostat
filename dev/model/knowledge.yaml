@@ -11,46 +11,46 @@ stocks:
   gaps-planned:
     unit: gaps
     description: plans left in planned from when the plan review was a gate - the plan lint's sweep makes each the definition
-    sensor: {items: gap, state: planned, every: 1m}
+    sensor: {projection: gap, state: planned, every: 1m}
   gaps-replan:
     unit: gaps
     description: plans the lint sent back (or the old plan review, whose plans the lint's sweep defines), waiting for the planner again
-    sensor: {items: gap, state: replan, every: 1m}
+    sensor: {projection: gap, state: replan, every: 1m}
   gaps-split:
     system: split-and-join
     unit: gaps
     description: gaps split into sub-gaps, each waiting until every one of its sub-gaps is merged (a join)
-    sensor: {items: gap, state: split, every: 1m}
+    sensor: {projection: gap, state: split, every: 1m}
   gaps-joined:
     system: joins
     unit: gaps
     description: split gaps whose sub-gaps all merged, waiting for the join judge - covered (merged) or short (split again)
-    sensor: {items: gap, state: joined, every: 1m}
+    sensor: {projection: gap, state: joined, every: 1m}
   research-asked:
     system: research
     unit: questions
     description: research questions asked by the coordinator or a planner, waiting for the researcher
-    sensor: {items: research, state: asked, every: 1m}
+    sensor: {projection: research, state: asked, every: 1m}
   knowledge-entries:
     system: knowledge
     unit: entries
     description: the entries of dev/knowledge/ in the running version, each of a declared kind (component, rule, lesson, finding, question, source); the owner's decisions are ergostat.decision items, not entries
-    sensor: {items: knowledge, state: active, every: 1m}
+    sensor: {projection: knowledge, state: active, every: 1m}
   lessons-proposed:
     system: knowledge
     unit: proposals
     description: lessons the librarian proposed, and findings the researcher proposed from checked answers, waiting for the coordinator (the gated action knowledge-change)
-    sensor: {items: lesson, state: proposed, every: 1m}
+    sensor: {projection: lesson, state: proposed, every: 1m}
   findings-active:
     system: knowledge
     unit: entries
     description: the active findings - checked research answers approved and applied, carried in briefs whose gap names one of their areas
-    sensor: {items: knowledge, state: active, where: {kind: finding}, every: 1m}
+    sensor: {projection: knowledge, state: active, where: {kind: finding}, every: 1m}
   lessons-to-apply:
     system: knowledge
     unit: lessons
     description: lessons approved (knowledge-change, or the coordinator's lesson.py add / retire), waiting for lesson-apply
-    sensor: {items: lesson, state: approved, every: 1m}
+    sensor: {projection: lesson, state: approved, every: 1m}
 
 auxiliaries:
   lesson-apply-hours:
@@ -124,32 +124,32 @@ flows:
     description: a first plan written for an open gap, lint-clean - its definition of done (run/defs/), the gap ready
     driven-by: [+stock.gaps-open]
     equation: stock.gaps-open / plan-time
-    sensor: {items: gap, entering: ready, where: {defined_by: plan, replanned: false}, over: 1d}
+    sensor: {projection: gap, entering: ready, where: {defined_by: plan, replanned: false}, over: 1d}
   replans-written:
     from: gaps-replan
     to: gaps-ready
     description: a plan written again with the lint's findings, lint-clean - the gap ready
     driven-by: [+stock.gaps-replan]
     equation: stock.gaps-replan / plan-time
-    sensor: {items: gap, entering: ready, where: {defined_by: plan, replanned: true}, over: 1d}
+    sensor: {projection: gap, entering: ready, where: {defined_by: plan, replanned: true}, over: 1d}
   small-gaps-defined:
     from: gaps-open
     to: gaps-ready
     description: an open gap sized S - its definition written from its own title and text with the house rules, no planner session, no review
     driven-by: [+stock.gaps-open]
     equation: small-share * stock.gaps-open / plan-time
-    sensor: {items: gap, entering: ready, where: {defined_by: size-s}, over: 1d}
+    sensor: {projection: gap, entering: ready, where: {defined_by: size-s}, over: 1d}
   plans-unreviewed:
     from: gaps-open
     to: gaps-ready
     description: an open gap sized M, planned in one session under its own cap - its plan lint-clean, the gap ready (defined_by keeps its old name, plan-unreviewed; before the plan review was removed, also L plans not picked for it)
     driven-by: [+stock.gaps-open]
     equation: unreviewed-share * stock.gaps-open / plan-time
-    sensor: {items: gap, entering: ready, where: {defined_by: plan-unreviewed}, over: 1d}
+    sensor: {projection: gap, entering: ready, where: {defined_by: plan-unreviewed}, over: 1d}
   sub-gaps-planned:
     to: gaps-ready
     description: sub-gaps of a split, each requested and defined by the planner (lint-clean)
-    sensor: {items: gap, entering: ready, where: {defined_by: plan-split}, over: 1d}
+    sensor: {projection: gap, entering: ready, where: {defined_by: plan-split}, over: 1d}
   gaps-split-off:
     system: open-gaps
     from: gaps-open
@@ -157,7 +157,7 @@ flows:
     description: a gap too large for one branch, split by the planner into sub-gaps with depends-on among them
     driven-by: [+stock.gaps-open]
     equation: split-share * stock.gaps-open / plan-time
-    sensor: {items: gap, entering: split, where: {lease.back: open}, over: 1d}
+    sensor: {projection: gap, entering: split, where: {lease.back: open}, over: 1d}
   replans-split-off:
     system: split-and-join
     from: gaps-replan
@@ -165,7 +165,7 @@ flows:
     description: a plan sent back that the planner then split into sub-gaps
     driven-by: [+stock.gaps-replan]
     equation: split-share * stock.gaps-replan / plan-time
-    sensor: {items: gap, entering: split, where: {lease.back: replan}, over: 1d}
+    sensor: {projection: gap, entering: split, where: {lease.back: replan}, over: 1d}
   splits-joined:
     system: split-and-join
     from: gaps-split
@@ -173,7 +173,7 @@ flows:
     description: a split gap moved to joined once every sub-gap was merged (a join), for the join judge
     driven-by: [+stock.gaps-split]
     equation: stock.gaps-split / split-time
-    sensor: {items: gap, entering: joined, over: 1d}
+    sensor: {projection: gap, entering: joined, over: 1d}
   joins-covered:
     system: joins
     from: gaps-joined
@@ -181,7 +181,7 @@ flows:
     description: a joined gap the join judge found covered - merged (merged_by join-judge, so not gaps-merged's), with its verdict
     driven-by: [+stock.gaps-joined]
     equation: (1 - short-share) * stock.gaps-joined / judge-time
-    sensor: {items: gap, entering: merged, where: {join_verdict: covered}, over: 1d}
+    sensor: {projection: gap, entering: merged, where: {join_verdict: covered}, over: 1d}
   joins-short:
     system: joins
     from: gaps-joined
@@ -189,72 +189,72 @@ flows:
     description: a joined gap the join judge found short - a sub-gap requested for what was not built, then split again
     driven-by: [+stock.gaps-joined]
     equation: short-share * stock.gaps-joined / judge-time
-    sensor: {items: gap, entering: split, where: {lease.back: joined}, over: 1d}
+    sensor: {projection: gap, entering: split, where: {lease.back: joined}, over: 1d}
   joins-parked:
     system: joins
     from: gaps-joined
     description: a joined gap found short past the most short rounds - parked with the points still not built
-    sensor: {items: gap, entering: parked, where: {parked_in: joined}, over: 1d}
+    sensor: {projection: gap, entering: parked, where: {parked_in: joined}, over: 1d}
   splits-parked:
     system: split-and-join
     from: gaps-split
     description: a split gap parked because one of its sub-gaps parked (or died) - where it stopped names which
     driven-by: [+stock.gaps-split]
     equation: stuck-share * stock.gaps-split / split-time
-    sensor: {items: gap, entering: parked, where: {parked_in: split}, over: 1d}
+    sensor: {projection: gap, entering: parked, where: {parked_in: split}, over: 1d}
   plans-left-planned:
     from: gaps-replan
     to: gaps-planned
     description: none since the lint made a plan the definition - gaps entered planned only while the plan review was a gate
     equation: "0"
-    sensor: {items: gap, entering: planned, over: 1d}
+    sensor: {projection: gap, entering: planned, over: 1d}
   planned-plans-defined:
     from: gaps-planned
     to: gaps-ready
     description: a plan left in planned, made the definition by the lint's sweep once lint-clean
     driven-by: [+stock.gaps-planned]
     equation: stock.gaps-planned / sweep-time
-    sensor: {items: gap, entering: ready, where: {defined_by: plan-lint, released_from: planned}, over: 1d}
+    sensor: {projection: gap, entering: ready, where: {defined_by: plan-lint, released_from: planned}, over: 1d}
   replans-defined:
     from: gaps-replan
     to: gaps-ready
     description: a plan the old plan review sent back, made the definition by the lint's sweep once lint-clean (its findings appended as notes)
     driven-by: [+stock.gaps-replan]
     equation: stock.gaps-replan / sweep-time
-    sensor: {items: gap, entering: ready, where: {defined_by: plan-lint, released_from: replan}, over: 1d}
+    sensor: {projection: gap, entering: ready, where: {defined_by: plan-lint, released_from: replan}, over: 1d}
   plans-failing-lint:
     from: gaps-open
     to: gaps-replan
     description: a plan the plan lint sent back to the planner (a section, a test name, the budget, a lesson, a dependency or a file missing)
     driven-by: [+stock.gaps-open]
     equation: lint-fail-share * stock.gaps-open / plan-time
-    sensor: {items: gap, entering: replan, where: {plan_sent_back_by: lint}, over: 1d}
+    sensor: {projection: gap, entering: replan, where: {plan_sent_back_by: lint}, over: 1d}
   parked-in-plan:
     from: gaps-replan
     description: a plan that failed the lint six times, or (before its removal) a gap the plan review asked not be built
-    sensor: {items: gap, entering: parked, where: {parked_in: plan}, over: 1d}
+    sensor: {projection: gap, entering: parked, where: {parked_in: plan}, over: 1d}
   research-questions:
     system: research
     to: research-asked
     description: questions asked (dev/bin/ask.py, a research.asked event, or a planner that needs an answer first)
-    sensor: {items: research, entering: asked, over: 1d}
+    sensor: {projection: research, entering: asked, over: 1d}
   research-answered:
     system: research
     from: research-asked
     description: a question answered with at least one source checked (a file and line of the clone, a URL the session opened) - its report in run/research/, its summary on the item
     driven-by: [+stock.research-asked]
     equation: stock.research-asked / research-time
-    sensor: {items: research, entering: answered, over: 1d}
+    sensor: {projection: research, entering: answered, over: 1d}
   research-unsourced:
     system: research
     from: research-asked
     description: an answer with no source checked - given back and asked again (back in through research-questions), the why in its brief; a second is a dead letter
-    sensor: {items: research, entering: unsourced, over: 1d}
+    sensor: {projection: research, entering: unsourced, over: 1d}
   lessons-found:
     system: knowledge
     to: lessons-proposed
     description: a new shape of a known class, or a class found in a second review, proposed by the librarian; or a finding, from a research answer with a checked source
-    sensor: {items: lesson, entering: proposed, over: 1d}
+    sensor: {projection: lesson, entering: proposed, over: 1d}
   lessons-approved:
     system: knowledge
     from: lessons-proposed
@@ -262,12 +262,12 @@ flows:
     description: a proposal the coordinator approved - recorded approved with its exact text, never a gap
     driven-by: [+stock.lessons-proposed]
     equation: stock.lessons-proposed / lesson-approve-time
-    sensor: {items: lesson, entering: approved, over: 1d}
+    sensor: {projection: lesson, entering: approved, over: 1d}
   lessons-denied:
     system: knowledge
     from: lessons-proposed
     description: a proposal the coordinator denied - settled denied, with who and why, and never proposed again
-    sensor: {items: lesson, entering: denied, over: 1d}
+    sensor: {projection: lesson, entering: denied, over: 1d}
   lessons-added:
     system: knowledge
     from: lessons-to-apply
@@ -275,22 +275,22 @@ flows:
     description: an approved lesson applied by lesson-apply to the record the briefs read - a new entry or a "seen as" line, shown as knowledge/* by knowledge-sync
     driven-by: [+stock.lessons-to-apply]
     equation: stock.lessons-to-apply / lesson-apply-time
-    sensor: {items: lesson, entering: applied, over: 1d}
+    sensor: {projection: lesson, entering: applied, over: 1d}
   lessons-retired:
     system: knowledge
     from: knowledge-entries
     description: a lesson removed by the coordinator (dev/bin/lesson.py retire) - one briefs carried while first-pass yield did not move
-    sensor: {items: lesson, entering: retired, over: 1d}
+    sensor: {projection: lesson, entering: retired, over: 1d}
   findings-applied:
     system: knowledge
     to: findings-active
     description: an approved finding applied by lesson-apply - an entry finding-<slug> of kind finding, carried by area
-    sensor: {items: lesson, entering: applied, where: {kind: finding}, over: 1d}
+    sensor: {projection: lesson, entering: applied, where: {kind: finding}, over: 1d}
   findings-retired:
     system: knowledge
     from: findings-active
     description: a finding removed by the coordinator (dev/bin/lesson.py retire) - no longer carried in any brief
-    sensor: {items: lesson, entering: retired, where: {kind: finding}, over: 1d}
+    sensor: {projection: lesson, entering: retired, where: {kind: finding}, over: 1d}
 
 parameters:
   plan-time:
@@ -433,7 +433,7 @@ blocks:
     description: a session per gap in a read-only clone of main - its definition of done (acceptance tests, budget, risks from the lessons, files), a split into sub-gaps, or research questions first
     run: python3 dev/bin/plan.py
     prompt: dev/prompts/planner.md
-    takes: {kind: gap, at: [open, replan], to: [split, ready, replan, parked], unblocked: true, order: rank,
+    takes: {projection: gap, at: [open, replan], to: [split, ready, replan, parked], unblocked: true, order: rank,
             where: {continues: null, waits_on_milestone: null}}
     # (a gap continuing a branch waits for the intake: its definition is on it; one whose milestone is not active
     # and that is not pulled waits for it, once [milestones] enforce: dev/bin/milestones.py)
@@ -468,7 +468,7 @@ blocks:
     description: a session per joined gap in a read-only clone of main - its entry, its coverage, each sub-gap's definition and last review against the code (a sub-gap it cannot read is short, with no session); covered merges it (no merged_at), short requests a sub-gap for what is missing and splits it again (the second short parks it); it waits while the day's money is spent
     run: python3 dev/bin/plan.py join
     prompt: dev/prompts/join_judge.md
-    takes: {kind: gap, at: [joined], to: [merged, split, parked]}
+    takes: {projection: gap, at: [joined], to: [merged, split, parked]}
     pool: 1
     lease: {ttl: 60m, attempts: 2}
     timeout: 1h
@@ -491,7 +491,7 @@ blocks:
     description: a session per question in a read-only clone of main - the code, the docs, the record and the web where allowed; a report with sources, each checked (a file and line at the clone's sha, a URL its session opened)
     run: python3 dev/bin/research.py
     prompt: dev/prompts/researcher.md
-    takes: {kind: research, at: asked, to: [answered]}
+    takes: {projection: research, at: asked, to: [answered]}
     pool: 1
     lease: {ttl: 60m, attempts: 2}   # (an unsourced answer is a counted attempt: the second is the dead letter)
     timeout: 2h
@@ -529,7 +529,7 @@ blocks:
     system: knowledge
     description: the knowledge queue's worker, no AI - an approved lesson's exact text applied to the record (a new entry, numbered next, or a "seen as" line), or a lesson retired; no session, branch, review or merge
     run: python3 dev/bin/lesson.py apply
-    takes: {kind: lesson, at: approved, to: [applied, retired]}
+    takes: {projection: lesson, at: approved, to: [applied, retired]}
     pool: 1
     lease: {ttl: 5m, attempts: 3}
     timeout: 2m

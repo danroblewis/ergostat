@@ -5,7 +5,7 @@
 defaults:
   system: documents
 
-items:
+projections:
   doc:
     id: doc/*
     description: one document a change needs (doc/12-proposal), or its change advisory board ticket (doc/12-board)
@@ -20,14 +20,14 @@ stocks:
     unit: docs
     description: the next document a change needs, not drafted yet
     sensor:
-      items: doc
+      projection: doc
       state: needed
       every: 5s
   docs-drafted:
     unit: docs
     description: drafted, with me to finish and take to its reviewers (or the board)
     sensor:
-      items: doc
+      projection: doc
       state: drafted
       every: 5s
 
@@ -50,7 +50,7 @@ auxiliaries:
     description: change advisory board tickets not approved, with their rollout less than a working day away
     driven-by: [+stock.docs-to-draft, +stock.docs-drafted]
     sensor:
-      items: doc
+      projection: doc
       state: [needed, drafted]
       where:
         due: "yes"
@@ -71,14 +71,14 @@ flows:
     from: docs-to-draft
     to: docs-drafted
     sensor:
-      items: doc
+      projection: doc
       entering: drafted
       over: 10m
   docs-approved:
     from: docs-drafted
     description: a document approved, after I finished it and presented it to its reviewers or the board (mine)
     sensor:
-      items: doc
+      projection: doc
       entering: approved
       over: 10m
 
@@ -100,7 +100,7 @@ blocks:
     goal: every-doc-drafted
     prompt: prompts/doc-drafter.md
     run: python3 bin/prepare.py doc-draft
-    takes: {kind: doc, at: needed}
+    takes: {projection: doc, at: needed}
     pool: 2
     max: 1
     out: flow.drafting

@@ -1,7 +1,7 @@
 """The engine's dispatcher and watchdog for blocks that take items (SPEC §9.5).
 
 - **Dispatch.** For each block that takes items: while nothing commands it, or what commands it is on, every item of
-  its kind in one of its ``at`` states, not held, not put off (``not_before``), and matching its ``where``, is leased
+  its projection in one of its ``at`` states, not held, not put off (``not_before``), and matching its ``where``, is leased
   to a run of its own, oldest first, while the block's runs in flight (its leases held, from the fold, and the runs
   going here) are fewer than its pool now (``poolnow.py``: its ``pool:``, or its stock's level as the engine last read
   it, at most its ``most``, read in the same hold of the lock as the count and the take). An item put off
@@ -65,7 +65,7 @@ def moved_on(b, it) -> bool:
 
 
 def terminal(spec, kind: str | None, state: str | None) -> bool:
-    """Whether an item in this state is finished: a dead letter, or in its kind's last state (``dead`` aside)."""
+    """Whether an item in this state is finished: a dead letter, or in its projection's last state (``dead`` aside)."""
     if state == DEAD:
         return True
     k = spec.items.get(kind or "")
@@ -114,10 +114,10 @@ class Dispatcher:
         return [b for b in spec.blocks.values() if b.takes and b.machine and self.e.own(f"block.{b.name}", spec)]
 
     def kinds(self) -> list[str]:
-        """The kinds whose leases are watched: every kind of the model's own (a lease outlives the block that took it),
-        of the engine's shard (SPEC §9.8: a kind is in the shard of the blocks that take it, else of its system)."""
+        """The projections whose leases are watched: every projection of the model's own (a lease outlives the block that took it),
+        of the engine's shard (SPEC §9.8: a projection is in the shard of the blocks that take it, else of its system)."""
         spec = self.spec
-        return [k for k in spec.items if own_kind(k) and self.e.own(f"kind.{k}", spec)]
+        return [k for k in spec.items if own_kind(k) and self.e.own(f"projection.{k}", spec)]
 
     # ---- the clock
 
@@ -205,8 +205,8 @@ class Dispatcher:
     # ---- dispatch
 
     def items_of(self, kind: str) -> tuple[list, object]:
-        """A kind's items a look needs, the latest first: those in a state a block takes from, and those held (every
-        item of the kind, read whole, when the record has no item index); and the index they were read from."""
+        """A projection's items a look needs, the latest first: those in a state a block takes from, and those held (every
+        item of the projection, read whole, when the record has no item index); and the index they were read from."""
         ix = self.kept.ix if not self.stale else self.kept.follow(self.p.events, self.spec, self.kinds, lambda: self.blocks)
         if ix is None:
             return its.project(self.p.events, self.spec, kind, transcript=False), None
@@ -438,7 +438,7 @@ class Dispatcher:
                 self.e.running.discard(key)
             return None
         self.e.say(f"{b.name}: took {it.id} (lease {fence}, {t['ttl'] / 60:g} min)")
-        item = {"id": it.id, "kind": it.kind, "state": it.state, "fields": {k: v for k, v in it.fields.items() if k != "lease"}}
+        item = {"id": it.id, "projection": it.kind, "state": it.state, "fields": {k: v for k, v in it.fields.items() if k != "lease"}}
         given = {"fence": fence, "ttl": t["ttl"], "expires": got.get("expires"), "attempt": int(lease.get("attempts") or 0) + 1,
                  "attempts": t["attempts"], "tier": t["tier"], "back": it.state, **({"on": list(on)} if on else {})}
         with self.e.lock:
@@ -637,7 +637,7 @@ class Dispatcher:
 
     def after(self, it, lease: dict, counted: bool, stays: str | None = None) -> dict:
         """What a lease's end says of its item, for what holds a resource as long as the lease (SPEC §9.5): the item,
-        the state it is left in, and whether that is terminal (its kind's last state, or a dead letter), so a
+        the state it is left in, and whether that is terminal (its projection's last state, or a dead letter), so a
         working copy can be cleaned, or kept while the item waits (under review, back in the queue)."""
         if stays is None:
             n = int(lease.get("attempts") or 0) + (1 if counted else 0)

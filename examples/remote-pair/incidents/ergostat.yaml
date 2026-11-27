@@ -3,7 +3,7 @@
 # model, readings and events through its remote API, and never runs any of it.
 name: incidents
 
-items:
+projections:
   incident:
     id: incident/*
     states: [open, resolved]

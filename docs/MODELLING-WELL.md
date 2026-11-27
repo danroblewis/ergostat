@@ -31,7 +31,7 @@ fast it changes: *alerts triaged per hour*. Name them that way, as nouns and nou
 | stock `age` (`measure: oldest`) | auxiliary `oldest-new-alert` | an age has no inflow or outflow: it is not a stock (below) |
 
 Give every stock a **unit**, in the natural unit of what it counts (`alerts`, `facets`, `tickets`, `GB`), never a
-generic `items` when the kind has a name. Flows take their stocks' unit per hour; ergostat shows them per minute or
+generic `items` when the projection has a name. Flows take their stocks' unit per hour; ergostat shows them per minute or
 per day by size (`rate-unit:` to choose). Two different things in one chain is a sign the chain is wrong; a flow
 from one unit to another is a **coflow** and needs a converting parameter (below).
 
@@ -61,7 +61,7 @@ flows:
       - cause: +flow.facets-opened-for
         instant: true                 # the fan-out opens them as it moves the alert
     equation: facets-per-alert * flow.facets-opened-for
-    sensor: {items: facet, entering: open, over: 10m}
+    sensor: {projection: facet, entering: open, over: 10m}
 ```
 
 This is also how a **fan-out** and a **join** are drawn in SD: facets are a coflow of alerts, so many of one per
@@ -82,7 +82,7 @@ flows:
     description: triaged as worth a look
     driven-by: [+stock.new-alerts]
     equation: (1 - noise-share) * stock.new-alerts / triage-time
-    sensor: {items: alert, entering: triaged, where: {via: triage}, over: 10m}
+    sensor: {projection: alert, entering: triaged, where: {via: triage}, over: 10m}
 ```
 
 Three forms cover most workflows:
@@ -152,7 +152,7 @@ auxiliaries:
     unit: hours
     description: how long the oldest untriaged alert has waited
     driven-by: [+stock.new-alerts]
-    sensor: {items: alert, state: new, measure: oldest, every: 2s}
+    sensor: {projection: alert, state: new, measure: oldest, every: 2s}
 ```
 
 An auxiliary that nothing in the model explains is an input from outside: say so with `exogenous: true` rather than
@@ -163,7 +163,7 @@ leaving it unexplained.
 A system (`systems:`) is a sector in SD's sense: a part of the model with its own purpose, drawn in its own frame.
 Readable systems hold **about four to nine stocks**, one main chain, and the loops that act on it. Split when:
 
-- a second **item kind** has its own chain (alert-triage has `alerts` and `investigation`, one per kind);
+- a second **projection** has its own chain (alert-triage has `alerts` and `investigation`, one per projection);
 - a part is **controlled by someone else** (an external team's queue, a vendor) or runs on a much slower clock
   (planning, model improvement);
 - the frame no longer fits on a screen with its labels readable.
@@ -272,7 +272,7 @@ blocks:
     goal: summaries-written
     prompt: prompts/summarise.md
     run: python3 bin/step.py summarise   # the stand-in
-    takes: {kind: alert, at: summarising, to: [closed, escalated]}
+    takes: {projection: alert, at: summarising, to: [closed, escalated]}
     pool: 2
     out: [flow.alerts-summarised, flow.alerts-escalated]
 ```
@@ -352,8 +352,8 @@ items (below).
 
 ## 3. Process: the process map
 
-The Process view is process mining's directly-follows graph, object-centric: one map per item kind, drawn from the
-record, and dashed lines between kinds where work on one caused work on another. Nothing is declared for it; it is
+The Process view is process mining's directly-follows graph, object-centric: one map per projection, drawn from the
+record, and dashed lines between projections where work on one caused work on another. Nothing is declared for it; it is
 only as good as the events the steps record.
 
 ### Declare the states
@@ -363,13 +363,13 @@ states**: the workflow as you wrote it, in your order, with your names, held dir
 states it is drawn by event types, every comment and retry a node. Declare every state a step waits in or ends in,
 including the side exits (`dismissed`, `stopped`).
 
-### Event types: `kind.verb-past`
+### Event types: `projection.verb-past`
 
-Name each event type for the item kind and what happened, in the past tense: `alert.fired`, `alert.triaged`,
+Name each event type for the projection and what happened, in the past tense: `alert.fired`, `alert.triaged`,
 `alert.escalated`, `facet.opened`, `facet.done`. ergostat refuses anything but lowercase words joined by dots, but
 inside that rule the poor model still manages `triage.finished`, `alerts.noise`, `alert.investigate` (an
 imperative), `investigation.complete` and `facet.complete`: five spellings for one workflow, two subjects that are
-not item kinds, and a reader who cannot guess the next one. The kind first, then the past-tense verb (with a
+not projections, and a reader who cannot guess the next one. The projection first, then the past-tense verb (with a
 hyphen when it needs two words: `alert.facets-opened`).
 
 When two moves enter the same state (closed by the summary, closed by the on-call), record **which** in the
@@ -377,7 +377,7 @@ event's data (`via: summary`, `via: on-call`), so each flow's sensor can count i
 
 ### What caused what: the fan-out and the join
 
-A dashed line between two kinds appears when an event on an item of one kind was **caused** (`causedby`) by an event
+A dashed line between two projections appears when an event on an item of one projection was **caused** (`causedby`) by an event
 on an item of another. ergostat records the cause for you, exactly as follows:
 
 1. A step that `takes:` an item holds a lease on it; the lease (`ergostat.lease.taken`) is recorded as caused by
@@ -386,7 +386,7 @@ on an item of another. ergostat records the cause for you, exactly as follows:
 3. **Every event line the run prints** is recorded as caused by the run, whatever item it is about. So is every
    event the run records with `$ERGOSTAT_CMD event --add` (it reads `ERGOSTAT_RUN` from the environment).
 4. The Process view follows `causedby` up through events about no item (the run) for up to four steps, to the
-   first event on an item; if that item is of another kind, it draws the line.
+   first event on an item; if that item is of another projection, it draws the line.
 
 So what a step program must do is simple: **do the fan-out and the join inside a run that holds a lease on the
 causing item, and print the other item's events from that run.**
@@ -430,7 +430,7 @@ What does **not** draw a line: a block on a schedule (`every:`) that sweeps the 
 Its run is caused by nothing, so its events have no cause on an item. The poor model's `sweep` is exactly that: the
 facets appear from nowhere, and the Process view shows two unrelated maps.
 
-| Good: fan-out (`alert triaged → facet open`) and join (`facet open → alert summarising`), dashed | Poor: no lines between the kinds |
+| Good: fan-out (`alert triaged → facet open`) and join (`facet open → alert summarising`), dashed | Poor: no lines between the projections |
 |---|---|
 | ![good process](screenshots/modelling-well/good-process.png) | ![poor process](screenshots/modelling-well/poor-process.png) |
 
@@ -474,12 +474,12 @@ and the block that works it should read as one family: state `summarising`, stoc
 name in one view finds it in the other two. Never call one thing two names (the poor model's stock `oncall`, state
 `escalated` and flow `escalations`).
 
-**Descriptions on everything**: stocks, flows, auxiliaries, parameters, goals, blocks, sensors, item kinds,
+**Descriptions on everything**: stocks, flows, auxiliaries, parameters, goals, blocks, sensors, projections,
 systems, agents; one line a newcomer can read without the YAML, in the world's words, and for a flow what decides
 it. They are what the diagrams show when a reader clicks.
 
 **Coherence is the arbiter.** When the views disagree, `ergostat check`'s Coherence section (MCP `coherence`) says
-which pair, where, and the fix. Run the model on its stand-ins, then check, until every kind reads `N of N agree`.
+which pair, where, and the fix. Run the model on its stand-ins, then check, until every projection reads `N of N agree`.
 A model that agrees with itself and with its record is correct; this page is about making it also look right.
 
 ## 5. Review checklists
@@ -488,17 +488,17 @@ Ordered by what matters most. Go through each after `check` is clean.
 
 **Dynamics**
 
-1. Each item kind is one chain: in from outside at its first stock, out where the work ends, every move a flow
+1. Each projection is one chain: in from outside at its first stock, out where the work ends, every move a flow
    from stock to stock (rework included).
-2. Each kind arrives from a cloud once: no second inflow from outside counting the same kind into a later state
-   (`kind-enters-many-times`), unless the record shows items arriving there; few clouds, each really outside
+2. Each projection arrives from a cloud once: no second inflow from outside counting the same projection into a later state
+   (`projection-enters-many-times`), unless the record shows items arriving there; few clouds, each really outside
    (`many-cloud-inflows`).
 3. Every stock is a quantity with a natural unit, named as a noun; ages, ratios and scores are auxiliaries.
 4. Every flow but the measured arrivals has an equation, with parameters that have units, descriptions and
    `estimate: true` until known; shares have `range: [0, 1]`.
 5. Links are signed; any flow driven by a flow is `instant: true` with a comment, or has a stock between.
 6. Decisions read what their maker can see; slow perceptions are `SMOOTH`s.
-7. Systems of four to nine stocks, one chain each, split by kind or by who controls them; the boundary is
+7. Systems of four to nine stocks, one chain each, split by projection or by who controls them; the boundary is
    written down.
 8. Every part has a description.
 
@@ -515,12 +515,12 @@ Ordered by what matters most. Go through each after `check` is clean.
 
 **Process**
 
-1. Every kind declares its states and maps every moving event in `on:`.
-2. Event types are `kind.verb-past`; branches into one state carry `via:`.
+1. Every projection declares its states and maps every moving event in `on:`.
+2. Event types are `projection.verb-past`; branches into one state carry `via:`.
 3. Fan-outs and joins are done inside runs that hold the causing item's lease, and their dashed lines appear.
 4. Rework is a declared move back, drawn ↺, with its flow in the chain.
 5. Items end where the work ends; no state is dead.
-6. Coherence reads `N of N agree` for every kind.
+6. Coherence reads `N of N agree` for every projection.
 
 **Reviewing a change** (the modelling loop's reviewer reads each structural change and redesign with these first)
 

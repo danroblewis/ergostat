@@ -13,7 +13,7 @@ of this document.
 1. **Four kinds of thing are written, and more when they say something.** Stocks, flows, goals
    and blocks; auxiliaries, for quantities without memory; parameters, the numbers equations name
    (section 7b); and agents, only for machines shared
-   by several blocks. (Kinds of item, section 5a, say how to read the record, not what the system
+   by several blocks. (Projections, section 5a, say how to read the record, not what the system
    is.) Valves, controllers, disturbances, errors, loops and diagrams are worked out from them,
    never declared.
 2. **Two layers.** The material layer (stocks and flows: where work moves and accumulates) and
@@ -57,10 +57,10 @@ How each draws what measures and what comes in from outside:
   sensors polled alike are drawn alike. The switch is drawn in the muted stroke when T is under a
   tenth of the loop's own period (its controller's `every`, else its identified process's τ + θ,
   else ten minutes), and the sensor's panel gives the ratio (`T / loop  8 s / 10 min = 0.013`). Beneath
-  that, what it reads and how often (`items: alert, fired, every 5 s`; `prometheus: <query>, every
+  that, what it reads and how often (`projection: alert, fired, every 5 s`; `prometheus: <query>, every
   30 s`; a `run` sensor's description when it has one, `Jira: FF tickets approved, every 5 min`,
-  else its command). A sensor that counts items is preceded, on the same path, by its kind's
-  **collector**: a `run` or `query` sensor on a flow that brings a stock counted by that kind in
+  else its command). A sensor that counts items is preceded, on the same path, by its projection's
+  **collector**: a `run` or `query` sensor on a flow that brings a stock counted by that projection in
   from outside (it polls the outside system and records what it saw as items, section 6), so a
   count is only as fresh as its collector.
 - In the dynamics view a cloud an inflow comes from names its source where the model knows it
@@ -138,7 +138,7 @@ library:                                # main file only: folders of templates (
 
 **What a use makes.** Every name the template defines becomes the instance's, `INSTANCE-NAME`
 (`review-reminders-unanswered`), and every reference to it follows (`stock.unanswered`, `from: unanswered`, a
-parameter named in an equation); a name a parameter gives whole (an item kind, `${kind}`, by default the
+parameter named in an equation); a name a parameter gives whole (a projection, `${projection}`, by default the
 instance's name) is taken as given. What a parameter brings in (a reference to a part outside, a command) is never
 renamed, so an instance can name the model's other parts, and the model can name an instance's parts by their
 full names. A template written `once: true` is the exception: it may be used once a model, and its parts keep
@@ -167,7 +167,7 @@ view, or as the title of an open system's outline, is not used, and that part re
 
 **Exports.** A template may say which of its parts are its public interface, `exports:`, a list of refs to parts
 written in its own sections (`stock.waiting`, `flow.x`, `auxiliary.y`, `goal.on-time`, `block.z`; an entry made by
-`each:` or named wholly by a parameter cannot be listed). A part named wholly by a parameter (`${kind}`) is the
+`each:` or named wholly by a parameter cannot be listed). A part named wholly by a parameter (`${projection}`) is the
 owner's name and is never internal; it is still inside the instance, so it reads the instance's internal parts
 freely. An entry naming no part it defines, or not a ref of those five kinds, makes the
 template unreadable (a `template-library` note, as any bad template; for an untrusted template each name must also be
@@ -272,7 +272,7 @@ only as R1 to R3 below allow, a sensor's `run` only sandboxed where R1 and R2 do
 |---|---|---|
 | `UNTRUSTED_EVERY` | 300 s | a stock's or flow's sensor, and a program, ai or judge block: `every:` at least this, and its default when none is written (not 60 s, not the judge's 30 s); `cron:` firing at one minute of the hour at most (its minute field a single value, so at most hourly) |
 | `UNTRUSTED_POOL` | 2 | a block's `pool:` |
-| `UNTRUSTED_ATTEMPTS` | 5 | a block's lease attempts, as its lease terms come out (its own `lease:`, its kind's, the owner's `leases:` tier) |
+| `UNTRUSTED_ATTEMPTS` | 5 | a block's lease attempts, as its lease terms come out (its own `lease:`, its projection's, the owner's `leases:` tier) |
 | `UNTRUSTED_RUNS` | 4 | the runs at once of every untrusted program, ai and judge block together: its pool for a block that takes items, else 1 |
 
 Refused outright for an untrusted part: a sensor's `daemon:`, a block's `on:`, and a program or ai block with none of
@@ -318,7 +318,7 @@ of steps, a block each), `collect` (the event collector), `observed-autoscaler` 
 the replicas a stock, utilisation load / replicas or measured, a goal at `target`, and an external block with the
 declared law `kubernetes-hpa` and `identify:`, its Blocks loop r the target, y utilisation, u the replicas),
 `alert-rule` (a threshold alert observed: the signal an auxiliary, a stock of alerts firing, always measured
-by its sensor, `pages` declaring only the item kind whose events the alerting system posts, and an external block with the declared law `alert-rule`) and `modelling` (the model improved as a loop of its
+by its sensor, `pages` declaring only the projection whose events the alerting system posts, and an external block with the declared law `alert-rule`) and `modelling` (the model improved as a loop of its
 own, section 12e: its fit held by a goal, what `check` finds held as requests, a rule tier and an AI tier that answer
 them, and the judge; once a model, every model should have it), `upkeep` (ergostat's own upkeep as loops of
 the model, below), `regressions` (regression guarantees for the model, once a model, each part only when its parameter
@@ -331,21 +331,21 @@ not made again; each goal served by a person block, `agent:` naming who; flakes 
 12r, *Regression guarantees*), and `todo` (a person's own to-dos, each with its instructions, its requester, its due date and
 where it must be done, `where`: a host, a bastion, a VPN or anywhere; states new, ready, in-progress, waiting,
 done and dropped, its own `finished: [done, dropped]`; what one waits on in `waits_on`, a precedence relation to
-another to-do or to a `KIND-wait` item, something someone else does; two person blocks, one asked while new to-dos
+another to-do or to a `PROJECTION-wait` item, something someone else does; two person blocks, one asked while new to-dos
 wait to be written up, one while ready ones wait to be done, each answered with the inbox's `--done N`; and the
 batcher, a program on the rule rung, `todo batches`, which says a waiting to-do ready again once everything it
 waits on has happened (done, or answered: `--met`; only what its `waits_on` named since it last entered waiting
 counts, so a wait over before does not free a new one), keeps one whose prerequisite was dropped, or whose wait
-names nothing, waiting and says so once in its `stuck` field (`KIND.stuck`, which `ergostat why` says, its next
-step `KIND.ready`; a to-do that has left waiting by any event, by hand or freed, has its `stuck` cleared on the
-batcher's next pass, so it lasts at most one regroup after the move), and regroups the ready ones, one `KIND-batch/<where>` item a place, its to-dos the earliest
+names nothing, waiting and says so once in its `stuck` field (`PROJECTION.stuck`, which `ergostat why` says, its next
+step `PROJECTION.ready`; a to-do that has left waiting by any event, by hand or freed, has its `stuck` cleared on the
+batcher's next pass, so it lasts at most one regroup after the move), and regroups the ready ones, one `PROJECTION-batch/<where>` item a place, its to-dos the earliest
 due first, every one's instructions in order in its `sitting`; it reads the record and prints events, and the
 template adds no action, workspace or daemon, so nothing it adds acts outside ergostat (the optional `command` is
-the owner's own, run by `collect` as a source); a freeing is `KIND.freed`, which `moves-from:` lets move a to-do
-only out of waiting, and `if-unchanged:` (with `KIND.stuck`) applies only when nothing was recorded of the to-do
+the owner's own, run by `collect` as a source); a freeing is `PROJECTION.freed`, which `moves-from:` lets move a to-do
+only out of waiting, and `if-unchanged:` (with `PROJECTION.stuck`) applies only when nothing was recorded of the to-do
 after the events the batcher judged it from (their count, its `read`), so one dropped, or waiting on something new,
 since the batcher read it stays as recorded, and the next pass judges it again; a to-do is added in one step,
-`ergostat event --add KIND.ready --item KIND/ID --data '{...}'`, MCP's `record_event`, or a line of an optional
+`ergostat event --add PROJECTION.ready --item PROJECTION/ID --data '{...}'`, MCP's `record_event`, or a line of an optional
 `command`'s output). Each says its reading in both disciplines
 (`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
 ergostat.library.run`): `collect` (a sensor that polls a command or an HTTP endpoint, records each new record as
@@ -373,7 +373,7 @@ beginning. Every entry is checked before any is said (a position missing or not 
 at one position: exit 1, nothing said), and at most 5,000 are said a poll, the lowest first. Entries at or before the
 cursor are skipped. A log that went back stops the mirror (exit 1): when the source's newest entry is before the
 cursor, or the entry it returns at the cursor has another id (`id-field`) than the one recorded there (`fields:`,
-`kind` and `event` may change; a changed `id-field` reads as a restart). So does a changed `position`. Clearing the
+`projection` and `event` may change; a changed `id-field` reads as a restart). So does a changed `position`. Clearing the
 collector's memory does not end the stop, since the cursor, its type and the entry at it come back from the record:
 the owner renames the use (a new sensor, so a new log, mirrored from its start), or sets `position` back. What is
 claimed: an entry is recorded once, under the cite of its position, across polls that failed, timed out or were
@@ -414,9 +414,9 @@ in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `
 `goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
 `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
 `alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
-names); sensors counting items (`items:`) or reading a stock's changes (`changes:`); and the runs, `program`, `ai`
+names); sensors counting items (`projection:`) or reading a stock's changes (`changes:`); and the runs, `program`, `ai`
 and `person` blocks, queries and `sources` entries below. Anything else is refused: any other section, block type or
-key (a sensor's `daemon`, or its `journal`, which would read files in the owner's folder into the record, a block's `on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's
+key (a sensor's `daemon`, or its `journal`, which would read files in the owner's folder into the record, a block's `on-stale` or an `out:` to the owner's block or goal, a projection's `lease`, a goal's
 `owner`, `inferred` or `formerly` anywhere). One refused part refuses the whole use at the owner's `use:` line
 (**library-untrusted**, or **untrusted-text** under R3), naming the template, its folder and the first refused path;
 nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
@@ -450,7 +450,7 @@ name in trust.py's `MACHINE_TYPES`.
 **R2, a library's values as arguments to ergostat's programs.** A value not written by ergostat's template (the
 library's, the owner's of a narrow type, or an owner folder's) may stand in a run only in a built-in template whose
 run starts `${lib} `, directly after a flag in trust.py's `LIB_DATA_FLAGS` (flags of `ergostat.library.run` whose
-value is data, such as `--kind`, `--state`, `--every`, `--limit`; never `--run`, `--render`, `--command` or another
+value is data, such as `--projection`, `--state`, `--every`, `--limit`; never `--run`, `--render`, `--command` or another
 of `LIB_EXEC_FLAGS`), for a parameter typed `name`, `duration`, `number`, `integer` or `bool`, when both the value's
 own text and the text that lands (after `:seconds`, `:hours`) fully match its type's pattern, with no space or
 newline: name `[a-z][a-z0-9-]{0,63}`; duration `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`; number or integer
@@ -635,9 +635,9 @@ record keeps `library`. The `templates` tool lists each fetched template as `LIB
 
 `use: upkeep` (once a model, its parts in a system named for the use, `upkeep` by convention) draws ergostat's own
 upkeep as loops of the model: the item-index files (section 4b: one `<state>/items/<hash>[.n].db` per shape of the
-model's item kinds), the record's roll-up and retention, and the watched loops below. The stock `index-files`
+model's projections), the record's roll-up and retention, and the watched loops below. The stock `index-files`
 (`ergostat.upkeep.index-files`, the live files) fills by `index-files-made` (`changes: rises`, a new file on each
-change to the kinds) and drains by `index-files-tidied` (`changes: falls`). The stock `retired-index-files`
+change to the projections) and drains by `index-files-tidied` (`changes: falls`). The stock `retired-index-files`
 (`ergostat.upkeep.retired-index-files`) drains by `retired-index-files-removed`. A file is *retired* when its mark
 `<hash>[.n].retired` stands beside it (`itemindex.retired`, the one test the measures and the tidy both use): a
 process still held it when it was due to go, and it is never opened again. The goal `index-files-few` holds
@@ -664,7 +664,7 @@ checked before the lock and again once it is held.
 
 **Fail-safe.** A measure with no state directory, or a folder it cannot list, gives no reading, never 0. If the
 tidier stops, nothing else limits the number of files under `use: upkeep`: they only pile up (one per change of the
-kinds), and every index still opens and folds right.
+projections), and every index still opens and folds right.
 
 **The record's loops.** Three stocks, each read every `due-every` (default 10m; 1m to 1d, refused at load, as each
 reading of `rollup-due` is a dry roll-up) and drained by its falls: `rollup-due` (`ergostat.upkeep.rollup-due`,
@@ -680,7 +680,7 @@ is off: `record-compactor` (for `record-rolled-up`), `${lib} upkeep rollup --eve
 roll-up, the pruning past `keep` and the archive's forgetting, and prints `{"out": "flow.rolled-up", "moved":
 ITEMS, "events": ..., "pruned": ..., "archive_forgot": ...}`; `record-pruner` (for `record-within-keep`) runs the
 same roll-up with `--flow events-forgotten`, its line moving `flow.events-forgotten` by the events pruned, so
-events past `keep` that no roll-up touches (with no item, of an item of no kind, of an idle item) are forgotten
+events past `keep` that no roll-up touches (with no item, of an item of no projection, of an idle item) are forgotten
 while nothing is due to roll up. No stock counts the archive's months past `keep`: they are forgotten only when one
 of these two runs, so while `rollup-due` and `events-past-keep` both stay 0 they wait. `measurement-retainer`,
 `${lib} upkeep retain --every ${retain-every}`, rolls the measurements into their tiers and prints `{"out":
@@ -805,7 +805,7 @@ defaults:
   system: core
 sources:                        # where existing metrics live
   ...
-items:                          # optional: kinds of item, read from the record
+projections:                    # optional: ways of looking at the record's events (section 5a)
   ...
 systems:                        # optional: systems, and the systems they are within (section 4a)
   ...
@@ -960,7 +960,7 @@ storage:
     run: victoria-metrics ...      # optional: the command ergostat runs and supervises (the daemon victoriametrics)
   rollup:
     after: 7d                      # an item's events older than this become one snapshot (never: not rolled up)
-    kinds: {session: 1d}           # per item kind
+    projections: {session: 1d}     # per projection
     every: 1h                      # how often the engine rolls up and forgets
   items:
     idle: 1d                       # an item with no event for this long is read from the item index, not kept in memory
@@ -1006,30 +1006,30 @@ its blocks, the first time it is asked, and kept. `sqlite` is `events.db`, as be
 type columns).
 
 **The item index.** Every item's fold (section 5a) is kept on disk in `<state>/items/<key>.db`, one
-SQLite file per fold (the model's item kinds, and whether a transcript's lines are folded in), and
+SQLite file per fold (the model's projections, and whether a transcript's lines are folded in), and
 followed as events arrive: whichever process asks first after events land (the runner, the page,
 the command line) folds them, a chunk per transaction under SQLite's write lock, and the others read
 what it wrote. A process that starts reads the index and folds only what is newer than it, so a
-record of half a million items starts in seconds. Per item it holds its kind, state, times and
+record of half a million items starts in seconds. Per item it holds its projection, state, times and
 counts as columns and its document (fields and what was refused) packed small (marshal, compressed
 when that saves, chosen by measurement over JSON and msgpack; JSON stays the format of the API and
-the pages); kinds, states and event types are numbers. Every move is a row, so a flow counted from
-items reads only its window, a stock counted from items only its states, and the Items page only
+the pages); projections, states and event types are numbers. Every move is a row, so a flow counted from
+items reads only its window, a stock counted from items only its states, and a projection's page only
 the page it shows. In memory, a process keeps folded only the items still open (a few thousand at
 most, the latest touched): an item in a finished state (as `messages: {done:}` declares for its
-kind, else its states after the first that no item has left) or with no event for `items.idle` is
+projection, else its states after the first that no item has left) or with no event for `items.idle` is
 read from disk when an event about it arrives. A field's history is never kept: the item's page folds
 it from the record when asked. The record stays the truth: the index is folded again when it is
 missing, when its layout changes, or when the record went back (a fresh record), and on
 `ergostat compact --reindex`; a roll-up leaves it as it is (a snapshot folds to what its events
 folded to), and a prune takes out the items whose events are all gone. `tests/test_item_index.py`
-holds it equal to a fresh fold for every example's kinds, as events arrive, after roll-ups, read
+holds it equal to a fresh fold for every example's projections, as events arrive, after roll-ups, read
 cold and built again.
 
 The same file holds, as indexed tables, what the status answer reads from the record
 (`spec/projections.py`), followed in the same transactions as the items and built again with them:
 `records`, ergostat's own items (gated actions, messages, reports, model changes, modelling requests
-and model requests), each folded by its built-in kind as its module's `stored()` folds it, with its
+and model requests), each folded as its own module's `stored()` folds it, with its
 state and its class (an action's class, a change's kind, a request's code) as indexed columns;
 `marks`, each event of the types read by type and time (loop crossings, breakers, step tests, daemons
 given up, leases expired, the events of model changes and modelling requests, and what
@@ -1037,7 +1037,7 @@ given up, leases expired, the events of model changes and modelling requests, an
 `asks`, each time a person block was asked or an advised block advised and how it was answered. What
 also depends on the model's blocks, goals or files (which inbox entries wait, a class's record over
 the week, an alarm's readings) is worked out from these when read, since one index serves every model
-with the same item kinds. The record stays the truth: when events are taken out (a roll-up, a prune)
+with the same projections. The record stays the truth: when events are taken out (a roll-up, a prune)
 the records and marks are folded again from what the record still holds and an ask whose event is
 gone is dropped, and a fresh record or a new layout builds the whole file again (an index of an
 older layout is another file, never read). `tests/test_index_projections.py` holds each table equal
@@ -1069,7 +1069,7 @@ alone (`Measurements.ranges`), the newest readings from the store's `newest()`, 
 reading by each series' index. On the factory-size fixture it answers in under 100 ms
 (`tests/test_status_reads_projections.py`).
 
-**Items rolled up.** An item's events older than its horizon (`rollup.after`, or its kind's) are
+**Items rolled up.** An item's events older than its horizon (`rollup.after`, or its projection's) are
 replaced by one event, `ergostat.item.snapshot`, the item as it stood after them:
 
 - its document as a `set` (section 5a), and in `data.rollup` the rest of what the fold keeps: the
@@ -1083,11 +1083,11 @@ replaced by one event, `ergostat.item.snapshot`, the item as it stood after them
   the snapshot with what followed it into the next.
 
 Folding the snapshot and what came after gives the same item as folding the originals (fields,
-state, moves, counts, refusals; `tests/test_rollup.py`, for every example's kinds, with and
+state, moves, counts, refusals; `tests/test_rollup.py`, for every example's projections, with and
 without transcripts, rolled up again and again; `scripts/demo_check.py` on each demo's own record).
 What is lost is detail before the horizon: an item read as it stood before its snapshot (time
 travel) is not there, and its field history before the horizon is the summary. The originals are
-moved to `<state>/archive/<kind>/<YYYY-MM>.jsonl.gz` (a gzip member per roll-up, an event per line)
+moved to `<state>/archive/<projection>/<YYYY-MM>.jsonl.gz` (a gzip member per roll-up, an event per line)
 with `<YYYY-MM>.idx.jsonl` beside it (per item and member: where, how many, first and last time);
 the item's page shows "Show the full history", which reads them (`/api/items/ID?archived=1`, a page
 at a time). A transcript read again from its start records none of its rolled-up lines.
@@ -1132,7 +1132,7 @@ with a generated id (an item, a run) is ever a label, which stays in the event l
 | `NAME` (no `/`) | `ergostat_series{name="NAME"}` |
 
 A stock and a flow of one name write one series (`sensor/NAME.SENSOR`), so they share one metric. A part whose name
-an item kind's metric takes (below), or that would start `ergostat_`, has its system prepended (`desk_ticket_items`);
+a projection's metric takes (below), or that would start `ergostat_`, has its system prepended (`desk_ticket_items`);
 one that still collides is refused by `ergostat check` (`metric-clash`), which says to rename it or put it in a system.
 A part the model no longer declares keeps its own name, with its sensor's as a label. A record written under an earlier
 name (the one old `ergostat_reading{project, series}`, the old generic `ergostat_sensor{part, sensor}`, or a part's
@@ -1144,31 +1144,31 @@ its latest reading, whichever name holds it.
 
 **Item metrics** (`ergostat/itemmetrics.py`). On VictoriaMetrics, the engine's lead keeps these from the item index
 (§5a), never by replaying the log for a request and never one sample per event. Each is written once a minute, with
-`project`, under its item kind's own name (`KIND`, dashes as underscores: `gap_items`). Below, and in the index's own
+`project`, under its projection's own name (`PROJECTION`, dashes as underscores: `gap_items`). Below, and in the index's own
 tally and checkpoint, they are named generically with a `kind` label (`ergostat_items{kind="gap"}`), which the store
-turns into the kind's name as it writes (`promnames.item_labels`):
+turns into the projection's name as it writes (`promnames.item_labels`):
 
 | Metric | Labels | What |
 |---|---|---|
-| `KIND_items` (gauge) | `state`, `milestone` | items in each state (a stock) |
-| `KIND_transitions_total` (counter) | `from`, `to` | moves (a flow); an arrival is `from="(new)"`, an item the index forgets (its events pruned) `to="(gone)"` |
-| `KIND_last_transition_timestamp_seconds` (gauge) | `from`, `to` | when the latest such move was |
-| `KIND_time_in_state_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `state` | how long items stayed in a state, **observed when they leave it**: an item still in it is not counted, so it cannot see stuck work (for that, SQL over the item views with open items) |
-| `KIND_lead_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `to` | how long items took from their arrival to reaching a state, observed on that move: `histogram_quantile(0.9, sum by (le) (rate(change_request_lead_seconds_bucket{to="prod"}[1h])))` is the 90th percentile lead time to prod. Both histograms' buckets run from 0.1 s to 30 days, so a factory's seconds-long steps and a ticket's days are both told apart |
-| `KIND_field_total` (counter) | `field` | what items' numeric fields (§5a, *numbers*) went up by, added; a fall is not counted |
+| `PROJECTION_items` (gauge) | `state`, `milestone` | items in each state (a stock) |
+| `PROJECTION_transitions_total` (counter) | `from`, `to` | moves (a flow); an arrival is `from="(new)"`, an item the index forgets (its events pruned) `to="(gone)"` |
+| `PROJECTION_last_transition_timestamp_seconds` (gauge) | `from`, `to` | when the latest such move was |
+| `PROJECTION_time_in_state_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `state` | how long items stayed in a state, **observed when they leave it**: an item still in it is not counted, so it cannot see stuck work (for that, SQL over the item views with open items) |
+| `PROJECTION_lead_seconds` (histogram: `_bucket{le}`, `_sum`, `_count`) | `to` | how long items took from their arrival to reaching a state, observed on that move: `histogram_quantile(0.9, sum by (le) (rate(change_request_lead_seconds_bucket{to="prod"}[1h])))` is the 90th percentile lead time to prod. Both histograms' buckets run from 0.1 s to 30 days, so a factory's seconds-long steps and a ticket's days are both told apart |
+| `PROJECTION_field_total` (counter) | `field` | what items' numeric fields (§5a, *numbers*) went up by, added; a fall is not counted |
 | `ergostat_events_total` (counter) | `type`, `source` | the events about items that the index folded (no transcript lines, no roll-up snapshots) |
 | `ergostat_item_index_rebuilds_total` (counter) | none | times the index was made again (below); written from the first minute, at 0 |
 
 With the two edges named, a gauge's change over a window is its net transitions: `increase(...{to="S"}) -
-increase(...{from="S"})`, the gauge added over `milestone`. For a kind as a whole it is `increase(...{from="(new)"}) -
-increase(...{to="(gone)"})`. A kind whose `state` label is refused (below) keeps `(new)` and `(gone)` as values of
+increase(...{from="S"})`, the gauge added over `milestone`. For a projection as a whole it is `increase(...{from="(new)"}) -
+increase(...{to="(gone)"})`. A projection whose `state` label is refused (below) keeps `(new)` and `(gone)` as values of
 `from` and `to`, so it still balances as a whole. Each pass checks this between the minute written last and its own
 last minute (`itemmetrics.balance`, a pure function of the two minutes' values). The verdict goes in the checkpoint's
-`balance`. It is `balanced`; or `unbalanced`, with each kind and state whose change is not its net transitions, said
+`balance`. It is `balanced`; or `unbalanced`, with each projection and state whose change is not its net transitions, said
 on the engine's output (nothing is ever added to make it balance); or `unsure`, where no balance is owed: nothing
 written before, or the index made again between, when `ergostat_item_index_rebuilds_total` goes up. `time() - max(gap_last_transition_timestamp_seconds{to="merged"})` is
 how long since the last merge. The buckets are 1, 5 and 15 minutes, 1 and 4 hours, 1, 3, 7 and 30 days. An item's
-state comes from its moves (a kind without states is in no gauge). `milestone` is the field of the kind's group
+state comes from its moves (a projection without states is in no gauge). `milestone` is the field of the projection's group
 relation named `milestone`, as it is held now, and only on the gauge: on a counter, an item moved to another milestone
 would make the counter fall.
 
@@ -1185,22 +1185,22 @@ a try. A first run backfills from the index's first minute, at most a day or 500
 later), and says what it cannot recover. If events were taken out before the index was built, the items pruned then
 are in no metric, and the items pruned since count only from when they were forgotten.
 
-An index made again has lost what it carried. That happens when an item kind is edited, when the index's layout
+An index made again has lost what it carried. That happens when a projection is edited, when the index's layout
 changes, when a damaged file is built again, and on `ergostat compact --reindex`. So the checkpoint also keeps the
 index's epoch and every series as last written. On a pass over another epoch, each counter is held at no less than
 what was written, each last-move time at no earlier, and each gauge series is kept (at nothing added). The rise is kept
 in the checkpoint's `held`, and the counters go on from there, so none falls. The rise is worked out afresh on each
 change of epoch, from what that index alone counts at the minute last written, never added to the hold before it.
-So undoing a kind's edit, which reopens the kept file with its old carry, holds nothing more and counts nothing
+So undoing a projection's edit, which reopens the kept file with its old carry, holds nothing more and counts nothing
 twice. An event stamped before the last minute
 written that arrives between the last pass and the index being made again may go uncounted in a held counter. The
-gauge is counted afresh from the new index: a kind edited so that its states change moves items between gauge series
+gauge is counted afresh from the new index: a projection edited so that its states change moves items between gauge series
 with no transition. So each pass over another epoch adds one to `ergostat_item_index_rebuilds_total`, which is held
 like the other counters, and a balance across it is `unsure`. `ergostat reset` forgets the checkpoint.
 
 Labels are bounded. Only `kind`, `state`, `from`, `to`, `le`, `field`, `type`, `source` and `milestone` can be labels
 (`Refused` for any other, so an item's id, a branch, a session or a commit never is one). A label with more than 100
-values in a kind's metric (`source` and `type`: in all of them) is left out, its series added together, and named in
+values in a projection's metric (`source` and `type`: in all of them) is left out, its series added together, and named in
 the checkpoint's `refused`. This is decided at each pass, from the index as it is then. So a label that passes the limit
 later ends its series there, and the summed series starts there.
 
@@ -1244,7 +1244,7 @@ log; `busy: ...` from `ergostat compact` and from the programs, which exit 0). T
 kernel's, never a pid file, so it goes when its holder's process dies.
 
 **The page's answers are bounded.** No answer grows with the record: events are at most 1,000 an
-answer (`n`, paged by `after` and `before`), items 500 (`offset`), a kind's finished items a thousand
+answer (`n`, paged by `after` and `before`), items 500 (`offset`), a projection's finished items a thousand
 dots (and how many there were), a chart's series a thousand buckets, a sensor's readings its latest
 60 and how many; a loop's crossings are read for the window (and the one before it), never the
 whole record. A client that hangs up before its answer is written is one line in the log, not a
@@ -1297,7 +1297,7 @@ system and its short name, the name the remote serves it by (§2a, *A part's sys
   sensor/open.main}`, every `every` or the sensor's own period there, whichever is longer; a flow a
   remote block moves, with no sensor of its own, gets one, `remote`, reading the remote's rate for it;
 - its **goals** are evaluated here from those readings, as monitors; its **agents** are `external: true`
-  (each keeps its rung); its **item kinds** stay there: the local fold never folds a remote's items;
+  (each keeps its rung); its **projections** stay there: the local fold never folds a remote's items;
 - each remote is also a **source** of type `ergostat` (§11) of the same name.
 
 **References into it.** A local part may read a remote part: a goal on it (`stock: incidents-open`), a
@@ -1309,7 +1309,7 @@ changed there. A reference the remote no longer serves is a finding, never a ref
 
 **Its parts are data here.** A remote's stocks are **given**: the replay takes each as read and never integrates
 it (`given` in the run, with the note *stock.X is remote NAME's: taken as read, never integrated here*), and the
-projection, open or closed loop, carries it as one of its inputs, held where it was or carried on along its trend,
+simulation, open or closed loop, carries it as one of its inputs, held where it was or carried on along its trend,
 as every input is; a local flow from or to it still moves the local stock. Left out of what the local record is held
 to: the fit's total and its stocks (the fit lists the remote's under `remote`, so the model's own error is not moved
 by the remote's dynamics), the residuals, what the record has not exercised (**not-exercised**), the account of a
@@ -1338,20 +1338,20 @@ remote-stale: that sensor's `sensor.failed` says it.
 
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
-in place like any system. In Process its kinds' maps are drawn beside ours, framed *remote incidents*.
+in place like any system. In Process its projections' maps are drawn beside ours, framed *remote incidents*.
 
-**Lines to a remote's items.** Where one of our items names a remote's item through a relation to the remote's kind
-(§5a, *A remote's kind*), the process map draws a related line, dashed, from the step our item was last at in the
+**Lines to a remote's items.** Where one of our items names a remote's item through a relation to the remote's projection
+(§5a, *A remote's projection*), the process map draws a related line, dashed, from the step our item was last at in the
 window to the step the remote says its item was last at (`at=` on `/remote/v1/process`, in the same request as its
 map). The ids sent are the distinct ids named, each 1 to 128 characters with no space or control character (any
 other is `bad-id`), sorted by id (never by time), as many as fit in 200 ids and 32,000 bytes of query (the rest
 `capped`); the remote refuses more than 200 (400). A link is drawn only when the remote's answer names its item with
-the relation's kind (`other-kind` otherwise) and a step (`not-answered` when the answer leaves it out, is malformed,
+the relation's projection (`other-projection` otherwise) and a step (`not-answered` when the answer leaves it out, is malformed,
 or the remote predates `at`), that step is in the remote's map as drawn (`not-drawn`) and our step in ours
 (`not-drawn-here`); an unreachable remote counts its links `unreachable`, after `bad-id` and `capped`, which are
 decided before the request. A link not drawn is never dropped: `remotes.NAME.unlinked` counts it by reason, and
 `linked` the ones drawn, so the two add up to every link; the side list says how many are not drawn and why.
-Several relations naming one id ask it once, and the answer is checked against each link's kind. No time of the
+Several relations naming one id ask it once, and the answer is checked against each link's projection. No time of the
 remote's is compared with one of ours, and the line never gates (§5a). The remote's map as last read in the window
 is drawn when it does not answer, marked `cached`, its `at` used only when it was for exactly the ids sent now.
 Its closed box shows, in this order of precedence: (a) the `show:` on its `remotes:` entry; else (b) the
@@ -1413,12 +1413,12 @@ what admits.
 |---|---|
 | `/remote/v1/status` | name, its `instance` id, model version, now, the newest event's `seq`, whether it runs |
 | `/remote/v1/model` | its model, `format: ergostat-model/1`: the merged document after includes and templates, redacted (no commands, prompts, queries, sources, workspaces or actions), with its `instance` id, `via` on every part (below), and `version` (16 hex of the SHA-256 of the canonical JSON of its format, instance and sections); `ETag` is the version |
-| `/remote/v1/events?after=SEQ` | events after the cursor in `seq` order, `n` ≤ 1,000, filtered by `type`, `item`, `kind`, `since`, `until`; `next` (the cursor) and `more` |
-| `/remote/v1/items`, `/remote/v1/items/ID`, `/remote/v1/counts` | the item listing (`n` ≤ 500), one item, items by kind and state |
+| `/remote/v1/events?after=SEQ` | events after the cursor in `seq` order, `n` ≤ 1,000, filtered by `type`, `item`, `projection`, `since`, `until`; `next` (the cursor) and `more` |
+| `/remote/v1/items`, `/remote/v1/items/ID`, `/remote/v1/counts` | the item listing (`n` ≤ 500), one item, items by projection and state |
 | `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time, its `now` and its `instance`; at most 200 a call |
 | `/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
-| `/remote/v1/process` | its process map (§5b); with `at=ID` (repeated, each id whole, at most 200), `at`: the kind and the step each id asked was last at in the window (an id with no step there left out) |
-| `/remote/v1/forecast` | its forecast, `forecast/v1` (§5a, *The forecast*), as it last worked it out, without the levelled schedule (with `group=PARENT`, `by`, `at_least`, `confidence`: that group's counts asked, in `asked`, §5a *Group counts*; a bad value 400): of the items `item=ID` (repeated, at most 200; `items_missing` the ones it has no estimate for) and `kinds=a,b`, else every item (at most 500, `items_left` the rest); never worked out on the request: 503 while the first is |
+| `/remote/v1/process` | its process map (§5b); with `at=ID` (repeated, each id whole, at most 200), `at`: the projection and the step each id asked was last at in the window (an id with no step there left out) |
+| `/remote/v1/forecast` | its forecast, `forecast/v1` (§5a, *The forecast*), as it last worked it out, without the levelled schedule (with `group=PARENT`, `by`, `at_least`, `confidence`: that group's counts asked, in `asked`, §5a *Group counts*; a bad value 400): of the items `item=ID` (repeated, at most 200; `items_missing` the ones it has no estimate for) and `projections=a,b`, else every item (at most 500, `items_left` the rest); never worked out on the request: 503 while the first is |
 
 **A remote composed of remotes.** An ergostat M that composes a remote A serves A's parts on to its own
 consumer L, which composes them like any of M's (`stock.m-a-open`, in the system `m-a` within `m`).
@@ -1476,7 +1476,7 @@ most); `ergostat remote refresh` asks each again now; `ergostat remote proposals
 remotes' owners (above). For agents, the MCP tool `remotes` (`name`, `proposals`) answers the same from the same rows, read only, with no remote asked, and on the last good model while the YAML is broken.
 
 **Its items and events in the pages.** The Items page adds, after the local systems, one section per remote,
-framed and marked *remote NAME · URL*: the remote's counts by kind and state and its newest 25 items, each linking
+framed and marked *remote NAME · URL*: the remote's counts by projection and state and its newest 25 items, each linking
 to `/item/ID?remote=NAME` (its fields, moves and events read there, marked remote, read only: no message box, no
 actions) and to the remote's own page (`URL/item/ID`). A remote item's `file:PATH` value names a file in the
 remote's project, so it is shown as its text, never read from this ergostat's `/api/file/` or drawn inline. It is asked
@@ -1486,14 +1486,14 @@ of them reaches the local record or fold.
 
 | Asked of the page | Answers |
 |---|---|
-| `/api/items?remote=NAME` (`kind`, `state`, `n` 1..500, `offset` 0..100,000) | `remote`, `url`, `ok`, `why`, `read`, `age`, `counts` (from `/remote/v1/counts`), `total`, `items` (each marked `remote`) |
+| `/api/items?remote=NAME` (`projection`, `state`, `n` 1..500, `offset` 0..100,000) | `remote`, `url`, `ok`, `why`, `read`, `age`, `counts` (from `/remote/v1/counts`), `total`, `items` (each marked `remote`) |
 | `/api/items/ID?remote=NAME` | `remote`, `ok`, `why`, `read`, `age`, `item` (the remote's own detail); 404 *no such item at NAME* on any 404 there, never a local item of the same id |
 | `/api/events?remote=NAME` (`n` ≤ 1,000, `type` a glob) | `remote`, `ok`, `why`, `read`, `age`, `events` from the cursor cache, in `seq` order, each marked `remote` |
-| `/api/forecast?remote=NAME` (`item=ID` repeated, at most 200, each id checked as for an item; `kinds=a,b`; a group's counts asked, `group=PARENT`, `by`, `at_least`, `confidence`, its id checked as an item's) | `remote`, `ok`, `why`, `read`, `age`, `forecast` (the remote's `/remote/v1/forecast`, §5a *The forecast*); an answer not of schema `forecast/v1`, or a 503 while the remote works its first out, is a failure, never an empty forecast |
+| `/api/forecast?remote=NAME` (`item=ID` repeated, at most 200, each id checked as for an item; `projections=a,b`; a group's counts asked, `group=PARENT`, `by`, `at_least`, `confidence`, its id checked as an item's) | `remote`, `ok`, `why`, `read`, `age`, `forecast` (the remote's `/remote/v1/forecast`, §5a *The forecast*); an answer not of schema `forecast/v1`, or a 503 while the remote works its first out, is a failure, never an empty forecast |
 
 Without `remote=` these answer as before; `/api/items` also says `remotes` (each name and url) when the model has
 any. `NAME` must be a key of `remotes:` (else 400 *no remote NAME (this model's: …)*). An item `ID` (such as
-`incident/3`: item kinds' ids hold a `/`) must be at most 200 characters of `/`-separated segments, each fully
+`incident/3`: a projection's ids hold a `/`) must be at most 200 characters of `/`-separated segments, each fully
 matching `[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*` (so no segment is empty or starts with `.`), and hold no `..`. This is
 checked before anything is sent (else 400), and the id then goes quoted whole as one path segment
 (`items/incident%2F3`), which the remote unquotes after splitting its path. It is an allowlist: an id with `%`, a
@@ -1501,7 +1501,7 @@ space, `\`, an empty segment or `..` is refused, and such an item is listed but 
 
 - **Bounded.** A remote's period is its `every` clamped to 10 s..10 min. In one period at most **8 requests** go to
   one remote for its items, counts, listings and details together; the counter goes up before each request, and a
-  request that fails counts. Counts are cached once a period; listings (by `kind`, `state`, `n`, `offset`) and
+  request that fails counts. Counts are cached once a period; listings (by `projection`, `state`, `n`, `offset`) and
   details (by id) up to 32 each a remote, the oldest dropped first; a cached answer younger than the period is
   served without asking. With the budget spent, a cached answer is served with its `age`; with none, 503 *NAME
   asked 8 times this period; again in Ts*. Its events are read at most once a period (a status call the first time,
@@ -1613,7 +1613,7 @@ machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**
 ## 4e. Asking for numbers: the query API
 
 Every chart reads through one read-only endpoint, `GET /api/query?q=<base64url of JSON>` (a GET, so a read-only public
-name can use it). `GET /api/query/fields` lists what can be charted (each kind under `moves` with its states, its
+name can use it). `GET /api/query/fields` lists what can be charted (each projection under `moves` with its states, its
 finished states and its `queue`, the states its work waits in to be taken, as the Graph gives them: the default
 Dashboard reads them there, and asks `GET /api/items` with `eta=0`, which leaves out the completion estimates and so
 never starts their simulation, so neither holds back its panels on a cold server; it asks first for the panels whose
@@ -1630,12 +1630,12 @@ just SQL or PromQL and can ask the same text of the source itself (`:since` and 
 
 ```json
 {"since": 86400, "until": null, "points": 120,
- "queries": [{"id": "a", "source": "items", "kind": "gap", "field": "ai_cost_usd",
+ "queries": [{"id": "a", "source": "items", "projection": "gap", "field": "ai_cost_usd",
               "where": {"state": ["merged"]}, "group_by": "state",
               "agg": "sum", "transform": "rate", "rate_per": "hour", "bucket": "auto"}]}
 ```
 
-- **The built-in kinds** (each a generator; what it writes is its `compiled`). `items`: a numeric field of a kind, SQL over
+- **The built-in kinds** (each a generator; what it writes is its `compiled`). `items`: a numeric field of a projection, SQL over
   `item_numbers`. `moves` (`measure`: `entries`, `exits` or `time_in_state`, with `state`): SQL over `transitions`.
   `counts`: items per state, the level at each bucket's end: SQL over `transitions` giving each move into a state (+1)
   and out of it (−1), those before the window summed in the SQL, their running total the level. `events` (`type`,
@@ -1654,7 +1654,7 @@ just SQL or PromQL and can ask the same text of the source itself (`:since` and 
 - **Transforms.** `none`; `rate`, per `rate_per` (`second`, `minute`, `hour`, `day`; by default the shortest in which the
   largest value is at least 1), over the seconds each bucket covers, so a part bucket is no dip; for a `series` with `agg:
   last` it is a counter's rate, a fall being a reset; `delta`; `cumulative`; `moving_avg` (`window` in buckets).
-- **Groups.** `group_by` is `state`, `kind`, a low-cardinality field, a group relation's field holding one id per
+- **Groups.** `group_by` is `state`, `projection`, a low-cardinality field, a group relation's field holding one id per
   item, or `state_group` (§5a, *Progress per group*), at most 12 groups, the rest added up as `other` (`capped` says
   how many).
 - **Frequency responses.** `frequency` with an `input` and an `output` estimates the response from the record (Welch's
@@ -1670,7 +1670,7 @@ just SQL or PromQL and can ask the same text of the source itself (`:since` and 
   carries no curve. Unrelated signals are refused this way in at least 95% of records. The page marks the points under
   the server's floor as unreliable, and when the server refuses it says that this data cannot support a response.
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
-  refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
+  refused with 400 and words naming what is wrong. A query that cannot be answered (a projection or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
 - **Data sources.** A query `{"id": "a", "source": "promql", "text": "sum by (block) (increase(ergostat_run_cost_usd[1d]))"}`
   names one of the two sources, `promql` or `sql` (any other name is refused, `error_kind: unknown`, saying there are
@@ -1777,38 +1777,38 @@ just SQL or PromQL and can ask the same text of the source itself (`:since` and 
   nothing is asked again for it, and the other panels still answer. A multi-value choice left empty is not kept in
   the address, so a reload takes the default again.
 - **The SQL source.** `sql` holds all item data, projected into SQLite: which items, one item against another, exact
-  medians, cohorts, and every built-in item kind's query. It is always there and never declared. A query is one SQLite
+  medians, cohorts, and every built-in kind's query over items. It is always there and never declared. A query is one SQLite
   SELECT over these documented, stable views of the project's items, and nothing else
   (`ergostat/datasources/_itemviews.py`). Times are Unix seconds, and `:since`, `:until` and `:step` are the panel's window.
-  - `transitions(id, kind, at, from_state, to_state, event, type)`: every move of every item. An arrival has no
+  - `transitions(id, projection, at, from_state, to_state, event, type)`: every move of every item. An arrival has no
     `from_state`, and a lease's moves into and out of `leased` are moves like any other.
-  - `item_fields(id, kind, field, value)`: each item's top-level fields now, a list or a map as JSON.
-  - `item_spans(id, kind, state, entered, left, entry, reason)`: one row per move of an item into a state.
+  - `item_fields(id, projection, field, value)`: each item's top-level fields now, a list or a map as JSON.
+  - `item_spans(id, projection, state, entered, left, entry, reason)`: one row per move of an item into a state.
     - `left` is null while the item is there, so an open item's current span is open.
     - `entry` is 1 the first time the item is in that state, 2 when it came back, and so on.
-    - `reason` is the finished state the item ended in (the kind's finished states, as the Items listing reckons
+    - `reason` is the finished state the item ended in (the projection's finished states, as its page reckons
       them), and null while the item is open.
     - Write `left` quoted (`"left"`) where SQL would read it as a join.
-  - `item_list(id, kind, state, first, last, entered, events)`: every item of every kind, as it is now.
-  - `item_numbers(id, kind, field, at, value, delta)`: each change of an item's numeric field: when, the value it took
+  - `item_list(id, projection, state, first, last, entered, events)`: every item of every projection, as it is now.
+  - `item_numbers(id, projection, field, at, value, delta)`: each change of an item's numeric field: when, the value it took
     and by how much it moved (what `items` reads).
-  - `item_labels(id, kind, label, value)`: what each item is labelled by for a filter or a group: its `state`, and each
+  - `item_labels(id, projection, label, value)`: what each item is labelled by for a filter or a group: its `state`, and each
     top-level field as a word (an empty or missing one `none`, a boolean `true` or `false`, a whole number without its
     `.0`, a list or a map `many`).
-  - `item_state_groups(id, kind, state_group)`: each item's stage in its group's progress (section 5a, *Progress per
+  - `item_state_groups(id, projection, state_group)`: each item's stage in its group's progress (section 5a, *Progress per
     group*), made in Python when the text names it.
   - `events(type, source, at, n)`: how many events of each type and source the item index folded in each minute ending
     `at` (what `events` reads; kept when events are taken out).
-  - One view per item kind, named for the kind with `-` read as `_`: `(id, state, first, last, entered, events, ...)`,
-    then the kind's `show:` fields that are plain words. A kind whose name is not then a plain word, or that is named
+  - One view per projection, named for the projection with `-` read as `_`: `(id, state, first, last, entered, events, ...)`,
+    then the projection's `show:` fields that are plain words. A projection whose name is not then a plain word, or that is named
     like a view above, has none.
-  - `item_stages`, `stage_estimates` and `item_progress`: the stages of the items of each kind declaring `pipeline:`,
+  - `item_stages`, `stage_estimates` and `item_progress`: the stages of the items of each projection declaring `pipeline:`,
     their expected times and each open item's time left (section 5a, *Stages*).
   - The forecast as last worked out (section 5a, *The forecast*; never worked out for a query, and a query naming one
     of these while there is none, or the simulation failed, is refused with why, never answered with no rows):
-    `forecast_items(id, kind, state, p50, p90, mean, start, dead, out, runs, basis, sample, computed, at, version,
+    `forecast_items(id, projection, state, p50, p90, mean, start, dead, out, runs, basis, sample, computed, at, version,
     estimate, none, why)`, one row an open item; and the aggregates, by labels the model bounds,
-    `forecast_kinds(kind, open, unscheduled, …)`, `forecast_stages(kind, state, open, unscheduled, …)` and
+    `forecast_projections(projection, open, unscheduled, …)`, `forecast_stages(projection, state, open, unscheduled, …)` and
     `forecast_groups(parent, open, unscheduled, …)` (at most 200 groups), each ending `p50, p90, runs, computed, at,
     version, estimate, none`, a group's then `members, out, lost, yield` (its counts' means, section 5a, *Group
     counts*; null when not counted). Times are Unix seconds; `basis` is "block dev" or "state review", `sample` the
@@ -1995,9 +1995,9 @@ dashboards:
     nav: This week                         # optional: in the header; the dashboard is at /week (true: its title)
     panels:                                # 1 to 24
       - {panel: goals, size: full}
-      - {panel: states, kind: ticket, size: l, note: Where tickets wait}
+      - {panel: states, projection: ticket, size: l, note: Where tickets wait}
       - {panel: chart, refs: [stock.backlog, stock.in-review], replay: true}
-      - {panel: items, kind: ticket, state: review}
+      - {panel: items, projection: ticket, state: review}
 ```
 
 Each panel is its kind (`panel:`), its words (`title`, `note`), its `size` (`s`, `m`, `l` or `full`, each with
@@ -2011,21 +2011,21 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `note` | nothing: its text | `text` (needed) |
 | `goals` | `GET /api/loops`: each goal's row | `goals` (default all), `columns` (any of `goal`, `status`, `measure`, `value`, `bound`, `far`, `timeOff`, `backIn`, `spark`, `performance`, `acted`, `card`, or `all`; default the first six with `spark` and `card`) |
 | `chart` | `GET /api/series` | `refs` (stocks, flows, auxiliaries; needed), `points`, `replay`, `fan` |
-| `items` | `GET /api/items` (with each open item's estimate) | `kind` (needed), `state`, `where`, `moved`, `moved_since`, `moved_until`, `through`, `followed`, `search`, `n` |
-| `states`, `cycle-time` | `GET /api/items-flow` | `kind` (needed), `points` |
+| `items` | `GET /api/items` (with each open item's estimate) | `projection` (needed), `state`, `where`, `moved`, `moved_since`, `moved_until`, `through`, `followed`, `search`, `n` |
+| `states`, `cycle-time` | `GET /api/items-flow` | `projection` (needed), `points` |
 | `scope` | `GET /api/loop-scope` | `goal` (needed), `points` |
-| `items-graph`, `timeline` | `GET /api/items-graph` (with its estimates) | `kinds`, `system` |
-| `query` | `GET /api/query`: the Dashboard page's own panel, as a kept draft holds it | `queries` (needed: 1 to 64, checked by the query engine's parser in the shape the page's `send` gives them: their own `id`, `label` and `hidden` left out, an `input` or `output` naming another query by id replaced by that query as written (one level), an `x.query` by id sent as a query of its own, a reference that leads nowhere or back along its path refused, queries asked alike sent once; every query is checked, a hidden one too, and no form's own adjustment is applied; a query's `kind` must be the model's), `form`, `display`, `layout` |
+| `items-graph`, `timeline` | `GET /api/items-graph` (with its estimates) | `projections`, `system` |
+| `query` | `GET /api/query`: the Dashboard page's own panel, as a kept draft holds it | `queries` (needed: 1 to 64, checked by the query engine's parser in the shape the page's `send` gives them: their own `id`, `label` and `hidden` left out, an `input` or `output` naming another query by id replaced by that query as written (one level), an `x.query` by id sent as a query of its own, a reference that leads nowhere or back along its path refused, queries asked alike sent once; every query is checked, a hidden one too, and no form's own adjustment is applied; a query's `projection` must be the model's), `form`, `display`, `layout` |
 | `diagram` | nothing: the page asks `GET /api/graph` itself | `address` (needed: a Diagram address, `/diagram?view=...`) |
 | `ladder` | `GET /api/agents`: how many agents fill each rung, and how many stand out (last run failed, never ran, behind) | none |
 | `agents` | `GET /api/agents`: every agent by rung, its roles, runs, schedule and what its runs cost in the window | none |
 | `daemons` | `GET /api/daemons`: the long-lived processes runs and readings are handed to | none |
 | `agent-what`, `agent-definition`, `agent-place`, `agent-runs`, `agent-log` | `GET /api/agents/AGENT`: what it is by its rung; its block as written; its place (goals served, roles, who commands it); its runs and their cost; its log's end | `agent` (needed: a block of the model's) |
-| `kinds` | `GET /api/items-overview`: each system's kinds as cards | `states` (`all` or `groups`) |
-| `items-by-kind` | `GET /api/items`: each kind's newest under its system | `q`, `finished` (`hide`, `waits`, `show`), `per_kind` (1 to 500) |
-| `kind-now` | `GET /api/items-flow`: a kind's states over the window and how long its finished took | `kind` (needed), `points`, `states` |
-| `kind-model`, `kind-definition` | `GET /api/kinds/KIND`: what in the model counts it, its goals and loops; its definition | `kind` (needed) |
-| `item-list` | `GET /api/items`: one kind's items, paged, searched and sorted by the server | `kind` (needed), `state` (one of its states), `q`, `sort` (`FIELD` or `-FIELD`), `finished`, `n` |
+| `projections` | `GET /api/items-overview`: each system's projections as cards | `states` (`all` or `groups`) |
+| `items-by-projection` | `GET /api/items`: each projection's newest under its system | `q`, `finished` (`hide`, `waits`, `show`), `per_projection` (1 to 500) |
+| `projection-now` | `GET /api/items-flow`: a projection's states over the window and how long its finished took | `projection` (needed), `points`, `states` |
+| `projection-model`, `projection-definition` | `GET /api/projections/PROJECTION`: what in the model counts it, its goals and loops; its definition | `projection` (needed) |
+| `item-list` | `GET /api/items`: one projection's items, paged, searched and sorted by the server | `projection` (needed), `state` (one of its states), `q`, `sort` (`FIELD` or `-FIELD`), `finished`, `n` |
 | `item-summary`, `item-path`, `item-relations`, `item-fields`, `item-refused`, `item-moves`, `item-events` | `GET /api/items/ITEM`: one part of an item | `item` (needed: any id) |
 | `item-why` | `GET /api/why`: why it is not done (as the record is now) | `item` (needed) |
 | `item-changes` | `GET /api/items/ITEM?history=`: each field's changes | `item` (needed), `history` (a field, or `all`) |
@@ -2039,30 +2039,30 @@ from these same panels, so a section seen on one page can be put on any dashboar
 
 A list may be written as one string, as the address writes it (`refs: stock.a,stock.b`). `check` refuses an unknown
 kind of panel, size or a value of the wrong type (**bad-dashboard**), an unknown key (**unknown-key**), and a
-reference to a stock, flow or auxiliary (or a sensor of one), a goal, an item kind, a state of the panel's kind, or a
+reference to a stock, flow or auxiliary (or a sensor of one), a goal, a projection, a state of the panel's projection, or a
 system that the model does not have (**unknown-ref**), each at its line. More than 24 panels, or a `window` longer
 than `keep:`, is **bad-dashboard**. The name `default` is the model's own (below), so it cannot be declared.
 
 **Its address is its name.** The page's addresses are the model's (section 8 of DESIGN.md): `/api`, `/static` and
 `/remote` are the server's, and every other path is resolved in this order. A dashboard is at `/NAME`
-(`/big-dashboard`; `/delivery.review` for one named by its file). A kind of item is at `/KIND`, its list, and each of
-its items at `/KIND/REST`, REST being what its id glob's `*` matched (`ticket/1` at `/ticket/1`; a kind whose glob is
+(`/big-dashboard`; `/delivery.review` for one named by its file). A projection is at `/PROJECTION`, its list, and each of
+its items at `/PROJECTION/REST`, REST being what its id glob's `*` matched (`ticket/1` at `/ticket/1`; a projection whose glob is
 not `PREFIX*` writes the whole id). Then ergostat's own pages, each a dashboard of panels at its name: `diagram`,
 `dashboard`, `goals`, `agents`, `record`, `agent/NAME` and `item/ID`. What the model names comes first: a dashboard
-named `goals` is drawn at `/goals` in place of ergostat's Goals page, and a dashboard named as a kind is that kind's
-page, its panels' `$kind` the kind. `?builtin=1` on any address shows ergostat's own page all the same. Each of
+named `goals` is drawn at `/goals` in place of ergostat's Goals page, and a dashboard named as a projection is that projection's
+page, its panels' `$projection` the projection. `?builtin=1` on any address shows ergostat's own page all the same. Each of
 ergostat's pages is made of these panels (`web/ui/src/lib/pages.ts`), so the Dashboard page offers a copy of Goals,
 Agents or Record to start a draft from, kept under that page's name.
 
 `nav: true` (or the link's words, at most 40 characters) puts a dashboard in the header, after ergostat's pages and
-the menu of the model's kinds. `page: agent`, `page: item` or `page: kind` draws a dashboard on every agent's, item's
-or kind's page instead (`/agent/NAME`, `/KIND/REST`, `/KIND`); its panels may write their parameter `$agent`, `$item`
-or `$kind` (`{panel: agent-runs, agent: $agent}`), taken from the address and checked there rather than against the
+the menu of the model's projections. `page: agent`, `page: item` or `page: projection` draws a dashboard on every agent's, item's
+or projection's page instead (`/agent/NAME`, `/PROJECTION/REST`, `/PROJECTION`); its panels may write their parameter `$agent`, `$item`
+or `$projection` (`{panel: agent-runs, agent: $agent}`), taken from the address and checked there rather than against the
 model. `check` refuses a dashboard named `api`, `static` or `remote` (**bad-name**); a `page:` not one of those three
 (naming one of ergostat's own pages says to name the dashboard so instead), `nav:` and `page:` together, and a
 `$WORD` the dashboard does not take (**bad-dashboard**); and a second dashboard for one `page:` (**defined-twice**). A
-kind named `api`, `static` or `remote` has no page (**unrouted-kind**), and one named as one of ergostat's pages is
-drawn in its place (**kind-takes-page**): findings, not errors.
+projection named `api`, `static` or `remote` has no page (**unrouted-projection**), and one named as one of ergostat's pages is
+drawn in its place (**projection-takes-page**): findings, not errors.
 
 **Namespaced by its file.** A dashboard written in a file whose `defaults:` sets a system is named `SYSTEM.NAME`
 (`delivery.review` in `factory/delivery.yaml`), so two systems' files may each have an `overview`.
@@ -2090,7 +2090,7 @@ the Supervisor proposes the same kind of change through `propose` with `kind: di
 **Served in one request.** `GET /api/dashboards` lists each dashboard: `name`, `title`, `description`, `panels` (how
 many), `window`, `declared`, `nav` and `page`, the model's own `default` first. `GET /api/dashboard/NAME?plain=1`
 answers its declaration alone, no panel worked out (a page whose panels ask for themselves); for a dashboard in place
-of the agent, item or kind page, `agent=`, `item=` or `kind=` fills its panels' `$WORD`, with or without `plain`. `GET /api/dashboard/NAME` (`since`, `at` as every
+of the agent, item or projection page, `agent=`, `item=` or `projection=` fills its panels' `$WORD`, with or without `plain`. `GET /api/dashboard/NAME` (`since`, `at` as every
 answer; else the dashboard's `window`) answers every panel at once: each panel's declaration (`panel`) and its
 `answer`, built by the same function its own endpoint calls on the same parameters, all on one snapshot of the
 state. The answer says that snapshot's number (`moment`) and `at`. `NAME` `default` is the model's own: for each
@@ -2146,7 +2146,7 @@ stocks:
 
 A stock with no sensor cannot be judged: any goal on it is reported (section 12).
 
-## 5a. Items
+## 5a. Projections and their items
 
 What the work is made of, one thing at a time: a ticket, a pull request, a deploy, a customer's
 order. An item is not written in the model; it is every event about one id, replayed in order.
@@ -2157,11 +2157,13 @@ have a `/`; the two never mix.) An event about an item comes from a block's outp
 observations, from `ergostat event --add`, pushed to the running ergostat (`POST /api/events`, a webhook: section
 5c), or from an agent over MCP (`record_event`).
 
-A kind of item says which ids are that kind, the states they move through, and how its events'
-data folds into it:
+A projection is a way of looking at a set of events: it folds the events whose ids it matches into its own table of
+the SQLite cache, kept up to date as events come in, and one id's row of it is an item (a projection's items). Several
+projections may look at the same events. A projection says which ids it matches, the states they move through, and
+how its events' data folds into each item:
 
 ```yaml
-items:
+projections:
   pr:
     id: github/pull_request/*        # a glob over ids
     states: [open, review, merged, closed]
@@ -2169,7 +2171,7 @@ items:
       pr.review-asked: review
       pr.merged: merged
       pr.closed: closed
-    show: [title, author]            # fields worth a column on the Items page
+    show: [title, author]            # fields worth a column on its page
     fold:                            # field: how the data events carry folds into it (else replace)
       reviewers: union
       comments: append
@@ -2178,25 +2180,25 @@ items:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `id` | glob with a `/` | required | Which ids are this kind. The first kind that matches an id is its kind |
+| `id` | glob with a `/` | required | Which ids it matches. The first projection that matches an id is its projection |
 | `states` | list of names | none | The states, in their usual order; a new item starts in the first |
 | `on` | map of event type → state | none | Which events move an item, and where to |
-| `show` | list of field names | none | Columns for the Items page and `ergostat item` |
+| `show` | list of field names | none | The columns of the projection's own page (`/PROJECTION`) and of `ergostat item` |
 | `formats` | map of field → format | by extension | How a file a field names is shown: `image`, `markdown`, `code`, `text`, `json`, or `claude-session` (a Claude Code transcript, as the conversation; its lines are also recorded as events, below) |
 | `fold` | map of field → rule | `replace` | How the plain `data` of its events folds into each field (the rules below) |
-| `relations` | map of name → kind(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
+| `relations` | map of name → projection(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
 | `join` | a rule, or a list | none | When its children move it on (*Join*, below) |
 | `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
-| `attention` | a field name | none | A finding said where it is seen: the words of this field on the kind's latest item that has them (by its latest event, then its id; blank words are none) are a warning on the page's attention list, naming the item, cut at 400 characters; a kind that cannot be read says so there instead. Only the latest: a newer finding replaces it. A relation's field is refused (`bad-attention`) |
+| `attention` | a field name | none | A finding said where it is seen: the words of this field on the projection's latest item that has them (by its latest event, then its id; blank words are none) are a warning on the page's attention list, naming the item, cut at 400 characters; a projection that cannot be read says so there instead. Only the latest: a newer finding replaces it. A relation's field is refused (`bad-attention`) |
 | `final` | list of its states | none | States no event moves an item out of: a later move is ignored and said (the item's `refused`, form `final`) |
-| `finished` | list of its states, not its first | none | The states it counts as finished, when `messages: done:` does not name the kind (a template's kind says its own: a template writes no `messages:`); `bad-finished` for a state it does not have, or its first |
+| `finished` | list of its states, not its first | none | The states it counts as finished, when `messages: done:` does not name the projection (a template's projection says its own: a template writes no `messages:`); `bad-finished` for a state it does not have, or its first |
 | `lost` | list of its states, not its first | none | Its finished states that are a loss (scrapped, rejected): a group's counts take an item ending there as lost, not out (§5a, *Group counts*); a state named that is not finished is never reached as a loss; `bad-lost` for a state it does not have, or its first |
 | `moves-from` | map of one of its `on:` events → a list of its states | none | The only states that event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for an event not in `on:` or a state it does not have) |
 | `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
-| `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{kind, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge`; any other rule for it is refused (`bad-pipeline`), as is a library's |
+| `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{projection, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge`; any other rule for it is refused (`bad-pipeline`), as is a library's |
 | `system`, `description` | | | |
 
-**Stages** (`ergostat/stages.py`). A kind with `pipeline:` is a pipeline: each of its items records the named stages it
+**Stages** (`ergostat/stages.py`). A projection with `pipeline:` is a pipeline: each of its items records the named stages it
 goes through as ordinary events, any type (the merge queue's are `batch.stage-started` and `batch.stage-finished`),
 whose data folds into the item's `stages` field by merge, keyed by a span id the recorder makes:
 
@@ -2209,20 +2211,20 @@ finish is `running` while its item is open and before its `until` (by when its r
 past either it is `unfinished`, so a recorder that died never reads as running. The SQL source (section 4e) answers
 three views of them, read in the same snapshot as the others:
 
-- `item_stages(id, kind, span, stage, run, run_kind, state, outcome, started, finished, seconds)`: each stage, in the
+- `item_stages(id, projection, span, stage, run, run_kind, state, outcome, started, finished, seconds)`: each stage, in the
   order the record began them. `state` is `done`, `running` or `unfinished`; `seconds` is the duration when done, the
   time so far when running, and null when unfinished.
-- `stage_estimates(kind, run_kind, stage, expected, samples)`: the median of the stage's latest 20 `passed` runs on the
-  same kind of item and of run, with how many there were. Under 3, `expected` is null: no estimate.
-- `item_progress(id, kind, run, run_kind, stage, note, elapsed, expected, samples, left)`: each open item's running
+- `stage_estimates(projection, run_kind, stage, expected, samples)`: the median of the stage's latest 20 `passed` runs on the
+  same projection and kind of run, with how many there were. Under 3, `expected` is null: no estimate.
+- `item_progress(id, projection, run, run_kind, stage, note, elapsed, expected, samples, left)`: each open item's running
   stages (one row a stage; none running, one row with a null stage). `left` is the time left: each running stage's
   expected less its elapsed (at least 0), the longest of those that run at once, plus the later steps of the latest
-  run of its kind whose stages all passed (a step: the stages that ran at once; its longest expected). It is null,
+  run of its projection whose stages all passed (a step: the stages that ran at once; its longest expected). It is null,
   with `note` saying why, when that run or an estimate is missing, when a stage of the item did not pass ("the
   remaining path depends on what fails"), or when one is unfinished.
 
 `GET /api/stages/metrics` gives the finished stages of every pipeline as one Prometheus histogram,
-`ergostat_stage_seconds` (`_bucket`, `_sum`, `_count`; buckets of 10 s to 4 h), labelled only by `kind`, `stage` (a
+`ergostat_stage_seconds` (`_bucket`, `_sum`, `_count`; buckets of 10 s to 4 h), labelled only by `kind` (its projection's name), `stage` (a
 declared name, else `other`) and `outcome` (one of the four, else `other`): a Prometheus that scrapes it answers PromQL
 over them. The default Dashboard gives each pipeline (two at most, with a `sql` source declared) a row of its own,
 named for its `title`: its running item and the line waiting, in the order `waiting` takes them; its stages now with
@@ -2230,38 +2232,38 @@ elapsed, expected and time left; each stage of its running item; its recent item
 each an ordinary SQL panel over these views.
 
 **Which states are finished.** One rule (`spec/finished.py`) decides it for the Items listing, the relations' status
-and critical path, and the completion estimates: the states `messages: {done:}` declares for the kind, else those
-the kind's own `finished:` names (*declared*, either way),
+and critical path, and the completion estimates: the states `messages: {done:}` declares for the projection, else those
+the projection's own `finished:` names (*declared*, either way),
 else the states after its first that no item has left yet (*inferred*, so it can change as items move); never its
 first state, a state a block takes from, `leased`, `dead`, or a state `messages: {paused:}` declares (those are
-*paused*, listed apart). A kind with one state, or with nothing declared and nothing inferable, *lives on*: it has
-no finished state (a pool is held, never done). `/api/items` gives each kind `finished`, `paused`, `dead` (a dead
+*paused*, listed apart). A projection with one state, or with nothing declared and nothing inferable, *lives on*: it has
+no finished state (a pool is held, never done). `/api/items` gives each projection `finished`, `paused`, `dead` (a dead
 letter ends its items), `finished_from` (`declared`, `inferred` or `none`) and `lives_on`, and the Items page says it
-in the tooltip of each kind's legend: `finished: merged, closed (declared)`, `finished: answered (inferred: no item
+in the tooltip of each projection's legend: `finished: merged, closed (declared)`, `finished: answered (inferred: no item
 has left it yet)`, or `lives on`, with `paused: …` after it. The same rule gives the cumulative flow's finished states
-and cycle times (a dead letter is not finished work, so none ends there), and, with `dead` added for a taken kind
-(where an item's life ends, the states the Items list hides: `finished.ends_of`), the process map's end and the final states `/api/items/<id>` gives (`kind_of.final`). Message
+and cycle times (a dead letter is not finished work, so none ends there), and, with `dead` added for a taken projection
+(where an item's life ends, the states the Items list hides: `finished.ends_of`), the process map's end and the final states `/api/items/<id>` gives (`projection_of.final`). Message
 routing keeps its own rule on purpose (`route_done_states`, §12h: where a message about an item goes, the `finished:`
-policy or the work): declared, else a kind's last state and each state no item has left *while some item reached a
+policy or the work): declared, else a projection's last state and each state no item has left *while some item reached a
 state after it*, because a state items rest in while none has gone on is waiting, not finished (a review briefed,
 waiting for its reviewer, still takes a message). Two uses keep the older rule (`itemindex.done_states`: declared,
-else a kind's last state when every state has been left), not on purpose but not yet moved: the open items listed
+else a projection's last state when every state has been left), not on purpose but not yet moved: the open items listed
 about a part (`spec/about.py`) and which items the item index keeps folded in memory.
 
-**Finished items, left out of the list.** The Items list shows the unfinished by default: each kind's finished states
-and `dead` are left out, its paused states (`parked`) stay listed, and a kind that lives on leaves out nothing. One
+**Finished items, left out of the list.** The Items list shows the unfinished by default: each projection's finished states
+and `dead` are left out, its paused states (`parked`) stay listed, and a projection that lives on leaves out nothing. One
 choice for the whole page says it, the address's `finished=hide|waits|show` (`hide` when absent; the list reads
 `waits`, the Graph's, as `hide`): the one control **Finished items: Hidden / Those waited on / Shown** beside the
-search writes it in all three views (the Timeline's default is `waits`: *Relations*), and under each kind that
+search writes it in all three views (the Timeline's default is `waits`: *Relations*), and under each projection that
 leaves any out a note says how many and which (`3 finished (merged, closed, dead) not shown · show`), its link
 flipping the same parameter. `GET /api/items` takes the same `finished=` (`hide` by default, `show`; anything else is
-refused) and gives each kind `hidden`, its count in each state left out; the counts per kind and state stay whole,
+refused) and gives each projection `hidden`, its count in each state left out; the counts per projection and state stay whole,
 and the items are paged by the item index over the other states, never cut first and filtered after. Three things
 are never left out, whatever the parameter: a state asked for (`state=closed` lists closed); a set a link carries
 (a stock's or a flow's *Show them on the Items page*, a valve's leased items, a process map's node or line: the list
 is exactly that set, so it counts what the part counts; a stock counting every state links with `finished=show`); and a search's matches
-(`q=`): a finished match is listed and counted apart (`1 finished match`; the answer's `finished_matched` per kind).
-A snapshot holds every item and leaves the finished out on the page. A click on the page (a state, a kind, the
+(`q=`): a finished match is listed and counted apart (`1 finished match`; the answer's `finished_matched` per projection).
+A snapshot holds every item and leaves the finished out on the page. A click on the page (a state, a projection, the
 toggle) says *Loading…* under the heading at once and filters the rows already drawn; it aborts the request of the
 click before it, and the 4 s poll never runs while a click's answer is pending. The Graph's and Timeline's
 requests for each system are asked together.
@@ -2277,7 +2279,7 @@ folded into that document in sequence. The event chooses how it changes it, in o
 - **`set`**: the whole document, at once. It is the patch that removes every field and adds each
   field of the new document back, and it is applied, and kept in history, as exactly that.
 - **`data`**: what blocks and scripts emit. Each key is folded into the field of that name by its
-  kind's rule for it, and becomes the patch operations that do so; a key with no rule replaces its
+  projection's rule for it, and becomes the patch operations that do so; a key with no rule replaces its
   field (an `add` at its path, a `replace` when it was there).
 
 A changeset applies whole or not at all. A `test` that does not hold, a path that is not there,
@@ -2325,26 +2327,26 @@ file in a cell is a link, never a table in a cell. An item can be read as it sto
 time (`--at`, the pages' time travel): its fields, its state and its history are folded from
 the events up to then.
 
-**Search.** `ergostat item --search "WORDS" [--kind K] [--state S] [-n N] [--json]` and `/api/items?search=WORDS`
-(with `kind`, `state`, `n` and `offset` as the listing takes them) list the items whose text contains every word, newest
+**Search.** `ergostat item --search "WORDS" [--projection K] [--state S] [-n N] [--json]` and `/api/items?search=WORDS`
+(with `projection`, `state`, `n` and `offset` as the listing takes them) list the items whose text contains every word, newest
 first, in the listing's shape. An item's text is the string values of its fields, nested ones too, in the document's
 order, casefolded (Python's `str.casefold`, as the words are: `STRASSE` finds `straße`); keys, numbers and its id are
 not in it. A word matches as a plain substring (`alpha` finds `alphabet`; `%` and `_` are only themselves): there is no
 ranking and no fuzzy match. Only the first 65,536 characters of an item's text are kept (`items.TEXT_MOST`): a word
 past them is not found. A search is 1 to 8 words; an empty one, or more, is refused (exit 2, HTTP 400), never answered
-with every item. It answers as of now: with `--at` (or `at=`) it is refused. It narrows by kind and one state only:
+with every item. It answers as of now: with `--at` (or `at=`) it is refused. It narrows by projection and one state only:
 `/api/items?search=` with a set's filters (`where`, `moved`, `through`, `followed`, `caused`, `alone`, a list of
 states) is refused (HTTP 400), never answered with the filter dropped. The text is kept in the item index,
 on the item's own row, written with it and replaced each time the item is folded again (a changed field, a `set`, a
 snapshot), and gone when the item is; an index from before it is rebuilt from the record, and a row without its text
 has the index rebuilt before a search reads it. The Items page's own search box is apart from this.
 
-**Relations.** An item may name other items: a ticket blocked by another, a ticket's epic, a duplicate. A kind
-declares its relations, each a field of the item holding the ids it names, of the kinds it says (any kinds:
-cross-kind is the usual case):
+**Relations.** An item may name other items: a ticket blocked by another, a ticket's epic, a duplicate. A projection
+declares its relations, each a field of the item holding the ids it names, of the projections it says (any projections:
+cross-projection is the usual case):
 
 ```yaml
-items:
+projections:
   epic:
     id: epic/*
     states: [planned, underway, shipped]
@@ -2354,71 +2356,71 @@ items:
     id: ticket/*
     states: [todo, doing, review, done]
     relations:
-      blocked_by: ticket                    # a kind, or a list of kinds
+      blocked_by: ticket                    # a projection, or a list of projections
       parent: epic                          # a group
-      duplicates: {kind: [ticket, epic], inverse: duplicated_by}
-      relates_to: {kind: ticket, precedence: false}
+      duplicates: {projection: [ticket, epic], inverse: duplicated_by}
+      relates_to: {projection: ticket, precedence: false}
 messages:
-  done: {ticket: [done], epic: [shipped]}   # what each kind counts as finished (else as the item index says)
+  done: {ticket: [done], epic: [shipped]}   # what each projection counts as finished (else as the item index says)
   paused: {ticket: [on-hold]}               # states an item waits in, held by hand: not finished, not moving
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `kind` | a kind, or a list | required | The kinds it may name (the short form, `blocked_by: ticket`, is only this) |
+| `projection` | a projection, or a list | required | The projections it may name (the short form, `blocked_by: ticket`, is only this) |
 | `precedence` | true or false | true for `blocked_by`, `after`, `depends_on` | Its targets come first: the item is **ready** only once each item it names is finished |
 | `inverse` | a name | `blocks`, `before`, `dependents`, `children`, `duplicated_by`, `related_from`; else `NAME_of` | The other direction's name. Never written: ergostat derives it |
 | `group` | true or false | true for `parent` | A parent: the Graph view hangs its children off it, and the critical path treats it as their summary |
-| `starts_at` | a list of states | none | Precedence only: the target's states, besides finished, in which it no longer blocks (start-to-start: `depends_on: {kind: gap, starts_at: [approved]}`) |
+| `starts_at` | a list of states | none | Precedence only: the target's states, besides finished, in which it no longer blocks (start-to-start: `depends_on: {projection: gap, starts_at: [approved]}`) |
 | `done_when` | a map of state → fields | none | A group only: in its groups' progress, an item in that finished state counts as done work only when its fields match (each a value or a list of them); else it leaves the total (*Progress per group*, below) |
 
-**Starting before a target finishes.** A precedence relation's `starts_at` names states of the kinds it names: a
+**Starting before a target finishes.** A precedence relation's `starts_at` names states of the projections it names: a
 target in one of them does not block, so the item's status is *unblocked* (not *blocked*), it is not waited on, and
 `takes: {unblocked: true}` (section 9.5) may take it. Only the state the target is in now counts: one that moves on
 to a state not named, and not finished, blocks again, so name each state from which on the dependent may start. A
 target held under a lease (state `leased`) counts by the state it was taken from (the lease's `back`): one taken
-from `approved` still counts as approved, one taken from its first state still blocks. It changes nothing else: the critical path, slack, the projected schedule and the completion estimates stay
-finish-to-start (conservative: the dependent is projected to start once its target ends). `check` refuses a state
-none of the kinds named has (`starts-at-unknown-state`), `starts_at` on a relation that is not precedence (a group,
-`precedence: false`, a remote's kind: `starts-at-not-precedence`), a finished or paused state (`messages: done:`,
-else the kind's last declared state, not counting the `leased` and `dead` a taken kind gains; `messages: paused:`;
+from `approved` still counts as approved, one taken from its first state still blocks. It changes nothing else: the critical path, slack, the schedule ahead and the completion estimates stay
+finish-to-start (conservative: the dependent is expected to start once its target ends). `check` refuses a state
+none of the projections named has (`starts-at-unknown-state`), `starts_at` on a relation that is not precedence (a group,
+`precedence: false`, a remote's projection: `starts-at-not-precedence`), a finished or paused state (`messages: done:`,
+else the projection's last declared state, not counting the `leased` and `dead` a taken projection gains; `messages: paused:`;
 or `dead`: `starts-at-finished`, a finished target never blocks), and `leased` (`starts-at-leased`: name the state
 it is taken from). The
 Items API and the item page give each relation with its `starts_at`.
 
 **Progress per group.** A group relation whose field holds one id per item (it folds by `replace`: a gap's
 `milestone`) has its groups' progress (`spec/grouptally.py`), read from the item index (the items as folded now and
-their moves), never by replaying events. Each group its items name, every item of the kinds it names (an empty one
+their moves), never by replaying events. Each group its items name, every item of the projections it names (an empty one
 too), a value naming no item (an old label), and the items naming none, is a row: its members by status group, *done*
 (finished), *in progress* (active or queued), *waiting* (first state, or blocked: an item its precedence relations
 name is not finished, as the Graph reads it, one not in the record not known to be; or its group has not started, in
-its kind's first state, as a milestone still waiting; an active member stays in progress, its work begun) and
+its projection's first state, as a milestone still waiting; an active member stays in progress, its work begun) and
 *stopped* (paused, a dead letter), of its total; the group's state and what its precedence relations name that is not finished (one not in the
 record is not known to be finished), and its set (`where=REL:ID`; none: `REL:null` and `REL:`), exactly its members.
-Two kinds of member leave the total, counted apart: one in a finished state the relation's `done_when` names whose
-fields do not match it (`milestone: {kind: milestone, group: true, done_when: {closed: {end: done}}}`: a gap closed as
-a duplicate, or abandoned, or with no end said, is no done work; `check` refuses a state the kind lacks, an empty map,
+Two sorts of member leave the total, counted apart: one in a finished state the relation's `done_when` names whose
+fields do not match it (`milestone: {projection: milestone, group: true, done_when: {closed: {end: done}}}`: a gap closed as
+a duplicate, or abandoned, or with no end said, is no done work; `check` refuses a state the projection lacks, an empty map,
 a key given with no map (null, `[]`, `false`, `0`, `""`: refused at the key, never a crash), a value that is not a string, number, boolean or null, or a list of them, and `done_when` on a relation that is not a
-group), and one that is itself a group of members of its kind by another group relation (a split parent: counted as
+group), and one that is itself a group of members of its projection by another group relation (a split parent: counted as
 its parts, wherever they are). A member whose field holds anything but one id (a list) is in no row, and said. Rows run
 by the group's status (active first, then queued, unblocked, blocked, paused, dead, done), then when it was first
 seen; values naming no item after them, the members naming none last. Over the window, each row's count of done
 members at `points` moments (2 to 200), from their moves (membership and `done_when` as they are now).
-`GET /api/items-groups?kind=K&by=REL[&points=N]` answers it, as of now, as a table a chart reads as it is: `rows` the
-categories, `stacks` the series stacked in each, and each row's `done` over `times` (at most 20,000 items of the kind
-and of each group kind: past that it is refused, never cut). `ergostat item --kind K --groups REL [--json]` prints
-it. The Items listing and the overview name each kind's relations it is offered for (`progress`), and the kind's card,
-on the overview and on the kind's own page, draws a compact row a group under its chart (on the overview, the card
+`GET /api/items-groups?projection=K&by=REL[&points=N]` answers it, as of now, as a table a chart reads as it is: `rows` the
+categories, `stacks` the series stacked in each, and each row's `done` over `times` (at most 20,000 items of the projection
+and of each group projection: past that it is refused, never cut). `ergostat item --projection K --groups REL [--json]` prints
+it. The Items listing and the overview name each projection's relations it is offered for (`progress`), and the projection's card,
+on the overview and on the projection's own page, draws a compact row a group under its chart (on the overview, the card
 two columns wide): its name and title, a bar (done, in progress, waiting, stopped), done of
 its total, its state and what it waits on. The active ones and the row for none are shown, the rest folded behind one
-button that says how many and in which states. A row's click opens its set (from the overview, on the kind's own
-page, `/KIND?where=REL:ID`): the list, and the Graph and the Timeline,
-which narrow to a set's `where` on a relation of the kinds asked (its items, and what they wait on).
+button that says how many and in which states. A row's click opens its set (from the overview, on the projection's own
+page, `/PROJECTION?where=REL:ID`): the list, and the Graph and the Timeline,
+which narrow to a set's `where` on a relation of the projections asked (its items, and what they wait on).
 The query engine (dashboard panels) reads the same: the group relation's field (`milestone`) and `state_group`, each
 item's stage as its progress counts it (one of the four, or `left`, `summary`, `odd`: out of the total; under the
-kind's first relation offered, else by its status), are labels to group and filter by, offered in
+projection's first relation offered, else by its status), are labels to group and filter by, offered in
 `/api/query/fields` (`group_by`; an empty text reads as `none`). A stacked bar panel of gaps by milestone is four
-`counts` queries, `{"source": "counts", "kind": "gap", "x": {"type": "category", "by": "milestone"}, "where":
+`counts` queries, `{"source": "counts", "projection": "gap", "x": {"type": "category", "by": "milestone"}, "where":
 {"state_group": "done"}}` and the same for `in progress`, `waiting` and `stopped`: each category's level at the
 window's end is that row's count. Like every category chart, at most 12 categories a query, the rest added up as
 `other`.
@@ -2430,14 +2432,14 @@ what an item names and what names it (the inverse: `blocks`, `children`) are bot
 them both ways, each related item with its state, and what it waits on first. A link to an id that was never
 recorded is kept, and said: what it names is not known to be finished.
 
-**A remote's kind.** A relation may name a remote's item kind by its local name (`blocked_by: incidents-incident`,
-for the kind `incident` of remote `incidents`, §4c): a kind that is not a local kind and starts with a remote's
-name and `-` (the longest such name, when more than one fits). A local kind of that name comes first: the relation
-is local, and nothing is asked of the remote. A remote relation names only that kind (with another kind it is an
+**A remote's projection.** A relation may name a remote's projection by its local name (`blocked_by: incidents-incident`,
+for the projection `incident` of remote `incidents`, §4c): a projection that is not a local projection and starts with a remote's
+name and `-` (the longest such name, when more than one fits). A local projection of that name comes first: the relation
+is local, and nothing is asked of the remote. A remote relation names only that projection (with another projection it is an
 error, `bad-relation`), is never precedence or a group, whatever its name (`precedence: true` on it is an error,
 `remote-relation-precedence`: ergostat does not see when a remote's item is finished, so it cannot gate on it;
 `group: true` is `bad-relation`), so an item it names never blocks, and is not waited on by `takes: {unblocked:
-true}`. It is checked against the remote's model as last read: a kind the remote no longer serves, or a remote
+true}`. It is checked against the remote's model as last read: a projection the remote no longer serves, or a remote
 never read, is a finding (`remote-reference-unresolved`), never an error. It is drawn in the process map (§4c).
 
 **Graph queries.** Three questions over the links, both ways, and the items' fields (`spec/itemgraph.py`), as the
@@ -2446,7 +2448,7 @@ record is now: `ergostat item ID --near [N]`, `ergostat item A --path B`, `ergos
 - **near**: the items within `N` hops (1 to 4, default 1), each with its distance and the step that first reached it
   (`via`: the item it came from and the relation).
 - **path**: a shortest chain of relations from A to B (breadth first, the fewest steps), walked either way. A step
-  walked backward is named by the relation's inverse: the one the kind declares (`inverse:`), else `blocks`,
+  walked backward is named by the relation's inverse: the one the projection declares (`inverse:`), else `blocks`,
   `children`, `before`, `dependents`, `duplicated_by`, `related_from` for the relations of those names, and `NAME_of`
   for any other (`relations.inverse_of`; any relation may be walked, the names are not an allowlist). `says` is
   `found`, `no path` (every item reachable was visited), or `none within the cap`.
@@ -2465,23 +2467,23 @@ no depth at all is 1; the API reads an empty `depth=` as none).
 
 **Why it is not done.** `ergostat why ID [--json]`, `GET /api/why?item=ID` and MCP's `why` answer one question for
 any item, as the record is now (`--at`, `at=` are refused), from the item index and the model only (`ergostat/why/`;
-nothing in it names a kind, state or block of any model). The item's page shows it first, as *Why isn't this done?*,
+nothing in it names a projection, state or block of any model). The item's page shows it first, as *Why isn't this done?*,
 while the item is unfinished. The answer:
 
-- **now**: its state, since when and for how long, against the stays its kind's latest 2,000 items made in that state:
+- **now**: its state, since when and for how long, against the stays its projection's latest 2,000 items made in that state:
   longer than which share of them, and *unusual* past nine in ten; with fewer than 5 stays it says so and calls
   nothing unusual.
 - **the cause**, followed to its end: the precedence targets it waits on (as *Relations* reads them: unfinished, not in
   a `starts_at` state), what each of those waits on, depth first in link order, to each **root**: `work` (held by a
   lease whose taking recorded the pid of the process that took it, that pid running and an engine running; or in a
-  working state no block takes from: in progress outside ergostat, saying, for a kind with precedence relations, that
+  working state no block takes from: in progress outside ergostat, saying, for a projection with precedence relations, that
   what it waits on is finished, or that it waits on nothing recorded, and the item's own `stuck` text when one is
-  recorded (a program's reason it cannot go on); the next step is the first of its kind's `on:` events, in the order
-  written, that moves it out of its state, not back to its kind's first and not barred by `moves-from:`, given as the
+  recorded (a program's reason it cannot go on); the next step is the first of its projection's `on:` events, in the order
+  written, that moves it out of its state, not back to its projection's first and not barred by `moves-from:`, given as the
   `ergostat event --add` that records it), `person` (the owner asked to
   answer a gated action about it, or a gate whose input a person reads by hand: a manual sensor; or, with no block
-  taking it from its state, a person block's goal on a part a sensor counts from its kind's items in that state,
-  with no `where:`: the person is asked to do it, and the next step is the first of its kind's `on:` events, in the
+  taking it from its state, a person block's goal on a part a sensor counts from its projection's items in that state,
+  with no `where:`: the person is asked to do it, and the next step is the first of its projection's `on:` events, in the
   order written, that moves it out of the states counted and not back to its first, given as the
   `ergostat event --add` that records it, and the inbox's `--done N` after), `pool-full` (the
   block's runs at once are its pool now, the holders named; a holder whose lease is dead is the root instead, `via`
@@ -2494,36 +2496,36 @@ while the item is unfinished. The answer:
   --no-count`; past its expiry and not ended; or given back and put off), `block` (no engine running, or its last 3
   runs failed), `closed` (a gate's
   zero factor whose every input reads 0: a goal holding, an intake shut), `parked` (paused in a state
-  `messages: paused:` names, or a dead letter), `nothing` (no block takes its kind from its state, or a block's
+  `messages: paused:` names, or a dead letter), `nothing` (no block takes its projection from its state, or a block's
   `where:` does not match its fields), `cycle` (it waits on itself: the loop named), `missing` (it waits on an id
   never recorded), and `unknown` (what holds it is not in the record: a gate with no reading, a factor whose input
   has none, a field that cannot be read, a lease whose taking recorded no pid, as with no `budget:` declared, so that
   whether its process runs is not known, or nothing found holding it). Each root says who or what must act (`owner`),
   the action and the command. Up to 200 items are looked at and 8 roots kept; the first is the answer's.
 - **place** (`ergostat/why/within.py`): where it is held as one of many, when a relation of the model may name its
-  kind (one that declares an `inverse`, and is neither precedence, a group nor a remote's): `in`, the unfinished items
-  naming it (at most 5), each with its state and the first 3 of its kind's `show:` fields that hold a value (a batch
-  naming the gaps it tests: "It is in batch/x (isolating; size 3; run 6; outcome crashed)"); else `ahead`, per kind,
-  how many unfinished items of it name an item of its kind in its state (a leased one in the state it was taken from)
+  projection (one that declares an `inverse`, and is neither precedence, a group nor a remote's): `in`, the unfinished items
+  naming it (at most 5), each with its state and the first 3 of its projection's `show:` fields that hold a value (a batch
+  naming the gaps it tests: "It is in batch/x (isolating; size 3; run 6; outcome crashed)"); else `ahead`, per projection,
+  how many unfinished items of it name an item of its projection in its state (a leased one in the state it was taken from)
   or one whose last take (its last move into `leased`) was from its state and that has not come back to it since (the
   gap a batch tests, taken from approved and then queued, is ahead of an approved gap; a gap in an earlier state,
   which no take of the batch's gaps was from, has none ahead), and the latest of them ("ahead of it: 1
-  unfinished batch item, the latest …"). Null when no relation may name its kind; a holder that cannot be read is
+  unfinished batch item, the latest …"). Null when no relation may name its projection; a holder that cannot be read is
   said under **missing**, never raised. The summary carries it.
 - **evidence**: each claim's event or reading, with a link (the item's page, `/api/events/ID`, the block in the
   Blocks view); **missing**: what the record cannot tell, never guessed.
 - **summary**: one paragraph to paste to someone else.
 
-A finished item says it is done; an item of a kind that lives on says it is never done; an id never recorded says
+A finished item says it is done; an item of a projection that lives on says it is never done; an id never recorded says
 so; none of them has a cause. The item's page asks for the answer only while the item is unfinished, and redraws for
-it only when what it says changes (its roots' kinds, items, owners, actions, commands, paths and evidence), since its
+it only when what it says changes (its roots' projections, items, owners, actions, commands, paths and evidence), since its
 time and durations differ at every poll. The engine is read from its run lock and `heartbeat.json` (running: the lock held and the last pass within the
 watcher's limit). An item's own state is never folded from its events; only the evidence is looked up, a few events
 at most per item. On a record of 3,000 items it answers in under 100 ms (`tests/test_why.py`).
 
 **What holds the work up.** `ergostat held-up [--json]`, `GET /api/held-up` and MCP's `held_up` answer for the whole
-system, as the record is now (`ergostat/why/held.py`). Every unfinished item of the model's own kinds (not in a
-finished state, of a kind that does not live on; the `ergostat.*` kinds are left out) is followed to its roots as
+system, as the record is now (`ergostat/why/held.py`). Every unfinished item of the model's own projections (not in a
+finished state, of a projection that does not live on; the `ergostat.*` projections are left out) is followed to its roots as
 `why` follows one, each item's roots worked out once (an item that waits on another takes that one's roots; a link
 back to an item still being followed is a `cycle`). Items with the same root are grouped: a root about one item (a
 lease, work going on, a parked or missing item, an action asked of the owner) is that item's; a block's, a gate's or
@@ -2535,7 +2537,7 @@ on, a full pool of live runs, a give-back's wait) or **unknown** (the record can
 first, then unknown, held and queue, and within each by the items waiting on it, the items it holds and their hours
 of waiting (in their state); each names its first 5 items in the order its block would take them (`takes: order:`,
 then the longest waiting). A goal is off by its last recorded crossing (`loop.off`); one whose stock or auxiliary
-counts items (`items:` sensor) is folded under the root holding most of the unfinished items it counts, and one that
+counts items (`projection:` sensor) is folded under the root holding most of the unfinished items it counts, and one that
 counts none is said as *not traced to an unfinished item*. The answer's `line`, also `/api/status`'s `held_up`
 (worked out again when the record moves or after 30 s, a failure said in it rather than failing the status; not in
 the page's header, which keeps its room for the navigation), is the first stall in words with how much waits on it and its next
@@ -2546,50 +2548,50 @@ them when it ranks lower (`more` counts the rest, none holding more than it). On
 unfinished) it answers in under 200 ms (`tests/test_held_up.py`).
 
 **What the model must say for why.** An item in a working state no block takes is `work` outside ergostat, its owner
-whoever records the first of the events that move it on, in the order its kind's `on:` writes them (not one into its
-own state or the kind's first, nor one whose `moves-from:` leaves its state out), so a kind writes its way on first,
-and a kind whose first state no event enters (`new`) writes the events items arrive by last: a move into an earlier
+whoever records the first of the events that move it on, in the order its projection's `on:` writes them (not one into its
+own state or the projection's first, nor one whose `moves-from:` leaves its state out), so a projection writes its way on first,
+and a projection whose first state no event enters (`new`) writes the events items arrive by last: a move into an earlier
 state is then the owner only of a state with no other way on.
 `check` finds
-`wait-unexplained` (`spec/waits.py`) for a kind whose finished states `messages: done:` declares, not `ergostat.*`,
+`wait-unexplained` (`spec/waits.py`) for a projection whose finished states `messages: done:` declares, not `ergostat.*`,
 sealed or made by a template, with no precedence relation, and a state an `on:` event moves its items into that is
-not finished, paused, `leased` or `dead`, that no block's `takes:` names, and that is either the kind's first state
-(where items wait to be taken: `why` can only say `nothing`) or one no event of the kind moves an item out of (`work`
-with no one named). A kind whose finished states are inferred from the record is not judged. The agent guide's section 3m is how
+not finished, paused, `leased` or `dead`, that no block's `takes:` names, and that is either the projection's first state
+(where items wait to be taken: `why` can only say `nothing`) or one no event of the projection moves an item out of (`work`
+with no one named). A projection whose finished states are inferred from the record is not judged. The agent guide's section 3m is how
 to build a model that answers (`tests/test_why_guide.py` runs its worked example and every command in it).
 
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:
 
-- **Each item's status**, derived: *done* (in a state its kind counts as finished, `messages: done:`, else as the
+- **Each item's status**, derived: *done* (in a state its projection counts as finished, `messages: done:`, else as the
   item index says; never its first state, a state a block takes from, `leased` or `dead`); *active* (leased, or in a
   working state: past its first, not one a block takes from, not finished); *queued* (started, and waiting in a later
   state a block takes from, such as review); *blocked* (a precedence relation names an item not finished, a paused
   one too: it is named as what the item waits on); *unblocked* (in its first state, nothing it waits on unfinished;
-  not "ready", which is often a state's name); *paused* (in a state its kind declares paused, `messages: paused:`:
+  not "ready", which is often a state's name); *paused* (in a state its projection declares paused, `messages: paused:`:
   not finished, not active, kept out of the critical path, and not scheduled by the completion estimates, "paused:
-  continued by hand", with no projected bar); *dead* (a dead letter).
-- **Durations**: each kind's time per state, the median of the stays its latest 2,000 items made in it (`leased`, a
+  continued by hand", with no bar ahead); *dead* (a dead letter).
+- **Durations**: each projection's time per state, the median of the stays its latest 2,000 items made in it (`leased`, a
   run's hold, counted as the work it is), weighted by how often a finished item visits the state (a rework state,
   seldom). An item's expected duration is that of its states after its first that are not finished (the wait in
   its first state is the schedule's to say); a started item's, what is left of its state and the states after it.
-  A kind with no stays yet takes the median of the kinds that have them, else ten minutes, said as assumed.
+  A projection with no stays yet takes the median of the projections that have them, else ten minutes, said as assumed.
 - **The critical path** (the critical path method, Kelley and Walker): a forward pass over the unfinished items in
-  precedence order (each starts once what it waits on is expected to end; a started item now: one past its kind's
+  precedence order (each starts once what it waits on is expected to end; a started item now: one past its projection's
   first state and not waiting in a state a block takes from, or held), a backward pass
   from the last expected end, and each item's **slack**, how long it may slip without moving that end; the
   critical items have none. A parent with unfinished children is their summary: what comes before it comes before
   its children, what comes after it waits for all of them. The critical path itself is not levelled (a block's
   capacity is not in it): it is marked, and labelled for what it is, "the longest chain of waits, ignoring
   capacity", never with a clock time.
-- **The levelled projection**: the forward pass again, each block at most its capacity at once (the serial
+- **The levelled schedule**: the forward pass again, each block at most its capacity at once (the serial
   schedule-generation scheme of resource-constrained scheduling). In precedence order, the least slack first, then the
   longest path ahead (the dispatcher's tie-break), each item is placed at the earliest time what it waits on is done
   and the block that takes it from its state has a lane free. A state a block takes from is a wait that holds no
   lane: the block takes the item when the wait's median is out, or later when none of its lanes is free by then (the
   levelling's wait then stands in for the median's, never both, so contention is counted once). A working state is
-  the block's that took it from the queue before it, a hold its holder's; each state its kind's median time.
+  the block's that took it from the queue before it, a hold its holder's; each state its projection's median time.
   A block's capacity (its pool, or its pool now from its stock, its agent's seats, its daemon's runs at once, whichever
   binds) is decided in one place, `etamodel.capacities`, worked out once per snapshot and kept with it; the completion
   estimates' simulation reads the same table, so the two change together. Its bars and its end are what the Timeline
@@ -2597,18 +2599,18 @@ for:
   replaces it when worked out") before the estimates are worked out, whenever they fail, and at a moment travelled to
   (the estimates are of now only). Not in it: an agent's seats or a daemon's runs shared between blocks (each block's
   own capacity only).
-- **The projected schedule**: each unfinished item's states ahead, from the levelled projection, state by state; once
+- **The schedule ahead**: each unfinished item's states ahead, from the levelled schedule, state by state; once
   the completion estimates are worked out, from a levelled run of their simulation instead (below).
 - **Cycles**: items whose precedence relations go round can never all be ready. Each cycle needs attention
-  (`ergostat`, the page's side panel), and is left out of the projection.
+  (`ergostat`, the page's side panel), and is left out of the schedule.
 
-**About.** An item may say which parts of the model it bears on: a lesson about a goal, a note about a stock. A kind
+**About.** An item may say which parts of the model it bears on: a lesson about a goal, a note about a stock. A projection
 opts in by naming the field that holds them, `about: FIELD`; the field holds one name or a list, each in the text
 form a claim's `about` uses: `goal.x`, `stock.x`, `flow.x`, `auxiliary.x`, `block.x`. ergostat declares no such
-kind of its own, and a model none of whose kinds declares `about:` looks nothing up.
+projection of its own, and a model none of whose projections declares `about:` looks nothing up.
 
 ```yaml
-items:
+projections:
   note:
     id: note/*
     states: [open, retired]
@@ -2622,7 +2624,7 @@ that sets it replaces the whole list, so a part dropped from an item, or an item
 a new list, no longer points at the old part. The item index keeps each item→part link beside its relations' links,
 as they stand now, so the items about a part are one indexed lookup, never a read of every item (an index built
 before these links is built again). They are read in three places, each listing only the **open** items about the
-part (not in a state its kind counts as finished, `messages: done:`, else as the item index says; a kind without
+part (not in a state its projection counts as finished, `messages: done:`, else as the item index says; a projection without
 states, always open), the latest first:
 
 - `ergostat explain PART` (and MCP's `explain`), with a project, ends with a line `Open items about goal.x: ID
@@ -2637,11 +2639,11 @@ states, always open), the latest first:
   is not off names none. Under `--at` (a past snapshot) no items are named: the items open now are not the ones
   that were open then.
 
-**Join.** A parent moved on by its children (fork-join) is a rule on the parent's kind, over the relation its children
+**Join.** A parent moved on by its children (fork-join) is a rule on the parent's projection, over the relation its children
 name it by, not a block that lists and matches items:
 
 ```yaml
-items:
+projections:
   epic:
     states: [planned, underway, shipped]
     join:
@@ -2653,20 +2655,20 @@ items:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `children` | a relation's name | The relation its children name it by (on their kind: `parent: epic`) |
+| `children` | a relation's name | The relation its children name it by (on their projection: `parent: epic`) |
 | `all`, `any` | a state, or a list (one of the two) | All of its children in one of these states (a join), or any one (the first to start) |
 | `to` | a state of its own | Where it goes |
 
 It fires on each move of a child, read from the item index (its moves, its links both ways), and once for every
 parent when ergostat starts, so what moved while it was stopped is joined then. A parent with children, all (or any)
-of them in the states, and in a state before `to` in its kind's order, is moved there by `ergostat.item.joined`
+of them in the states, and in a state before `to` in its projection's order, is moved there by `ergostat.item.joined`
 (`data.joined`: `to`, `children`, `all` or `any`, `n`, the children counted; folded only forward, so a parent that
 went past `to` meanwhile, or was cancelled after it, stays), recorded by ergostat and caused by the
 latest move of its children, so the Process view draws the join. It is a move like any other: counted (`entering`),
 kept in the item's history. Never backwards: a child reopened leaves its parent where it is; a parent with no children
-is never joined. Rules are tried in their order, each from where the one before left it. `check` says when no kind
+is never joined. Rules are tried in their order, each from where the one before left it. `check` says when no projection
 names the parent by `children`, or a state is not one of theirs (`bad-join`, `unknown-state`), and, as a finding
-(`join-side-state`), a side state (one its kind counts as finished, or named as an exit: `cancelled`, `closed`, ...)
+(`join-side-state`), a side state (one its projection counts as finished, or named as an exit: `cancelled`, `closed`, ...)
 listed before a join's `to`, which the join would move on. Each child's move costs a look at its parents' children
 (their links and states): fine for tens of children, not tuned for thousands.
 
@@ -2674,8 +2676,8 @@ At a moment travelled to (the pages' time travel), the Graph and the Timeline sh
 segments and their links as they stood then: an event at that moment counts as before it, an item made after it is
 not there, and one made again since under its id shows its earlier self. They are read from the item index, each
 item changed since folded again from the record up to then (`spec/asof.py`; when more than a tenth of the items, and more than 50, changed since,
-the whole record up to then is folded instead), and each kind's time per state counts only the moves by then. Three things
-stay of now: which states a kind counts as finished (as the item index says now, unless `messages: done:` says),
+the whole record up to then is folded instead), and each projection's time per state counts only the moves by then. Three things
+stay of now: which states a projection counts as finished (as the item index says now, unless `messages: done:` says),
 the completion estimates (none at a moment travelled to), and the status's list of relation cycles. An
 answer that could not be got is left out, and the page says it is not in the snapshot. It also holds the item sets its own panels link to: each part's (a stock's, a
 flow's, a sensor's side-panel set) and each node's and line's of every process map it holds (a node's `through`, a
@@ -2686,28 +2688,28 @@ sets: parts first, then each map's nodes as the map lists them, then all the map
 is not held and says "not in this snapshot", as a set typed into the address does. The process map's other `by`
 and the leased items a flow's panel links to are not held. The Process view draws relations too (§5b).
 
-**Completion estimates.** Each open item's time to completion (a state its kind counts as finished, or a dead
+**Completion estimates.** Each open item's time to completion (a state its projection counts as finished, or a dead
 letter) is estimated by a discrete-event **Monte Carlo over every open item together** (`numbers/eta.py`), from what
-the record measured before now (`numbers/etamodel.py`: two weeks; every open item, and each kind's latest 2,000 items
+the record measured before now (`numbers/etamodel.py`: two weeks; every open item, and each projection's latest 2,000 items
 for the fit; a stay that began before the record counts from its first move there, and relations are read as they
 stand now):
 
-- **The path** (a semi-Markov model per kind): each state's next-state shares from the items' moves, a lease's hold
-  folded into the state it was taken from, rework loops kept; each kind's expected visits per state, the first row of
+- **The path** (a semi-Markov model per projection): each state's next-state shares from the items' moves, a lease's hold
+  folded into the state it was taken from, rework loops kept; each projection's expected visits per state, the first row of
   the absorbing chain's fundamental matrix N = (I − Q)⁻¹, said in the Timeline's legend.
 - **Time in a state** no block takes from: Kaplan–Meier over the stays that ended, the stays still going censored at
   their age; an item's residual life given its age there, S(a + t) / S(a); past the longest stay seen an exponential
   tail whose mean is the longest tenth's mean excess over the 90th percentile (every stay's mean when they are alike),
-  so an item older than every stay seen is never given nothing left. A state with fewer than five ended stays takes its kind's pooled stays, then every
-  kind's.
+  so an item older than every stay seen is never given nothing left. A state with fewer than five ended stays takes its projection's pooled stays, then every
+  projection's.
 - **A state a block takes from** is a wait and a run: the item queues at the block in its `takes:` order (the states
   of `at` in order, then by when it came back to the state, so a nack's return goes to the back; with
   `unblocked: true`, those more items wait on first; with `order:`, by its fields before all of these: the
-  dispatcher's comparator for the order fields and the states, so the projection takes them in the order the block
-  will; among equals the dispatcher takes the least slack and the longest path ahead first, the projection those
+  dispatcher's comparator for the order fields and the states, so the levelled schedule takes them in the order the block
+  will; among equals the dispatcher takes the least slack and the longest path ahead first, the levelled schedule those
   more items wait on, which agree on a chain but may differ between items of unequal durations). An item waiting in a state
   whose every block that takes from it is commanded off now (its gate shut, a switch at 0 or never read: worked out as
-  the engine would from the newest readings) is projected not to move: not scheduled (below), its reason "waits for
+  the engine would from the newest readings) is expected not to move: not scheduled (below), its reason "waits for
   B, switched off". A block takes at most its capacity at once: its pool now (its `pool:` number, or its stock's
   newest reading at or before the moment estimated, at most its `most`; a pool read as 0 or not read at all is
   estimated at 1, and each item waiting there says so: "its pool (stock.S) is 0 now: estimated at 1 run at once";
@@ -2734,25 +2736,25 @@ stand now):
   ten minutes), said so; one whose state items have stayed in takes that stay's curve as its runs instead.
 - **A leased item's** run is drawn the same way, given how long its lease has been held; past every run seen, the
   tail; never past its TTL. A failure share tried in the what-if reaches the runs already held too.
-- **Dependencies:** an item does not leave its kind's first state, nor is it taken by an `unblocked` block, until
+- **Dependencies:** an item does not leave its projection's first state, nor is it taken by an `unblocked` block, until
   every item its precedence relations name is finished (an item named but not in the record is not waited on).
 - **Items that cannot move are left out of the run** (else every run would go on to the horizon): an item paused
-  (its kind's `paused` message) or waiting at a state whose every block that takes from it is switched off, either
-  not leased (a leased one is run: its lease takes a slot and its run ends), one of a kind with no finished state,
+  (its projection's `paused` message) or waiting at a state whose every block that takes from it is switched off, either
+  not leased (a leased one is run: its lease takes a slot and its run ends), one of a projection with no finished state,
   and one whose precedence relations reach any of these, however far. Each is **not scheduled**: no p50 or p90, no
   bar, and why ("paused in parked", "waits for dev, switched off", "waits on gap/x, which is parked"); the Items
-  list and an item's page say that first, then the item's reason as above. Each kind counts them (`unscheduled`),
+  list and an item's page say that first, then the item's reason as above. Each projection counts them (`unscheduled`),
   and its last finish is of the items that can move only. An item that reaches a paused or switched-off state
   partway through a run, and one parked waiting on it, is counted out of that run there: left out of its p50, p90
-  and its kind's last finish in that run, and its share of runs counted out kept (`out`) and said in its why.
-- **Arrivals:** new items at the record's rate per kind (a batch brought in at one moment is not a rate), into the
+  and its projection's last finish in that run, and its share of runs counted out kept (`out`) and said in its why.
+- **Arrivals:** new items at the record's rate per projection (a batch brought in at one moment is not a rate), into the
   states they arrive in, competing for the same capacity.
 
 200 runs at most, within five seconds (and the levelled run within as much again: ten at most), a fixed seed (each
 run its own, so the same record gives the same estimates), 90 days ahead at most (past that: "beyond the horizon"). No
 run finished within the budget: no estimate ("not worked out"); fewer than 20: no p90 is said, only the run count. Per item: its **p50** and **p90** finish, its
 expected start, what it waits in now (a block, or a state), its place in that block's queue, and why, in words ("6
-of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); per kind, when its last open item finishes (p50, p90).
+of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); per projection, when its last open item finishes (p50, p90).
 The schedule the Timeline draws is the run whose last finish is the median's: never more runs in a block at once
 than its capacity, each in a lane (leases held over a pool the what-if lowered keep theirs until they end). The Items page's list gives each open item's p50 (**done by**, the p90 beside it
 and why in its title), and an item's page its estimate and why. Worked out in a thread, never on a page's request: a
@@ -2767,14 +2769,14 @@ as its error (`eta_error` on the Timeline's answer, tried again as an answer wou
 
 **The forecast.** What the worker keeps is one stable result, `forecast/v1` (`numbers/forecast.py`), and every reader
 reads it: the Timeline (`eta_api.merge`: the same answers as the simulation's raw result gave it), the Items list, an
-item's page, `GET /api/forecast` (`item=ID`, repeated, at most 200; `kinds=a,b`), a panel's SQL views (§4e) and a
+item's page, `GET /api/forecast` (`item=ID`, repeated, at most 200; `projections=a,b`), a panel's SQL views (§4e) and a
 remote's reader (`/remote/v1/forecast`, §4c). It has the item keys above (`p50`, `p90`, `mean`, `start`, `dead`,
-`out`, `runs`, `why`, `unscheduled`, what it waits in) and adds, per item, its `kind`, `state` and `basis` (what its
+`out`, `runs`, `why`, `unscheduled`, what it waits in) and adds, per item, its `projection`, `state` and `basis` (what its
 wait now is drawn from: the block running or taking it, `sample` its recorded runs, or its state, `sample` its
-recorded stays and whose curve: own, its kind's, every kind's); per **kind** as before; per **group** (a parent named
+recorded stays and whose curve: own, its projection's, every projection's); per **projection** as before; per **group** (a parent named
 through a `group: true` relation, §5a: its open members and itself, at most 200 groups, the rest counted in
-`groups_left`) and per **stage** (a kind's state with open items now, `KIND/STATE`), when the last of them finishes
-(p50, p90), with `open` and `unscheduled`. Each answer, the whole and every item, kind, group and stage, says its
+`groups_left`) and per **stage** (a projection's state with open items now, `PROJECTION/STATE`), when the last of them finishes
+(p50, p90), with `open` and `unscheduled`. Each answer, the whole and every item, projection, group and stage, says its
 `runs` and when it was `computed` (`at` is the moment it is of, `basis` the record's window, seed, horizon, flags,
 what-if, capacity and assumed blocks). An answer with no estimate says why in `none`: the whole when no run finished
 within the budget or the simulation failed (then it has no items, never read as none open); an item not scheduled
@@ -2785,15 +2787,15 @@ the server started), and `seq` is the record's last event it read. When the reco
 does not read it, the last answer is kept, unrun, with its version, up to two minutes after it was computed. Its
 fingerprint is every input the simulation reads (`forecast.fingerprint`): the items' states, leases, attempts,
 relations, group membership and the fields a block's queue is ordered by; the blocks' settings, pools, switches and
-workspace pools; each kind's states and shares. The inputs that move with the clock alone are taken by size or
+workspace pools; each projection's states and shares. The inputs that move with the clock alone are taken by size or
 rounded instead: each curve's recorded stays and each block's recorded runs and refusals by how many there are, each
-kind's arrival rate to 0.1 an hour and its next-state and first-state shares to 0.001. A
+projection's arrival rate to 0.1 an hour and its next-state and first-state shares to 0.001. A
 remote still working out its forecast (its 503) refuses that ask alone; the reader's counts, listings and details from
 that remote are asked as before.
 
 **Group counts.** From the same runs, each group's counts (`numbers/yields.py`), in the group's `count`: of its open
 members that can move (its parent not one of them, nor a member not scheduled), how many **come out** (reach a finished state that is not a loss) and how many
-are **lost** (end dead, or in a finished state the kind declares in `lost:`, its keys above; off unless declared, so a kind
+are **lost** (end dead, or in a finished state the projection declares in `lost:`, its keys above; off unless declared, so a projection
 that declares none loses only its dead letters), each as `mean`, `p10`, `p50`, `p90` over the runs within the horizon;
 the `yield`, the share out; `members`; and `by`, for each k up to 500, `[k, p50, p90]`: the date by which at least k
 are out in half and in nine tenths of the runs (null past the horizon). A member that neither comes out nor is lost
@@ -2810,10 +2812,10 @@ rest say so in `none`); they are never served. Validated on a record with a know
 rework (`tests/test_group_counts.py`).
 
 **What it leaves out**, and so what makes it wrong: a capacity no block declares (a reviewer who is one person across
-two kinds, a rate limit), a goal that switches a block off (its
+two projections, a rate limit), a goal that switches a block off (its
 gate is not simulated: a block takes whenever it has room), a process that changed (the record's two weeks are taken
 as how the work goes now), relations as they stand now, and a state never seen left (its items move to the next state
-in their kind's order, assumed). **Validated** (`tests/test_eta.py`; `numbers/etacheck.py`, which
+in their projection's order, assumed). **Validated** (`tests/test_eta.py`; `numbers/etacheck.py`, which
 `tests/eta_backtest.py` uses, replays past moments, estimates from the record before each alone, and compares with
 what happened): an M/M/c queue's mean wait matches
 Erlang C within 12%; on three synthetic records of the owner's case (100 tickets brought in at once, a pool of six)
@@ -2825,29 +2827,29 @@ covers every item.
 
 **How well last week's held.** The same replay runs on the project's own record, so the Timeline says whether to
 believe it: the estimates' worker (never a page's request; when no estimate waits, after the estimates are kept) works
-out each kind's **calibration** at most once an hour: 4 moments over the last 7 days (7, 5¼, 3½ and 1¾ days ago),
-100 runs each within five seconds, against what happened by now. Per kind (`eta.calibration` in the items-graph
+out each projection's **calibration** at most once an hour: 4 moments over the last 7 days (7, 5¼, 3½ and 1¾ days ago),
+100 runs each within five seconds, against what happened by now. Per projection (`eta.calibration` in the items-graph
 answer): the p90's coverage (an item that finished, judged as above), how many items were judged (an item open at
-several of the moments judged once, by the latest it could be judged at), the p50's mean absolute error, and since when. The Timeline's note adds a clause per kind: "last week's estimates: 8 in 10 tickets
+several of the moments judged once, by the latest it could be judged at), the p50's mean absolute error, and since when. The Timeline's note adds a clause per projection: "last week's estimates: 8 in 10 tickets
 finished by their p90 (41 tickets)", the share rounded down; fewer than 10 judged: "tickets: too few finished last
 week to check"; a coverage under 0.7 in the warning ink. Not said until first worked out, and kept as the last worked
 out when one fails.
 
-**Risk score** (`numbers/itemrisk.py`; off unless the kind declares it). Each item's chance of failing, learned from
-what failed before, so that a model can route checks by it. A kind declares `risk-score: {at: STATE, failed: [TYPES],
+**Risk score** (`numbers/itemrisk.py`; off unless the projection declares it). Each item's chance of failing, learned from
+what failed before, so that a model can route checks by it. A projection declares `risk-score: {at: STATE, failed: [TYPES],
 passed: [STATES], undone: [TYPES], from: {FIELD: value | each | size}, least: N}`. An **attempt** opens each time an
 item enters `at`, with the `from` fields' values as they stand then. It is judged **failed** at the first event of a
 `failed` type about the item, and **passed** when the item enters a `passed` state. A failed event after it passed
 fails it after all (a change reverted). An item that enters `at` again while an attempt is open **withdraws** that
 attempt unjudged. `undone` (optional, none of them `failed` types) names the events that say a failure was not the
-item's, such as a flake retried after the failure was said: a kind that declares it has a failure of an open attempt
+item's, such as a flake retried after the failure was said: a projection that declares it has a failure of an open attempt
 **held** until the item's next change of state. An `undone` event first withdraws the attempt unjudged; any other
 change of state judges it failed; while held it is judged neither way (the backtest counts it as open and held). A
 change of state here is always one the item's own events make: a lease's moves (§9.5: taken into `leased`, given back,
 to `dead`) are its runner's, and neither judge, withdraw nor open an attempt, so a block that takes the item to triage
-it does not judge the failure it is triaging. An event the item's fold refused (a run whose lease ended, a sealed kind,
+it does not judge the failure it is triaging. An event the item's fold refused (a run whose lease ended, a sealed projection,
 an `if-unchanged` stale read, `moves-from`, `final`) is never a `failed` or an `undone` event: a fenced retry leaves
-the failure held. Only a move it still made (`final`'s) counts as a change of state. The kind's events are replayed in
+the failure held. Only a move it still made (`final`'s) counts as a change of state. The projection's events are replayed in
 the record's order, by `seq` and never by time, so each attempt is scored only from the attempts judged before it.
 
 How the score is worked out:
@@ -2866,7 +2868,7 @@ How the score is worked out:
 Where it is read:
 - `ergostat item ID --json` (and the item's detail on the API and MCP) carries `risk_score`: the score now, the three
   fields that moved it most (each value's failed and judged counts), and how many attempts were judged.
-- `ergostat item --kind K --risk-score [--json]` lists every item, highest first.
+- `ergostat item --projection K --risk-score [--json]` lists every item, highest first.
 - `--backtest` gives each judged attempt's score as it was given, against what became of it: the failure rate and the
   mean score per band of 0.1 (calibration), the Brier score beside the base rate's alone, the AUC, and how many
   attempts were unscored, open, withdrawn or rolled up.
@@ -2878,73 +2880,73 @@ known chances of failing, some failing in the queue and some reverted after merg
 is within 0.1 of its mean score, and the failure rate rises with the band. The AUC is 0.69 against the true chances'
 0.77, and the Brier score is below the base rate's.
 
-**The overview.** `/items` is an overview of the item kinds: under each system's heading, one small card per kind in
-a dense grid (at 1440x900, sixteen or more in view on a record of the factory's shape), each with the kind's name (a link to its own page,
-`/KIND`) and a "process map" link to its map in States (`/diagram?view=process&kind=KIND&mode=states`, §5b),
+**The overview.** `/items` is an overview of the projections: under each system's heading, one small card per projection in
+a dense grid (at 1440x900, sixteen or more in view on a record of the factory's shape), each with the projection's name (a link to its own page,
+`/PROJECTION`) and a "process map" link to its map in States (`/diagram?view=process&projection=PROJECTION&mode=states`, §5b),
 how many of its items are unfinished (not in a finished state) and how many in all, its states over the
 window as a small stacked chart with its legend at its right (under it on a phone), and its rate in (items that
 arrived in the window, per hour) and out (items that first reached a finished state in it, per hour: the same finished states the unfinished count uses, so
-never a paused, `leased` or waiting state). A kind with no
-item that had an event in the window and none unfinished is not a card: such kinds are named on one line at the end.
-The overview lists no item and has no List, Graph or Timeline: those are on each kind's own page. By default each
-chart shows the kind's **state groups**: *done* its finished states, *stopped* its paused states and `dead`, *waiting*
+never a paused, `leased` or waiting state). A projection with no
+item that had an event in the window and none unfinished is not a card: such projections are named on one line at the end.
+The overview lists no item and has no List, Graph or Timeline: those are on each projection's own page. By default each
+chart shows the projection's **state groups**: *done* its finished states, *stopped* its paused states and `dead`, *waiting*
 the states its items wait in to be taken (its first state, and any a block takes from), *working* the rest (`leased`
 among them). One switch on the page shows every state instead; the choice is kept in the address
 (`/items?states=all`), and switching redraws every chart from the answer the page holds, with no request. The whole
-overview is one answer (and, for a kind with a group relation, its progress per group: *Progress per group*, above), `GET /api/items-overview?since=...` (`at=` for a moment travelled to; `web/items_overview.py`),
+overview is one answer (and, for a projection with a group relation, its progress per group: *Progress per group*, above), `GET /api/items-overview?since=...` (`at=` for a moment travelled to; `web/items_overview.py`),
 read from the item index: its counts, its moves and its arrivals, and no replay or scan of the event log (the index
 catches up on the events recorded since it last read, as for every indexed answer, and an item with an event after
 the moment shown is folded again from its own events). Where the
-index cannot answer for a kind (no index, or a moment so long past that most of its items changed since), the card
-says so instead of its numbers. A kind's own page is `/KIND` (section 4f; the old `/items?kind=KIND` and
-`/items/KIND` lead there), the list, graph and timeline below for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, with no view switch:
-the Graph and the Timeline are a kind's page's alone (an old `/items?view=graph` is that list and asks for no graph).
+index cannot answer for a projection (no index, or a moment so long past that most of its items changed since), the card
+says so instead of its numbers. A projection's own page is `/PROJECTION` (section 4f; the old `/items?projection=PROJECTION` and
+`/items/PROJECTION` lead there), the list, graph and timeline below for that projection alone; `/items` with any other question (a search, `view=`) is every projection's list, with no view switch:
+the Graph and the Timeline are a projection's page's alone (an old `/items?view=graph` is that list and asks for no graph).
 
-**A kind's page's list.** `/KIND`'s list (the kind's page, below) is a page of the kind's items, 25 rows by default (100 or 300 by choice), with
-a pager in the kind's bar and under its table: *1-25 of 1200 · Prev · Next* (*of 3 matches* with a search, *of 77
-review* with a state chosen). Each page is asked of the server, `GET /api/items?kind=KIND` with `state` (one, when
+**A projection's page's list.** `/PROJECTION`'s list (the projection's page, below) is a page of the projection's items, 25 rows by default (100 or 300 by choice), with
+a pager in the projection's bar and under its table: *1-25 of 1200 · Prev · Next* (*of 3 matches* with a search, *of 77
+review* with a state chosen). Each page is asked of the server, `GET /api/items?projection=PROJECTION` with `state` (one, when
 chosen), `offset`, `n` (1..500) and, when given, `q` and `sort` (`items.kind_page`, read from the item index: the ids,
-states and times of the kind's rows, then only the items shown). `q` keeps the items whose id holds it or whose text
-(*Search*) holds each of its words (1 to 8), out of every item of the kind, finished ones too; the answer's `total` is
-how many match and `finished` how many of them are in one of the kind's finished states, said beside the search box
+states and times of the projection's rows, then only the items shown). `q` keeps the items whose id holds it or whose text
+(*Search*) holds each of its words (1 to 8), out of every item of the projection, finished ones too; the answer's `total` is
+how many match and `finished` how many of them are in one of the projection's finished states, said beside the search box
 (*3 matches, 1 finished*). `sort=FIELD` (up) or `sort=-FIELD` (down) orders the whole filtered set by that field
 before the page is cut: numbers as numbers, then text, a missing or non-finite value last, the newest first among
 equals. Up to 5,000 items are read for it (`items.SORTED_MOST`, without their moves); past that it is the newest 5,000
 that are sorted and paged, and the answer's `cut` (5000) says so, as the pager and the table's caption do. Without
-`sort`, the newest first. With no state and no search it pages only the kind's unfinished items unless
+`sort`, the newest first. With no state and no search it pages only the projection's unfinished items unless
 `finished=show` (*Finished items*): the index pages its other states, so `total` and the pager count those, and the
-kind's `hidden` says what is left out. An `offset` past the end answers the last page, and says its `offset`. The page, the size
-and the sort are in the address, the page and sort named by their kind (`page=gap:3`, `sort=gap:-ai_cost_usd`,
+projection's `hidden` says what is left out. An `offset` past the end answers the last page, and says its `offset`. The page, the size
+and the sort are in the address, the page and sort named by their projection (`page=gap:3`, `sort=gap:-ai_cost_usd`,
 `size=100`); a new search, sort, state or size starts at page 1, and the poll asks again for the page shown. In a
-snapshot (no server) the kind's list is the snapshot's, as before. A set (`where`, `moved` and the process map's
+snapshot (no server) the projection's list is the snapshot's, as before. A set (`where`, `moved` and the process map's
 filters) is listed as before, its newest 300.
 
-**The Items page's views.** Beside **List** (its items, newest first), a kind's page (`/K`) shows that kind
-and its system's own dependency network (`GET /api/items-graph?kinds=K&system=NAME`, NAME the kind's system;
-`kinds=A,B`, or `system=NAME` alone, the system's kinds, are still answered; worked out again only when the record
+**The Items page's views.** Beside **List** (its items, newest first), a projection's page (`/K`) shows that projection
+and its system's own dependency network (`GET /api/items-graph?projections=K&system=NAME`, NAME the projection's system;
+`projections=A,B`, or `system=NAME` alone, the system's projections, are still answered; worked out again only when the record
 changes). With `system=` the Graph follows only precedence and parent relations, and only to items of the system's
-own kinds; a precedence target or parent of another system's kind is not a card but a small stub at the edge
+own projections; a precedence target or parent of another system's projection is not a card but a small stub at the edge
 ("waits on gap/x", its state and its system), a click opening it, its status still counted (what waits on it stays
 waiting while it is unfinished), and so is its schedule: what it waits on in turn, and a parent's own waits, are
-read for the projection though never drawn, so what waits on it is projected after its expected end and the critical
+read for the schedule though never drawn, so what waits on it is scheduled after its expected end and the critical
 path, slack and end are those the network has without `system=`. Any other relation (one an item is *about*, a duplicate) is not drawn: it is listed
-in the card's hover text, and under Relations on the item's page. A kind whose items wait on none of its system's
+in the card's hover text, and under Relations on the item's page. A projection whose items wait on none of its system's
 (no precedence or parent relation followed) draws no Graph and says once "These items do not wait on one another,
 so there is no dependency graph", and where the items they name are ("reviews are about gaps: see building", a link
-to that kind's page). Without `system=` (the command line, `kinds=` alone) the answer is as before: every relation
-followed both ways, to items of any kind. A kind with no relations: the Timeline draws its items all the same, and
+to that projection's page). Without `system=` (the command line, `projections=` alone) the answer is as before: every relation
+followed both ways, to items of any projection. A projection with no relations: the Timeline draws its items all the same, and
 the Graph says the same sentence. `/items` itself has neither:
 
 | View | What it shows |
 |---|---|
-| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A group other than `parent`, of a kind not asked (a gap's `milestone`, with kind `gap` chosen), is a frame its members are drawn inside, titled with its id, title and state, and its members' tally: how many done of all, working (active or queued), ready (unblocked), and blocked and on what (each item they wait on, by its own frame when that is another; in full in the frame's tooltip); a frame that waits on another (a milestone's `depends_on`) has an arrow from it, and lines between members stay drawn across frames. The asked items in no such group are in a plain, dashed frame ("no milestone"). A frame with nothing drawn in it (a completed milestone with the finished hidden, or one only waited on) is one card with the same title, and a line from a member collapsed in it is drawn from that card. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; another system's items stubs at the edge, dashed (without `system=`, other relations, a duplicate, dashed and named). It reads the page's one **Finished items** choice (`finished=`, the list's too): **Hidden** (the default), only the unfinished and paused, and a chain through finished items is one dashed line, "via N finished"; **Those waited on** (`waits`), and each finished item an unfinished one waits on directly (one precedence link, never further back; the list reads it as Hidden); **Shown** (`show`), every item in the window, up to the bound. An old address's `frontier=0&collapse=0` is read as Shown, `collapse=0` alone as Those waited on, any other as Hidden. The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
-`status=` in the address), says how many finished items the choice leaves undrawn and what finished is for each kind ("968 finished not drawn: gap merged, closed", from the answer's `kinds[].finished`), and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the levelled projection's end, rounded up to the minute; until the completion estimates are worked out, and at a moment travelled to, the levelled projection's end, the last levelled bar's ("done about 04:02, levelled by each block's capacity, median times"). Every time the Timeline and the legend print (the axis ticks aside) is a clock time with its date and zone when not today. A click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), each segment named by its state where it fits, and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection, its bars' titles saying so and the note "Working out the schedule: a simulation of N unfinished <kind>s at each block's capacity"), a parent's a bracket over its children's span. With the estimates, the finished rows come first (what happened, in the order they started), then the unfinished in the order the simulation starts them (the left edge of the row's first bar ahead, else its start's p50, then its finish's p50, then its id), so the bars ahead step down the rows; the items no run moves (not scheduled, above: paused, of a kind with no finished state, at blocks all switched off, or waiting on one of these) last, apart, under "Not scheduled (N)", each with its why ("paused in parked", "waits on gap/x, which is parked"; the estimate's `said`) and no bar ahead; they are left out of their kind's last finish, and the legend's finish sentence ends "; N not scheduled", its expected time always with its date. The note names each block's simulated capacity and where it comes from ("implementor 9 at once (pool stock.implementor-pool now)", an agent's seats or a daemon's runs at once when they bind, "what if"); an item's page says "not scheduled: <why>" for its estimate. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. It reads the same **Finished items** choice, but opens on **Those waited on** unless the address says otherwise (a default, not a second control), and at load the page scrolled to the first unfinished row, so the now line is in view |
+| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By projection**, each projection is a frame instead. A group other than `parent`, of a projection not asked (a gap's `milestone`, with projection `gap` chosen), is a frame its members are drawn inside, titled with its id, title and state, and its members' tally: how many done of all, working (active or queued), ready (unblocked), and blocked and on what (each item they wait on, by its own frame when that is another; in full in the frame's tooltip); a frame that waits on another (a milestone's `depends_on`) has an arrow from it, and lines between members stay drawn across frames. The asked items in no such group are in a plain, dashed frame ("no milestone"). A frame with nothing drawn in it (a completed milestone with the finished hidden, or one only waited on) is one card with the same title, and a line from a member collapsed in it is drawn from that card. A card's left bar is its state, in the shade its projection's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; another system's items stubs at the edge, dashed (without `system=`, other relations, a duplicate, dashed and named). It reads the page's one **Finished items** choice (`finished=`, the list's too): **Hidden** (the default), only the unfinished and paused, and a chain through finished items is one dashed line, "via N finished"; **Those waited on** (`waits`), and each finished item an unfinished one waits on directly (one precedence link, never further back; the list reads it as Hidden); **Shown** (`show`), every item in the window, up to the bound. An old address's `frontier=0&collapse=0` is read as Shown, `collapse=0` alone as Those waited on, any other as Hidden. The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
+`status=` in the address), says how many finished items the choice leaves undrawn and what finished is for each projection ("968 finished not drawn: gap merged, closed", from the answer's `projections[].finished`), and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its projection's last finish, never before the levelled schedule's end, rounded up to the minute; until the completion estimates are worked out, and at a moment travelled to, the levelled schedule's end, the last levelled bar's ("done about 04:02, levelled by each block's capacity, median times"). Every time the Timeline and the legend print (the axis ticks aside) is a clock time with its date and zone when not today. A click opens the item |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), each segment named by its state where it fits, and for the unfinished, faint bars ahead (what is expected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled schedule, its bars' titles saying so and the note "Working out the schedule: a simulation of N unfinished <projection>s at each block's capacity"), a parent's a bracket over its children's span. With the estimates, the finished rows come first (what happened, in the order they started), then the unfinished in the order the simulation starts them (the left edge of the row's first bar ahead, else its start's p50, then its finish's p50, then its id), so the bars ahead step down the rows; the items no run moves (not scheduled, above: paused, of a projection with no finished state, at blocks all switched off, or waiting on one of these) last, apart, under "Not scheduled (N)", each with its why ("paused in parked", "waits on gap/x, which is parked"; the estimate's `said`) and no bar ahead; they are left out of their projection's last finish, and the legend's finish sentence ends "; N not scheduled", its expected time always with its date. The note names each block's simulated capacity and where it comes from ("implementor 9 at once (pool stock.implementor-pool now)", an agent's seats or a daemon's runs at once when they bind, "what if"); an item's page says "not scheduled: <why>" for its estimate. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its scheduled runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. It reads the same **Finished items** choice, but opens on **Those waited on** unless the address says otherwise (a default, not a second control), and at load the page scrolled to the first unfinished row, so the now line is in view |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
-the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
+the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each projection asked, 400 finished in
 the window, 400 more reached by relations (six links away at most), 400 stubs, 600 cards and 200 rows drawn; a note
-says when any was reached. Both draw the items of the kinds asked; another kind's item only when one of them waits on
+says when any was reached. Both draw the items of the projections asked; another projection's item only when one of them waits on
 it (a precedence relation, however far back) or as the parent of one drawn (another system's: a stub, above), so a
 record that only names an item (a review of a gap) is not drawn: with `system=` not in the answer at all, without it
 in the answer, for the counts. Past its 600 cards the Graph keeps whole connected
@@ -2956,22 +2958,22 @@ not drawn, those included. The caps bound what is drawn, never whether an item w
 is read by id and its own status counts (one that cannot be read counts as unfinished, and is named). In a snapshot
 they are not drawn.
 
-**Built-in kinds.** Seven kinds are ergostat's own, present in every project and never declared (a project's
-kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
+**Built-in projections.** Seven projections are ergostat's own, present in every project and never declared (a project's
+projections may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
 `ergostat.claim`, what a block said it did, checked (section 12g), the owner's intent, `ergostat.decision` and
 `ergostat.correction` (below), and `ergostat.message`, the owner's messages, routed to the work they concern
 (section 12h), and `ergostat.verdict`, the intent judge's verdict on finished work (section 12i), and `ergostat.report`, a report
 about ergostat itself, drafted and scrubbed for the owner to submit by hand (section 12m). ergostat may also
-move any item: `ergostat.item.reopened` moves it to the state its data names (`reopened.to`, else its kind's first),
+move any item: `ergostat.item.reopened` moves it to the state its data names (`reopened.to`, else its projection's first),
 `ergostat.item.joined` to the state its join names (`joined.to`, *Join*),
 `ergostat.item.follow-up` starts one (section 12h), and `ergostat.item.judged` sets its field `intent` (section 12i).
-A kind a block takes (section 9.5) is moved by its leases too (`ergostat.lease.*`: to `leased`, back, or to `dead`),
+A projection a block takes (section 9.5) is moved by its leases too (`ergostat.lease.*`: to `leased`, back, or to `dead`),
 and its items carry the field `lease`, ergostat's own.
 
 **Decisions and corrections.** What the owner decided, and what the owner corrected, are items, so that every
 later session can start from them (`docs/DECISIONS.md` is how to use them):
 
-| Kind | States | Fields |
+| Projection | States | Fields |
 |---|---|---|
 | `ergostat.decision` | `proposed` → `confirmed` → `superseded`; `dismissed` (an exit, from proposed) | `decision` (one sentence), `words`, `reasons`, `alternatives` (`[{option, why}]`, what was rejected), `scope`, `supersedes`, `proposed_by`, `confidence`, `extractor`, `evidence` |
 | `ergostat.correction` | `proposed` → `confirmed` → `retired`; `dismissed` | `correction` (what to do differently), `words`, `corrects` (the behaviour or result), `kind_of_work`, `scope`, `source`, `repeats` (and `repeat: true`), `repeated_by`, `evidence` |
@@ -2979,7 +2981,7 @@ later session can start from them (`docs/DECISIONS.md` is how to use them):
 `words` is the owner's words, verbatim, each with where it was said: `{text, session, line, time}` (a
 transcript), or `{text, time, event}` (the record). Their fold rules: `words`, `evidence`, `alternatives` and
 `repeated_by` are `append`; `reasons`, `scope`, `supersedes` and `kind_of_work` are `union`; the rest
-replace. An id is the kind and a slug of the sentence (`ergostat.decision/never-add-page-7c1e`), so the same
+replace. An id is the projection and a slug of the sentence (`ergostat.decision/never-add-page-7c1e`), so the same
 sentence proposed again is the same item.
 
 The events, `ergostat.decision.*` and `ergostat.correction.*`:
@@ -3008,8 +3010,8 @@ owner, or while the correction it repeats is confirmed: the first did not change
 reason, an item moved back to an earlier state (or by a `*.reopened` event) with a reason, an
 `ergostat.message` classed as a correction (`class: correction`, or unclassed and read as one).
 
-**Projections.** `ergostat context decisions [--scope X] [--budget N]` and `ergostat context corrections
---kind K [--budget N]` render the confirmed items (with `--proposed`, those waiting too, marked) as Markdown
+**Context recipes.** `ergostat context decisions [--scope X] [--budget N]` and `ergostat context corrections
+--kind WORK [--budget N]` render the confirmed items (with `--proposed`, those waiting too, marked) as Markdown
 for the start of a session, most relevant first: an item whose `scope` (or `kind_of_work`) names a word of
 the scope asked comes first, then one whose words mention it, then the rest, the newest first within each;
 corrections for another kind of work are left out, those for `general` kept. As many as fit the budget are
@@ -3018,10 +3020,10 @@ replaces, the scope, its id), the rest as one-line pointers, then a count of tho
 is characters (`6000`; the default `8000`) or tokens (`1500t`, at four characters a token). MCP `context`
 gives the same.
 
-**States.** An item arrives in its kind's first state (a move from nowhere, so a flow can count
-arrivals with `entering:`), and stays there until an event its kind maps moves it; every move is
+**States.** An item arrives in its projection's first state (a move from nowhere, so a flow can count
+arrivals with `entering:`), and stays there until an event its projection maps moves it; every move is
 kept (from, to, when, by which event), so how long it spent in each state is known. An item no
-kind matches is still shown, with its fields (folded with no rules) and no state. A built-in kind
+projection matches is still shown, with its fields (folded with no rules) and no state. A built-in projection
 may also say which states an event moves an item **from** (`ItemKind.moves_from`: event type to a
 tuple of states): such an event moves the item only when its state at that point of the fold (in
 the record's order, `seq`) is one of them; otherwise it moves nothing, and the item lists it in
@@ -3037,7 +3039,7 @@ only files inside the project and its state directory, at `/api/file/PATH` (a pa
 relative links open the files beside it: opened in the browser, a Markdown file is shown rendered). A file is kept apart from the record: the
 record holds what happened, the file what was said.
 
-**Claude Code transcripts as events.** While ergostat runs, a field its kind shows as
+**Claude Code transcripts as events.** While ergostat runs, a field its projection shows as
 `claude-session` that names a file (`transcript: file:run/sessions/developer-1a2b.jsonl`) is read
 every two seconds as it grows, and each complete line is recorded as an event about the item,
 once: its id is made from the item and the line's `uuid` (a line without one, from its number and
@@ -3057,7 +3059,7 @@ An assistant message's first line also carries `tokens_in` (input, cache writes 
 over 4 KB keeps its head in the event, with `truncated`, its size in `bytes`, and `full`, the file
 and line where all of it is: the transcript file stays the full record of what was said, and the
 conversation the page shows. A line is one event, typed by what it holds (a tool call first, then
-a result, text, thinking). The kind folds them with its rules, so the item folds into its
+a result, text, thinking). The projection folds them with its rules, so the item folds into its
 conversation:
 
 ```yaml
@@ -3070,7 +3072,7 @@ conversation:
 
 What does not ask for a transcript leaves its events out: a sensor counting sessions, the Items
 list and `ergostat item` (which count them, without reading them), the Record and `ergostat event`
-(unless a type or the item is asked for), and the Process view (§5b). A fold reads them when its kind moves on
+(unless a type or the item is asked for), and the Process view (§5b). A fold reads them when its projection moves on
 a `claude.*` type, or when a sensor's `where:` or a column names a field they fold into. The item's
 own page and `ergostat item ID` fold them all. A session of 2,000 lines is recorded in well under a
 second, and leaves a count of sessions as fast as it was.
@@ -3086,9 +3088,9 @@ Items page filtered to exactly that set (`item_sets.py`). What a part's items ar
 
 | Part | Its items |
 |---|---|
-| a stock or auxiliary with an `items:` sensor | the items it counts now: its kind, `state` and `where`; each with its age in its state and the lease holder |
-| a flow with an `items:` sensor | the items whose move it counts (`entering` or `leaving`, `where`) in the page's window, each with when |
-| a flow between stocks counted from items of one kind | the items that moved from the source stock's states to the target's in the window (a side outside the system: any other state, or arriving) |
+| a stock or auxiliary with a `projection:` sensor | the items it counts now: its projection, `state` and `where`; each with its age in its state and the lease holder |
+| a flow with a `projection:` sensor | the items whose move it counts (`entering` or `leaving`, `where`) in the page's window, each with when |
+| a flow between stocks counted from items of one projection | the items that moved from the source stock's states to the target's in the window (a side outside the system: any other state, or arriving) |
 | a flow moved by a block (its valve) | each opening in the window, with the items the run that opened it was about |
 | a flow whose `run` sensor reports items | the items it reported in the window |
 | anything else (a query, a declared rate, `changes`, read by hand) | none, and why: a rate from a metrics store names no items |
@@ -3097,29 +3099,29 @@ The Items page's filters, in its address (`/items?...`) and in `GET /api/items`:
 
 | Parameter | Meaning |
 |---|---|
-| `kind` | the kind; every other filter needs it |
+| `projection` | the projection; every other filter needs it |
 | `state=A[,B]` | in one of these states now |
 | `where=FIELD:VALUE` | the field equals the value (repeated: any of the values for one field, all the fields) |
 | `moved=FROM>TO` | moved from one of `FROM` to one of `TO` (states joined by commas); an empty side is any other state, or none (an arrival): `>done` entering done, `briefed>` leaving briefed |
 | `moved_since`, `moved_until` | the span of `moved` (after since, up to until): `2026-11-18T10:00:00Z` (UTC) or seconds since 1970; default the hour before now |
-| `offset`, `n` | with one kind and no set: the page of its items from `offset`, `n` of them (1..500; past the end, the last page); in the address `page=KIND:N` and `size=25`, `100` or `300` (*A kind's page*) |
-| `sort=FIELD`, `sort=-FIELD` | with one kind and no set: the whole filtered set ordered by the field before the page is cut (the newest 5,000 of a larger one, said by `cut`); in the address `sort=KIND:-FIELD` |
-| `q=TEXT` | with one kind and no set: the items whose id holds it or whose text holds each of its words, every item of the kind; `total` and `finished` count them |
-| `remote=NAME` | a remote's items instead, asked there within its budget (§4c, *Its items and events in the pages*); with it only `kind`, `state`, `n` and `offset` |
+| `offset`, `n` | with one projection and no set: the page of its items from `offset`, `n` of them (1..500; past the end, the last page); in the address `page=PROJECTION:N` and `size=25`, `100` or `300` (*A projection's page*) |
+| `sort=FIELD`, `sort=-FIELD` | with one projection and no set: the whole filtered set ordered by the field before the page is cut (the newest 5,000 of a larger one, said by `cut`); in the address `sort=PROJECTION:-FIELD` |
+| `q=TEXT` | with one projection and no set: the items whose id holds it or whose text holds each of its words, every item of the projection; `total` and `finished` count them |
+| `remote=NAME` | a remote's items instead, asked there within its budget (§4c, *Its items and events in the pages*); with it only `projection`, `state`, `n` and `offset` |
 
 The page shows the set as one chip with its count (for moves, the items and the moves), removed with its ×;
 each item's latest matching move is a column. The API answers the set alone, newest first (a move's set by its
 latest move), at most 500 a page (`n`, `offset`), with `total` (and `moves`); `alone=1` leaves out the page's
-kinds and counts. A filter that is not one (an unknown state, `where` without a `:`) is a 400 that says why.
+projections and counts. A filter that is not one (an unknown state, `where` without a `:`) is a 400 that says why.
 Sets are read from the item index: a state's items counted and paged there, a span's moves read there alone.
 
-**What a kind touches, and an item's path.** `GET /api/kinds/K` (`spec/footprint.py`, 404 for a kind the model does
-not have) says what a kind touches in the model:
+**What a projection touches, and an item's path.** `GET /api/projections/K` (`spec/footprint.py`, 404 for a projection the model does
+not have) says what a projection touches in the model:
 
 | Field | What it holds |
 |---|---|
-| `definition` | its title, description, id pattern, states (each `first`, `finished`, `paused`, `final`, and `ergostat` for `leased` and `dead`), `finished_by` (`declared`, `inferred` or `none`: the one rule of `spec/finished.py`, as the Items listing gives it; the model alone knows only what is declared, so an inferred answer is filled by the request from the states its items have left), `on`, `show`, `fold`, its relations and `named_by` (other kinds' relations naming it), `join`, its `lease` terms, `about`, its system and why |
-| `counted_in` | each stock, auxiliary and flow whose sensor counts the kind: its states (none: every state) or the state it counts entering or leaving, `where`, `measure`, its system; several sensors on one state are each listed |
+| `definition` | its title, description, id pattern, states (each `first`, `finished`, `paused`, `final`, and `ergostat` for `leased` and `dead`), `finished_by` (`declared`, `inferred` or `none`: the one rule of `spec/finished.py`, as the Items listing gives it; the model alone knows only what is declared, so an inferred answer is filled by the request from the states its items have left), `on`, `show`, `fold`, its relations and `named_by` (other projections' relations naming it), `join`, its `lease` terms, `about`, its system and why |
+| `counted_in` | each stock, auxiliary and flow whose sensor counts the projection: its states (none: every state) or the state it counts entering or leaving, `where`, `measure`, its system; several sensors on one state are each listed |
 | `taken_by` | each block that takes it: `at`, `to`, `where`, `unblocked`, `order`, `pool`, `attempts` and `ttl` (its lease terms as they resolve), `out` (its flows), agent and rung, `only_some` and `says` (a `where` or `unblocked` takes only some items), and `taken`: how many it has taken now, a lease holder in whatever state its run moved the item to |
 | `goals` | those blocks' goals and the goals on the parts counting it, with `hold`, why each is here, and `status` (holding or off) |
 | `loops` | the feedback loops (§12a) through any of those parts: name, R or B, its parts and `through` (those of them) |
@@ -3133,65 +3135,65 @@ ordered steps `{state, stock, flow, block, run, attempts, how, ended, goal, ente
 the block that took the item from a state (`how: taken from here`, `ended`: ack, nack or expired) or had taken it
 while it was there (`taken while here`), its run and that run's attempt (counted ends add one, an ack starts again) are the step's. A nack or
 rework is a repeated step; a state nothing counts has `says`. The k-th move into `leased` is matched to the k-th
-lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
+lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each projection's
 answer.
 
-**The kind's page.** `/K` is the kind's own page (section 4f: its address is its name, listed in the header's *Kinds*
-menu; each of its items is at `/K/REST`). The old `/items/K` and `/items?kind=K` end there, their other parameters
-kept (`/items?kind=K&state=S` becomes `/K?kind=K&state=S`), and every link to a whole kind points there: the item page's *Kind*, the Items page's
-bar titles, the process map's kind names, a side panel's set when it is a whole kind (a set with a state or a move
-keeps its `/items?kind=K&…` address and ends on the same page). It asks for that kind's items alone. Its sections, in
+**The projection's page.** `/K` is the projection's own page (section 4f: its address is its name, listed in the header's *Projections*
+menu; each of its items is at `/K/REST`). The old `/items/K` and `/items?projection=K` end there, their other parameters
+kept (`/items?projection=K&state=S` becomes `/K?projection=K&state=S`), and every link to a whole projection points there: the item page's *Projection*, the Items page's
+bar titles, the process map's projection names, a side panel's set when it is a whole projection (a set with a state or a move
+keeps its `/items?projection=K&…` address and ends on the same page). It asks for that projection's items alone. Its sections, in
 order:
 
-1. *The kind's bar*, drawn by the one `kindBar` (`static/kinds.js`) that draws each kind's bar on the Items page,
+1. *The projection's bar*, drawn by the one `ProjectionBar` (`web/ui/src/components/items.tsx`) that draws each projection's bar on the Items page,
    with the same markup apart from its heading's level (the page's `h1` here) and its disclosure's open state: the
    title (its name small), id pattern, description, `finishes: S, …` or `lives on` (where that came from on hover),
    the state chips with their counts, the total, and `in SYSTEM` (why on hover). The Items page draws these bars in
-   every kind's list (`/items?view=list`, a search); its bare overview draws cards, whose name links here too. A chip
+   every projection's list (`/items?view=list`, a search); its bare overview draws cards, whose name links here too. A chip
    filters the list in place (`/K?state=S` in the address, a second click clears it), the same on both pages;
-   the title links to the kind's page; in every kind's list the disclosure hides or shows that kind's list in place.
-2. *Now*: the kind's cumulative flow chart, drawn as the overview's: its state groups by default (from
-   `/api/kinds/K`'s `group`, the overview's rule), its legend at its right, and the overview's one switch, *State
+   the title links to the projection's page; in every projection's list the disclosure hides or shows that projection's list in place.
+2. *Now*: the projection's cumulative flow chart, drawn as the overview's: its state groups by default (from
+   `/api/projections/K`'s `group`, the overview's rule), its legend at its right, and the overview's one switch, *State
    groups* or *Every state*, kept in the address (`/K?states=all`); then its cycle times.
-3. *In the model*, from `GET /api/kinds/K`: a row each for the parts that count it (*counted in*: the stock or
+3. *In the model*, from `GET /api/projections/K`: a row each for the parts that count it (*counted in*: the stock or
    auxiliary, its states, how many are there now), the flows counted from its moves (*moved by*: the state entered or
    left and the events that move an item there), the blocks that take it (*taken by*: what it takes, to where, its
    pool, attempts and TTL, how many it has taken now and how many wait in its `at` states), its goals (how each
    holds, and its status word) and its feedback loops (R or B, and through which of its parts). Each name links to
    the diagram drawn around it (`around=stock/NAME`, a block in Blocks, a goal its control loop, a feedback loop
-   around its first part), and the last links open its states as a process map (`view=process&kinds=K`) and, when
-   anything counts or takes it, draw what it touches (`view=dynamics&kind=K`, *Drawn alone* below). A kind
-   nothing counts and nothing takes says so here, and its other sections are drawn as for any kind. A goal's word is
-   `goalWord`'s. When `/api/kinds/K` cannot be read, a 404 says the model declares no such kind; any other failure
+   around its first part), and the last links open its states as a process map (`view=process&projections=K`) and, when
+   anything counts or takes it, draw what it touches (`view=dynamics&projection=K`, *Drawn alone* below). A projection
+   nothing counts and nothing takes says so here, and its other sections are drawn as for any projection. A goal's word is
+   `goalWord`'s. When `/api/projections/K` cannot be read, a 404 says the model declares no such projection; any other failure
    is said as an error here and in the definition, never as a fact about the model.
 4. *Definition*, a closed disclosure: its states (first, finished, paused, final, ergostat's), where its finishing
    came from, events to states, the fields shown, how each folds, its relations both ways, its joins, its lease rule.
-5. *Items*: the search, the List, Graph and Timeline views and the set chip of the Items page, for this kind alone
+5. *Items*: the search, the List, Graph and Timeline views and the set chip of the Items page, for this projection alone
    (the Graph and the Timeline draw its items and the items their relations reach, as they do).
 
 At 390 px wide its sections stack, with no sideways scroll.
 
-**Where it went, on the item's page.** Right after its header, an item of a kind the model counts or takes shows its
+**Where it went, on the item's page.** Right after its header, an item of a projection the model counts or takes shows its
 `path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that
 counts it (its state beside it when the names differ, else the state alone, its `says` as the title) and how long it
 stayed; between steps the valve (the flow that counted it into the next) and the block that moved it: the step's
-block, its run and attempt, from the lease, else the block whose `out:` names that flow (`/api/kinds/K`'s
+block, its run and attempt, from the lease, else the block whose `out:` names that flow (`/api/projections/K`'s
 `taken_by`). A nack or rework is a repeated step, said as *given back*, with its attempt. Each stock and flow links
 to `/diagram?view=dynamics&select=stock.S` (`flow.F`), each block to `/diagram?view=blocks&select=block.B` (no
 agent has a page of its own: its panel opens from there), each run to the Record narrowed to the item over that run (from its lease's `taken` to its `ended`, open while it
 runs; a run the lease history no longer keeps, from the step's start on).
 The final state is marked (a double border); the last step is where the item is counted now and, while a run has
-it, says *being worked by B for 4m*. This replaces the lifecycle strip. An item of a kind nothing counts or takes
+it, says *being worked by B for 4m*. This replaces the lifecycle strip. An item of a projection nothing counts or takes
 (the footprint's `why`) keeps the strip (the states it passed through, joined by arrows; its other endings apart)
 under the same heading and says *Its moves are not counted anywhere in the model.* Under the line (or the strip)
 are the links to its path drawn alone (below). Its leases follow, as a closed *Attempts (N)*: who has it now
 (taken, never "held"), the attempts counted of the most, and the table of every lease.
 
-**Drawn alone: what an item passed through, or what a kind touches.** `/diagram?view=dynamics&item=ID` (and
-`view=blocks`), or `&kind=K`, asks `GET /api/graph` with `item=` or `kind=`; the answer carries `subset`
-(`{item, kind, says}`, the kind an item's own). The set is read from the model and the item's path above: for an
+**Drawn alone: what an item passed through, or what a projection touches.** `/diagram?view=dynamics&item=ID` (and
+`view=blocks`), or `&projection=K`, asks `GET /api/graph` with `item=` or `projection=`; the answer carries `subset`
+(`{item, projection, says}`, the projection an item's own). The set is read from the model and the item's path above: for an
 item, the stocks that counted it in its steps, the flows counted entering them, and each block that took it with
-its `out` flows; for a kind, its `counted_in` parts and its blocks' `out` flows. *Dynamics* draws exactly that set
+its `out` flows; for a projection, its `counted_in` parts and its blocks' `out` flows. *Dynamics* draws exactly that set
 (`graph.select(parts=)`; a drawn flow still brings both its ends, an end outside the set dashed), flat, with no
 system folded, as `around=` is. Each stock on an item's path carries its steps' numbers in move order (`path`: a
 rework or a nack numbers one stock twice) and each valve the runs that took the item (`attempts`). *Blocks* draws
@@ -3200,9 +3202,9 @@ disturbances, `through`, what its sensors read) meet the set, each whole: every 
 goals, and a node fed by one and feeding one (a stock's sum), every system they sit in open, as a frame; a wire
 from outside them ends at a port. `system=` and `open=` are ignored there. A set with nothing in it answers no
 nodes and `says` `... : not counted anywhere in the model`; a Blocks set in no loop says `: in no control loop`.
-The page shows a chip (`what ID passed through ×`, `what kind K touches ×`) that clears it, and keys its pins by
-the kind (an item's by its kind's), so a subset's pins never move the whole diagram. The item page's *Where it
-went* links to both views and to the kind's (`Draw its path in Dynamics`, `in Blocks`), or says its moves are not
+The page shows a chip (`what ID passed through ×`, `what projection K touches ×`) that clears it, and keys its pins by
+the projection (an item's by its projection's), so a subset's pins never move the whole diagram. The item page's *Where it
+went* links to both views and to the projection's (`Draw its path in Dynamics`, `in Blocks`), or says its moves are not
 counted anywhere in the model, with no link.
 
 **Drawn on the item's page.** Under those links a counted item has a closed *Draw its path*, with a Dynamics /
@@ -3219,30 +3221,30 @@ a line is first routed), so an item page whose drawing is never opened fetches n
 The Diagram page's third view, beside Dynamics and Blocks, draws the work as the record says it went:
 process mining's **process map**, a **directly-follows graph** (DFG; van der Aalst, *Process Mining:
 Data Science in Action*; the map Disco and Celonis draw), **object-centric** (van der Aalst's
-object-centric process mining, OCEL): one map per kind of item, and between the maps the lines where
-work on one kind caused work on another. Nothing is declared for it: it is read from the record in the
+object-centric process mining, OCEL): one map per projection, and between the maps the lines where
+work on one projection caused work on another. Nothing is declared for it: it is read from the record in the
 page's window (`process.py`), with the item index's moves for the states.
 
 | Part | What it is |
 |---|---|
-| a node | an **activity** of a kind's items: by **States**, a state they entered (a move, from the item index; a lease's hold, `leased` (§9.5), folded out as the index's transitions fold it: the time held counts in the state it was taken from, and a lease handed back is no move); by **Events**, an event type about them. Its number is how many times in the window, and how many items; the more, the darker. By States, a state's node first says how many items are in it **now** (`now 3`, the Items page's count for that state, `GET /api/graph`'s `now` on the node): where work queues |
-| start, end | where the kind's items **start** (their first event is in the window) and **end** (they reached a state the kind counts as finished, as §12h's `done` or the item index says; `leased` never counts) |
+| a node | an **activity** of a projection's items: by **States**, a state they entered (a move, from the item index; a lease's hold, `leased` (§9.5), folded out as the index's transitions fold it: the time held counts in the state it was taken from, and a lease handed back is no move); by **Events**, an event type about them. Its number is how many times in the window, and how many items; the more, the darker. By States, a state's node first says how many items are in it **now** (`now 3`, the Items page's count for that state, `GET /api/graph`'s `now` on the node): where work queues |
+| start, end | where the projection's items **start** (their first event is in the window) and **end** (they reached a state the projection counts as finished, as §12h's `done` or the item index says; `leased` never counts) |
 | a line A → B | **directly follows**: on one item, B came next after A with nothing about that item between. Its weight is how often (one scale for the map); its number how many times (**Counts**) or the median time between A and B (**Times**). By States, a move from A to B is such a line, its time the time spent in A, even when A was entered before the window |
-| rework | a repeated step, as in §5a's paths: a passage is a **return** when it takes its item back to a step that same item has already done (by States, a state it entered, before the window too; by Events, an event type recorded about it in the window), and a line with any return is rework, marked ↺, its panel saying how many (`returns`; each kind's total, `kinds[].returns`). The order in which different items take steps never counts. A line to a step earlier in the kind's order (by States, its declared states; by Events, each type's usual place in its items' runs) is laid out running back, rework or not |
-| a dashed line between kinds | **caused**: an event on an item of one kind caused (`causedby`, followed up through events about no item, such as a block's run, up to four steps) an event on an item of another kind; aggregated by the two activities, with the event types under it. One into many is a fan-out, many into one a join |
+| rework | a repeated step, as in §5a's paths: a passage is a **return** when it takes its item back to a step that same item has already done (by States, a state it entered, before the window too; by Events, an event type recorded about it in the window), and a line with any return is rework, marked ↺, its panel saying how many (`returns`; each projection's total, `projections[].returns`). The order in which different items take steps never counts. A line to a step earlier in the projection's order (by States, its declared states; by Events, each type's usual place in its items' runs) is laid out running back, rework or not |
+| a dashed line between projections | **caused**: an event on an item of one projection caused (`causedby`, followed up through events about no item, such as a block's run, up to four steps) an event on an item of another projection; aggregated by the two activities, with the event types under it. One into many is a fan-out, many into one a join |
 | a schedule | where a scheduled run's events come from: a cause followed up to a run a block started on its own schedule (`every:`, `cron:`; its `agent.started`, `"trigger": "schedule"`, caused by nothing) ends there. The run is the cause its events cite, so no event of its own is recorded for a firing. Drawn in a frame of its own, **schedules**, a node per block (a clock, its name and how often; its number, how many of its runs caused something), with a dashed line to each activity its runs caused, its fan-out; its items `caused=ergostat.schedule:BLOCK>A` |
-| a dotted line, named | **related**: an item names another in a relation its kind declares (§5a, *Relations*: `parent`, `blocked_by`), both drawn: from the activity the naming item was last at in the window to the one the named item was last at, aggregated by the relation and the two activities; its number how many links. Read as the links stand now; a link to an item not drawn is no line |
+| a dotted line, named | **related**: an item names another in a relation its projection declares (§5a, *Relations*: `parent`, `blocked_by`), both drawn: from the activity the naming item was last at in the window to the one the named item was last at, aggregated by the relation and the two activities; its number how many links. Read as the links stand now; a link to an item not drawn is no line |
 
-**Which.** The kinds are the system's being viewed (`item_systems.py`: where each kind belongs); for
-everything, every kind but ergostat's own. The ⋯ menu chooses any of them. **States** is the default when
-every kind drawn declares states: the states are the workflow as the owner wrote it, with the names the
+**Which.** The projections are the system's being viewed (`item_systems.py`: where each projection belongs); for
+everything, every projection but ergostat's own. The ⋯ menu chooses any of them. **States** is the default when
+every projection drawn declares states: the states are the workflow as the owner wrote it, with the names the
 stocks counting them use, so the map is held directly against the model (an event that moves nothing, a
-comment, a transcript's line, is left out); a kind without states is drawn by its events. **Events**
+comment, a transcript's line, is left out); a projection without states is drawn by its events. **Events**
 draws every event type about the items (a transcript's lines, a lease's renewals and roll-ups aside): what
 happened between the moves, and loops on one step.
 
-**The paths slider** (in the view bar) hides the lines rarer than its share of their kind's most frequent
-(the lines between kinds, of theirs), and the nodes it leaves alone, as process mining tools' slider does;
+**The paths slider** (in the view bar) hides the lines rarer than its share of their projection's most frequent
+(the lines between projections, of theirs), and the nodes it leaves alone, as process mining tools' slider does;
 the side panel says how many were hidden. The related lines to a remote's items (§4c) are not subject to it.
 
 **Bounded.** The newest 50,000 events in the window are read, the moves of at most 20,000 items (the
@@ -3252,20 +3254,20 @@ any was reached. The answer is kept for five seconds.
 **Held against the model.** `check`'s coherence (§12l) compares this map with the Dynamics and Blocks views:
 each move it draws against the chain's flows, and who made each against the blocks that declare it.
 
-**Layout.** Each kind's map is laid out alone by ELK (layered, left to right, in time order: its start
-first, its states in their declared order, its end last), in a frame named with its kind, how many items
+**Layout.** Each projection's map is laid out alone by ELK (layered, left to right, in time order: its start
+first, its states in their declared order, its end last), in a frame named with its projection, how many items
 and by what; the frames are packed in rows to the screen's shape. Shown first, and by Fit, at no less than full size, so a
 node's smallest (11px) text is never drawn smaller; a map wider or taller than the screen is panned, and the view bar
-says which way more lies ("More beyond the edge" and arrows, such as "→↓"); at phone width too. Each kind's card on the Items page links to its map in
-States (`/diagram?view=process&kind=KIND&mode=states`; `kind` and `mode` read as `kinds` and `by`). The lines between kinds are routed by
+says which way more lies ("More beyond the edge" and arrows, such as "→↓"); at phone width too. Each projection's card on the Items page links to its map in
+States (`/diagram?view=process&projection=PROJECTION&mode=states`; `projection` and `mode` read as `projections` and `by`). The lines between projections are routed by
 libavoid around every part, from the bottom or top of their ends. Plain ink: no colour carries meaning.
-A node dragged (or the nodes chosen), or a kind's frame dragged by its top, is pinned where it is put, as in
+A node dragged (or the nodes chosen), or a projection's frame dragged by its top, is pinned where it is put, as in
 the other two views (DESIGN, "Parts put by hand"): no new layout, the lines it touches routed again by
-libavoid. The Process view keeps its own pins, each node's from its kind's frame and by its kind and
+libavoid. The Process view keeps its own pins, each node's from its projection's frame and by its projection and
 activity, so the same in States and in Events; "Unpin all parts" (⋯) lets the layout place them again.
 
 **Clicking.** A node or a line opens its panel: what it is, its count and median time, the lines into and
-out of a node, a cross-kind line's event types; and the items behind it, the first ten, linked to the Items
+out of a node, a cross-projection line's event types; and the items behind it, the first ten, linked to the Items
 page filtered to exactly them. The Items page's (and `GET /api/items`') filters for these, read as the map
 read them:
 
@@ -3273,11 +3275,11 @@ read them:
 |---|---|
 | `through=A` | went through activity A in the span (`^`: started, `$`: ended) |
 | `followed=A>B` | B directly followed A on the item in the span (`^>A`: started with A; `A>$`: ended after A) |
-| `caused=KIND:A>B` | B on the item was caused by A on an item of KIND in the span (repeated: any of them) |
+| `caused=PROJECTION:A>B` | B on the item was caused by A on an item of PROJECTION in the span (repeated: any of them) |
 | `by` | `states` or `events`: what A and B are |
 | `moved_since`, `moved_until` | the span, as for `moved` |
 
-`GET /api/graph?view=process` answers the map (`kinds` joined by commas, `by`, `paths` as a percentage, and
+`GET /api/graph?view=process` answers the map (`projections` joined by commas, `by`, `paths` as a percentage, and
 `system`); `view=wiring`, the view this replaced, is the same, and the page's `view=wiring` opens it. (The
 machines and what passed between them, which the wiring view drew, are on the command line: `ergostat
 system --wiring`.)
@@ -3393,7 +3395,7 @@ stocks:
   in-review:
     unit: prs
     sensor:
-      items: pr
+      projection: pr
       state: review              # one state, or a list: [open, review]
       where:                     # optional: only items whose fields match
         label: bug
@@ -3402,20 +3404,20 @@ flows:
   merging:
     from: in-review
     sensor:
-      items: pr
+      projection: pr
       entering: merged           # or leaving: review
       over: 1h                   # the rate per hour over this window (default 1h)
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `run` | command | | A command whose output is the reading: a bare number, or JSON `{"value": n}`. Run in the model's folder; its environment carries `ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR` and (when the engine has one) `ERGOSTAT_SOCKET`, as a block's run does (section 9.3), so a collector can read the items with `$ERGOSTAT_CMD item --kind K --json` |
+| `run` | command | | A command whose output is the reading: a bare number, or JSON `{"value": n}`. Run in the model's folder; its environment carries `ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR` and (when the engine has one) `ERGOSTAT_SOCKET`, as a block's run does (section 9.3), so a collector can read the items with `$ERGOSTAT_CMD item --projection K --json` |
 | `query` | map | | A query against a source (section 11): `source` and the source's own fields |
 | `daemon` | map, or a name under `daemons:` | | Read by a long-lived process (section 9.7): each reading asked as a line on its schedule, no process started per reading; several sensors may name one daemon |
 | `journal` | folder | | The `*.jsonl` journals directly in this folder, written by something ergostat did not start, followed while ergostat runs (below, *Journals*). Relative to the model's folder and inside it: an absolute path, or one whose `..` leaves the folder, is refused (`bad-journal`). Never read on a schedule, and no process is started for it |
 | `push` | bool | false | With `daemon`: the daemon sends its readings by itself (`{"reading": V, "sensor": "STOCK.SENSOR"}`); none is asked for |
 | `manual` | bool | | Readings recorded by a person (`ergostat sensor STOCK.SENSOR --read V`, recorded at the present time). `--read` with `--at` is refused (exit 2, nothing written): `--at` views the past and records nothing |
-| `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over`; on an auxiliary that names `entering` or `leaving`, how many moved over `over` (a count, not a rate: `fixes-regressed-recent`, section 12r) |
+| `projection` | projection | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over`; on an auxiliary that names `entering` or `leaving`, how many moved over `over` (a count, not a rate: `fixes-regressed-recent`, section 12r) |
 | `state` | state or list | any | On a stock: which states count |
 | `measure` | `count`, `oldest` or `age` | `count` | On a stock: how many; the hours the oldest of them has been in its state; or the hours since the oldest of them was first seen, whatever states it passed through (an item taken, given back and taken again keeps its age: a commitment's clock) |
 | `entering`, `leaving` | state | | On a flow (or an auxiliary): exactly one; the move it counts |
@@ -3805,7 +3807,7 @@ goals:
 | `critical` | bool | false | It guards against a cascade or an accumulating failure: watched for decay |
 | `owner` | string | none | Who answers for it |
 | `process` | map | none | The loop's process, from what its controller moves (u) to what the goal holds (y), as control engineering writes it: `gain` (y per u), `time-constant` and `dead-time` (durations): P(s) = K e^(−θs)/(τs + 1); or `integrating: true`, `gain` per hour and `dead-time`: P(s) = k e^(−θs)/s. `identified:` says it was accepted from an identification (when, how, on how much record); without it, it is declared (section 12d) |
-| `per` | `item`, or a field | none | On a stock counted from items (an `items:` sensor): held by each item (`item`, by its own measure: its hours in its state for `measure: oldest`, since first seen for `age`), or by each group of the items by what a field holds (a relation such as `parent`: each id it names; an item with nothing there is in no group): each group's count, oldest or age. Below |
+| `per` | `item`, or a field | none | On a stock counted from items (a `projection:` sensor): held by each item (`item`, by its own measure: its hours in its state for `measure: oldest`, since first seen for `age`), or by each group of the items by what a field holds (a relation such as `parent`: each id it names; an item with nothing there is in no group): each group's count, oldest or age. Below |
 | `on-stale` | `act`, `hold` or `off` | none (not watched) | Watched for staleness, and what it does while its reading is stale (section 9.6): worked out from the stale value as if it were current; its `.error` and `.off` kept as they were, so what it commands is kept; or counted as off (`.off` is 1, its error the last one). Its status shows `stale` under each |
 | `system`, `description` | | | |
 
@@ -3834,8 +3836,8 @@ graph; the Goals page prints it per system and a system's panel on the diagram a
 
 ```yaml
 stocks:
-  review-age: {unit: hours, sensor: {items: ticket, state: review, measure: oldest}}
-  open-tickets: {unit: tickets, sensor: {items: ticket, state: [todo, doing, review]}}
+  review-age: {unit: hours, sensor: {projection: ticket, state: review, measure: oldest}}
+  open-tickets: {unit: tickets, sensor: {projection: ticket, state: [todo, doing, review]}}
 goals:
   review-fresh: {stock: review-age, hold: "<= 48", per: item}
   epics-small: {stock: open-tickets, hold: "<= 10", per: parent}
@@ -3851,7 +3853,7 @@ groups), nothing breaks it and it holds: its value is 0, or the setpoint itself 
 each item's age). A group is only what its items name: an epic with no open ticket is no group, so a floor on each
 group's count could never be broken, and `check` refuses it, as it refuses `per:` on a goal not on a stock counted
 from items and `per: item` on a count (**goal-per**); it notes a `per:` naming neither a relation nor a field the
-kind shows, folds or the sensor matches (**goal-per-field**). The items are read from the item index again only
+projection shows, folds or the sensor matches (**goal-per-field**). The items are read from the item index again only
 when the record changed; their hours are worked out again at each reading.
 
 ## 9. Blocks
@@ -4466,15 +4468,15 @@ amount and, when they differ, what was asked.
 moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved": n}` without
 `out` when it moves one flow, and `{"event": "backup.verified", "item": "backup/nightly"}` for
 anything else that happened (an event about an item, section 5a: `data` holds its fields, folded by
-its kind's rules; or, in place of `data`, a JSON `patch` or the whole document, `set`), each taken as it is printed
+its projection's rules; or, in place of `data`, a JSON `patch` or the whole document, `set`), each taken as it is printed
 (section 9.1). Lines that are not JSON go to the run's own log (`logs/runs/<block>/`, copied
 into `logs/<block>.log` when it ends: section 4b). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's id), `ERGOSTAT_ITEM` and
 `ERGOSTAT_LEASE` (for a run holding a lease on an item: section 9.5), `ERGOSTAT_COMMAND` (the amount),
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
-(`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
+(`$ERGOSTAT_CMD item --projection ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
 block, or the AI agent it starts, to read and record items while it works; and `ERGOSTAT_SOCKET`, the running
 engine's socket, which answers `event --add`, `act`, `lease --renew` / `--nack`, `item ID --json` and the listing
-`item --kind K --state S --json` (`{"op": "items", "offset": N}`: a page of 500 from `offset`, and `total`) without
+`item --projection K --state S --json` (`{"op": "items", "offset": N}`: a page of 500 from `offset`, and `total`) without
 loading the model (section 5c). An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
 with its prompt, the JSON above, and how to answer, in the model's folder unless it names its own (`workdir:`, or a `workspace:` per item), and gated
 when it names its `tools:` or `actions:` (section 12k). Any block, whatever its type, may also propose a change to
@@ -4499,19 +4501,19 @@ given flow.
 ### 9.5 Leases and work queues
 
 Some work comes as items, one at a time, and every one needs doing: tickets to fix, reviews to brief,
-hypotheses to build. A machine block may **take** them: for each item of a kind that reaches a state,
+hypotheses to build. A machine block may **take** them: for each item of a projection that reaches a state,
 ergostat starts a run of the block of its own, and the run holds a **lease** on its item until the
 work moves the item on. The queue is no new object: it is the items in that state. Leases are what
 make it safe to run several at once, to notice a run that went silent, and to stop retrying work that
 keeps failing.
 
 ```yaml
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, review, done]
     on: {ticket.started: doing, ticket.submitted: review, ticket.merged: done}
-    lease: {attempts: 5}               # optional: this kind's terms (below)
+    lease: {attempts: 5}               # optional: this projection's terms (below)
 
 leases:                                # optional: each tier's terms, over the defaults
   ai: {ttl: 30m}
@@ -4520,7 +4522,7 @@ blocks:
   developer:
     type: ai
     takes:                             # a run per ticket that reaches ready
-      kind: ticket
+      projection: ticket
       at: ready                        # a state, or a list (taken in that order)
       to: [review, done]               # optional: the states that count as done (else any but at:)
       where: {team: core}              # optional: only items whose fields match
@@ -4530,26 +4532,26 @@ blocks:
     run: $ERGOSTAT_CMD session developer --model sonnet
   reviewer:
     type: ai
-    takes: {kind: ticket, at: review, to: [done, ready]}
+    takes: {projection: ticket, at: review, to: [done, ready]}
     pool: {now: stock.reviewers, most: 4}   # as many at once as the stock (measured) reads now, never more than 4
     run: $ERGOSTAT_CMD session reviewer --model sonnet
 ```
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done; for a decision, these are its answers, counted on its agent's page), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`), `faults` (`{healthy: R}`: a sensor, goal or command that says the queue's shared environment is up; while it does not, nothing is taken and a failing run spends no attempt; `{hold-by: [FIELD]}`: item fields whose values fail together, each value's group held on its own: *Faults* below; either or both) |
+| `takes` | a `program` or `ai` block | `projection` (a projection of the model's own), `at` (the states it takes from), `to` (the states that count as done; for a decision, these are its answers, counted on its agent's page), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any projection: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`), `faults` (`{healthy: R}`: a sensor, goal or command that says the queue's shared environment is up; while it does not, nothing is taken and a failing run spends no attempt; `{hold-by: [FIELD]}`: item fields whose values fail together, each value's group held on its own: *Faults* below; either or both) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
-| `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
+| `lease` | a block, a projection | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
 
-**Terms.** A lease's TTL and attempts are the block's, else its kind's, else its tier's in `leases:`,
+**Terms.** A lease's TTL and attempts are the block's, else its projection's, else its tier's in `leases:`,
 else the defaults: person 8 h, AI agent 40 min, narrow AI 10 min, decision 2 min, program 5 min (or
 its `timeout`, when longer), rule 1 min; 3 attempts. A block's tier is its agent's kind, else its
 type's (`ai`: an AI agent; `program`: a program). A lease keeps the terms it was taken under: a TTL
 changed in the model reaches the next lease.
 
 **Dispatch.** While nothing commands the block, or what commands it is on (a `goal:` on it gates
-it, as on any machine block), every item of its kind in a state of `at`, not held, not put off, and
+it, as on any machine block), every item of its projection in a state of `at`, not held, not put off, and
 matching `where`, is leased to a new run, oldest first (by when it entered its state), while the
 leases its runs hold are fewer than its pool now. A pool written `{now: stock.NAME, most: N}` is read at each look,
 with the dispatcher's lock held, in the same hold as the count of the leases and the take: the stock's level as the
@@ -4563,13 +4565,13 @@ counted at the next look; on the same item the fold refuses the second lease, on
 waits on an unfinished item is not taken (one in a cycle never is; a target in a state the relation's `starts_at`
 names is not waited on), and the rest are taken the critical first: the least
 slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The slack is read from the
-finish-to-start projection even for a `starts_at` link: it says nothing about starting early. The kind must have a
+finish-to-start schedule even for a `starts_at` link: it says nothing about starting early. The projection must have a
 precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
 fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
-it), then the states of `at` in order, then the order above (the critical first, or the oldest): `takes: {kind: gap,
+it), then the states of `at` in order, then the order above (the critical first, or the oldest): `takes: {projection: gap,
 at: ready, unblocked: true, order: rank}` takes the groomed backlog's next unblocked gap, `order: [-priority]` a
 ticket queue's most urgent. The dispatcher and the completion estimates (section 5a) sort by one comparator
-(`leases/ready.py`'s `take_key`: the order fields, then the states of `at`), so the Timeline's projected runs are in
+(`leases/ready.py`'s `take_key`: the order fields, then the states of `at`), so the Timeline's forecast runs are in
 the order the block will take them; only the critical tiebreak among equals is measured differently (section 5a). `check`
 notes an order field no item in the record holds yet (`takes-order-unset`). **A frozen window**, off unless declared:
 `frozen: {first: N, urgent: FIELD}` in `takes:` (N from 1 to 200, refused otherwise: `bad-frozen`) keeps the next N
@@ -4600,13 +4602,13 @@ stream of its own); `{block: B}`, the area is block B's: another block declaring
 FIELD that cannot be read (never said, null, not a text or a list of texts, or more than 5,000 values) touches every
 area: the item waits while any is held, and held, it holds them all. An item touching nothing says so with an empty
 text or list, so whatever makes an item takeable should say its FIELD in the same event. Each wait is said once in the engine's log (`ITEM waits:
-HOLDER holds AREA`); nothing is recorded. At most 200 areas of at most 200 patterns; a holding state not of the kind,
+HOLDER holds AREA`); nothing is recorded. At most 200 areas of at most 200 patterns; a holding state not of the projection,
 a block owner not in the model, or a malformed map is refused whole (`bad-areas`). `ergostat block NAME --now` takes
-by the same rule. The completion estimates do not simulate it: an item held out is projected as if it were not. A
+by the same rule. The completion estimates do not simulate it: an item held out is forecast as if it were not. A
 block declaring both keeps out of lanes the items an area holds out. **Lanes**, off unless
 declared: `lanes: {apart: FIELD, most: N, within: {cpu: C, memory: SIZE}, each: {cpu: C, memory: SIZE}, ahead: K,
 passed: [STATE]}` in `takes:` (N from 1 to 16, K from 0 to 4, cores above 0 and at most 1024, a size above 0 and at
-most 1p, `each` within `within`, `passed` one or more states of the kind and needed when K is above 0; refused
+most 1p, `each` within `within`, `passed` one or more states of the projection and needed when K is above 0; refused
 otherwise, a falsy or empty `passed` too: `bad-lanes`). FIELD is the list of
 what an item touches (words; one word is a list of one; missing, empty or not words: it touches everything, so it
 runs alone). At each look the block's lanes are its leased items; of the items it may take, in its order, one that
@@ -4637,7 +4639,7 @@ hold its items, gate it with `in: block.X` from an `expr` block that reads a sto
 true}` (`expr: o` over `in: {o: stock.open}`). `ergostat sensor open --read 1` opens the gate and
 `--read 0` shuts it. It opens for all of the block's items at once, not for one item; while it is off,
 or has no reading yet, the items wait. A `person` block is no gate: its `--done` records work and never
-sets a command, so `check` refuses one wired to command a block that takes (`person-gate`). A kind taken
+sets a command, so `check` refuses one wired to command a block that takes (`person-gate`). A projection taken
 by a block gains two states, when it does not list them: `leased`, after the first `at` state, and
 `dead`, last.
 
@@ -4647,7 +4649,7 @@ as dead letters that nothing is wrong with. `takes` may say what tells it the en
 
 ```yaml
     takes:
-      kind: todo
+      projection: todo
       at: ready
       faults: {healthy: sensor.tracker-reachable}
 ```
@@ -4837,7 +4839,7 @@ lease, renews it by what it records as before, and ends it, ack or nack, by its 
 stands, for the fold, not the model, holds it. New leases are taken under the new model: its blocks, pools and terms.
 A lease whose block was removed is still watched, and expires on its TTL if its run goes silent.
 
-**What a run is given.** Its input carries `"trigger": "item"`, the item (`item`: `id`, `kind`,
+**What a run is given.** Its input carries `"trigger": "item"`, the item (`item`: `id`, `projection`,
 `state`, `fields`, without the lease) and its lease (`lease`: `fence`, `ttl`, `expires`, `attempt`,
 `attempts`, `tier`, `back`); its environment `ERGOSTAT_ITEM` (the item's id), `ERGOSTAT_LEASE` (the
 fencing number; the holder is `ERGOSTAT_RUN`), `ERGOSTAT_LEASE_TTL` and `ERGOSTAT_LEASE_EXPIRES` (when
@@ -4848,7 +4850,7 @@ for its item (section 12j).
 **For what holds a resource as long as a lease** (a working copy, a session, a seat): the lease
 events are the hook. React to `ergostat.lease.taken` (acquire, for `data.run` on the item), and to
 `ergostat.lease.ended` and `ergostat.lease.expired` (release). Each names its `item`; an end says the `state` it
-leaves the item in and whether that is `terminal` (a dead letter, or its kind's last state): finished, so what it
+leaves the item in and whether that is `terminal` (a dead letter, or its projection's last state): finished, so what it
 held can be cleaned, or not (under review, or back in the queue to be taken again), so it can be kept. In the run, `ERGOSTAT_ITEM` and
 `ERGOSTAT_LEASE` name what it holds, and `ERGOSTAT_RUN` the holder. A run whose lease expired is killed, but
 may still be stopping (its grace): what it writes about the item is refused, and what it holds should be released or
@@ -4861,7 +4863,7 @@ watches them; `ergostat lease` lists who holds what.
 `ergostat.leases.expired` (expiries over the last day), `ergostat.leases.dead` (dead letters now) and
 `ergostat.leases.overdue` (held past their expiry, not yet expired: non-zero during the watchdog's grace below even
 when it keeps up, so a goal on stalls holds `expired`, not `overdue`),
-each narrowed by `@KIND` or `@BLOCK`, are read by a sensor (`builtin:`), so a goal can hold them:
+each narrowed by `@PROJECTION` or `@BLOCK`, are read by a sensor (`builtin:`), so a goal can hold them:
 
 ```yaml
 auxiliaries:
@@ -4879,16 +4881,16 @@ engine or the machine busy), and the item is taken again. A watchdog pass looks 
 dispatcher takes work between passes, so many overdue leases never hold up a take for another block; the leases a
 pass did not reach are looked at in the passes after, each once a round, its first look kept. Each dead letter, and each lease that expired in the
 last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease ITEM --redrive` gives a
-dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
+dead letter another go once its cause is fixed. A projection's page shows, when it has leases, who
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every
 attempt, under *Where it went* (§5a).
 
 **A valve's panel lists what its block has taken.** A valve (or flow) moved by a block that takes items says, in its
-side panel (Dynamics, and the Blocks view's valve panel), one line per such block: the kind, how many items it has
-**taken** now and how many wait (`N waiting at STATE`, or `none waiting`), and a link to the Items page's set of exactly
-the taken ones (`/items?kind=K&taken=BLOCK`). An item is taken while its lease has a holder of that block, whatever its
+side panel (Dynamics, and the Blocks view's valve panel), one line per such block: the projection, how many items it has
+**taken** now and how many wait (`N waiting at STATE`, or `none waiting`), and a link to the projection's page
+(`/PROJECTION`). An item is taken while its lease has a holder of that block, whatever its
 state: a run's first event moves it out of `leased` and it is still taken; an acked or given-back one is not. Waiting
-are the kind's items in the block's `at` states, matching its `where`, not taken. Under the line, **the list of taken
+are the projection's items in the block's `at` states, matching its `where`, not taken. Under the line, **the list of taken
 items**: up to ten (`being worked by BLOCK (N)`), each with its id (a link to its page), its title, its state, its run
 (the first 8 characters, a link to the item's events in the Record), how long it has been taken, when its lease expires
 (`overdue 1m`, in the bad colour, past it) and its attempt (`attempt 2 of 3`); more than ten, `all N taken` links to
@@ -4935,7 +4937,7 @@ compiler refuses each mistake with its own code: `bad-name`, `bad-number` (rank 
 `unknown-key`, and `pool-rises-with-rank`: going up the ranks a pool stays the same or falls, no cap counting as
 infinite. That last one is for readability only (the higher state reads as the stricter one); what keeps dispatch safe
 is that the pool in force is the least among the states entered, whatever their ranks. A model without `operating:`
-gets nothing: no built-in kind, no read of the record, no trip check.
+gets nothing: no built-in projection, no read of the record, no trip check.
 
 The section is shared with the operating state of §12k (*The operating state*): its key `away-after:` is the owner's
 presence setting, never a state, and every other key is a declared state. So `operating: {away-after: 2h}` alone
@@ -4945,12 +4947,12 @@ enter freeze`) caps the pools, even when the names match. The §12k fold passes 
 (`ergostat.operating.entered`, `.left`, `.watching`); any other unknown `ergostat.operating.*` still reads there as
 incident.
 
-**Folded from the record.** With `operating:` declared, the built-in kind `ergostat.operating` has one item per
+**Folded from the record.** With `operating:` declared, the built-in projection `ergostat.operating` has one item per
 state, `ergostat.operating/<state>`, `entered` or `left`, moved by `ergostat.operating.entered` and
 `ergostat.operating.left`, with fields `by` (owner, run or trip), `why`, `since` and `trips` (`{goal, spell,
 event}`, each trip that entered it). An `entered` on a state entered keeps it entered and adds its trip; one after a
 `left` starts afresh (the earlier `by`, `why` and `trips` are gone). The fold refuses a `left` recorded during a run
-(its `causedby` set). It shows in the Items tab like any kind. The state in force is the highest-ranked state
+(its `causedby` set). It has its own page like any projection. The state in force is the highest-ranked state
 entered, and its pool the **least pool among all the states entered**. A state entered that the model no longer
 declares counts as pool 0 until it is left; a record that cannot be read gives pool 0, whatever the states' pools.
 
@@ -5088,7 +5090,7 @@ stocks:
 blocks:
   builder:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: 20                           # at most the smaller of pool and the daemon's concurrency at once
     daemon: {run: ./builder.py, concurrency: 20, heartbeat: 30s}
 ```
@@ -5285,20 +5287,20 @@ runs as a process of its own.
 - **Seeds.** Each top-level system (the outermost system a part is within) starts a shard, named after the system,
   lowercased. A name that is not `^[a-z0-9][a-z0-9-]{0,63}$` becomes `s-` and the first 12 hex digits of the system
   name's sha256; a name already taken gets `-2`, `-3` and so on. The **lead** shard, named `lead`, always exists, even
-  in a model with no systems. It holds the parts with no system, ergostat's own kinds (`ergostat.*`) that no block
+  in a model with no systems. It holds the parts with no system, ergostat's own projections (`ergostat.*`) that no block
   takes, agents no block runs on, and anything else nothing assigns.
-- **Parts.** Every stock, flow, auxiliary, goal, block, sensor, agent and kind of item is in exactly one shard. A
-  sensor is in its part's shard, an agent in the shard of the blocks that run on it, a kind in the shard of the
+- **Parts.** Every stock, flow, auxiliary, goal, block, sensor, agent and projection is in exactly one shard. A
+  sensor is in its part's shard, an agent in the shard of the blocks that run on it, a projection in the shard of the
   blocks that take it, else in its system's, else in the lead. `Plan.of(ref)` names a part's shard and raises
   `KeyError` for one not in the model; it has no default. A stock's estimate or uncertainty is in the stock's shard.
   A daemon (`daemon.NAME`) is in the shard of the blocks and sensors it serves, else in the lead; it is in
   `Plan.where`, not in a shard's `parts`.
 - **Merges.** Two shards are merged when blocks in each run on the same agent (its `at-once` is counted in one
-  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon (a
-  block's `daemon:` or a sensor's: it is one process, started by one engine). Kinds tied by a join (a parent kind
-  and the kinds whose relation names it) count as one kind here. Nothing else merges shards; in particular, reading a
+  process), take items of the same projection (a lease is locked in one process), or are served by the same daemon (a
+  block's `daemon:` or a sensor's: it is one process, started by one engine). Projections tied by a join (a parent projection
+  and the projections whose relation names it) count as one projection here. Nothing else merges shards; in particular, reading a
   signal across them does not. Each merge is recorded in `Plan.why`: the shard that joined, the rule (`agent`,
-  `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
+  `projection`, `daemon` or `ceiling`) and the agent, projection or daemon.
 - **Wires.** `Plan.wires` lists, sorted, each value a part in one shard reads from a part in another that exists only
   in memory, with the shard it comes from and the one that reads it: a goal's setpoint, error or off (`goal`), a
   block's output read by another block (`cascade`), a block's output to a goal's setpoint (`setpoint`) or to a block,
@@ -5316,7 +5318,7 @@ runs as a process of its own.
   `ShardError` (a `ValueError`) when the engine is made, naming the shard and the plan's shards. Its own are: the
   built-ins, the machine blocks and the goals a pass works out; the clock's timed sensors, sensor crons, timed and
   cron blocks and judges, and the item-count sensors read when the record moves; the blocks the dispatcher takes items
-  for and the kinds whose leases it watches; the blocks an event starts and the kinds whose joins move a parent; the
+  for and the projections whose leases it watches; the blocks an event starts and the projections whose joins move a parent; the
   daemons `Supervisor.sync` starts, with the sensors they serve; and the stocks the observer estimates. A pass reads
   the newest measurements of its own stocks, flows and auxiliaries and of those in other shards its parts read (a
   goal's part, a block's inputs, an equation's references, an estimated stock's flows), and no others; an estimate
@@ -5622,8 +5624,8 @@ where the error is 0.
   one-way flow);
 - a negative amount moved along a flow that is not `two-way` (refused when the block reports it);
 - an `exogenous` auxiliary that is also `driven-by` something;
-- an item kind whose `id` has no `/`, an `on` naming a state not in `states`, or a sensor counting
-  a kind or state that does not exist (or `state`/`measure` on a flow, `entering`/`leaving`/`over`
+- a projection whose `id` has no `/`, an `on` naming a state not in `states`, or a sensor counting
+  a projection or state that does not exist (or `state`/`measure` on a flow, `entering`/`leaving`/`over`
   on a stock, `over` on an auxiliary that names neither `entering` nor `leaving`);
 - two blocks outputting to the same flow;
 - a `run`, `prompt` or `ask` on an external block, or a built-in block with an `agent`;
@@ -5670,7 +5672,7 @@ where the error is 0.
   used because a trusted one has its name (its text marked, section 2a, *Untrusted libraries*);
 - **template-ambiguous**: a use naming a template by its bare name that a fetched library and another source both
   offer: each source named, and the `LIB/TEMPLATE` forms (section 2a, *Libraries fetched by git URL*);
-- **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
+- **about-missing-part**: an open item (of a projection that declares `about:`, section 5a, *About*) names something that
   is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
   (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its
   message, all in `items`). Finished items are not checked. When the item index cannot be read, **about-unknown**
@@ -5718,11 +5720,11 @@ counted by code (`--json` gives each, with its `id`), they are not counted among
 leaves them out), and the modelling loop takes each up as a request (§12e). Parts a template made are left out (they
 change only through the use's `with:`):
 
-- **no-description**: a stock, flow, auxiliary, parameter, goal, block, item kind or agent with no description;
-- **no-equation**: a flow between two stocks with no equation (nor a declared rate): replayed, never projected;
+- **no-description**: a stock, flow, auxiliary, parameter, goal, block, projection or agent with no description;
+- **no-equation**: a flow between two stocks with no equation (nor a declared rate): replayed, never run forward;
 - **collector-undescribed**: a sensor that reads the outside (`run:`, `query:`) with no description (the Blocks view
   titles the collector with its command);
-- **event-names-mixed**: an item kind whose event types are not all `KIND.verb-past`, with the name each reads best as;
+- **event-names-mixed**: a projection whose event types are not all `PROJECTION.verb-past`, with the name each reads best as;
 - **queue-goal-tolerance**: a goal served by a block that takes the items its stock counts, with a tolerance or a
   setpoint above 0, so items wait unseen (the block runs only while the goal is off);
 - **schedule-removed**: a machine block with `every:` or `cron:`, and no `takes:` or `on:`, that also names a `goal:`.
@@ -5733,13 +5735,13 @@ change only through the use's `with:`):
   modelling request is raised for it (§12e);
 - **process-not-identified**: a goal's `process:` with no `identified:`.
 
-**A kind's states, chained** (findings, `ergostat/spec/chains.py`). When two or more stocks count the items of one
-kind in different states (`items: K, state: S`), the moves between those states are flows from one stock to the
+**A projection's states, chained** (findings, `ergostat/spec/chains.py`). When two or more stocks count the items of one
+projection in different states (`projection: K, state: S`), the moves between those states are flows from one stock to the
 next: arrivals from outside into the first state's stock, a flow from each state's stock to the next, completions
 out of the last. What says items move from P to S: the record (each move the item index kept, a lease's hold taken
 out: into `leased` from P and out of it to S is one move, P to S), a block that takes them at P to S
 (`takes: {at: P, to: [S]}`), a flow's own sensor (an outflow from P's stock counting the items `entering: S`), and,
-for a stock nothing fills, the kind's state order (the modelled state before it). A move is carried by a path of
+for a stock nothing fills, the projection's state order (the modelled state before it). A move is carried by a path of
 flows from P's stock to S's (a move the record saw may pass only through stocks of the items being worked,
 `state: leased`; one a block or the order implies may pass through other states' stocks), or by an aggregate the
 other side relies on: a stock filled from outside by every item `entering: S` from two states or more (stopped,
@@ -5749,37 +5751,37 @@ are ergostat's own states and are left out. Each finding names its fix, with the
 - **outflow-not-chained**: an outflow to outside from P's stock whose items go on to S's stock: `to:` that stock
   (and a flow from outside counting the same items entering S taken out);
 - **inflow-not-chained**: an inflow from outside into S's stock whose items all come from P's: `from:` that stock
-  (never a flow that also counts arrivals: the kind's first state, or a state items arrive in);
+  (never a flow that also counts arrivals: the projection's first state, or a state items arrive in);
 - **state-stock-without-inflow**: a state's stock nothing fills, though items arrive in it from another state (a
-  flow from that state's stock, measured as items entering it), or, for the kind's first state, from outside (the
+  flow from that state's stock, measured as items entering it), or, for the projection's first state, from outside (the
   arrivals);
 - **move-without-flow**: items move from P to S and no flow carries them: a flow from P's stock to S's, measured
   as items of K entering S (with `where: {lease.back: P}` when a block takes them and S has other origins);
-- **state-stocks-disconnected**: the kind's state stocks are pieces no flow joins, listed, with every change that
+- **state-stocks-disconnected**: the projection's state stocks are pieces no flow joins, listed, with every change that
   joins them;
 - **chain-stock-not-a-count**: a stock flows fill or drain whose sensor reads its items' age (`measure: oldest` or
   `age`): flows move items, so it counts them; the age is a stock of its own beside the chain, with no flows;
-- **loops-not-connected**: the loops of the goals on the kind's stocks (each goal's stock and the stocks at the ends
+- **loops-not-connected**: the loops of the goals on the projection's stocks (each goal's stock and the stocks at the ends
   of the flows its blocks set) are groups that share no stock: the missing chain, named.
 
 The last two are said only when a move is not carried (pieces with no move between them are a chain through a
 state with no stock of its own). `numbers/structural.py` makes each a structural proposal, and the pieces one
-proposal that chains the whole kind; each carries `rewires` and waits for the owner whatever the judge's policy.
+proposal that chains the whole projection; each carries `rewires` and waits for the owner whatever the judge's policy.
 `try_change` takes them as evidence (`finding:outflow-not-chained@flow.NAME`).
 
 **The boundary, crossed once** (findings, `ergostat/spec/chains.py`). A cloud is the system's boundary, so an item
 crosses it once, when it arrives; after that it moves between the model's own stocks. An inflow from a cloud is
-measured as items of a kind when its sensor counts them `entering:` a state, or, with no sensor of the kind, when the
-stock it fills counts a state of the kind (a sensor with a `where`, a part of the kind, and a `two-way` flow, an
+measured as items of a projection when its sensor counts them `entering:` a state, or, with no sensor of the projection, when the
+stock it fills counts a state of the projection (a sensor with a `where`, a part of the projection, and a `two-way` flow, an
 adjustment, are not arrivals). In the record, an item arrives in the state its first event leaves it in.
 
-- **kind-enters-many-times** (`items.KIND`): inflows from clouds measured as one kind enter two states or more. It
+- **projection-enters-many-times** (`projections.PROJECTION`): inflows from clouds measured as one projection enter two states or more. It
   names the flows and the states they enter, and says the meaning: the same items counted twice, or their moves
-  between the kind's own stocks drawn as arrivals, so those stocks relate only through information links. The
-  arrival into the kind's first state is kept (the first by the kind's order among the states the record sees items
+  between the projection's own stocks drawn as arrivals, so those stocks relate only through information links. The
+  arrival into the projection's first state is kept (the first by the projection's order among the states the record sees items
   arrive in, else the first by the order); each other inflow is re-pointed `from:` the stock of the state its items
   come from, by, strongest first, the flow's own `leaving:`, the record's moves (back through states with no stock),
-  a block taking them there, an outflow counting them entering it, and the kind's state order. When that is the stock
+  a block taking them there, an outflow counting them entering it, and the projection's state order. When that is the stock
   it fills, it is taken out (it counts them twice); when the items pass through one state with no stock, which an
   outflow drains them into, that state gets a stock and the two flows meet at it. A flow the chain's own finding
   already answers is left to it: `inflow-not-chained` on the same flow becomes this finding, and a flow
@@ -5789,7 +5791,7 @@ adjustment, are not arrivals). In the record, an item arrives in the state its f
   states the model keeps no stock of), are real arrivals: then it is a note, not a fault, with no change.
   `numbers/structural.py` proposes the rewiring as one change (`rewires`), and `try_change` takes it as evidence.
 - **many-cloud-inflows** (`model`): more inflows from clouds than half the model's stocks, and at least five,
-  beyond each item kind's one arrival and leaving out two-way flows. Then most stocks fill from outside and pass
+  beyond each projection's one arrival and leaving out two-way flows. Then most stocks fill from outside and pass
   little to each other: a note to draw the boundary chart (Sterman ch. 3: what the model explains, what it takes as
   given, what it leaves out) and decide what is really outside. Five, because fewer can be read at a glance, and a
   model of a few independent quantities, each filled from outside, is right as it is.
@@ -5838,7 +5840,7 @@ that is not a number or is past ±10¹² counts as a fault), an entry is not fin
 `ergostat/numbers/vsm_review.py`), run only when the owner asks: `ergostat improve --architecture [SYSTEM]`. For a
 system, the **checklist** is computed from the structure (no run, and no note): for each of Beer's functions the
 parts that may fill it, with why: S1 the goals directly in it on a stock of its own, and its subsystems; S2 its blocks
-that take an item kind (sharing its leases, §9.5) or use a workspace pool that a block outside also does; S3 its
+that take a projection (sharing its leases, §9.5) or use a workspace pool that a block outside also does; S3 its
 subsystems' inner-loop goals it sets, and its goals whose setpoint another goal's block commands; S3\* its judge
 blocks and blocks with a `claims` param; S4 its measured flows in from a cloud, and the model's `use: modelling` loop
 (marked model-wide); S5 its description, the model's `purpose:` and its subsystems' descriptions. One AI call
@@ -5988,14 +5990,14 @@ value and provenance (its calibrations side by side beneath: each one's estimate
 from how many points, and whether it is proposed or why not) and any proposal for it, with Accept; else a constant declared (`rate:`), the
 decision that sets it, or "not known yet: a declared cause with a sign, its size not estimated"
 (and which causes act at once). An auxiliary's panel shows its equation the same way. The causes
-strip draws the model's replay dashed over the measured line, and its projection past now dashed
+strip draws the model's replay dashed over the measured line, and its run forward past now dashed
 and lighter (section 12b), with the shaded fan of its sensitivity and, in the accent, a what-if beside it (section 12c);
 each parameter's value in the panel may be typed over to try it. A feedback loop's panel draws how much of the
 behaviour it drives over the window at each stock it runs through, beside the loops competing there
 (loop dominance, section 12c). Its pipe opens as the **flow**: what moves (its unit and
 description), from which stock, to which.
 
-## 12b. Replay, projection, fit and proposals
+## 12b. Replay, simulation, fit and proposals
 
 **What is compared** (`ergostat/numbers/observe.py`): the record on a grid of equal buckets, and how
 each part's record was made, so the model can be read the same way (Oliva 2003: fit the model's
@@ -6026,7 +6028,7 @@ Past 256 steps a bucket a stock's own drain is integrated implicitly (stable, se
 the notes say so; a run that hit the clamp, or whose stocks drive each other faster than its step,
 is not valid, and is neither fitted nor shown as a fit.
 
-**Projection**, two ways, from the state now (each stock the mean of its last few readings, each delay as the replay
+**Simulation**, two ways, from the state now (each stock the mean of its last few readings, each delay as the replay
 left it), the inputs held where they were (or carried on along their recent trend), for a horizon of three of the
 slowest time constant the replay met, within a twentieth and a quarter of the window:
 
@@ -6039,15 +6041,15 @@ slowest time constant the replay met, within a twentieth and a quarter of the wi
   it changed, and the internal state the record lets it rebuild (a `delay`'s line from its input's readings, a
   `timer`'s or an `alarm`'s start from when its input last began to qualify, a `counter`'s count and its last reset, a
   `limit`'s clock). Given the same readings at the same moments, a built-in decides what the running engine would
-  (tested by stepping both from mid-run); in the projection the readings are the model's, taken at its own steps, not
+  (tested by stepping both from mid-run); in the simulation the readings are the model's, taken at its own steps, not
   the sensors' at theirs. What the record cannot rebuild (a built-in reading a goal's error or a machine's command, a
   delay whose input the engine works out after it in a pass, a counter's reset clock never seen) is said in the
-  projection's notes. Goals and built-ins read a level as its sensor would: a count of items is a whole number, so a
+  simulation's notes. Goals and built-ins read a level as its sensor would: a count of items is a whole number, so a
   queue drained to a fraction of an item is empty to a goal "<= 0".
 
   Each **machine block** (program, AI agent, person, external) is not run but replaced by its **identified model**
   (`ergostat/numbers/blockmodels.py`; Ljung: a model of its input-output behaviour, with each number's standard
-  error), identified on the reference window and said in words in the causes strip and by `ergostat project`:
+  error), identified on the reference window and said in words in the causes strip and by `ergostat simulate`:
 
   | The block | Its identified model | Identified from |
   |---|---|---|
@@ -6061,7 +6063,7 @@ slowest time constant the replay met, within a twentieth and a quarter of the wi
 
   An identified model needs six buckets of its flow measured while it was commanded (five runs for *servers*); with
   less it is a declared **assumption** (a run moves what waits; its declared rate; a run of a quarter of its TTL, at
-  most ten minutes), flagged in the strip and `ergostat project`. A flow measured long enough that never moved is
+  most ten minutes), flagged in the strip and `ergostat simulate`. A flow measured long enough that never moved is
   identified as 0. A block whose flow moved while nothing commanded it (a person answering before being asked) is
   modelled ungated, and says so. An outflow held where it was (an input, not an equation) stops when its stock is
   empty. The judge of changes runs on its own clock and is held, like any input.
@@ -6069,17 +6071,17 @@ slowest time constant the replay met, within a twentieth and a quarter of the wi
   and what follows from them) is left out, and the chart says so. `replay` is never closed-loop: the replay is the
   model driven by what was measured, as calibration and the judge use it.
 
-**Honest about fit** (*decided*, the owner, 2026-11-19: projections far off after a burst, drawn as sure as any).
-Where the parts a projection rests on fit badly, a charted stock (or a charted flow's stock) that the replay fits worse
+**Honest about fit** (*decided*, the owner, 2026-11-19: simulations far off after a burst, drawn as sure as any).
+Where the parts a simulation rests on fit badly, a charted stock (or a charted flow's stock) that the replay fits worse
 than its mean on the reference window (skill < 0), or a goal on one whose loop the record does not identify
 (**loop-not-identifiable**, §12d), the strip says so in front ("Low confidence: reviews-answered's model follows 2% held
 out; the band is widened by the replay's own error", `low_confidence` in `/api/series`), as the impact report leads
-with its confidence, and draws a wider band: the spread it has, or the projection itself, widened by two of the replay's
+with its confidence, and draws a wider band: the spread it has, or the simulation itself, widened by two of the replay's
 root mean squared error against the record (half and nine in ten at 0.67 and 2 of it) (`numbers_api.honest`).
 
 The strip's foot has **With the loops running** and **Held**, one choice for every chart on the page
-(`GET /api/series?…&loops=closed|held`); `ergostat project` (`--closed`, `--held`, `--horizon`, `--whatif`, `--risk`)
-says the same in the terminal. Proposal effects (the review queue) project closed-loop where the model has
+(`GET /api/series?…&loops=closed|held`); `ergostat simulate` (`--closed`, `--held`, `--horizon`, `--whatif`, `--risk`)
+says the same in the terminal. Proposal effects (the review queue) are simulated closed-loop where the model has
 controllers.
 
 **Fit** (`ergostat fit`, the Model page), by Sterman's measures (*Business Dynamics* ch. 21;
@@ -6247,10 +6249,10 @@ every proposal waiting, the loops' process and gain proposals (§12d) with them,
 request: **what** kind of change, **where** (its parts, and the systems holding them: Show on diagram
 chooses them and opens the dynamics view with the block diagram beside it), **why** (the evidence in
 words), **how found** (the method, its span of record, its points and how sure it is), its **effect**
-(each affected part's record, the model's replay and projection as it is and with the change, simulated
+(each affected part's record, the model's replay and simulation as it is and with the change, simulated
 with the edit applied in memory, `numbers/trial.py`), its **benefit** (the fit before and after; what
-changes ahead: a projected value, a time to a limit, a goal projected held or off; and the **leverage**
-of the flows it touches, SD Lab's §4.9: each flow a tenth faster in turn, projected to the horizon, ranked
+changes ahead: a simulated value, a time to a limit, a goal simulated held or off; and the **leverage**
+of the flows it touches, SD Lab's §4.9: each flow a tenth faster in turn, run forward to the horizon, ranked
 by how far it moves the goals), its **conflicts** with others waiting (the same lines, parameter or
 equation) and the unified **diff** Accept writes. Accept carries the diff's hash and is refused if the
 files would now be written otherwise; Dismiss takes an optional reason, kept with it and in
@@ -6266,7 +6268,7 @@ runs), each where the model already is, and none of them changes it.
 over, in its units: a number in the parameter's unit, a time written as a duration with its unit (`20s`,
 `2m`; in the panel a bare number is read in seconds, as the value is shown; `ergostat proposals
 --propose` and the API refuse one), never 0 or below for a time unless its `range` allows it. Every
-chart on the page then draws, in the accent, the replay and the projection with the values tried beside
+chart on the page then draws, in the accent, the replay and the simulation with the values tried beside
 the model's own (`GET /api/series?…&whatif=name:value,…`), until they are put back; where the values make
 an equation fault (a division by 0, taken as 0) or the run blow up, the strip says so, and that the blue
 lines are not what the model would do. Beside the values, before anything is stored, their fit on the
@@ -6285,10 +6287,10 @@ typed in the panel of a flow from outside), a goal's setpoint (`goal.NAME:5`, in
 beside its identified model in the causes strip; the last two change the items' completion estimates too (§5a). A
 rate tried on a flow a block moves replaces its identified model. A parameter of an external block's declared law
 (§12d, *Known laws*) is a fifth (`block.NAME.target:0.5`, `block.NAME.stabilize-down:1m`): checked as `law:` is, each alone and a block's
-values together (a `min` tried above a `max` tried is refused), an unknown one refused naming the law's parameters, and the projection runs the law with it, started from the record again
-(a block whose law is not run ahead says the value changes nothing). With the projection held they are refused and the strip says why.
+values together (a `min` tried above a `max` tried is refused), an unknown one refused naming the law's parameters, and the simulation runs the law with it, started from the record again
+(a block whose law is not run ahead says the value changes nothing). With the simulation held they are refused and the strip says why.
 
-**Sensitivity** (`ergostat/numbers/sensitivity.py`; the causes strip with the projection held; with the loops running
+**Sensitivity** (`ergostat/numbers/sensitivity.py`; the causes strip with the simulation held; with the loops running
 the strip's fan is the risk's, below): Monte Carlo over what the model
 says is uncertain, a parameter's `range` (uniform), else an estimate's standard error (normal about
 the value written, on its logarithm where it was searched there, widened to reach the estimate when it
@@ -6296,23 +6298,23 @@ lies further off); parameters estimated together are drawn jointly, from the mul
 their covariance (the Cholesky factor of their correlation applied to the hypercube's normal scores:
 Iman and Conover 1982); every other number held. Two hundred samples, as Vensim's sensitivity runs
 default to, a Latin hypercube from a fixed seed (the same model and record draw the same fan), each the
-projection run again from the state now with the sample's values (the stocks from their last
+simulation run again from the state now with the sample's values (the stocks from their last
 readings; a material delay's contents as the replay left them, rescaled to the sample's delay time at
-the same outflow, so each sample starts in its own steady state; a smoothed value kept). The projection
+the same outflow, so each sample starts in its own steady state; a smoothed value kept). The simulation
 is drawn with a shaded fan: where half the runs fall, and, from a hundred runs or more, nine in ten. A
-projection shorter than a third of the window is drawn in the last quarter of the chart, on a time axis
+simulation shorter than a third of the window is drawn in the last quarter of the chart, on a time axis
 of its own past now (+20s, +40s), so a minute ahead of an hour's record can be read. **Spread over the
 record** (the strip's button) draws the same over the window: a hundred replays with the sampled values,
 the half and nine in ten of them under the replay, as Vensim's sensitivity graphs show the whole run.
 
 **Risk** (`closedloop.risk`; the causes strip with the loops running, its fan and a line for each goal on the part,
-worked out in a thread of its own and drawn when it comes, no spread till then; a goal's panel; `ergostat project
---risk`): the closed-loop projection run many times over what it does not know: the model's uncertain parameters as
+worked out in a thread of its own and drawn when it comes, no spread till then; a goal's panel; `ergostat simulate
+--risk`): the closed-loop simulation run many times over what it does not know: the model's uncertain parameters as
 sensitivity samples them (an estimate whose standard error spans more than a factor of ten either way is held, and
 listed, since sampling it makes every run another model: `sensitivity.informative`), each identified model's numbers
 by their standard errors (a rate, a residence time, a run's time, its success; none of a declared law's, which are
 stated, not estimated, and said so in the notes), and each input from outside the
-control about where the projection holds it, by its recent readings' spread over the square root of the horizon's
+control about where the simulation holds it, by its recent readings' spread over the square root of the horizon's
 effective number of buckets (the buckets it spans times (1 − ρ)/(1 + ρ), ρ the readings' lag-one autocorrelation:
 readings that drift together are fewer independent ones). That is how far the input's mean over the horizon could be
 from now; when it arrives within the horizon (its timing, a burst) is not sampled. For each goal: the probability that
@@ -6349,7 +6351,7 @@ declared rate. Said: a stock with only one-way flows drained below empty, a one-
 goes negative, a division by 0 or a logarithm, root or power out of range, a blow-up. A failure the
 model shows with everything as usual is said once as that; every other names the input or parameter
 that caused it. A failure on a grid is confirmed on one eight times finer before it is said, so a step
-too coarse is never blamed on the model. What a block would do is not simulated here (it is in a projection with the
+too coarse is never blamed on the model. What a block would do is not simulated here (it is in a simulation with the
 loops running, above: the inputs doubled there is the closed-loop extreme condition).
 
 **Loop dominance** (`ergostat/numbers/dominance.py`; a feedback loop's panel, `GET /api/dominance`):
@@ -6637,14 +6639,14 @@ delay 0 says so. The delay is as the record shows it, with how much of it may be
 median age of the input's reading at the output's, and one grid step). Said: the law, its parameters, the skill, the R²
 and the delay.
 
-The law is the block's model in the closed-loop projection (§12b), in place of the stand-in, said "identified,
+The law is the block's model in the closed-loop simulation (§12b), in place of the stand-in, said "identified,
 external": sampled every grid period past its delay, from the state the record left (its last output, the time since it
-last moved, how long its conditions have held), its input read from the projection's own values. An output flow is set
+last moved, how long its conditions have held), its input read from the simulation's own values. An output flow is set
 to the law's value; an output stock is moved by the block's own flow by each change of the law's level, so its other
 flows still move it (the law's level is not imposed on the stock); an auxiliary output is identified and drawn, not run
-ahead. Each projection run starts from a copy of that state. `check` (the findings that need the record) says
+ahead. Each simulation starts from a copy of that state. `check` (the findings that need the record) says
 **external-unidentified** (fewer than 40 points, fewer than three moves, or no law fits) and **external-not-run** (a law
-identified whose output the projection cannot move). The Blocks view writes the law in the block, its sketch (a relay,
+identified whose output the simulation cannot move). The Blocks view writes the law in the block, its sketch (a relay,
 a staircase, a saturation) and a small *identified* mark, from laws already fitted (a miss is fitted in a thread and
 drawn on a later poll); its panel says the rest. A loop whose controller is an external block (`/api/loop-control`)
 gives, in its `controller`, that block's law as identified (`identified`: the law, its numbers, its skill and R² on the
@@ -6680,7 +6682,7 @@ before). **bad-law**, at the key: an unknown kind or parameter, a value not its 
 declared is drawn as its block's function in Blocks (the law in the block's notation, as an identified law's, marked
 *declared KIND* where an identified law is marked *identified*; a law the record identifies is drawn over it, the
 declared one kept in the block's rows) and said in words with its parameters by `explain` (and its MCP tool). In the
-closed-loop projection (§12b) a declared law is the block's model in place of an identified one (the owner's statement
+closed-loop simulation (§12b) a declared law is the block's model in place of an identified one (the owner's statement
 wins over the record's estimate, and is all there is when the record is too short to identify a law): form *declared*,
 basis *its declaration*, said "declared KIND, external", `Run.how` *declared law* for its flow and a note naming it. It
 starts from the record as an identified law does (`settle`, on the record's grid resampled at the law's own period),
@@ -6721,7 +6723,7 @@ is different: it is a function ergostat itself implements (judging means replayi
 held out), so it is a built-in block, `type: judge`. Improving the improver needs nothing more: its prompt and its
 results are a model like any other.
 
-Everything ergostat owns here is named `ergostat.`, so it never collides with a project's names: the item kind
+Everything ergostat owns here is named `ergostat.`, so it never collides with a project's names: the projection
 `ergostat.model-change`, the events `ergostat.model-change.*` and `ergostat.model.changed`, and the measures
 `ergostat.model.*`. The prefix is ergostat's own (no block may publish an event under it, section 9.3).
 
@@ -6762,8 +6764,8 @@ goals:
 
 ### Every change to the model is an item
 
-`ergostat.model-change` is a built-in item kind (section 5a), present in every project and never declared (a
-project's item kinds may not take ids starting `ergostat.`). Every change to the model is one, whoever made it: a
+`ergostat.model-change` is a built-in projection (section 5a), present in every project and never declared (a
+project's projections may not take ids starting `ergostat.`). Every change to the model is one, whoever made it: a
 block's propose line, ergostat's own finders (a calibration's parameter values, an equation, the structural
 changes and simplifications, a loop's process or gain, section 12b and 12d), or the owner's what-if. Its id is
 `ergostat.model-change/<short hash>`. **The record is the only store**: every step is an event about the item,
@@ -6926,7 +6928,7 @@ blocks:
 | `windows` | list of whole numbers | `[1, 2, 4]` | How the verdict shows its evidence: the record held out whole, in halves, in quarters (each at least a minute), sliced from the one replay the verdict pools |
 | `warm-up` | duration | `6h` | The longest before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f): three time constants of what the change touches, and never more than the record held before the window |
 | `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better (its estimate; the bound must also exclude no change), and the most rise that counts as no worse |
-| `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`, `description`, `unit`, `rename`, `redesign`, `display`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged. `accept: auto` promotes `parameter`, `equation`, `structure`, `description` and `unit`; a rename, a redesign and a display change are written only when named (`rename: auto`, `redesign: auto`, `display: auto`), never by `accept: auto`. Whatever the policy, the judge never writes a change that removes structure or rewires a kind's chain, a redesign that changes control, or any change to who decides (the judge's policy, a block's `accept`, a template instance's `with:`: refused when proposed); those are the owner's. How each is judged differs (the exemptions from the replay): parameter, equation and structure by the replay on the record after the change; description, unit and rename by `check` alone (they change no replay); a redesign by its scorecard on the record it has when the judge takes it up, its fit allowed 10% worse; control and measurement not at all (the owner's). Changes of words are written as many a pass as have passed; the rest one a pass. A change written moves the lines of the others waiting (their hunks shifted, `proposals.rebase`), and a change waiting is carried to the new version rather than superseded when its edit still applies (`proposals.supersede`: ergostat's own when their subject is unchanged; a description, a unit or a redesign whoever made it) |
+| `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`, `description`, `unit`, `rename`, `redesign`, `display`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged. `accept: auto` promotes `parameter`, `equation`, `structure`, `description` and `unit`; a rename, a redesign and a display change are written only when named (`rename: auto`, `redesign: auto`, `display: auto`), never by `accept: auto`. Whatever the policy, the judge never writes a change that removes structure or rewires a projection's chain, a redesign that changes control, or any change to who decides (the judge's policy, a block's `accept`, a template instance's `with:`: refused when proposed); those are the owner's. How each is judged differs (the exemptions from the replay): parameter, equation and structure by the replay on the record after the change; description, unit and rename by `check` alone (they change no replay); a redesign by its scorecard on the record it has when the judge takes it up, its fit allowed 10% worse; control and measurement not at all (the owner's). Changes of words are written as many a pass as have passed; the rest one a pass. A change written moves the lines of the others waiting (their hunks shifted, `proposals.rebase`), and a change waiting is carried to the new version rather than superseded when its edit still applies (`proposals.supersede`: ergostat's own when their subject is unchanged; a description, a unit or a redesign whoever made it) |
 | `reviewed` | a list of kinds (`structure`, `redesign`, ...) | none | The kinds written only after the reviewer's pass (*The reviewer*, below): the judge's policy writes none of them before it, and the inbox offers none to the owner before it (the review queue still shows each, and the owner may accept one there). The modelling template sets it with `ai: true` |
 | `out` | map of `testing`, `passed`, `failed`, `accepted`, `inconclusive` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
 | `in`, `every` | | | What it reads (signed, as a machine block's), for the diagram; how often it passes |
@@ -7018,8 +7020,8 @@ Judged by structure, the model it leaves is compiled with what `check` finds; an
 leaves no longer compiles"), with no scorecard. Otherwise the redesign scorecard (*Redesign*, below) is worked out for
 the model as read from disk and the model with the change, with the fit counting only against it: a fit made
 measurable or better never counts for it; worse, or behaviour lost, counts against it. Coherence that cannot be
-compared on a side (an error reading the record, or no kind compared) is marked unmeasurable, with why, and never
-counts for the change (no coherence gain counts then); a kind compared before and not after counts against it.
+compared on a side (an error reading the record, or no projection compared) is marked unmeasurable, with why, and never
+counts for the change (no coherence gain counts then); a projection compared before and not after counts against it.
 Unmeasurable on the before side only, it never makes the change better, but mismatches the after side shows still
 count against it. **Better** (findings resolved, chains
 joined, coherence mismatches fewer or coherence up, craft notes closed, and nothing worse) is passed; mixed, or no
@@ -7047,10 +7049,10 @@ the owner does.
 ### Requests: what check finds is modelling's work
 
 Everything `check` finds is a **request** the modelling loop holds (`ergostat/numbers/requests.py`): an item of the
-built-in kind `ergostat.modelling-request`, raised from each finding, chain finding and craft note (one about a part a
+built-in projection `ergostat.modelling-request`, raised from each finding, chain finding and craft note (one about a part a
 template made, or one no change to the model answers, such as `template-stand-in` or `no-modelling-loop`, is left out),
 and, once the record is long enough to compare, each coherence mismatch (§12l) no finding already says (those about
-ergostat's own kinds are left out). Each records what it is about (`about`), why (`says`, check's words), where, its
+ergostat's own projections are left out). Each records what it is about (`about`), why (`says`, check's words), where, its
 `source` (check, craft, coherence) and the tier that answers it first (`tier`: rule or ai).
 
 Two sources are not check's, and the collector (`sync`) never answers them: `redesign` (a redesign's trigger, below)
@@ -7090,10 +7092,10 @@ what is new, answers what is gone and moves each to where its changes say it is.
 block of the template, answer them, the cheapest first:
 
 - **the rule tier** (`fixer`, a program, `ergostat/numbers/rules.py`): mechanical changes that are safe and certain:
-  a stock's unit carried along its flows from the stocks they join, or the plural of the kind it counts. Each change
+  a stock's unit carried along its flows from the stocks they join, or the plural of the projection it counts. Each change
   cites every request it answers. A queue's goal with a tolerance and a process nobody identified are control: their
   requests are held for the owner as they are raised (they are in the inbox).
-  What it cannot answer it hands to the AI tier, saying why. A kind's chain and the structure tests are answered by
+  What it cannot answer it hands to the AI tier, saying why. A projection's chain and the structure tests are answered by
   ergostat's own finders (§12b), whose changes say `rewires`. Each tier records and checks its changes in its own
   process, as the engine checks a block's propose line;
 - **the AI tier** (`modeller`, an `ai` block, on only with `ai: true`; `ergostat/numbers/modeller.py`): the requests
@@ -7155,10 +7157,10 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   summary, each edit with its why, the parts it adds, renames, changes and takes away, its scorecard and its cost.
 - **Judged as a whole by a scorecard** (`ergostat/numbers/scorecard.py`), the model as it is and the scratch copy each
   measured on the same record: `check`'s findings resolved and introduced (a finding about a renamed part is the same
-  finding); each kind's state stocks in pieces no flow joins; the coherence score per kind and the mismatches (§12l),
+  finding); each projection's state stocks in pieces no flow joins; the coherence score per projection and the mismatches (§12l),
   run again over the record as it is (what Blocks ↔ Process says of a block the change adds, or of a flow only such
   blocks move, is left out and said as unseen: the record holds none of their runs, and cannot; coherence that cannot
-  be compared on a side, an error reading the record or no kind compared, is unmeasurable, says why, and never counts
+  be compared on a side, an error reading the record or no projection compared, is unmeasurable, says why, and never counts
   for the change); the craft notes closed and opened; the fit, not worse beyond 10% over the stocks
   both replay where it can be worked out (made measurable counts for it); and **behaviour kept**: a stock whose replay
   followed the record (scaled error at most 0.5), or an equation that explained its flow (R² at least 0.5), is still
@@ -7177,9 +7179,9 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   Every judging stamps what it read (`scored`: a **mark** of the record the scorecard reads, the store's last seq, for
   order only, and when) and clears `rescoring` and `rescore_error`, so a redesign made again under its id, or carried,
   keeps neither, nor an old stamp. The mark (`ergostat/numbers/redesign_record.py`) is model-wide and an allowlist: the
-  newest seq of the events of the model's own kinds' items, of its own blocks' runs and of its own valves'
+  newest seq of the events of the model's own projections' items, of its own blocks' runs and of its own valves'
   openings; the latest reading of each of its own parts' sensors; and the model itself (its dynamics, control, sensors,
-  words, units and kinds). The judge's, the redesigner's and modelling's own events, and a `once` template's parts, do
+  words, units and projections). The judge's, the redesigner's and modelling's own events, and a `once` template's parts, do
   not move it. It is compared for equality only, never by age. **A redesign waiting for the owner is scored again at
   most once every 30 minutes, and only when the record it reads has moved**, one a pass (first judgings and the write
   aside), least recently scored first; still better, it stays passed with the new scorecard; else it is failed, "no
@@ -7200,7 +7202,7 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   review of the same edits, and the reviewer is not called again, against the daily cap, for every move of the record.
 - **Never written without the owner** unless the class is promoted by name: `accept: {redesign: auto}`; `accept: auto`
   for every kind leaves it the owner's (promoted and passed, it is written first, alone in its pass; one that cannot be
-  written is superseded, and the pass goes on). Even promoted, a redesign that takes a part away, rewires a kind's chain
+  written is superseded, and the pass goes on). Even promoted, a redesign that takes a part away, rewires a projection's chain
   (a flow between two state stocks re-pointed, added or taken away: `rewires`) or changes control (`control`) waits
   for the owner. No change, a redesign or any other, may change who decides: one that alters the judge's policy, a
   block's `accept` or a template instance's `with:` is refused. While one waits,
@@ -7225,7 +7227,7 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   with none to split into is held for the owner as a request (`too-large`: split it), never attempted whole; a model
   with no systems of its own is one unit. A system is due when its replay is worse than its mean (a stock's scaled
   error over 1) on at least 30 minutes of record; when a finding says its structure is wrong (`measured-not-caused`,
-  `loop-not-identifiable`), or a structural one (a kind's chain, the boundary, a coherence mismatch) has been held for
+  `loop-not-identifiable`), or a structural one (a projection's chain, the boundary, a coherence mismatch) has been held for
   an hour; when refinement stalled on it (its last 4 changes turned away); on the first run; and once a day. Bounds:
   at most one redesign waits for each system, and systems equally due take turns; after one judged not better,
   refused, dismissed or superseded, one that made nothing, or a run that never ended (its request closed, saying so),
@@ -7377,7 +7379,7 @@ One line, `uses: {modelling: {use: modelling}}` (the built-in template `modellin
 gives its parameters: the improver's rung, prompt, command and schedule, the fit the goal holds, how often the
 parts are read, and the judge's schedule, hold-out, windows, threshold and `accept` policy), which expands to plain
 YAML, like any loop (`examples/image-squeeze/model.yaml`, `examples/the-job/job/modelling.yaml`): the model's
-error a stock (`builtin: ergostat.model.fit`) and a goal on it; the changes counted by state, `items:
+error a stock (`builtin: ergostat.model.fit`) and a goal on it; the changes counted by state, `projection:
 ergostat.model-change` (pending: checked; testing; passed; accepted), with flows entering each state (made,
 judged, accepted); the improver, an `ai` block (or a stand-in program) that names the goal and proposes; and the
 judge. It closes the long way: the improver fills the pending changes, the judge moves them to passed and
@@ -7470,7 +7472,7 @@ undone (its hunks reversed where they sit now), replayed on the record since it 
 undoes it, when without it the scaled error is lower by the threshold over the whole record since and in at least
 half the windows; with `--propose` the undoing is proposed, by `verify`, for the judge and the owner. *Decided:*
 the check never undoes a change itself. A change whose lines a later one rewrote is said so and not judged.
-`verified` and `regressed` are states of the `ergostat.model-change` item kind, after `accepted` (its status stays
+`verified` and `regressed` are states of the `ergostat.model-change` projection, after `accepted` (its status stays
 accepted).
 
 **5. The loop's own measures** (`ergostat/numbers/meta.py`, `ergostat bench meta`), over the last week:
@@ -7510,7 +7512,7 @@ Any block, whatever its type, may print:
 | Key | Meaning |
 |---|---|
 | `says` | What was done, in words (required, at most 500 characters) |
-| `about` | What it is about: an item (`hypothesis/3`, or `{"item": ...}`), a part (`stock.x`, `{"part": ...}`), a file in the project (`{"file": ...}`), a commit (`{"commit": SHA, "repo": DIR}`), a folder (`{"dir": ...}`), a run (`{"run": EVENT}`) or a test suite (`{"suite": ...}`). Text is read as an item id a kind matches, a part, a commit's hash or an existing file, in that order; `file:`, `commit:` and the other keys may lead it |
+| `about` | What it is about: an item (`hypothesis/3`, or `{"item": ...}`), a part (`stock.x`, `{"part": ...}`), a file in the project (`{"file": ...}`), a commit (`{"commit": SHA, "repo": DIR}`), a folder (`{"dir": ...}`), a run (`{"run": EVENT}`) or a test suite (`{"suite": ...}`). Text is read as an item id a projection matches, a part, a commit's hash or an existing file, in that order; `file:`, `commit:` and the other keys may lead it |
 | `check` | Optional: which check judges it, by name (`tests`, `changed`, `state`, `exit`, `level`, or one `claims:` declares), or a map naming it and what it needs (`{"state": "done"}`, `{"level": ">= 3"}`, `{"exit": 0}`). A command given here (`run`) is never run: a claim is checked by the model's checks, not its own |
 | `session`, `model` | Who made it, where the block cannot say: the session item the claim came from, the AI model behind it. A model the block or its agent declares is used before the one the claim names |
 | `evidence` | The block's own evidence: kept beside the claim, never trusted in place of a check |
@@ -7568,7 +7570,7 @@ may not be declared.
 
 ### Every claim is an item
 
-`ergostat.claim` is a built-in item kind (section 5a). Its id is `ergostat.claim/<short hash>`; every step is an
+`ergostat.claim` is a built-in projection (section 5a). Its id is `ergostat.claim/<short hash>`; every step is an
 event about it, and the item, folded from them, is the claim:
 
 | State | Reached by | Source |
@@ -7584,7 +7586,7 @@ replaced, so its history keeps every verdict it was given (`ergostat claims --ch
 made, when ergostat stopped between a run and its checks). Items → `ergostat.claim` lists them, with a **Trust**
 table under them; a claim's page shows its verdict and evidence first. `ergostat claims` prints the trust table and
 the latest contradicted claims, `ergostat claims ID` one claim with its evidence, and the MCP tool `trust` the same.
-Item sensors count claims like any items (`items: ergostat.claim, state: contradicted`).
+Item sensors count claims like any items (`projection: ergostat.claim, state: contradicted`).
 
 ### Trust, as a measure
 
@@ -7621,7 +7623,7 @@ measured. (Harness parity, function 4: `docs/proposals/harness-parity-plan.md` �
 
 ### Every message is an item
 
-`ergostat.message` is a built-in item kind (section 5a). Its id is `ergostat.message/<short hash>`; every step is an
+`ergostat.message` is a built-in projection (section 5a). Its id is `ergostat.message/<short hash>`; every step is an
 event about it, and the item, folded from them, is the message:
 
 | State | Reached by | Source |
@@ -7655,7 +7657,7 @@ At once, in order, the first that finds anything:
 2. **mention**: item ids in the words (`hypothesis/3`), part references (`stock.queue`), and a machine block's name
    as a word ("the developer");
 3. **classifier**: the block `messages: {classifier: NAME}` names, run once for the message (below); else ergostat's
-   free **stand-in**, which scores the items by the words they share with the message (their kind's name, its plural
+   free **stand-in**, which scores the items by the words they share with the message (their projection's name, its plural
    or its words: +2; the number in their id: +3; each word of their shown fields and title: +1, at most 3) and takes
    the best scoring 2 or more, open items first, then those worked on now, then the newest, at most three. A finished
    item is a candidate only when its number is said ("on review 2041").
@@ -7672,12 +7674,12 @@ What it matched becomes its **targets**:
 
 A message that matched nothing, or only parts nothing acts on, is **unrouted**: it needs attention (the status and the
 page's list say it, with how to route it) until the owner routes it by hand. An item is finished in the states
-`messages: {done:}` gives for its kind, else in its kind's last state and any state after the first that no item has
+`messages: {done:}` gives for its projection, else in its projection's last state and any state after the first that no item has
 left while some item reached a later one (a review waiting for its reviewer is not finished; a ramp approved is).
 
 **The classifier** is a machine block, typically an `ai` block on a cheap model (`model: haiku`). It is run like any
 block (recorded as a run, `trigger: message`), its input carrying the `message`, the `candidates` (the open items, those
-worked on now first, each with its kind, state, shown fields and `worked_on_by`) and the `blocks`; it answers with a
+worked on now first, each with its projection, state, shown fields and `worked_on_by`) and the `blocks`; it answers with a
 **route line**, `{"route": {"message": ID, "to": ["review/2041", "block.developer"], "why": "..."}}` (`to` empty: it
 concerns none of them). A classifier with one flow output moves it by one for each message it routes. A run that fails,
 or says nothing about the message, leaves it to the stand-in.
@@ -7699,7 +7701,7 @@ or says nothing about the message, leaves it to the stand-in.
     the messages its input: its next turn. `delivered`, how `resume`; the reply answers them.
 
   It prints `session.ran` (or `.failed`) about the session item, with its cost, turns, time and the messages it was
-  given (`owner_messages`; `messages` is what a session kind folds its transcript into), then the JSON lines of
+  given (`owner_messages`; `messages` is what a session projection folds its transcript into), then the JSON lines of
   every turn's result, its claims marked with the session and model. `$ERGOSTAT_CLAUDE` names the program it runs
   (`echo`: ergostat's stand-in session, `ergostat/session_echo.py`, which folds a message that arrives mid-turn into
   the turn and echoes it; `$ERGOSTAT_ECHO_RUN` runs a stand-in program as its work).
@@ -7707,15 +7709,15 @@ or says nothing about the message, leaves it to the stand-in.
   (tested with Claude Code 2.1: a message sent during a ten-second tool call was answered in the same turn); resuming
   remains for a session that cannot keep its input open.
 - **A block that is no session, or not running now.** Its next run's input carries, under `messages`, the messages
-  routed to it, or to open items of the kinds it works on (those counted by the sensors of the flows it sets, of the
+  routed to it, or to open items of the projections it works on (those counted by the sensors of the flows it sets, of the
   stocks they move, and of what its goals hold), and to no run going now: each `{"id", "text", "by", "sent", "about",
   "items", "matched"}`, `delivered` how `context` with the run. An `ai` block's prompt footer says to take them in.
 - **Answering.** Any block may print `{"answer": {"message": ID, "says": "..."}}`: the message is `answered`, by it.
 - **Finished work**, by `messages: {finished:}`: `follow-up` (the default) makes a new item linked to it
   (`ergostat.item.follow-up`, its fields `follows`, `message`, `note`, and the shown fields of the item it follows),
-  of the kind `follow-up:` names or the finished item's own (`review/2041.1`), arriving in its kind's first state so
-  the work that does that kind takes it up; `reopen` moves the item back, `ergostat.item.reopened` (to the state
-  `reopen-to:` gives for its kind, else its first; its field `reopened` says from where and by which message);
+  of the projection `follow-up:` names or the finished item's own (`review/2041.1`), arriving in its projection's first state so
+  the work that does that projection's items takes it up; `reopen` moves the item back, `ergostat.item.reopened` (to the state
+  `reopen-to:` gives for its projection, else its first; its field `reopened` says from where and by which message);
   `attention` leaves it unrouted, for the owner. `ergostat message --reopen` reopens whatever the policy.
 - **Missed.** ergostat's clock sweeps the messages every five seconds: one left received is routed, and one routed
   to items that have all finished since, with no work having taken it, is handled by the policy and **missed**
@@ -7726,7 +7728,7 @@ or says nothing about the message, leaves it to the stand-in.
 messages:
   classifier: router            # optional: a block that routes what no id or name in a message does
   finished: reopen              # follow-up (default), reopen, attention
-  follow-up: note               # the kind a follow-up is made as (default: the finished item's own)
+  follow-up: note               # the projection a follow-up is made as (default: the finished item's own)
   reopen-to: {hypothesis: proposed}
   done: {ramp: [approved, rejected, broke, proved-fine]}
 ```
@@ -7735,9 +7737,9 @@ messages:
 |---|---|---|---|
 | `classifier` | a machine block | the stand-in | Routes a message nothing in it names (route lines) |
 | `finished` | `follow-up`, `reopen`, `attention` | `follow-up` | What a message about finished work does |
-| `follow-up` | an item kind | the finished item's | The kind a follow-up is made as |
-| `reopen-to` | map of kind → state | its first state | Where reopening moves an item |
-| `done` | map of kind → states | inferred (above) | The states an item of that kind is finished in |
+| `follow-up` | a projection | the finished item's | The projection a follow-up is made as |
+| `reopen-to` | map of projection → state | its first state | Where reopening moves an item |
+| `done` | map of projection → states | inferred (above) | The states an item of that projection is finished in |
 
 `messages:` is written once, in any of the model's files.
 
@@ -7753,7 +7755,7 @@ messages:
 
 Built-in measures like the model's own (section 12e): read by a sensor (`builtin: ergostat.messages.unrouted`) on a
 stock or an auxiliary, so a goal can hold it; `ergostat measure messages.unrouted` prints one. Item sensors count the
-messages by state like any items (`items: ergostat.message, state: routed`; `entering: delivered`).
+messages by state like any items (`projection: ergostat.message, state: routed`; `entering: delivered`).
 `examples/image-squeeze/messages.yaml` and `examples/the-job/job/messages.yaml` model them: unrouted and awaiting as
 stocks, routed, delivered and missed as flows, and a goal holding the unrouted at 0.
 
@@ -7775,10 +7777,10 @@ blocks:
     type: judge
     judge: intent                 # (judge: model, the default, is section 12e's)
     every: 10s
-    kinds:
+    projections:
       hypothesis:
         at: testing               # the state it says it is done in: its tests passed
-        accepted: kept            # where it counts as done (default: its kind's last state)
+        accepted: kept            # where it counts as done (default: its projection's last state)
         scope: [formats, squeeze] # the decisions it is held to: those whose scope shares a word, or that name none
         work: [code]              # the corrections it is held to: for this kind of work (default: its scope)
         repo: run/product         # the git repository its commit or branch is read from (default: claims' tests.in)
@@ -7794,14 +7796,14 @@ blocks:
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `judge` | `model`, `intent` | `model` | What the judge judges: changes to the model (12e), or finished work |
-| `kinds` | map of kind → `{at, ...}` or a state | required | The model's own item kinds it judges, and when (`kinds: {ticket: review}`) |
+| `projections` | map of projection → `{at, ...}` or a state | required | The model's own projections it judges, and when (`projections: {ticket: review}`) |
 | `model` | a model name | none: the stand-in | An AI judge on that model (a cheap one: `haiku`) |
 | `max-cost` | dollars | `0.05` | Per verdict, passed to the model as its budget |
 | `held` | `attention`, `reopen` | `attention` | `reopen` moves held work back (`ergostat.item.reopened`, to `reopen-to`), with the verdict as its reason |
 | `within` | duration | `1d` | How late it judges |
 
 One intent judge at most. It is ergostat's own, like section 12e's judge: a program (rung `program`), or a narrow AI
-(`narrow-ai`) when it names a model. Each pass (on its clock, or `ergostat intent judge [ITEM]`), every item of a kind
+(`narrow-ai`) when it names a model. Each pass (on its clock, or `ergostat intent judge [ITEM]`), every item of a projection
 it holds that entered its `at` state within `within` and has no verdict for that moment is judged, oldest first,
 twenty at most; a pass is recorded as a run, and a held verdict is said in the log.
 
@@ -7844,12 +7846,12 @@ Each unmet or contradicted point carries **evidence**: the id of what it goes ag
   work (whitespace aside); points that do not are dropped, and a verdict left with none is `unjudged` (unsupported).
   Its cost and tokens are recorded with the verdict.
 
-**Every verdict is an item.** `ergostat.verdict` is a built-in item kind (section 5a), its id `ergostat.verdict/<short
+**Every verdict is an item.** `ergostat.verdict` is a built-in projection (section 5a), its id `ergostat.verdict/<short
 hash>` of the work and the event that moved it into its judged state, so one moment is judged once:
 
 | State | Reached by | Source |
 |---|---|---|
-| asked | `ergostat.verdict.asked`: the work, its kind, the moment, what it is held to (ids), how (`mode`: standin, ai; `model`; `rung`) | the judge |
+| asked | `ergostat.verdict.asked`: the work, its projection, the moment, what it is held to (ids), how (`mode`: standin, ai; `model`; `rung`) | the judge |
 | met, unmet, contradicted, unjudged | `.met`, ...: `why`, `evidence`, `cost_usd`, tokens, seconds | the judge |
 | overruled | `.overruled`: the owner says it was wrong, with a reason | the owner |
 | missed | `.missed`: it passed work (met, unjudged) the owner later found not done as meant | ergostat |
@@ -7863,7 +7865,7 @@ overruled and stops holding the work; nothing else moves. `ergostat intent reope
 was not done as meant goes back (`ergostat.item.reopened`, the reason in its field `reopened`), and counts against the
 judge that passed it.
 
-`ergostat intent` prints the counts and rates by kind and the latest verdicts; `ergostat intent ID` one verdict with its
+`ergostat intent` prints the counts and rates by projection and the latest verdicts; `ergostat intent ID` one verdict with its
 evidence; `ergostat intent judge [ITEM] [--model haiku] [--max-cost USD] [--again]` a pass now. Items → `ergostat.verdict`
 lists them; a verdict's page shows its evidence, and the work's page its `intent`.
 
@@ -7882,7 +7884,7 @@ follow-up is made of it from the owner's message, or a correction the owner prop
 | `ergostat.intent.held` | Verdicts unmet or contradicted, not overruled: work held back |
 | `ergostat.intent.cost` | Dollars the judge spent |
 
-Each with `@KIND` for one kind of item (`ergostat.intent.false-done@hypothesis`). Read by a sensor (`builtin:`) on a
+Each with `@PROJECTION` for one projection (`ergostat.intent.false-done@hypothesis`). Read by a sensor (`builtin:`) on a
 stock or an auxiliary, so a goal holds it; `ergostat measure intent.false-done` prints one. *Decided:* the rate goals
 read is what got past the judge (accepted, then found by the owner), and its tests-alone twin beside it, so the judge's
 worth is the gap between them, and its cost is the false alarms the owner overrules.
@@ -7890,7 +7892,7 @@ worth is the gap between them, and its cost is the false alarms the owner overru
 `examples/image-squeeze/intent.yaml` models it: the owner's confirmed decisions and the work held back as stocks,
 false-done and its tests-alone twin as auxiliaries, a goal holding false-done at 0.1 or below.
 
-## 12j. Contexts: projection recipes
+## 12j. Contexts: context recipes
 
 A session's starting context is a fold of the record, not a copy of a conversation. `contexts:` names recipes
 for it: each has a `version`, an optional `description`, an optional `outcome` (the item states that count as the
@@ -8012,7 +8014,7 @@ context's item (§12j), else the item its command names. A run with a workspace 
 
 **Release**, when the item's lease ends (`ergostat.lease.ended` or `.expired`), or when its run ends if it had no lease:
 while the item is not finished (the end's `terminal` says; otherwise the states `messages: {done:}` gives, else its
-kind's last state or a dead letter) its workspace is **held** for it, its work kept for review or for the next attempt;
+projection's last state or a dead letter) its workspace is **held** for it, its work kept for review or for the next attempt;
 once the item finishes it is **cleaned**: detached at `base`, untracked files removed, its branch left in the
 repository; a workspace dirty or broken when cleaned is quarantined instead, nothing in it thrown away.
 `ergostat.lease.taken` makes a held workspace in use again, under the new lease. The dispatcher takes each lease event
@@ -8173,7 +8175,7 @@ actions it may ask for the same way, and may take a workspace:
 blocks:
   open-pr:
     type: program
-    takes: {kind: ticket, at: worked, to: [pr-open, stopped]}
+    takes: {projection: ticket, at: worked, to: [pr-open, stopped]}
     workspace: code                # its item's workspace: ERGOSTAT_WORKSPACE, ERGOSTAT_BRANCH; it runs in the model's folder
     actions: [git-push, open-pr]
     run: python3 steps/open_pr.py
@@ -8537,7 +8539,7 @@ opens the socket itself) is not seen.
 ## 12l. Coherence: the three views held against each other
 
 One system is drawn three ways: the **Process** view (§5b), how the items really moved, read from the record; the
-**Dynamics** view, the stocks and flows that model it (for a workflow, one chain of state stocks, §12's *A kind's
+**Dynamics** view, the stocks and flows that model it (for a workflow, one chain of state stocks, §12's *A projection's
 states, chained*); and the **Blocks** view, what moves the work (blocks and their `out:` flows and `takes:`, goals and
 their loops). `check` holds them against each other over the record (`coherence.py`): the last day, or `--since`. Each
 disagreement is a finding with its file and line, the change when it is clear, the pair of views that disagrees, and
@@ -8545,20 +8547,20 @@ the findings `check` already reports about the same thing (linked, not said agai
 
 | Pair | Finding | When |
 |---|---|---|
-| Process ↔ Dynamics | `move-without-flow`, `rework-without-flow`, `chain-skipped`, `order-contradicted` | items moved between two states with stocks and no path of flows carries them: the chain's own finding (`move-without-flow`, `outflow-not-chained`, ...), given the window's moves, with its fix. Named for what the record did: back to a state earlier in the kind's order (a move the chain must carry back; the Process view's ↺ is rework, a repeated step, §5b), straight past a stock the chain passes through (a skip), against the chain's flows (contradicted) |
+| Process ↔ Dynamics | `move-without-flow`, `rework-without-flow`, `chain-skipped`, `order-contradicted` | items moved between two states with stocks and no path of flows carries them: the chain's own finding (`move-without-flow`, `outflow-not-chained`, ...), given the window's moves, with its fix. Named for what the record did: back to a state earlier in the projection's order (a move the chain must carry back; the Process view's ↺ is rework, a repeated step, §5b), straight past a stock the chain passes through (a skip), against the chain's flows (contradicted) |
 | | `arrival-not-modelled` | items arrived (their first event) in a state whose stock no flow fills from outside |
-| | `completion-not-modelled` | items finished (a state the kind counts as done, with no stock of its own) and no flow takes them out of the stock they left |
-| | `flow-not-seen` (a note, one per kind) | the flows of the chain no item moved along in the window, those the record has not exercised said so (linked to `not-exercised`). Not counted against: quiet is not absent (§12e) |
-| | `kind-not-chained` (a note) | a kind whose items move, with fewer than two states counted by stocks: the Dynamics view does not show how they move (nothing is wrong if they are a status, not work) |
+| | `completion-not-modelled` | items finished (a state the projection counts as done, with no stock of its own) and no flow takes them out of the stock they left |
+| | `flow-not-seen` (a note, one per projection) | the flows of the chain no item moved along in the window, those the record has not exercised said so (linked to `not-exercised`). Not counted against: quiet is not absent (§12e) |
+| | `projection-not-chained` (a note) | a projection whose items move, with fewer than two states counted by stocks: the Dynamics view does not show how they move (nothing is wrong if they are a status, not work) |
 | Dynamics ↔ Blocks | `waiting-without-goal`, `goal-without-loop` | a stock where items wait for the model's blocks (a block moves its outflow, or takes the items in its state) with no goal on it (or on an auxiliary it drives), or a goal no loop closes (linked to `missing-feedback`). A stock its blocks read and work off is a loop without a setpoint; a run's own work in progress (the same block fills and empties it) and a stock whose items wait on the world (every flow out is from outside) are not queues of the model's |
 | | `flow-moved-by-nothing` | a flow of the chain no block moves (its `out:`, or a block taking the items at its source's state), not ergostat's leases (out of the stock of items being worked), and nothing measures (no sensor, no rate): what moves the work is not said. Each flow's mover is in `movers` |
 | | `loops-not-connected`, `block-moves-no-flow` | the chain's finding of loops that share no stock, and a block taking items with no `out:` (linked to `no-visible-effect`) |
 | Blocks ↔ Process | `acts-undeclared` | a block's runs moved items (the event's `source`, or `causedby` its run, up through events about no item) between states it does not declare: neither its `takes:` nor an `out:` flow carrying the move |
 | | `moved-without-its-block` | items moved with no block's run behind them (a collector, a person, `event --add`) along a flow the model says a block moves, and that block did not act in the window (a block that ran, or a person block asked, whose effect a collector saw, agrees) |
-| | `declared-not-seen-acting` | a block declared to move items (`takes:` or `out:`) when there was work for it (items reached its `at:` states, or its flows moved), and something else moved it on; with who did. Work no one has moved on yet, and a block no work reached (one note per kind), are notes |
+| | `declared-not-seen-acting` | a block declared to move items (`takes:` or `out:`) when there was work for it (items reached its `at:` states, or its flows moved), and something else moved it on; with who did. Work no one has moved on yet, and a block no work reached (one note per projection), are notes |
 
-**The score.** Each kind's agreements over its comparisons (`ticket: 41 of 44 agree (93%)`), each pair's in the JSON.
-The record is compared only where there is enough of it: a kind with fewer than 10 moves, or 3 items, in the window
+**The score.** Each projection's agreements over its comparisons (`ticket: 41 of 44 agree (93%)`), each pair's in the JSON.
+The record is compared only where there is enough of it: a projection with fewer than 10 moves, or 3 items, in the window
 says how much more it needs (`needs 4 more moves of ticket in the window`); Dynamics ↔ Blocks needs no record and is
 always compared.
 
@@ -8576,7 +8578,7 @@ drafted for the owner: scrubbed, kept in the state directory, and submitted to e
 by hand, if they choose. *Decided* (the owner, 2026-11-18): **ergostat never files one**: nothing here makes a network
 call, runs `gh`, or opens the link it offers.
 
-**Every report is an item.** `ergostat.report` is a built-in item kind (section 5a), its id
+**Every report is an item.** `ergostat.report` is a built-in projection (section 5a), its id
 `ergostat.report/<short id>`:
 
 | State | Reached by | Source |
@@ -8604,7 +8606,7 @@ attention, all of them in one line (`reports upstream: N drafted ...: ergostat r
 **Scrubbed before anyone reads it** (`reports/scrub.py`). Kept: ergostat's version and commit, Python and the OS; the
 error and traceback, ergostat's and Python's frames as they are (their code is public) with paths reduced to
 `ergostat/spec/engine.py` and `python3.12/json/decoder.py`, any other frame reduced to its (scrubbed) place; the
-model's shape (counts of parts, block types, sensor kinds, item kinds and their states, systems, sources, template
+model's shape (counts of parts, block types, sensor kinds, projections and their states, systems, sources, template
 uses); the findings named; and a **reproduction** where one can be made: a tiny generic model, from the parts
 involved and what they name (or the whole model, when it has at most 30 entries and no part is named), every name a
 stand-in, descriptions and prompts left out, commands `echo 0`; or one the agent wrote, scrubbed like the rest. For a
@@ -8618,7 +8620,7 @@ replaced by a stand-in that is the same wherever the same thing was:
 | `url`, `email`, `ip`, `host` | every URL but ergostat's own project's and localhost's; emails; IP addresses (not 127.0.0.1); host names with a known top-level or internal domain (`.corp`, `.internal`, `.local`, ...) |
 | `path` | file paths on this machine (ergostat's and Python's own reduced, as above) |
 | `ticket`, `mention` | ticket keys (`ABC-123`, not `UTF-8`), `@mentions` |
-| `name` | the model's names: parts, item kinds and their items' ids (`ticket/12` becomes `kind-1/item-1`), their event types, states and shown fields (common words such as `open` and `done` kept), systems, sources, agents, parameters, uses, pools, contexts, the model's and its files' names; names of three characters or more; ergostat's own (the modelling loop's parts) kept |
+| `name` | the model's names: parts, projections and their items' ids (`ticket/12` becomes `projection-1/item-1`), their event types, states and shown fields (common words such as `open` and `done` kept), systems, sources, agents, parameters, uses, pools, contexts, the model's and its files' names; names of three characters or more; ergostat's own (the modelling loop's parts) kept |
 | `user` | this machine's user and host names |
 
 Item data is never put in a report. A last pass over the whole text removes any original removed elsewhere, and any
@@ -8671,7 +8673,7 @@ report on, and a caller that shows the report should also catch any other except
 {"kind": "failure" | "change", "about": "block NAME" | "change ID", "at": now, "said": one sentence,
  "broken": {"block", "began", "share", "flows": [{"ref", "before", "during", "said"}],
             "stocks": [{"ref", "at_failure", "now", "building"}], "drains": [...]},   # a failure only
- "horizon": seconds, "times": [past grid], "ptimes": [projection times],
+ "horizon": seconds, "times": [past grid], "ptimes": [simulated times],
  "charts": [{"ref", "name", "kind", "unit", "per", "goal", "measured", "without", "with"}],   # with: at the recommended time
  "goals": {NAME: {"of", "hold", "off_at": time | None, "off_before": bool, "due": bool, "off_end": bool, "hours_off": h,
                   "hours_off_fixed_now": h, "p_off_end", "expected_off", "p_off": [per ptime], "said"}},
@@ -8680,7 +8682,7 @@ report on, and a caller that shows the report should also catch any other except
              "ideal": option, "best": option, "said": one sentence} | None,   # a change: None, and why in "notes"
  "fields": {"touches": {"blocks": [...], "goals": [...], "commands": [...], "actions": [{"name", "gate"}]},
             "read_only": bool, "writes": [...],
-            "rollback": {"how", "items": {"kind", "states": {STATE: count}, "dead"} | None, "said"},
+            "rollback": {"how", "items": {"projection", "states": {STATE: count}, "dead"} | None, "said"},
             "risk": {"level": "low" | "medium" | "high", "why": [...]},
             "confidence": {"level", "worst": words | None, "parts": [{"ref", "how", "said" | "r2", "skill"}], "said"}},
  "notes": [...], "stopped": None | why, "seconds": wall time}
@@ -8689,10 +8691,10 @@ report on, and a caller that shows the report should also catch any other except
 **What broke**: the flows the block moves, each one's mean rate over the record before `began` (as long as the failure
 has lasted, between an hour and a day) and during it; a flow at under a tenth of its rate before has **stopped**, else
 it is **degraded**; one idle both before and during is said so, not seen to stop. The stocks those flows drain or fill,
-with their level when the failure began and now; one higher now is **building up**. The items of the kind it takes
+with their level when the failure began and now; one higher now is **building up**. The items of the projection it takes
 that are now dead letters are counted.
 
-**Without the fix**: the closed-loop projection (section 12b) from now, the block's flows by its identified model,
+**Without the fix**: the closed-loop simulation (section 12b) from now, the block's flows by its identified model,
 identified on the reference window that ends when the failure began, times `share` (its failing self); every other
 machine block by its model identified now. For each goal: when it goes off (`off_at`), whether it is off at the end, its
 hours off, and its risk (section 12c's Monte Carlo, `runs` runs, within what is left of the budget; the risk is worked
@@ -8702,7 +8704,7 @@ horizon); the sentence names those.
 
 **With the fix at time d**, for each rollout time: the same, the block's model restored from d, and **scored against
 rolling out now over the same span**, from now to d + T, T at least twice the recovery when fixed now (and at least
-the projection's usual horizon, the horizon `within + T`), so a late rollout's own effects are never cut off. Its cost
+the simulation's usual horizon, the horizon `within + T`), so a late rollout's own effects are never cut off. Its cost
 in hours: the goals' extra hours off against fixing now (`extra_off`, every goal, those off before included; what
 waiting puts off of the fix's own effects earns it nothing), the outage hours, (1 − share) × (d − now), and `penalty`
 × how busy the hour of day of d is (the record's mean arrival rate at that hour, over the last week at most, of the
@@ -8728,9 +8730,9 @@ wait in its `takes.at` states (counted now), and a run in flight gives its item 
 letters are said: the fix does not bring them back, a redrive does. For a change: revert the edit; the record is
 untouched. *Risk level*: a point each for writes (two for an action with `gate: auto`), a blast radius of more than
 three parts, and tests not run; failed tests add four; 0 or 1 is low, 2 or 3 medium, more high; each point said.
-*Confidence*: every model the projection runs, identified or **assumed** (for want of record), and each charted stock's
+*Confidence*: every model the simulation runs, identified or **assumed** (for want of record), and each charted stock's
 fit on the reference window (R², skill against its mean), a stock fitting **worse than its mean** said as that. It is
-low with a stock fitting worse than its mean, an assumed model, or a projection not valid; the worst part is named
+low with a stock fitting worse than its mean, an assumed model, or a simulation not valid; the worst part is named
 (`worst`: the stock with the lowest skill below 0, else the first assumed model), and **a low-confidence report opens
 its sentence with it** ("Low confidence: the model fits ready-work worse than its mean (skill −435)."). High when every
 model is identified and every charted stock's skill is at least 0.5; else medium.
@@ -8794,7 +8796,7 @@ you* (above); then *How to read it*, the legend of the diagram's type (stock and
 map; in Dynamics and Blocks it lists only the symbols the model drawn has), open unless the reader closed it in this browser (then it stays closed, until
 they open it again); then the rest of what needs attention: *Goals off* (the system's goals, then modelling's after a
 rule; as many as the header's "loops off") and *Model housekeeping* (folded unless a fault is in it; modelling's held
-requests go there), each with its count and each entry starting with its state or kind word; then Suggestions, the loop list (the Process view's kinds)
+requests go there), each with its count and each entry starting with its state or kind word; then Suggestions, the loop list (the Process view's projections)
 and The model's edits, each folded with its count in its summary. No chart is shown until parts are chosen; a chosen
 part's panel is as before.
 
@@ -8866,7 +8868,7 @@ drawn in all three views like the modelling loop:
 - *Dynamics:* the stock `interventions-waiting` (`builtin: ergostat.interventions.waiting`: the inbox's entries and
   the alarms raised), filled as interventions are asked (`interventions-asked`, which each resolved class lowers) and
   drained as a person answers them (`interventions-answered`); the auxiliaries `interventions-per-day` (what is asked
-  a day) and `intervention-trend` (below). The requests by state, items of the built-in kind `ergostat.model-request`:
+  a day) and `intervention-trend` (below). The requests by state, items of the built-in projection `ergostat.model-request`:
   `open-requests` (open, investing, verifying), `suppressed-requests` (and back to open when the guard is put back),
   `resolved-requests` (and back to open when the class intervenes again).
 - *Blocks:* the goal `interventions-falling` holds the trend at or under 0 (a steady load holds; a rise the record
@@ -9014,7 +9016,7 @@ uses:
 ```
 
 **Triage.** In a model that uses repair, every failed run of a `program` or `ai` block is recorded as
-`ergostat.run.failed` about an item of the built-in kind **`ergostat.failure`** (it exists only in such a model), one
+`ergostat.run.failed` about an item of the built-in projection **`ergostat.failure`** (it exists only in such a model), one
 item a **signature**: the block, its program (the first word of its `run:` that is a file under the model's folder), the
 exception's type and its innermost frame in the project, from the last trace in the run's output; without one, the
 block, its program and how it ended. Traces are read from the **tail**: the last 8,000 characters of the run's own
@@ -9101,7 +9103,7 @@ one whose stderr is another bug that ended the same way is left alone. A failure
 trace (one that ended the same way) opens the superseded item again, so it hides nothing. Python failures signed from
 the tail are never superseded: their signatures did not change.
 
-**Sealed.** A failure's fields are ergostat's alone: its kind is *sealed* (`ItemKind.sealed`), so the fold
+**Sealed.** A failure's fields are ergostat's alone: its projection is *sealed* (`ItemKind.sealed`), so the fold
 (`spec/items.py`) refuses every event about it whose type is not ergostat's own (`ergostat.*`, which no block line,
 sensor observation, push, `event --add`, MCP call or legacy runner may write). The impact report reads its fields the
 same way. Nothing the loop runs is taken from a failure's fields: the block and its command come from the compiled
@@ -9149,7 +9151,7 @@ sentence "Approving merges this code into your repository; it then runs with you
 whatever the channel's `detail`, so a person answering from a phone has read it. What an approved fix then does runs
 with the owner's rights, as the program it replaces did. With `approver: ai` an AI may answer instead, but only about
 a fix a guard in code lets it be asked about (below); everything else stays held for the person. **A denial is final**
-(the kind's `final` states, `spec/items.py`): an approval recorded after an action's denial, whoever wrote it and
+(the projection's `final` states, `spec/items.py`): an approval recorded after an action's denial, whoever wrote it and
 however the two raced, is ignored and listed (`ignored`); the action stays denied, is counted as denied (never as
 evidence for promoting its class to `gate: auto`), and is never run; one that ran anyway, having got through before the
 denial was seen, is shown as **ran despite denial** on the action's page.
@@ -9419,7 +9421,7 @@ not that nothing regressed: a regression no test covers shows later, as an escap
 only claims that were made and checked (0 while none is); an unchecked claim is never trusted, and never counted as
 contradicted. `changes-hold` judges only the model changes the prediction check flagged in the last week, and
 `fixes-hold` only failed runs of a repaired block in the last 14 days. Flakes and quarantine are not in the template:
-they need an item kind of the model's own.
+they need a projection of the model's own.
 
 ## 12s. Compute systems: machines that run what this engine decides
 

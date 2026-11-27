@@ -108,7 +108,7 @@ def test_a_claim_line_that_says_nothing_is_refused(tmp_path):
 
 
 ITEMS = """
-items:
+projections:
   job:
     id: job/*
     states: [waiting, running, done]

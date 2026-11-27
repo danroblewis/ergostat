@@ -36,7 +36,7 @@ from ergostat.web.server import Live, api
 
 T0 = 1_700_000_000.0
 DEPS = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, doing, done]
@@ -49,11 +49,11 @@ blocks:
   worker:
     type: program
     run: "true"
-    takes: {kind: ticket, at: todo}
+    takes: {projection: ticket, at: todo}
     pool: 2
 """
 STEPS = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, doing, done]
@@ -104,7 +104,7 @@ def column(g, part, name):
 
 
 def test_the_dependency_graph_and_its_critical_path_beside_the_levelled_end(tmp_path):     # charts 74, 75; G42, G40
-    [r] = ask(deps(tmp_path), {"source": "graph", "diagram": "dependency", "kind": "ticket"})
+    [r] = ask(deps(tmp_path), {"source": "graph", "diagram": "dependency", "projection": "ticket"})
     assert "error" not in r, r
     assert (r["shape"], r["kind"], r["semantics"]["paths_real"], r["semantics"]["acyclic"]) == ("graph", "dependency", True, True)
     ids = {f"ticket/{x}" for x in "abcdefg"}
@@ -301,7 +301,7 @@ def test_the_matrix_orders_by_group_and_sums_the_cells():
 
 
 def test_a_graph_read_only_in_part_says_whether_it_has_a_cycle_is_not_known():     # G43
-    ans = {"nodes": [{"id": "p:t:a", "label": "a", "kind": "activity", "itemKind": "t", "count": 1, "items": 1}],
+    ans = {"nodes": [{"id": "p:t:a", "label": "a", "kind": "activity", "projection": "t", "count": 1, "items": 1}],
            "edges": [], "since": 0, "until": 1, "capped": {"edges": True}, "total": {"nodes": 1, "edges": 200}}
     out = graphs.drawn(*graphs.process(ans))
     assert out["semantics"]["acyclic"] is None
@@ -332,7 +332,7 @@ def test_a_dependency_graph_read_only_in_part_states_no_schedule(tmp_path, monke
     The same when only the items pulled in by relations were cut."""
     from ergostat import precedence
     monkeypatch.setattr(precedence, "MOST_OPEN", 3)
-    [r] = ask(deps(tmp_path), {"source": "graph", "diagram": "dependency", "kind": "ticket"})
+    [r] = ask(deps(tmp_path), {"source": "graph", "diagram": "dependency", "projection": "ticket"})
     assert "error" not in r, r
     assert r["omitted"]["nodes"] == 3 and r["semantics"]["acyclic"] is None
     assert "ends" not in r and "said" not in r and r["semantics"]["focus"] == []
@@ -385,13 +385,13 @@ def test_a_cycle_in_a_kind_with_no_words_of_its_own_is_said_and_never_fails(monk
 def test_a_start_to_start_wait_whose_state_is_reached_is_met(tmp_path):               # G40, done 1
     """h is started (``doing``). k waits on h through ``after`` (``starts_at: [doing]``), m through ``blocked_by``
     (finish to start). Hand-worked: h > k is met (k is ready, h being in doing), h > m blocks (h is not done)."""
-    p = project(tmp_path, DEPS.replace("blocked_by: ticket", "blocked_by: ticket\n      after: {kind: ticket, starts_at: [doing]}"))
+    p = project(tmp_path, DEPS.replace("blocked_by: ticket", "blocked_by: ticket\n      after: {projection: ticket, starts_at: [doing]}"))
     ev = p.events.add
     ev("ticket.planned", item="ticket/h", at=T0)
     ev("ticket.started", item="ticket/h", at=T0 + 10)
     ev("ticket.planned", item="ticket/k", data={"after": "ticket/h"}, at=T0 + 20)
     ev("ticket.planned", item="ticket/m", data={"blocked_by": "ticket/h"}, at=T0 + 20)
-    [r] = ask(p, {"source": "graph", "diagram": "dependency", "kind": "ticket"})
+    [r] = ask(p, {"source": "graph", "diagram": "dependency", "projection": "ticket"})
     assert "error" not in r, r
     assert dict(zip(r["edges"]["id"], r["edges"]["relation"], strict=True)) == {
         "ticket/h>ticket/k:after": "met", "ticket/h>ticket/m:blocked_by": "blocks"}
@@ -405,7 +405,7 @@ def test_graph_reads_are_charged_to_the_request_and_none_starts_late(tmp_path, m
     p, calls, real = steps(tmp_path), [], pm.process
     monkeypatch.setattr(pm, "process", lambda *a, **k: calls.append(1) or real(*a, **k))
     monkeypatch.setattr(engine, "LOG_READS", 1)
-    a, b, c = ask(p, {"source": "graph", "diagram": "process"}, {"source": "graph", "diagram": "process", "kind": "ticket"},
+    a, b, c = ask(p, {"source": "graph", "diagram": "process"}, {"source": "graph", "diagram": "process", "projection": "ticket"},
                   {"source": "graph", "diagram": "dependency"}, until=T0 + 600)
     assert "error" not in a and "error" not in c, (a, c)
     assert "already read the event log 1 times" in b["error"] and len(calls) == 1
@@ -430,8 +430,8 @@ def test_a_graph_is_asked_only_in_its_own_form(q, word):
 
 def test_a_kind_not_in_the_model_and_a_kind_on_the_wiring_are_refused(tmp_path):
     p = deps(tmp_path)
-    a, b = ask(p, {"source": "graph", "diagram": "dependency", "kind": "nope"}, {"source": "graph", "diagram": "service", "kind": "ticket"})
-    assert "kind 'nope' is not in the model" in a["error"] and "takes no kind" in b["error"]
+    a, b = ask(p, {"source": "graph", "diagram": "dependency", "projection": "nope"}, {"source": "graph", "diagram": "service", "projection": "ticket"})
+    assert "projection 'nope' is not in the model" in a["error"] and "takes no projection" in b["error"]
     assert a["meta"]["verdict"]["level"] == "refuse" and "nodes" not in a
 
 

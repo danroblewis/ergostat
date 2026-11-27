@@ -46,7 +46,7 @@ class For:
 
     def parts_of_item(self) -> list[str]:
         """The parts of the model the item names (``stock.x``, ``flow.y``: in a ``parts`` field, its ``about``, any
-        text field), and else every part of its kind's system: ``stock.x`` each."""
+        text field), and else every part of its projection's system: ``stock.x`` each."""
         if self.item is None:
             return []
         found: list[str] = []

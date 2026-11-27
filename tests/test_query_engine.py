@@ -26,7 +26,7 @@ MODEL = """
     name: q
     stocks:
       queue: {unit: tickets}
-    items:
+    projections:
       ticket:
         id: ticket/*
         states: [open, doing, done]
@@ -71,7 +71,7 @@ def p(tmp_path):
 
 
 def test_the_answers_shape(p):
-    got = api(Live(p), "query", {"q": [_q({"source": "counts", "kind": "ticket"})]})
+    got = api(Live(p), "query", {"q": [_q({"source": "counts", "projection": "ticket"})]})
     assert (got["since"], got["until"], got["step"]) == (T, T + 480, 120)
     r = got["results"][0]
     assert r["times"] == [T, T + 120, T + 240, T + 360]
@@ -79,12 +79,12 @@ def test_the_answers_shape(p):
 
 
 def test_items_sum_adds_what_each_change_moved_the_field(p):
-    r = _ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum"})[0]
+    r = _ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum"})[0]
     assert _series(r) == {"ai_cost_usd": [5.0, 2.0, 0.0, 0.5]} and r["unit"] == "usd"
 
 
 def test_items_rate_per_hour(p):
-    r = _ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum", "transform": "rate",
+    r = _ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum", "transform": "rate",
                  "rate_per": "hour"})[0]
     assert _series(r)["ai_cost_usd"] == pytest.approx([150.0, 60.0, 0.0, 15.0]) and r["unit"] == "usd/h"
 
@@ -93,54 +93,54 @@ def test_items_rate_per_hour(p):
                                       ("max", [4.0, 3.0, None, 3.5]), ("min", [1.0, 3.0, None, 3.5]),
                                       ("avg", [2.5, 3.0, None, 3.5]), ("p50", [2.5, 3.0, None, 3.5])])
 def test_items_other_aggregations_read_the_values_the_items_took(p, agg, want):
-    r = _ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": agg})[0]
+    r = _ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": agg})[0]
     assert _series(r)["ai_cost_usd"] == want
 
 
 def test_items_filtered_and_grouped(p):
-    done = _ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum", "where": {"state": ["done"]}})[0]
+    done = _ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum", "where": {"state": ["done"]}})[0]
     assert _series(done)["ai_cost_usd"] == [1.0, 2.0, 0.0, 0.5]
-    by = _ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum", "group_by": "size"})[0]
+    by = _ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum", "group_by": "size"})[0]
     assert _series(by) == {"s": [5.0, 2.0, 0.0, 0.5]}
-    by = _ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum", "group_by": "state"})[0]
+    by = _ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum", "group_by": "state"})[0]
     assert _series(by) == {"doing": [4.0, 0.0, 0.0, 0.0], "done": [1.0, 2.0, 0.0, 0.5]}
     assert [s["name"] for s in by["series"]] == ["doing", "done"]     # a kind's states in their order
 
 
 def test_moves_entries_and_exits(p):
-    into = _ask(p, {"source": "moves", "kind": "ticket", "measure": "entries", "state": "doing"})[0]
+    into = _ask(p, {"source": "moves", "projection": "ticket", "measure": "entries", "state": "doing"})[0]
     assert _series(into) == {"entries": [0.0, 2.0, 0.0, 0.0]}
-    out = _ask(p, {"source": "moves", "kind": "ticket", "measure": "exits", "state": "open"})[0]
+    out = _ask(p, {"source": "moves", "projection": "ticket", "measure": "exits", "state": "open"})[0]
     assert _series(out) == {"exits": [0.0, 2.0, 0.0, 0.0]}
-    arrivals = _ask(p, {"source": "moves", "kind": "ticket", "measure": "entries", "state": "open"})[0]
+    arrivals = _ask(p, {"source": "moves", "projection": "ticket", "measure": "entries", "state": "open"})[0]
     assert _series(arrivals) == {"entries": [2.0, 0.0, 1.0, 0.0]}
 
 
 def test_moves_time_in_state(p):
-    r = _ask(p, {"source": "moves", "kind": "ticket", "measure": "time_in_state", "state": "doing", "agg": "p50"})[0]
+    r = _ask(p, {"source": "moves", "projection": "ticket", "measure": "time_in_state", "state": "doing", "agg": "p50"})[0]
     assert _series(r) == {"time_in_state": [None, None, None, 240.0]} and r["unit"] == "seconds"
-    by = _ask(p, {"source": "moves", "kind": "ticket", "measure": "time_in_state", "agg": "max", "group_by": "state"})[0]
+    by = _ask(p, {"source": "moves", "projection": "ticket", "measure": "time_in_state", "agg": "max", "group_by": "state"})[0]
     assert _series(by) == {"open": [None, 120.0, None, None], "doing": [None, None, None, 240.0]}
 
 
 def test_counts_are_the_level_at_each_buckets_end(p):
-    r = _ask(p, {"source": "counts", "kind": "ticket"})[0]
+    r = _ask(p, {"source": "counts", "projection": "ticket"})[0]
     assert _series(r) == {"open": [2.0, 0.0, 1.0, 1.0], "doing": [0.0, 2.0, 2.0, 1.0], "done": [0.0, 0.0, 0.0, 1.0]}
     assert [s["name"] for s in r["series"]] == ["open", "doing", "done"]
 
 
 def test_counts_carry_what_came_before_the_window(p):
-    r = _ask(p, {"source": "counts", "kind": "ticket", "state": ["doing"]}, since=240.0, until=T + 480, points=2)[0]
+    r = _ask(p, {"source": "counts", "projection": "ticket", "state": ["doing"]}, since=240.0, until=T + 480, points=2)[0]
     assert _series(r) == {"doing": [2.0, 1.0]}
 
 
 def test_counts_filtered_by_a_field(p):
-    r = _ask(p, {"source": "counts", "kind": "ticket", "where": {"size": "l"}})[0]
+    r = _ask(p, {"source": "counts", "projection": "ticket", "where": {"size": "l"}})[0]
     assert _series(r) == {"open": [0.0, 0.0, 1.0, 1.0]}
 
 
 def test_buckets_before_the_record_began_hold_nothing_not_zero(p):
-    r = _ask(p, {"source": "moves", "kind": "ticket", "measure": "entries", "state": "open"},
+    r = _ask(p, {"source": "moves", "projection": "ticket", "measure": "entries", "state": "open"},
              since=720.0, until=T + 480, points=6)[0]
     assert _series(r)["entries"] == [None, None, 2.0, 0.0, 1.0, 0.0]
 
@@ -177,9 +177,9 @@ def test_events_counted_by_type_from_the_item_index_not_the_log(p):
 
 
 @pytest.mark.parametrize("ask,source,words", [
-    ({"source": "items", "kind": "ticket", "field": "ai_cost_usd", "group_by": "size"}, "sql", "from item_numbers"),
-    ({"source": "moves", "kind": "ticket", "measure": "entries", "state": "doing"}, "sql", "from transitions"),
-    ({"source": "counts", "kind": "ticket"}, "sql", "from transitions"),
+    ({"source": "items", "projection": "ticket", "field": "ai_cost_usd", "group_by": "size"}, "sql", "from item_numbers"),
+    ({"source": "moves", "projection": "ticket", "measure": "entries", "state": "doing"}, "sql", "from transitions"),
+    ({"source": "counts", "projection": "ticket"}, "sql", "from transitions"),
     ({"source": "events"}, "sql", "from events"),
     ({"source": "series", "series": "sensor/queue.main"}, "promql", 'avg_over_time({series="sensor/queue.main"}[120s])'),
 ])
@@ -193,7 +193,7 @@ def test_each_built_in_kind_is_a_query_generator_and_says_what_it_asked(p, ask, 
 
 def test_a_generated_sql_query_asked_of_the_sql_source_answers_the_same_rows(p):
     """What a shortcut asked is a query anyone may ask: the same text, asked of ``sql``, reads the same moves."""
-    r = _ask(p, {"source": "moves", "kind": "ticket", "measure": "entries", "state": "open"})[0]
+    r = _ask(p, {"source": "moves", "projection": "ticket", "measure": "entries", "state": "open"})[0]
     text = r["compiled"][0]["text"]
     got = _ask(p, {"source": "sql", "text": f"select count(*) as n from ({text})"})[0]
     assert "error" not in got, got
@@ -203,12 +203,12 @@ def test_a_generated_sql_query_asked_of_the_sql_source_answers_the_same_rows(p):
 @pytest.mark.parametrize("transform,want", [("delta", [None, -3.0, -2.0, 0.5]), ("cumulative", [5.0, 7.0, 7.0, 7.5]),
                                             ("moving_avg", [5.0, 3.5, 1.0, 0.25])])
 def test_transforms_in_a_query(p, transform, want):
-    r = _ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum", "transform": transform, "window": 2})[0]
+    r = _ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum", "transform": transform, "window": 2})[0]
     assert _series(r)["ai_cost_usd"] == want
 
 
 def test_a_rate_chooses_a_readable_unit_of_time(p):
-    r = _ask(p, {"source": "moves", "kind": "ticket", "measure": "entries", "state": "open", "transform": "rate"})[0]
+    r = _ask(p, {"source": "moves", "projection": "ticket", "measure": "entries", "state": "open", "transform": "rate"})[0]
     assert r["unit"] == "items/min" and _series(r)["entries"] == pytest.approx([1.0, 0.0, 0.5, 0.0])
 
 
@@ -218,20 +218,20 @@ def test_at_most_twelve_groups_and_the_rest_as_other(tmp_path):
     for i in range(15):
         for j in range(15 - i):
             q.events.add("ticket.note", item=f"ticket/{i}-{j}", data={"team": f"t{i:02}", "ai_cost_usd": 1.0}, at=T + 10)
-    r = _ask(q, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum", "group_by": "team"})[0]
+    r = _ask(q, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum", "group_by": "team"})[0]
     got = _series(r)
     assert r["capped"] == 3 and len(got) == 13 and list(got)[-1] == "other"
     assert got["other"][0] == 3 + 2 + 1 and got["t00"][0] == 15
 
 
-@pytest.mark.parametrize("query,word", [({"source": "nope"}, "source"), ({"source": "items", "kind": "ticket"}, "field"),
+@pytest.mark.parametrize("query,word", [({"source": "nope"}, "source"), ({"source": "items", "projection": "ticket"}, "field"),
                                         ({"source": "counts", "agg": "median"}, "agg"), ({"source": "counts", "wat": 1}, "wat"),
-                                        ({"source": "moves", "kind": "ticket"}, "measure"),
+                                        ({"source": "moves", "projection": "ticket"}, "measure"),
                                         ({"source": "counts", "transform": "log"}, "transform"),
                                         ({"source": "series"}, "series"), ({"source": "counts", "bucket": "soon"}, "bucket"),
                                         ({"source": "counts", "window": 0}, "window")])
 def test_a_malformed_query_is_refused_naming_what_is_wrong_and_the_others_answer(p, query, word):
-    got = _ask(p, query, {"source": "counts", "kind": "ticket"})
+    got = _ask(p, query, {"source": "counts", "projection": "ticket"})
     assert word in got[0]["error"] and "series" not in got[0] and "error" not in got[1]
 
 
@@ -250,10 +250,10 @@ def test_too_long_a_window_or_too_many_points_are_refused_and_queries_past_the_l
 
 
 def test_one_query_that_fails_leaves_the_others_answered(p):
-    got = _ask(p, {"source": "items", "kind": "nope", "field": "x"}, {"source": "items", "kind": "ticket", "field": "nope"},
-               {"source": "series", "series": "sensor/none"}, {"source": "moves", "kind": "ticket", "measure": "entries", "state": "nope"},
-               {"source": "counts", "kind": "ticket"})
-    assert "'nope'" in got[0]["error"] and "kind" in got[0]["error"]
+    got = _ask(p, {"source": "items", "projection": "nope", "field": "x"}, {"source": "items", "projection": "ticket", "field": "nope"},
+               {"source": "series", "series": "sensor/none"}, {"source": "moves", "projection": "ticket", "measure": "entries", "state": "nope"},
+               {"source": "counts", "projection": "ticket"})
+    assert "'nope'" in got[0]["error"] and "projection" in got[0]["error"]
     assert "'nope'" in got[1]["error"] and "field" in got[1]["error"]
     assert "sensor/none" in got[2]["error"] and "state" in got[3]["error"]
     assert all("series" not in r for r in got[:4]) and "error" not in got[4]
@@ -263,7 +263,7 @@ def test_an_answer_is_kept_until_its_data_changes(p, monkeypatch):
     live, calls = Live(p), []
     real = sources.READERS["items"]
     monkeypatch.setitem(engine.READERS, "items", lambda *a: (calls.append(1), real(*a))[1])
-    ask = {"q": [_q({"source": "items", "kind": "ticket", "field": "ai_cost_usd"})]}
+    ask = {"q": [_q({"source": "items", "projection": "ticket", "field": "ai_cost_usd"})]}
     first = api(live, "query", ask)["results"][0]
     assert api(live, "query", ask)["results"][0] == first and len(calls) == 1
     p.events.add("ticket.note", item="ticket/a", data={"ai_cost_usd": 1.0}, at=T + 400)
@@ -273,11 +273,11 @@ def test_an_answer_is_kept_until_its_data_changes(p, monkeypatch):
 def test_the_fields_say_what_can_be_charted(p):
     p.measurements.add("sensor/queue.main", 1.0, at=T)
     f = api(Live(p), "query/fields", {})
-    k = f["sources"]["items"]["kinds"]["ticket"]
+    k = f["sources"]["items"]["projections"]["ticket"]
     assert k["fields"] == [{"name": "ai_cost_usd", "unit": "usd"}] and k["states"] == ["open", "doing", "done"]
-    assert k["group_by"][:2] == ["state", "kind"]
-    assert f["sources"]["moves"]["kinds"]["ticket"]["states"] == ["open", "doing", "done"]
-    assert "ticket" in f["sources"]["counts"]["kinds"]
+    assert k["group_by"][:2] == ["state", "projection"]
+    assert f["sources"]["moves"]["projections"]["ticket"]["states"] == ["open", "doing", "done"]
+    assert "ticket" in f["sources"]["counts"]["projections"]
     assert {"name": "sensor/queue.main", "unit": "tickets"} in f["sources"]["series"]["series"]
     assert "ticket.done" in f["sources"]["events"]["types"]
     assert "p99" in f["aggregations"] and "moving_avg" in f["transforms"]
@@ -299,7 +299,7 @@ def test_a_public_read_only_name_reads_but_cannot_post(tmp_path):
         except urllib.error.HTTPError as e:
             return e.code, e.read()
     try:
-        code, body = call("/api/query?q=" + _q({"source": "counts", "kind": "ticket"}))
+        code, body = call("/api/query?q=" + _q({"source": "counts", "projection": "ticket"}))
         assert code == 200 and json.loads(body)["results"][0]["series"]
         assert call("/api/query/fields")[0] == 200
         code, body = call("/api/query?q=!!!")
@@ -320,10 +320,10 @@ def test_a_factory_sized_record_answers_each_source_within_100_ms_without_the_lo
                         "item": f"ticket/{r.randrange(7000)}", "data": {"ai_cost_usd": 0.1}} for i in range(100_000)], new=True)
     q.measurements.add_many([("sensor/queue.main", T + i * 30.0, float(i % 50)) for i in range(20_000)])
     live = Live(q)
-    asks = [{"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum", "transform": "rate", "group_by": "state"},
-            {"source": "moves", "kind": "ticket", "measure": "entries", "state": "done", "transform": "rate"},
-            {"source": "moves", "kind": "ticket", "measure": "time_in_state", "agg": "p90", "group_by": "state"},
-            {"source": "counts", "kind": "ticket"},
+    asks = [{"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum", "transform": "rate", "group_by": "state"},
+            {"source": "moves", "projection": "ticket", "measure": "entries", "state": "done", "transform": "rate"},
+            {"source": "moves", "projection": "ticket", "measure": "time_in_state", "agg": "p90", "group_by": "state"},
+            {"source": "counts", "projection": "ticket"},
             {"source": "series", "series": "sensor/queue.main", "agg": "avg"}]
     api(live, "query", {"q": [_q(asks[0], since=86400.0, until=now, points=120)]})      # the index caught up
 

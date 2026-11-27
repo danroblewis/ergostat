@@ -25,7 +25,7 @@ flows:
     from: err
     driven-by: {cause: +flow.written, instant: true}
     sensor:
-      items: ergostat.model-change
+      projection: ergostat.model-change
       entering: accepted
       sum: fit_gained
       over: 1h
@@ -90,7 +90,7 @@ def test_replay_sum_and_rest(tmp_path):
 
 
 def test_check_finds_measured_not_caused(tmp_path):
-    planted = FLOWS.replace("""      items: ergostat.model-change
+    planted = FLOWS.replace("""      projection: ergostat.model-change
       entering: accepted
       sum: fit_gained
 """, "      changes: falls\n")

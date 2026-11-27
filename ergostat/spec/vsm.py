@@ -4,7 +4,7 @@ architecture review (``numbers/vsm_review.py``), never a finding: a function wit
 and nothing here is said by ``check``.
 
 - S1, operations: the goals directly in the system on a stock of its own, and its direct subsystems;
-- S2, coordination: its blocks that share a taken kind's leases (SPEC §9.5) or a workspace pool with a block outside;
+- S2, coordination: its blocks that share a taken projection's leases (SPEC §9.5) or a workspace pool with a block outside;
 - S3, control: its subsystems' inner-loop goals it sets, and its goals whose setpoint another goal's block commands;
 - S3*, audit: its judge blocks and its blocks with a ``claims`` param;
 - S4, intelligence: its flows in from a cloud that are measured (the outside, seen), and the model's ``use:

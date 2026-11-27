@@ -83,7 +83,7 @@ then today's `daemon:` map, renamed, with `run` outside it. The pair is the docs
 <!-- today: modifier-block -->
 ```yaml
 name: shell-jobs
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -91,14 +91,14 @@ items:
 stocks:
   ready:
     unit: jobs
-    sensor: {items: job, state: ready, every: 3s}
+    sensor: {projection: job, state: ready, every: 3s}
 goals:
   nothing-waits: {stock: ready, hold: "<= 0", tolerance: 0}
 blocks:
   worker:
     type: program
     goal: nothing-waits
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 1
     lease: {ttl: 1m}
     daemon: {run: sh bin/worker.sh, concurrency: 1}
@@ -107,7 +107,7 @@ blocks:
 <!-- proposed: modifier-block, syntax: 'keep' -->
 ```yaml
 name: shell-jobs
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -115,14 +115,14 @@ items:
 stocks:
   ready:
     unit: jobs
-    sensor: {items: job, state: ready, every: 3s}
+    sensor: {projection: job, state: ready, every: 3s}
 goals:
   nothing-waits: {stock: ready, hold: "<= 0", tolerance: 0}
 blocks:
   worker:
     type: program
     goal: nothing-waits
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 1
     lease: {ttl: 1m}
     run: sh bin/worker.sh
@@ -562,7 +562,7 @@ runs at most 10 at once where it said `pool: 20`.
 <!-- today: knobs-pool -->
 ```yaml
 name: builder
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, done]
@@ -570,7 +570,7 @@ items:
 blocks:
   builder:
     type: program
-    takes: {kind: ticket, at: ready, to: [done]}
+    takes: {projection: ticket, at: ready, to: [done]}
     pool: 20
     daemon: {run: ./builder.py, concurrency: 20, heartbeat: 30s}
 ```
@@ -578,7 +578,7 @@ blocks:
 <!-- proposed: knobs-pool, semantics -->
 ```yaml
 name: builder
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, done]
@@ -586,7 +586,7 @@ items:
 blocks:
   builder:
     type: program
-    takes: {kind: ticket, at: ready, to: [done]}
+    takes: {projection: ticket, at: ready, to: [done]}
     pool: 20
     daemon: {run: ./builder.py, heartbeat: 30s}
 ```
@@ -683,7 +683,7 @@ be the default. Today the same text means no heartbeat at all (`config.py:53`, `
 <!-- today: knobs-heartbeat -->
 ```yaml
 name: t-block
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -692,14 +692,14 @@ stocks:
   ready:
     unit: jobs
     description: jobs waiting
-    sensor: {items: job, state: ready, every: 3s}
+    sensor: {projection: job, state: ready, every: 3s}
 goals:
   nothing-waits: {stock: ready, hold: "<= 0", tolerance: 0}
 blocks:
   worker:
     type: program
     goal: nothing-waits
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 8
     lease: {ttl: 1m, attempts: 3}
     daemon: {run: python3 bin/worker.py, concurrency: 8, heartbeat: 30s}
@@ -708,7 +708,7 @@ blocks:
 <!-- proposed: knobs-heartbeat, semantics -->
 ```yaml
 name: t-block
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -717,14 +717,14 @@ stocks:
   ready:
     unit: jobs
     description: jobs waiting
-    sensor: {items: job, state: ready, every: 3s}
+    sensor: {projection: job, state: ready, every: 3s}
 goals:
   nothing-waits: {stock: ready, hold: "<= 0", tolerance: 0}
 blocks:
   worker:
     type: program
     goal: nothing-waits
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 8
     lease: {ttl: 1m, attempts: 3}
     daemon: {run: python3 bin/worker.py, concurrency: 8}

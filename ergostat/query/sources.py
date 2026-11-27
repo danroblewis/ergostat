@@ -7,7 +7,7 @@ a reader sees it is just SQL or PromQL and can ask the same text of the source i
 the panel's window, as there).
 
 Each returns its groups' rows in the window: ``Rows`` (things that happened, to be aggregated in their buckets) or
-``Levels`` (one value per bucket already). Grouping and filtering by a label (``state``, ``kind``, a field,
+``Levels`` (one value per bucket already). Grouping and filtering by a label (``state``, ``projection``, a field,
 ``state_group``) are joins in the SQL (``item_list``, ``item_labels``, ``item_state_groups``)."""
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class Unanswerable(Exception):
 class Read:
     rows: dict[str, list[tuple]] | None = None    # group: [(time, value, amount)], value for last/avg/..., amount for sum
     levels: dict[str, list] | None = None         # group: one value per bucket
-    order: list[str] = field(default_factory=list)   # groups in their natural order (a kind's states), when they have one
+    order: list[str] = field(default_factory=list)   # groups in their natural order (a projection's states), when they have one
     unit: str = ""
     before: float | None = None                   # a series' last reading ahead of the window
     before_t: float | None = None                 # ... and when it was
@@ -49,12 +49,12 @@ class Read:
 
 
 def kinds(spec, q: Query) -> list:
-    """The kinds a query is over: the one it names, or all."""
+    """The projections a query is over: the one it names, or all."""
     every = its.kinds_of(spec)
     if q.kind is None:
         return list(every.values())
     if q.kind not in every:
-        raise Unanswerable(f"kind {q.kind!r} is not in the model")
+        raise Unanswerable(f"projection {q.kind!r} is not in the model")
     return [every[q.kind]]
 
 
@@ -66,7 +66,7 @@ def _index(p, spec, k, fields=()):
 
 
 def _named(q: Query) -> tuple:
-    return tuple(n for n, _ in q.where) + ((q.group_by,) if q.group_by not in (None, "state", "kind") else ())
+    return tuple(n for n, _ in q.where) + ((q.group_by,) if q.group_by not in (None, "state", "projection") else ())
 
 
 # ---- writing SQL
@@ -81,7 +81,7 @@ def _in(col: str, values) -> str:
 
 
 class _Labels:
-    """The joins and the expressions that label a row of ``alias`` (its ``id`` and ``kind``) by ``state``, ``kind``,
+    """The joins and the expressions that label a row of ``alias`` (its ``id`` and ``projection``) by ``state``, ``projection``,
     ``state_group`` or a field, as the query engine groups and filters by them (query/labels.py): an item with no value
     for one is ``none``."""
 
@@ -89,8 +89,8 @@ class _Labels:
         self.alias, self.joins, self.made = alias, [], {}
 
     def __call__(self, name: str) -> str:
-        if name == "kind":
-            return f"{self.alias}.kind"
+        if name == "projection":
+            return f"{self.alias}.projection"
         if name in self.made:
             return self.made[name]
         n = len(self.made)
@@ -117,7 +117,7 @@ def _labelled(base: str, cols: str, q: Query, group: str | None, order: str = "b
             + (f" where {' and '.join(conds)}" if conds else "") + (f" order by {order}" if order else ""))
 
 
-def _kind_cond(q: Query, col: str = "kind") -> list[str]:
+def _kind_cond(q: Query, col: str = "projection") -> list[str]:
     return [f"{col} = {lit(q.kind)}"] if q.kind else []
 
 
@@ -144,14 +144,14 @@ def items(p, spec, q: Query, g: Grid, seconds: float = SECONDS) -> Read:
     """A numeric field's changes: each one's time, the value it took and by how much it moved (``item_numbers``)."""
     ks = kinds(spec, q)
     conds = [*_kind_cond(q), f"field = {lit(q.field)}", "at >= :since", "at <= :until"]
-    base = f"select at, id, kind, value, delta from item_numbers where {' and '.join(conds)}"
+    base = f"select at, id, projection, value, delta from item_numbers where {' and '.join(conds)}"
     text = _labelled(base, "b.at, b.value, b.delta", q, q.group_by)
     transcript = its.asks_transcript(ks, (q.field, *_named(q)))
     rows = _sql(p, spec, text, g, seconds, transcript)
     if not rows:
         held = f"select count(*) from item_numbers where {' and '.join([*_kind_cond(q), f'field = {lit(q.field)}'])}"
         if not _sql(p, spec, held, g, seconds, transcript)[0][0]:
-            raise Unanswerable(f"field {q.field!r} is not a numeric field of {q.kind or 'any kind'}")
+            raise Unanswerable(f"field {q.field!r} is not a numeric field of {q.kind or 'any projection'}")
     out: dict[str, list] = {}
     for r in rows:
         out.setdefault(r[3] if q.group_by else q.field, []).append((r[0], r[1], r[2]))
@@ -169,27 +169,27 @@ def _states(q: Query, col: str) -> str:
 
 
 def _moves_base(q: Query) -> str:
-    """``(at, id, kind, st, v)`` of the query's moves: when, the item, its kind, the state and the value."""
+    """``(at, id, projection, st, v)`` of the query's moves: when, the item, its projection, the state and the value."""
     k = _kind_cond(q)
     window = ["at >= :since", "at <= :until"]
     if q.include_open:                  # time in state, of those that left and those still in the state at the end
-        left = ("select t.at, t.id, t.kind, t.from_state as st, t.at - (select max(x.at) from transitions x where "
+        left = ("select t.at, t.id, t.projection, t.from_state as st, t.at - (select max(x.at) from transitions x where "
                 "x.id = t.id and x.to_state = t.from_state and x.at <= t.at) as v from transitions t where "
-                + " and ".join([*_kind_cond(q, "t.kind"), _states(q, "t.from_state"), "t.at >= :since", "t.at <= :until"]))
-        now = ("select :until as at, o.id, o.kind, o.to_state as st, :until - o.at as v from (select id, kind, to_state, "
+                + " and ".join([*_kind_cond(q, "t.projection"), _states(q, "t.from_state"), "t.at >= :since", "t.at <= :until"]))
+        now = ("select :until as at, o.id, o.projection, o.to_state as st, :until - o.at as v from (select id, projection, to_state, "
                "max(at) as at from transitions where " + " and ".join([*k, "at <= :until"]) + " group by id) o where "
                + _states(q, "o.to_state"))
         return f"{left} union all {now}"
     if q.first_only:                    # an item's first time in the state: never a return to it
-        return ("select first as at, id, kind, to_state as st, 1.0 as v from (select min(at) as first, id, kind, to_state "
+        return ("select first as at, id, projection, to_state as st, 1.0 as v from (select min(at) as first, id, projection, to_state "
                 f"from transitions where {' and '.join([*k, _states(q, 'to_state')])} group by id, to_state) "
                 "where first >= :since and first <= :until")
     if q.measure == "time_in_state":
-        return ("select t.at, t.id, t.kind, t.from_state as st, t.at - (select max(x.at) from transitions x where "
+        return ("select t.at, t.id, t.projection, t.from_state as st, t.at - (select max(x.at) from transitions x where "
                 "x.id = t.id and x.to_state = t.from_state and x.at <= t.at) as v from transitions t where "
-                + " and ".join([*_kind_cond(q, "t.kind"), _states(q, "t.from_state"), "t.at >= :since", "t.at <= :until"]))
+                + " and ".join([*_kind_cond(q, "t.projection"), _states(q, "t.from_state"), "t.at >= :since", "t.at <= :until"]))
     col = "to_state" if q.measure == "entries" else "from_state"
-    return f"select at, id, kind, {col} as st, 1.0 as v from transitions where {' and '.join([*k, _states(q, col), *window])}"
+    return f"select at, id, projection, {col} as st, 1.0 as v from transitions where {' and '.join([*k, _states(q, col), *window])}"
 
 
 def moves(p, spec, q: Query, g: Grid, seconds: float = SECONDS) -> Read:
@@ -224,8 +224,8 @@ def counts(p, spec, q: Query, g: Grid, seconds: float = SECONDS) -> Read:
     k = _kind_cond(q)
     into = " and ".join([*k, "at <= :until", _states(q, "to_state")])
     out_of = " and ".join([*k, "at <= :until", _states(q, "from_state")])
-    base = (f"select at, id, kind, to_state as st, 1 as v from transitions where {into} union all "
-            f"select at, id, kind, from_state as st, -1 as v from transitions where {out_of}")
+    base = (f"select at, id, projection, to_state as st, 1 as v from transitions where {into} union all "
+            f"select at, id, projection, from_state as st, -1 as v from transitions where {out_of}")
     lab = _Labels("b")
     conds = [_in(lab(name), vals) for name, vals in q.where]
     key = "b.st" if by == "state" else lab(by)
@@ -234,7 +234,7 @@ def counts(p, spec, q: Query, g: Grid, seconds: float = SECONDS) -> Read:
     text = (f"with moved as ({moved}) select null as at, grp, sum(v) from moved where at < :since group by grp "
             "union all select at, grp, v from moved where at >= :since")
     rows = _sql(p, spec, text, g, seconds, its.asks_transcript(ks, tuple(n for n, _ in q.where)
-                                                               + ((by,) if by not in ("state", "kind") else ())))
+                                                               + ((by,) if by not in ("state", "projection") else ())))
     base_n: dict[str, float] = {}
     diffs: dict[str, list[float]] = {}
     for at, grp, v in rows:
@@ -262,7 +262,7 @@ def item_points(p, spec, q: Query, xf: str, yf: str | None, since: float, until:
     end, for the items that changed in the window, with its group's label, its ``size`` and ``color``, latest last:
     ``[(id, t, x, y, size, color, group)]``, and the SQL that read them (over ``item_numbers``)."""
     def held(field: str) -> str:
-        return ("select id, kind, max(at) as t, value from item_numbers where "
+        return ("select id, projection, max(at) as t, value from item_numbers where "
                 + " and ".join([*_kind_cond(q), f"field = {lit(field)}", "at <= :until"]) + " group by id")
     two = bool(yf) and yf != xf
     withs = [f"x as ({held(xf)})", *([f"y as ({held(yf)})"] if two else []), *([f"sz as ({held(size)})"] if size else [])]
@@ -284,8 +284,8 @@ def item_points(p, spec, q: Query, xf: str, yf: str | None, since: float, until:
         for f in (xf, *([yf] if yf else [])):
             have = f"select count(*) from item_numbers where {' and '.join([*_kind_cond(q), f'field = {lit(f)}'])}"
             if not _sql(p, spec, have, g, seconds)[0][0]:
-                raise Unanswerable(f"no kind has both numeric fields {xf!r} and {yf!r}" if yf else
-                                   f"{xf!r} is not a numeric field of any kind")
+                raise Unanswerable(f"no projection has both numeric fields {xf!r} and {yf!r}" if yf else
+                                   f"{xf!r} is not a numeric field of any projection")
     return rows, text
 
 

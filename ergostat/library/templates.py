@@ -2,7 +2,7 @@
 
 A template file is YAML: ``template:`` (its name), ``description:``, ``reading:`` (what it is in control theory and
 in system dynamics), ``params:`` (each with ``description``, ``type``, and ``default`` or ``stand-in`` or
-``required``), ``example:`` (a ``uses:`` entry), and then the ordinary sections (``items:``, ``stocks:``, ``flows:``,
+``required``), ``example:`` (a ``uses:`` entry), and then the ordinary sections (``projections:``, ``stocks:``, ``flows:``,
 ``auxiliaries:``, ``parameters:``, ``goals:``, ``blocks:``, ``systems:``, ``uses:``). ``exports:`` (optional) lists the
 refs of its parts meant to be read from outside an instance (``stock.waiting``, or an inner use's ``stock.inner-x``);
 absent, every part is exported."""
@@ -21,7 +21,7 @@ from . import untrusted as ut
 
 HERE = Path(__file__).resolve().parent / "templates"
 ENV = "ERGOSTAT_LIBRARY"
-BODY = ("items", "systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents", "workspaces", "actions",
+BODY = ("projections", "systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents", "workspaces", "actions",
         "uses")
 HEAD = {"template", "description", "reading", "params", "example", "standins", "once", "exports"}
 EXPORT = re.compile(r"^(stock|flow|goal|auxiliary|block)\.([a-z][a-z0-9-]*)$")      # what an exports: entry may name

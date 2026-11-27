@@ -7,7 +7,7 @@
 defaults:
   system: safety
 
-items:
+projections:
   ramp:
     id: ramp/*
     description: a team's request to ramp a feature flag in production
@@ -33,28 +33,28 @@ stocks:
   ramps-to-research:
     unit: ramps
     sensor:
-      items: ramp
+      projection: ramp
       state: pending
       every: 5s
   ramps-briefed:
     unit: ramps
     description: briefed, waiting for my decision
     sensor:
-      items: ramp
+      projection: ramp
       state: briefed
       every: 5s
   unreviewed-ramps-live:
     unit: ramps
     description: ramped without my review, live in production, not yet broken or proved fine
     sensor:
-      items: ramp
+      projection: ramp
       state: went-ahead
       every: 5s
   ci-releases-unplanned:
     unit: releases
     description: releases of the CI server we run behind, with no upgrade plan
     sensor:
-      items: ci
+      projection: ci
       state: released
       every: 5s
 
@@ -88,7 +88,7 @@ auxiliaries:
     description: ramps waiting over a working day for my decision
     driven-by: [+stock.ramps-to-research, +stock.ramps-briefed]
     sensor:
-      items: ramp
+      projection: ramp
       state: [pending, briefed]
       where:
         late: "yes"
@@ -104,21 +104,21 @@ flows:
     from: ramps-to-research
     to: ramps-briefed
     sensor:
-      items: ramp
+      projection: ramp
       entering: briefed
       over: 10m
   ramps-approved:
     from: ramps-briefed
     description: a ramp approved in the flag system, by me (mine)
     sensor:
-      items: ramp
+      projection: ramp
       entering: approved
       over: 10m
   ramps-rejected:
     from: ramps-briefed
     description: a ramp rejected in the flag system, by me (mine)
     sensor:
-      items: ramp
+      projection: ramp
       entering: rejected
       over: 10m
   ramps-went-ahead:
@@ -127,7 +127,7 @@ flows:
     description: the team ramps without my decision
     driven-by: +auxiliary.ramps-late
     sensor:
-      items: ramp
+      projection: ramp
       entering: went-ahead
       over: 10m
   ramps-broke:
@@ -137,7 +137,7 @@ flows:
     # a third-order material delay (Sterman ch. 11): what goes in comes out, spread around its delay time
     equation: DELAY3(break-share * flow.ramps-went-ahead, time-to-break / workdays-per-hour)
     sensor:
-      items: ramp
+      projection: ramp
       entering: broke
       over: 10m
   ramps-proved-fine:
@@ -147,7 +147,7 @@ flows:
     # a fixed half day (a pipeline): a third-order delay is the nearest the model writes
     equation: DELAY3((1 - break-share) * flow.ramps-went-ahead, time-to-prove-fine / workdays-per-hour)
     sensor:
-      items: ramp
+      projection: ramp
       entering: proved-fine
       over: 10m
   ci-releases:
@@ -158,7 +158,7 @@ flows:
   upgrade-planning:
     from: ci-releases-unplanned
     sensor:
-      items: ci
+      projection: ci
       entering: planned
       over: 10m
 
@@ -182,7 +182,7 @@ blocks:
     goal: every-ramp-briefed
     prompt: prompts/ramp-researcher.md
     run: python3 bin/prepare.py ramp-brief
-    takes: {kind: ramp, at: pending}
+    takes: {projection: ramp, at: pending}
     pool: 2
     max: 1
     out: flow.researching
@@ -200,7 +200,7 @@ blocks:
     type: program
     goal: ci-upgrade-planned
     run: python3 bin/prepare.py ci-plan
-    takes: {kind: ci, at: released}
+    takes: {projection: ci, at: released}
     pool: 2
     max: 1
     out: flow.upgrade-planning

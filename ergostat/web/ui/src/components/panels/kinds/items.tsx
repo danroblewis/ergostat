@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useTime } from "../../../state/time";
-import { KindStates } from "../../charts/KindStates";
+import { ProjectionStates } from "../../charts/ProjectionStates";
 import { PanelFrame } from "../../charts/PanelView";
 import { FinishedNote, Pager } from "../../controls";
 import {
@@ -8,15 +8,15 @@ import {
   ItemSummary, ItemWhy, whySays,
 } from "../../itemParts";
 import { hiddenStates, ItemsTable } from "../../items";
-import { EveryKind, KindModel, KindsOverview, ProcessMapLink } from "../../kindParts";
+import { EveryProjection, ProjectionModel, ProjectionsOverview, ProcessMapLink } from "../../projectionParts";
 import { Code } from "../../Markdown";
 import { Async, Empty, Loading } from "../../ui";
 import { usePanelAnswer } from "../shared";
 import type { PanelBodyProps, PanelDef, PanelKind } from "../types";
 import { asQueryPanel } from "./core";
 
-/* The items group's kinds of panel (each also declared in ergostat/spec/dashboards.py, its items block): the kinds'
-   overview, every kind's newest, a kind's states, model, definition and paged list, and each part of one item. Each
+/* The items group's kinds of panel (each also declared in ergostat/spec/dashboards.py, its items block): the
+   projections' overview, every projection's newest, a projection's states, model, definition and paged list, and each part of one item. Each
    asks its own endpoint with exactly its parameters, unless the page has asked the same (panels/shared.tsx).
 
    A page binds a panel to its address with keys of its own, never declared in the model: `onParams(changes)` (a list's
@@ -26,7 +26,7 @@ import { asQueryPanel } from "./core";
 type FrameProps = PanelBodyProps & { tools?: ReactNode };
 type Changes = Record<string, string | number | null>;
 
-/** A panel of this group, framed as every panel is, under its own title or the kind's; scrolled within the grid's
+/** A panel of this group, framed as every panel is, under its own title or the projection's; scrolled within the grid's
  *  height, unless it fits what it shows. */
 function Framed({ def, title, note, tools, children }: { def: PanelDef; title: string; note?: string; tools?: ReactNode; children: ReactNode }) {
   return (
@@ -39,66 +39,66 @@ function Framed({ def, title, note, tools, children }: { def: PanelDef; title: s
 
 const pathOf = (head: string, name: unknown) => (name ? `${head}/${encodeURIComponent(String(name))}` : null);
 
-// ---- kinds
+// ---- projections
 
-function KindsFrame({ def, every, refreshKey, tools }: FrameProps) {
+function ProjectionsFrame({ def, every, refreshKey, tools }: FrameProps) {
   const got = usePanelAnswer<any>("items-overview", {}, every, refreshKey, true);
   return (
-    <Framed def={def} title="Kinds of item" tools={tools}>
-      <Async state={got}>{(d) => <KindsOverview d={d} all={def.states === "all"} />}</Async>
+    <Framed def={def} title="Projections" tools={tools}>
+      <Async state={got}>{(d) => <ProjectionsOverview d={d} all={def.states === "all"} />}</Async>
     </Framed>
   );
 }
 
-/** What the items-by-kind panel asks GET /api/items. */
-export const everyKindParams = (def: PanelDef) =>
-  ({ per_kind: def.per_kind ?? 25, shown: 1, q: (def.q || "").trim() || undefined, finished: def.finished });
+/** What the items-by-projection panel asks GET /api/items. */
+export const everyProjectionParams = (def: PanelDef) =>
+  ({ per_projection: def.per_projection ?? 25, shown: 1, q: (def.q || "").trim() || undefined, finished: def.finished });
 
-function EveryKindFrame({ def, every, refreshKey, tools }: FrameProps) {
-  const got = usePanelAnswer<any>("items", everyKindParams(def), every, refreshKey);
+function EveryProjectionFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const got = usePanelAnswer<any>("items", everyProjectionParams(def), every, refreshKey);
   return (
-    <Framed def={def} title="Every kind's items" tools={tools}>
-      <Async state={got}>{(d) => <EveryKind d={d} needle={(def.q || "").trim()} showFin={def.finished === "show"} />}</Async>
+    <Framed def={def} title="Every projection's items" tools={tools}>
+      <Async state={got}>{(d) => <EveryProjection d={d} needle={(def.q || "").trim()} showFin={def.finished === "show"} />}</Async>
     </Framed>
   );
 }
 
-function KindNowFrame({ def, every, refreshKey, tools }: FrameProps) {
-  const flow = usePanelAnswer<any>(def.kind ? "items-flow" : null, { kind: def.kind, points: def.points ?? 60 }, every, refreshKey);
-  const fp = usePanelAnswer<any>(pathOf("kinds", def.kind), {}, every, refreshKey, true);
+function ProjectionNowFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const flow = usePanelAnswer<any>(def.projection ? "items-flow" : null, { projection: def.projection, points: def.points ?? 60 }, every, refreshKey);
+  const fp = usePanelAnswer<any>(pathOf("projections", def.projection), {}, every, refreshKey, true);
   return (
     <Framed def={def} title="Now" tools={tools}>
-      {/* (a block, not the body's flex column: a kind's flow is sized as a flex item of a row) */}
-      <div>{flow.error && !flow.data ? <p className="note lvl-error">{flow.error.message}</p> : <KindStates flow={flow.data} fp={fp.data} all={def.states === "all"} />}</div>
-      {def.kind && <div><ProcessMapLink kind={def.kind} /></div>}
+      {/* (a block, not the body's flex column: a projection's flow is sized as a flex item of a row) */}
+      <div>{flow.error && !flow.data ? <p className="note lvl-error">{flow.error.message}</p> : <ProjectionStates flow={flow.data} fp={fp.data} all={def.states === "all"} />}</div>
+      {def.projection && <div><ProcessMapLink projection={def.projection} /></div>}
     </Framed>
   );
 }
 
-function KindModelFrame({ def, every, refreshKey, tools }: FrameProps) {
-  const fp = usePanelAnswer<any>(pathOf("kinds", def.kind), {}, every, refreshKey, true);
+function ProjectionModelFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const fp = usePanelAnswer<any>(pathOf("projections", def.projection), {}, every, refreshKey, true);
   return (
     <Framed def={def} title="In the model" tools={tools}>
-      <Async state={fp}>{(d) => <KindModel fp={d} />}</Async>
+      <Async state={fp}>{(d) => <ProjectionModel fp={d} />}</Async>
     </Framed>
   );
 }
 
-function KindDefinitionFrame({ def, every, refreshKey, tools }: FrameProps) {
-  const fp = usePanelAnswer<any>(pathOf("kinds", def.kind), {}, every, refreshKey, true);
+function ProjectionDefinitionFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const fp = usePanelAnswer<any>(pathOf("projections", def.projection), {}, every, refreshKey, true);
   const code = fp.data?.definition ? <Code code={JSON.stringify(fp.data.definition, null, 2)} lang="json" />
     : fp.error ? <p className="note lvl-error">{fp.error.message}</p> : <Loading />;
   return (
     <Framed def={def} title="Definition" tools={tools}>
-      {def.folded ? <details className="kind-def"><summary>As the model defines it</summary>{code}</details> : code}
+      {def.folded ? <details className="projection-def"><summary>As the model defines it</summary>{code}</details> : code}
     </Framed>
   );
 }
 
-/** What the item-list panel asks GET /api/items: a page of one kind's, searched and sorted by the server. */
+/** What the item-list panel asks GET /api/items: a page of one projection's, searched and sorted by the server. */
 export function itemListParams(def: PanelDef): Record<string, unknown> {
   const n = def.n ?? 25, page = Math.max(1, def.page ?? 1);
-  return { kind: def.kind, n, offset: (page - 1) * n, shown: 1, state: def.state, q: (def.q || "").trim() || undefined,
+  return { projection: def.projection, n, offset: (page - 1) * n, shown: 1, state: def.state, q: (def.q || "").trim() || undefined,
     sort: def.sort, finished: def.finished };
 }
 
@@ -108,14 +108,14 @@ function ItemListFrame({ def, every, refreshKey, tools }: FrameProps) {
   const at: PanelDef = bound ? def : { ...def, ...mine };
   const set = (c: Changes) => (bound ? def.onParams(c) : setMine((m) => ({ ...m, page: null, ...c })));
   const got = usePanelAnswer<any>("items", itemListParams(at), every, refreshKey);
-  const kind = def.kind, needle = (def.q || "").trim(), state = def.state, size = at.n ?? 25;
+  const projection = def.projection, needle = (def.q || "").trim(), state = def.state, size = at.n ?? 25;
   const showFin = at.finished === "show";
   return (
     <Framed def={def} title="Items" tools={tools}>
       <Async state={got}>
         {(d) => {
-          const k = d.kinds?.find((x: any) => x.name === kind);
-          const its = d.items.filter((i: any) => i.kind === kind);
+          const k = d.projections?.find((x: any) => x.name === projection);
+          const its = d.items.filter((i: any) => i.projection === projection);
           const left = hiddenStates(k).filter((s) => k?.counts?.[s]);
           const nLeft = left.reduce((a, s) => a + k.counts[s], 0);
           const pager = (where: "top" | "foot") => (
@@ -123,18 +123,18 @@ function ItemListFrame({ def, every, refreshKey, tools }: FrameProps) {
               onPage={(n) => set({ page: n > 1 ? n : null })} onSize={(n) => set({ n: n === 25 ? null : n, page: null })} />
           );
           return (
-            <section className="sys-group kind-items">
+            <section className="sys-group projection-items">
               {its.length ? (
                 <>
                   {pager("top")}
                   <div className="panel-table">
-                    <ItemsTable items={its} show={k?.show || []} sort={at.sort || ""} caption={`${kind} items`}
+                    <ItemsTable items={its} show={k?.show || []} sort={at.sort || ""} caption={`${projection} items`}
                       onSort={(s) => set({ sort: s || null, page: null })} />
                   </div>
                   {pager("foot")}
                 </>
               ) : (
-                <Empty>{needle ? "Nothing matches." : state ? `No ${kind} items in ${state}.` : "No items to show."}</Empty>
+                <Empty>{needle ? "Nothing matches." : state ? `No ${projection} items in ${state}.` : "No items to show."}</Empty>
               )}
               {!showFin && !state && !needle && <FinishedNote n={nLeft} states={left} onShow={() => set({ finished: "show", page: null })} />}
             </section>
@@ -218,13 +218,13 @@ const ItemMovesFrame = part("How it moved", (d) => <ItemMoves d={d} />);
 const ItemEventsFrame = part("Events", (d) => <ItemEvents d={d} />, undefined, (d) => `${d.events} on the record`);
 
 export const ITEMS: Record<string, PanelKind> = {
-  kinds: { label: "Kinds of item, by system", Frame: KindsFrame },
-  "items-by-kind": { label: "Every kind's items", Frame: EveryKindFrame },
-  "kind-now": { label: "A kind's states now", needs: "kind", Frame: KindNowFrame },
-  "kind-model": { label: "What in the model counts a kind", needs: "kind", Frame: KindModelFrame },
-  "kind-definition": { label: "A kind's definition", needs: "kind", Frame: KindDefinitionFrame },
-  "item-list": { label: "A kind's items, a page at a time", needs: "kind", Frame: ItemListFrame },
-  "item-summary": { label: "An item: its kind, state and age", needs: "item", Frame: ItemSummaryFrame },
+  projections: { label: "Projections, by system", Frame: ProjectionsFrame },
+  "items-by-projection": { label: "Every projection's items", Frame: EveryProjectionFrame },
+  "projection-now": { label: "A projection's states now", needs: "projection", Frame: ProjectionNowFrame },
+  "projection-model": { label: "What in the model counts a projection", needs: "projection", Frame: ProjectionModelFrame },
+  "projection-definition": { label: "A projection's definition", needs: "projection", Frame: ProjectionDefinitionFrame },
+  "item-list": { label: "A projection's items, a page at a time", needs: "projection", Frame: ItemListFrame },
+  "item-summary": { label: "An item: its projection, state and age", needs: "item", Frame: ItemSummaryFrame },
   "item-why": { label: "An item: why it is not done", needs: "item", Frame: ItemWhyFrame },
   "item-path": { label: "An item: where it went", needs: "item", Frame: ItemPathFrame },
   "item-relations": { label: "An item: its relations", needs: "item", Frame: ItemRelationsFrame },

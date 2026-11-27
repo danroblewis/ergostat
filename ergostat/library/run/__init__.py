@@ -3,7 +3,7 @@
 - ``collect``: the event collector, a sensor on an arrival flow: polls a command or an HTTP endpoint (or a stand-in
   feed), records each new record as an event about an item, de-duplicated and from a cursor, and prints the
   arrivals per hour;
-- ``each``: a block that works on items one at a time: the items of a kind in a state, a command run for each, the
+- ``each``: a block that works on items one at a time: the items of a projection in a state, a command run for each, the
   item moved on when it succeeds (``steps``, ``respond-to``);
 - ``ping``: a block that asks again about each unanswered item, up to a count, then gives up on it (``re-ping``);
 - ``due`` and ``report``: a report's clock (a sensor: is a scheduled time past with no report since?) and its

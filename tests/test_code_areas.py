@@ -15,7 +15,7 @@ from ergostat.store import Project
 
 PLAIN = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, doing, fix, done]
@@ -25,12 +25,12 @@ blocks:
     type: program
     run: "true"
     pool: 4
-    takes: {kind: ticket, at: [fix, todo], to: [done]}
+    takes: {projection: ticket, at: [fix, todo], to: [done]}
   ops:
     type: program
     run: "true"
     pool: 4
-    takes: {kind: ticket, at: [fix, todo], to: [done]AREAS}
+    takes: {projection: ticket, at: [fix, todo], to: [done]AREAS}
 """
 MAP = ", areas: {touches: files, holding: [doing, fix], map: {queue: {paths: [src/queue.py, src/q/*]}, " \
       "spec: {paths: docs/spec.md, owner: {field: milestone}}, ui: {paths: 'web/*', owner: {block: ops}}}}"

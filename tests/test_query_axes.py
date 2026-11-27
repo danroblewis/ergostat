@@ -24,8 +24,8 @@ def ask(p, *queries, **kw):
     return api(Live(p), "query", {"q": [_q(*queries, **kw)]})["results"]
 
 
-COST = {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum"}
-LINES = {"source": "items", "kind": "ticket", "field": "net_lines", "agg": "sum"}
+COST = {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum"}
+LINES = {"source": "items", "projection": "ticket", "field": "net_lines", "agg": "sum"}
 
 
 def test_no_x_and_a_time_x_are_the_same_answer(p):
@@ -34,7 +34,7 @@ def test_no_x_and_a_time_x_are_the_same_answer(p):
 
 
 def test_a_query_x_pairs_bucket_by_bucket_and_says_the_order(p):
-    r = ask(p, {**COST, "x": {"type": "query", "query": "1"}}, {"source": "counts", "kind": "ticket", "state": ["doing"]})[0]
+    r = ask(p, {**COST, "x": {"type": "query", "query": "1"}}, {"source": "counts", "projection": "ticket", "state": ["doing"]})[0]
     assert r["x"] == {"type": "query", "label": "counts", "unit": "items", "scale": "number"}
     s = r["series"][0]
     assert s["values"] == [5.0, 2.0, 7.0, 0.5]
@@ -66,7 +66,7 @@ def test_an_x_query_may_be_given_whole(p):
 
 
 def test_a_field_x_is_one_point_per_item_at_the_windows_end(p):
-    r = ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "x": {"type": "field", "field": "net_lines"}})[0]
+    r = ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "x": {"type": "field", "field": "net_lines"}})[0]
     s = r["series"][0]
     got = dict(zip(s["ids"], zip(s["xs"], s["values"], strict=True), strict=True))
     assert got == {"ticket/a": (10.0, 3.5), "ticket/b": (40.0, 4.0)} and r["x"]["unit"] == "lines" and r["unit"] == "usd"
@@ -74,14 +74,14 @@ def test_a_field_x_is_one_point_per_item_at_the_windows_end(p):
 
 
 def test_a_field_x_as_of_a_past_end(p):
-    r = ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "x": {"type": "field", "field": "net_lines"}},
+    r = ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "x": {"type": "field", "field": "net_lines"}},
             since=100.0, until=T + 100)[0]
     s = r["series"][0]
     assert dict(zip(s["ids"], s["values"], strict=True)) == {"ticket/a": 1.0, "ticket/b": 4.0}
 
 
 def test_a_field_x_returns_size_and_colour_per_point(p):
-    r = ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd",
+    r = ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd",
                 "x": {"type": "field", "field": "net_lines", "size": "ai_cost_usd", "color_by": "state"}})[0]
     s = r["series"][0]
     assert dict(zip(s["ids"], s["sizes"], strict=True)) == {"ticket/a": 3.5, "ticket/b": 4.0}
@@ -90,14 +90,14 @@ def test_a_field_x_returns_size_and_colour_per_point(p):
 
 def test_a_size_that_is_no_number_is_said(p):
     x = {"type": "field", "field": "net_lines", "size": "size"}
-    r = ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "x": x})[0]
+    r = ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "x": x})[0]
     assert "size" in r["error"]
 
 
 def test_a_field_x_is_capped_and_says_so(p, monkeypatch):
     from ergostat.query import points
     monkeypatch.setattr(points, "MOST_POINTS", 1)
-    r = ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "x": {"type": "field", "field": "net_lines"}})[0]
+    r = ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "x": {"type": "field", "field": "net_lines"}})[0]
     assert r["capped"] == 1 and r["series"][0]["ids"] == ["ticket/a"] and "only the 1" in r["note"]
 
 
@@ -107,10 +107,10 @@ def test_a_field_x_is_for_items(p):
 
 
 def test_a_category_x(p):
-    r = ask(p, {"source": "moves", "kind": "ticket", "measure": "entries", "agg": "count", "x": {"type": "category", "by": "state"}})[0]
+    r = ask(p, {"source": "moves", "projection": "ticket", "measure": "entries", "agg": "count", "x": {"type": "category", "by": "state"}})[0]
     assert r["x"]["scale"] == "category"
     assert dict(zip(r["series"][0]["xs"], r["series"][0]["values"], strict=True))["doing"] == 2.0
-    r = ask(p, {"source": "counts", "kind": "ticket", "x": {"type": "category", "by": "state"}})[0]
+    r = ask(p, {"source": "counts", "projection": "ticket", "x": {"type": "category", "by": "state"}})[0]
     assert dict(zip(r["series"][0]["xs"], r["series"][0]["values"], strict=True)) == {"open": 1.0, "doing": 1.0, "done": 1.0}
     assert r["series"][0]["xs"] == ["open", "doing", "done"]
 
@@ -151,13 +151,13 @@ def test_binning_agrees_with_counting_by_the_edges():
 
 
 def test_a_histogram_of_a_field(p):
-    r = ask(p, {"source": "items", "kind": "ticket", "x": {"type": "bins", "field": "ai_cost_usd", "bins": 2}})[0]
+    r = ask(p, {"source": "items", "projection": "ticket", "x": {"type": "bins", "field": "ai_cost_usd", "bins": 2}})[0]
     assert r["x"]["edges"] == [3.5, 5.25, 7.0] and r["series"][0]["xs"] == [4.375, 6.125]
     assert r["series"][0]["values"] == [2.0, 1.0] and r["unit"] == "items"
 
 
 def test_a_histogram_aggregating_another_field_in_each_bin(p):
-    r = ask(p, {"source": "items", "kind": "ticket", "field": "ai_cost_usd", "agg": "sum",
+    r = ask(p, {"source": "items", "projection": "ticket", "field": "ai_cost_usd", "agg": "sum",
                 "x": {"type": "bins", "field": "net_lines", "bins": 2}})[0]
     assert r["x"]["edges"] == [10.0, 25.0, 40.0] and r["series"][0]["values"] == [3.5, 4.0] and r["unit"] == "usd"
 
@@ -172,7 +172,7 @@ def test_a_histogram_of_a_querys_values(p):
 
 
 def test_an_empty_histogram_is_empty_not_an_error(p):
-    r = ask(p, {"source": "items", "kind": "ticket", "x": {"type": "bins", "field": "ai_cost_usd"}}, since=5.0, until=T + 5)[0]
+    r = ask(p, {"source": "items", "projection": "ticket", "x": {"type": "bins", "field": "ai_cost_usd"}}, since=5.0, until=T + 5)[0]
     assert r["series"] == [] and r["x"]["edges"] == []
 
 
@@ -189,9 +189,9 @@ def test_agg_none_is_only_for_a_field_x(p):
     assert "only for an x of type field" in ask(p, {**COST, "agg": "none"})[0]["error"]
 
 
-@pytest.mark.parametrize("q,word", [({"source": "counts", "kind": "ticket", "agg": "ohlc"}, "no values in time"),
+@pytest.mark.parametrize("q,word", [({"source": "counts", "projection": "ticket", "agg": "ohlc"}, "no values in time"),
                                     ({"source": "events", "agg": "ohlc"}, "no values in time"),
-                                    ({"source": "moves", "kind": "ticket", "measure": "entries", "agg": "ohlc"}, "time_in_state"),
+                                    ({"source": "moves", "projection": "ticket", "measure": "entries", "agg": "ohlc"}, "time_in_state"),
                                     ({**COST, "agg": "ohlc", "x": {"type": "category", "by": "state"}}, "time X")])
 def test_candles_refused_in_words(p, q, word):
     assert word in ask(p, q)[0]["error"]

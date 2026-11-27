@@ -25,18 +25,18 @@ PY = sys.executable
 
 MODEL = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, done]
     on: {ticket.done: done}
 stocks:
   open-tickets:
-    sensor: {items: ticket, state: open, every: 5s}
+    sensor: {projection: ticket, state: open, every: 5s}
 flows:
   closed:
     from: open-tickets
-    sensor: {items: ticket, entering: done, over: 10m}
+    sensor: {projection: ticket, entering: done, over: 10m}
 actions:
   note:
     run: "echo noted {text} for {item} > note.txt; cat note.txt"
@@ -333,7 +333,7 @@ def test_each_action_names_who_asked_and_who_answered_in_the_list_and_the_items_
             late["id"]: ("dev", f"owner, then denied by its gate: {record.get(p, late['id'])['note']}")}
     assert "its gate at the act is deny" in want[late["id"]][1]
     assert {a["id"]: (a["by"], a["approved by"]) for a in actions_api.listing(p)["actions"]} == want
-    got = {"kinds": [{"name": "ergostat.action", "show": ["by", "approved by"]}],
-           "items": [{"id": a["id"], "kind": "ergostat.action", "state": a["state"], "fields": a} for a in record.stored(p).values()]}
+    got = {"projections": [{"name": "ergostat.action", "show": ["by", "approved by"]}],
+           "items": [{"id": a["id"], "projection": "ergostat.action", "state": a["state"], "fields": a} for a in record.stored(p).values()]}
     listed = _as_listed(got, None, 0, True)["items"]
     assert {i["id"]: (i["fields"]["by"], i["fields"]["approved by"]) for i in listed} == want

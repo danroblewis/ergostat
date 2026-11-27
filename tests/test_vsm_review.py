@@ -25,7 +25,7 @@ DESC = "keeps the job queue short so customers don't wait"
 MODEL = f"""
 name: plant
 purpose: keep the plant's work moving
-items:
+projections:
   job:
     id: job/*
     states: [new, done]
@@ -51,8 +51,8 @@ goals:
 blocks:
   checker: {{type: judge, system: ops}}
   setter: {{type: expr, in: {{d: stock.depth}}, expr: 5 - d, out: goal.shallow, system: ops}}
-  work: {{type: program, run: "true", takes: {{kind: job, at: new}}, system: ops}}
-  elsewhere: {{type: program, run: "true", takes: {{kind: job, at: new}}, system: other}}
+  work: {{type: program, run: "true", takes: {{projection: job, at: new}}, system: ops}}
+  elsewhere: {{type: program, run: "true", takes: {{projection: job, at: new}}, system: other}}
 """
 FAKE = """#!/bin/sh
 D={d}

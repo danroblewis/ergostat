@@ -1,23 +1,23 @@
-"""Item-state stocks not chained (SPEC §12, *A kind's states, chained*): when a kind's states are each counted by a
-stock (``items: KIND, state: S``), the items that move from one state to the next must flow from one stock to the
+"""Item-state stocks not chained (SPEC §12, *A projection's states, chained*): when a projection's states are each counted by a
+stock (``projection: P, state: S``), the items that move from one state to the next must flow from one stock to the
 next. A stock per state with each move written as an outflow to a cloud draws a row of separate stocks, each filled
 by nothing, and a loop per step that shares no stock with the next: what the items do is not in the model.
 
 What says an item moves from P to S, strongest first: the record (each move the item index kept, a lease's hold
 taken out: into ``leased`` from P and out of it to S is one move, P to S); a block that takes the items at P and
 moves them to S (``takes: {at: P, to: [S]}``); a flow's own sensor (an outflow from P's stock counting the items
-entering S); and, for a stock nothing fills and nothing else explains, the kind's state order (the state before it).
+entering S); and, for a stock nothing fills and nothing else explains, the projection's state order (the state before it).
 
 A move is carried when a path of flows leads from P's stock to S's (through stocks of the items being worked,
 ``state: leased``, the steps template's work-in-progress), or when one side is an aggregate the other side can
 rely on: a stock filled from outside by every item ``entering: S`` from two or more states (a stock of stopped
 items, set aside from any step), or drained to outside by every item ``leaving: P`` to two or more. ergostat's own
-lease states (``leased``, ``dead``) are not the kind's states and are left out.
+lease states (``leased``, ``dead``) are not the projection's states and are left out.
 
 Each finding names its fix, and ``fixes`` gives it as data, which ``numbers/structural.py`` makes an edit.
 
-The boundary, crossed once (``arrivals``, ``boundary``): a kind's items brought in from clouds into two states or more
-(``kind-enters-many-times``), and a model with many inflows from clouds for its stocks (``many-cloud-inflows``)."""
+The boundary, crossed once (``arrivals``, ``boundary``): a projection's items brought in from clouds into two states or more
+(``projection-enters-many-times``), and a model with many inflows from clouds for its stocks (``many-cloud-inflows``)."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ def record_dir(spec: Spec) -> Path | None:
 
 
 def recorded(spec: Spec) -> dict[str, Counter]:
-    """Per kind, how many times its items moved from one state to another in the record (``(None, S)``: arrivals, in
+    """Per projection, how many times its items moved from one state to another in the record (``(None, S)``: arrivals, in
     the state their first event left them in), a lease's hold taken out. Empty when the project has no record yet."""
     kinds = [k for k in _kinds(spec)]
     if not kinds:
@@ -124,12 +124,12 @@ def recorded(spec: Spec) -> dict[str, Counter]:
     return out
 
 
-# ---- the kinds whose states are stocks
+# ---- the projections whose states are stocks
 
 @dataclass
 class Chain:
     kind: str
-    order: list[str]                          # the kind's states, its own order (lease states left out)
+    order: list[str]                          # the projection's states, its own order (lease states left out)
     stock_of: dict[str, str]                  # state → the stock counting it
     stages: set[str]                          # stocks of its items being worked (state: leased)
     ages: dict[str, object] = field(default_factory=dict)   # stocks in the chain read as an age: name → its sensor
@@ -146,12 +146,12 @@ def _count_sensor(st, spec: Spec):
 
 
 def _kinds(spec: Spec) -> dict[str, Chain]:
-    """The kinds with two or more of their states counted by stocks of their own: the chains."""
+    """The projections with two or more of their states counted by stocks of their own: the chains."""
     return {k: c for k, c in _counted(spec).items() if len(set(c.stock_of.values())) >= 2}
 
 
 def _counted(spec: Spec) -> dict[str, Chain]:
-    """Every kind with a state a stock counts, whether or not another of its states has a stock."""
+    """Every projection with a state a stock counts, whether or not another of its states has a stock."""
     out: dict[str, Chain] = {}
     for st in spec.stocks.values():
         for _, q in _count_sensor(st, spec):
@@ -195,7 +195,7 @@ def analyse(spec: Spec, moves: dict[str, Counter] | None = None) -> list[Found]:
     out: list[Found] = []
     ix = _Index(spec)
     counted = _counted(spec)
-    for k, kd in spec.items.items():                 # every kind, counted or not: an arrival may name only its state
+    for k, kd in spec.items.items():                 # every projection, counted or not: an arrival may name only its state
         if k not in counted:
             counted[k] = Chain(k, [s for s in kd.states if s not in LEASE_STATES], {}, set(), where=kd.where)
     for c in counted.values():
@@ -206,7 +206,7 @@ def analyse(spec: Spec, moves: dict[str, Counter] | None = None) -> list[Found]:
 
 
 class _Index:
-    """The flows into and out of each stock, and the blocks taking each kind, in the model's order: once for every
+    """The flows into and out of each stock, and the blocks taking each projection, in the model's order: once for every
     kind's chain, not scanned for each (docs/proposals/scale.md, #7)."""
 
     def __init__(self, spec: Spec):
@@ -255,7 +255,7 @@ def _one(spec: Spec, c: Chain, seen: Counter, ix: _Index | None = None) -> list[
     # every move something says happens, between two states with stocks of their own, and what says so
     why: dict[tuple[str, str], list[str]] = {}
 
-    raw: dict[tuple[str, str], list[str]] = {}       # every move said, between any two of the kind's states
+    raw: dict[tuple[str, str], list[str]] = {}       # every move said, between any two of the projection's states
 
     def says(p, s, what):
         if p != s and p not in LEASE_STATES and s not in LEASE_STATES:
@@ -280,7 +280,7 @@ def _one(spec: Spec, c: Chain, seen: Counter, ix: _Index | None = None) -> list[
                 says(p, s, f"flow {f.name} counts them leaving {p}")
     for i, x in enumerate(c.order):            # a state with no stock that items leave, and nothing says how they come
         if i and x not in c.stock_of and any(a == x for a, _ in raw) and not any(b == x for _, b in raw):
-            says(c.order[i - 1], x, f"the kind's states, {c.order[i - 1]} before {x}")
+            says(c.order[i - 1], x, f"the projection's states, {c.order[i - 1]} before {x}")
     for p in modelled:                         # moves through states with no stock: P to S by way of them
         todo, been = [(p, [])], {p}
         while todo:
@@ -301,7 +301,7 @@ def _one(spec: Spec, c: Chain, seen: Counter, ix: _Index | None = None) -> list[
             continue
         before = [x for x in modelled[:i] if c.stock_of[x] != c.stock_of[s]]
         if before:
-            says(before[-1], s, f"the kind's states, {before[-1]} before {s}")
+            says(before[-1], s, f"the projection's states, {before[-1]} before {s}")
 
     origins = {s: {p for p, x in why if x == s} for s in c.stock_of}
     dests = {p: {s for x, s in why if x == p} for p in c.stock_of}
@@ -330,7 +330,7 @@ def _one(spec: Spec, c: Chain, seen: Counter, ix: _Index | None = None) -> list[
                            f"{'oldest has waited' if q.get('measure') == 'oldest' else 'oldest has been seen'} "
                            f"(measure: {q.get('measure')}). A stock in the chain counts the items in its state: "
                            f"measure: count (the default); keep the age as a stock of its own beside the chain "
-                           f"({name}-oldest: {{sensor: {{items: {k}, state: {', '.join(q['state'])}, measure: oldest}}}}), "
+                           f"({name}-oldest: {{sensor: {{projection: {k}, state: {', '.join(q['state'])}, measure: oldest}}}}), "
                            f"with no flows, for a goal on how long they wait"))
     by_about: dict[tuple[str, str], Found] = {}
     taken: set[str] = set()                     # the names given here, over the model's own (ix.names)
@@ -353,13 +353,13 @@ def _one(spec: Spec, c: Chain, seen: Counter, ix: _Index | None = None) -> list[
         if move is not None:
             x.moves.append(move)
 
-    first = c.order[0] if c.order else None    # arrivals: the kind's first state, filled from outside
+    first = c.order[0] if c.order else None    # arrivals: the projection's first state, filled from outside
     if first in c.stock_of and not inflows[c.stock_of[first]]:
         b = c.stock_of[first]
         fix = Fix("add", flow=free(f"{b}-arriving"), source=None, target=b, kind=k, entering=first,
-                  description=f"items of {k} arriving (in {first}, the kind's first state)")
+                  description=f"items of {k} arriving (in {first}, the projection's first state)")
         add("state-stock-without-inflow", f"stock.{b}", spec.stocks[b].where,
-            f"stock {b}: nothing fills it, but every item of {k} arrives in {first}, the kind's first state. The chain "
+            f"stock {b}: nothing fills it, but every item of {k} arrives in {first}, the projection's first state. The chain "
             f"starts with arrivals from outside: {fix.said()} (or the collector's flow that finds the work, to: {b})", fix,
             move=(None, first))
 
@@ -418,17 +418,17 @@ def _one(spec: Spec, c: Chain, seen: Counter, ix: _Index | None = None) -> list[
         shown = "; ".join("[" + ", ".join(p) + "]" for p in pieces)
         head = c.stock_of[modelled[0]]
         found.append(Found("state-stocks-disconnected", f"stock.{head}", c.where,
-                           f"items {k}: its state stocks are {len(pieces)} pieces that no flow joins ({shown}). Its items "
+                           f"projection {k}: its state stocks are {len(pieces)} pieces that no flow joins ({shown}). Its items "
                            f"move from state to state, so their stocks are one chain: arrivals from outside into the "
                            f"first, a flow from each state's stock to the next, completions out of the last. "
                            + (f"The changes that join them: {'; '.join(x.said() for x in fixes)}" if fixes else
-                              "Nothing says which state follows which: give the kind's states in order, and a flow "
+                              "Nothing says which state follows which: give the projection's states in order, and a flow "
                               "for each move"), fixes))
     lp = _loops(spec, c, gathers) if joins else None
     if lp is not None:
         groups, g0 = lp
         found.append(Found("loops-not-connected", f"stock.{spec.goals[g0].of.name}", spec.goals[g0].where,
-                           f"items {k}: the loops of its {sum(len(g) for g in groups)} goals are {len(groups)} groups that "
+                           f"projection {k}: the loops of its {sum(len(g) for g in groups)} goals are {len(groups)} groups that "
                            f"share no stock ({'; '.join('[' + ', '.join(g) + ']' for g in groups)}). The steps of one "
                            f"workflow pass the items on, so each step's loop should end in the stock the next step's loop "
                            f"holds: the chain of its state stocks is missing"
@@ -438,8 +438,8 @@ def _one(spec: Spec, c: Chain, seen: Counter, ix: _Index | None = None) -> list[
 
 
 def _pieces(c: Chain, spec: Spec, carried, why) -> list[list[str]]:
-    """The kind's state stocks in groups joined by flows (through the stocks of items being worked) or by a carried
-    move; each group in the kind's state order."""
+    """The projection's state stocks in groups joined by flows (through the stocks of items being worked) or by a carried
+    move; each group in the projection's state order."""
     stocks = sorted(set(c.stock_of.values()), key=lambda st: min(c.order.index(s) if s in c.order else 99
                                                                   for s, x in c.stock_of.items() if x == st))
     parent = {s: s for s in [*stocks, *c.stages]}
@@ -465,7 +465,7 @@ def _pieces(c: Chain, spec: Spec, carried, why) -> list[list[str]]:
 
 
 def _loops(spec: Spec, c: Chain, gathers) -> tuple[list[list[str]], str] | None:
-    """The goals on the kind's stocks grouped by the stocks their loops share; None when they are one group (or fewer
+    """The goals on the projection's stocks grouped by the stocks their loops share; None when they are one group (or fewer
     than two goals). A stock that gathers items from every state (an aggregate inflow) shares the stocks it gathers from."""
     stocks = set(c.stock_of.values()) | c.stages
     goals = [g for g in spec.goals.values() if g.of.kind == "stock" and g.of.name in stocks]
@@ -503,13 +503,13 @@ def _loops(spec: Spec, c: Chain, gathers) -> tuple[list[list[str]], str] | None:
     return list(groups.values()), goals[0].name
 
 
-# ---- a kind entering from outside more than once (SPEC §12, *The boundary, crossed once*)
+# ---- a projection entering from outside more than once (SPEC §12, *The boundary, crossed once*)
 
 def entries(spec: Spec, c: Chain, ix: _Index) -> dict[str, list]:
-    """The inflows from a cloud measured as items of the kind, by the state they enter: a sensor counting the items
-    ``entering:`` it, or, with no sensor of the kind, the stock it fills when that stock counts a state of the kind
-    (its first, by the kind's order). A two-way flow (a setting stepped, a measure smoothed) is no arrival, and a sensor
-    with a ``where`` counts a part of the kind (some of its fields), as the chain leaves out a stock of a part."""
+    """The inflows from a cloud measured as items of the projection, by the state they enter: a sensor counting the items
+    ``entering:`` it, or, with no sensor of the projection, the stock it fills when that stock counts a state of the projection
+    (its first, by the projection's order). A two-way flow (a setting stepped, a measure smoothed) is no arrival, and a sensor
+    with a ``where`` counts a part of the projection (some of its fields), as the chain leaves out a stock of a part."""
     rank = {s: i for i, s in enumerate(c.order)}
     states_of: dict[str, list[str]] = {}
     for x, st in c.stock_of.items():
@@ -530,8 +530,8 @@ def entries(spec: Spec, c: Chain, ix: _Index) -> dict[str, list]:
 
 
 def _first(c: Chain, entered, seen: Counter) -> str:
-    """The state the kind arrives in: of those its inflows from clouds enter, the first by the kind's order among the
-    states the record saw items arrive in (their first event), else the first by the kind's order."""
+    """The state the projection arrives in: of those its inflows from clouds enter, the first by the projection's order among the
+    states the record saw items arrive in (their first event), else the first by the projection's order."""
     rank = {s: i for i, s in enumerate(c.order)}
     came = [s for s in entered if seen.get((None, s))]
     return min(came or list(entered), key=lambda x: rank.get(x, len(rank)))
@@ -552,7 +552,7 @@ class _Origin:
 def _came_from(c: Chain, s: str, h, seen: Counter, ix: _Index) -> _Origin:
     """The states the items entering ``s`` come from, strongest first: the flow's own sensor (``leaving: P``), the
     record's moves (back through states with no stock of their own, to one with a stock or to the boundary), a block
-    taking them at P to S, an outflow from P's stock counting them entering S, and the kind's state order (back to the
+    taking them at P to S, an outflow from P's stock counting them entering S, and the projection's state order (back to the
     nearest state before S with a stock of its own)."""
     p = _counts(h, c.kind, "leaving")
     if p and p != s and p in c.stock_of:
@@ -596,7 +596,7 @@ def _came_from(c: Chain, s: str, h, seen: Counter, ix: _Index) -> _Origin:
         via: tuple[str, ...] = ()
         for x in reversed(c.order[:c.order.index(s)]):
             if x in c.stock_of:
-                return _Origin([(x, via)], f"the kind's states, {', '.join((x, *via))} before {s}")
+                return _Origin([(x, via)], f"the projection's states, {', '.join((x, *via))} before {s}")
             via = (x, *via)
     return _Origin(unstocked=True)
 
@@ -617,8 +617,8 @@ def _free(name: str, ix: _Index, taken: set[str]) -> str:
 
 
 def arrivals(spec: Spec, c: Chain, seen: Counter, ix: _Index, chained: list[Found]) -> list[Found]:
-    """``kind-enters-many-times``: the kind's items brought in from clouds into two states or more. A cloud is the
-    system's boundary, so this counts the same items twice, or draws their moves between the kind's own stocks as
+    """``projection-enters-many-times``: the projection's items brought in from clouds into two states or more. A cloud is the
+    system's boundary, so this counts the same items twice, or draws their moves between the projection's own stocks as
     arrivals. The arrival into the first state is kept; each other inflow is re-pointed ``from:`` the stock of the state
     its items come from (taken out when that is the stock it fills; through a state with no stock between, that state
     given one, so the outflow into it and the inflow out of it meet there). The chain's own finding on the same flow
@@ -713,26 +713,26 @@ def arrivals(spec: Spec, c: Chain, seen: Counter, ix: _Index, chained: list[Foun
         chained.remove(x)
     names = "; ".join(f"{', '.join(f.name for f in entered[s])} into {s}"
                       for s in sorted(entered, key=lambda x: rank.get(x, len(rank))))
-    head = (f"items {k}: flows bring its items in from outside (a cloud) into {len(entered)} different states ({names}). "
+    head = (f"projection {k}: flows bring its items in from outside (a cloud) into {len(entered)} different states ({names}). "
             f"A cloud is the system's boundary, so the items cross it once: one arrival into {keep}, "
             f"{'the state the record sees them arrive in' if seen.get((None, keep)) else 'its first state'}, and a flow "
             f"from stock to stock for every move after that")
     where = spec.items[k].where if k in spec.items else c.where
     if not said:
-        return [Found("kind-enters-many-times", f"items.{k}", where, f"{head}. A note, not a fault: {'; '.join(real)}")]
+        return [Found("projection-enters-many-times", f"projections.{k}", where, f"{head}. A note, not a fault: {'; '.join(real)}")]
     msg = (f"{head}. Arriving again in a later state either counts the same items twice (once as they arrive, again as "
            f"they reach it) or draws a move between {k}'s own stocks as an arrival, so those stocks relate only through "
            f"information links. Keep the arrival into {keep}; {'; '.join(said)}"
            + (f". A note: {'; '.join(real)}" if real else ""))
-    return [Found("kind-enters-many-times", f"items.{k}", where, msg, fixes, moves)]
+    return [Found("projection-enters-many-times", f"projections.{k}", where, msg, fixes, moves)]
 
 
-MANY_CLOUDS = 5            # inflows from clouds, beyond each kind's one arrival, before there are many to look at
+MANY_CLOUDS = 5            # inflows from clouds, beyond each projection's one arrival, before there are many to look at
 
 
 def boundary(spec: Spec, moves: dict[str, Counter] | None = None) -> Found | None:
     """``many-cloud-inflows``: more inflows from clouds than half the model's stocks (and at least ``MANY_CLOUDS``), not
-    counting each item kind's arrival into the state it arrives in (the boundary, rightly crossed once per kind) nor a
+    counting each projection's arrival into the state it arrives in (the boundary, rightly crossed once per projection) nor a
     two-way flow (a setting stepped, a measure smoothed: an adjustment, not an arrival), nor the parts a template made
     (its own boundary). Most stocks then fill from outside, so they pass little to each other and the model explains
     little of what comes in."""
@@ -756,8 +756,8 @@ def boundary(spec: Spec, moves: dict[str, Counter] | None = None) -> Found | Non
         return None
     from .load import Where
     return Found("many-cloud-inflows", "model", Where(spec.files[0], 1) if spec.files else None,
-                 f"the model has {len(extra)} inflows from outside (clouds) for its {len(stocks)} stocks, beyond each item "
-                 f"kind's one arrival: {', '.join(extra)}. A cloud is the model's boundary: what comes from it is "
+                 f"the model has {len(extra)} inflows from outside (clouds) for its {len(stocks)} stocks, beyond each "
+                 f"projection's one arrival: {', '.join(extra)}. A cloud is the model's boundary: what comes from it is "
                  f"taken as given, not explained. Draw the boundary chart (Sterman, ch. 3: what the model explains, what "
                  f"it takes as given, what it leaves out) and decide what is really outside: something that leaves one "
                  f"of the model's stocks and fills another is a flow from the one to the other, not an arrival into "

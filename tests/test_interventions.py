@@ -81,7 +81,7 @@ def test_the_interventions_loop_is_drawn_in_all_three_views(tmp_path):
     assert cli(["-C", str(tmp_path), "inbox", "--requests"]) == 0
     g = api(Live(Project(mdl.load(tmp_path))), "graph", {"view": ["process"], "since": ["1d"],
                                                                    "system": ["interventions"]})   # counted there
-    assert MODEL_REQUEST in {k["name"] for k in g["kinds"]}
+    assert MODEL_REQUEST in {k["name"] for k in g["projections"]}
 
 
 def test_a_recurring_class_becomes_a_request_with_remedies_ranked_by_time_blocked(tmp_path, capsys):

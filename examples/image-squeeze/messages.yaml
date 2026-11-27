@@ -23,7 +23,7 @@ stocks:
     unit: messages
     description: routed to work and not yet delivered to it (waiting for the developer's next run, say)
     sensor:
-      items: ergostat.message
+      projection: ergostat.message
       state: routed
       every: 10s
   messages-missed:
@@ -39,28 +39,28 @@ flows:
     to: messages-awaiting
     description: messages routed to the work they concern, as they arrive or by hand
     sensor:
-      items: ergostat.message
+      projection: ergostat.message
       entering: routed
       over: 30m
   messages-delivered:
     from: messages-awaiting
     description: messages delivered (a session's next turn, a run's context, a hypothesis reopened)
     sensor:
-      items: ergostat.message
+      projection: ergostat.message
       entering: delivered
       over: 30m
   messages-unrouting:
     to: messages-unrouted
     description: messages that reached no work
     sensor:
-      items: ergostat.message
+      projection: ergostat.message
       entering: unrouted
       over: 30m
   messages-routed-by-hand:
     from: messages-unrouted
     description: unrouted messages the owner routed by hand (they arrive in messages-routed)
     sensor:
-      items: ergostat.message
+      projection: ergostat.message
       leaving: unrouted
       over: 30m
   messages-missing:

@@ -1,8 +1,8 @@
-"""A parent moved on by its children (SPEC §5a, *Join*): fork-join as a rule on the parent's kind, over the relation
+"""A parent moved on by its children (SPEC §5a, *Join*): fork-join as a rule on the parent's projection, over the relation
 its children name it by.
 
 ```yaml
-items:
+projections:
   epic:
     states: [planned, underway, shipped]
     join:
@@ -12,10 +12,10 @@ items:
     relations: {parent: epic}
 ```
 
-- **When.** On each move of an item of a kind whose relation names the parent's kind, read from the item index (its
+- **When.** On each move of an item of a projection whose relation names the parent's kind, read from the item index (its
   moves, followed by row; its links, both ways), and once for every parent when ergostat starts: what moved while it
   was stopped is joined then. The engine looks each time its loop wakes on a write (``notify.py``): no clock.
-- **What.** A parent with children, all (or any) of them in the states, in a state before ``to`` in its kind's order,
+- **What.** A parent with children, all (or any) of them in the states, in a state before ``to`` in its projection's order,
   is moved there by ``ergostat.item.joined`` (caused by the latest move of its children), folded like any move and so
   counted like any other (``entering``). Never backwards: a child reopened leaves its parent where it is."""
 
@@ -55,16 +55,16 @@ def compile_join(c, m, what: str) -> list[Join]:
 
 
 def check_joins(c, spec) -> None:
-    """Once every kind is known: each join's relation is one some kind names it by, its states are those kinds', and
+    """Once every projection is known: each join's relation is one some projection names it by, its states are those kinds', and
     its ``to`` is its own."""
     for k in spec.items.values():
         good = []
         for j in k.join:
-            w = f"item kind {k.name}.join"
+            w = f"projection {k.name}.join"
             kids = [x for x in spec.items.values() if j.children in x.relations and k.name in x.relations[j.children].kinds]
             if not kids:
-                c.err(f"{w}: no kind names {k.name} by a relation {j.children!r} (relations: {{{j.children}: {k.name}}} on "
-                      f"its children's kind)", k.where, "bad-join")
+                c.err(f"{w}: no projection names {k.name} by a relation {j.children!r} (relations: {{{j.children}: {k.name}}} on "
+                      f"its children's projection)", k.where, "bad-join")
             elif j.to not in k.states:
                 c.err(f"{w}.to: {j.to!r} is not a state of {k.name} ({', '.join(k.states) or 'it has none'})", k.where,
                       "unknown-state")
@@ -81,10 +81,10 @@ def check_joins(c, spec) -> None:
                     and (x in done or x in SIDE)]
             if side:
                 c.problems.append(Problem(
-                    "finding", f"item kind {k.name}.join: a join moves an item on from any state before its to:, so "
+                    "finding", f"projection {k.name}.join: a join moves an item on from any state before its to:, so "
                     f"{', '.join(side)} (before {k.states[last]} in states:) would be moved on too; if "
                     f"{'they are' if len(side) > 1 else 'it is'} a side state (cancelled), list it after {k.states[last]}",
-                    k.where, "join-side-state", f"items.{k.name}"))
+                    k.where, "join-side-state", f"projections.{k.name}"))
 
 
 class Joins:
@@ -98,7 +98,7 @@ class Joins:
 
     def look(self) -> None:
         spec = self.e.spec
-        if not any(k.join and self.e.own(f"kind.{k.name}", spec) for k in spec.items.values()):
+        if not any(k.join and self.e.own(f"projection.{k.name}", spec) for k in spec.items.values()):
             return                                      # (no join of its shard's: none looked at)
         top = self.e.p.events.last_seq()
         if top == self.top:
@@ -121,7 +121,7 @@ class Joins:
         if ix is not self.ix or epoch != self.epoch:   # (a new index, or one made again: every parent once)
             self.ix, self.epoch, self.mv = ix, epoch, None
         top = db.execute("select coalesce(max(rowid), 0) from moves").fetchone()[0]
-        kinds = {k.name: k for k in spec.items.values() if k.join and self.e.own(f"kind.{k.name}", spec)}   # (SPEC §9.8)
+        kinds = {k.name: k for k in spec.items.values() if k.join and self.e.own(f"projection.{k.name}", spec)}   # (SPEC §9.8)
         if self.mv is None:
             parents = [i.id for kn in kinds for i in ix.items(kn, moves=False)]
         else:                                           # the parents of the children that moved since

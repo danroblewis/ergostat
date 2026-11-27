@@ -26,7 +26,7 @@ from tests.test_data_sources import project
 from tests.test_query_axes import COST, T, _wave, ask
 from tests.test_query_engine import _record
 
-ITEMS = {"source": "items", "kind": "ticket"}
+ITEMS = {"source": "items", "projection": "ticket"}
 prom = ds.prom                     # (the stub Prometheus, a fixture)
 BOX = {"q1": 2, "median": 3, "q3": 5, "lo": 1, "hi": 9, "outliers": [], "n": 9}
 
@@ -64,9 +64,9 @@ def samples(tmp_path) -> dict[str, dict]:
     one = lambda *q, **kw: {**ask(p, *q, **kw)[0], "id": "a"}  # noqa: E731
     out = {
         "series": one(COST),
-        "two-signals": one({**COST, "x": {"type": "query", "query": "1"}}, {"source": "counts", "kind": "ticket", "state": ["doing"]}),
+        "two-signals": one({**COST, "x": {"type": "query", "query": "1"}}, {"source": "counts", "projection": "ticket", "state": ["doing"]}),
         "candles": one({**ITEMS, "field": "ai_cost_usd", "agg": "ohlc"}),
-        "table": one({"source": "counts", "kind": "ticket", "x": {"type": "category", "by": "state"}}),
+        "table": one({"source": "counts", "projection": "ticket", "x": {"type": "category", "by": "state"}}),
         "table-numeric": one({**ITEMS, "field": "ai_cost_usd", "agg": "sum", "x": {"type": "bins", "field": "net_lines", "bins": 2}}),
         "points": one({**ITEMS, "field": "ai_cost_usd", "x": {"type": "field", "field": "net_lines"}}),
         "bins": one({**ITEMS, "x": {"type": "bins", "field": "ai_cost_usd", "bins": 2}}),

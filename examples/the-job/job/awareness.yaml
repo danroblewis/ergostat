@@ -5,7 +5,7 @@
 defaults:
   system: awareness
 
-items:
+projections:
   mention:
     id: mention/*
     description: a chat message that mentions me
@@ -28,28 +28,28 @@ stocks:
   mentions-to-triage:
     unit: mentions
     sensor:
-      items: mention
+      projection: mention
       state: new
       every: 5s
   mentions-triaged:
     unit: mentions
     description: triaged, a reply drafted, waiting for me to answer
     sensor:
-      items: mention
+      projection: mention
       state: triaged
       every: 5s
   secrets-expiring:
     unit: secrets
     description: within 30 days of expiry, no rotation ticket drafted
     sensor:
-      items: secret
+      projection: secret
       state: expiring
       every: 5s
   secrets-ticketed:
     unit: secrets
     description: a rotation ticket drafted, not yet rotated
     sensor:
-      items: secret
+      projection: secret
       state: drafted
       every: 5s
 
@@ -59,7 +59,7 @@ auxiliaries:
     description: mentions unanswered after 4 working hours
     driven-by: [+stock.mentions-to-triage, +stock.mentions-triaged]
     sensor:
-      items: mention
+      projection: mention
       state: [new, triaged]
       where:
         late: "yes"
@@ -76,14 +76,14 @@ flows:
     from: mentions-to-triage
     to: mentions-triaged
     sensor:
-      items: mention
+      projection: mention
       entering: triaged
       over: 10m
   mentions-answered:
     from: mentions-triaged
     description: a mention answered in its channel, by me (mine)
     sensor:
-      items: mention
+      projection: mention
       entering: answered
       over: 10m
   nearing-expiry:
@@ -95,14 +95,14 @@ flows:
     from: secrets-expiring
     to: secrets-ticketed
     sensor:
-      items: secret
+      projection: secret
       entering: drafted
       over: 10m
   rotations:
     from: secrets-ticketed
     description: the team rotates what has a ticket
     sensor:
-      items: secret
+      projection: secret
       entering: rotated
       over: 10m
 
@@ -127,7 +127,7 @@ blocks:
     type: program
     goal: every-mention-triaged
     run: python3 bin/prepare.py mention-triage
-    takes: {kind: mention, at: new}
+    takes: {projection: mention, at: new}
     pool: 2
     max: 1
     out: flow.triaging
@@ -143,7 +143,7 @@ blocks:
     type: program
     goal: secrets-ticketed
     run: python3 bin/prepare.py secret-ticket
-    takes: {kind: secret, at: expiring}
+    takes: {projection: secret, at: expiring}
     pool: 2
     max: 1
     out: flow.rotation-tickets

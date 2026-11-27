@@ -183,15 +183,15 @@ def synth_model(d: Path, steps: int, pool: int, intake: str, warm: int = 0) -> N
     (d / "collect.py").write_text(COLLECT)
     states = [f"s{i}" for i in range(steps + 1)]
     on = {"job.arrived": "s0", **{f"job.s{i}": f"s{i}" for i in range(1, steps + 1)}}
-    y = ["name: latency-bench", "items:", "  job:", "    id: job/*", f"    states: [{', '.join(states)}]", "    on:"]
+    y = ["name: latency-bench", "projections:", "  job:", "    id: job/*", f"    states: [{', '.join(states)}]", "    on:"]
     y += [f"      {k}: {v}" for k, v in on.items()]
     y += ["    lease: {attempts: 3}", "stocks:"]
     for s in states[:-1]:
-        y += [f"  {s}:", f"    sensor: {{items: job, state: {s}, every: 10s}}"]
+        y += [f"  {s}:", f"    sensor: {{projection: job, state: {s}, every: 10s}}"]
     y += ["flows:"]
     for i in range(1, steps + 1):
         y += [f"  step{i}:", f"    from: s{i - 1}"] + ([f"    to: s{i}"] if i < steps else []) + \
-             [f"    sensor: {{items: job, entering: s{i}, over: 10m}}"]
+             [f"    sensor: {{projection: job, entering: s{i}, over: 10m}}"]
     if intake == "collector":
         y += ["  arrivals:", "    to: s0", f"    sensor: {{run: {PY} collect.py spool.jsonl, every: 3s}}"]
     y += ["blocks:"]
@@ -199,7 +199,7 @@ def synth_model(d: Path, steps: int, pool: int, intake: str, warm: int = 0) -> N
         run = f"daemon: {{run: zsh -f step.zsh s{i}, warm: true, concurrency: {warm}}}" if warm else \
             f"run: zsh -f step.zsh s{i}"
         y += [f"  step{i}:", "    type: program", f"    {run}",
-              f"    takes: {{kind: job, at: s{i - 1}, to: [s{i}]}}", f"    pool: {pool}", f"    out: flow.step{i}"]
+              f"    takes: {{projection: job, at: s{i - 1}, to: [s{i}]}}", f"    pool: {pool}", f"    out: flow.step{i}"]
     (d / "ergostat.yaml").write_text("\n".join(y) + "\n")
 
 
@@ -549,7 +549,7 @@ def calls(a) -> dict:
 
 
 CALLS_MODEL = """name: latency-calls
-items:
+projections:
   job:
     id: job/*
     states: [s0, s1]
@@ -562,7 +562,7 @@ blocks:
   probe:
     type: program
     run: PY probe.py
-    takes: {kind: job, at: s0, to: [s1]}
+    takes: {projection: job, at: s0, to: [s1]}
     pool: 1
     actions: [noop]
 """

@@ -1,11 +1,11 @@
-"""A kind whose waiting cannot be explained (SPEC §5a, *What the model must say for why*; ``check``'s
+"""A projection whose waiting cannot be explained (SPEC §5a, *What the model must say for why*; ``check``'s
 ``wait-unexplained``): a state its items rest in, unfinished, where ``ergostat why`` has nothing in the model to name
-as what holds them, because the kind has no precedence relation they wait through, no block takes them from it, and
-no one is named to move them on (the state is where they arrive, or no event of its kind moves them out of it).
+as what holds them, because the projection has no precedence relation they wait through, no block takes them from it, and
+no one is named to move them on (the state is where they arrive, or no event of its projection moves them out of it).
 
-Read from the model alone, so only of a kind whose finished states ``messages: done:`` declares (one whose finished
+Read from the model alone, so only of a projection whose finished states ``messages: done:`` declares (one whose finished
 states are inferred from the record is finished as the record shows, which the model cannot say); a state no event of
-its kind moves an item into is not one it rests in."""
+its projection moves an item into is not one it rests in."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from .ir import DEAD, LEASED, template_made
 
 
 def unexplained(spec) -> list[tuple[object, list[str]]]:
-    """(the kind, its states whose waiting cannot be explained), for each of the model's own kinds with any."""
+    """(the projection, its states whose waiting cannot be explained), for each of the model's own projections with any."""
     out = []
     for name, k in sorted((getattr(spec, "items", None) or {}).items()):
         if name.startswith("ergostat.") or k.sealed or template_made(k) or len(k.states) < 2:
@@ -38,10 +38,10 @@ def findings(spec, say) -> None:
     for k, bad in unexplained(spec):
         first = k.states[0] in bad
         said = ", ".join(bad)
-        say("wait-unexplained", f"items {k.name}: an item waiting in {said} has nothing in the model that says why: no "
-            f"block takes it from there, the kind has no relation it waits through, and no one is named to move it on ("
-            + ("its first state is where items wait to be taken" if first else "no event of its kind moves it out")
+        say("wait-unexplained", f"projection {k.name}: an item waiting in {said} has nothing in the model that says why: no "
+            f"block takes it from there, the projection has no relation it waits through, and no one is named to move it on ("
+            + ("its first state is where items wait to be taken" if first else "no event of its projection moves it out")
             + "), so `ergostat why` cannot name who or what must act. Give the state a block that takes it, a "
             "relation its items wait through (precedence: true), or, for work done outside ergostat, let items arrive "
             "in a later state that the event recording that work moves on (docs/AGENT-GUIDE.md, section 3m)",
-            k.where, f"items.{k.name}")
+            k.where, f"projections.{k.name}")

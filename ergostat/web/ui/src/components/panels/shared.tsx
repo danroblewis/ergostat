@@ -3,7 +3,7 @@ import type { ApiState } from "../../hooks/useApi";
 import { endpointParams, usePanelApi } from "./usePanelApi";
 
 /* Answers a page has asked for already, handed to its panels: a page made of panels that each read the same answer
-   (an item's sections, a kind's) asks once, at its own pace, instead of once a panel. A panel not on such a page, or
+   (an item's sections, a projection's) asks once, at its own pace, instead of once a panel. A panel not on such a page, or
    asking something the page did not, asks its own endpoint as always. */
 
 type Entry = { path: string; params?: Record<string, unknown>; state: ApiState<any> };

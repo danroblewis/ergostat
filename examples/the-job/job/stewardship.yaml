@@ -4,7 +4,7 @@
 defaults:
   system: stewardship
 
-items:
+projections:
   review:
     id: review/*
     description: a review someone asked of me
@@ -19,14 +19,14 @@ stocks:
     unit: reviews
     description: requested of me, no brief yet
     sensor:
-      items: review
+      projection: review
       state: requested
       every: 5s
   reviews-briefed:
     unit: reviews
     description: briefed, waiting for my review
     sensor:
-      items: review
+      projection: review
       state: briefed
       every: 5s
 
@@ -36,7 +36,7 @@ auxiliaries:
     description: requested over a working day ago and not answered
     driven-by: [+stock.reviews-to-brief, +stock.reviews-briefed]
     sensor:
-      items: review
+      projection: review
       state: [requested, briefed]
       where:
         late: "yes"
@@ -53,14 +53,14 @@ flows:
     from: reviews-to-brief
     to: reviews-briefed
     sensor:
-      items: review
+      projection: review
       entering: briefed
       over: 10m
   reviews-answered:
     from: reviews-briefed
     description: a review posted on the code host, its verdict and tone mine (mine)
     sensor:
-      items: review
+      projection: review
       entering: answered
       over: 10m
 
@@ -80,7 +80,7 @@ blocks:
     goal: every-review-briefed
     prompt: prompts/review-pre-reader.md
     run: python3 bin/prepare.py review-brief
-    takes: {kind: review, at: requested}   # a run per review requested, holding a lease on it (SPEC §9.5)
+    takes: {projection: review, at: requested}   # a run per review requested, holding a lease on it (SPEC §9.5)
     pool: 2
     max: 1
     out: flow.reviews-briefing

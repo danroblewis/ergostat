@@ -70,12 +70,12 @@ def test_an_events_chart_is_sql_over_the_item_index_and_never_reads_the_log(p, m
 
 def test_a_request_past_its_deadline_starts_nothing_more(p, monkeypatch):
     monkeypatch.setattr(engine, "REQUEST_SECONDS", -1.0)
-    r = _ask(p, {"source": "counts", "kind": "ticket"})[0]
+    r = _ask(p, {"source": "counts", "projection": "ticket"})[0]
     assert "busy" in r["error"]
 
 
 def test_two_queries_with_one_id_the_second_says_so(p):
-    body = [{"id": "a", "source": "counts", "kind": "ticket"}, {"id": "a", "source": "nope"}, "not an object"]
+    body = [{"id": "a", "source": "counts", "projection": "ticket"}, {"id": "a", "source": "nope"}, "not an object"]
     got = _ask_raw(p, body)
     assert "error" not in got[0] and "same id" in got[1]["error"] and "must be an object" in got[2]["error"]
 
@@ -109,14 +109,14 @@ def q(tmp_path):
 
 
 def test_first_entries_count_an_arrival_once(q):
-    every = _ask(q, {"source": "moves", "kind": "ticket", "measure": "entries", "state": "doing", "agg": "count"})[0]
-    first = _ask(q, {"source": "moves", "kind": "ticket", "measure": "entries", "first_only": True, "state": "doing", "agg": "count"})[0]
+    every = _ask(q, {"source": "moves", "projection": "ticket", "measure": "entries", "state": "doing", "agg": "count"})[0]
+    first = _ask(q, {"source": "moves", "projection": "ticket", "measure": "entries", "first_only": True, "state": "doing", "agg": "count"})[0]
     assert _series(every)["entries"] == [1.0, 0.0, 2.0, 0.0]
     assert _series(first)["entries"] == [1.0, 0.0, 1.0, 0.0]         # x's return at 250 is not a new arrival
 
 
 def test_time_in_state_can_include_what_is_still_there(q):
-    ask = {"source": "moves", "kind": "ticket", "measure": "time_in_state", "state": "doing", "agg": "max"}
+    ask = {"source": "moves", "projection": "ticket", "measure": "time_in_state", "state": "doing", "agg": "max"}
     assert _series(_ask(q, ask)[0])["time_in_state"] == [None, 110.0, None, 120.0]
     got = _series(_ask(q, {**ask, "include_open": True})[0])["time_in_state"]
     assert got == [None, 110.0, None, 220.0]             # y, in doing since 260, is 220 s old at the window's end (480)
@@ -125,21 +125,21 @@ def test_time_in_state_can_include_what_is_still_there(q):
 def test_an_item_in_a_state_it_has_never_left_is_counted_when_open(tmp_path):
     p = _record(tmp_path)
     p.events.add("ticket.started", item="ticket/z", at=T + 400)
-    ask = {"source": "moves", "kind": "ticket", "measure": "time_in_state", "state": "done", "agg": "max", "include_open": True}
+    ask = {"source": "moves", "projection": "ticket", "measure": "time_in_state", "state": "done", "agg": "max", "include_open": True}
     assert _series(_ask(p, ask)[0])["time_in_state"][-1] == 110.0     # a, done since 370; no item has ever left done
 
 
 def test_include_open_reads_the_state_at_the_windows_end(q):
-    ask = {"source": "moves", "kind": "ticket", "measure": "time_in_state", "state": "doing", "agg": "max", "include_open": True}
+    ask = {"source": "moves", "projection": "ticket", "measure": "time_in_state", "state": "doing", "agg": "max", "include_open": True}
     got = _series(_ask(q, ask, since=240.0, until=T + 240, points=2)[0])["time_in_state"]
     assert got[-1] == 110.0                              # at 240: x had left at 130 (110 s) and nobody was in doing
 
 
 def test_the_two_flags_are_each_for_their_measure(q):
-    assert "include_open" in _ask(q, {"source": "moves", "kind": "ticket", "measure": "entries", "include_open": True})[0]["error"]
-    assert "first_only" in _ask(q, {"source": "moves", "kind": "ticket", "measure": "exits", "first_only": True})[0]["error"]
+    assert "include_open" in _ask(q, {"source": "moves", "projection": "ticket", "measure": "entries", "include_open": True})[0]["error"]
+    assert "first_only" in _ask(q, {"source": "moves", "projection": "ticket", "measure": "exits", "first_only": True})[0]["error"]
 
 
 def test_the_fields_name_each_kinds_finished_states(q):
     got = api(Live(q), "query/fields", {})["sources"]
-    assert got["moves"]["kinds"]["ticket"]["finished"] == ["done"] and got["items"]["kinds"]["ticket"]["finished"] == ["done"]
+    assert got["moves"]["projections"]["ticket"]["finished"] == ["done"] and got["items"]["projections"]["ticket"]["finished"] == ["done"]

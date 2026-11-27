@@ -250,7 +250,7 @@ def approved_through_the_gate(f: Measured, act, args: dict, monkeypatch) -> tupl
     home.mkdir()
     run = act.run.replace("python3 dev/bin/manage.py", f"{sys.executable} {BIN / 'manage.py'}")
     (home / "ergostat.yaml").write_text(json.dumps({
-        "name": "t", "items": {"ticket": {"id": "ticket/*", "states": ["open"]}},
+        "name": "t", "projections": {"ticket": {"id": "ticket/*", "states": ["open"]}},
         "actions": {"measure": {"run": f"cd {f.model} && {run}", "gate": "approve", "args": dict.fromkeys(args, "x")}},
         "blocks": {"dev": {"type": "ai", "prompt": "Work.", "tools": ["Read"], "actions": ["measure"], "every": "1h"}}}))
     p = Project(mdl.load(home))

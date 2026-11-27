@@ -1,4 +1,4 @@
-"""The Process view (process.py, SPEC §5b): the directly-follows graph of each item kind, read from a synthetic
+"""The Process view (process.py, SPEC §5b): the directly-follows graph of each projection, read from a synthetic
 record: its counts, median times, rework loops, start and end; the lines between kinds where an event on one
 item caused one on another (a fan-out and a join); the frequency filter and the caps; the items behind a node
 or a line, as the Items page lists them; and the API."""
@@ -18,7 +18,7 @@ name: flags
 systems:
   delivery: {description: the flags}
   research: {description: what is found out}
-items:
+projections:
   flag:
     id: flag/*
     system: delivery
@@ -32,7 +32,7 @@ items:
 stocks:
   flags-asked:
     unit: flags
-    sensor: {items: flag, state: asked}
+    sensor: {projection: flag, state: asked}
 """
 
 H = 3600.0
@@ -96,7 +96,7 @@ def test_states_count_the_moves_with_their_median_times_start_end_and_rework(p):
     # deliberate (fix-process-rework-flag): rework is a repeated step, so flag 3's second move into researched is a
     # return too, though the line runs forward; the other three passages along it are not
     assert e["rework"] and e["returns"] == 1 and back["returns"] == 1
-    assert next(k for k in g["kinds"] if k["name"] == "flag")["returns"] == 2
+    assert next(k for k in g["projections"] if k["name"] == "flag")["returns"] == 2
     assert edge(g, "flag", "asked", "researching")["median"] == pytest.approx(600, abs=1)
     assert edge(g, "flag", "^", "asked")["count"] == 3 and edge(g, "flag", "shipped", "$")["count"] == 2
     # the noted events move nothing: states leave them out
@@ -184,7 +184,7 @@ def test_the_items_behind_a_node_and_a_line(p):
     assert sorted(got) == ["flag/1", "flag/2"]
     got = pm.items_through(p.events, spec, "facet", now - 24 * H, now, "states", caused=[("flag", "researching", "open")])
     assert len(got) == 6
-    s = item_sets.parse({"kind": ["flag"], "followed": ["researched>researching"], "by": ["states"],
+    s = item_sets.parse({"projection": ["flag"], "followed": ["researched>researching"], "by": ["states"],
                          "moved_since": [str(now - 24 * H)], "moved_until": [str(now)]})
     sel = item_sets.select(p.events, spec, s, until=now)
     assert [i["id"] for i in sel["items"]] == ["flag/3"] and sel["total"] == 1
@@ -197,14 +197,14 @@ def test_the_api_draws_the_process_view_and_wiring_reaches_it(p):
     seed(p, now)
     live = Live(p)
     g = api(live, "graph", {"view": ["process"], "since": ["1d"]})
-    assert g["kind"] == "process" and g["by"] == "states" and {k["name"] for k in g["kinds"]} == {"flag", "facet"}
+    assert g["kind"] == "process" and g["by"] == "states" and {k["name"] for k in g["projections"]} == {"flag", "facet"}
     assert any(e["kind"] == "caused" for e in g["edges"]) and "corr" in g
     assert api(live, "graph", {"view": ["wiring"], "since": ["1d"]})["kind"] == "process"
-    one = api(live, "graph", {"view": ["process"], "since": ["1d"], "kinds": ["flag"], "by": ["events"], "paths": ["50"]})
-    assert {n["itemKind"] for n in one["nodes"]} == {"flag"} and one["by"] == "events" and one["paths"] == 0.5
+    one = api(live, "graph", {"view": ["process"], "since": ["1d"], "projections": ["flag"], "by": ["events"], "paths": ["50"]})
+    assert {n["projection"] for n in one["nodes"]} == {"flag"} and one["by"] == "events" and one["paths"] == 0.5
     sys_ = api(live, "graph", {"view": ["process"], "since": ["1d"], "system": ["research"]})
-    assert {k["name"] for k in sys_["kinds"]} == {"facet"}
-    listed = api(live, "items", {"kind": ["flag"], "followed": ["researched>researching"], "by": ["states"],
+    assert {k["name"] for k in sys_["projections"]} == {"facet"}
+    listed = api(live, "items", {"projection": ["flag"], "followed": ["researched>researching"], "by": ["states"],
                                  "moved_since": [str(now - 24 * H)], "moved_until": [str(now)], "alone": ["1"]})
     assert [i["id"] for i in listed["items"]] == ["flag/3"]
 
@@ -235,9 +235,9 @@ def test_a_scheduled_runs_events_fan_out_from_its_schedule(tmp_path):
     out = edge(g, "", f"{pm.SCHEDULE}:sweep", "facet:open", "caused")
     assert out["count"] == 6 and out["causes"] == 2 and out["items"] == 6, "a fan-out: two runs into six facets"
     assert out["types"] == [{"cause": "agent.started", "effect": "facet.opened", "count": 6}]
-    assert g["kinds"][0] == {"name": pm.SCHEDULE, "schedule": True, "states": [], "drawn": True, "by": "runs", "items": 2}
-    assert not any(n["activity"] == "sweep" and n["itemKind"] == "facet" for n in g["nodes"])
-    s = item_sets.parse({"kind": ["facet"], "caused": [f"{pm.SCHEDULE}:sweep>open"], "by": ["states"],
+    assert g["projections"][0] == {"name": pm.SCHEDULE, "schedule": True, "states": [], "drawn": True, "by": "runs", "items": 2}
+    assert not any(n["activity"] == "sweep" and n["projection"] == "facet" for n in g["nodes"])
+    s = item_sets.parse({"projection": ["facet"], "caused": [f"{pm.SCHEDULE}:sweep>open"], "by": ["states"],
                          "moved_since": [str(now - 2 * H)], "moved_until": [str(now)]})
     sel = item_sets.select(p.events, spec, s, until=now)
     assert sel["total"] == 6 and "facet/x" not in {i["id"] for i in sel["items"]}
@@ -248,7 +248,7 @@ def test_a_real_scheduled_runs_events_cite_it(tmp_path):
     from ergostat.spec.engine import Engine
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
         name: t
-        items:
+        projections:
           x:
             id: x/*
             states: [o, c]
@@ -260,11 +260,11 @@ def test_a_real_scheduled_runs_events_cite_it(tmp_path):
             out: flow.f
         stocks:
           s:
-            sensor: {items: x, state: o, every: 1m}
+            sensor: {projection: x, state: o, every: 1m}
         flows:
           f:
             to: s
-            sensor: {items: x, entering: o, over: 1h}
+            sensor: {projection: x, entering: o, over: 1h}
     """))
     (tmp_path / "say.py").write_text('import json\nprint(json.dumps({"event": "x.opened", "item": "x/1"}), flush=True)\n')
     p = Project(mdl.load(tmp_path))
@@ -310,7 +310,7 @@ JOBS = """
 name: jobs
 systems:
   work: {description: the jobs}
-items:
+projections:
   job:
     id: job/*
     system: work
@@ -335,7 +335,7 @@ def returns(g) -> dict[str, int]:
     got = {e["id"]: e["returns"] for e in g["edges"] if e["kind"] == "follows" and e["rework"]}
     assert all(n > 0 for n in got.values())
     assert not any(e["rework"] for e in g["edges"] if e["kind"] != "follows")
-    assert sum(got.values()) == next(k for k in g["kinds"] if k["name"] == "job")["returns"]
+    assert sum(got.values()) == next(k for k in g["projections"] if k["name"] == "job")["returns"]
     return got
 
 

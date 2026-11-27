@@ -17,7 +17,7 @@ goals:
 
 
 def model(tmp_path, body):
-    head = "name: t\nitems:\n  ticket: {id: ticket/*, states: [open, done]}\n"
+    head = "name: t\nprojections:\n  ticket: {id: ticket/*, states: [open, done]}\n"
     (tmp_path / "ergostat.yaml").write_text(head + textwrap.dedent(body))
     return read(tmp_path / "ergostat.yaml")
 
@@ -42,7 +42,7 @@ def test_a_goal_query_whose_name_is_taken_is_refused(tmp_path):
 
 
 def test_the_engine_reads_it_for_this_project_only(tmp_path, monkeypatch):
-    head = "name: t\nitems:\n  ticket: {id: ticket/*, states: [open, done]}\n"
+    head = "name: t\nprojections:\n  ticket: {id: ticket/*, states: [open, done]}\n"
     (tmp_path / "ergostat.yaml").write_text(head + VM + textwrap.dedent(GOAL))
     spec = mdl.load(tmp_path).spec
     asked = []

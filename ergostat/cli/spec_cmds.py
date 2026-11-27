@@ -149,7 +149,7 @@ def check_yaml(args, path: Path) -> int:
                                                                                      if len(ps) > 8 else "")
             print(f"{c(code, 'dim')}  {len(ps)}: {names}" if len(ps) > 1 else f"{c(code, 'dim')}  {said(ps[0])}")
     coh = coherence_of(args, spec, [p for p in findings if p.level != "note"])
-    if coh is not None and coh["kinds"]:
+    if coh is not None and coh["projections"]:
         from ..coherence import lines
         print(c("\nCoherence: the Process, Dynamics and Blocks views held against each other, over the record", "dim"))
         for style, line in lines(coh):

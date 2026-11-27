@@ -1,4 +1,4 @@
-"""milestone-kind-and-lifecycle: the item kind `milestone` (waiting, active, completed; completed final) and its block,
+"""milestone-kind-and-lifecycle: the projection `milestone` (waiting, active, completed; completed final) and its block,
 dev/bin/milestones.py: activation, the limit, completion, a parked gap holding it open, an empty one, no way out of
 completed, the upkeep cycle, and the coordinator's refusals. The program runs in process over a record of the
 factory's own gap and milestone kinds, as compiled from ergostat.yaml (its `ergostat item` and `event --add` calls
@@ -33,7 +33,7 @@ def ms(tmp_path, monkeypatch):
     """The program over a record of its own: ``ms.mod`` (milestones.py), ``ms.p`` (the project), ``ms.cfg``."""
     (tmp_path / "m").mkdir()
     (tmp_path / "state").mkdir()
-    (tmp_path / "m" / "ergostat.yaml").write_text("name: t\nitems:" + kinds_text() + "\n")
+    (tmp_path / "m" / "ergostat.yaml").write_text("name: t\nprojections:" + kinds_text() + "\n")
     p = Project(mdl.load(tmp_path / "m"), directory=tmp_path / "state")
     monkeypatch.syspath_prepend(str(BIN))
     for name in ("fac", "milestones"):
@@ -89,7 +89,7 @@ def test_the_factory_model_declares_milestones():
 
 
 def test_a_final_state_must_be_one_of_its_states(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("name: t\nitems:\n  x:\n    id: x/*\n    states: [a, b]\n    final: [c]\n")
+    (tmp_path / "ergostat.yaml").write_text("name: t\nprojections:\n  x:\n    id: x/*\n    states: [a, b]\n    final: [c]\n")
     _, problems = read(tmp_path / "ergostat.yaml")
     assert [p.code for p in problems if p.level == "error"] == ["bad-final"]
 

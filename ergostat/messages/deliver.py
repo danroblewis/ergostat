@@ -5,9 +5,9 @@
   session as its next turn; ``delivered``, how ``live`` (written into the running session) or ``resume`` (``claude -p
   --resume`` after its turn, the message as its input).
 - **A block that is no session**, or one not running now: its next run's context carries the messages routed to it,
-  or to open items of the kinds it works on (``for_context``), under ``messages``; ``delivered``, how ``context``.
+  or to open items of the projections it works on (``for_context``), under ``messages``; ``delivered``, how ``context``.
 - **Finished work** (``finished``): by the model's ``messages: {finished:}`` policy, a **follow-up** (a new item
-  linked to it, in its kind's first state, so the work that does that kind takes it up), a **reopening** (the item
+  linked to it, in its projection's first state, so the work that does that projection takes it up), a **reopening** (the item
   moves back, ``ergostat.item.reopened``), or **attention** (unrouted, for the owner). When the message was received
   before the work finished, the work finished without it: **missed** (work redone because a message did not reach it).
 
@@ -109,7 +109,7 @@ def for_session(p, spec: Spec, run: str | None, session: str | None = None) -> l
 # ---- in a run's context
 
 def kinds_worked(spec: Spec, b: Block) -> set[str]:
-    """The kinds of item a block works on: those counted by the sensors of the flows it sets, the stocks they move,
+    """The projections a block works on: those counted by the sensors of the flows it sets, the stocks they move,
     and what the goals it serves are about."""
     parts = []
     for t in b.targets():
@@ -124,7 +124,7 @@ def kinds_worked(spec: Spec, b: Block) -> set[str]:
             x = spec.measured(of.kind).get(of.name)
             if x is not None:
                 parts.append(x)
-    out = {b.takes.kind} if getattr(b, "takes", None) else set()   # the kind it takes (SPEC §9.5)
+    out = {b.takes.kind} if getattr(b, "takes", None) else set()   # the projection it takes (SPEC §9.5)
     for x in parts:
         for s in getattr(x, "sensors", {}).values():
             if s.items and s.items.get("kind"):
@@ -134,7 +134,7 @@ def kinds_worked(spec: Spec, b: Block) -> set[str]:
 
 def for_context(p, spec: Spec, b: Block, run: str, item: str | None = None) -> list[dict]:
     """The messages awaiting delivery that this run of ``b`` is given in its context (``messages``): routed to the
-    block, or to open items of a kind it works on (a run on a leased ``item``: to that item only), and not to a run
+    block, or to open items of a projection it works on (a run on a leased ``item``: to that item only), and not to a run
     going now; each recorded delivered (``context``)."""
     waiting = awaiting(p, since=time.time() - 7 * 86400)
     if not waiting:
@@ -167,7 +167,7 @@ def route_kind(spec: Spec, item: str | None) -> str | None:
 
 def _follow_up_id(p, spec: Spec, kind_name: str, item: str, mid: str) -> str | None:
     k = spec.items[kind_name]
-    if kind_name == route_kind(spec, item):           # its own kind: review/2041 → review/2041.1, .2, ...
+    if kind_name == route_kind(spec, item):           # its own projection: review/2041 → review/2041.1, .2, ...
         n = 1 + sum(1 for x in p.events.items() if x["item"].startswith(item + "."))
         cand = f"{item}.{n}"
         if k.matches(cand):
@@ -190,24 +190,24 @@ def finished(p, spec: Spec, msg: dict, it: dict, by: str = "ergostat", policy: s
                                              "outcome": f"missed: {it['id']} finished ({it['state']}) before it was delivered"},
                     by=by, causedby=cause)
     if policy == "reopen":
-        k = spec.items[it["kind"]]
-        to = spec.messages.reopen_to.get(it["kind"]) or (k.states[0] if k.states else None)
+        k = spec.items[it["projection"]]
+        to = spec.messages.reopen_to.get(it["projection"]) or (k.states[0] if k.states else None)
         p.events.add(REOPENED, item=it["id"], source=by, causedby=cause,
                      data={"reopened": {"to": to, "message": msg["id"], "says": text[:500], "missed": missed,
                                         "from": it["state"], "at": time.time()}})
         return delivered(p, msg, "reopen", item=it["id"], by=by, to=to, missed=missed)
     if policy == "follow-up":
-        kind = spec.messages.follow_up or it["kind"]
+        kind = spec.messages.follow_up or it["projection"]
         new = _follow_up_id(p, spec, kind, it["id"], msg["id"])
         if new is not None:
             k = spec.items[kind]
-            keep = {f: it["fields"][f] for f in [*k.show, "title"] if f in it["fields"] and kind == it["kind"]
+            keep = {f: it["fields"][f] for f in [*k.show, "title"] if f in it["fields"] and kind == it["projection"]
                     and not str(it["fields"][f]).startswith("file:")}
             p.events.add(FOLLOW_UP, item=new, source=by, causedby=cause,
                          data={**keep, "follows": it["id"], "message": msg["id"], "note": text[:2000], "missed": missed,
                                "done_when": text[:2000]})      # the owner's words, verbatim: what it is judged by (§12i)
             return delivered(p, msg, "follow-up", item=it["id"], by=by, follow_up=new, missed=missed)
-        why = f"about {it['id']}, finished ({it['state']}); no id of kind {kind} could be made for a follow-up"
+        why = f"about {it['id']}, finished ({it['state']}); no id of projection {kind} could be made for a follow-up"
     else:
         why = f"about {it['id']}, finished ({it['state']}): messages: {{finished: attention}} leaves it to the owner"
     return record.step(p, msg["id"], "unrouted", {"matched": msg.get("matched") or "explicit", "routed_to": [], "why": why,

@@ -19,7 +19,7 @@ stocks:
     unit: decisions
     description: the owner's confirmed decisions (made up for the demo, bin/owner.py), what the work is held to
     sensor:
-      items: ergostat.decision
+      projection: ergostat.decision
       state: confirmed
       every: 10s
   work-held:
@@ -87,7 +87,7 @@ blocks:
     type: judge
     judge: intent
     every: 10s
-    kinds:
+    projections:
       hypothesis:
         at: testing                       # submitted: its tests passed
         accepted: kept                    # kept: part of production

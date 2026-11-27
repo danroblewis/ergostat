@@ -27,7 +27,7 @@ goals:
   todo-low: {stock: todo, hold: "<= 0"}
   aside-low: {stock: aside, hold: "<= 0"}
   inner-low: {stock: inner, hold: "<= 5"}
-items:
+projections:
   request:
     id: request/*
     states: [new, approved, denied, deferred]
@@ -41,7 +41,7 @@ blocks:
     agent: approver
     run: python3 bin/x.py
     goal: todo-low
-    takes: {kind: request, at: new, to: [approved, denied, deferred]}
+    takes: {projection: request, at: new, to: [approved, denied, deferred]}
     out: flow.done
   pick:
     type: program
@@ -181,8 +181,8 @@ def test_no_key_declares_answers_a_decisions_are_its_takes_to(tmp_path):
     from ergostat.spec.compile import TYPE_KEYS
     assert not any("answers" in keys or "examples" in keys or "answer-schema" in keys for keys in TYPE_KEYS.values())
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace(
-        "    takes: {kind: request, at: new, to: [approved, denied, deferred]}",
-        "    answers: [approved, denied]\n    takes: {kind: request, at: new, to: [approved, denied, maybe]}"))
+        "    takes: {projection: request, at: new, to: [approved, denied, deferred]}",
+        "    answers: [approved, denied]\n    takes: {projection: request, at: new, to: [approved, denied, maybe]}"))
     (tmp_path / "bin").mkdir()
     with pytest.raises(mdl.ModelError) as e:
         mdl.load(tmp_path)

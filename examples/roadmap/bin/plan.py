@@ -9,8 +9,8 @@ ME = os.environ.get("ERGOSTAT_CMD", "ergostat").split()
 
 
 def items(kind):
-    out = subprocess.run([*ME, "item", "--kind", kind, "--json", "-n", "500"], capture_output=True, text=True).stdout
-    return [i for i in json.loads(out or "{}").get("items", []) if i.get("kind") == kind]
+    out = subprocess.run([*ME, "item", "--projection", kind, "--json", "-n", "500"], capture_output=True, text=True).stdout
+    return [i for i in json.loads(out or "{}").get("items", []) if i.get("projection") == kind]
 
 
 def say(event, item, **data):

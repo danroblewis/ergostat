@@ -1,7 +1,7 @@
-"""The Items page's Graph and Timeline (SPEC §5a, *Relations*; ``precedence.py``): the items of the kinds asked, the
+"""The Items page's Graph and Timeline (SPEC §5a, *Relations*; ``precedence.py``): the items of the projections asked, the
 items their relations reach, each one's status, the critical path and the schedule.
 
-``GET /api/items-graph?kinds=ticket,epic`` (or ``system=NAME``: the system's kinds; with both, the kinds asked, and
+``GET /api/items-graph?projections=ticket,epic`` (or ``system=NAME``: the system's projections; with both, those asked, and
 only the system's own dependency network: another system's items are stubs, ``precedence.build(own=)``). The answer is worked out when
 the record changes, and kept until it does again (or for ``KEPT`` seconds at most): a page left open on a quiet
 record is given the same answer, and draws nothing new; its projections are from the moment it was worked out
@@ -22,7 +22,7 @@ _LOCK = threading.Lock()
 def kinds_asked(spec, q: dict) -> list[str]:
     from .. import process as pm
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
-    asked = [k for k in (one("kinds") or "").split(",") if k in spec.items]
+    asked = [k for k in (one("projections") or "").split(",") if k in spec.items]
     return asked or pm.kinds_of(spec, one("system") or None)
 
 
@@ -30,7 +30,7 @@ def graph(p, m, snap: dict, q: dict) -> dict:
     from .. import precedence
     spec = getattr(m, "spec", None)
     if spec is None or not getattr(spec, "items", None):
-        return {"now": snap["at"], "since": snap["at"] - snap["window"], "kinds": [], "items": [], "edges": [],
+        return {"now": snap["at"], "since": snap["at"] - snap["window"], "projections": [], "items": [], "edges": [],
                 "cycles": [], "critical": [], "end": snap["at"], "capped": {}, "assumed": None}
     kinds = kinds_asked(spec, q)
     from .. import process as pm

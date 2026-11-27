@@ -27,11 +27,11 @@ def factory_answer(n_open: int = 375, n_done: int = 80, n_reviews: int = 340, se
     items, edges = [], []
     done = [f"gap/d{i}" for i in range(n_done)]
     for i, a in enumerate(done):
-        items.append({"id": a, "kind": "gap", "state": "merged", "status": "done", "first": t0 + i, "group": None})
+        items.append({"id": a, "projection": "gap", "state": "merged", "status": "done", "first": t0 + i, "group": None})
     open_ = [f"gap/o{i}" for i in range(n_open)]
     for i, a in enumerate(open_):
         st = "active" if i < 15 else "unblocked" if i < 60 else "blocked"
-        items.append({"id": a, "kind": "gap", "state": "todo", "status": st, "first": t0 + 1000 + i,
+        items.append({"id": a, "projection": "gap", "state": "todo", "status": st, "first": t0 + 1000 + i,
                       "es": t0 + 5000 + i, "group": None})
         if i >= 60:
             edges.append({"from": open_[rnd.randrange(i)], "to": a, "rel": "depends_on", "kind": "precedence"})
@@ -39,11 +39,11 @@ def factory_answer(n_open: int = 375, n_done: int = 80, n_reviews: int = 340, se
             edges.append({"from": done[rnd.randrange(n_done)], "to": a, "rel": "depends_on", "kind": "precedence"})
     for i in range(n_reviews):
         r = f"review/r{i}"
-        items.append({"id": r, "kind": "review", "state": "merge", "status": "active", "first": t0 + 2000 + i,
+        items.append({"id": r, "projection": "review", "state": "merge", "status": "active", "first": t0 + 2000 + i,
                       "group": None})
         edges.append({"from": r, "to": open_[rnd.randrange(n_open)], "rel": "of", "kind": "other"})
     kinds = [{"name": "gap", "asked": True}, {"name": "review", "asked": False}]
-    return {"items": items, "edges": edges, "kinds": kinds, "asked": ["gap"]}
+    return {"items": items, "edges": edges, "projections": kinds, "asked": ["gap"]}
 
 
 def drawn(ans: dict, bound: int = NODES) -> tuple[set, set, int]:
@@ -52,13 +52,13 @@ def drawn(ans: dict, bound: int = NODES) -> tuple[set, set, int]:
     on, their parents; past the bound, whole parts in their order, each with its parents, and the first part that
     does not fit cut inside by status."""
     by = {x["id"]: x for x in ans["items"]}
-    asked = {k["name"] for k in ans["kinds"] if k.get("asked")}
+    asked = {k["name"] for k in ans["projections"] if k.get("asked")}
     preds: dict[str, list[str]] = {}
     for e in ans["edges"]:
         if e["kind"] == "precedence":
             preds.setdefault(e["to"], []).append(e["from"])
     scope: set[str] = set()
-    todo = [x["id"] for x in ans["items"] if x["kind"] in asked and x["status"] != "done"]
+    todo = [x["id"] for x in ans["items"] if x["projection"] in asked and x["status"] != "done"]
     while todo:
         a = todo.pop()
         if a in by and a not in scope:
@@ -108,7 +108,7 @@ def test_no_dependency_line_of_an_unfinished_gap_is_lost():
     for e in into:                                    # both ends drawable, in one part: no cut can separate them
         assert "part" in by[e["from"]] and by[e["from"]]["part"] == by[e["to"]]["part"], e
     scope, keep, lost = drawn(ans)
-    unfinished = {a for a, x in by.items() if x["kind"] == "gap" and x["status"] != "done"}
+    unfinished = {a for a, x in by.items() if x["projection"] == "gap" and x["status"] != "done"}
     assert len(unfinished) == 375 and unfinished <= keep and lost == 0
     assert all(e["from"] in keep and e["to"] in keep for e in into)
     assert len(keep) <= NODES
@@ -116,7 +116,7 @@ def test_no_dependency_line_of_an_unfinished_gap_is_lost():
 
 def test_a_review_record_is_not_drawn():
     ans = graph_parts.mark(factory_answer())
-    reviews = [x for x in ans["items"] if x["kind"] == "review"]
+    reviews = [x for x in ans["items"] if x["projection"] == "review"]
     assert len(reviews) == 340 and all("part" not in x for x in reviews)   # active, but it only names a gap
     assert not any(a.startswith("review/") for a in drawn(ans)[1])
 
@@ -124,12 +124,12 @@ def test_a_review_record_is_not_drawn():
 def test_another_kind_is_drawn_when_waited_on_or_a_parent():
     t = 1_700_000_000.0
     ans = graph_parts.mark({
-        "kinds": [{"name": "gap", "asked": True}, {"name": "review", "asked": False}, {"name": "epic", "asked": False}],
-        "items": [{"id": "gap/a", "kind": "gap", "status": "blocked", "first": t, "group": "epic/e"},
-                  {"id": "review/w", "kind": "review", "status": "active", "first": t, "group": None},
-                  {"id": "review/n", "kind": "review", "status": "active", "first": t, "group": None},
-                  {"id": "epic/e", "kind": "epic", "status": "active", "first": t, "group": "epic/top"},
-                  {"id": "epic/top", "kind": "epic", "status": "active", "first": t, "group": None}],
+        "projections": [{"name": "gap", "asked": True}, {"name": "review", "asked": False}, {"name": "epic", "asked": False}],
+        "items": [{"id": "gap/a", "projection": "gap", "status": "blocked", "first": t, "group": "epic/e"},
+                  {"id": "review/w", "projection": "review", "status": "active", "first": t, "group": None},
+                  {"id": "review/n", "projection": "review", "status": "active", "first": t, "group": None},
+                  {"id": "epic/e", "projection": "epic", "status": "active", "first": t, "group": "epic/top"},
+                  {"id": "epic/top", "projection": "epic", "status": "active", "first": t, "group": None}],
         "edges": [{"from": "review/w", "to": "gap/a", "kind": "precedence", "rel": "after"},
                   {"from": "review/n", "to": "gap/a", "kind": "other", "rel": "of"}]})
     part = {x["id"]: x.get("part") for x in ans["items"]}
@@ -140,15 +140,15 @@ def test_another_kind_is_drawn_when_waited_on_or_a_parent():
 
 
 def test_with_no_kind_asked_every_item_is_drawable():
-    ans = graph_parts.mark({"kinds": [{"name": "gap"}], "edges": [],
-                            "items": [{"id": "gap/a", "kind": "gap", "status": "done", "first": 1.0}]})
+    ans = graph_parts.mark({"projections": [{"name": "gap"}], "edges": [],
+                            "items": [{"id": "gap/a", "projection": "gap", "status": "done", "first": 1.0}]})
     assert ans["items"][0]["part"] == 0
 
 
 def test_a_status_not_known_ranks_last():
-    ans = graph_parts.mark({"kinds": [{"name": "gap", "asked": True}], "edges": [],
-                            "items": [{"id": "gap/a", "kind": "gap", "status": None, "first": 1.0},
-                                      {"id": "gap/b", "kind": "gap", "status": "done", "first": 2.0}]})
+    ans = graph_parts.mark({"projections": [{"name": "gap", "asked": True}], "edges": [],
+                            "items": [{"id": "gap/a", "projection": "gap", "status": None, "first": 1.0},
+                                      {"id": "gap/b", "projection": "gap", "status": "done", "first": 2.0}]})
     assert [x["part"] for x in ans["items"]] == [1, 0]
 
 
@@ -177,7 +177,7 @@ def test_a_cut_past_the_bound_keeps_whole_groups_active_work_first():
         if by[b]["part"] not in cut:
             assert (a in keep) == (b in keep), (a, b)
     assert lost > 0 and unreported(ans, scope, keep, lost) == 0   # every line not drawn is counted for the note
-    active = {a for a, x in by.items() if x["kind"] == "gap" and x["status"] == "active"}
+    active = {a for a, x in by.items() if x["projection"] == "gap" and x["status"] == "active"}
     assert len(active) == 15 and active <= keep       # the groups with active work, kept
     left = {by[a]["part"] for a in scope - keep} - cut
     assert all(p > q for p in left for q in {by[a]["part"] for a in keep})   # only lower-ranked groups left out
@@ -186,24 +186,24 @@ def test_a_cut_past_the_bound_keeps_whole_groups_active_work_first():
 def fan_answer() -> dict:
     """One group of 701 (700 gaps, 20 active and 20 unblocked, all waiting on one paused root) and 3 paused gaps."""
     t = 1_700_000_000.0
-    items = [{"id": "gap/root", "kind": "gap", "status": "paused", "first": t, "group": None}]
+    items = [{"id": "gap/root", "projection": "gap", "status": "paused", "first": t, "group": None}]
     edges = []
     for i in range(700):
         st = "active" if i < 20 else "unblocked" if i < 40 else "blocked"
-        items.append({"id": f"gap/f{i:03}", "kind": "gap", "status": st, "first": t + i, "group": None})
+        items.append({"id": f"gap/f{i:03}", "projection": "gap", "status": st, "first": t + i, "group": None})
         edges.append({"from": "gap/root", "to": f"gap/f{i:03}", "kind": "precedence", "rel": "after"})
-    items += [{"id": f"gap/p{i}", "kind": "gap", "status": "paused", "first": t, "group": None} for i in range(3)]
-    return {"items": items, "edges": edges, "kinds": [{"name": "gap", "asked": True}]}
+    items += [{"id": f"gap/p{i}", "projection": "gap", "status": "paused", "first": t, "group": None} for i in range(3)]
+    return {"items": items, "edges": edges, "projections": [{"name": "gap", "asked": True}]}
 
 
 def epic_answer() -> dict:
     """600 active gaps under one paused epic (a parent link, no dependency), and 3 paused gaps."""
     t = 1_700_000_000.0
-    items = [{"id": "gap/epic", "kind": "gap", "status": "paused", "first": t, "group": None}]
-    items += [{"id": f"gap/t{i:03}", "kind": "gap", "status": "active", "first": t + i, "group": "gap/epic"}
+    items = [{"id": "gap/epic", "projection": "gap", "status": "paused", "first": t, "group": None}]
+    items += [{"id": f"gap/t{i:03}", "projection": "gap", "status": "active", "first": t + i, "group": "gap/epic"}
               for i in range(600)]
-    items += [{"id": f"gap/p{i}", "kind": "gap", "status": "paused", "first": t, "group": None} for i in range(3)]
-    return {"items": items, "edges": [], "kinds": [{"name": "gap", "asked": True}]}
+    items += [{"id": f"gap/p{i}", "projection": "gap", "status": "paused", "first": t, "group": None} for i in range(3)]
+    return {"items": items, "edges": [], "projections": [{"name": "gap", "asked": True}]}
 
 
 def test_a_group_bigger_than_the_bound_is_cut_by_status_not_dropped():
@@ -228,7 +228,7 @@ def test_an_epic_over_more_than_the_bound_draws_its_active_work():
 
 
 MODEL = """
-items:
+projections:
   epic:
     id: epic/*
     states: [planned, underway, shipped]
@@ -260,7 +260,7 @@ def test_the_answer_marks_its_parts(tmp_path):
     ev.add("ticket.planned", item="ticket/1", data={"parent": "epic/a"}, at=now - 40)
     ev.add("ticket.planned", item="ticket/2", data={"blocked_by": "ticket/1"}, at=now - 30)
     ev.add("note.opened", item="note/x", data={"about": "ticket/2"}, at=now - 20)
-    ans = relations_api.graph(p, m, {"at": now, "window": 3600}, {"kinds": ["ticket"]})
+    ans = relations_api.graph(p, m, {"at": now, "window": 3600}, {"projections": ["ticket"]})
     part = {x["id"]: x.get("part") for x in ans["items"]}
     assert "note/x" in part and part["note/x"] is None            # in the answer (a relation reaches it), not drawn
     assert part["ticket/1"] == part["ticket/2"] is not None and part["epic/a"] is not None

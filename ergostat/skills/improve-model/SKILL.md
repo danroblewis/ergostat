@@ -42,8 +42,8 @@ Run these in the project (with the MCP server, the tools of the same names):
 For each item, note what you found and where (file and line):
 
 1. Every structure finding: is the model wrong, or is it right and the check cannot know it?
-2. Each stock: what fills it, what drains it, and does each drain depend on what is there? Each item kind:
-   does it come in from a cloud once, into its first state (`kind-enters-many-times`), and is every other cloud
+2. Each stock: what fills it, what drains it, and does each drain depend on what is there? Each projection:
+   does it come in from a cloud once, into its first state (`projection-enters-many-times`), and is every other cloud
    really outside the system (`many-cloud-inflows`: the boundary chart)?
 3. Each `driven-by` on a flow: does the effect come at once? If not, where does the cause wait
    (a stock), and what ends its wait (the flows out of it)?

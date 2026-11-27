@@ -8,7 +8,7 @@ stocks:
     unit: tickets
     description: found in Jira (To Do, labelled), not picked up yet
     sensor:
-      items: ticket
+      projection: ticket
       state: new
       every: 3s
 

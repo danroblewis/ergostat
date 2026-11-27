@@ -9,14 +9,14 @@ stocks:
     unit: tickets
     description: approved by a reviewer; not labelled SAIL yet
     sensor:
-      items: ticket
+      projection: ticket
       state: approved
       every: 3s
   changes-asked:
     unit: tickets
     description: a reviewer commented; the agent has not answered yet
     sensor:
-      items: ticket
+      projection: ticket
       state: changes-asked
       every: 3s
 
@@ -28,7 +28,7 @@ flows:
     driven-by: [+stock.review-asked]
     equation: (1 - change-share) * stock.review-asked / review-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: approved
       over: 10m
   review-changes:
@@ -38,7 +38,7 @@ flows:
     driven-by: [+stock.review-asked]
     equation: change-share * stock.review-asked / review-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: changes-asked
       over: 10m
 
@@ -64,7 +64,7 @@ blocks:
     type: program
     goal: reviews-answered
     daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
-    takes: {kind: ticket, at: review-asked, to: [approved, changes-asked, stopped]}
+    takes: {projection: ticket, at: review-asked, to: [approved, changes-asked, stopped]}
     pool: 3
     actions: [pr-comment]
     out: [flow.review, flow.review-changes]

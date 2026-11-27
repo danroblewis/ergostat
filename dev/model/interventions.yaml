@@ -9,7 +9,7 @@ stocks:
   interventions-open:
     unit: interventions
     description: interventions recorded whose missing loop is not built yet
-    sensor: {items: intervention, state: open, every: 1m}
+    sensor: {projection: intervention, state: open, every: 1m}
 
 auxiliaries:
   interventions-trend:
@@ -22,13 +22,13 @@ flows:
   interventions-recorded:
     to: interventions-open
     description: the coordinator stepped in, and said why (intervention.recorded)
-    sensor: {items: intervention, entering: open, over: 1d}
+    sensor: {projection: intervention, entering: open, over: 1d}
   interventions-remedied:
     from: interventions-open
     description: the loop that makes the intervention unnecessary built, and said (intervention.remedied)
     driven-by: [+stock.interventions-open]
     equation: stock.interventions-open / remedy-time
-    sensor: {items: intervention, entering: remedied, over: 1d}
+    sensor: {projection: intervention, entering: remedied, over: 1d}
 
 parameters:
   remedy-time:
@@ -61,6 +61,6 @@ blocks:
     type: person
     agent: coordinator
     description: the coordinator builds the loop an intervention showed missing (a gap, a goal, a block) and marks it remedied
-    ask: "Interventions are rising or piling up (ergostat item --kind intervention --state open): build the loop each shows missing, then record intervention.remedied with the remedy."
+    ask: "Interventions are rising or piling up (ergostat item --projection intervention --state open): build the loop each shows missing, then record intervention.remedied with the remedy."
     in: block.remedy-when
     out: flow.interventions-remedied

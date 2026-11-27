@@ -184,7 +184,7 @@ def model(ctx: For, params: dict, budget: int) -> str:
     if not params.get("parts"):
         want = ctx.parts_of_item()
     if not want:
-        return "## The model\n\n" + ("No parts: " + (f"{ctx.item_id} names none, and its kind is in no system.\n"
+        return "## The model\n\n" + ("No parts: " + (f"{ctx.item_id} names none, and its projection is in no system.\n"
                                                     if ctx.item else "this run was given no item, and the part names none.\n"))
     status: dict[str, str] = {}
     for e in ctx.p.events.query(n=300, type="loop.off,loop.holding"):

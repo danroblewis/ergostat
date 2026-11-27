@@ -28,7 +28,7 @@ name: t
 systems:
   shop:
     description: the shop
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, building, done, dropped]
@@ -288,10 +288,10 @@ def test_the_item_a_run_works_on_from_its_command_or_a_selector(tmp_path):
     for n in (1, 2, 3):
         p.events.add("ticket.opened", item=f"ticket/{n}", source="owner", data={"title": f"t{n}"})
     p.events.add("ticket.started", item="ticket/3", source="w", data={})
-    assert rd.item_for(p, spec, {"kind": "ticket", "state": ["building", "open"]}).id == "ticket/3"
-    assert rd.item_for(p, spec, {"kind": "ticket", "state": ["open"]}).id == "ticket/1"
-    assert rd.item_for(p, spec, {"kind": "ticket", "state": ["open"], "pick": "newest"}).id == "ticket/2"
-    assert rd.item_for(p, spec, {"kind": "ticket"}, command_item="ticket/2").id == "ticket/2"
+    assert rd.item_for(p, spec, {"projection": "ticket", "state": ["building", "open"]}).id == "ticket/3"
+    assert rd.item_for(p, spec, {"projection": "ticket", "state": ["open"]}).id == "ticket/1"
+    assert rd.item_for(p, spec, {"projection": "ticket", "state": ["open"], "pick": "newest"}).id == "ticket/2"
+    assert rd.item_for(p, spec, {"projection": "ticket"}, command_item="ticket/2").id == "ticket/2"
     assert rd.item_for(p, spec, "ticket/{block}", block="1").id == "ticket/1"
     assert rd.item_for(p, spec, None) is None
 
@@ -341,7 +341,7 @@ blocks:
     type: ai
     prompt: do the oldest ticket
     run: sh w.sh
-    context: {recipe: worker, item: {kind: ticket, state: [building, open]}}
+    context: {recipe: worker, item: {projection: ticket, state: [building, open]}}
     out: flow.done
 """
 
@@ -384,7 +384,7 @@ blocks:
     type: ai
     prompt: do the oldest ticket
     run: $ERGOSTAT_CMD session w --model haiku --no-live
-    context: {recipe: worker, item: {kind: ticket, state: [building, open]}}
+    context: {recipe: worker, item: {projection: ticket, state: [building, open]}}
     timeout: 1m
     out: flow.done
 """

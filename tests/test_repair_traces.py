@@ -16,12 +16,12 @@ from ergostat.store import Project
 
 MODEL = """\
 name: traces-demo
-items:
+projections:
   issue: {id: issue/*, states: [open, closed], on: {issue.seen: open}}
 stocks:
-  open-issues: {unit: issues, cumulative: true, sensor: {items: issue, state: open, every: 1h}}
+  open-issues: {unit: issues, cumulative: true, sensor: {projection: issue, state: open, every: 1h}}
 flows:
-  issues-found: {to: open-issues, sensor: {items: issue, entering: open, over: 10m}}
+  issues-found: {to: open-issues, sensor: {projection: issue, entering: open, over: 10m}}
 blocks:
   collector:
     type: program

@@ -7,7 +7,7 @@ a block failing or not running, a cycle, a missing or parked item that others wa
 takes), **held** when it is held on purpose (a gate, a closed goal or intake, a person to answer, an item paused by
 hand that nothing waits on), and **queue** when it is ordinary queueing (work going on, a full pool of live runs, a
 give-back's wait). A root the record cannot tell is **unknown**: "nothing is stuck" is said only when no root is a stall
-or unknown. The model's own item kinds only (``ergostat.*`` kinds are ergostat's own upkeep)."""
+or unknown. The model's own projections only (``ergostat.*`` ones are ergostat's own upkeep)."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def key(r: dict) -> tuple:
 
 
 def unfinished(ctx: Ctx) -> list:
-    """Every unfinished item of the model's own kinds (not in a finished state, nor of a kind that lives on)."""
+    """Every unfinished item of the model's own projections (not in a finished state, nor of one that lives on)."""
     out = []
     for kind, k in sorted((ctx.spec.items or {}).items()):
         info = ctx.info(kind)

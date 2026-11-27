@@ -192,7 +192,7 @@ def items(kind: str, state: str | None = None) -> list[dict]:
             got = engine("items", kind=kind, state=state, offset=len(out)) or {}
             out += got.get("items", [])
         return out
-    args = ["item", "--kind", kind, "-n", "2000", "--json"]
+    args = ["item", "--projection", kind, "-n", "2000", "--json"]
     if state:
         args += ["--state", state]
     return json.loads(run_ergostat(*args)).get("items", [])

@@ -76,7 +76,12 @@ a disturbance is added to the model.
 ## Records
 
 - **Event**: something that happened. Append-only, never edited.
-- **Item**: a fold-up of the events about one id.
+- **Projection** (2026-11-26, the owner's decision; was "kind of item"): a way of looking at a set of events, declared
+  under `projections:`. It folds the events whose ids it matches into its own table of the SQLite cache, kept up to
+  date as events come in; people and dashboards query those tables. Several projections may look at the same events.
+  Never "kind" for a projection.
+- **Item**: one id's row of a projection: the fold of that id's events (a projection's items). An event's `item` field
+  is the id it is about.
 - **Metrics**: time-series measurements. Kept in a store of their own, separate from events,
   because there will be few events and many metrics.
 - **Every metric goes through PromQL, recorded in VictoriaMetrics** (2026-11-25, the owner's decision). VictoriaMetrics

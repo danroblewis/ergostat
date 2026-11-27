@@ -43,7 +43,7 @@ It needs no accounts and nothing installed beyond ergostat: the job's world is s
 cp -r examples/the-job /tmp/the-job && cd /tmp/the-job
 ergostat run                       # prints the page's address
 ergostat loop                      # every goal: holding or off
-ergostat item --kind review        # the reviews asked of me, by state
+ergostat item --projection review        # the reviews asked of me, by state
 ls outbox/                         # the drafts, the morning briefs and the ledger
 ergostat run --stop
 ```

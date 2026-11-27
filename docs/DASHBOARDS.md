@@ -63,7 +63,7 @@ waiting to be asked when the case comes.
 | Form | For | Not for |
 |---|---|---|
 | `line` | a measure over time; a few series to compare | more than about five series; a discrete period's total (use bars) |
-| `line` with `fill: area, stack: stacked` | **parts of a whole only**: one query split by `group_by`, whose parts add up to something real (items by state) | series that overlap or do not add (percentiles, arrivals and completions, two different kinds' durations) |
+| `line` with `fill: area, stack: stacked` | **parts of a whole only**: one query split by `group_by`, whose parts add up to something real (items by state) | series that overlap or do not add (percentiles, arrivals and completions, two different projections' durations) |
 | `bar` | discrete periods (per hour, per day, with a fixed `bucket`), or categories | a continuous level, whose bars imply a total per bar |
 | `stat` | a current value, with `sparkline: on` for its recent shape and `color: thresholds` for its goal | a value whose trend is the point (use a line) |
 | `table` | looking things up: a value per group, sorted (`sort`), with `columns` | seeing a change over time |
@@ -84,7 +84,7 @@ Percent stacking (`stack: percent`) answers "what share", never "how many": say 
   ignore. The model's goals (SPEC §8) are the first place to look for them.
 - **Legends beside the plot** (the default, `legend: right`; it moves under a narrow panel by itself). Hide it only for
   a single series the title names. Nothing is drawn over a plot but the cursor.
-- **Cardinality.** `group_by` a field with few values (`state`, `kind`, a size or a team): at most 12 groups are drawn,
+- **Cardinality.** `group_by` a field with few values (`state`, `projection`, a size or a team): at most 12 groups are drawn,
   the rest added up as `other` (the answer's `capped` says how many). A field with many values (a requester, an id) is
   a filter (`where`), or a table sorted by value; never a line per value. A group relation (a gap's `milestone`) is
   a category too, and `state_group` each item's stage in it (done, in progress, waiting, stopped): gaps by milestone,
@@ -97,8 +97,8 @@ ergostat has exactly two data sources, and every panel asks one of them (NOTES.m
 
 - `promql`: every metric, recorded in VictoriaMetrics (section 6a).
 - `sql`: all item data, projected into SQLite: the item views over the **item index**, the fold of the record into
-  items (a projection, in the event log's sense; not the model's projection forward from now, which the query API does
-  not chart). SPEC §4e, *The SQL source*, lists the views.
+  items, one table for each projection (not the model run forward from now, which the query API does not chart).
+  SPEC §4e, *The SQL source*, lists the views.
 
 The panel editor's Source lists exactly these two; one that cannot be asked now (no VictoriaMetrics answering, say) is
 shown disabled, with why and how to make it available. The shortcuts under Query (item fields, item moves, items per
@@ -178,7 +178,7 @@ dashes written as underscores; only ergostat's own internals start `ergostat_`:
 - ergostat's own: `sum by (block) (increase(ergostat_run_cost_usd[1d]))`, each block's runs' dollars in a day;
   `ergostat_valve_position{valve="intake"}`, `ergostat_block_output{block="hold"}`.
 
-A part whose name an item kind's metric already takes (a stock `gap-items` beside the kind `gap`) is written with its
+A part whose name a projection's metric already takes (a stock `gap-items` beside the projection `gap`) is written with its
 system first (`landing_gap_items`); with no system to keep them apart, `ergostat check` refuses the model and says to
 rename it or put it in a system. A record written under the old generic names (`ergostat_sensor{part="backlog"}`,
 `ergostat_items{kind="gap"}`) is still read, and a saved panel still naming them asks both the new name and the old,
@@ -186,9 +186,9 @@ so it answers as before, with a warning to write the new.
 
 The item metrics (SPEC §4b, *Item metrics*) are written once a minute from the item index, backfilled from it when
 first turned on; an arrival is `from="(new)"` and an item forgotten after a prune `to="(gone)"`. So the items in a
-state change by what moved in less what moved out, and a kind's items by its arrivals less its forgotten items.
+state change by what moved in less what moved out, and a projection's items by its arrivals less its forgotten items.
 ergostat checks this on each pass, and says on its output where it does not hold. The exception is a window in which
-`increase(ergostat_item_index_rebuilds_total[1h]) > 0`: there the index was made again (a kind edited, say), the
+`increase(ergostat_item_index_rebuilds_total[1h]) > 0`: there the index was made again (a projection edited, say), the
 counts were taken afresh, and the two need not agree, so read no leak into it. Add a gauge over `milestone` before
 comparing it, as a move between milestones is not a transition.
 
@@ -200,7 +200,7 @@ source*).
 
 The panels below read the example model at the end of this document: requests that wait, are worked on, reviewed
 and finish `done` or `failed`, with a `cost_usd` folded into each, a backlog stock and a pool of agents measured by
-sensors. Put your own kinds, states, fields and series in their places (`GET /api/query/fields` lists what yours can
+sensors. Put your own projections, states, fields and series in their places (`GET /api/query/fields` lists what yours can
 chart).
 
 ### 7a. Is work flowing?
@@ -212,9 +212,9 @@ Arrivals beside completions, as rates, on one panel:
 {"id": "flowing", "title": "Is work flowing?", "size": "m", "form": "line",
  "note": "If completions stay under arrivals for a day, add an agent to working.",
  "queries": [
-   {"id": "in", "label": "arrived", "source": "moves", "kind": "request", "measure": "entries", "state": "waiting",
+   {"id": "in", "label": "arrived", "source": "moves", "projection": "request", "measure": "entries", "state": "waiting",
     "transform": "rate", "rate_per": "hour"},
-   {"id": "out", "label": "finished", "source": "moves", "kind": "request", "measure": "entries", "state": ["done", "failed"],
+   {"id": "out", "label": "finished", "source": "moves", "projection": "request", "measure": "entries", "state": ["done", "failed"],
     "transform": "rate", "rate_per": "hour"}]}
 ```
 
@@ -227,7 +227,7 @@ Items in each state: a stock, split into parts of a whole, so a stacked area is 
 {"id": "where-stuck", "title": "Where is the work?", "size": "m", "form": "line",
  "options": {"fill": "area", "stack": "stacked"},
  "note": "The band that keeps growing is the stage to look at first.",
- "queries": [{"id": "wip", "source": "counts", "kind": "request", "group_by": "state",
+ "queries": [{"id": "wip", "source": "counts", "projection": "request", "group_by": "state",
               "state": ["waiting", "working", "review"]}]}
 ```
 
@@ -238,7 +238,7 @@ And how long what is there now has been there, by state, as a table to look up:
 {"id": "how-long-stuck", "title": "How long has it been there? (p90)", "size": "m", "form": "table",
  "options": {"columns": ["last", "max"], "sort": "last"},
  "note": "A state whose p90 age passes a day holds something nobody is working on: open the Items tab on it.",
- "queries": [{"id": "age", "source": "moves", "kind": "request", "measure": "time_in_state",
+ "queries": [{"id": "age", "source": "moves", "projection": "request", "measure": "time_in_state",
               "state": ["waiting", "working", "review"], "group_by": "state", "agg": "p90", "include_open": true}]}
 ```
 
@@ -252,7 +252,7 @@ The running total against the day's budget, as a stat:
  "options": {"value": "last", "sparkline": "on", "color": "thresholds"},
  "display": {"thresholds": [{"value": 20, "label": "daily budget"}]},
  "note": "Past the daily budget, pause the AI tier and ask the owner.",
- "queries": [{"id": "spent", "source": "items", "kind": "request", "field": "cost_usd", "agg": "sum",
+ "queries": [{"id": "spent", "source": "items", "projection": "request", "field": "cost_usd", "agg": "sum",
               "transform": "cumulative"}]}
 ```
 
@@ -262,7 +262,7 @@ And by the hour, as bars, since an hour is a discrete period:
 ```json
 {"id": "cost-by-hour", "title": "Cost per hour", "size": "m", "form": "bar",
  "note": "An hour far above the rest names the runs to read in the Record.",
- "queries": [{"id": "hourly", "source": "items", "kind": "request", "field": "cost_usd", "agg": "sum", "bucket": "1h"}]}
+ "queries": [{"id": "hourly", "source": "items", "projection": "request", "field": "cost_usd", "agg": "sum", "bucket": "1h"}]}
 ```
 
 ### 7d. Are we keeping up?
@@ -287,7 +287,7 @@ duration is right: read as a number beside the other two, never watched as a lin
 {"id": "littles-l", "title": "In working (L)", "size": "s", "form": "stat",
  "options": {"value": "avg"},
  "note": "Should be near λ × W; far off, the record has holes (items never finished, events missing): fix them before trusting the rest.",
- "queries": [{"id": "l", "source": "counts", "kind": "request", "state": "working", "group_by": "kind"}]}
+ "queries": [{"id": "l", "source": "counts", "projection": "request", "state": "working", "group_by": "projection"}]}
 ```
 
 <!-- panel: littles-lambda -->
@@ -295,7 +295,7 @@ duration is right: read as a number beside the other two, never watched as a lin
 {"id": "littles-lambda", "title": "Leaving working (λ)", "size": "s", "form": "stat",
  "options": {"value": "avg"},
  "note": "Read with L and W: L ≈ λW.",
- "queries": [{"id": "lambda", "source": "moves", "kind": "request", "measure": "exits", "state": "working",
+ "queries": [{"id": "lambda", "source": "moves", "projection": "request", "measure": "exits", "state": "working",
               "transform": "rate", "rate_per": "hour"}]}
 ```
 
@@ -304,7 +304,7 @@ duration is right: read as a number beside the other two, never watched as a lin
 {"id": "littles-w", "title": "Time in working (W, mean)", "size": "s", "form": "stat",
  "options": {"value": "avg"},
  "note": "Read with L and λ: L ≈ λW, with W in hours.",
- "queries": [{"id": "w", "source": "moves", "kind": "request", "measure": "time_in_state", "state": "working", "agg": "avg"}]}
+ "queries": [{"id": "w", "source": "moves", "projection": "request", "measure": "time_in_state", "state": "working", "agg": "avg"}]}
 ```
 
 The pool, by the USE method: utilisation as busy agents against the limit (saturation is the backlog above, errors
@@ -338,7 +338,7 @@ Errors by the RED method, as a rate beside the duration that matters:
 {"id": "failures", "title": "Failures per hour", "size": "m", "form": "line",
  "display": {"thresholds": [{"value": 1, "label": "goal: under one an hour"}]},
  "note": "Over the goal: read the latest failed request's Record before retrying any.",
- "queries": [{"id": "failed", "source": "moves", "kind": "request", "measure": "entries", "state": "failed",
+ "queries": [{"id": "failed", "source": "moves", "projection": "request", "measure": "entries", "state": "failed",
               "transform": "rate", "rate_per": "hour"}]}
 ```
 
@@ -352,7 +352,7 @@ Each bad panel below asks real queries that answer; it is bad as a panel, and br
 ```json
 {"id": "avg-duration-bad", "title": "Time to work a request", "size": "m", "form": "line",
  "note": "If it rises, look at working.",
- "queries": [{"id": "t", "source": "moves", "kind": "request", "measure": "time_in_state", "state": "working", "agg": "avg"}]}
+ "queries": [{"id": "t", "source": "moves", "projection": "request", "measure": "time_in_state", "state": "working", "agg": "avg"}]}
 ```
 
 One request left in *working* over a weekend moves the average for everyone, and the average hides the tail. The
@@ -364,8 +364,8 @@ fix: the median and the tail, with the goal on the tail:
  "display": {"thresholds": [{"value": 7200, "label": "goal: p90 under 2 h"}]},
  "note": "p90 over the goal for half a day: split the work, or add an agent to working.",
  "queries": [
-   {"id": "p50", "source": "moves", "kind": "request", "measure": "time_in_state", "state": "working", "agg": "p50"},
-   {"id": "p90", "source": "moves", "kind": "request", "measure": "time_in_state", "state": "working", "agg": "p90"}]}
+   {"id": "p50", "source": "moves", "projection": "request", "measure": "time_in_state", "state": "working", "agg": "p50"},
+   {"id": "p90", "source": "moves", "projection": "request", "measure": "time_in_state", "state": "working", "agg": "p90"}]}
 ```
 
 ### Stacked series that are not parts of a whole
@@ -376,8 +376,8 @@ fix: the median and the tail, with the goal on the tail:
  "options": {"fill": "area", "stack": "stacked"},
  "note": "If it falls, look at intake.",
  "queries": [
-   {"id": "in", "source": "moves", "kind": "request", "measure": "entries", "state": "waiting", "transform": "rate", "rate_per": "hour"},
-   {"id": "out", "source": "moves", "kind": "request", "measure": "entries", "state": "done", "transform": "rate", "rate_per": "hour"}]}
+   {"id": "in", "source": "moves", "projection": "request", "measure": "entries", "state": "waiting", "transform": "rate", "rate_per": "hour"},
+   {"id": "out", "source": "moves", "projection": "request", "measure": "entries", "state": "done", "transform": "rate", "rate_per": "hour"}]}
 ```
 
 Arrivals and completions are the same requests counted twice; their stacked total is nothing, and the top band's
@@ -388,8 +388,8 @@ height cannot be read. The fix is section 7a's panel: two lines, unstacked:
 {"id": "stacked-flows", "title": "Arrivals and completions", "size": "m", "form": "line",
  "note": "Completions under arrivals for a day: add an agent to working.",
  "queries": [
-   {"id": "in", "label": "arrived", "source": "moves", "kind": "request", "measure": "entries", "state": "waiting", "transform": "rate", "rate_per": "hour"},
-   {"id": "out", "label": "done", "source": "moves", "kind": "request", "measure": "entries", "state": "done", "transform": "rate", "rate_per": "hour"}]}
+   {"id": "in", "label": "arrived", "source": "moves", "projection": "request", "measure": "entries", "state": "waiting", "transform": "rate", "rate_per": "hour"},
+   {"id": "out", "label": "done", "source": "moves", "projection": "request", "measure": "entries", "state": "done", "transform": "rate", "rate_per": "hour"}]}
 ```
 
 ### Two units on one axis
@@ -400,7 +400,7 @@ height cannot be read. The fix is section 7a's panel: two lines, unstacked:
  "note": "If either rises, look into it.",
  "queries": [
    {"id": "backlog", "source": "series", "series": "sensor/backlog.count", "agg": "last"},
-   {"id": "cost", "source": "items", "kind": "request", "field": "cost_usd", "agg": "sum", "transform": "rate", "rate_per": "hour"}]}
+   {"id": "cost", "source": "items", "projection": "request", "field": "cost_usd", "agg": "sum", "transform": "rate", "rate_per": "hour"}]}
 ```
 
 Requests and dollars per hour share one scale, so the smaller is a flat line along the bottom; a second axis would
@@ -419,7 +419,7 @@ only make the crossing points mean something they do not. The fix: two panels, a
 {"id": "two-units-cost", "title": "Cost per hour", "size": "m", "form": "line",
  "display": {"thresholds": [{"value": 2, "label": "planned: $2/h"}]},
  "note": "Over plan for three hours: find the runs behind it before the day's budget goes.",
- "queries": [{"id": "cost", "source": "items", "kind": "request", "field": "cost_usd", "agg": "sum", "transform": "rate", "rate_per": "hour"}]}
+ "queries": [{"id": "cost", "source": "items", "projection": "request", "field": "cost_usd", "agg": "sum", "transform": "rate", "rate_per": "hour"}]}
 ```
 
 ### A line per requester
@@ -428,7 +428,7 @@ only make the crossing points mean something they do not. The fix: two panels, a
 ```json
 {"id": "per-requester-bad", "title": "Cost by requester", "size": "m", "form": "line",
  "note": "Find who is spending the most.",
- "queries": [{"id": "cost", "source": "items", "kind": "request", "field": "cost_usd", "agg": "sum", "group_by": "requester",
+ "queries": [{"id": "cost", "source": "items", "projection": "request", "field": "cost_usd", "agg": "sum", "group_by": "requester",
               "transform": "rate", "rate_per": "hour"}]}
 ```
 
@@ -440,7 +440,7 @@ question is a lookup, so the fix groups by a field with few values and leaves th
 {"id": "per-requester", "title": "Cost by size of request", "size": "m", "form": "table",
  "options": {"columns": ["last", "avg", "max"], "sort": "avg"},
  "note": "If large requests cost most, size the work before it is taken.",
- "queries": [{"id": "cost", "source": "items", "kind": "request", "field": "cost_usd", "agg": "sum", "group_by": "size",
+ "queries": [{"id": "cost", "source": "items", "projection": "request", "field": "cost_usd", "agg": "sum", "group_by": "size",
               "transform": "rate", "rate_per": "hour"}]}
 ```
 
@@ -450,7 +450,7 @@ question is a lookup, so the fix groups by a field with few values and leaves th
 ```json
 {"id": "done-count-bad", "title": "Requests done", "size": "m", "form": "line",
  "note": "If it drops, find out why.",
- "queries": [{"id": "done", "source": "moves", "kind": "request", "measure": "entries", "state": "done"}]}
+ "queries": [{"id": "done", "source": "moves", "projection": "request", "measure": "entries", "state": "done"}]}
 ```
 
 The count in each bucket depends on the bucket, which depends on the window and the panel's width: the same flow
@@ -460,7 +460,7 @@ reads 2 on a day and 14 on a week. The fix asks for a rate, which reads the same
 ```json
 {"id": "done-count", "title": "Requests done per hour", "size": "m", "form": "line",
  "note": "Under one an hour while the backlog is over its goal: look at review, the last stage before done.",
- "queries": [{"id": "done", "source": "moves", "kind": "request", "measure": "entries", "state": "done",
+ "queries": [{"id": "done", "source": "moves", "projection": "request", "measure": "entries", "state": "done",
               "transform": "rate", "rate_per": "hour"}]}
 ```
 
@@ -513,7 +513,7 @@ stocks:
     limit: 4
     sensors:
       busy: {run: ./count-busy.sh, every: 1m}
-items:
+projections:
   request:
     id: request/*
     states: [waiting, working, review, done, failed]

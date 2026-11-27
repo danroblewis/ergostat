@@ -19,7 +19,7 @@ from ergostat.store import Project
 T0 = 1_700_000_000.0
 
 MODEL = """
-items:
+projections:
   epic:
     id: epic/*
     states: [planned, underway, shipped]
@@ -33,7 +33,7 @@ items:
     relations:
       blocked_by: ticket
       parent: epic
-      duplicates: {kind: [ticket, epic], inverse: duplicated_by}
+      duplicates: {projection: [ticket, epic], inverse: duplicated_by}
 messages:
   done: {ticket: [done], epic: [shipped]}
 """
@@ -68,15 +68,15 @@ def test_a_kind_declares_relations_with_their_defaults(tmp_path):
 
 
 @pytest.mark.parametrize("rel,says", [
-    ("blocked_by: story", "'story' is not a kind of item"),
+    ("blocked_by: story", "'story' is not a projection"),
     ("Blocked: ticket", "is not a relation's name"),
-    ("blocked_by: {kind: ticket, precedence: maybe}", "precedence: and group: are true or false"),
-    ("blocked_by: {kind: ticket, inverse: blocked_by}", "the other direction's name"),
-    ("blocked_by: {kind: ticket, colour: red}", "colour"),
+    ("blocked_by: {projection: ticket, precedence: maybe}", "precedence: and group: are true or false"),
+    ("blocked_by: {projection: ticket, inverse: blocked_by}", "the other direction's name"),
+    ("blocked_by: {projection: ticket, colour: red}", "colour"),
 ])
 def test_a_relation_that_is_not_one_is_an_error(tmp_path, rel, says):
     got = problems(tmp_path, f"""
-        items:
+        projections:
           ticket:
             id: ticket/*
             states: [todo, done]
@@ -88,7 +88,7 @@ def test_a_relation_that_is_not_one_is_an_error(tmp_path, rel, says):
 
 def test_a_relation_folds_only_as_a_set(tmp_path):
     got = problems(tmp_path, """
-        items:
+        projections:
           ticket:
             id: ticket/*
             relations: {blocked_by: ticket}
@@ -98,7 +98,7 @@ def test_a_relation_folds_only_as_a_set(tmp_path):
 
 
 STARTS = """
-    items:
+    projections:
       ticket:
         id: ticket/*
         states: [todo, review, done, on-hold]
@@ -111,37 +111,37 @@ STARTS = """
 
 
 def test_starts_at_naming_an_unknown_state_is_refused(tmp_path):
-    got = problems(tmp_path, STARTS.format(rel="blocked_by: {kind: ticket, starts_at: [reveiw]}"))
+    got = problems(tmp_path, STARTS.format(rel="blocked_by: {projection: ticket, starts_at: [reveiw]}"))
     assert [g.split(":")[0] for g in got] == ["starts-at-unknown-state"], got
     assert "did you mean review" in got[0]
-    assert problems(tmp_path, STARTS.format(rel="blocked_by: {kind: ticket, starts_at: [review]}")) == []
+    assert problems(tmp_path, STARTS.format(rel="blocked_by: {projection: ticket, starts_at: [review]}")) == []
 
 
 def test_starts_at_on_a_group_relation_is_refused(tmp_path):
-    got = problems(tmp_path, STARTS.format(rel="parent: {kind: ticket, starts_at: [review]}"))
+    got = problems(tmp_path, STARTS.format(rel="parent: {projection: ticket, starts_at: [review]}"))
     assert [g.split(":")[0] for g in got] == ["starts-at-not-precedence"], got
-    got = problems(tmp_path, STARTS.format(rel="relates_to: {kind: ticket, starts_at: [review]}"))
+    got = problems(tmp_path, STARTS.format(rel="relates_to: {projection: ticket, starts_at: [review]}"))
     assert [g.split(":")[0] for g in got] == ["starts-at-not-precedence"], got
 
 
 @pytest.mark.parametrize("state", ["done", "on-hold"])
 def test_starts_at_naming_a_finished_or_paused_state_is_refused(tmp_path, state):
-    got = problems(tmp_path, STARTS.format(rel=f"blocked_by: {{kind: ticket, starts_at: [{state}]}}"))
+    got = problems(tmp_path, STARTS.format(rel=f"blocked_by: {{projection: ticket, starts_at: [{state}]}}"))
     assert [g.split(":")[0] for g in got] == ["starts-at-finished"], got
 
 
 TAKEN = """
-    items:
+    projections:
       gap:
         id: gap/*
         states: [todo, approved, merged]
         relations:
-          depends_on: {{kind: gap, starts_at: [{state}]}}
+          depends_on: {{projection: gap, starts_at: [{state}]}}
     blocks:
       dev:
         type: program
         run: "true"
-        takes: {{kind: gap, at: todo, unblocked: true}}
+        takes: {{projection: gap, at: todo, unblocked: true}}
     """
 
 
@@ -155,7 +155,7 @@ def test_starts_at_on_a_taken_kind_with_no_done_reads_its_own_last_state(tmp_pat
 
 def test_takes_unblocked_needs_a_precedence_relation(tmp_path):
     got = problems(tmp_path, """
-        items:
+        projections:
           ticket:
             id: ticket/*
             states: [todo, done]
@@ -164,7 +164,7 @@ def test_takes_unblocked_needs_a_precedence_relation(tmp_path):
           dev:
             type: program
             run: "true"
-            takes: {kind: ticket, at: todo, unblocked: true}
+            takes: {projection: ticket, at: todo, unblocked: true}
         """)
     assert any("no precedence relation" in g for g in got), got
 
@@ -374,7 +374,7 @@ systems:
   knowledge: {description: what is known}
   building: {description: the gaps}
   support: {description: the tickets}
-items:
+projections:
   gap:
     id: gap/*
     system: building
@@ -429,7 +429,7 @@ def test_a_systems_graph_draws_no_other_systems_items_and_says_where_they_are(tm
     ans = graph(p, p.model, {"at": T0 + 10, "window": 3600}, {"kinds": ["review"], "system": ["knowledge"]})
     assert [x["id"] for x in ans["items"]] == ["review/1"]                  # no gap, no session: not even a stub
     assert ans["outside"] == [] and ans["edges"] == [] and ans["waits"] is False
-    assert ans["about"] == [{"kind": "review", "rel": "gap", "to": "gap", "system": "building"}]
+    assert ans["about"] == [{"projection": "review", "rel": "gap", "to": "gap", "system": "building"}]
     assert ans["items"][0]["links"] == {"gap": ["gap/c"]}                  # listed on its card, not drawn
 
 
@@ -461,7 +461,7 @@ def test_an_item_waiting_on_another_systems_item_is_projected_after_it(tmp_path)
 
 RELATED = """
 systems: {planning: {description: planned}, delivery: {description: built}}
-items:
+projections:
   epic: {id: epic/*, system: planning, states: [planned, shipped], relations: {after: epic}}
   ticket:
     id: ticket/*
@@ -497,12 +497,12 @@ def test_the_gaps_own_system_keeps_its_chain_and_critical_path(tmp_path):
     spec = p.model.spec
     plain = pr.build(p.events, spec, ["gap"], T0 + 10, T0 - 10)
     mine = pr.build(p.events, spec, ["gap"], T0 + 10, T0 - 10, own=["gap", "session"])
-    gaps = lambda g: [x["id"] for x in g["items"] if x["kind"] == "gap"]   # noqa: E731
+    gaps = lambda g: [x["id"] for x in g["items"] if x["projection"] == "gap"]   # noqa: E731
     assert gaps(plain) == gaps(mine) and {"gap/a", "gap/b", "gap/c"} == set(gaps(plain))   # the depends_on chain
     assert plain["critical"] == mine["critical"] and plain["end"] == mine["end"]
     prec = lambda g: sorted((e["from"], e["to"]) for e in g["edges"] if e["kind"] == "precedence")   # noqa: E731
     assert prec(plain) == prec(mine) == [("gap/a", "gap/b"), ("gap/b", "gap/c")]
-    assert mine["outside"] == [] and not any(x["kind"] == "session" for x in mine["items"])   # about a gap: not pulled
+    assert mine["outside"] == [] and not any(x["projection"] == "session" for x in mine["items"])   # about a gap: not pulled
 
 
 def test_the_roadmaps_delivery_graph_draws_the_same_cards(tmp_path):

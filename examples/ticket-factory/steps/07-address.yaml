@@ -9,7 +9,7 @@ flows:
     driven-by: [+stock.changes-asked]
     equation: stock.changes-asked / address-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: review-asked
       over: 10m
 
@@ -32,7 +32,7 @@ blocks:
     agent: ai
     prompt: prompts/review.md
     run: python3 bin/step.py address       # a process per run: an AI session of minutes, its CPU and cost its own
-    takes: {kind: ticket, at: changes-asked, to: [review-asked, stopped]}
+    takes: {projection: ticket, at: changes-asked, to: [review-asked, stopped]}
     pool: 1
     lease: {ttl: 20m, attempts: 2}
     workspace: code

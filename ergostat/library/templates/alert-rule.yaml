@@ -6,8 +6,8 @@ reading: |
   It holds no goal of its own: what it pages is what holds one, a person or a block answering the pages.
   System dynamics: a stock of alerts firing, its two-way flow their firing and resolving; the signal an auxiliary
   nothing here controls (a disturbance). The stock is always measured (`firing`, `firing-query` or the stand-in):
-  ergostat never runs the rule, so nothing here makes its pages. `pages` declares their item kind, whose events
-  KIND.fired and KIND.resolved the alerting system must post (`ergostat event --add KIND.fired --item KIND/ID`).
+  ergostat never runs the rule, so nothing here makes its pages. `pages` declares their projection, whose events
+  PROJECTION.fired and PROJECTION.resolved the alerting system must post (`ergostat event --add PROJECTION.fired --item PROJECTION/ID`).
 example: |
   sources:
     prom: {type: prometheus, url: http://prometheus:9090}
@@ -29,9 +29,9 @@ params:
   signal-query: {type: map, stand-in: a made-up signal swelling past the threshold and back, description: "the sensor of the signal as a query ({source: prom, promql: ...}), in place of the command"}
   firing: {type: command, default: "${lib} standin firing --threshold ${threshold} --side ${side}", stand-in: firing while the made-up signal is past, description: "the sensor of the alerts firing, a command printing how many"}
   firing-query: {type: map, stand-in: firing while the made-up signal is past, description: "the sensor of the alerts firing as a query (ALERTS{alertname=...})"}
-  pages: {type: name, description: "the item kind of its pages, firing then resolved; ergostat makes none: the alerting system posts KIND.fired and KIND.resolved"}
+  pages: {type: name, description: "the projection of its pages, firing then resolved; ergostat makes none: the alerting system posts PROJECTION.fired and PROJECTION.resolved"}
   description: {default: "the alert rule, observed: ergostat never runs it", description: what the external block says it is}
-items:
+projections:
   ${pages}:
     if: ${pages}
     id: ${pages}/*

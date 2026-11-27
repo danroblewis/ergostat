@@ -4,7 +4,7 @@ name: deps
 defaults:
   system: deps
 
-items:
+projections:
   update:                                 # one package's move to a new release: update/http-client-2.0
     id: update/*
     states: [outdated, pr-open, merged]
@@ -18,7 +18,7 @@ stocks:
     unit: packages
     description: releases not yet in an update PR
     sensor:                               # counted from the record: the updates still outdated
-      items: update
+      projection: update
       state: outdated
       every: 3s
   update-prs-open:

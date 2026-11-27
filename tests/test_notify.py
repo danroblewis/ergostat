@@ -21,7 +21,7 @@ from ergostat.store import Project
 KIND = """
 name: n
 storage: {{events: {backend}}}
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -31,7 +31,7 @@ items:
 TAKES = KIND + """
 stocks:
   ready:
-    sensor: {{items: job, state: ready, every: 1h}}
+    sensor: {{projection: job, state: ready, every: 1h}}
 goals:
   nothing-waits:
     stock: ready
@@ -41,7 +41,7 @@ blocks:
     type: program
     goal: nothing-waits
     run: "echo '{{\\"event\\": \\"job.done\\"}}'"
-    takes: {{kind: job, at: ready, to: [done]}}
+    takes: {{projection: job, at: ready, to: [done]}}
     pool: 40
 """
 

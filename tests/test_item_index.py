@@ -59,7 +59,7 @@ def test_the_index_is_a_fresh_fold_as_events_arrive_and_after_rollups(tmp_path, 
 
 def _ticket(tmp_path, backend="segments", extra=""):
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(f"""
-        items:
+        projections:
           ticket:
             id: ticket/*
             states: [open, doing, done]
@@ -168,13 +168,13 @@ def test_counts_pages_and_moves_read_from_the_index_are_a_folds(tmp_path, backen
     assert sorted(i.id for i in got) == sorted(i.id for i in past.values() if i.kind == "ticket" and i.state in ("open", "doing")
                                                and i.fields["team"] == "b")
     now = its.listing(p.events, spec, n=50, offset=20)
-    assert now["total"] == len(every) and now["unkinded"] == 1
+    assert now["total"] == len(every) and now["unprojected"] == 1
     assert [i["id"] for i in now["items"]] == [i["id"] for i in sorted(every, key=lambda i: -i["last"])][20:70]
     counts = {}
     for i in every:
-        if i["kind"]:
+        if i["projection"]:
             counts[i["state"]] = counts.get(i["state"], 0) + 1
-    assert next(k for k in now["kinds"] if k["name"] == "ticket")["counts"] == counts
+    assert next(k for k in now["projections"] if k["name"] == "ticket")["counts"] == counts
     doing = its.listing(p.events, spec, kind="ticket", state="doing", until=until)
     assert doing["total"] == len(want) and {i["id"] for i in doing["items"]} == {i.id for i in want}
     assert its.listing(p.events, spec, kind="", n=5)["items"][0]["id"] == "loose/1"

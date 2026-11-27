@@ -24,7 +24,7 @@ acting on that chain. If your drawing has many separate stocks each draining to 
 loops that share nothing, the model is the wrong shape (section 4).
 
 Items are how individual pieces of work are tracked: each ticket, request or pull request is an
-**item**, a fold of the events about one id. An item kind lists its **states** in order. The stocks
+**item**, a fold of the events about one id. A projection lists its **states** in order. The stocks
 count items in each state; the flows count items moving between states. That is the bridge between
 "a ticket moves through my process" and the diagrams.
 
@@ -36,7 +36,7 @@ Work through these steps in order. Ask the person only what you cannot infer.
    *researching*, then *awaiting-approval*, then *rolling-out*, then *done*." Add the side exits
    (*rejected*, *abandoned*). This list is the backbone of everything else.
 2. **One stock per state where work waits or is worked on** (not the final states). Each is measured
-   by counting items in that state: `sensor: {items: KIND, state: STATE}`.
+   by counting items in that state: `sensor: {projection: PROJECTION, state: STATE}`.
 3. **One flow per move between states, chained from stock to stock.** A move from *researching* to
    *awaiting-approval* is a flow `from: researching-stock`, `to: awaiting-stock`, measured as items
    entering the later state. Arrivals come **in** from outside to the first stock; completions and
@@ -45,19 +45,19 @@ Work through these steps in order. Ask the person only what you cannot infer.
 4. **A collector that finds the work**: a program block (or sensor) that polls the outside system
    (Jira, GitHub, a queue) and prints one event per new or changed item, e.g.
    `{"event": "request.new", "item": "request/123", "data": {"title": "...", "url": "..."}}`. The
-   kind's `on:` maps event types to states. This is the **sensor** of the whole workflow: without it
+   projection's `on:` maps event types to states. This is the **sensor** of the whole workflow: without it
    nothing arrives.
 
    **When the work is related** (a ticket blocked by another, tickets under an epic, a duplicate), declare the
-   relations on the kind and have the collector record them as fields (SPEC §5a, *Relations*):
+   relations on the projection and have the collector record them as fields (SPEC §5a, *Relations*):
 
    ```yaml
-   items:
+   projections:
      ticket:
        id: ticket/*
        relations:
          blocked_by: ticket          # precedence: ready once each one it names is done
-         parent: epic                # cross-kind: the epic it is part of
+         parent: epic                # cross-projection: the epic it is part of
      epic:
        id: epic/*
    ```
@@ -70,27 +70,27 @@ Work through these steps in order. Ask the person only what you cannot infer.
    {"set": ["epic/PROJ-1"]}}}`. One that sees changes says them: `{"blocked_by": {"add": "ticket/PROJ-9"}}`,
    `{"remove": ...}`. Use the same ids the items have (`ticket/PROJ-9`, not `PROJ-9`), and record the related item
    too, or it shows as "not recorded" and counts as unfinished. Then the step that starts the work can take only
-   what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. When a ticket may
-   start once the one it waits on is in review, not done, say so on the relation: `blocked_by: {kind: ticket,
+   what is unblocked, the critical first: `takes: {projection: ticket, at: todo, unblocked: true}`. When a ticket may
+   start once the one it waits on is in review, not done, say so on the relation: `blocked_by: {projection: ticket,
    starts_at: [review]}` (name every state from which on; a ticket held under a lease counts by the state it was
    taken from, so never name `leased`; the projected schedule still waits for it to finish). Items grouped in one
-   group each (a ticket's `epic: {kind: epic, group: true}`, folded by `replace`) show each group's progress on the
-   kind's card (`ergostat item --kind ticket --groups epic`); when a finished state is not always done work (closed
+   group each (a ticket's `epic: {projection: epic, group: true}`, folded by `replace`) show each group's progress on the
+   projection's card (`ergostat item --projection ticket --groups epic`); when a finished state is not always done work (closed
    as a duplicate), say which fields make it so: `done_when: {closed: {end: done}}`. Look at the Items
    page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
    to check the links came through, or ask from the command line: `ergostat item ID --near [N]` (the items within N
    hops, 1 to 4), `ergostat item A --path B` (a shortest chain of relations, a backward step named by its inverse),
    `ergostat item ID --about` (what links to it, `declared`, and what names its id in a field, `inferred`); each
    with `--json`, the same as `/api/items-query`, visiting at most 2,000 items and saying `capped` past that
-   (the Timeline's projection and the list's **done by** are the completion
+   (the Timeline's bars and the list's **done by** are the completion
    estimates: see "When will it be done", below); `examples/roadmap/` is a small model built this way. A parent that moves on
-   when its children do (an epic shipped once every ticket is done) is a rule on its kind, never a block:
+   when its children do (an epic shipped once every ticket is done) is a rule on its projection, never a block:
    `join: {children: parent, all: done, to: shipped}` (`any:` for the first child to start).
    **To prioritise any queue**, give the items a field that says their order (a `rank`, a `priority`), set by the
-   events that groom them (`{"data": {"priority": 2}}`), and order the block that takes them by it: `takes: {kind:
+   events that groom them (`{"data": {"priority": 2}}`), and order the block that takes them by it: `takes: {projection:
    ticket, at: todo, unblocked: true, order: [-priority, rank]}` (lowest first; `-FIELD` highest first; the items
    without it after those with it; the critical first among equals). The completion estimates and the Timeline
-   project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
+   run forward in the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
    notes an order field no item holds yet (`takes-order-unset`). **To keep the next few in their order** (work about
    to start not reshuffled by later arrivals or re-ranks), add `frozen: {first: 3, urgent: rush}` to `takes:`; an
    item goes ahead of the window only when its `rush` says `{"by": WHO, "why": WHY}`, and that is recorded
@@ -102,10 +102,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    (`passed:`, needed with `ahead:`, is where a passing run leaves its item; any other state is a fail), also after a
    restart takes its kept run up. Off by default too.
    **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare
-   `attention: FIELD` on its kind: the words of that field on the kind's latest item that has them are a warning on
+   `attention: FIELD` on its projection: the words of that field on the projection's latest item that has them are a warning on
    the page's attention list (SPEC §5a), so the finding is said where it is seen, not only stored.
    **When a queue's items share something that can be down** (a tracker, a build service), give the stock that
-   checks it a sensor reading 1 while up and 0 while down, and say so on the block: `takes: {kind: ticket, at: todo,
+   checks it a sensor reading 1 while up and 0 while down, and say so on the block: `takes: {projection: ticket, at: todo,
    faults: {healthy: sensor.tracker-up}}` (or a `goal.` that holds, or a `block.` command). While it is down or
    unread, nothing new is taken and a run that fails spends no attempt, so the outage parks no ticket as a dead
    letter; the hold is the event `ergostat.queue.held`, ended by `ergostat.queue.resumed` (SPEC §9.5, *Faults*).
@@ -120,7 +120,7 @@ Work through these steps in order. Ask the person only what you cannot infer.
    takeable (`files: []` for one touching nothing): an item with no field touches every area. Each area held one at a
    time is work done in series: map only where collisions cost more than the wait. Leave it out unless the person asks for it.
    **When items are knowledge about the system** (a lesson, a runbook entry, a known cause), let them say which parts
-   of the model they bear on: declare `about: FIELD` on the kind and record the names in that field (`{"data":
+   of the model they bear on: declare `about: FIELD` on the projection and record the names in that field (`{"data":
    {"about": ["goal.inbox-short", "stock.inbox"]}}`; SPEC §5a, *About*). An event that sets the field replaces the
    list, so the collector says the whole list each time (an empty list when the item names none any more). Then
    `ergostat explain goal.x` ends with the open items about it (at most 5, then "and N more"; finished ones are not
@@ -128,7 +128,7 @@ Work through these steps in order. Ask the person only what you cannot infer.
    most 3, then "+N"; none under `--at`). A name that is not a part of the model is the finding `about-missing-part`: fix the name.
    "unknown" in any of these means the item index could not be read, not that there is no knowledge.
 5. **One block per step that does the work**, taking items in its state:
-   `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once: a number, or
+   `takes: {projection: PROJECTION, at: STATE, to: [NEXT]}`, with `pool:` (how many at once: a number, or
    `{now: stock.NAME, most: N}` when a controller steps a measured stock to set it) and, for AI work, a
    prompt. A run leases its item, does the step, and prints the event that moves the item on.
    ergostat retries a run that fails or goes silent, and parks an item that keeps failing as a dead
@@ -186,7 +186,7 @@ Work through these steps in order. Ask the person only what you cannot infer.
    engine's own, and the engine's watchdog and the outer watcher drawn as external blocks under `no-stalls` and
    `heartbeat-fresh` (`stale`, 180 s), with the owner (a person) under `few-restarts` (`restarts-most`, 3 a day;
    `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it
-   when the files a model's changing kinds leave behind, the record's growth, or the engine's own health, should show
+   when the files a model's changing projections leave behind, the record's growth, or the engine's own health, should show
    on the diagram; with it, leave `storage: rollup: every` out (`check` says it is unused).
 
    **Regression guarantees: offer them, never add them unasked.** When a model declares `claims: tests` or uses
@@ -200,13 +200,13 @@ Work through these steps in order. Ask the person only what you cannot infer.
    tests that ran passed, not that nothing regressed. `examples/image-squeeze/lab.yaml` uses it.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
-   against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
+   against its blocks. Fix the model, or the blocks, until every projection agrees (section 3, *Reconcile the three
    views*).
 
 ### A small example, connected
 
 ```yaml
-items:
+projections:
   request:
     id: request/*
     states: [new, researching, awaiting-approval, rolling-out, done, rejected]
@@ -220,24 +220,24 @@ items:
     show: [title, url]
 
 stocks:
-  requests-new:        {unit: requests, sensor: {items: request, state: new, every: 1m}}
-  requests-researching: {unit: requests, sensor: {items: request, state: researching, every: 1m}}
-  requests-awaiting:   {unit: requests, sensor: {items: request, state: awaiting-approval, every: 1m}}
-  requests-rolling-out: {unit: requests, sensor: {items: request, state: rolling-out, every: 1m}}
+  requests-new:        {unit: requests, sensor: {projection: request, state: new, every: 1m}}
+  requests-researching: {unit: requests, sensor: {projection: request, state: researching, every: 1m}}
+  requests-awaiting:   {unit: requests, sensor: {projection: request, state: awaiting-approval, every: 1m}}
+  requests-rolling-out: {unit: requests, sensor: {projection: request, state: rolling-out, every: 1m}}
 
 auxiliaries:                     # no memory of its own: an age, a ratio, a score
   oldest-awaiting:
     unit: hours
     driven-by: [+stock.requests-awaiting]
-    sensor: {items: request, state: awaiting-approval, measure: oldest, every: 1m}
+    sensor: {projection: request, state: awaiting-approval, measure: oldest, every: 1m}
 
 flows:
-  arriving:     {to: requests-new, sensor: {items: request, entering: new}}
-  started:      {from: requests-new, to: requests-researching, sensor: {items: request, entering: researching}}
-  researched:   {from: requests-researching, to: requests-awaiting, sensor: {items: request, entering: awaiting-approval}}
-  approved:     {from: requests-awaiting, to: requests-rolling-out, sensor: {items: request, entering: rolling-out}}
-  rejected:     {from: requests-awaiting, sensor: {items: request, entering: rejected}}
-  completed:    {from: requests-rolling-out, sensor: {items: request, entering: done}}
+  arriving:     {to: requests-new, sensor: {projection: request, entering: new}}
+  started:      {from: requests-new, to: requests-researching, sensor: {projection: request, entering: researching}}
+  researched:   {from: requests-researching, to: requests-awaiting, sensor: {projection: request, entering: awaiting-approval}}
+  approved:     {from: requests-awaiting, to: requests-rolling-out, sensor: {projection: request, entering: rolling-out}}
+  rejected:     {from: requests-awaiting, sensor: {projection: request, entering: rejected}}
+  completed:    {from: requests-rolling-out, sensor: {projection: request, entering: done}}
 
 goals:
   approvals-prompt: {auxiliary: oldest-awaiting, hold: "<= 4"}
@@ -251,7 +251,7 @@ blocks:
     out: flow.arriving           # what its work moves: this is what draws it into the loop
   researcher:
     type: ai
-    takes: {kind: request, at: new, to: [awaiting-approval]}
+    takes: {projection: request, at: new, to: [awaiting-approval]}
     pool: 2
     goal: research-kept-up
     prompt: prompts/research.md
@@ -263,7 +263,7 @@ blocks:
     out: flow.approved
   roll-out:
     type: program
-    takes: {kind: request, at: rolling-out, to: [done]}
+    takes: {projection: request, at: rolling-out, to: [done]}
     run: scripts/roll-out
     out: flow.completed
 ```
@@ -299,15 +299,15 @@ engine took, with one line on stderr naming the first error; anything that acts 
    checklist below. An agent that looked at its diagrams fixed a disconnected model on its own; one
    that did not, did not notice.
 4. **Run it briefly with stand-ins** (scripts that print plausible events) before connecting real
-   systems, and watch items move through the chain on the Items page: `/items` is an overview, a card per kind with
-   its unfinished count, its states over the window (grouped as waiting, working, stopped and done, or every state)
-   and its rate in and out; a kind's name opens its own page, `/KIND`, with its list, graph and timeline.
+   systems, and watch items move through the chain on each projection's own page: the header's Projections menu lists them, and
+   `/PROJECTION` shows one, with its unfinished count, its states over the window (grouped as waiting, working,
+   stopped and done, or every state), its rate in and out, and its list, graph and timeline.
 5. **Check that the work moves as modelled, in the Process view.** The Diagram page's Process view
-   (SPEC §5b) is the process map the record draws: for each kind, the states its items really
+   (SPEC §5b) is the process map the record draws: for each projection, the states its items really
    entered and the moves between them, how often, and the median time each took. Hold it against
    the chain you modelled (below).
 6. **Reconcile the three views** (the last step): `ergostat check` once the model has run, or the MCP
-   `coherence` tool, and fix until every kind agrees (below).
+   `coherence` tool, and fix until every projection agrees (below).
 
 ### The Process view: does the workflow behave as modelled?
 
@@ -325,8 +325,8 @@ The Dynamics view is the workflow you declared; the Process view is the one that
       been in (a repeated step; how many returns, in the line's panel), never other items' order: a review
       sending work back is real; a lease handing items back over and over is a failing step (its median
       time says how long each try took).
-- [ ] **Fan-out and join** (dashed lines between kinds): work that starts other work (a ticket
-      spawning research items) shows a line from the first kind into the second, and back where the
+- [ ] **Fan-out and join** (dashed lines between projections): work that starts other work (a ticket
+      spawning research items) shows a line from the first projection into the second, and back where the
       second's results finish the first. None means the runs do not record `causedby`. A sweep on
       `every:` or `cron:` that opens items draws its fan-out from its block's node in the **schedules** frame.
 - [ ] Switch **Events** on to see what happens between the moves (comments, retries, a session's
@@ -339,10 +339,10 @@ The first four are what `ergostat check`'s Coherence section checks for you, wit
 
 The Process view (what the items did), the Dynamics view (the chain you modelled) and the Blocks view
 (what moves the work) are one system drawn three ways, and they must agree. `ergostat check` holds
-them against each other over the record (SPEC §12l; the MCP tool `coherence`): per kind a score, `ticket: 41 of 44 agree (93%)`, or how much more record it
+them against each other over the record (SPEC §12l; the MCP tool `coherence`): per projection a score, `ticket: 41 of 44 agree (93%)`, or how much more record it
 needs; and each mismatch with its file and line, its fix, the pair of views that disagrees, and the
 `check` finding it is linked to. This is your feedback loop: run, check, change the model (or the
-blocks), run again, until every kind reads `N of N agree`. How to read each:
+blocks), run again, until every projection reads `N of N agree`. How to read each:
 
 | Mismatch | Pair | What it means | What to change |
 |---|---|---|---|
@@ -359,7 +359,7 @@ blocks), run again, until every kind reads `N of N agree`. How to read each:
 | `declared-not-seen-acting` | Blocks ↔ Process | a block had work and something else moved it on | as above: its events are not its own, or the model names the wrong mover |
 
 Notes are not mismatches: `flow-not-seen` (a path the record has not taken yet: a retry, a dead letter), a block with
-no work in the window, a kind whose states no chain models. Too little record says how much more it needs: run
+no work in the window, a projection whose states no chain models. Too little record says how much more it needs: run
 longer, then check again.
 
 ### What "looks right" means
@@ -402,9 +402,9 @@ The essentials:
   a step that takes items works only while its goal is off); a described sensor and collector; one block per step
   with `out:`; person and AI steps typed as such, on declared agents; cascades set setpoints; no `process:` that was
   not identified.
-- **Process**: states declared; events `kind.verb-past`; fan-out and join done inside a run that holds the causing
+- **Process**: states declared; events `projection.verb-past`; fan-out and join done inside a run that holds the causing
   item's lease (the run's printed events, and `$ERGOSTAT_CMD event --add` from it, are recorded as caused by it),
-  so the dashed lines between kinds appear; rework as a declared move back.
+  so the dashed lines between projections appear; rework as a declared move back.
 - **Everywhere**: the same names in every view, a description on every part.
 
 ### A template's exports
@@ -509,11 +509,11 @@ old: `read` says how many seconds ago it was read. It still answers on the last 
    means the remote's model answers but its readings request fails, which is not fixed here; tell its
    owner, with the reason and the age the finding gives. (One reading refused as too old is not this
    finding: it shows as that sensor's `sensor.failed`.)
-5. **Use its measures, not its items.** Its items can be seen in the Items page (a section marked remote)
+5. **Use its measures, not its items.** Its items can be seen, marked remote and read only (`/item/ID?remote=incidents`),
    and its events in the Record page (`/record?remote=incidents`), but they are still never folded or counted
    locally: count them through the remote stock that counts them (its sensor is mirrored), or a sensor of your
    own, `query: {source: incidents, ref: stock.open}`. To link one of your items to one of its items, name its
-   kind by its local name in `relations:` (`blocked_by: incidents-incident`): the process map draws the line,
+   projection by its local name in `relations:` (`blocked_by: incidents-incident`): the process map draws the line,
    and it never gates.
 6. **What the record says about its parts** is in `ergostat remote proposals [NAME] [--json]`: estimates and
    equations for the remote's parts, written as text in its names for its owner, each marked current or not.
@@ -718,7 +718,7 @@ one, `person-gate`) (SPEC §9.5, *Dispatch*):
   webhook's URL in an environment variable (`url-env:`) or a file (`url-file:`), never in the YAML. Each channel is a
   gated action: at work, ask which channels may carry what, and write `gate: deny` (or `approve`) for the rest. Keep
   `group:` (2m) and `per-hour:` so they are not flooded; add `quiet:` hours, and `wait-at-most:` with `escalate-to:`
-  when something must not wait. Messages carry only ids, kinds, classes and links unless a channel says `detail: full`
+  when something must not wait. Messages carry only ids, projections, classes and links unless a channel says `detail: full`
   (then scrubbed). Try it with a `command` channel (`run: "cat >> notified.txt"`) before any real one; never send a real
   message from a test.
 - **Model them away.** Add `uses: {interventions: {use: interventions}}`: the interventions waiting become a stock, a
@@ -810,7 +810,7 @@ blocks:
 - ergostat fits an on-off law (an alert: thresholds, hysteresis, `for:`, minimum on and off times), proportional with
   saturation, PI with a deadband, and three-position step (floating) control (the HPA's shape: up and down by a step after a
   duration past a threshold, each with a cooldown), each with a delay, and keeps the one that predicts the held-out record best for its
-  number of parameters. The Blocks view writes the law in the block, marked *identified*; the closed-loop projection,
+  number of parameters. The Blocks view writes the law in the block, marked *identified*; the closed-loop simulation,
   what-if and risk run it in place of a generic stand-in.
 - Declare the law beside `identify:` (SPEC §12d, *Known laws*) when you have its configuration in front of you (the
   HPA's manifest, the alert rule's file), not from what you remember of the product's defaults:
@@ -819,10 +819,10 @@ blocks:
   value is `bad-law` at that key. The Blocks view writes it in the block, marked *declared kubernetes-hpa* (or
   *declared alert-rule*), and `explain` says it in words. A declared law is an assumption until tested against the
   record: once the record identifies a law, the block is drawn with that one, marked *identified*, and the declared one
-  stays in its rows to compare. It is not yet run by the projections.
+  stays in its rows to compare. It is not yet run by the simulations.
 - `external-unidentified` means too little record (40 points of both at least, and three moves of its output) or no law
   fits: wait for more, or check the sensors read the right series. `external-not-run` means its output is an auxiliary
-  (or a stock its `out:` flow does not move): the law is drawn, but the projection runs a generic stand-in.
+  (or a stock its `out:` flow does not move): the law is drawn, but the simulation runs a generic stand-in.
 - `external-law-disagrees` means the declared `law:` fits its record worse (held-out skill below 0, or the identified
   law scores lower): check the declared numbers against the controller's live configuration, and the sensors' period
   against its own, before calling it misconfigured; the finding claims only the worse fit.
@@ -834,7 +834,7 @@ blocks:
 - When the vendor documents the law (the HPA's is public), say so in the block's `description:` and compare: the
   identified thresholds and cooldowns are what it actually did, which is the point.
 
-## 3g. A loop the record does not identify, and projections far off after a burst
+## 3g. A loop the record does not identify, and simulations far off after a burst
 
 - **`loop-not-identifiable`** on a goal means the record so far does not identify its loop's process (it follows little
   of the record held out, or its errors are not white, or not independent of u): no `process:` is proposed, and you must
@@ -844,7 +844,7 @@ blocks:
   around outside steps at T1, T2"), or for more record. If it says "the record after it covers X of the Y its process
   needs to settle", the burst was too recent: wait until the record covers Y after it, and do not write a process from
   the earlier, shorter window. A loop that never sees either stays unidentified, and that is the honest answer.
-- **Projections far off after a burst** (the strip says "Low confidence: ..." in front, the band wide): the model fit the
+- **Simulations far off after a burst** (the strip says "Low confidence: ..." in front, the band wide): the model fit the
   quiet record, and the burst found what it lacks. Before tuning a value, suspect missing structure: a **capacity**
   (reviewers or workers at their most: a `MIN(stock / time, capacity)` outflow, or a block's `pool:`), a queue that
   drops or times out, a second path the burst took. Say so to the owner and ask for a redesign (the modelling loop's
@@ -877,7 +877,7 @@ together, run 200 times from the record of the last two weeks:
 
 The item page says why ("6 of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); the what-if beside a
 block's identified model (its pool, its share of failed runs) moves the estimates. **What makes them wrong**, and
-so what to model: a capacity no block declares (one reviewer for two kinds, an API's rate limit: give the step a
+so what to model: a capacity no block declares (one reviewer for two projections, an API's rate limit: give the step a
 `pool` or the agent an `at-once` that says it), a block switched on and off often (the estimate takes the gate as it
 is now, for the whole horizon), a process that changed in the last two weeks (the old runs
 still count), a step whose runs give the item back while they wait for something undeclared (the simulation
@@ -886,29 +886,29 @@ left yet (its items are assumed to go to the next state in order). Under twenty 
 fewer than five runs on record is said as assumed on the item's page.
 
 The same answer, the **forecast** (`forecast/v1`, SPEC §5a *The forecast*), can be read outside the Timeline: per
-item, per kind, per group (a `group: true` relation's parent) and per stage (a kind's state), each with its basis,
+item, per projection, per group (a `group: true` relation's parent) and per stage (a projection's state), each with its basis,
 its runs, when it was computed, and `none` when it has no estimate. A dashboard panel reads it through the `sql`
-source's `forecast_items`, `forecast_kinds`, `forecast_stages` and `forecast_groups` views (`select state,
+source's `forecast_items`, `forecast_projections`, `forecast_stages` and `forecast_groups` views (`select state,
 max(p90) from forecast_items group by state`); `GET /api/forecast` gives it as JSON; and a model reading this one as a
 remote gets it from `/remote/v1/forecast` (`/api/forecast?remote=NAME` there). Nothing has to be declared for it.
 
 A group's **counts** (SPEC §5a *Group counts*) come from the same runs: how many of its open members come out by a
 date, the chance at least N do, the expected loss, and how many to start for N out at a confidence. When the person's
-work loses items (scrap, rejects, cancelled orders), declare those finished states on the kind, `lost: [scrapped]`;
+work loses items (scrap, rejects, cancelled orders), declare those finished states on the projection, `lost: [scrapped]`;
 without it only dead letters count as lost. A panel asks `select forecast_chance('lot/A', 40, :until)` or
 `forecast_start('lot/A', 40, 0.9, null)` (`forecast_out`, `forecast_lost` too), or reads `forecast_group_by`;
 `/api/forecast?group=lot/A&by=…&at_least=40&confidence=0.9` answers in `asked`.
 
 A **risk score** (SPEC §5a *Risk score*) is each item's chance of failing, learned from what failed before, for a
-person who wants to route checks by it (more checks on a risky change, fewer on a safe one). It is off unless the kind
+person who wants to route checks by it (more checks on a risky change, fewer on a safe one). It is off unless the projection
 declares `risk-score:`: `at` (the state an attempt is scored on entering), `failed` (the event types that fail it,
 a revert too), `passed` (the states that pass it), `undone` (optional: the event types that say a failure was not the
 item's, such as a flake retried after a failure event was already said; declare it whenever such a retry exists, or
 every flake is learned as the item's failure; a lease taking or giving back the item is never a change of state
 here, and an event the fold refused, such as a fenced retry, neither fails nor undoes anything) and `from` (the fields it learns from: `value`, `each` for a list
-such as the paths a change touched, `size` for a number). Before routing anything by it, run `ergostat item --kind K
+such as the paths a change touched, `size` for a number). Before routing anything by it, run `ergostat item --projection K
 --risk-score --backtest` and read its calibration: each score band's failure rate beside its mean score, and the AUC.
-`ergostat item --kind K --risk-score` lists every item's score; an item's detail carries `risk_score`.
+`ergostat item --projection K --risk-score` lists every item's score; an item's detail carries `risk_score`.
 
 ## 3i. Programs fail hard, and are repaired
 
@@ -991,8 +991,8 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
 ## 3k. Asking for numbers over time
 
 To read a rate, a level or a duration without scanning the record, use `GET /api/query?q=<base64url of JSON>` and see what
-exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per hour by state is
-`{"since": 86400, "queries": [{"id": "a", "source": "items", "kind": "KIND", "field": "ai_cost_usd", "agg": "sum",
+exists with `GET /api/query/fields` (SPEC §4e). For example, a projection's cost per hour by state is
+`{"since": 86400, "queries": [{"id": "a", "source": "items", "projection": "PROJECTION", "field": "ai_cost_usd", "agg": "sum",
 "transform": "rate", "rate_per": "hour", "group_by": "state"}]}`.
 
 ergostat has exactly two data sources, `promql` (every metric, in VictoriaMetrics) and `sql` (all item data, projected
@@ -1013,7 +1013,7 @@ or when the same question is asked of the page again and again (SPEC §4f):
 2. Put it in the file of the system it is about (one whose `defaults:` sets the system), so it is named
    `SYSTEM.NAME` and moves with that system; a dashboard across systems goes in the main file.
 3. Write each panel with the parameters its endpoint already takes (the table in SPEC §4f): `chart` with `refs`,
-   `items` with `kind` and `state`, `states` or `cycle-time` with `kind`, `scope` with `goal`, `goals` with the
+   `items` with `projection` and `state`, `states` or `cycle-time` with `projection`, `scope` with `goal`, `goals` with the
    goals it shows. At most 24 panels; every panel that shows a measure shows the model's reading beside it (`replay:
    true` on a chart of stocks with equations).
 4. `ergostat check`: a name that is not the model's is **unknown-ref** at its line. When you rename or remove a part,
@@ -1033,27 +1033,27 @@ by hand; point the owner at Keep.
 Sooner or later the person asks "why isn't this done?" or "what is holding everything up?". ergostat answers with
 `ergostat why ITEM` (one item, followed to its root) and `ergostat held-up` (every unfinished item, grouped by root
 and ranked; SPEC §5a). Both read **only what the model declares and the record holds**: nothing in ergostat knows
-your kinds, states or blocks. A model that runs can still leave them saying "nothing takes it" or `unknown` for
+your projections, states or blocks. A model that runs can still leave them saying "nothing takes it" or `unknown` for
 work that is plainly waiting on someone. Build the model so that every wait has a cause the record can show.
 
 ### What the question needs from a model
 
-- **Item kinds with honest states.** One state per real wait or piece of work (`proposed`, `in-review`), not one
-  `open` for all of them; the side exits (`dropped`); the finished states declared in `messages: {done: {KIND:
+- **Projections with honest states.** One state per real wait or piece of work (`proposed`, `in-review`), not one
+  `open` for all of them; the side exits (`dropped`); the finished states declared in `messages: {done: {PROJECTION:
   [...]}}`, so finished is never guessed from the record; and a state work is parked in by hand (`on-hold`) declared
-  in `messages: {paused: {KIND: [...]}}`, so what waits on it is said to wait on a parked item.
+  in `messages: {paused: {PROJECTION: [...]}}`, so what waits on it is said to wait on a parked item.
 - **Relations.** What an item waits on is a precedence relation (`depends_on`, `blocked_by`, `after`, or any other name
   with `precedence: true`), recorded on the item as a field (`{"depends_on": "change/c2"}`). `why` follows them down,
   item to item, to the root. A relation that only says something (an update that covers some changes) is not
   precedence: give it another name. `starts_at: [STATE]` on a relation lets an item start once its target is there.
 - **Who or what takes each state.** For every state an item rests in unfinished, one of: a block's `takes:` (a
   program or AI step), or, for work done outside ergostat (a person's review, a reviewer at a code host), a
-  **working state**: not the kind's first state, left by an event that records the work (`change.reviewed`). `why`
+  **working state**: not the projection's first state, left by an event that records the work (`change.reviewed`). `why`
   then names "whoever records change.reviewed" (the first event of its `on:` that moves it out, in the order
-  written, so write the way on before side exits) and lists the others. The kind's first state is where items wait to
-  be taken: when nothing in ergostat takes them, give the kind a first state no event moves an item into (`new`) and
+  written, so write the way on before side exits) and lists the others. The projection's first state is where items wait to
+  be taken: when nothing in ergostat takes them, give the projection a first state no event moves an item into (`new`) and
   let the arriving event put it straight into its working state (`todo.added: todo`). **Write the arriving events
-  last in `on:`.** Only a move back to the kind's first state is left out of the ways on, and with `new` first the
+  last in `on:`.** Only a move back to the projection's first state is left out of the ways on, and with `new` first the
   arriving event is no longer one, so written first it is named as the owner of every later working state: a batch
   in `isolating` would name "whoever records batch.started", a move backwards. Written last, it is named only for a
   state with no other way on.
@@ -1076,10 +1076,10 @@ work that is plainly waiting on someone. Build the model so that every wait has 
 
 ### Outside work: tickets, pull requests, alerts
 
-Bring outside work in so that its waiting is visible: an item kind of its own (`pr`, `ticket`, `alert`) whose
-states are the outside system's (`open`, `merged`), fed by a collector (`use: collect` with `declare-kind: false`
-and your kind, a program block printing event lines, or a webhook, SPEC §5c), and linked from your own items by a
-precedence relation (`pull_request: {kind: pr, precedence: true}`). Then `why` follows a change to its pull request
+Bring outside work in so that its waiting is visible: a projection of its own (`pr`, `ticket`, `alert`) whose
+states are the outside system's (`open`, `merged`), fed by a collector (`use: collect` with `declare-projection: false`
+and your projection, a program block printing event lines, or a webhook, SPEC §5c), and linked from your own items by a
+precedence relation (`pull_request: {projection: pr, precedence: true}`). Then `why` follows a change to its pull request
 and names whoever records `pr.merged`, the reviewer at the code host. **Read-only by default**: a collector only
 reads and records (`read-only: true` on a program block that only reads). Anything written back (a comment, a
 label, closing an alert) is a gated action with `gate: approve` (section 2, step 7), asked for only when the owner
@@ -1090,13 +1090,13 @@ not finished, so what waits on it says so.
 
 The person's own to-dos are items too. For their hand work as a whole, use the `todo` template (*Work the person does
 by hand, on purpose*, above), which batches ready to-dos by place itself. When the to-dos must wait on items of this
-model (a sitting it plans, a change), declare the kind yourself, as the worked example below does:
+model (a sitting it plans, a change), declare the projection yourself, as the worked example below does:
 
 - **To-dos.** States `[new, todo, done, dropped]`, with `todo.added: todo`: a to-do arrives straight in `todo`, a
   working state the person moves on, so `why` names whoever records `todo.done`.
 - **Access-context batches.** To-dos that need an access context the person opens now and then (a lab network, an
-  admin console, a machine in another room) wait on a **batch**, one sitting in that context: a `batch` kind with
-  states `[new, planned, open, closed]`, and on the to-do a relation `needs: {kind: batch, precedence: true,
+  admin console, a machine in another room) wait on a **batch**, one sitting in that context: a `batch` projection with
+  states `[new, planned, open, closed]`, and on the to-do a relation `needs: {projection: batch, precedence: true,
   starts_at: [open]}`. A to-do needing the lab names the next lab sitting (`{"needs": "batch/lab-1124"}`); until the
   person records `batch.opened`, `why` says the to-do waits on the batch and names whoever records `batch.opened`.
   Once it is open the to-dos are theirs to do, all at once. A to-do left over when the sitting closes is moved to
@@ -1118,7 +1118,7 @@ The model, item by item from what was said (scripts are the person's; `scaffold`
 
 <!-- why: the worked example's model -->
 ```yaml
-items:
+projections:
   change:
     id: change/*
     description: one change to the product, from proposal to release
@@ -1132,7 +1132,7 @@ items:
       change.dropped: dropped
     relations:
       depends_on: change                                # precedence: it waits for these to be released
-      pull_request: {kind: pr, precedence: true}        # and for its pull request to be merged
+      pull_request: {projection: pr, precedence: true}        # and for its pull request to be merged
   pr:
     id: pr/*
     description: a pull request on the code host, as the collector saw it
@@ -1144,7 +1144,7 @@ items:
     states: [new, todo, done, dropped]
     on: {todo.done: done, todo.dropped: dropped, todo.added: todo}
     relations:
-      needs: {kind: batch, precedence: true, starts_at: [open]}   # a sitting in an access context
+      needs: {projection: batch, precedence: true, starts_at: [open]}   # a sitting in an access context
       covers: change                                              # an update's subject: says, never waits
   batch:
     id: batch/*
@@ -1168,7 +1168,7 @@ auxiliaries:
 uses:
   pull-requests:                     # read-only: records what the code host says, never writes to it
     use: collect
-    with: {kind: pr, declare-kind: false, command: scripts/pull-requests, event-field: event, poll: 5m}
+    with: {projection: pr, declare-projection: false, command: scripts/pull-requests, event-field: event, poll: 5m}
 
 blocks:
   build-open:
@@ -1180,19 +1180,19 @@ blocks:
     type: program
     description: builds one change at a time and opens its pull request
     run: scripts/build
-    takes: {kind: change, at: proposed, to: [in-review], unblocked: true}
+    takes: {projection: change, at: proposed, to: [in-review], unblocked: true}
     in: block.build-open
     pool: 1
   releaser:
     type: program
     description: releases one reviewed change at a time
     run: scripts/release
-    takes: {kind: change, at: releasing, to: [released], unblocked: true}
+    takes: {projection: change, at: releasing, to: [released], unblocked: true}
     pool: 1
 ```
 
 A precedence relation says what an item waits on; it is never enforced (SPEC §5a). Every block that takes items of a
-kind with one takes `unblocked: true`, or it takes them anyway and `why` names a root the work went past: without it
+projection with one takes `unblocked: true`, or it takes them anyway and `why` names a root the work went past: without it
 here, the releaser would release a reviewed change whose pull request is still open, while `why` on it names
 whoever records `pr.merged`. The review is nobody's block: `in-review` is a working state the reviewer moves on by recording `change.reviewed`.
 Three things then go wrong at once, as they do: change `c1` is put on hold, and `c3` depends on `c2`, which depends
@@ -1232,16 +1232,16 @@ stand-ins' run, or a few events you record by hand):
 ```sh
 ergostat check
 ergostat held-up --json
-ergostat item --kind change --state proposed -n 1
+ergostat item --projection change --state proposed -n 1
 ergostat why change/c5 --json
 ```
 
-1. `ergostat check` has no `wait-unexplained` finding: a kind whose finished states `messages: done:` declares,
-   with a state an event moves its items into, unfinished, where no block takes them, the kind has no precedence
-   relation, and no one is named to move them on (the state is the kind's first, or no event moves an item out of
-   it). Fix each as it says. (A kind whose finished states are left to the record is not judged: declare them.)
+1. `ergostat check` has no `wait-unexplained` finding: a projection whose finished states `messages: done:` declares,
+   with a state an event moves its items into, unfinished, where no block takes them, the projection has no precedence
+   relation, and no one is named to move them on (the state is the projection's first, or no event moves an item out of
+   it). Fix each as it says. (A projection whose finished states are left to the record is not judged: declare them.)
 2. `ergostat held-up --json`: every root has a kind other than `unknown`, and its `unknown` count is 0.
-3. For each unfinished kind, and each state its items wait in, take one item (`ergostat item --kind K --state S
+3. For each unfinished projection, and each state its items wait in, take one item (`ergostat item --projection K --state S
    -n 1`) and ask `ergostat why ID --json`. Its `root` must be the true one, the one the person would name.
 4. **Treat "cannot tell" as a modelling gap to fix**, never as an answer: a root of kind `unknown`, anything under
    `missing`, or `nothing` for a state someone does take. Each says what the record lacks: a sensor with no reading
@@ -1256,9 +1256,9 @@ Model it so ergostat can answer (SPEC §5a, *Stages*):
 
 1. **One item a run of the pipeline**, not a stage: `deploy/<id>`, `batch/<run tag>`. Its states are the coarse
    ones a person names (`testing`, `isolating`, `pushing`, `landed`); the stages live inside the item.
-2. **Declare `pipeline:` on its kind**: `title` (its Dashboard row), `stages` (every stage name it may record: these
+2. **Declare `pipeline:` on its projection**: `title` (its Dashboard row), `stages` (every stage name it may record: these
    label its histograms, so they must be a fixed, short list; a name not listed is counted as `other`) and, when it
-   takes from a line of other items, `waiting: {kind, state, order}`, with a relation on the kind naming that kind
+   takes from a line of other items, `waiting: {projection, state, order}`, with a relation on the projection naming that projection
    (the batch's `gaps`), so its row shows what the running item holds and what waits, in the order it is taken.
 3. **Have whatever runs a stage say it**, as two ordinary events about the item, each with a span id it makes, unique
    to that stage run: `{"stages": {SPAN: {"stage", "run", "run_kind", "started", "until"}}}` when it begins and
@@ -1291,8 +1291,8 @@ Model it so ergostat can answer (SPEC §5a, *Stages*):
 ## 5. Tools
 
 - **CLI**: `ergostat check`, `explain`, `run`, `status`, `item`, `lease`, `actions`, `remote`, `help TOPIC`.
-- **Items**: `ergostat item [--kind K] [--state S] [-n N]` lists them (newest first; `-n` at most 500),
-  `ergostat item ID [--history [FIELD]]` shows one, and `ergostat item --search "WORDS" [--kind K] [--state S]` lists
+- **Items**: `ergostat item [--projection K] [--state S] [-n N]` lists them (newest first; `-n` at most 500),
+  `ergostat item ID [--history [FIELD]]` shows one, and `ergostat item --search "WORDS" [--projection K] [--state S]` lists
   those whose fields' string values contain every word (1 to 8 words; a plain substring, case ignored, no ranking and
   no fuzzy match; only the first 65,536 characters of an item's text are read; as of now, never with `--at`).
   `--json` on each; `/api/items?search=WORDS` is the same list.

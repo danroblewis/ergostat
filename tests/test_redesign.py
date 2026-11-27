@@ -27,19 +27,19 @@ def thirteen(dest: Path):
     it): one kind through 13 states, a stock a state, every move written as an outflow to a cloud, a goal and a block a
     step. Returns whether a spec has them chained."""
     states = [f"s{i:02d}" for i in range(1, 14)]
-    lines = ["name: thirteen", "items:", "  request:", "    id: request/*", "    description: a request worked through 13 steps",
+    lines = ["name: thirteen", "projections:", "  request:", "    id: request/*", "    description: a request worked through 13 steps",
              f"    states: [{', '.join(states)}, done]", "    on:"]
     lines += [f"      request.{s}-reached: {s}" for s in states] + ["      request.finished: done"]
     lines += ["stocks:"]
     for s in states:
         lines += [f"  {s}-waiting:", "    unit: requests", f"    description: requests at step {s}",
-                  f"    sensor: {{items: request, state: {s}, every: 5s}}"]
+                  f"    sensor: {{projection: request, state: {s}, every: 5s}}"]
     lines += ["flows:", "  arrivals:", "    to: s01-waiting", "    description: requests arriving",
-              "    sensor: {items: request, entering: s01, over: 10m}"]
+              "    sensor: {projection: request, entering: s01, over: 10m}"]
     for i, s in enumerate(states):
         nxt = states[i + 1] if i + 1 < len(states) else "done"
         lines += [f"  {s}-worked:", f"    from: {s}-waiting", f"    description: requests leaving step {s}",
-                  f"    driven-by: +stock.{s}-waiting", f"    sensor: {{items: request, entering: {nxt}, over: 10m}}"]
+                  f"    driven-by: +stock.{s}-waiting", f"    sensor: {{projection: request, entering: {nxt}, over: 10m}}"]
     lines += ["goals:"]
     for s in states:
         lines += [f"  {s}-clear:", f"    stock: {s}-waiting", '    hold: "<= 0"', f"    description: nothing waits at {s}"]
@@ -47,7 +47,7 @@ def thirteen(dest: Path):
     for i, s in enumerate(states):
         nxt = states[i + 1] if i + 1 < len(states) else "done"
         lines += [f"  step-{s}:", "    type: program", f"    description: works step {s}", f"    goal: {s}-clear",
-                  "    run: python3 -c pass", f"    takes: {{kind: request, at: {s}, to: [{nxt}]}}", f"    out: flow.{s}-worked"]
+                  "    run: python3 -c pass", f"    takes: {{projection: request, at: {s}, to: [{nxt}]}}", f"    out: flow.{s}-worked"]
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "ergostat.yaml").write_text("\n".join(lines) + "\n\nuses:\n  modelling: {use: modelling}\n", encoding="utf-8")
 
@@ -59,7 +59,7 @@ def thirteen(dest: Path):
 
 PIECES = """\
 name: t
-items:
+projections:
   alert:
     id: alert/*
     description: an alert from the pager
@@ -70,11 +70,11 @@ items:
       alert.closed: closed
 stocks:
   triage:
-    sensor: {items: alert, state: new, every: 2s}
+    sensor: {projection: alert, state: new, every: 2s}
   investigate:
     unit: alerts
     description: alerts triaged, not yet closed
-    sensor: {items: alert, state: triaged, every: 2s}
+    sensor: {projection: alert, state: triaged, every: 2s}
 flows:
   in:
     to: triage
@@ -83,11 +83,11 @@ flows:
   triaged:
     from: triage
     description: alerts triaged
-    sensor: {items: alert, entering: triaged}
+    sensor: {projection: alert, entering: triaged}
   closed:
     from: investigate
     description: alerts closed
-    sensor: {items: alert, entering: closed}
+    sensor: {projection: alert, entering: closed}
 goals:
   triage-ok:
     stock: triage
@@ -100,7 +100,7 @@ blocks:
     description: triages each alert
     run: python3 bin/step.py
     goal: triage-ok
-    takes: {kind: alert, at: new, to: [triaged]}
+    takes: {projection: alert, at: new, to: [triaged]}
     out: flow.triaged
 """
 
@@ -116,7 +116,7 @@ def project(d: Path, text: str = PIECES) -> Project:
 
 
 JUDGE = "\n  judge:\n    type: judge\n    every: 30s\n    accept: ACCEPT\n"
-ENTER = "    sensor: {items: alert, entering: triaged}\n"
+ENTER = "    sensor: {projection: alert, entering: triaged}\n"
 BUSY = PIECES.replace(ENTER, "    to: investigate\n" + ENTER, 1) + "AUXILIARIES"   # chained; busy: driven by nothing
 BUSY_AUX = "auxiliaries:\n  busy:\n    unit: alerts\n    description: alerts being looked at\n"
 READ = [{"part": "auxiliary.busy", "set": {"driven-by": ["+stock.investigate"], "equation": "stock.investigate"},
@@ -205,7 +205,7 @@ def test_the_scorecard_counts_what_a_modeller_cares_about(tmp_path):
 
 def test_the_verdict_is_mixed_when_a_measure_gets_worse_and_lost_behaviour_counts_against():
     base = {"findings": {"before": 3, "after": 1, "resolved": ["a@x", "b@y"], "introduced": []},
-            "pieces": {"before": 1, "after": 0, "by_kind": {}},
+            "pieces": {"before": 1, "after": 0, "by_projection": {}},
             "coherence": {"kinds": {}, "mismatches_before": 0, "mismatches_after": 0, "resolved": [], "introduced": []},
             "craft": {"before": 0, "after": 0, "closed": [], "opened": []},
             "fit": {"worse": False, "says": "0.1 → 0.1, the same"}, "lost": [], "parts": {}}
@@ -220,7 +220,7 @@ def test_the_verdict_is_mixed_when_a_measure_gets_worse_and_lost_behaviour_count
     assert sc.verdict(lost)[2] < sc.verdict(base)[2]
     nothing = json.loads(json.dumps(base))
     nothing["findings"] = {"before": 0, "after": 0, "resolved": [], "introduced": []}
-    nothing["pieces"] = {"before": 0, "after": 0, "by_kind": {}}
+    nothing["pieces"] = {"before": 0, "after": 0, "by_projection": {}}
     assert sc.verdict(nothing)[0] == "no better"
 
 

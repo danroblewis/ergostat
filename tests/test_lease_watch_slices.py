@@ -13,7 +13,7 @@ from ergostat.store import Project
 
 MODEL = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -24,13 +24,13 @@ items:
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: 2
     run: "true"
     lease: {ttl: 1m}
   other:
     type: program
-    takes: {kind: job, at: ready}
+    takes: {projection: job, at: ready}
     pool: 2
     run: 'echo "{\\\\"event\\\\": \\\\"job.done\\\\"}"'
     lease: {ttl: 1m}

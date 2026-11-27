@@ -24,7 +24,7 @@ DEADLINE = 30.0                     # (only so a hung test fails rather than han
 
 KIND = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -128,7 +128,7 @@ def overlapped(tmp_path):
         blocks:
           worker:
             type: program
-            takes: {kind: ticket, at: ready}
+            takes: {projection: ticket, at: ready}
             pool: 2
             lease: {ttl: 1m, attempts: 1}
             run: python3 w.py
@@ -257,7 +257,7 @@ def test_two_concurrent_daemon_runs_keep_the_daemons_stderr_out_of_both_files(tm
         blocks:
           worker:
             type: program
-            takes: {kind: ticket, at: ready}
+            takes: {projection: ticket, at: ready}
             pool: 2
             lease: {ttl: 1m, attempts: 1}
             daemon: {run: python3 d.py, concurrency: 2}

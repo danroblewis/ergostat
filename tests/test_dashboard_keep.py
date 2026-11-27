@@ -19,7 +19,7 @@ from ergostat.store import Project
 from ergostat.web import dashboard_api
 from tests.test_dashboards import MODEL, project
 
-QUERY = {"id": "a", "source": "counts", "kind": "ticket", "state": ["open", "doing"], "group_by": "kind", "agg": "last",
+QUERY = {"id": "a", "source": "counts", "projection": "ticket", "state": ["open", "doing"], "group_by": "projection", "agg": "last",
          "transform": "none", "label": "open"}
 DRAFT = {"title": "Desk Watch", "since": "1d", "panels": [
     {"id": "p1", "title": "tickets open", "form": "stacked", "size": "m", "tall": True, "note": "",
@@ -63,7 +63,7 @@ def test_keep_then_accept_declares_a_dashboard_check_passes_and_the_api_lists(tm
 
 def test_a_kept_draft_is_refused_when_check_would_fail(tmp_path):
     p = project(tmp_path)
-    bad = {**DRAFT, "panels": [{**DRAFT["panels"][0], "queries": [{**QUERY, "kind": "epic"}]}]}
+    bad = {**DRAFT, "panels": [{**DRAFT["panels"][0], "queries": [{**QUERY, "projection": "epic"}]}]}
     with pytest.raises(pr.ProposalError, match="epic"):
         display.keep(p, bad)
     with pytest.raises(pr.ProposalError, match="rows"):
@@ -79,7 +79,7 @@ def test_a_long_chain_of_shared_references_is_sent_as_the_page_sends_it(tmp_path
         for i in range(1, MOST_QUERIES)]
     flat, wanted = sent(chain)
     # one level: each input/output is its neighbour as written (still naming the one before), never the whole chain
-    assert len(flat) == MOST_QUERIES and len(json.dumps(flat)) < 600 * MOST_QUERIES
+    assert len(flat) == MOST_QUERIES and len(json.dumps(flat)) < 700 * MOST_QUERIES   # (each about 620)
     last = flat[-1]
     assert last["input"] == {k: v for k, v in chain[-2].items() if k not in ("id", "label", "hidden")}
     assert last["x"]["query"] == flat[-2]["id"]                     # an x.query goes by id, a query of its own
@@ -118,7 +118,7 @@ def _raw(p, old: str, new: str, kind: str = "display") -> dict:
 
 def test_a_change_touching_anything_but_dashboards_is_refused_as_display(tmp_path):
     p = project(tmp_path)
-    one = "      - {panel: cycle-time, kind: ticket, size: s}"
+    one = "      - {panel: cycle-time, projection: ticket, size: s}"
     more = one + "\n      - {panel: note, text: kept}"
     with pytest.raises(im.ProposeError, match="not a display change: it changes ergostat.yaml: goals"):
         rest = MODEL.split('    hold: "< 5"\n')[1].rstrip("\n")

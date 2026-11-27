@@ -368,7 +368,7 @@ A step that waits on someone outside (a reviewer, CI, an approval) used to give 
 
 ## Measurements
 
-In ergostat (the page, `ergostat loop`, `ergostat item --kind ticket`):
+In ergostat (the page, `ergostat loop`, `ergostat item --projection ticket`):
 
 - **stocks**, counted from the tickets: one per state (`new`, `picked`, ... `review-asked`, `changes-asked`,
   `ci-failed`, ..., `done`, `stopped`), the actions held for approval (`ergostat.actions.held`), and three read from the record by

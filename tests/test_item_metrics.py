@@ -23,7 +23,7 @@ from ergostat.victoria import Victoria, VictoriaError
 T0 = 1_699_999_980.0          # a whole minute
 MODEL = """
 name: t
-items:
+projections:
   gap:
     id: gap/*
     states: [open, building, merged]
@@ -32,7 +32,7 @@ items:
       gap.started: building
       gap.merged: merged
     relations:
-      milestone: {kind: milestone, group: true}
+      milestone: {projection: milestone, group: true}
     fold:
       milestone: replace
       cost_usd: sum

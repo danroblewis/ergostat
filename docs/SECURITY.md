@@ -124,17 +124,17 @@ including trusted and built-in templates it uses, is checked against an allowlis
 expanded, with every parameter's value put in. If any part is not on it, the whole use is refused at your `use:` line
 (`library-untrusted`), and nothing of it is in the model. What a held chain may make:
 
-- **Sections:** `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`, `blocks`, `uses`, and
+- **Sections:** `systems`, `projections`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`, `blocks`, `uses`, and
   `sources` only as below (a template cannot write `sources:` today; the gate would judge one if it could).
 - **Block types:** `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`,
   `timer`, `counter`, `alarm`: computed by ergostat from their inputs. Also `program`, `ai` and `person` blocks, only
   as below.
-- **Sensor keys:** `items`, `state`, `entering`, `leaving`, `where`, `over`, `measure`, `sum`, `changes`, `unit`,
+- **Sensor keys:** `projection`, `state`, `entering`, `leaving`, `where`, `over`, `measure`, `sum`, `changes`, `unit`,
   `description`: sensors that count items or read a stock's changes from the record ergostat keeps; `run`, on
   your shell only as below and otherwise sandboxed; and `query`, `every`, `cron`, `timeout`, `averages`, only as below.
 
 Each section's keys are listed in trust.py, each with its reason; any other section, key, block type or shape of value
-is refused, including daemons on sensors (`library-unsandboxed`), `external`, `judge` and `budget` blocks, `on-stale`, an item kind's `lease`, a goal's
+is refused, including daemons on sensors (`library-unsandboxed`), `external`, `judge` and `budget` blocks, `on-stale`, a projection's `lease`, a goal's
 `owner`, and `inferred` or `formerly` anywhere. A test holds this list to trust.py's tables
 (`tests/test_library_trust.py`).
 
@@ -149,7 +149,7 @@ shell:
   (a `string`) is refused in a block's run, and makes a sensor's run sandboxed (below).
 - **Ergostat's programs with checked arguments.** In a built-in template's run that starts `${lib} ` (the programs
   `python -m ergostat.library.run` runs), a value the library wrote may stand only directly after a flag listed in
-  trust.py's `LIB_DATA_FLAGS` (data such as `--kind`, `--state`, `--every`, `--limit`; never `--run`, `--render`,
+  trust.py's `LIB_DATA_FLAGS` (data such as `--projection`, `--state`, `--every`, `--limit`; never `--run`, `--render`,
   `--command`, `--url`, `--header`, `--folder`, `--keep`, `--timeout`, `--max` or the AI programs' budgets), only
   for a parameter typed `name`, `duration`, `number`, `integer` or `bool`, and only when both the value and the text
   that lands fully match its type's pattern (no space or newline): name `[a-z][a-z0-9-]{0,63}`, duration
@@ -205,8 +205,8 @@ that is not a reference.
 
 What this does **not** stop:
 
-- **What your command is run on.** A library that runs your command chooses the kinds, states, counts and periods it
-  runs on (`--kind`, `--state`, `--every` within its bounds), so your command may run on items you did not mean.
+- **What your command is run on.** A library that runs your command chooses the projections, states, counts and periods it
+  runs on (`--projection`, `--state`, `--every` within its bounds), so your command may run on items you did not mean.
 - **An agent writing your `with:`.** A value in your own file's `with:` counts as yours, whoever typed it: an agent that
   copies a library's command there makes it your command.
 

@@ -15,7 +15,7 @@ from .common import PART_TOPICS
 from .impact_cmd import cmd_impact
 from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
-from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
+from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_proposals, cmd_simulate
 from .parts import cmd_part
 from .record import cmd_compact, cmd_event, cmd_held_up, cmd_item, cmd_reset, cmd_residual, cmd_why
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_web
@@ -70,7 +70,7 @@ AI sessions and programs: where they work and what they may do
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
   loop           The feedback loops: what each holds, how far off, each part along it
-  item           The items (ticket/12): each one's kind, state and fields, folded from its events; --search WORDS
+  item           The items (ticket/12): each one's projection, state and fields, folded from its events; --search WORDS
                  (ID --near [N], ID --path B, ID --about: what its relations and mentions reach, 2,000 items at most)
   why            Why an item is not done (why ticket/12): the cause followed to its root, who must act, the evidence
   lease          The leases on items: who holds what, until when, and the dead letters (ITEM --redrive)
@@ -206,22 +206,22 @@ def build() -> argparse.ArgumentParser:
     e.add_argument("--follow", "-f", action="store_true", help="keep printing as events arrive")
     e.add_argument("--runs", action="store_true", help="also each run's start and end (agent.started, agent.ran), left out by default")
     e.add_argument("--add", metavar="TYPE", help="record an event of this type (ticket.opened): what happened outside")
-    e.add_argument("--data", metavar="JSON", help="with --add: its data, a JSON object (folded by the kind's fold: rules)")
+    e.add_argument("--data", metavar="JSON", help="with --add: its data, a JSON object (folded by the projection's fold: rules)")
     e.add_argument("--patch", metavar="JSON", help="with --add, in place of --data: a JSON Patch (RFC 6902) for its item, "
                                                   "applied whole or refused with why")
     e.add_argument("--set", dest="set_", metavar="JSON", help="with --add, in place of --data: its item's whole document")
     e.add_argument("--as", dest="by", metavar="SOURCE", help="with --add: who says so (default: the user)")
-    i = topic("item", cmd_item, "The items: the record folded by id, with each kind's states")
+    i = topic("item", cmd_item, "The items: the record folded by id, with each projection's states")
     i.add_argument("-n", type=int, default=30, help="how many (default 30)")
-    i.add_argument("--kind", help="only items of this kind")
+    i.add_argument("--projection", help="only items of this projection")
     i.add_argument("--state", help="only items in this state")
     i.add_argument("--search", metavar="WORDS", help="only items whose fields' text contains every word (1 to 8; case "
                                                      "ignored; a plain substring, no ranking; the first 65,536 "
                                                      "characters of each item's text)")
-    i.add_argument("--groups", metavar="RELATION", help="with --kind: how far along each group its group relation names "
+    i.add_argument("--groups", metavar="RELATION", help="with --projection: how far along each group its group relation names "
                                                        "is (done, in progress, waiting, stopped, of its total)")
     i.add_argument("--risk-score", dest="risk_score", action="store_true",
-                   help="with --kind: each item's risk score, learned from what failed before (the kind's risk-score:)")
+                   help="with --projection: each item's risk score, learned from what failed before (the projection's risk-score:)")
     i.add_argument("--backtest", action="store_true", help="with --risk-score: each attempt's score as it was given, "
                                                            "against what became of it: the failure rate per score band")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
@@ -243,7 +243,7 @@ def build() -> argparse.ArgumentParser:
     ls.add_argument("--no-count", action="store_true", help="with --nack: the attempt does not count toward a dead letter")
     topic("residual", cmd_residual, "What the model can't explain")
     topic("fit", cmd_fit, "How well the model's replay fits the record (each stock, the total, Theil's statistics)", named=False)
-    pj = topic("project", cmd_project, "The model run on from now: with the loops running (the default where it has "
+    pj = topic("simulate", cmd_simulate, "The model run on from now: with the loops running (the default where it has "
                                        "controllers) or held; what-ifs; the goals' risk", named=False)
     how = pj.add_mutually_exclusive_group()
     how.add_argument("--closed", action="store_true", help="with the loops running: the goals and built-in blocks as the "

@@ -28,7 +28,7 @@ ERGOSTAT = [sys.executable, "-m", "ergostat"]
 
 MODEL = """
 name: gated-check
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, review, done]
@@ -41,11 +41,11 @@ items:
     show: [model, cost_usd, turns, workdir]
 stocks:
   open-tickets:
-    sensor: {items: ticket, state: open, every: 1m}
+    sensor: {projection: ticket, state: open, every: 1m}
 flows:
   reviewed:
     from: open-tickets
-    sensor: {items: ticket, entering: review, over: 10m}
+    sensor: {projection: ticket, entering: review, over: 10m}
 workspaces:
   code:
     repo: product

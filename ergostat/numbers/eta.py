@@ -423,7 +423,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     for x in inp.items.values():
         if x.lease and x.lease[0]:
             held[x.lease[0]] = held.get(x.lease[0], 0) + 1
-    return {"at": inp.at, "runs": n, "flags": flags.__dict__, "items": items, "kinds": kinds, "sets": said_sets,
+    return {"at": inp.at, "runs": n, "flags": flags.__dict__, "items": items, "projections": kinds, "sets": said_sets,
             "counts": counts if n else {}, "schedule": rep or {},
             "capacity": {b.name: max(1, b.capacity(pools), held.get(b.name, 0)) for b in inp.blocks},
             "limit": {b.name: max(1, b.capacity(pools)) for b in inp.blocks}}
@@ -503,5 +503,5 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
                      "why": waits + f"in {x.state} for {human(age)}, which no block takes from; about "
                      f"{human(km.quantile(0.5, age))} more (the median given its age, the mean {human(km.mean_residual(age))}; "
                      f"from {km.n} stays"
-                     + ("" if k.said[x.state] == "own" else f", its {'kind' if k.said[x.state] == 'kind' else 'record'}'s") + ")"}
+                     + ("" if k.said[x.state] == "own" else f", its {'projection' if k.said[x.state] == 'kind' else 'record'}'s") + ")"}
     return out

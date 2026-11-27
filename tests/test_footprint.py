@@ -1,4 +1,4 @@
-"""What a kind and an item touch (SPEC §5a, *What a kind touches*): ``spec/footprint.py``, ``/api/kinds/K`` and an
+"""What a kind and an item touch (SPEC §5a, *What a kind touches*): ``spec/footprint.py``, ``/api/projections/K`` and an
 item's ``path``."""
 
 from __future__ import annotations
@@ -45,10 +45,10 @@ def test_ticket_factory_ticket_names_every_steps_stock_flow_and_taking_block():
         doc = yaml.safe_load(f.read_text())
         for kind in ("stocks", "flows"):
             for name, part in (doc.get(kind) or {}).items():
-                if ((part.get("sensor") or {}).get("items")) == "ticket":
+                if ((part.get("sensor") or {}).get("projection")) == "ticket":
                     assert f"{kind[:-1]}.{name}" in counted, (f.name, name)
         for name, b in (doc.get("blocks") or {}).items():
-            if (b.get("takes") or {}).get("kind") == "ticket":
+            if (b.get("takes") or {}).get("projection") == "ticket":
                 t = taken[name]
                 assert t["pool"] == spec.blocks[name].pool and t["at"] == spec.blocks[name].takes.at, name
                 assert set(t["out"]) == {str(r) for r in spec.blocks[name].targets() if r.kind == "flow"} and t["out"]
@@ -82,7 +82,7 @@ def test_roadmap_kind_names_its_stocks_blocks_pools_goals_and_loops(tmp_path):
     p.events.add(TAKEN, item="ticket/2", data={"run": "r3", "block": "developer", "fence": 1, "ttl": 300, "max": 3,
                                                 "back": "todo"}, at=1011.0)
     p.events.add("ticket.started", item="ticket/2", causedby="r3", at=1012.0)      # held, and moved on to doing
-    fp = api(Live(p), "kinds/ticket", {})
+    fp = api(Live(p), "projections/ticket", {})
     stocks = {c["name"]: c for c in fp["counted_in"] if c["kind"] == "stock"}
     assert {"todo", "in-progress", "in-review"} <= set(stocks) and stocks["in-review"]["states"] == ["review"]
     blocks = {t["block"]: t for t in fp["taken_by"]}
@@ -99,8 +99,8 @@ def test_roadmap_kind_names_its_stocks_blocks_pools_goals_and_loops(tmp_path):
     assert fp["now"] == {"done": 1, "doing": 1}
     done = next(s for s in fp["definition"]["states"] if s["state"] == "done")
     assert done["finished"] and fp["definition"]["finished_by"] == "declared"
-    assert {"kind": "ticket", "relation": "blocked_by", "inverse": "blocks"} in fp["definition"]["named_by"]
-    assert api(Live(p), "kinds/nope", {}) is None and api(Live(p), "kinds/ticket/x", {}) is None
+    assert {"projection": "ticket", "relation": "blocked_by", "inverse": "blocks"} in fp["definition"]["named_by"]
+    assert api(Live(p), "projections/nope", {}) is None and api(Live(p), "projections/ticket/x", {}) is None
 
 
 def test_a_done_tickets_path_has_its_states_in_order_with_the_block_that_took_it(tmp_path):
@@ -132,7 +132,7 @@ def test_a_nack_is_a_repeated_step_with_its_attempts(tmp_path):
 
 
 def test_the_item_pages_where_it_went_joins_each_flow_to_the_block_whose_out_names_it(tmp_path):
-    """What pageItem's 'Where it went' reads (pages.js whereView): /api/kinds/K's ``taken_by[].out`` named
+    """What pageItem's 'Where it went' reads (pages.js whereView): /api/projections/K's ``taken_by[].out`` named
     ``flow.X``, joined to a path step's ``flow``; a taken item's lease (holder, block, taken) for its current step."""
     p = _project(tmp_path, "roadmap")
     _done_ticket(p)
@@ -140,7 +140,7 @@ def test_the_item_pages_where_it_went_joins_each_flow_to_the_block_whose_out_nam
     p.events.add(TAKEN, item="ticket/2", data={"run": "r3", "block": "developer", "fence": 1, "ttl": 300, "max": 3,
                                                "back": "todo"}, at=2001.0)
     live = Live(p)
-    fp = api(live, "kinds/ticket", {})
+    fp = api(live, "projections/ticket", {})
     assert "why" not in fp
     mover = {f.removeprefix("flow."): t["block"] for t in fp["taken_by"] for f in t["out"]}
     path = api(live, "items/ticket%2F1", {})["path"]
@@ -151,12 +151,12 @@ def test_the_item_pages_where_it_went_joins_each_flow_to_the_block_whose_out_nam
 
 UNCOUNTED = """
     name: t
-    items:
+    projections:
       ticket: {id: ticket/*, states: [todo, done]}
       note: {id: note/*, states: [open, closed]}
     stocks:
       todo:
-        sensor: {items: ticket, state: todo, every: 3s}
+        sensor: {projection: ticket, state: todo, every: 3s}
     flows:
       done:
         from: todo
@@ -164,7 +164,7 @@ UNCOUNTED = """
       w:
         type: program
         run: "true"
-        takes: {kind: ticket, at: todo, to: [done], where: {priority: high}}
+        takes: {projection: ticket, at: todo, to: [done], where: {priority: high}}
         out: flow.done
     """
 
@@ -174,7 +174,7 @@ def test_a_kind_nothing_counts_is_empty_and_says_why_and_a_where_takes_only_some
     spec = p.model.spec
     fp = kind_footprint(spec, "note")
     assert fp["counted_in"] == [] and fp["taken_by"] == [] and fp["goals"] == [] and fp["loops"] == []
-    assert "no sensor counts items of kind note" in fp["why"] and fp["uncounted"] == ["open", "closed"]
+    assert "no sensor counts items of projection note" in fp["why"] and fp["uncounted"] == ["open", "closed"]
     [t] = kind_footprint(spec, "ticket")["taken_by"]
     assert t["only_some"] and t["says"] == "takes only the items whose priority is high"
     assert sorted(kind_footprint(spec, "ticket")["uncounted"]) == ["dead", "done", "leased"]
@@ -190,7 +190,7 @@ def test_an_undeclared_kinds_finished_states_are_the_listings_inferred_from_the_
     p = _project(tmp_path, text=UNCOUNTED)
     assert not any(s["finished"] for s in kind_footprint(p.model.spec, "note")["definition"]["states"])
     p.events.add("note.made", item="note/1", at=1000.0)
-    fp = api(Live(p), "kinds/note", {})
+    fp = api(Live(p), "projections/note", {})
     f = its.finishes(p.events, p.model.spec, "note")
     assert fp["definition"]["finished_by"] == f["finished_from"] == "inferred"
     assert [s["state"] for s in fp["definition"]["states"] if s["finished"]] == f["finished"] == ["closed"]
@@ -212,7 +212,7 @@ def test_get_api_kinds_answers_and_404s_for_an_unknown_kind(tmp_path):
     p = _project(tmp_path, "roadmap")
     srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(p))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{srv.server_address[1]}/api/kinds/"
+    url = f"http://127.0.0.1:{srv.server_address[1]}/api/projections/"
     try:
         with urllib.request.urlopen(url + "ticket", timeout=10) as r:
             assert r.status == 200
@@ -230,7 +230,7 @@ def test_api_kinds_answers_within_300ms_on_a_few_hundred_tickets(tmp_path):
     for i in range(300):
         _done_ticket(p, f"ticket/{i}")
     live = Live(p)
-    api(live, "kinds/ticket", {})                     # the first: the snapshot and the footprint worked out
+    api(live, "projections/ticket", {})                     # the first: the snapshot and the footprint worked out
     t = time.perf_counter()
-    api(live, "kinds/ticket", {})
+    api(live, "projections/ticket", {})
     assert time.perf_counter() - t < 0.3

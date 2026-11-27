@@ -56,7 +56,7 @@ def prepare(image, settings):
 
 MODEL = """
 name: t
-items:
+projections:
   change:
     id: change/*
     states: [proposed, building, review, merged, dropped]
@@ -77,7 +77,7 @@ blocks:
     type: judge
     judge: intent
     every: 1h
-    kinds:
+    projections:
       change:
         at: review
         accepted: [merged]
@@ -331,12 +331,12 @@ def test_the_engine_runs_the_judge_on_its_clock_and_reports_its_ports(tmp_path):
 
 
 @pytest.mark.parametrize("bad,says", [
-    ("    kinds: {nothing: {at: review}}\n", "an item kind of the model's own"),
-    ("    kinds: {change: {at: shipped}}\n", "'shipped' is not a state of change"),
-    ("    kinds: {change: {at: review}}\n    held: ignore\n", "held: attention"),
+    ("    projections: {nothing: {at: review}}\n", "a projection of the model's own"),
+    ("    projections: {change: {at: shipped}}\n", "'shipped' is not a state of change"),
+    ("    projections: {change: {at: review}}\n    held: ignore\n", "held: attention"),
 ])
 def test_a_judge_written_wrong_is_refused(tmp_path, bad, says):
-    model = MODEL.split("    kinds:")[0] + bad
+    model = MODEL.split("    projections:")[0] + bad
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(model))
     with pytest.raises(mdl.ModelError, match=re.escape(says)):
         mdl.load(tmp_path)

@@ -10,7 +10,7 @@ what they see.
 ## What makes a change set better (the scorecard)
 
 - `check`'s findings resolved, none introduced (the chain's, control's, the structure tests');
-- each item kind's state stocks one chain (no pieces);
+- each projection's state stocks one chain (no pieces);
 - coherence on the record: every move the record shows carried by a flow, every waiting stock held by a goal with a
   loop that closes, every move attributed to the block that declares it;
 - the craft notes closed (descriptions, units, equations, event names);
@@ -55,8 +55,8 @@ Rules:
   a person or a limited resource; so the queue's growth is explained, not just its level.
 - Never edit a part a template made (`use:`), nor the modelling subsystem's own parts (model-error, the changes and
   requests counted by state, the improver, fixer, modeller, redesigner, judge).
-- Never invent a measurement: a new flow between state stocks is measured as items of the kind entering the state
-  (`sensor: {items: K, entering: S}`), with `where: {lease.back: PREV}` when items enter S from more than one state.
+- Never invent a measurement: a new flow between state stocks is measured as items of the projection entering the state
+  (`sensor: {projection: P, entering: S}`), with `where: {lease.back: PREV}` when items enter S from more than one state.
   A new parameter gets a first value, `estimate: true`, a unit and a description saying where the value comes from.
 - Event names and `on:` mappings: leave event types as they are (the programs emit them, and they are not the
   model's to change).

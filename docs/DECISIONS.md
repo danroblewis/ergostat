@@ -91,7 +91,7 @@ events classed as corrections.
 
 ## Answering them
 
-Everything proposed waits for the owner. On the Items page, `ergostat.decision` (or `ergostat.correction`)
+Everything proposed waits for the owner. The `ergostat.decision` projection's page (or `ergostat.correction`'s)
 lists them by state; an item's page shows the decision, the owner's words with where they were said, its
 reasons, what was rejected and who proposed it, and the answers:
 
@@ -137,19 +137,19 @@ The items are the record of the function, and counting them makes it a system li
 
 ```yaml
 stocks:
-  decisions-proposed:   {sensor: {items: ergostat.decision, state: proposed}}
-  decisions-confirmed:  {sensor: {items: ergostat.decision, state: confirmed}}
-  corrections-proposed: {sensor: {items: ergostat.correction, state: proposed}}
-  corrections-active:   {sensor: {items: ergostat.correction, state: confirmed}}
+  decisions-proposed:   {sensor: {projection: ergostat.decision, state: proposed}}
+  decisions-confirmed:  {sensor: {projection: ergostat.decision, state: confirmed}}
+  corrections-proposed: {sensor: {projection: ergostat.correction, state: proposed}}
+  corrections-active:   {sensor: {projection: ergostat.correction, state: confirmed}}
 flows:
   decisions-confirming:  {from: decisions-proposed, to: decisions-confirmed,
-                          sensor: {items: ergostat.decision, entering: confirmed}}
-  decisions-superseded:  {from: decisions-confirmed, sensor: {items: ergostat.decision, entering: superseded}}
+                          sensor: {projection: ergostat.decision, entering: confirmed}}
+  decisions-superseded:  {from: decisions-confirmed, sensor: {projection: ergostat.decision, entering: superseded}}
   corrections-confirming: {from: corrections-proposed, to: corrections-active,
-                           sensor: {items: ergostat.correction, entering: confirmed}}
-  corrections-retired:   {from: corrections-active, sensor: {items: ergostat.correction, entering: retired}}
+                           sensor: {projection: ergostat.correction, entering: confirmed}}
+  corrections-retired:   {from: corrections-active, sensor: {projection: ergostat.correction, entering: retired}}
   corrections-repeated:  {to: corrections-proposed,
-                          sensor: {items: ergostat.correction, entering: proposed, where: {repeat: true}}}
+                          sensor: {projection: ergostat.correction, entering: proposed, where: {repeat: true}}}
 ```
 
 What to hold near zero is corrections repeated, and decisions the owner had to restate ("we already decided

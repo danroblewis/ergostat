@@ -22,7 +22,7 @@ from ergostat.store import Project
 
 KIND = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -37,7 +37,7 @@ BLOCK = """
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: {pool}
     run: {run}
 """
@@ -343,11 +343,11 @@ ETA = KIND + """
 flows:
   worked:
     from: p
-    sensor: {items: ticket, entering: done, over: 10m}
+    sensor: {projection: ticket, entering: done, over: 10m}
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: {now: stock.p, most: 4}
     run: "true"
     out: flow.worked

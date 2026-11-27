@@ -1,4 +1,4 @@
-"""metrics-named-for-the-model (dev/records/metrics-named-for-the-model.md): a model's item kinds and parts are
+"""metrics-named-for-the-model (dev/records/metrics-named-for-the-model.md): a model's projections and parts are
 top-level PromQL metrics under their own names (``gap_items``, ``gaps_approved``), and only the engine's internals keep
 ``ergostat_``. Each test that needs a server runs against a small Prometheus-compatible stand-in here (what it was sent,
 and the names it holds) and against a real VictoriaMetrics too (this test process's own: tests/conftest.py, ``vm``)."""
@@ -32,7 +32,7 @@ OLD_GENERIC = {"ergostat_sensor", "ergostat_items", "ergostat_item_transitions_t
                "ergostat_item_last_transition_timestamp_seconds", "ergostat_item_time_in_state_seconds_bucket",
                "ergostat_item_time_in_state_seconds_sum", "ergostat_item_time_in_state_seconds_count"}
 # the engine's own, an allowlist: a run's and an observer's measures, valves, block outputs, the index's counters and
-# the built-in item kinds (ergostat.model-change, ...)
+# the built-in projections (ergostat.model-change, ...)
 ENGINE = re.compile(r"ergostat_(run_\w+|observer_\w+|valve_position|block_output|events_total|item_index_rebuilds_total"
                     r"|(model_change|modelling_request|claim|message)_\w+)")
 
@@ -155,12 +155,12 @@ def test_autocomplete_on_the_factory_in_a_real_victoriametrics(factory, vm, tmp_
         v.drop()
 
 
-# ---- done item 2: two item kinds and a sensor
+# ---- done item 2: two projections and a sensor
 
 
 TWO = """
 name: two
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, done]
@@ -172,7 +172,7 @@ items:
 stocks:
   backlog:
     unit: tickets
-    sensor: {items: ticket, state: open, every: 1m}
+    sensor: {projection: ticket, state: open, every: 1m}
 """
 T0 = float(int(time.time()) // 60 * 60 - 7200)          # (two hours ago, on a minute: within the day
                                                        # VictoriaMetrics lists names from by default)
@@ -233,7 +233,7 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
     from ergostat.cli import main
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""\
         name: clash
-        items:
+        projections:
           ticket: {id: ticket/*, states: [open], on: {ticket.opened: open}}
         stocks:
           ticket-items: {unit: tickets}
@@ -247,10 +247,10 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""\
         name: apart
         systems: {desk: {description: the help desk}}
-        items:
+        projections:
           ticket: {id: ticket/*, states: [open], on: {ticket.opened: open}}
         stocks:
-          ticket-items: {unit: tickets, system: desk, sensor: {items: ticket, state: open, every: 1m}}
+          ticket-items: {unit: tickets, system: desk, sensor: {projection: ticket, state: open, every: 1m}}
           ergostat-load: {unit: jobs, system: desk}
           queue: {unit: jobs, sensors: {depth: {manual: true}, age: {manual: true}}}
         """))
@@ -264,7 +264,7 @@ def test_a_part_whose_name_another_takes_is_refused_at_check_with_the_fix(tmp_pa
 
 
 def test_a_kind_that_would_read_as_the_engines_is_refused(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("name: k\nitems:\n  ergostat-jobs: {id: job/*, states: [open], on: {job.opened: open}}\n")
+    (tmp_path / "ergostat.yaml").write_text("name: k\nprojections:\n  ergostat-jobs: {id: job/*, states: [open], on: {job.opened: open}}\n")
     _, problems = read(tmp_path / "ergostat.yaml")
     [p] = [x for x in problems if x.level == "error"]
     assert p.code == "metric-clash" and "ergostat_jobs_items" in p.message and p.message.endswith("rename it")

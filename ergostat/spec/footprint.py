@@ -1,4 +1,4 @@
-"""What a kind of item, and one item, touch in the model (SPEC §5a, *What a kind touches*): the parts whose sensors
+"""What a projection, and one item, touch in the model (SPEC §5a, *What a projection touches*): the parts whose sensors
 count it, the blocks that take it, the goals and feedback loops through those, and an item's moves as steps through
 them. Read from the spec alone (an item's path from that item alone), never from the record; worked out once per
 model version (``spec.lookups().kept``), each caller given its own copy."""
@@ -63,8 +63,8 @@ def _build(spec, kind: str) -> dict:
     k = spec.items[kind]
     counted, taken = _counted_in(spec, kind), _taken_by(spec, kind)
     done, paused, done_why = _finished(spec, k)
-    states = list(dict.fromkeys([*k.states, *([LEASED, DEAD] if taken else [])]))   # (a taken kind has them already)
-    rel_in = [{"kind": o.name, "relation": r, "inverse": x.inverse or None}
+    states = list(dict.fromkeys([*k.states, *([LEASED, DEAD] if taken else [])]))   # (a taken projection has them already)
+    rel_in = [{"projection": o.name, "relation": r, "inverse": x.inverse or None}
               for o in spec.items.values() for r, x in o.relations.items() if kind in x.kinds]
     where = kind_systems(spec).get(kind) or {}
     definition = {
@@ -73,7 +73,7 @@ def _build(spec, kind: str) -> dict:
                     "final": s in k.final,
                     "ergostat": s in (LEASED, DEAD)} for i, s in enumerate(states)],
         "finished_by": done_why, "on": dict(k.on), "show": list(k.show), "fold": dict(k.fold),
-        "relations": {r: {"kinds": x.kinds, "precedence": x.precedence, "inverse": x.inverse or None, "group": x.group}
+        "relations": {r: {"projections": x.kinds, "precedence": x.precedence, "inverse": x.inverse or None, "group": x.group}
                       for r, x in k.relations.items()}, "named_by": rel_in,
         "join": [{"children": j.children, "states": j.states, "to": j.to, "all": j.all} for j in k.join],
         "lease": {"ttl": k.lease.ttl, "attempts": k.lease.attempts}, "about": k.about,
@@ -94,15 +94,15 @@ def _build(spec, kind: str) -> dict:
              for lp in causal_loops(spec) if touch & set(lp.parts)]
     counts = {s for c in counted if c["kind"] != "flow" for s in (c["states"] or states)}
     moves = {c.get("entering") or c.get("leaving") for c in counted if c["kind"] == "flow"}
-    out = {"kind": kind, "definition": definition, "counted_in": counted, "taken_by": taken, "goals": goal_rows,
+    out = {"projection": kind, "definition": definition, "counted_in": counted, "taken_by": taken, "goals": goal_rows,
            "loops": loops, "uncounted": [s for s in states if s not in counts and s not in moves]}
     if not counted and not taken:
-        out["why"] = f"no sensor counts items of kind {kind}, and no block takes them: it touches nothing in the model"
+        out["why"] = f"no sensor counts items of projection {kind}, and no block takes them: it touches nothing in the model"
     return out
 
 
 def kind_footprint(spec, kind: str) -> dict | None:
-    """What ``kind`` touches (None: no such kind): its definition, the parts that count it, the blocks that take it,
+    """What projection ``kind`` touches (None: no such projection): its definition, the parts that count it, the blocks that take it,
     their goals and loops, and the states nothing counts."""
     if spec is None or kind not in spec.items:
         return None

@@ -434,7 +434,7 @@ def test_the_collector_says_each_record_once_from_its_cursor(tmp_path, monkeypat
     src = tmp_path / "src.sh"
     src.write_text('echo \'{"id": 1, "n": 1, "title": "a"}\'\necho \'{"id": 2, "n": 2}\'\n'
                    'echo "{\\"id\\": 3, \\"n\\": 3, \\"cursor\\": \\"$ERGOSTAT_CURSOR\\"}"\n')
-    args = ["collect", "--name", "c", "--kind", "q", "--command", "sh src.sh", "--cursor-field", "n"]
+    args = ["collect", "--name", "c", "--projection", "q", "--command", "sh src.sh", "--cursor-field", "n"]
     first = run_lib(tmp_path, *args)
     lines = [json.loads(x) for x in first.stdout.splitlines() if x.startswith("{")]
     assert [x["item"] for x in lines] == ["q/1", "q/2", "q/3"] and lines[0]["event"] == "q.arrived"
@@ -463,7 +463,7 @@ def test_the_collector_reads_an_event_field_and_a_url(tmp_path, monkeypatch):
     srv = http.server.HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
-        r = run_lib(tmp_path, "collect", "--name", "u", "--kind", "q", "--url", f"http://127.0.0.1:{srv.server_port}/x",
+        r = run_lib(tmp_path, "collect", "--name", "u", "--projection", "q", "--url", f"http://127.0.0.1:{srv.server_port}/x",
                     "--id-field", "key", "--path", "data", "--header", "Authorization: Bearer $TOK", env={"TOK": "s3"})
     finally:
         srv.shutdown()

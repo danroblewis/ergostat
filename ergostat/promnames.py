@@ -1,14 +1,14 @@
 """A model's own data in PromQL under its own names (SPEC §4b, *Names and labels in PromQL*): what the model declares
 is a metric named for itself, and only the engine's own keep ``ergostat_``.
 
-- an item kind K: ``K_items{state, milestone}`` (a stock), ``K_transitions_total{from, to}`` (a flow),
+- a projection K: ``K_items{state, milestone}`` (a stock), ``K_transitions_total{from, to}`` (a flow),
   ``K_last_transition_timestamp_seconds{from, to}``, ``K_time_in_state_seconds`` (a histogram: ``_bucket{state, le}``,
   ``_sum``, ``_count``) and ``K_field_total{field}``, translated from the item index's tally as it is written
   (``item_labels``);
 - a stock, flow or auxiliary P with readings (``sensor/P.S``): ``P``, with ``sensor="S"`` only when P has several
   sensors (its setting, ``set``, counted among them when a block sets it). A stock and a flow of one name write one
   series (``Sensor.series``), so they share one metric;
-- a name is the model's with dashes as underscores. A part whose name another takes (an item kind's metric) or that
+- a name is the model's with dashes as underscores. A part whose name another takes (a projection's metric) or that
   would read as the engine's (``ergostat_``) has its system prepended (``merging_gap_items``); one that still collides
   is refused at ``ergostat check`` (``clashes``), with the fix.
 
@@ -113,9 +113,9 @@ class Names:
 
     def problems(self) -> list:
         from .spec.load import Problem
-        return [Problem("error", f"item kind {n}: its PromQL names ({m}, ...) would read as the engine's own "
+        return [Problem("error", f"projection {n}: its PromQL names ({m}, ...) would read as the engine's own "
                                  "(ergostat_): rename it" if i < self._kinds else
-                        f"{n}: its PromQL name {m} is taken (an item kind's metric, or ergostat_, the engine's own) and "
+                        f"{n}: its PromQL name {m} is taken (a projection's metric, or ergostat_, the engine's own) and "
                         "no system of its own keeps it apart: rename it, or put it in a system",
                         getattr(x, "where", None), "metric-clash") for i, (n, m, x) in enumerate(self.clashes)]
 

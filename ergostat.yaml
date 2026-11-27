@@ -88,7 +88,7 @@ systems:
     description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
     show: [stock.knowledge-entries, stock.lessons-proposed, stock.lessons-to-apply, stock.findings-active, auxiliary.first-pass-with-lessons]
 
-items:
+projections:
   gap:
     id: gap/*
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
@@ -120,14 +120,14 @@ items:
     # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended, gates, catches and catch_times
     # (dev/bin/times.py)
     relations:
-      depends_on: {kind: gap, starts_at: [approved, queued, push-pending]}
+      depends_on: {projection: gap, starts_at: [approved, queued, push-pending]}
                                      # precedence: ready to build once every gap it names is finished, or reviewed and
                                      # not yet on main (starts_at, fac.STACKABLE: built stacked on it; dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where);
                                      # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
       duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
-      milestone: {kind: milestone, group: true, precedence: false, inverse: gaps, done_when: {closed: {end: done}}}
+      milestone: {projection: milestone, group: true, precedence: false, inverse: gaps, done_when: {closed: {end: done}}}
                                      # the milestone it is finished with (milestones.py assign); folded by replace, so a
                                      # gap is in one, and the old free-text labels (not ids) stay as they were written;
                                      # in its progress a closed gap is done work only when closed as done on main (end:
@@ -165,7 +165,7 @@ items:
       denied: append
       conflicts: sum                 # its merges refused in the queue for a conflict (queue.py refuse)
     risk-score:                      # each change's chance of failing once approved, learned from the gaps judged
-      at: approved                   # before it (SPEC §5a, Risk score; ergostat item --kind gap --risk-score [--backtest])
+      at: approved                   # before it (SPEC §5a, Risk score; ergostat item --projection gap --risk-score [--backtest])
       failed: [gap.queue-failed, gap.reverted]
       undone: [gap.retried]          # triage: a flake, only quarantined tests, or a stall: not the branch's failure
       passed: [merged]

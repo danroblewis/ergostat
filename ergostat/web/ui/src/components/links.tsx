@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { agentHref, itemHref, kindHref } from "../lib/hrefs";
+import { agentHref, itemHref, projectionHref } from "../lib/hrefs";
 import { AppLink } from "./ui";
 
-/* Links to the things ergostat shows, the same on every page: an agent, an item (here or on a remote), a kind. */
+/* Links to the things ergostat shows, the same on every page: an agent, an item (here or on a remote), a projection. */
 
 export const AgentLink = ({ name, children }: { name: string; children?: ReactNode }) =>
   <AppLink to={agentHref(name)} className="agent-link">{children ?? name}</AppLink>;
@@ -17,5 +17,5 @@ export function ItemLink({ id, remote, className, children }: { id?: string | nu
   return <AppLink to={itemHref(id, remote)} className={className}>{children ?? id}</AppLink>;
 }
 
-export const KindLink = ({ name, children, className }: { name: string; children?: ReactNode; className?: string }) =>
-  <AppLink to={kindHref(name)} className={className}>{children ?? name}</AppLink>;
+export const ProjectionLink = ({ name, children, className }: { name: string; children?: ReactNode; className?: string }) =>
+  <AppLink to={projectionHref(name)} className={className}>{children ?? name}</AppLink>;

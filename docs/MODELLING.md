@@ -17,8 +17,8 @@ The format is `docs/SPEC.md`; the five structure checks below are what `ergostat
 |---|---|---|
 | A rate driven by another rate (`driven-by: +flow.x` on a flow) | a **stock** between them: the cause accumulates, and the effect follows what accumulated | `rate-driven-by-rate` |
 | A stock that only fills (inflows, no outflow) | its **outflow**: what is in it leaves somehow | `stock-without-outflow` |
-| A stock per state of an item kind, each filled by nothing and drained to a cloud | the **chain**: a flow from each state's stock to the next | `outflow-not-chained`, `state-stock-without-inflow`, `state-stocks-disconnected`, `loops-not-connected` |
-| The same item kind arriving from several clouds, into different states | **one arrival** into the kind's first state, and flows from stock to stock after it | `kind-enters-many-times` |
+| A stock per state of a projection, each filled by nothing and drained to a cloud | the **chain**: a flow from each state's stock to the next | `outflow-not-chained`, `state-stock-without-inflow`, `state-stocks-disconnected`, `loops-not-connected` |
+| The same projection arriving from several clouds, into different states | **one arrival** into the projection's first state, and flows from stock to stock after it | `projection-enters-many-times` |
 | Many inflows from clouds for the model's stocks | a **boundary** decided on purpose: what is really outside | `many-cloud-inflows` |
 | An outflow that would keep running with its stock empty | the **stock** among the outflow's causes | `outflow-ignores-stock` |
 | A decision that reacts to the true value the moment it changes | a **perceived** value: a stock that catches up with the true one, as people do | (not mechanical: read the decisions) |
@@ -49,7 +49,7 @@ what `examples/the-job` does with unreviewed ramps:
 stocks:
   unreviewed-ramps-live:
     unit: ramps
-    sensor: {items: ramp, state: went-ahead}
+    sensor: {projection: ramp, state: went-ahead}
 flows:
   ramps-went-ahead:                     # was: alerts-fired driven-by +flow.ramps-went-ahead
     from: ramps-briefed
@@ -68,7 +68,7 @@ flows:
 Measure the new stock honestly: if its items have no state for it, give them one (here the world
 says when a ramp that went ahead broke or proved fine: `ramp.broke`, `ramp.proved-fine`). When what
 you need to count is in the items' fields rather than their states, check how those fields fold:
-each event's data replaces a field unless the kind says otherwise (`fold: {incidents: sum}`,
+each event's data replaces a field unless the projection says otherwise (`fold: {incidents: sum}`,
 `{comments: append}`; SPEC §5a), and `ergostat item ID --history FIELD` shows every change and the
 event that made it, so a count built on a field that was overwritten when it should have been
 added to is found there.
@@ -123,7 +123,7 @@ stocks:
 
 ## 2a. A stock per state, each draining to a cloud: a missing chain
 
-**Symptom.** A workflow's item kind has states in order (requested, researched, approved, ramping, applied), and
+**Symptom.** A workflow's projection has states in order (requested, researched, approved, ramping, applied), and
 each state has a stock counting its items. But each step is written as an outflow from its state's stock to a
 cloud, and nothing fills the next state's stock. The stock-and-flow diagram shows a row of separate stocks, each
 filled by nothing; the block diagram shows a loop per step, none sharing a stock with the next.
@@ -140,39 +140,39 @@ next, measured as the items entering the next state, completions out of the last
 flows:
   arriving:                       # into the first state, from outside
     to: ff-requested
-    sensor: {items: ff-ticket, entering: requested}
+    sensor: {projection: ff-ticket, entering: requested}
   researched:                     # was: from ff-requested to a cloud
     from: ff-requested
     to: ff-researched
-    sensor: {items: ff-ticket, entering: researched}
+    sensor: {projection: ff-ticket, entering: researched}
   # ... one per move ...
   applied:                        # completions leave at the end
     from: ff-ramping
-    sensor: {items: ff-ticket, entering: applied}
+    sensor: {projection: ff-ticket, entering: applied}
 ```
 
-`ergostat check` reads the kind's states, the blocks that take its items, the flows' sensors and the moves in the
+`ergostat check` reads the projection's states, the blocks that take its items, the flows' sensors and the moves in the
 record, and says each missing link with its fix (`outflow-not-chained`: `to:` the next stock;
 `state-stock-without-inflow`; `move-without-flow`), then the pieces (`state-stocks-disconnected`) and the loops that
 share no stock (`loops-not-connected`). The improver proposes the whole chain as one change, for you to accept.
 
 **Source.** Sterman ch. 6 (stock and flow networks: conservation) and ch. 12 (aging chains).
 
-## 2b. The same kind arriving from several clouds: the boundary crossed twice
+## 2b. The same projection arriving from several clouds: the boundary crossed twice
 
-**Symptom.** Two flows or more come from clouds and count the items of one kind, into different states: `filed`
+**Symptom.** Two flows or more come from clouds and count the items of one projection, into different states: `filed`
 (`entering: open`) into the backlog, and `started` (`entering: doing`) into the work in progress. The stocks of the
-kind look fed from outside, each on its own, and relate only through information links.
+projection look fed from outside, each on its own, and relate only through information links.
 
 **Reason.** A cloud is the system's boundary: what comes from it is taken as given. An item crosses the boundary
 once, when it arrives; after that it moves between the model's own stocks. Arriving again in a later state means
 one of two things: the model counts the same items twice (once as they arrive, again as they reach the later
 state), or it draws their move between its own stocks as an arrival, and the chain is missing.
 
-**Fix.** Keep the arrival into the kind's first state, and re-point each other inflow `from:` the stock of the state
+**Fix.** Keep the arrival into the projection's first state, and re-point each other inflow `from:` the stock of the state
 its items come from (taken out, when that is the stock it fills; through a state with no stock, give that state its
-stock). `ergostat check` says which (`kind-enters-many-times`), from the moves in the record when there is one, else
-the kind's state order, and the improver proposes the rewiring. It is right to arrive in more than one state only
+stock). `ergostat check` says which (`projection-enters-many-times`), from the moves in the record when there is one, else
+the projection's state order, and the improver proposes the rewiring. It is right to arrive in more than one state only
 when items really do (tickets reopened in the outside system, arriving already in `doing`): the record shows it,
 items whose first event puts them there, and `check` then says it as a note, not a fault. Many inflows from clouds
 for the model's stocks (`many-cloud-inflows`) is the same question asked of the whole model: draw its boundary chart
@@ -390,10 +390,10 @@ record (SPEC §12l), once the model has run:
   declared for work that something else did, is a model of the control system that is not the one
   running.
 
-Each kind has a score, its agreements over its comparisons; each mismatch its file and line, its fix,
+Each projection has a score, its agreements over its comparisons; each mismatch its file and line, its fix,
 and the `check` finding it is the same as. Too little record says how much more it needs. Fix the
 model where the record is right; fix the blocks (their events, what they declare) where the model is
-right; and run again until every kind agrees.
+right; and run again until every projection agrees.
 
 ## Reading the fit: the model against the record
 
@@ -538,7 +538,7 @@ changes it by itself.
   is a question about the structure between them. Each result is a proposal with its fit before and
   after.
 - **What if** (a valve's or an auxiliary's panel). Type another value over a parameter's (a time
-  with its unit, like `20s`): every chart draws the replay and the projection with it, in blue, beside
+  with its unit, like `20s`): every chart draws the replay and the simulation with it, in blue, beside
   the model's own, and its fit on the record is shown beside it, stock by stock and in total, before
   anything is kept. A value the model cannot run (one that divides by 0) is said, and never proposed. This is how a model is
   used: "what happens to the backlog if reviews take twice as long?" Nothing is saved; **Propose these**
@@ -549,14 +549,14 @@ changes it by itself.
   is where nine in ten, and half, of two hundred runs over those ranges fall (parameters estimated
   together drawn together, as their correlation says); **Spread over the record** draws the same over
   the replay. A wide fan says the
-  projection depends on what is not known: measure that, or say so when you use it. A narrow fan
-  around a projection that is wrong says the structure is wrong, not the numbers.
+  simulation depends on what is not known: measure that, or say so when you use it. A narrow fan
+  around a simulation that is wrong says the structure is wrong, not the numbers.
 - **Extreme conditions** (`ergostat check`, **extreme-conditions**). The model run with its loops
   running (goals and built-ins as the engine works them out, each machine block by an assumed model of it),
   pushed to the extreme: every stock empty with nothing coming in, nothing coming in, each input alone at 0
   and at ten times its largest, each pool at 0, each goal's setpoint at its limits, and each estimated or
   timed parameter alone at its extremes (its range's ends, else a hundredth and a hundred times it). Each
-  failure names what caused it and the projection's numbers. A real queue never holds fewer than nothing,
+  failure names what caused it and the simulation's numbers. A real queue never holds fewer than nothing,
   an outflow never takes more than is there, nothing rises with nothing coming in, a one-way flow never
   runs back, a rate never divides by an empty stock, and a controller saturates rather than running away:
   when the model does otherwise, an equation is wrong where it was never tested, and will be wrong there
@@ -621,8 +621,8 @@ above; `docs/ADDING.md` gives the rest).
 
 1. Run `ergostat check`; answer every structure finding, by a change or by a word with a reason.
 2. For each stock: what fills it, what drains it, and does the drain depend on what is there?
-   For each item kind with a stock per state: is it one chain, arrivals in at the start and completions out at the end?
-   Does each kind come in from a cloud once, into its first state, and is everything else from a cloud really outside?
+   For each projection with a stock per state: is it one chain, arrivals in at the start and completions out at the end?
+   Does each projection come in from a cloud once, into its first state, and is everything else from a cloud really outside?
 3. For each `driven-by` on a flow: does the effect come at once? If not, where does the cause
    wait (the stock), and what ends its wait (the flows out of it)?
 4. For each link: is it signed, and do its units convert?
@@ -633,10 +633,10 @@ above; `docs/ADDING.md` gives the rest).
 8. For each auxiliary: is it explained by the model, or declared as coming from outside?
 9. Calibrate each part alone and the whole model: do the values agree? Where they do not, look at the
    structure between them.
-10. Give the numbers you are unsure of a `range`, and read the fan before you act on a projection.
+10. Give the numbers you are unsure of a `range`, and read the fan before you act on a simulation.
 11. For each part the record has not exercised (`not-exercised`): keep it with its reason, and plan
     the step test or disturbance that would exercise it, rather than removing it.
-12. Once it has run: does every kind's coherence read `N of N agree`? Each mismatch is the record,
+12. Once it has run: does every projection's coherence read `N of N agree`? Each mismatch is the record,
     the structure or the blocks disagreeing; decide which is wrong, and fix that one.
 
 ## Sources

@@ -2,7 +2,7 @@
 # archiver keeps outbox/ small. Plain shell scripts on real files; no simulation.
 name: file-queue
 
-items:
+projections:
   file:                          # each file, from the inbox to the archive: file/note-1767000000-123-0.txt
     id: file/*
     states: [inbox, outbox, archived]

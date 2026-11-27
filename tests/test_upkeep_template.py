@@ -25,7 +25,7 @@ from ergostat.store import Project
 
 HEX = "0123456789abcdef"
 KINDS = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [{states}]
@@ -274,7 +274,7 @@ def test_with_upkeep_the_engine_does_not_tidy_and_without_it_does(tmp_path, upke
     proj.events.add("ticket.opened", item="ticket/1")
     items = None
     for i in range(8):
-        ix, _ = _fold(root, i, upkeep, proj)                      # each a change of the item kinds: a new fold
+        ix, _ = _fold(root, i, upkeep, proj)                      # each a change of the projections: a new fold
         items = ix.path.parent
         _cold(items)                                              # nobody holds them: only the age and the count say
         _age(items)

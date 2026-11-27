@@ -34,7 +34,7 @@ AGENTS = ("asker", "valve-v", "lp-a", "ticket/1")
 
 def _project(tmp_path, backend: str, extra: str = "") -> Project:
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(f"""
-        items:
+        projections:
           ticket:
             id: ticket/*
             states: [open, done]

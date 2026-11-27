@@ -26,11 +26,11 @@ from ergostat.store import Project
 BOT = """
 template: bot
 params:
-  kind: {type: name, default: "${name}"}
+  projection: {type: name, default: "${name}"}
   work: {type: map, default: {type: program, run: "true", every: 5m}}
-items:
-  ${kind}:
-    id: ${kind}/*
+projections:
+  ${projection}:
+    id: ${projection}/*
     states: [ready, done]
 stocks:
   waiting:
@@ -40,7 +40,7 @@ blocks:
   work: ${work}
 """
 JUDGED = "template: judged\nblocks:\n  judge: {type: judge}\n"
-TAKES = {"type": "program", "run": "true", "takes": {"kind": "t", "at": "ready"}}
+TAKES = {"type": "program", "run": "true", "takes": {"projection": "t", "at": "ready"}}
 MAIN = {"a": {"use": "bot"}, "b": {"use": "bot"}, "t": {"use": "bot", "with": {"work": TAKES}},
         "j": {"use": "judged"}}                                   # 1 + 1 + 1 + 1: the cap
 OWN = "stocks:\n  mine: {unit: x, sensor: {run: 'echo 1'}}\nblocks:\n  go: {type: program, run: 'true', every: 1s}\n"

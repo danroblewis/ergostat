@@ -44,8 +44,8 @@ The **Diagram** page has three views of the same model:
   It answers *what is*.
 - **Blocks**: the same system as a control engineer's block diagram: controllers, actuators,
   processes and sensors, summing junctions, signals r, e, u, y. It answers *what we control*.
-- **Process**: how the items really moved, from the record: a process map per kind of item (each
-  state or event, how often, what came next, rework, and work on one kind fanning out into another).
+- **Process**: how the items really moved, from the record: a process map per projection (each
+  state or event, how often, what came next, rework, and work on one projection fanning out into another).
 
 Click anything: the side panel says what it is, charts it over the time window (a stock with its
 inflows and outflows; a loop's setpoint, measurement, action and error), and links what it touches.
@@ -57,7 +57,7 @@ everything, hides the loop markers, shows the flows only (the pipes, their stock
 In the-job, **Items → day** holds each morning's brief and each evening's ledger, rendered.
 
 **Goals** lists every goal, holding or off. **Model** says what the model can do with the record
-(test it, improve it, project it, identify and tune its loops) and what each tool still needs.
+(test it, improve it, run it forward, identify and tune its loops) and what each tool still needs.
 **Check** says what is missing from the model.
 **Guide** is a two-minute illustrated introduction to both disciplines.
 
@@ -128,7 +128,7 @@ controllers**: blocks ergostat reads but does not run (`type: external`); see
 - The **Model** page starts with **What's available**: each loop and what would identify it, each
   parameter to estimate and whether the record is long enough, and a link to the panel of each tool.
   Below it, the changes ergostat proposes (review, simulate, accept) and how well the model fits.
-- [MODEL-TOOLS.md](MODEL-TOOLS.md): every tool (fit, checks, calibration, replay, projection, what-if,
+- [MODEL-TOOLS.md](MODEL-TOOLS.md): every tool (fit, checks, calibration, replay, simulation, what-if,
   loop dominance, identification, margins, tuning, step tests), where it is and what it needs.
 - [MODELLING.md](MODELLING.md) is the guide: the tells, the System Dynamics reason, the YAML fix.
 - For an AI agent: `ergostat help improve-model` (also an MCP tool) reviews a model and proposes

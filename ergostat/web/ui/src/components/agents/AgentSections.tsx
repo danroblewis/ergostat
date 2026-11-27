@@ -177,7 +177,7 @@ export function Place({ a, name, loops }: { a: any; name: string; loops: any }) 
         ["its rung over versions", rungsText(a.spec)],
         ["commanded by", (pl.commanded_by || []).length ? list(pl.commanded_by) : null],
         ["commands", (pl.commands || []).length ? list(pl.commands) : null],
-        ["working now", w ? (w.n == null ? "not known" : `working ${w.n} ${w.kind}${w.n === 1 ? "" : "s"}`) : null],
+        ["working now", w ? (w.n == null ? "not known" : `working ${w.n} ${w.projection}${w.n === 1 ? "" : "s"}`) : null],
       ]} />
       <p><AppLink to={`/diagram?view=blocks&around=block/${encodeURIComponent(name)}`}>Show on Blocks</AppLink></p>
     </>

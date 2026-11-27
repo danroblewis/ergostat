@@ -56,7 +56,7 @@ def short(text: str, n: int = 32) -> str:
 
 
 def what(spec: Spec, x: Sensor) -> str:
-    """What a sensor reads, without how often: ``items: alert, fired``; ``prometheus: <query>``; its
+    """What a sensor reads, without how often: ``projection: alert, fired``; ``prometheus: <query>``; its
     description when it says it (``Jira: FF tickets approved``); else its command."""
     if x.items:
         q = x.items
@@ -71,7 +71,7 @@ def what(spec: Spec, x: Sensor) -> str:
             which = f"the oldest {which}"
         where = q.get("where") or {}
         cond = "".join(f", {k} = {', '.join(map(str, v)) if isinstance(v, list) else v}" for k, v in where.items())
-        return f"items: {kind}, {which}{cond}"
+        return f"projection: {kind}, {which}{cond}"
     if x.query:
         src = spec.sources.get(x.query.get("source") or "")
         head = src.type if src is not None and src.type not in ("command",) else (x.query.get("source") or "query")
@@ -90,7 +90,7 @@ def what(spec: Spec, x: Sensor) -> str:
 
 
 def reads(spec: Spec, x: Sensor) -> str:
-    """What a sensor reads and how often: ``items: alert, fired, every 5 s``."""
+    """What a sensor reads and how often: ``projection: alert, fired, every 5 s``."""
     from .library.runs import sandboxed
     w, h = what(spec, x), how_often(x)
     if x.manual:
@@ -99,7 +99,7 @@ def reads(spec: Spec, x: Sensor) -> str:
 
 
 def collectors(spec: Spec) -> dict[str, list[Sensor]]:
-    """For each kind of item, the sensors taken to collect it: a command or a query on a flow that brings
+    """For each projection, the sensors taken to collect it: a command or a query on a flow that brings
     a stock counted by that kind in from outside. It polls the outside system and records what it saw
     as events about items (SPEC §6), so the counts of that kind are only as fresh as it is."""
     out: dict[str, list[Sensor]] = {}

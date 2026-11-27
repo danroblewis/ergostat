@@ -21,9 +21,9 @@ import json, sys
 from pathlib import Path
 db = json.loads(Path(__file__).with_name("record.json").read_text())
 args = sys.argv[1:]
-if args[0] == "item" and "--kind" in args:
-    kind = args[args.index("--kind") + 1]
-    got = [i for i in db["items"] if i["kind"] == kind]
+if args[0] == "item" and "--projection" in args:
+    kind = args[args.index("--projection") + 1]
+    got = [i for i in db["items"] if i["projection"] == kind]
     print(json.dumps({"items": got, "total": len(got)}))
 elif args[0] == "item":
     print(json.dumps(db["details"][args[1]]))
@@ -84,7 +84,7 @@ def test_time_in_each_state_sums_visits_for_any_end(tmp_path):
     assert dead["dead"] == {"hours": 0.25, "visits": 1, "left": T0 + 4.25 * H} and dead["ready"]["hours"] == 2.0
     assert times.visits(moves(("open", 0))) == {}                       # still open: nothing closed yet
 
-    gap = {"id": "gap/x", "kind": "gap", "state": "parked", "events": 40, "entered": T0 + 15 * H, "fields": {}}
+    gap = {"id": "gap/x", "projection": "gap", "state": "parked", "events": 40, "entered": T0 + 15 * H, "fields": {}}
     detail = {"id": "gap/x", "events": 40, "moves": FIXED_TWICE, "record": [], "record_total": 0}
     lines = [json.loads(x) for x in run(tmp_path, "times.py", items=[gap], details={"gap/x": detail}).stdout.splitlines()]
     assert [(x["event"], x["item"]) for x in lines] == [("gap.timed", "gap/x")]
@@ -100,7 +100,7 @@ def test_an_event_that_changes_no_timing_is_read_once(tmp_path):
     changes no timing (gap.dependencies on a parked gap) is read once, and never holds a slot from an untimed gap."""
     marks = tmp_path / "times.json"
     detail = {"id": "gap/x", "events": 40, "moves": FIXED_TWICE, "record": [], "record_total": 0}
-    timed = {"id": "gap/x", "kind": "gap", "state": "parked", "events": 40, "fields": {}}
+    timed = {"id": "gap/x", "projection": "gap", "state": "parked", "events": 40, "fields": {}}
     said, read = [], []
     was = times.fac.ergostat, times.fac.say, times.MOST
 
@@ -116,7 +116,7 @@ def test_an_event_that_changes_no_timing_is_read_once(tmp_path):
         assert times.write([timed], marks) == 1 and len(said) == 1  # read once, nothing changed: nothing said
         assert times.write([timed], marks) == 0                     # and not read again
         times.MOST = 1                                              # an untimed gap gets the run's one slot first
-        new = {"id": "gap/a", "kind": "gap", "state": "open", "events": 3, "fields": {}}
+        new = {"id": "gap/a", "projection": "gap", "state": "open", "events": 3, "fields": {}}
         details["gap/a"] = {"id": "gap/a", "events": 3, "moves": FIXED_TWICE[:2], "record": [], "record_total": 0}
         timed["events"] = 43
         times.write([timed, new], marks)
@@ -238,11 +238,11 @@ def test_catches_counted_per_gate_from_sent_back(tmp_path):
     assert old["catches"] is None and old["catch_times"] is None
     # measure.py gate-catches-GATE: the catches in the last 14 days, by each catch's own time, over every gap
     real = time.time()
-    live = [{"id": "gap/a", "kind": "gap", "state": "merged", "events": 1, "entered": real,
+    live = [{"id": "gap/a", "projection": "gap", "state": "merged", "events": 1, "entered": real,
              "fields": {"catch_times": {"review": [real - 86400, real - 20 * 86400], "queue": [real - 3600]}}},
-            {"id": "gap/b", "kind": "gap", "state": "fix", "events": 1, "entered": real,
+            {"id": "gap/b", "projection": "gap", "state": "fix", "events": 1, "entered": real,
              "fields": {"catch_times": {"review": [real - 60]}}},
-            {"id": "gap/c", "kind": "gap", "state": "open", "events": 1, "entered": real, "fields": {}}]
+            {"id": "gap/c", "projection": "gap", "state": "open", "events": 1, "entered": real, "fields": {}}]
     r = run(tmp_path, "measure.py", "gate-catches-review", items=live)
     assert r.stdout.strip() == "2.0" and "1 gap(s) whose catches are unknown" in r.stderr
     assert run(tmp_path, "measure.py", "gate-catches-lint", items=live).stdout.strip() == "0.0"
@@ -301,7 +301,7 @@ def test_a_quiet_gate_reaches_the_simplifier_brief():
 
 def gap(gid: str, state: str, ready_hours: float | None, left: float, **fields) -> dict:
     t = {"ready": {"hours": ready_hours, "visits": 1, "left": left}} if ready_hours is not None else {}
-    return {"id": gid, "kind": "gap", "state": state, "events": 1, "entered": left,
+    return {"id": gid, "projection": "gap", "state": state, "events": 1, "entered": left,
             "fields": {"time_in": t, **fields}}
 
 

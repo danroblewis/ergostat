@@ -1,5 +1,5 @@
 template: steps
-description: A kind of item worked through a list of steps in order, each step a block that takes the items at its state, one run per item, each leased; an item that fails every try is a dead letter, set aside for a person.
+description: A projection worked through a list of steps in order, each step a block that takes the items at its state, one run per item, each leased; an item that fails every try is a dead letter, set aside for a person.
 reading: |
   System dynamics: an aging chain (Sterman ch. 12) with a work-in-progress stage at every step: a stock of the
   items waiting at the step, drained by the step taking them into a stock of the items it is working on, drained in
@@ -27,14 +27,14 @@ example: |
             run: ./bin/reproduce.sh
           - name: draft-fix                 # nothing to run: a stand-in that does nothing
 params:
-  kind:
+  projection:
     type: name
     default: ${name}
-    description: the kind of item; ids KIND/<id>; each step moves it with KIND.<step>-done
+    description: the projection; ids PROJECTION/<id>; each step moves it with PROJECTION.<step>-done
   steps:
     type: list
     required: true
-    description: 'the steps in order, each a name (lowercase, not done) or a map: {name, run} a program step, run its command, given the item on standard input (none: a stand-in that does nothing); {name, prompt} an AI agent step, prompt its prompt (a file or the text), which ends its work by saying {"event": "KIND.<step>-done"} (or gives the item back, {"nack": "why"}), with model, tools (Claude Code''s tools it may use) and actions (the names of actions it may ask for) when wanted'
+    description: 'the steps in order, each a name (lowercase, not done) or a map: {name, run} a program step, run its command, given the item on standard input (none: a stand-in that does nothing); {name, prompt} an AI agent step, prompt its prompt (a file or the text), which ends its work by saying {"event": "PROJECTION.<step>-done"} (or gives the item back, {"nack": "why"}), with model, tools (Claude Code''s tools it may use) and actions (the names of actions it may ask for) when wanted'
   command:
     type: command
     stand-in: a made-up feed
@@ -88,9 +88,9 @@ params:
   unstick:
     default: Items were set aside after a step failed on them every try. Look at each, fix its cause, then give it another go (ergostat lease ITEM --redrive), or finish it yourself.
     description: what a person is asked about the dead letters; false for nobody
-items:
-  ${kind}:
-    id: ${kind}/*
+projections:
+  ${projection}:
+    id: ${projection}/*
     description: an item worked through the steps
     states:
       - each: steps
@@ -99,7 +99,7 @@ items:
     on:
       each:
         each: steps
-        key: ${kind}.${it.name}-done
+        key: ${projection}.${it.name}-done
         value: ${it.next}
     show: [title, error, failed_at]
 workspaces:
@@ -123,7 +123,7 @@ stocks:
     unit: items
     description: items waiting at step ${it.name}
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: ${it.name}
       every: 10s
   ${it.name}-working:
@@ -131,7 +131,7 @@ stocks:
     unit: items
     description: items step ${it.name} is working on, each leased to a run
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: leased
       where:
         lease.back: ${it.name}
@@ -141,14 +141,14 @@ stocks:
     cumulative: true
     description: items through every step
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: done
       every: 30s
   stuck:
     unit: items
     description: dead letters, set aside after a step failed on them every try
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: dead
       every: 10s
 flows:
@@ -156,7 +156,7 @@ flows:
     to: ${steps.first}
     description: items arriving, as the collector sees them
     sensor:
-      run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} --stand-in ${stand-in-rate} --window 600
+      run: ${lib} collect --name ${name} --projection ${projection} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} --stand-in ${stand-in-rate} --window 600
       every: ${poll}
       averages: 10m
   ${it.name}-taken:
@@ -165,7 +165,7 @@ flows:
     to: ${it.name}-working
     description: items step ${it.name} took, each leased to a run
     sensor:
-      items: ${kind}
+      projection: ${projection}
       entering: leased
       where:
         lease.back: ${it.name}
@@ -176,7 +176,7 @@ flows:
     to: ${it.next}
     description: items through step ${it.name}
     sensor:
-      items: ${kind}
+      projection: ${projection}
       entering: ${it.next}
       over: 10m
   ${it.name}-retried:
@@ -185,7 +185,7 @@ flows:
     to: ${it.name}
     description: items step ${it.name} gave back, or lost to a silent run, to be taken again
     sensor:
-      items: ${kind}
+      projection: ${projection}
       entering: ${it.name}
       where:
         lease.back: ${it.name}
@@ -196,7 +196,7 @@ flows:
     to: stuck
     description: items set aside at step ${it.name}, after every try
     sensor:
-      items: ${kind}
+      projection: ${projection}
       entering: dead
       where:
         lease.back: ${it.name}
@@ -206,7 +206,7 @@ flows:
     from: stuck
     description: dead letters a person gave another go (back to their step) or finished
     sensor:
-      items: ${kind}
+      projection: ${projection}
       leaving: dead
       over: 10m
 goals:
@@ -229,7 +229,7 @@ blocks:
       else: program
     goal: ${it.name}-clear
     takes:
-      kind: ${kind}
+      projection: ${projection}
       at: ${it.name}
       to: ${it.next}
     pool: ${pool}
@@ -241,7 +241,7 @@ blocks:
       attempts: ${tries}
     run:
       unless: ${it.prompt}
-      value: ${lib} each --kind ${kind} --state ${it.name} --done ${it.name}-done --run ${it.run:quote} --timeout ${timeout:seconds} --flow flow.${it.name}-done
+      value: ${lib} each --projection ${projection} --state ${it.name} --done ${it.name}-done --run ${it.run:quote} --timeout ${timeout:seconds} --flow flow.${it.name}-done
     timeout:
       if: ${it.prompt}
       value: ${ai-timeout}

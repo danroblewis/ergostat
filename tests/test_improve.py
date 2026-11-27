@@ -59,7 +59,7 @@ def item(p, pid):
     return its.detail(p.events, p.model.spec, f"{KIND}/{pid}")
 
 
-# ---- the built-in item kind, and the record as the only store
+# ---- the built-in projection, and the record as the only store
 
 def test_every_project_has_the_built_in_kind_and_none_may_take_its_prefix(tmp_path):
     (tmp_path / "ergostat.yaml").write_text(QUEUE)
@@ -68,7 +68,7 @@ def test_every_project_has_the_built_in_kind_and_none_may_take_its_prefix(tmp_pa
     assert k.id == f"{KIND}/*" and k.states[:5] == ["made", "checked", "testing", "passed", "accepted"]
     assert {"refused", "failed", "dismissed", "superseded"} <= set(k.states)
     assert k.on[f"{KIND}.passed"] == "passed"
-    (tmp_path / "ergostat.yaml").write_text(QUEUE + "items:\n  mine:\n    id: ergostat.model-change/*\n    states: [a]\n")
+    (tmp_path / "ergostat.yaml").write_text(QUEUE + "projections:\n  mine:\n    id: ergostat.model-change/*\n    states: [a]\n")
     assert any(x.code == "reserved-id" for x in read(tmp_path / "ergostat.yaml")[1])
 
 

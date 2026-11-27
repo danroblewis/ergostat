@@ -28,7 +28,7 @@ def said(lines: list[dict]) -> list[str]:
 
 
 def batch(f: Factory) -> dict:
-    got = [i for i in f.db()["items"].values() if i["kind"] == "batch"]
+    got = [i for i in f.db()["items"].values() if i["projection"] == "batch"]
     assert len(got) == 1, [i["id"] for i in got]
     return got[0]
 
@@ -158,7 +158,7 @@ def test_a_failing_event_write_changes_nothing_that_lands(tmp_path):
         runs[name] = (got, merges(f), suite_runs(f), {g: f.item(f"gap/{g}")["state"] for g in "abc"},
                       [x for x in lines if "nack" in x])
         if name == "failing":
-            assert said(lines) == [] and not any(i["kind"] == "batch" for i in f.db()["items"].values())
+            assert said(lines) == [] and not any(i["projection"] == "batch" for i in f.db()["items"].values())
     assert runs["plain"] == runs["failing"] and runs["plain"][1] == ["c", "a"]     # (the green half first, then a)
 
 
@@ -199,7 +199,7 @@ def project(tmp_path, out):
     from ergostat import model as mdl
     from ergostat.store import Project
     text = (ROOT / "dev" / "model" / "landing.yaml").read_text()
-    kind = text[text.index("\nitems:\n") + 1:text.index("\nstocks:")]
+    kind = text[text.index("\nprojections:\n") + 1:text.index("\nstocks:")]
     (tmp_path / "m").mkdir()
     (tmp_path / "m" / "ergostat.yaml").write_text(kind + textwrap.dedent("""
           gap:
@@ -350,7 +350,7 @@ def test_a_queue_run_killed_before_its_push_leaves_its_batch_ended_by_the_next(t
     approved_gaps(f, {"c": 3}, batch=2)
     _, lines = f.run("queue.py", "gap/c")
     assert said(lines)[:2] == ["batch.ended-landed", "batch.started"]
-    got = {i["id"]: i for i in f.db()["items"].values() if i["kind"] == "batch"}
+    got = {i["id"]: i for i in f.db()["items"].values() if i["projection"] == "batch"}
     first = next(i for k, i in got.items() if k.startswith("batch/a-"))
     assert first["state"] == "landed" and "killed after its merges landed" in first["fields"]["why"]
     assert merges(f) == ["a", "b", "c"]

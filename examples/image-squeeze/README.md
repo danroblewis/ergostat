@@ -29,8 +29,8 @@ Then the page `ergostat run` prints, or:
 
 ```bash
 ergostat loop                     # the goals: holding or off
-ergostat item --kind case         # the benchmark: which of the thirty cases squeeze meets, and how well
-ergostat item --kind hypothesis   # every experiment, its state, and (ergostat item hypothesis/3) what it measured
+ergostat item --projection case         # the benchmark: which of the thirty cases squeeze meets, and how well
+ergostat item --projection hypothesis   # every experiment, its state, and (ergostat item hypothesis/3) what it measured
 ergostat explain small-images     # the whole chain, from the researcher to the bytes served
 ergostat run --stop
 ```

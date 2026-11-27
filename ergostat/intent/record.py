@@ -38,7 +38,7 @@ def vid_of(work: str, entry_event: str) -> str:
 def asked(p, block: str, brief: dict, mode: str, model: str | None, rung: str, at: float | None = None) -> dict:
     """The judge takes a piece of work up: what it is, what it is held to."""
     w = brief["work"]
-    data = {"work": w["id"], "kind": w["kind"], "at": w["at"], "entered": w["entered"], "entry_event": w["entry_event"],
+    data = {"work": w["id"], "projection": w["projection"], "at": w["at"], "entered": w["entered"], "entry_event": w["entry_event"],
             "judge": "intent", "block": block, "rung": rung, "mode": mode, **({"model": model} if model else {}),
             "against": [x["id"] for x in brief["against"]], "done_when": w.get("done_when"),
             "diff_chars": len(brief.get("diff") or ""), "outcome": "being judged"}
@@ -127,10 +127,10 @@ def reopen(p, spec: Spec, item: str, reason: str | None, by: str = OWNER, to: st
     from ..spec import items as its
     it = its.one(p.events, spec, item)
     if it is None or it.kind is None:
-        raise VerdictError(f"no item {item!r} of a kind the model knows")
+        raise VerdictError(f"no item {item!r} of a projection the model knows")
     k = spec.items[it.kind]
     if not k.states:
-        raise VerdictError(f"{item}: its kind ({k.name}) has no states to go back through")
+        raise VerdictError(f"{item}: its projection ({k.name}) has no states to go back through")
     if not (reason or "").strip():
         raise VerdictError("reopening needs a reason: what is not done as meant (the work is given it)")
     to = to if to in k.states else (spec.messages.reopen_to.get(k.name) or k.states[0])

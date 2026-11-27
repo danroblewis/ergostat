@@ -248,7 +248,7 @@ def scores(events, spec, kind: str) -> dict:
     def read(lr: Learner) -> dict:
         rows = [{"id": i, "state": it.state, **of(lr, it)} for i, it in lr.items.items()]
         rows.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0), r["id"]))
-        return {"kind": kind, "judged": lr.n, "failed": lr.f, "least": lr.decl["least"], "items": rows}
+        return {"projection": kind, "judged": lr.n, "failed": lr.f, "least": lr.decl["least"], "items": rows}
     return learned(events, spec, kind, read)
 
 
@@ -272,7 +272,7 @@ def _backtest(lr: Learner, kind: str) -> dict:
     y = [1.0 if a["failed"] is True else 0.0 for a in scored]
     brier = round(sum((a["score"] - v) ** 2 for a, v in zip(scored, y, strict=True)) / len(y), 4) if y else None
     base = round(sum((a["base"] - v) ** 2 for a, v in zip(scored, y, strict=True)) / len(y), 4) if y else None
-    return {"kind": kind, "attempts": len(lr.attempts), "judged": len(done), "scored": len(scored),
+    return {"projection": kind, "attempts": len(lr.attempts), "judged": len(done), "scored": len(scored),
             "failed": sum(a["failed"] is True for a in done), "open": len(lr.open), "withdrawn": lr.withdrawn,
             "held": sum(bool(a.get("held")) for a in lr.open.values()),
             "unscored": len(done) - len(scored), "rolled_up": len(lr.rolled), "bands": bands,

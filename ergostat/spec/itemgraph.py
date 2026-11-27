@@ -1,6 +1,6 @@
 """Queries over the items' relations and mentions (SPEC §5a, *Graph queries*), from the item index's links, both
 ways, and its text: ``near`` (the items within 1 to ``DEPTH_MOST`` hops), ``path`` (a shortest chain, a step walked
-backward named by the kind's ``inverse:``, else ``relations.inverse_of``) and ``about`` (``declared`` links to it, then
+backward named by the projection's ``inverse:``, else ``relations.inverse_of``) and ``about`` (``declared`` links to it, then
 ``inferred`` whole-token mentions among the items whose text, its first ``TEXT_MOST`` characters, holds the id).
 Each visits at most ``VISIT`` items (links are bounded only by those) and says ``capped`` when it stopped there: a
 capped path is "none within the cap", never "not connected". An unknown id is ``Unknown``, a bad query ``Bad``."""

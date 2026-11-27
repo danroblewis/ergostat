@@ -17,7 +17,7 @@ from ergostat.store import Project
 
 T0 = 1_790_000_000.0
 KIND = """
-    items:
+    projections:
       ticket:
         id: ticket/*
         states: [open, doing, done]

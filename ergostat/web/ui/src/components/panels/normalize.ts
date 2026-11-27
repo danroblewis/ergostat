@@ -10,7 +10,7 @@ export function normalizePanel(x: any, i = 0): PanelDef {
     if (p.form === "diagram") {
       const d = p.diagram || {};
       p.panel = "diagram";
-      p.address = p.address || diagramHref({ view: d.view, system: d.system, item: d.item, kind: d.kind });
+      p.address = p.address || diagramHref({ view: d.view, system: d.system, item: d.item, projection: d.projection });
       delete p.diagram; delete p.form; delete p.queries;
     } else p.panel = "query";
   }

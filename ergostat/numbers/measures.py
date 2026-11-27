@@ -14,7 +14,7 @@ is a measurement of the model against the record, like any sensor's, so a goal c
 and how far blocks' claims hold (SPEC §12g, ``claims/trust.py``): ``ergostat.trust.contradicted`` and its counts, each
 for every block or, with ``@WHO``, one block, rung or model; how the owner's messages reach the work (SPEC §12h,
 ``messages/measures.py``): ``ergostat.messages.unrouted``, ``.awaiting``, ``.missed`` and the rest; and how the work
-each projection recipe started turned out (SPEC §12j, ``recipes/uses.py``): ``ergostat.context.RECIPE.outcome``,
+each context recipe started turned out (SPEC §12j, ``recipes/uses.py``): ``ergostat.context.RECIPE.outcome``,
 ``.cost`` and counts; and what the runs cost (SPEC §9.1, ``costs/record.py``): ``ergostat.cost.usd``, ``.tokens``,
 ``.cpu``, ``.memory``, ``.runs``, over the last day or hour, for every block or one; the day's budget left (SPEC §9.9,
 ``costs/budget.py``): ``ergostat.budget.left``; and ergostat's own upkeep (SPEC §2a, *Upkeep*,

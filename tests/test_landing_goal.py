@@ -35,12 +35,12 @@ def run_(n: int, kind: str, outcome: str, minutes: float, **more) -> dict:
 
 
 def batch(iid: str, state: str, started: float, runs: list[dict], **fields) -> dict:
-    return {"id": iid, "kind": "batch", "state": state, "first": started, "entered": started,
+    return {"id": iid, "projection": "batch", "state": state, "first": started, "entered": started,
             "fields": {"started_at": started, "runs": runs, "run": len(runs), **fields}}
 
 
 def gap(iid: str, state: str, approved: float | None = None, **fields) -> dict:
-    return {"id": iid, "kind": "gap", "state": state, "first": T0, "entered": approved or T0,
+    return {"id": iid, "projection": "gap", "state": state, "first": T0, "entered": approved or T0,
             "fields": {**({"approved_at": approved} if approved is not None else {}), **fields}}
 
 
@@ -195,7 +195,7 @@ def test_the_pipeline_manager_reads_the_reason_rather_than_the_queue_state(tmp_p
 # ---- a waiting gap's "why isn't this done?" names its batch and run, or how many batches are ahead of it
 
 WHY = """
-items:
+projections:
   gap:
     id: gap/*
     states: [new, approved, queued, merged]        # (a gap arrives in its first state, as the factory's in open)
@@ -207,14 +207,14 @@ items:
     on: {batch.started: testing, batch.run-started: testing, batch.run-finished: isolating, batch.ended-landed: landed}
     show: [size, run, outcome]
     relations:
-      gaps: {kind: gap, precedence: false, inverse: batches}
+      gaps: {projection: gap, precedence: false, inverse: batches}
 messages:
   done: {gap: [merged], batch: [landed]}
 blocks:
   queue:
     type: program
     run: "true"
-    takes: {kind: gap, at: approved, to: [merged]}
+    takes: {projection: gap, at: approved, to: [merged]}
     pool: 1
 """
 
@@ -230,7 +230,7 @@ def test_a_waiting_gap_s_why_names_its_batch_and_run_or_the_batches_ahead(tmp_pa
     p.events.add("batch.run-finished", item="batch/f-4", data={"outcome": "crashed"}, at=T0 + 30)
     up = {"running": True, "pid": os.getpid(), "beat": now, "said": "up"}
     a = answer(p, "gap/g", now=now, engine=up)
-    assert a["place"]["in"] == [{"item": "batch/f-4", "kind": "batch", "state": "isolating",
+    assert a["place"]["in"] == [{"item": "batch/f-4", "projection": "batch", "state": "isolating",
                                  "shown": {"size": 2, "run": 6, "outcome": "crashed"}}]
     assert "It is in batch/f-4 (isolating; size 2; run 6; outcome crashed)." in a["summary"]
     b = answer(p, "gap/later", now=now, engine=up)
@@ -249,7 +249,7 @@ def test_a_waiting_gap_s_why_names_its_batch_and_run_or_the_batches_ahead(tmp_pa
     p.events.add("batch.started", item="batch/r-6", data={"gaps": ["gap/r"], "size": 1}, at=T0 + 80)
     d = answer(p, "gap/later", now=now, engine=up)
     assert answer(p, "gap/r", now=now, engine=up)["now"]["state"] == "leased"
-    assert d["place"]["ahead"] == {"batch": {"n": 1, "latest": {"item": "batch/r-6", "kind": "batch",
+    assert d["place"]["ahead"] == {"batch": {"n": 1, "latest": {"item": "batch/r-6", "projection": "batch",
                                                                  "state": "testing", "shown": {"size": 1}}}}
     assert "ahead of it: 1 unfinished batch item, the latest batch/r-6 (testing; size 1)" in d["summary"]
     # ... and then moved on to queued (queue.py's take(): gap.queued), as the real queue's head gap always is

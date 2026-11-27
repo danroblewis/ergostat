@@ -21,14 +21,14 @@ from ergostat.store import Project
 
 MODEL = """
 name: rz
-items:
+projections:
   job:
     id: job/*
     states: [new, done]
     on:
       job.end: done
 stocks:
-  waiting: {unit: jobs, sensor: {items: job, state: new, every: 1s}}
+  waiting: {unit: jobs, sensor: {projection: job, state: new, every: 1s}}
 goals:
   few:
     stock: waiting
@@ -150,7 +150,7 @@ def test_the_fallback_is_the_repositorys_and_never_runs_anything(tmp_path, capsy
 GLOBBED = """
 name: rz
 include: [parts/*.yaml, plain.yaml]
-items:
+projections:
   job: {id: job/*, states: [new, done]}
 """
 
@@ -158,8 +158,8 @@ items:
 def test_includes_are_settled_from_the_snapshot_never_the_disk(tmp_path):
     d = _repo(tmp_path, GLOBBED)
     (d / "parts").mkdir()
-    (d / "parts" / "a.yaml").write_text("stocks:\n  a: {unit: jobs, sensor: {items: job, state: new, every: 1s}}\n")
-    (d / "parts" / "b.yaml").write_text("stocks:\n  b: {unit: jobs, sensor: {items: job, state: done, every: 1s}}\n")
+    (d / "parts" / "a.yaml").write_text("stocks:\n  a: {unit: jobs, sensor: {projection: job, state: new, every: 1s}}\n")
+    (d / "parts" / "b.yaml").write_text("stocks:\n  b: {unit: jobs, sensor: {projection: job, state: done, every: 1s}}\n")
     (d / "plain.yaml").write_text("goals:\n  few: {stock: a, hold: '<= 5'}\n")
     was = set(_kept(d).model.stocks)
     (d / "parts" / "c.yaml").write_text("stocks:\n  c: {unit: jobs}\n")    # a file the glob now matches

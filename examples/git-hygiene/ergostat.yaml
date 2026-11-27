@@ -3,7 +3,7 @@
 # and only ever in work/.
 name: git-hygiene
 
-items:
+projections:
   branch:                        # each branch in work/, from its first commit to its deletion
     id: branch/*
     states: [open, merged, deleted]

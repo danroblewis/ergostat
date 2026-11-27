@@ -131,7 +131,7 @@ def test_the_jobs_two_ended_person_asks_keep_their_number_along_the_flow_it_move
 
 
 def test_the_why_of_an_action_is_its_items_impact_and_tests(tmp_path):
-    p, _ = project(tmp_path, MODEL.replace("blocks:", "items:\n  failure:\n    id: failure/*\n    states: [open]\n"
+    p, _ = project(tmp_path, MODEL.replace("blocks:", "projections:\n  failure:\n    id: failure/*\n    states: [open]\n"
                                                    "    on: {failure.seen: open}\nblocks:", 1))
     p.events.add("failure.seen", item="failure/1", data={"impact": {"said": "restores 12 an hour"}, "tests": "passed"})
     gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "failure/1"})
@@ -140,7 +140,7 @@ def test_the_why_of_an_action_is_its_items_impact_and_tests(tmp_path):
 
 
 def test_an_action_says_its_command_and_its_reason_once_in_the_cli_the_message_and_the_status(tmp_path, capsys):
-    p, _ = project(tmp_path, MODEL.replace("blocks:", "items:\n  failure:\n    id: failure/*\n    states: [open]\n"
+    p, _ = project(tmp_path, MODEL.replace("blocks:", "projections:\n  failure:\n    id: failure/*\n    states: [open]\n"
                                                    "    on: {failure.seen: open}\nblocks:", 1)
                    .replace('run: "cat >> sent.txt"', 'run: "cat >> sent.txt"\n      detail: full'))
     p.events.add("failure.seen", item="failure/1", data={"impact": {"said": "restores 12 an hour"}, "tests": "passed"})
@@ -513,9 +513,9 @@ def test_a_dismissed_finding_returns_when_its_part_changes(tmp_path):
     p, r, eid = held_request(tmp_path)
     answer.answer(p, p.model.spec, eid, "deny", note="not now")
     text = p.model.path.read_text()
-    assert "sensor: {items: alert, state: triaged, every: 2s}" in text
-    p.model.path.write_text(text.replace("sensor: {items: alert, state: triaged, every: 2s}",
-                                         "sensor: {items: alert, state: triaged, every: 3s}"))
+    assert "sensor: {projection: alert, state: triaged, every: 2s}" in text
+    p.model.path.write_text(text.replace("sensor: {projection: alert, state: triaged, every: 2s}",
+                                         "sensor: {projection: alert, state: triaged, every: 3s}"))
     q = Project(mdl.load(tmp_path))                                       # another part changed: still dismissed
     assert rq.sync(q)["reopened"] == 0 and rq.stored(q)[r["id"]]["state"] == "dismissed"
     text = p.model.path.read_text()

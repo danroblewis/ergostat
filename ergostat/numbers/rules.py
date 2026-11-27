@@ -3,7 +3,7 @@ it can answer (``requests.py``, ``tier: rule``), a mechanical change that is saf
 block's (checked on a scratch copy, judged, written as the judge's policy allows):
 
 - **a stock's unit** (``no-unit``, a check finding it reads itself: ``unitless``), carried along its flows from the
-  stocks they join, or, for a stock that counts the items of a kind, that kind's name in the plural, when exactly one
+  stocks they join, or, for a stock that counts the items of a projection, that projection's name in the plural, when exactly one
   unit is said.
 
 A queue's goal with a tolerance and a process nobody identified are control: held for the owner (``requests.OWNER``).

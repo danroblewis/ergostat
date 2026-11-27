@@ -20,7 +20,7 @@ from tests.ports import free_port
 
 MODEL = """
 name: graphs
-items:
+projections:
   epic:
     id: epic/*
     states: [planned, shipped]

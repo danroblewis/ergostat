@@ -22,7 +22,7 @@ from ergostat.store import Project
 
 BODY = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -34,7 +34,7 @@ stocks:
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready{faults}}
+    takes: {projection: ticket, at: ready{faults}}
     lease: {attempts: 1}
     run: {run}
 """

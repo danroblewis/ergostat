@@ -51,7 +51,7 @@ def parts_of(s: Spec) -> list[str]:
     out = [f"{k}.{n}" for k, t in (("stock", s.stocks), ("flow", s.flows), ("auxiliary", s.auxiliaries),
                                    ("goal", s.goals), ("block", s.blocks)) for n in t]
     out += [str(x.ref) for x in s.sensors()]
-    out += [f"agent.{n}" for n in s.agents] + [f"kind.{n}" for n in s.items]
+    out += [f"agent.{n}" for n in s.agents] + [f"projection.{n}" for n in s.items]
     return out
 
 
@@ -74,12 +74,12 @@ def test_every_part_in_exactly_one_shard(which, scale30):
     want = parts_of(s)
     sensors = {str(x.ref) for x in s.sensors()}
     assert len(want) == len(set(want)) and sensors and {"stock", "flow", "auxiliary", "goal", "block", "agent",
-                                                        "kind"} <= {w.split(".")[0] for w in want}
+                                                        "projection"} <= {w.split(".")[0] for w in want}
     seen = [k for sh in p.shards.values() for k in sh.parts]
     assert sorted(seen) == sorted(want)                   # each in exactly one shard, and nothing else
     for k in want:
         assert k in p.shards[p.of(k)].parts
-    assert p.lead in p.shards and any(k.startswith("kind.ergostat.") for k in p.shards[p.lead].parts)
+    assert p.lead in p.shards and any(k.startswith("projection.ergostat.") for k in p.shards[p.lead].parts)
 
 
 def test_systems_apart_unless_shared():
@@ -103,13 +103,13 @@ def test_shared_taken_kind_merges():
     s = two(takes=Takes("ticket", ["new"]))
     s.items["ticket"] = ItemKind("ticket", "ticket/*", ["new", "done"], system="b")
     p = plan(s)
-    assert set(p.shards) == {"lead", "a"} and p.of("kind.ticket") == "a"
-    assert p.why == {"a": [{"joined": "b", "because": "kind", "via": "ticket"}]}
+    assert set(p.shards) == {"lead", "a"} and p.of("projection.ticket") == "a"
+    assert p.why == {"a": [{"joined": "b", "because": "projection", "via": "ticket"}]}
     s = two()                                              # through a join: one takes the parent, the other its children
     s.items["epic"] = ItemKind("epic", "epic/*", ["open", "shipped"], join=[Join("parent", ["done"], "shipped")])
     s.items["ticket"] = ItemKind("ticket", "ticket/*", ["new", "done"], relations={"parent": Relation("parent", ["epic"])})
     s.blocks["a-work"].takes, s.blocks["b-work"].takes = Takes("epic", ["open"]), Takes("ticket", ["new"])
-    assert plan(s).why == {"a": [{"joined": "b", "because": "kind", "via": "epic"}]}
+    assert plan(s).why == {"a": [{"joined": "b", "because": "projection", "via": "epic"}]}
 
 
 def test_shared_daemon_merges():
@@ -234,7 +234,7 @@ def test_same_plan_any_hash_seed(scale30_dir):
 
 def test_of_unknown_raises():
     p = plan(two())
-    for ref in ("stock.nope", "agent.nope", "kind.nope", Ref("block", "nope"), "stock.a-q.nope"):
+    for ref in ("stock.nope", "agent.nope", "projection.nope", Ref("block", "nope"), "stock.a-q.nope"):
         with pytest.raises(KeyError):
             p.of(ref)
 

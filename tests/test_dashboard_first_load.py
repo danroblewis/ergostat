@@ -37,24 +37,24 @@ WINDOW, POINTS = 86400, 120
 
 GAP = ["new", "leased", "ready", "building", "review", "approved"]
 _rate = {"agg": "count", "transform": "rate", "rate_per": "hour"}
-_last = {"group_by": "kind", "agg": "last", "transform": "none"}
+_last = {"group_by": "projection", "agg": "last", "transform": "none"}
 _p50 = {"agg": "p50", "transform": "none"}
 
 
 def _arrivals(k):
-    return {"source": "moves", "kind": k, "measure": "entries", "first_only": True, "state": ["new"], **_rate}
+    return {"source": "moves", "projection": k, "measure": "entries", "first_only": True, "state": ["new"], **_rate}
 
 
 def _done(k):
-    return {"source": "moves", "kind": k, "measure": "entries", "state": ["done", "dropped"], **_rate}
+    return {"source": "moves", "projection": k, "measure": "entries", "state": ["done", "dropped"], **_rate}
 
 
 def _count(k, states):
-    return {"source": "counts", "kind": k, "state": states, **_last}
+    return {"source": "counts", "projection": k, "state": states, **_last}
 
 
 def _stay(k, state, **more):
-    return {"source": "moves", "kind": k, "measure": "time_in_state", "state": [state], **_p50, **more}
+    return {"source": "moves", "projection": k, "measure": "time_in_state", "state": [state], **_p50, **more}
 
 
 FIRST = [_count("gap", GAP), _done("gap"), _stay("gap", "leased", bucket="whole"), _arrivals("gap"),
@@ -183,7 +183,7 @@ def test_a_cold_servers_first_dashboard_answer_is_within_budget(factory_state, c
          + "\n".join(f"  {at:6.2f} s  {took:6.2f} s  {n}" for n, at, took in page.rows)
          + "\neach query alone afterwards:\n" + "\n".join(f"  {i:>4} {t:6.3f} s  {json.dumps(q)}" for i, t, q in alone), capsys)
 
-    assert fields["sources"]["moves"]["kinds"]["gap"]["queue"]
+    assert fields["sources"]["moves"]["projections"]["gap"]["queue"]
     assert first_took <= FIRST_BUDGET and load_took <= LOAD_BUDGET, (first_took, load_took, page.rows)
     assert day_took <= DAY_BUDGET and day.get("loops"), (day_took, page.rows)
     answered = first["results"] + rest["results"]
@@ -205,7 +205,7 @@ def test_the_queues_the_fields_give_are_the_graphs(factory_state, monkeypatch):
     from ergostat.spec.itemindex import index_for
     p = factory_state.project()
     spec = p.model.spec
-    moves = _read(p)["sources"]["moves"]["kinds"]
+    moves = _read(p)["sources"]["moves"]["projections"]
     graph = Kinds(spec, index_for(p.events, spec, False))
     assert {k: moves[k]["queue"] for k in spec.items} == {k: graph[k]["queue"] for k in spec.items}
     assert any(len(graph[k]["queue"]) > 1 for k in spec.items)          # (one a block takes from beyond its first)
@@ -224,4 +224,4 @@ def test_the_listing_with_eta_0_is_the_listing_without_its_estimates(factory_sta
     without = _answer(live, "items", {"since": ["1h"], "n": ["1"], "eta": ["0"], "at": [at]})
     assert started == []
     plain = _answer(live, "items", {"since": ["1h"], "n": ["1"], "at": [at]})
-    assert len(started) == 1 and without == plain and without["kinds"]
+    assert len(started) == 1 and without == plain and without["projections"]

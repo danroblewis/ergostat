@@ -247,7 +247,7 @@ def add(root: Path, instance: str, template: str, given: dict | None = None, fil
 def parts_of(spec, system: str) -> dict:
     inside = lambda x: x.system and system in spec.chain(x.system)          # noqa: E731
     return {"system": system, "template": (spec.uses.get(system) or {}).get("template"),
-            "items": [k for k, v in spec.items.items() if inside(v)],
+            "projections": [k for k, v in spec.items.items() if inside(v)],
             "stocks": [n for n, x in spec.stocks.items() if inside(x)], "flows": [n for n, x in spec.flows.items() if inside(x)],
             "auxiliaries": [n for n, x in spec.auxiliaries.items() if inside(x)],
             "goals": {n: f"{x.of} {x.hold}" for n, x in spec.goals.items() if inside(x)},
@@ -274,7 +274,7 @@ records = [
 for r in records:
     print(json.dumps(r))
 ''', "command"),
-    "answer": ('''"""Work on one item: ergostat gives it on standard input ({"id", "kind", "state", "fields"}) and in $ITEM_ID and
+    "answer": ('''"""Work on one item: ergostat gives it on standard input ({"id", "projection", "state", "fields"}) and in $ITEM_ID and
 $ITEM_FIELDS. Exit 0 when it is done (the item moves on); any other exit says it failed (it is tried again, then
 set aside). The last JSON object printed is folded into the item's fields."""
 import json
@@ -311,7 +311,7 @@ print(json.dumps({"moved": moved}))
     "render": ('''"""A report: print it as Markdown. ergostat keeps what it prints as the report's file, and records the item."""
 import datetime
 
-# TODO: gather what the report says (from your systems, or `$ERGOSTAT_CMD item --kind K --json`).
+# TODO: gather what the report says (from your systems, or `$ERGOSTAT_CMD item --projection K --json`).
 print(f"# Report, {datetime.date.today():%A %d %B %Y}")
 print()
 print("- nothing to report yet")
@@ -484,7 +484,7 @@ def pieces(nodes: list[dict], edges: list[dict]) -> int:
 
 def shape(p, system: str) -> dict:
     """What the two drawings of a system look like, in numbers: the pieces each falls into (one connected chain per
-    item kind draws as one), and check's findings about the chain of its kinds' state stocks (spec/chains.py)."""
+    projection draws as one), and check's findings about the chain of its projections' state stocks (spec/chains.py)."""
     from ..spec import chains
     from ..web.server import Live, api
     out: dict = {}
@@ -498,7 +498,7 @@ def shape(p, system: str) -> dict:
     ps = parts_of(p.model.spec, system)
     mine = {f"stock.{n}" for n in ps["stocks"]} | {f"flow.{n}" for n in ps["flows"]}
     out["chain_findings"] = [f"{x.code} ({x.about}): {x.message}" for x in chains.analyse(p.model.spec) if x.about in mine]
-    out["looks_right"] = ("one piece in each view per item kind (an arrival chain, each step's loop sharing its stocks), "
+    out["looks_right"] = ("one piece in each view per projection (an arrival chain, each step's loop sharing its stocks), "
                           "and no chain findings")
     return out
 

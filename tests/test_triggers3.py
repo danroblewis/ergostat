@@ -15,7 +15,7 @@ from ergostat.store import Project
 
 MODEL = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, done]
@@ -93,7 +93,7 @@ def test_a_run_cannot_claim_another_blocks_emits(tmp_path, engine):
 
 FANNED = """
 name: fanned
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, done]
@@ -106,7 +106,7 @@ blocks:
     out: flow.f
   relay:
     type: program
-    takes: {kind: ticket, at: open}
+    takes: {projection: ticket, at: open}
     run: python3 relay.py
     out: flow.r
 stocks:

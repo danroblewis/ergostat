@@ -257,7 +257,7 @@ def test_the_skill_sends_every_agent_setting_up_a_model_to_the_section():
 # ---- check's wait-unexplained
 
 KIND = """
-items:
+projections:
   todo:
     id: todo/*
     states: @STATES@
@@ -289,7 +289,7 @@ def test_a_kind_whose_waiting_nothing_explains_is_found(tmp_path, capsys):
 
 
 def test_a_block_a_relation_or_a_working_state_explains_it(tmp_path):
-    assert kinds(tmp_path, blocks="blocks:\n  doer: {type: program, run: 'true', takes: {kind: todo, at: todo}}") == {}
+    assert kinds(tmp_path, blocks="blocks:\n  doer: {type: program, run: 'true', takes: {projection: todo, at: todo}}") == {}
     assert kinds(tmp_path, relations="relations: {after: todo}") == {}
     assert kinds(tmp_path, relations="relations: {mentions: todo}") == {"todo": ["todo"]}, "not precedence: says only"
     assert kinds(tmp_path, states="[new, todo, done]") == {}, "a working state, moved on by todo.done"

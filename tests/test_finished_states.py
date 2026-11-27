@@ -25,7 +25,7 @@ PARITY = ROOT / "tests" / "fixtures" / "finished_parity.json"
 DEMOS = ("first-loop", "image-squeeze", "roadmap", "software-factory", "the-job", "ticket-factory")
 
 FACTORY = """
-items:
+projections:
   gap:
     id: gap/*
     states: [open, ready, building, in-review, merged, parked, closed]
@@ -93,7 +93,7 @@ def test_the_listing_the_relations_and_the_estimates_say_the_same(tmp_path):
     ev.add("pool.measured", item="pool/x", at=t + 2)
     ev.add("answer.asked", item="answer/1", at=t + 3)
     ev.add("answer.given", item="answer/1", at=t + 4)
-    kinds = {k["name"]: k for k in its.listing(ev, spec)["kinds"]}
+    kinds = {k["name"]: k for k in its.listing(ev, spec)["projections"]}
     assert {f: kinds["gap"][f] for f in ("finished", "paused", "dead", "finished_from", "lives_on")} == \
         {"finished": ["merged", "closed"], "paused": ["parked"], "dead": False, "finished_from": "declared", "lives_on": False}
     assert kinds["pool"]["lives_on"] and kinds["pool"]["finished"] == [] and kinds["pool"]["finished_from"] == "none"

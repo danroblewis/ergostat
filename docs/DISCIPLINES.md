@@ -16,7 +16,7 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 | Control engineering | Signal-flow graph (Mason's rule form) | ◻ |
 | Systems engineering | Hierarchy and decomposition: systems within systems, modules with ports | ✅ both views |
 | Systems engineering | SysML-style block definition and internal block diagrams | ◻ |
-| Software engineering | State machine diagram per item kind | ◻ |
+| Software engineering | State machine diagram per projection | ◻ |
 | Formal methods | Petri net: item states as places, events as transitions, items as tokens | ◻ |
 | SD tool interchange | XMILE export (opens in Stella) | ◻ |
 
@@ -28,13 +28,13 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 | System dynamics | Causes strip: a part and what drives it, one time axis | ✅ |
 | Control engineering | Scope: setpoint and measurement, control output, error, time off marked | ✅ |
 | Control engineering | Loop performance table: time off, recovery, saturation | ✅ Goals page |
-| Workflow / lean / Kanban | Cumulative flow diagram per item kind | ✅ Items page |
+| Workflow / lean / Kanban | Cumulative flow diagram per projection | ✅ each projection's page |
 | Workflow / lean / Kanban | Cycle-time scatter / lead-time distribution | ✅ scatter · ◻ histogram |
 | Queueing theory | Little's law check per stock (level = throughput × time in stock) | ◻ |
 | SRE / observability | Evidence map of what passed between machines | ◻ (was the Wiring view; `system --wiring` on the command line) |
 | SRE / observability | Service map with rate, errors, duration per edge | ◻ |
 | Software engineering | Sequence diagram of one item's or incident's chain (`causedby`) | ◻ |
-| Process mining | Process map (directly-follows graph) per item kind, object-centric: what one kind's work caused in another's | ✅ Process view |
+| Process mining | Process map (directly-follows graph) per projection, object-centric: what one projection's work caused in another's | ✅ Process view |
 | Discrete-event simulation | Event graph with observed delays and probabilities | ◻ |
 | Statistical process control | Control charts (Shewhart, CUSUM, EWMA) on any measured part | ◻ |
 | Documents | Item files: briefs, drafts, transcripts rendered | ✅ |
@@ -43,7 +43,7 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 
 | Discipline | What | |
 |---|---|---|
-| System dynamics | Replay and projection over the measured line | ✅ causes strip ([MODEL-TOOLS](MODEL-TOOLS.md#replay-and-projection)) |
+| System dynamics | Replay and simulation over the measured line | ✅ causes strip ([MODEL-TOOLS](MODEL-TOOLS.md#replay-and-simulation)) |
 | System dynamics | Fit with Theil's breakdown, calibration, sensitivity fans, what-if, extreme-conditions tests | ✅ `ergostat fit`, `proposals`, `check`, panels ([MODEL-TOOLS](MODEL-TOOLS.md#is-my-model-right)) |
 | System dynamics | Loop dominance (Loops That Matter), leverage | ✅ a feedback loop's panel, a proposal's effect ([MODEL-TOOLS](MODEL-TOOLS.md#loop-dominance)) |
 | System dynamics | Phase plots (stock against stock, or against its flow) | ◻ |

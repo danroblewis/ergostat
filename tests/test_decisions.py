@@ -246,7 +246,7 @@ def test_the_ai_extractor_stops_before_its_cost_cap(tmp_path, monkeypatch):
 def test_a_session_in_the_record_is_read_from_its_claude_events(tmp_path):
     from ergostat import transcripts as tr
     p = project(tmp_path, """
-        items:
+        projections:
           session:
             id: session/*
             formats: {transcript: claude-session}
@@ -339,7 +339,7 @@ def test_the_items_page_answers_go_through_the_owners_acts(tmp_path):
     assert post("retire", id=a)[0] == 404                                  # a decision is superseded, not retired
     assert acts.one(p, a).state == "superseded"
     detail = its.detail(p.events, p.model.spec, a)
-    assert detail["kind_of"]["name"] == DECISION and detail["state"] == "superseded"
+    assert detail["projection_of"]["name"] == DECISION and detail["state"] == "superseded"
     assert {c["rule"] for c in detail["history"]["words"]} == {"append"}
 
 

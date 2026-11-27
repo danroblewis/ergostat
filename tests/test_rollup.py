@@ -120,7 +120,7 @@ def test_folding_the_snapshot_and_what_came_after_is_folding_the_originals(tmp_p
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_snapshot_is_a_set_with_its_history_summarised_and_the_full_history_archived(tmp_path, backend):
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(f"""
-        items:
+        projections:
           ticket:
             id: ticket/*
             states: [open, done]
@@ -128,7 +128,7 @@ def test_snapshot_is_a_set_with_its_history_summarised_and_the_full_history_arch
             fold: {{spent: sum, notes: append}}
         storage:
           events: {backend}
-          rollup: {{after: 1h, kinds: {{ticket: 2h}}}}
+          rollup: {{after: 1h, projections: {{ticket: 2h}}}}
         """))
     p = Project(mdl.load(tmp_path))
     for i in range(10):
@@ -153,7 +153,7 @@ def test_snapshot_is_a_set_with_its_history_summarised_and_the_full_history_arch
 
 
 def test_the_kept_fold_follows_new_events_and_a_past_moment(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("items:\n  t:\n    id: t/*\n    states: [a, b]\n    on: {t.b: b}\n")
+    (tmp_path / "ergostat.yaml").write_text("projections:\n  t:\n    id: t/*\n    states: [a, b]\n    on: {t.b: b}\n")
     p = Project(mdl.load(tmp_path))
     spec = p.model.spec
     for i in range(30):
@@ -170,7 +170,7 @@ def test_the_kept_fold_follows_new_events_and_a_past_moment(tmp_path):
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_keep_forgets_an_item_whole_and_rolls_up_a_live_one(tmp_path, backend):
-    (tmp_path / "ergostat.yaml").write_text(f"keep: 1d\nitems:\n  t:\n    id: t/*\nstorage:\n  events: {backend}\n"
+    (tmp_path / "ergostat.yaml").write_text(f"keep: 1d\nprojections:\n  t:\n    id: t/*\nstorage:\n  events: {backend}\n"
                                             "  rollup: never\n")
     p = Project(mdl.load(tmp_path))
     now = T0 + 10 * 86400
@@ -192,7 +192,7 @@ def test_a_transcript_read_again_records_none_of_its_rolled_up_lines(tmp_path):
 
     from ergostat.transcripts import Ingester as Transcripts
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
-        items:
+        projections:
           session:
             id: session/*
             formats: {transcript: claude-session}

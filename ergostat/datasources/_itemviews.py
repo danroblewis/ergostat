@@ -2,15 +2,15 @@
 over the item index (spec/itemindex.py), whose own tables are never readable. All item data is here: the built-in item
 shortcuts (query/sources.py) are SQL over these views and nothing else.
 
-- ``transitions(id, kind, at, from_state, to_state, event, type)``: every move of every item; an arrival has no
+- ``transitions(id, projection, at, from_state, to_state, event, type)``: every move of every item; an arrival has no
   ``from_state``.
-- ``item_fields(id, kind, field, value)``: each item's fields now, one row a top-level field (a list or a map as JSON).
-- ``item_spans(id, kind, state, entered, left, entry, reason)``: one row per move of an item into a state: when it
+- ``item_fields(id, projection, field, value)``: each item's fields now, one row a top-level field (a list or a map as JSON).
+- ``item_spans(id, projection, state, entered, left, entry, reason)``: one row per move of an item into a state: when it
   ``entered``, when it ``left`` (null while it is there: an open item's current span), ``entry`` (1 the first time it is
   in that state, 2 when it came back, ...) and ``reason``: the finished state the item ended in (null while it is open).
 - the forecast as last worked out (numbers/forecast.py, never worked out for a query; a query naming one while there
   is none is refused with why): ``forecast_items`` one row an open item, and the aggregates by labels the model
-  bounds, ``forecast_kinds`` (a kind), ``forecast_stages`` (a kind's state with open items) and ``forecast_groups``
+  bounds, ``forecast_projections`` (a projection), ``forecast_stages`` (a projection's state with open items) and ``forecast_groups``
   (a group's parent, at most ``forecast.MOST_GROUPS``). Each row says ``p50``, ``p90`` (Unix seconds), ``runs``, when
   it was ``computed``, the moment it is ``at``, its ``version``, ``estimate`` (1, or 0 with ``none``: why not); an
   item its ``basis`` ("block dev", "state review") and ``sample``, the record's runs or stays that is drawn from. A
@@ -18,15 +18,15 @@ shortcuts (query/sources.py) are SQL over these views and nothing else.
   parent not one), the expected number ``out`` and ``lost`` within the horizon and the ``yield``; ``forecast_group_by`` one row
   for each k-th member out (``n``): the date it is out by in half (``p50``) and nine tenths (``p90``) of the runs; and
   the functions ``GROUP_FUNCTIONS`` answer a group's counts by any date (``_group_functions``).
-- ``item_list(id, kind, state, first, last, entered, events)``: every item of every kind, as it is now.
-- ``item_numbers(id, kind, field, at, value, delta)``: each change of an item's numeric field (the item fields shortcut).
-- ``item_labels(id, kind, label, value)``: what an item is labelled by for a filter or a group: ``state``, and each
+- ``item_list(id, projection, state, first, last, entered, events)``: every item of every projection, as it is now.
+- ``item_numbers(id, projection, field, at, value, delta)``: each change of an item's numeric field (the item fields shortcut).
+- ``item_labels(id, projection, label, value)``: what an item is labelled by for a filter or a group: ``state``, and each
   top-level field as a word (query/labels.py ``word``: an empty or missing one ``none``, a list or a map ``many``).
-- ``item_state_groups(id, kind, state_group)``: each item's stage in its group's progress (spec/grouptally.py), made in
+- ``item_state_groups(id, projection, state_group)``: each item's stage in its group's progress (spec/grouptally.py), made in
   Python when a text names it.
 - ``events(type, source, at, n)``: how many events of each type and source the index folded in the minute ending ``at``.
-- one view per item kind, named for the kind (``-`` read as ``_``; a name that is not then a plain word, or that is one
-  of the views above, has none): ``(id, state, first, last, entered, events, <the kind's show: fields>)``.
+- one view per projection, named for the projection (``-`` read as ``_``; a name that is not then a plain word, or that is one
+  of the views above, has none): ``(id, state, first, last, entered, events, <the projection's show: fields>)``.
 
 Times are Unix seconds. Each view names its columns, so a change of the index's own tables (a column or a table added,
 the columns in another order, the file built again) leaves what a view answers as it was
@@ -50,22 +50,22 @@ from ..spec import codec
 
 STATE_GROUPS = "item_state_groups"
 STABLE = {
-    "transitions": ("id", "kind", "at", "from_state", "to_state", "event", "type"),
-    "item_fields": ("id", "kind", "field", "value"),
-    "item_spans": ("id", "kind", "state", "entered", "left", "entry", "reason"),
-    "item_list": ("id", "kind", "state", "first", "last", "entered", "events"),
-    "item_numbers": ("id", "kind", "field", "at", "value", "delta"),
-    "item_labels": ("id", "kind", "label", "value"),
+    "transitions": ("id", "projection", "at", "from_state", "to_state", "event", "type"),
+    "item_fields": ("id", "projection", "field", "value"),
+    "item_spans": ("id", "projection", "state", "entered", "left", "entry", "reason"),
+    "item_list": ("id", "projection", "state", "first", "last", "entered", "events"),
+    "item_numbers": ("id", "projection", "field", "at", "value", "delta"),
+    "item_labels": ("id", "projection", "label", "value"),
     "events": ("type", "source", "at", "n"),
     **stages.COLUMNS,                                   # (made from the items' stages, here: _stage_tables)
-    STATE_GROUPS: ("id", "kind", "state_group"),        # (made from the items' groups, here: _state_group_table)
+    STATE_GROUPS: ("id", "projection", "state_group"),        # (made from the items' groups, here: _state_group_table)
 }
 _SAID = ("p50", "p90", "runs", "computed", "at", "version", "estimate", "none")
 FORECAST = {                                            # (made from the forecast: _forecast_tables)
-    "forecast_items": ("id", "kind", "state", "p50", "p90", "mean", "start", "dead", "out", "runs", "basis", "sample",
+    "forecast_items": ("id", "projection", "state", "p50", "p90", "mean", "start", "dead", "out", "runs", "basis", "sample",
                        "computed", "at", "version", "estimate", "none", "why"),
-    "forecast_kinds": ("kind", "open", "unscheduled", *_SAID),
-    "forecast_stages": ("kind", "state", "open", "unscheduled", *_SAID),
+    "forecast_projections": ("projection", "open", "unscheduled", *_SAID),
+    "forecast_stages": ("projection", "state", "open", "unscheduled", *_SAID),
     "forecast_groups": ("parent", "open", "unscheduled", *_SAID, "members", "out", "lost", "yield"),
     "forecast_group_by": ("parent", "n", "p50", "p90", "computed", "at", "version"),
 }
@@ -114,25 +114,25 @@ def _definitions(spec, finished: dict[str, list[str]]) -> dict[str, str]:
     ended = " ".join(f"when k.name = {_q(k)} and n.name in ({', '.join(map(_q, fs))}) then n.name"
                      for k, fs in sorted(finished.items()) if fs)
     out = {
-        "transitions": "select i.id as id, k.name as kind, m.t as at, f.name as from_state, d.name as to_state, "
+        "transitions": "select i.id as id, k.name as projection, m.t as at, f.name as from_state, d.name as to_state, "
         "m.event as event, y.name as type from main.names k join main.moves m on m.kind = k.id "
         "join main.names d on d.id = m.dst join main.items i on i.rid = m.rid "
         + " ".join(names.format(a=a, c=c) for a, c in (("f", "m.frm"), ("y", "m.type"))),
-        "item_fields": "select i.id as id, k.name as kind, j.key as field, j.value as value "
+        "item_fields": "select i.id as id, k.name as projection, j.key as field, j.value as value "
         f"from main.items i {names.format(a='k', c='i.kind')} join json_each(_fields(i.body)) j",
-        "item_spans": "select i.id as id, k.name as kind, d.name as state, s.t as entered, s.nxt as \"left\", "
+        "item_spans": "select i.id as id, k.name as projection, d.name as state, s.t as entered, s.nxt as \"left\", "
         f"s.entry as entry, {f'case {ended} end' if ended else 'null'} as reason from (select rid, kind, dst, t, "
         "lead(t) over (partition by rid order by rowid) as nxt, row_number() over (partition by rid, dst order by rowid) "
         "as entry from main.moves) s join main.items i on i.rid = s.rid "
         + " ".join(names.format(a=a, c=c) for a, c in (("k", "s.kind"), ("d", "s.dst"), ("n", "i.state"))),
     }
-    out["item_list"] = ("select i.id as id, k.name as kind, n.name as state, i.first as first, i.last as last, "
+    out["item_list"] = ("select i.id as id, k.name as projection, n.name as state, i.first as first, i.last as last, "
                         "i.entered as entered, i.n as events from main.items i join main.names k on k.id = i.kind "
                         + names.format(a="n", c="i.state"))
-    out["item_numbers"] = ("select i.id as id, k.name as kind, f.name as field, l.t as at, l.value as value, "
+    out["item_numbers"] = ("select i.id as id, k.name as projection, f.name as field, l.t as at, l.value as value, "
                            "l.delta as delta from main.names k join main.number_log l on l.kind = k.id "
                            "join main.names f on f.id = l.field join main.items i on i.rid = l.rid")
-    out["item_labels"] = ("select i.id as id, k.name as kind, 'state' as label, coalesce(n.name, 'none') as value "
+    out["item_labels"] = ("select i.id as id, k.name as projection, 'state' as label, coalesce(n.name, 'none') as value "
                           "from main.items i join main.names k on k.id = i.kind " + names.format(a="n", c="i.state")
                           + " union all select i.id, k.name, j.key, case j.type when 'null' then 'none' "
                           "when 'true' then 'true' when 'false' then 'false' "
@@ -234,7 +234,7 @@ def _stage_tables(c, spec, finished: dict[str, list[str]], now: float) -> None:
     rs = stage_rows(c, spec, finished, now)
     est = stages.estimates(rs)
     made = {"item_stages": rs, "item_progress": stages.progress(rs, est, now),
-            "stage_estimates": [{"kind": k, "run_kind": rk, "stage": s, "expected": e, "samples": n}
+            "stage_estimates": [{"projection": k, "run_kind": rk, "stage": s, "expected": e, "samples": n}
                                 for (k, rk, s), (e, n) in sorted(est.items())]}
     for view, cols in stages.COLUMNS.items():
         c.execute(f'create temp table "{view}" ({", ".join(chr(34) + x + chr(34) for x in cols)})')
@@ -246,7 +246,7 @@ def _state_group_table(c, ix, spec) -> None:
     """``item_state_groups``: each item of a kind whose items are in a group's progress, its stage there (done, in
     progress, waiting, stopped; spec/grouptally.py), as the query engine's ``state_group`` label reads it."""
     from ..spec.grouptally import stages as group_stages
-    c.execute(f'create temp table "{STATE_GROUPS}" ("id", "kind", "state_group")')
+    c.execute(f'create temp table "{STATE_GROUPS}" ("id", "projection", "state_group")')
     for kind, k in sorted((getattr(spec, "items", None) or {}).items()):
         if not k.states:
             continue
@@ -365,7 +365,8 @@ def forecast_rows(fc: dict) -> dict[str, list[tuple]]:
     by = [(g, k, p50, p90, e.get("computed"), fc.get("at"), fc.get("version"))
           for g, e in sorted(fc.get("groups", {}).items()) for k, p50, p90 in (e.get("count") or {}).get("by", [])]
     return {"forecast_group_by": by,"forecast_items": [row("forecast_items", e, id=i) for i, e in sorted(fc.get("items", {}).items())],
-            "forecast_kinds": [row("forecast_kinds", e, kind=k) for k, e in sorted(fc.get("kinds", {}).items())],
+            "forecast_projections": [row("forecast_projections", e, projection=k)
+                                     for k, e in sorted(fc.get("projections", {}).items())],
             "forecast_stages": [row("forecast_stages", e) for _, e in sorted(fc.get("stages", {}).items())],
             "forecast_groups": [row("forecast_groups", e, parent=g) for g, e in sorted(fc.get("groups", {}).items())]}
 

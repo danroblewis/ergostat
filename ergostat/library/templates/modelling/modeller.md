@@ -21,8 +21,8 @@ moves a flow of what the goal holds. A queue of items worked as they come is hel
 block that `takes:` items runs only while its goal is off); a tolerance belongs on a level. A block without `out:` has
 no visible effect. A person's step is `type: person` with `ask:`. Never write a `process:` nobody identified.
 
-**Process.** Each item kind declares its states in order and maps every moving event in `on:`. Event types are
-`kind.verb-past` (`alert.triaged`, `facet.opened`). A block declares the moves its runs make (`takes: {kind, at, to}`
+**Process.** Each projection declares its states in order and maps every moving event in `on:`. Event types are
+`projection.verb-past` (`alert.triaged`, `facet.opened`). A block declares the moves its runs make (`takes: {projection, at, to}`
 and `out:` the flows that carry them).
 
 **Descriptions on everything**: one line a newcomer can read without the YAML, in the world's words; for a flow, what

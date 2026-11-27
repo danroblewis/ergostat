@@ -5,7 +5,7 @@ import { SharedAnswers } from "../../components/panels/shared";
 import { usePanelApi } from "../../components/panels/usePanelApi";
 import { ITEM_PANELS as PANELS } from "../../lib/pages";
 
-/* /item/ID, a dashboard made in advance (pages.js pageItem): its panels are why it is not done, its kind, state, age
+/* /item/ID, a dashboard made in advance (pages.js pageItem): its panels are why it is not done, its projection, state, age
    and events; the path it took through its states; its relations both ways; its fields; what was refused; how it
    moved; its events; and each field's changes, asked for when the Changes fold is opened (or a field's "N changes").
    The page asks the item's answer once and hands it to every panel; a part with nothing to say is not drawn. */

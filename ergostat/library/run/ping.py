@@ -1,9 +1,9 @@
 """Asking again until answered: a block's program.
 
-    ping --kind K --state S [--state S2] --every 1d --limit 3 [--run CMD] [--pinged-flow flow.x]
+    ping --projection K --state S [--state S2] --every 1d --limit 3 [--run CMD] [--pinged-flow flow.x]
          [--gave-up-flow flow.y] [--max N]
 
-Each unanswered item (kind K, in one of the states) whose last ping is older than ``--every`` (or that was never
+Each unanswered item (projection K, in one of the states) whose last ping is older than ``--every`` (or that was never
 pinged) is pinged: the command is run with the item on standard input and in ``$ITEM_ID``, ``$ITEM_FIELDS`` and
 ``$PING_N`` (this ping's number), and ``K.pinged`` is recorded (``pings: 1``, summed, and ``last_ping``). An item
 pinged ``--limit`` times and still unanswered a period after its last is given up on (``K.gave-up``), for a person
@@ -20,7 +20,7 @@ from .each import run_one
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="ping")
-    ap.add_argument("--kind", required=True)
+    ap.add_argument("--projection", dest="kind", required=True)
     ap.add_argument("--state", required=True, action="append")
     ap.add_argument("--every", type=float, required=True, help="seconds between pings")
     ap.add_argument("--limit", type=int, default=3)

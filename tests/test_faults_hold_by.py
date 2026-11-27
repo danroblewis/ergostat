@@ -24,7 +24,7 @@ RUN = ('v=${ERGOSTAT_ITEM#ticket/}; v=${v%%-*}; if [ -f "slow-$v" ]; then sleep 
 
 BODY = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -32,7 +32,7 @@ items:
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready{faults}}
+    takes: {projection: ticket, at: ready{faults}}
     pool: 3
     lease: {attempts: 9}
     run: {run}

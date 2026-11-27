@@ -84,7 +84,7 @@ class Kinds:
         return {"name": name, "finished": finished, "queue": queue, "working": working,
                 "paused": paused, "medians": medians, "weights": weights,
                 "duration": sum(medians[s] * weights[s] for s in known) if known else None,
-                "relations": {r.name: {"kinds": r.kinds, "precedence": r.precedence, "inverse": r.inverse, "group": r.group,
+                "relations": {r.name: {"projections": r.kinds, "precedence": r.precedence, "inverse": r.inverse, "group": r.group,
                                        "starts_at": r.starts_at} for r in k.relations.values()}}
 
     def expected(self, name: str | None) -> float | None:
@@ -324,7 +324,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     and status), and no other relation is an edge (``about`` lists what they name)."""
     from .spec.itemindex import index_for
     ix = ix if ix is not None else index_for(events, spec, False)
-    out = {"now": now, "since": since, "kinds": [], "items": [], "edges": [], "cycles": [], "critical": [], "end": now,
+    out = {"now": now, "since": since, "projections": [], "items": [], "edges": [], "cycles": [], "critical": [], "end": now,
            "capped": {}, "assumed": None}
     if ix is None:
         out["note"] = "this record keeps no item index: relations are read from it"
@@ -417,14 +417,14 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
         from .spec.item_systems import kind_systems
         where = kind_systems(spec)
         sys_of = lambda kk: (where.get(kk or "") or {}).get("system")      # noqa: E731
-        out["outside"] = [{"id": d, "kind": i.kind, "system": sys_of(i.kind), "state": i.state, "outside": True,
+        out["outside"] = [{"id": d, "projection": i.kind, "system": sys_of(i.kind), "state": i.state, "outside": True,
                            "status": status(i, info[i.kind], []), "title": title_of(i, [])}
                           for d, i in sorted(outside.items())[:MOST_PULLED]]    # (past it: their status still counts)
         if len(outside) > MOST_PULLED:
             out["capped"]["outside"] = len(outside) - MOST_PULLED
         # whether these kinds wait on anything at all, and what else their relations name (listed, not drawn)
         out["waits"] = bool(walks)
-        out["about"] = [{"kind": kk, "rel": r.name, "to": t, "system": sys_of(t)} for kk in mine
+        out["about"] = [{"projection": kk, "rel": r.name, "to": t, "system": sys_of(t)} for kk in mine
                         for r in (rels.get(kk) or {}).values() if not (r.precedence or r.group) for t in r.kinds]
     # the links: precedence (the target first), group (the parent), any other (from the item to what it names)
     out_of: dict[str, dict[str, list[str]]] = {}
@@ -544,7 +544,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             continue
         k = spec.items.get(it.kind or "")
         lease = held(it.fields)
-        x = {"id": a, "kind": it.kind, "state": it.state, "status": st[a], "title": title_of(it, k.show if k else []),
+        x = {"id": a, "projection": it.kind, "state": it.state, "status": st[a], "title": title_of(it, k.show if k else []),
              "entered": it.entered, "first": it.first, "last": it.last,
              "holder": lease.get("block") if lease else None,
              "links": out_of.get(a, {}), "inverse": into.get(a, {}), "waiting": waiting[a],
@@ -566,7 +566,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     for kk in seen_kinds:
         i = info[kk]
         k = spec.items.get(kk)
-        out["kinds"].append({"name": kk, "states": k.states if k else [], "finished": i["finished"], "queue": i["queue"],
+        out["projections"].append({"name": kk, "states": k.states if k else [], "finished": i["finished"], "queue": i["queue"],
                              "working": i["working"], "medians": i["medians"], "duration": i["duration"],
                              "relations": i["relations"], "asked": kk in kinds})
     return out

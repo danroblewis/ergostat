@@ -1,5 +1,5 @@
 """Pages that are dashboards (SPEC §4f): a dashboard at its name, /NAME, in the header with ``nav:``; one named as
-ergostat's page drawn there instead; one named as a kind that kind's page; ``page: agent`` drawn on every agent's page,
+ergostat's page drawn there instead; one named as a projection that projection's page; ``page: agent`` drawn on every agent's page,
 bound to the address's agent; ?builtin=1 for ergostat's own page; the Goals page a list of panels; and a draft
 started from a copy of a page, kept under its name."""
 
@@ -33,7 +33,7 @@ dashboards:
   ticket:
     title: Tickets, my way
     panels:
-      - {panel: kind-now, kind: $kind, size: full, fit: true}
+      - {panel: projection-now, projection: $projection, size: full, fit: true}
 """
 
 
@@ -54,7 +54,7 @@ def test_a_nav_dashboard_is_in_the_header_at_its_own_address(browser, boards):
     _, url = boards
     pg = opened(browser, url + "/diagram")
     pg.wait_for_function("() => [...document.querySelectorAll('#nav a')].some((a) => a.textContent === 'Crew')", timeout=WAIT)
-    assert pg.locator("#nav a").all_inner_texts() == ["Dashboard", "Diagram", "Goals", "Agents", "Record", "Crew"]
+    assert pg.locator("#nav a").all_inner_texts() == ["Dashboard", "Diagram", "Goals", "Agents", "Record", "Crew", "Ticket"]  # then the projections
     pg.locator("#nav a", has_text="Crew").click()
     pg.wait_for_url("**/crew", timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('The crew')", timeout=WAIT)
@@ -116,13 +116,13 @@ def test_a_draft_starts_from_a_copy_of_a_page(browser, boards):
     pg.close()
 
 
-def test_a_dashboard_named_as_a_kind_is_its_page_and_its_items_stay_under_it(browser, boards):
+def test_a_dashboard_named_as_a_projection_is_its_page_and_its_items_stay_under_it(browser, boards):
     _, url = boards
     pg = opened(browser, url + "/ticket")
     pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('Tickets, my way')", timeout=WAIT)
-    pg.locator(".panel.panel-kind-kind-now").wait_for(timeout=WAIT)
+    pg.locator(".panel.panel-kind-projection-now").wait_for(timeout=WAIT)
     pg.close()
-    pg = opened(browser, url + "/ticket/1")                          # its items: the item page, under the kind's address
+    pg = opened(browser, url + "/ticket/1")                          # its items: the item page, under the projection's address
     assert heading(pg) == "ticket/1"
     pg.close()
     pg = opened(browser, url + "/big-board")                         # nothing of the model's there

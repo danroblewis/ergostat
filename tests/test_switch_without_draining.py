@@ -28,7 +28,7 @@ MODEL = """
 name: sw
 runs:
   outlive_engine: true
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, done]
@@ -51,7 +51,7 @@ blocks:
   merge-queue:
     type: program
     run: RUN
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: 3
     lease: {ttl: 2m}
     out: flow.did

@@ -15,14 +15,10 @@
     },
     "include": {
       "oneOf": [
-        {
-          "type": "string"
-        },
+        {"type": "string"},
         {
           "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "items": {"type": "string"}
         }
       ]
     },
@@ -44,8 +40,39 @@
       "type": "object",
       "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
       "properties": {"away-after": {"$ref": "#/$defs/duration"}},
-      "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["rank"], "properties": {"rank": {"type": "integer", "minimum": 1}, "pool": {"type": "integer", "minimum": 0}, "description": {"type": "string"},
-        "trips": {"type": "object", "additionalProperties": {"type": ["object", "null"], "additionalProperties": false, "properties": {"unknown-after": {"$ref": "#/$defs/duration"}}}}}}
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rank"
+        ],
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pool": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": {"type": "string"},
+          "trips": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "unknown-after": {
+                  "$ref": "#/$defs/duration"
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "dashboards": {
       "description": "Shared, named dashboards (SPEC section 4f); in a file whose defaults: set a system, each is named SYSTEM.NAME.",
@@ -65,9 +92,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "system": {
-          "$ref": "#/$defs/name"
-        }
+        "system": {"$ref": "#/$defs/name"}
       }
     },
     "sources": {
@@ -88,18 +113,18 @@
         "$ref": "#/$defs/system"
       }
     },
-    "items": {
+    "projections": {
       "type": "object",
       "propertyNames": {
         "$ref": "#/$defs/name"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/item_kind"
+        "$ref": "#/$defs/projection"
       }
     },
     "parameters": {
       "type": "object",
-      "description": "The numbers equations name (SPEC \u00a77b)",
+      "description": "The numbers equations name (SPEC §7b)",
       "propertyNames": {
         "$ref": "#/$defs/name"
       },
@@ -180,12 +205,12 @@
       "additionalProperties": {
         "$ref": "#/$defs/claim_check"
       },
-      "description": "The checks the project declares for its blocks' claims (SPEC \u00a712g): tests, the project's test command; any other name, a kind of claim of its own"
+      "description": "The checks the project declares for its blocks' claims (SPEC §12g): tests, the project's test command; any other name, a kind of claim of its own"
     },
     "messages": {
       "type": "object",
       "additionalProperties": false,
-      "description": "How the owner's messages are routed to the work in flight, and what a message about finished work does (SPEC \u00a712h)",
+      "description": "How the owner's messages are routed to the work in flight, and what a message about finished work does (SPEC §12h)",
       "properties": {
         "classifier": {
           "type": "string",
@@ -201,34 +226,30 @@
         },
         "follow-up": {
           "type": "string",
-          "description": "The kind of item a follow-up is made as (default: the finished item's own)"
+          "description": "The projection a follow-up is made as (default: the finished item's own)"
         },
         "reopen-to": {
           "type": "object",
           "additionalProperties": {
             "type": "string"
           },
-          "description": "By kind, the state reopening moves an item back to (default: its first)"
+          "description": "By projection, the state reopening moves an item back to (default: its first)"
         },
         "done": {
           "type": "object",
           "additionalProperties": {
             "type": "array",
-            "items": {
-              "type": "string"
-            }
+            "items": {"type": "string"}
           },
-          "description": "By kind, the states an item is finished in (default: inferred from the record)"
+          "description": "By projection, the states an item is finished in (default: inferred from the record)"
         },
-        "description": {
-          "type": "string"
-        }
+        "description": {"type": "string"}
       }
     },
     "storage": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Where the record is kept: the backends, raw readings and their tiers, item rollup (SPEC \u00a74b)",
+      "description": "Where the record is kept: the backends, raw readings and their tiers, item rollup (SPEC §4b)",
       "properties": {
         "events": {
           "anyOf": [
@@ -273,10 +294,7 @@
                 "url": {
                   "type": "string"
                 },
-                "run": {
-                  "type": "string",
-                  "minLength": 1
-                },
+                "run": {"type": "string", "minLength": 1},
                 "raw": {
                   "anyOf": [
                     {
@@ -300,7 +318,7 @@
         "items": {
           "type": "object",
           "additionalProperties": false,
-          "description": "The item index (SPEC \u00a74b): only open items are kept folded in memory",
+          "description": "The item index (SPEC §4b): only open items are kept folded in memory",
           "properties": {
             "idle": {
               "$ref": "#/$defs/duration",
@@ -337,7 +355,7 @@
                 "every": {
                   "$ref": "#/$defs/duration"
                 },
-                "kinds": {
+                "projections": {
                   "type": "object",
                   "additionalProperties": {
                     "anyOf": [
@@ -357,7 +375,7 @@
         "logs": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Caps on the logs that would otherwise grow without limit (SPEC \u00a74b)",
+          "description": "Caps on the logs that would otherwise grow without limit (SPEC §4b)",
           "properties": {
             "block": {
               "type": "string",
@@ -382,18 +400,47 @@
         }
       }
     },
-    "web": {"type": "object", "additionalProperties": false,
-            "description": "The page's public names and the Cloudflare Access login in front of them (SPEC \u00a74d); main file only",
-            "properties": {
-              "names": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
-                        "description": "The public host names the page answers to"},
-              "open": {"enum": ["read"], "description": "The names are public and read only, with no login (in place of access)"},
-              "access": {"type": "object", "additionalProperties": false, "required": ["team", "aud", "emails"],
-                         "properties": {
-                           "team": {"type": "string", "description": "The Access team domain (myteam.cloudflareaccess.com)"},
-                           "aud": {"type": "string", "description": "The Access application's audience (AUD) tag"},
-                           "emails": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
-                                      "description": "Who may use the page"}}}}},
+    "web": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The page's public names and the Cloudflare Access login in front of them (SPEC §4d); main file only",
+      "properties": {
+        "names": {
+          "anyOf": [
+            {"type": "string"},
+            {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          ],
+          "description": "The public host names the page answers to"
+        },
+        "open": {"enum": ["read"], "description": "The names are public and read only, with no login (in place of access)"},
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "team",
+            "aud",
+            "emails"
+          ],
+          "properties": {
+            "team": {"type": "string", "description": "The Access team domain (myteam.cloudflareaccess.com)"},
+            "aud": {"type": "string", "description": "The Access application's audience (AUD) tag"},
+            "emails": {
+              "anyOf": [
+                {"type": "string"},
+                {
+                  "type": "array",
+                  "items": {"type": "string"}
+                }
+              ],
+              "description": "Who may use the page"
+            }
+          }
+        }
+      }
+    },
     "intake": {
       "type": "object",
       "additionalProperties": false,
@@ -401,14 +448,10 @@
       "properties": {
         "allow": {
           "anyOf": [
-            {
-              "type": "string"
-            },
+            {"type": "string"},
             {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": {"type": "string"}
             }
           ],
           "description": "Addresses or networks that may push besides this machine"
@@ -425,9 +468,7 @@
             "properties": {
               "event": {
                 "anyOf": [
-                  {
-                    "type": "string"
-                  },
+                  {"type": "string"},
                   {
                     "type": "object",
                     "additionalProperties": false,
@@ -489,7 +530,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/context"
       },
-      "description": "Named, versioned projection recipes for sessions' starting contexts (SPEC \u00a712i)"
+      "description": "Named, versioned projection recipes for sessions' starting contexts (SPEC §12i)"
     },
     "actions": {
       "type": "object",
@@ -499,7 +540,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/action"
       },
-      "description": "The outward acts AI sessions may ask for, each a command run only as its gate says (SPEC \u00a712k)"
+      "description": "The outward acts AI sessions may ask for, each a command run only as its gate says (SPEC §12k)"
     },
     "workspaces": {
       "type": "object",
@@ -509,14 +550,22 @@
       "additionalProperties": {
         "$ref": "#/$defs/workspace_pool"
       },
-      "description": "Pools of workspaces (git worktrees) AI blocks' sessions work in, one per item (SPEC \u00a712k)"
+      "description": "Pools of workspaces (git worktrees) AI blocks' sessions work in, one per item (SPEC §12k)"
     },
-    "daemons": {"type": "object", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/daemon"},
-                "description": "Long-lived runners several blocks and sensors may share (SPEC \u00a79.7)"},
+    "daemons": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/daemon"
+      },
+      "description": "Long-lived runners several blocks and sensors may share (SPEC §9.7)"
+    },
     "leases": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Each tier's lease terms, over the defaults (SPEC \u00a79.5)",
+      "description": "Each tier's lease terms, over the defaults (SPEC §9.5)",
       "properties": {
         "person": {
           "$ref": "#/$defs/lease_terms"
@@ -539,7 +588,7 @@
       }
     },
     "uses": {
-      "description": "Instances of templates (SPEC \u00a72a): each expands into ordinary parts named for it, and is a system of its own",
+      "description": "Instances of templates (SPEC §2a): each expands into ordinary parts named for it, and is a system of its own",
       "type": "object",
       "propertyNames": {
         "$ref": "#/$defs/name"
@@ -563,14 +612,12 @@
             "type": "string",
             "description": "the system it is part of"
           },
-          "description": {
-            "type": "string"
-          }
+          "description": {"type": "string"}
         }
       }
     },
     "remotes": {
-      "description": "Systems other ergostats run, read here (SPEC \u00a74c): each brings in the remote's model as an external subsystem whose parts are named for it",
+      "description": "Systems other ergostats run, read here (SPEC §4c): each brings in the remote's model as an external subsystem whose parts are named for it",
       "type": "object",
       "propertyNames": {
         "$ref": "#/$defs/name"
@@ -604,23 +651,17 @@
           "every": {
             "$ref": "#/$defs/duration"
           },
-          "description": {
-            "type": "string"
-          }
+          "description": {"type": "string"}
         }
       }
     },
     "library": {
-      "description": "Folders of the owner's own templates (main file only; SPEC \u00a72a)",
+      "description": "Folders of the owner's own templates (main file only; SPEC §2a)",
       "oneOf": [
-        {
-          "type": "string"
-        },
+        {"type": "string"},
         {
           "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "items": {"type": "string"}
         }
       ]
     },
@@ -657,7 +698,18 @@
         "description": {"type": "string"},
         "window": {"$ref": "#/$defs/duration"},
         "nav": {"description": "In the page's navigation, at /d/NAME: true (its title), or its link's words", "oneOf": [{"type": "boolean"}, {"type": "string", "minLength": 1, "maxLength": 40}]},
-        "page": {"description": "One of the page's own pages it is drawn in place of; agent, item and kind take a panel's $agent, $item or $kind from the address", "enum": ["goals", "agents", "items", "record", "agent", "item", "kind"]},
+        "page": {
+          "description": "One of the page's own pages it is drawn in place of; agent, item and projection take a panel's $agent, $item or $projection from the address",
+          "enum": [
+            "goals",
+            "agents",
+            "items",
+            "record",
+            "agent",
+            "item",
+            "projection"
+          ]
+        },
         "panels": {"type": "array", "minItems": 1, "maxItems": 24, "items": {"$ref": "#/$defs/panel"}}
       }
     },
@@ -687,11 +739,11 @@
             "agent-place",
             "agent-runs",
             "agent-log",
-            "kinds",
-            "items-by-kind",
-            "kind-now",
-            "kind-model",
-            "kind-definition",
+            "projections",
+            "items-by-projection",
+            "projection-now",
+            "projection-model",
+            "projection-definition",
             "item-list",
             "item-summary",
             "item-why",
@@ -735,8 +787,6 @@
         },
         "goals": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/name"}}]},
         "goal": {"$ref": "#/$defs/name"},
-        "kind": {"type": "string", "minLength": 1},
-        "kinds": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
         "state": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
         "where": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
         "system": {"$ref": "#/$defs/name"},
@@ -767,7 +817,6 @@
         "to": {"type": "number", "minimum": 0},
         "finished": {"enum": ["hide", "waits", "show"]},
         "states": {"enum": ["all", "groups"]},
-        "per_kind": {"type": "integer", "minimum": 1, "maximum": 500},
         "view": {"enum": ["dynamics", "blocks", "process"]},
         "show": {
           "oneOf": [
@@ -817,7 +866,10 @@
               }
             }
           ]
-        }
+        },
+        "per_projection": {"type": "integer", "minimum": 1, "maximum": 500},
+        "projection": {"type": "string", "minLength": 1},
+        "projections": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]}
       },
       "allOf": [
         {
@@ -838,18 +890,18 @@
         {
           "if": {"properties": {"panel": {"const": "items"}}},
           "then": {
-            "required": ["kind"],
+            "required": ["projection"],
             "propertyNames": {
               "enum": [
                 "panel",
                 "fit",
                 "followed",
-                "kind",
                 "moved",
                 "moved_since",
                 "moved_until",
                 "n",
                 "note",
+                "projection",
                 "quiet",
                 "search",
                 "size",
@@ -864,15 +916,15 @@
         {
           "if": {"properties": {"panel": {"const": "states"}}},
           "then": {
-            "required": ["kind"],
-            "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "quiet", "size", "title"]}
+            "required": ["projection"],
+            "propertyNames": {"enum": ["panel", "fit", "note", "points", "projection", "quiet", "size", "title"]}
           }
         },
         {
           "if": {"properties": {"panel": {"const": "cycle-time"}}},
           "then": {
-            "required": ["kind"],
-            "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "quiet", "size", "title"]}
+            "required": ["projection"],
+            "propertyNames": {"enum": ["panel", "fit", "note", "points", "projection", "quiet", "size", "title"]}
           }
         },
         {
@@ -884,11 +936,11 @@
         },
         {
           "if": {"properties": {"panel": {"const": "items-graph"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "quiet", "size", "system", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "projections", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "timeline"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "quiet", "size", "system", "title"]}}
+          "then": {"propertyNames": {"enum": ["panel", "fit", "note", "projections", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "query"}}},
@@ -952,33 +1004,43 @@
           }
         },
         {
-          "if": {"properties": {"panel": {"const": "kinds"}}},
+          "if": {"properties": {"panel": {"const": "projections"}}},
           "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "size", "states", "title"]}}
         },
         {
-          "if": {"properties": {"panel": {"const": "items-by-kind"}}},
-          "then": {"propertyNames": {"enum": ["panel", "finished", "fit", "note", "per_kind", "q", "quiet", "size", "title"]}}
-        },
-        {
-          "if": {"properties": {"panel": {"const": "kind-now"}}},
+          "if": {"properties": {"panel": {"const": "items-by-projection"}}},
           "then": {
-            "required": ["kind"],
-            "propertyNames": {"enum": ["panel", "fit", "kind", "note", "points", "quiet", "size", "states", "title"]}
+            "propertyNames": {"enum": ["panel", "finished", "fit", "note", "per_projection", "q", "quiet", "size", "title"]}
           }
         },
         {
-          "if": {"properties": {"panel": {"const": "kind-model"}}},
-          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "quiet", "size", "title"]}}
+          "if": {"properties": {"panel": {"const": "projection-now"}}},
+          "then": {
+            "required": ["projection"],
+            "propertyNames": {"enum": ["panel", "fit", "note", "points", "projection", "quiet", "size", "states", "title"]}
+          }
         },
         {
-          "if": {"properties": {"panel": {"const": "kind-definition"}}},
-          "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "fit", "kind", "note", "quiet", "size", "title"]}}
+          "if": {"properties": {"panel": {"const": "projection-model"}}},
+          "then": {
+            "required": ["projection"],
+            "propertyNames": {"enum": ["panel", "fit", "note", "projection", "quiet", "size", "title"]}
+          }
+        },
+        {
+          "if": {"properties": {"panel": {"const": "projection-definition"}}},
+          "then": {
+            "required": ["projection"],
+            "propertyNames": {"enum": ["panel", "fit", "note", "projection", "quiet", "size", "title"]}
+          }
         },
         {
           "if": {"properties": {"panel": {"const": "item-list"}}},
           "then": {
-            "required": ["kind"],
-            "propertyNames": {"enum": ["panel", "finished", "fit", "kind", "n", "note", "q", "quiet", "size", "sort", "state", "title"]}
+            "required": ["projection"],
+            "propertyNames": {
+              "enum": ["panel", "finished", "fit", "n", "note", "projection", "q", "quiet", "size", "sort", "state", "title"]
+            }
           }
         },
         {
@@ -1155,10 +1217,7 @@
       "properties": {
         "daemon": {"$ref": "#/$defs/daemon_use"},
         "push": {"type": "boolean", "description": "Its daemon sends its readings by itself: none asked for"},
-        "run": {
-          "type": "string",
-          "minLength": 1
-        },
+        "run": {"type": "string", "minLength": 1},
         "query": {
           "type": "object",
           "required": [
@@ -1188,10 +1247,8 @@
         "unit": {
           "type": "string"
         },
-        "description": {
-          "type": "string"
-        },
-        "items": {
+        "description": {"type": "string"},
+        "projection": {
           "$ref": "#/$defs/name"
         },
         "state": {
@@ -1239,7 +1296,7 @@
           "description": "On a flow: its rate from its stock's own successive readings"
         },
         "builtin": {
-          "description": "One of ergostat's built-in measures: the model's own quality (SPEC \u00a712e, \u00a712f), how far blocks' claims hold (SPEC \u00a712g), how the owner's messages reach the work (SPEC \u00a712h), or how the work a recipe started turned out (SPEC \u00a712i)",
+          "description": "One of ergostat's built-in measures: the model's own quality (SPEC §12e, §12f), how far blocks' claims hold (SPEC §12g), how the owner's messages reach the work (SPEC §12h), or how the work a recipe started turned out (SPEC §12i)",
           "anyOf": [
             {
               "enum": [
@@ -1283,9 +1340,7 @@
       },
       "oneOf": [
         {
-          "required": [
-            "run"
-          ]
+          "required": ["run"]
         },
         {
           "required": [
@@ -1299,7 +1354,7 @@
         },
         {
           "required": [
-            "items"
+            "projection"
           ]
         },
         {
@@ -1351,12 +1406,8 @@
           "type": "boolean",
           "description": "A running total that by its nature never drains (spent so far): no outflow is missing (SPEC section 5)"
         },
-        "system": {
-          "$ref": "#/$defs/name"
-        },
-        "description": {
-          "type": "string"
-        },
+        "system": {"$ref": "#/$defs/name"},
+        "description": {"type": "string"},
         "sensors": {
           "$ref": "#/$defs/sensors"
         },
@@ -1405,12 +1456,8 @@
         "sensor": {
           "$ref": "#/$defs/sensor"
         },
-        "system": {
-          "$ref": "#/$defs/name"
-        },
-        "description": {
-          "type": "string"
-        },
+        "system": {"$ref": "#/$defs/name"},
+        "description": {"type": "string"},
         "driven-by": {
           "$ref": "#/$defs/driven_by"
         },
@@ -1486,12 +1533,8 @@
         "owner": {
           "type": "string"
         },
-        "system": {
-          "$ref": "#/$defs/name"
-        },
-        "description": {
-          "type": "string"
-        },
+        "system": {"$ref": "#/$defs/name"},
+        "description": {"type": "string"},
         "variable": {
           "$ref": "#/$defs/name",
           "deprecated": true,
@@ -1506,7 +1549,7 @@
           "required": [
             "gain"
           ],
-          "description": "The loop's process, from what its controller moves to what the goal holds: first order with dead time, or an integrator (SPEC \u00a78, \u00a712c)",
+          "description": "The loop's process, from what its controller moves to what the goal holds: first order with dead time, or an integrator (SPEC §8, §12c)",
           "properties": {
             "gain": {
               "type": "number"
@@ -1530,9 +1573,7 @@
             "identified": {
               "type": "string"
             },
-            "description": {
-              "type": "string"
-            }
+            "description": {"type": "string"}
           }
         }
       },
@@ -1616,20 +1657,13 @@
         "on-stale": {
           "enum": ["act", "hold", "off"]
         },
-        "system": {
-          "$ref": "#/$defs/name"
-        },
-        "description": {
-          "type": "string"
-        },
+        "system": {"$ref": "#/$defs/name"},
+        "description": {"type": "string"},
         "agent": {
           "$ref": "#/$defs/name"
         },
         "daemon": {"$ref": "#/$defs/daemon_use"},
-        "run": {
-          "type": "string",
-          "minLength": 1
-        },
+        "run": {"type": "string", "minLength": 1},
         "prompt": {
           "type": "string",
           "minLength": 1
@@ -1730,7 +1764,7 @@
         },
         "identify": {
           "type": "object",
-          "description": "An external block's law, identified from the record of what it reads and what it sets (SPEC \u00a712d)",
+          "description": "An external block's law, identified from the record of what it reads and what it sets (SPEC §12d)",
           "properties": {"input": {"type": "string"}, "output": {"type": "string"}},
           "required": ["input", "output"],
           "additionalProperties": false
@@ -1830,29 +1864,23 @@
                 },
                 "item": {
                   "oneOf": [
-                    {
-                      "type": "string"
-                    },
+                    {"type": "string"},
                     {
                       "type": "object",
                       "required": [
-                        "kind"
+                        "projection"
                       ],
                       "additionalProperties": false,
                       "properties": {
-                        "kind": {
+                        "projection": {
                           "type": "string"
                         },
                         "state": {
                           "oneOf": [
-                            {
-                              "type": "string"
-                            },
+                            {"type": "string"},
                             {
                               "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
+                              "items": {"type": "string"}
                             }
                           ]
                         },
@@ -1932,16 +1960,14 @@
             "model",
             "intent"
           ],
-          "description": "A judge's job: model (changes to the model, SPEC \u00a712e, the default) or intent (finished work held to what the owner meant, SPEC \u00a712i)"
+          "description": "A judge's job: model (changes to the model, SPEC §12e, the default) or intent (finished work held to what the owner meant, SPEC §12i)"
         },
-        "kinds": {
+        "projections": {
           "type": "object",
-          "description": "An intent judge's: the item kinds it judges, each the state it is judged in (at:) and more",
+          "description": "An intent judge's: the projections it judges, each the state it is judged in (at:) and more",
           "additionalProperties": {
             "oneOf": [
-              {
-                "type": "string"
-              },
+              {"type": "string"},
               {
                 "type": "object",
                 "additionalProperties": false,
@@ -1954,40 +1980,28 @@
                   },
                   "accepted": {
                     "oneOf": [
-                      {
-                        "type": "string"
-                      },
+                      {"type": "string"},
                       {
                         "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
+                        "items": {"type": "string"}
                       }
                     ]
                   },
                   "scope": {
                     "oneOf": [
-                      {
-                        "type": "string"
-                      },
+                      {"type": "string"},
                       {
                         "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
+                        "items": {"type": "string"}
                       }
                     ]
                   },
                   "work": {
                     "oneOf": [
-                      {
-                        "type": "string"
-                      },
+                      {"type": "string"},
                       {
                         "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
+                        "items": {"type": "string"}
                       }
                     ]
                   },
@@ -2023,62 +2037,50 @@
         },
         "workdir": {
           "type": "string",
-          "description": "An ai block: the folder its session works in (SPEC \u00a712k)"
+          "description": "An ai block: the folder its session works in (SPEC §12k)"
         },
         "workspace": {
           "$ref": "#/$defs/name",
-          "description": "An ai block: the pool its session takes a workspace from, per item (SPEC \u00a712k)"
+          "description": "An ai block: the pool its session takes a workspace from, per item (SPEC §12k)"
         },
         "read": {
           "anyOf": [
-            {
-              "type": "string"
-            },
+            {"type": "string"},
             {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": {"type": "string"}
             }
           ],
           "description": "An ai block: more folders its session may read"
         },
         "tools": {
           "anyOf": [
-            {
-              "type": "string"
-            },
+            {"type": "string"},
             {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": {"type": "string"}
             }
           ],
-          "description": "An ai block: the Claude Code tools its session may use (gated: SPEC \u00a712k)"
+          "description": "An ai block: the Claude Code tools its session may use (gated: SPEC §12k)"
         },
         "actions": {
           "anyOf": [
-            {
-              "type": "string"
-            },
+            {"type": "string"},
             {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": {"type": "string"}
             }
           ],
           "description": "An ai block: the gated actions its session may ask for"
         },
         "read-only": {
           "type": "boolean",
-          "description": "A program or ai block: its program changes nothing outside, so a repair's fix to it is re-run for real on the input that failed, in the sandbox (SPEC \u00a712r)"
+          "description": "A program or ai block: its program changes nothing outside, so a repair's fix to it is re-run for real on the input that failed, in the sandbox (SPEC §12r)"
         },
         "network": {
           "type": "array",
           "items": {"type": "string"},
-          "description": "A read-only block: the hosts a re-run of a repair's fix may reach, through the sandbox's proxy, for GET and HEAD only (SPEC \u00a712r)"
+          "description": "A read-only block: the hosts a re-run of a repair's fix may reach, through the sandbox's proxy, for GET and HEAD only (SPEC §12r)"
         },
         "takes": {
           "$ref": "#/$defs/takes"
@@ -2179,9 +2181,7 @@
             "not": {
               "anyOf": [
                 {
-                  "required": [
-                    "run"
-                  ]
+                  "required": ["run"]
                 },
                 {
                   "required": [
@@ -2209,14 +2209,10 @@
             "not": {
               "anyOf": [
                 {
-                  "required": [
-                    "agent"
-                  ]
+                  "required": ["agent"]
                 },
                 {
-                  "required": [
-                    "run"
-                  ]
+                  "required": ["run"]
                 },
                 {
                   "required": [
@@ -2236,9 +2232,7 @@
             }
           },
           "then": {
-            "required": [
-              "goal"
-            ]
+            "required": ["goal"]
           }
         },
         {
@@ -2390,9 +2384,7 @@
         "host": {
           "type": "string"
         },
-        "description": {
-          "type": "string"
-        }
+        "description": {"type": "string"}
       }
     },
     "source": {
@@ -2413,7 +2405,7 @@
         },
         "token-file": {
           "type": "string",
-          "description": "an ergostat source (SPEC \u00a74c): the file holding its token"
+          "description": "an ergostat source (SPEC §4c): the file holding its token"
         }
       },
       "if": {
@@ -2436,9 +2428,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "description": {
-          "type": "string"
-        },
+        "description": {"type": "string"},
         "within": {
           "$ref": "#/$defs/name"
         },
@@ -2451,7 +2441,7 @@
         }
       }
     },
-    "item_kind": {
+    "projection": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -2476,16 +2466,10 @@
         },
         "show": {
           "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "items": {"type": "string"}
         },
-        "system": {
-          "$ref": "#/$defs/name"
-        },
-        "description": {
-          "type": "string"
-        },
+        "system": {"$ref": "#/$defs/name"},
+        "description": {"type": "string"},
         "formats": {
           "type": "object",
           "additionalProperties": {
@@ -2525,7 +2509,12 @@
         },
         "attention": {
           "type": "string",
-          "description": "The field whose words, on the latest item of the kind that has them (by its latest event), are shown on the attention list: a finding that needs the owner, said where it is seen (SPEC section 5a)"
+          "description": "The field whose words, on the latest item of the projection that has them (by its latest event), are shown on the attention list: a finding that needs the owner, said where it is seen (SPEC section 5a)"
+        },
+        "group": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "The nav bar menu the projection is shown in, labelled by the group's name, with the other projections of its group; without one, the projection is its own link in the nav bar."
         },
         "pipeline": {
           "type": "object",
@@ -2533,12 +2522,34 @@
           "required": ["stages"],
           "properties": {
             "title": {"type": "string", "description": "The default dashboard's row for it"},
-            "stages": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 32,
-                       "description": "The stage names its histograms are labelled by (any other: other)"},
-            "waiting": {"type": "object", "additionalProperties": false, "required": ["kind", "state"],
-                        "properties": {"kind": {"type": "string"}, "state": {"type": "string"},
-                                       "order": {"type": "array", "items": {"type": "string"}}},
-                        "description": "The line of work it takes from: a kind, its state, the fields it is taken in order of"}
+            "stages": {
+              "type": "array",
+              "items": {"type": "string"},
+              "minItems": 1,
+              "maxItems": 32,
+              "description": "The stage names its histograms are labelled by (any other: other)"
+            },
+            "waiting": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "projection",
+                "state"
+              ],
+              "properties": {
+                "projection": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "order": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                }
+              },
+              "description": "The line of work it takes from: a projection, its state, the fields it is taken in order of"
+            }
           },
           "description": "Its items record named stages, folded into stages by merge (SPEC section 5a, Stages)"
         },
@@ -2548,63 +2559,72 @@
           "required": ["at", "failed", "passed", "from"],
           "properties": {
             "at": {"type": "string", "description": "The state an attempt is scored on entering"},
-            "failed": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                       "description": "The event types that fail an attempt (one after it passed fails it after all)"},
-            "passed": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                       "description": "The states, not at, that pass an attempt"},
-            "undone": {"type": "array", "items": {"type": "string"},
-                       "description": "The event types, not failed, that say a failure was not the item's (a flake retried): a failure of an open attempt is held until the item's next change of state by its own events (never a lease's), and one of these first withdraws it unjudged (one the fold refused, such as a fenced retry, never does)"},
-            "from": {"type": "object", "minProperties": 1, "maxProperties": 16,
-                     "additionalProperties": {"enum": ["value", "each", "size"]},
-                     "description": "The fields it learns from: value (as text), each (a list's elements, the riskiest counting), size (a number in bands of powers of two)"},
-            "least": {"type": "integer", "minimum": 1, "maximum": 10000,
-                      "description": "Judged attempts before any score (default 10)"},
+            "failed": {
+              "type": "array",
+              "items": {"type": "string"},
+              "minItems": 1,
+              "description": "The event types that fail an attempt (one after it passed fails it after all)"
+            },
+            "passed": {
+              "type": "array",
+              "items": {"type": "string"},
+              "minItems": 1,
+              "description": "The states, not at, that pass an attempt"
+            },
+            "undone": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "The event types, not failed, that say a failure was not the item's (a flake retried): a failure of an open attempt is held until the item's next change of state by its own events (never a lease's), and one of these first withdraws it unjudged (one the fold refused, such as a fenced retry, never does)"
+            },
+            "from": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 16,
+              "additionalProperties": {"enum": ["value", "each", "size"]},
+              "description": "The fields it learns from: value (as text), each (a list's elements, the riskiest counting), size (a number in bands of powers of two)"
+            },
+            "least": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000,
+              "description": "Judged attempts before any score (default 10)"
+            },
             "description": {"type": "string"}
           },
           "description": "Each item's risk score, learned from the attempts judged before it (SPEC section 5a, Risk score); off unless declared"
         },
         "final": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
+          "items": {"type": "string"},
           "description": "States no event moves an item out of: a later move is ignored and said (SPEC section 5a)"
         },
         "relations": {
           "type": "object",
-          "description": "Its typed relations to other items (SPEC section 5a, Relations): each a field holding the ids it names, folded as a set. A kind, a list of kinds, or {kind, precedence, inverse, group}. blocked_by, after and depends_on are precedence (the item is ready once each item it names is finished); parent is a group. Never enforced",
+          "description": "Its typed relations to other items (SPEC section 5a, Relations): each a field holding the ids it names, folded as a set. A projection, a list of projections, or {projection, precedence, inverse, group}. blocked_by, after and depends_on are precedence (the item is ready once each item it names is finished); parent is a group. Never enforced",
           "propertyNames": {
             "pattern": "^[a-z][a-z0-9_-]*$"
           },
           "additionalProperties": {
             "oneOf": [
-              {
-                "type": "string"
-              },
+              {"type": "string"},
               {
                 "type": "array",
-                "items": {
-                  "type": "string"
-                },
+                "items": {"type": "string"},
                 "minItems": 1
               },
               {
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
-                  "kind"
+                  "projection"
                 ],
                 "properties": {
-                  "kind": {
+                  "projection": {
                     "oneOf": [
-                      {
-                        "type": "string"
-                      },
+                      {"type": "string"},
                       {
                         "type": "array",
-                        "items": {
-                          "type": "string"
-                        },
+                        "items": {"type": "string"},
                         "minItems": 1
                       }
                     ]
@@ -2624,14 +2644,10 @@
                   },
                   "starts_at": {
                     "oneOf": [
-                      {
-                        "type": "string"
-                      },
+                      {"type": "string"},
                       {
                         "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
+                        "items": {"type": "string"}
                       }
                     ],
                     "description": "A precedence relation's target states (neither finished nor paused) at which it no longer blocks: the item is unblocked, and takes: {unblocked: true} may take it. The critical path and the schedule stay finish-to-start"
@@ -2650,9 +2666,7 @@
                     },
                     "description": "A group's: for a finished state of the item's, the fields it counts as done work in ({closed: {end: done}}); an item in that state not matching them leaves its group's total in the progress per group"
                   },
-                  "description": {
-                    "type": "string"
-                  }
+                  "description": {"type": "string"}
                 }
               }
             ]
@@ -2682,12 +2696,8 @@
         "unit": {
           "type": "string"
         },
-        "system": {
-          "$ref": "#/$defs/name"
-        },
-        "description": {
-          "type": "string"
-        },
+        "system": {"$ref": "#/$defs/name"},
+        "description": {"type": "string"},
         "sensor": {
           "$ref": "#/$defs/sensor"
         },
@@ -2747,9 +2757,7 @@
               "type": "boolean",
               "description": "The effect follows the cause in the same moment, with no stock between (silences rate-driven-by-rate)"
             },
-            "description": {
-              "type": "string"
-            },
+            "description": {"type": "string"},
             "inferred": {
               "$ref": "#/$defs/inferred"
             }
@@ -2762,7 +2770,7 @@
         "string",
         "number"
       ],
-      "description": "Its rate per hour (a flow) or its value (an auxiliary), as an equation of parameters (bare names) and parts (stock.x, flow.x, auxiliary.x): + - * / ^, MIN, MAX, ABS, EXP, LN, SQRT, DELAY1, DELAY3, SMOOTH, SMOOTH3, and a lookup parameter called like a function. Subtraction is written with spaces (a - b): names have hyphens (SPEC \u00a77b)"
+      "description": "Its rate per hour (a flow) or its value (an auxiliary), as an equation of parameters (bare names) and parts (stock.x, flow.x, auxiliary.x): + - * / ^, MIN, MAX, ABS, EXP, LN, SQRT, DELAY1, DELAY3, SMOOTH, SMOOTH3, and a lookup parameter called like a function. Subtraction is written with spaces (a - b): names have hyphens (SPEC §7b)"
     },
     "parameter": {
       "description": "A number an equation names: its value (a number, or a duration read in hours), its unit, and whether to estimate it from the record; or a lookup's table. A bare number is short for value:",
@@ -2822,12 +2830,8 @@
                 }
               ]
             },
-            "system": {
-              "$ref": "#/$defs/name"
-            },
-            "description": {
-              "type": "string"
-            },
+            "system": {"$ref": "#/$defs/name"},
+            "description": {"type": "string"},
             "inferred": {
               "$ref": "#/$defs/inferred"
             }
@@ -2838,9 +2842,7 @@
     "claim_check": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "run"
-      ],
+      "required": ["run"],
       "properties": {
         "run": {
           "type": "string",
@@ -2858,9 +2860,7 @@
         "timeout": {
           "$ref": "#/$defs/duration"
         },
-        "description": {
-          "type": "string"
-        }
+        "description": {"type": "string"}
       }
     },
     "context_budget": {
@@ -2947,14 +2947,10 @@
                 },
                 "topic": {
                   "oneOf": [
-                    {
-                      "type": "string"
-                    },
+                    {"type": "string"},
                     {
                       "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
+                      "items": {"type": "string"}
                     }
                   ]
                 },
@@ -2966,14 +2962,10 @@
                 },
                 "from": {
                   "oneOf": [
-                    {
-                      "type": "string"
-                    },
+                    {"type": "string"},
                     {
                       "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
+                      "items": {"type": "string"}
                     }
                   ],
                   "description": "record (the default), or transcript files or folders"
@@ -3072,14 +3064,10 @@
                 },
                 "files": {
                   "oneOf": [
-                    {
-                      "type": "string"
-                    },
+                    {"type": "string"},
                     {
                       "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
+                      "items": {"type": "string"},
                       "minItems": 1
                     }
                   ]
@@ -3099,14 +3087,10 @@
                 },
                 "parts": {
                   "oneOf": [
-                    {
-                      "type": "string"
-                    },
+                    {"type": "string"},
                     {
                       "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
+                      "items": {"type": "string"}
                     }
                   ]
                 },
@@ -3132,9 +3116,7 @@
           "minimum": 1,
           "description": "raised when the recipe changes; recorded with every use"
         },
-        "description": {
-          "type": "string"
-        },
+        "description": {"type": "string"},
         "budget": {
           "$ref": "#/$defs/context_budget"
         },
@@ -3151,27 +3133,19 @@
           "properties": {
             "success": {
               "oneOf": [
-                {
-                  "type": "string"
-                },
+                {"type": "string"},
                 {
                   "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
+                  "items": {"type": "string"}
                 }
               ]
             },
             "failure": {
               "oneOf": [
-                {
-                  "type": "string"
-                },
+                {"type": "string"},
                 {
                   "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
+                  "items": {"type": "string"}
                 }
               ]
             }
@@ -3179,7 +3153,7 @@
           "description": "the states of the item worked on that count as the work's success or failure"
         }
       },
-      "description": "A projection recipe (SPEC \u00a712i): parts rendered in order, each within its budget, into a starting context"
+      "description": "A projection recipe (SPEC §12i): parts rendered in order, each within its budget, into a starting context"
     },
     "inferred": {
       "description": "Added by ergostat (SPEC section 12e): the model change that added it, ergostat.model-change/<id>, or true where that is not known. It stays when the owner accepts or edits the part; taking the key away makes it declared",
@@ -3196,9 +3170,7 @@
     "action": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "run"
-      ],
+      "required": ["run"],
       "properties": {
         "run": {
           "type": "string",
@@ -3211,11 +3183,23 @@
             {
               "type": "object",
               "propertyNames": {"enum": ["normal", "away", "maintenance", "freeze", "incident"]},
-              "additionalProperties": {"oneOf": [
-                {"enum": ["auto", "approve", "deny"]},
-                {"type": "object", "required": ["reshape"], "additionalProperties": false,
-                 "properties": {"reshape": {"$ref": "#/$defs/name"}}}
-              ]}
+              "additionalProperties": {
+                "oneOf": [
+                  {"enum": ["auto", "approve", "deny"]},
+                  {
+                    "type": "object",
+                    "required": [
+                      "reshape"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "reshape": {
+                        "$ref": "#/$defs/name"
+                      }
+                    }
+                  }
+                ]
+              }
             },
             {
               "type": "object",
@@ -3247,9 +3231,7 @@
           "type": "string",
           "description": "Where it runs, from the model's folder (default: the session's folder)"
         },
-        "description": {
-          "type": "string"
-        }
+        "description": {"type": "string"}
       }
     },
     "workspace_pool": {
@@ -3286,16 +3268,14 @@
           "type": "string",
           "description": "The ref a new branch is made from (default HEAD)"
         },
-        "description": {
-          "type": "string"
-        }
+        "description": {"type": "string"}
       }
     },
     "daemon": {
       "type": "object",
       "additionalProperties": false,
       "required": ["run"],
-      "description": "A long-lived process blocks' runs and sensors' readings are handed to as JSON lines (SPEC \u00a79.7)",
+      "description": "A long-lived process blocks' runs and sensors' readings are handed to as JSON lines (SPEC §9.7)",
       "properties": {
         "run": {"type": "string", "minLength": 1},
         "concurrency": {"type": "integer", "minimum": 1},
@@ -3328,7 +3308,7 @@
     "lease_terms": {
       "type": "object",
       "additionalProperties": false,
-      "description": "A lease's terms (SPEC \u00a79.5): how long a run may be silent before its lease expires, and the counted attempts before the item is a dead letter",
+      "description": "A lease's terms (SPEC §9.5): how long a run may be silent before its lease expires, and the counted attempts before the item is a dead letter",
       "properties": {
         "ttl": {
           "$ref": "#/$defs/duration"
@@ -3343,12 +3323,12 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "kind",
+        "projection",
         "at"
       ],
-      "description": "The items a block works (SPEC \u00a79.5): one run per item of the kind that reaches a state in at:, each leasing its item",
+      "description": "The items a block works (SPEC §9.5): one run per item of the projection that reaches a state in at:, each leasing its item",
       "properties": {
-        "kind": {
+        "projection": {
           "$ref": "#/$defs/name"
         },
         "at": {
@@ -3427,8 +3407,22 @@
                   "owner": {
                     "oneOf": [
                       {"const": "lane"},
-                      {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 1,
-                       "properties": {"field": {"type": "string", "minLength": 1}, "block": {"type": "string", "minLength": 1}}}
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "minProperties": 1,
+                        "maxProperties": 1,
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "block": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
                     ]
                   }
                 }
@@ -3524,9 +3518,7 @@
     "trigger": {
       "description": "What starts a program or ai block (SPEC section 9.3, Started by an event): a run for each recorded event of these types whose data matches where:, one at a time, caused by the event; emits: the types its runs say (a loop among such blocks is refused)",
       "oneOf": [
-        {
-          "type": "string"
-        },
+        {"type": "string"},
         {
           "type": "object",
           "additionalProperties": false,
@@ -3536,14 +3528,10 @@
           "properties": {
             "event": {
               "oneOf": [
-                {
-                  "type": "string"
-                },
+                {"type": "string"},
                 {
                   "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
+                  "items": {"type": "string"},
                   "minItems": 1
                 }
               ]
@@ -3553,14 +3541,10 @@
             },
             "emits": {
               "oneOf": [
-                {
-                  "type": "string"
-                },
+                {"type": "string"},
                 {
                   "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
+                  "items": {"type": "string"}
                 }
               ]
             }

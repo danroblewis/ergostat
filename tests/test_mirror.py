@@ -24,7 +24,7 @@ from tests.ports import free_port
 from tests.test_spec_engine import run_for
 
 SENSOR = "feed-arriving.main"
-ARGS = ["--name", "feed", "--kind", "q", "--command", 'echo "$ERGOSTAT_CURSOR" > cur.txt; cat src.jsonl',
+ARGS = ["--name", "feed", "--projection", "q", "--command", 'echo "$ERGOSTAT_CURSOR" > cur.txt; cat src.jsonl',
         "--cursor-field", "n", "--mirror"]
 
 
@@ -344,7 +344,7 @@ def test_the_engine_refuses_a_cite_of_another_sensor_s_log(tmp_path, monkeypatch
     uses:
       feed:
         use: collect
-        with: {kind: q, command: cat src.jsonl, mirror: true, cursor-field: n, poll: 0.5s}
+        with: {projection: q, command: cat src.jsonl, mirror: true, cursor-field: n, poll: 0.5s}
     """
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(feed))
     spec = mdl.load(tmp_path).spec
@@ -380,7 +380,7 @@ def test_mirror_end_to_end_through_the_engine(tmp_path, monkeypatch):
     uses:
       feed:
         use: collect
-        with: {kind: q, command: cat src.jsonl, mirror: true, cursor-field: n, poll: 0.4s}
+        with: {projection: q, command: cat src.jsonl, mirror: true, cursor-field: n, poll: 0.4s}
     """
     p = run_for(tmp_path, model, 3)
     got = p.events.query(n=None, type="q.arrived")

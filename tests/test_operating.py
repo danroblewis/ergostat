@@ -28,7 +28,7 @@ RUN = ('f=$(echo $ERGOSTAT_ITEM | tr / -); touch ran-$f; '
 
 BASE = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -44,7 +44,7 @@ goals:
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: POOL
     run: RUN
     lease: {ttl: 1m}

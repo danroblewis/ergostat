@@ -30,20 +30,20 @@ from ergostat.store import Project
 DAY = 86400.0
 UPKEEP = "uses:\n  upkeep:\n    use: upkeep\n"
 MODEL = """
-items:
+projections:
   t:
     id: t/*
     states: [open, done]
     on: {t.opened: open, t.done: done}
 stocks:
   open-ts:
-    sensor: {items: t, state: open, every: 1m}
+    sensor: {projection: t, state: open, every: 1m}
   done-ts: {}
 flows:
   finishing:
     from: open-ts
     to: done-ts
-    sensor: {items: t, entering: done, over: 60d}
+    sensor: {projection: t, entering: done, over: 60d}
 storage:
   events: {backend}
 """
@@ -299,7 +299,7 @@ def test_storage_rollup_every_with_upkeep_is_a_finding(tmp_path):
     def codes(name: str, upkeep: bool, every: bool) -> set[str]:
         root = tmp_path / name
         root.mkdir()
-        (root / "ergostat.yaml").write_text("name: x\nitems:\n  t:\n    id: t/*\n"
+        (root / "ergostat.yaml").write_text("name: x\nprojections:\n  t:\n    id: t/*\n"
                                             + ("storage:\n  rollup:\n    every: 2h\n" if every else "")
                                             + (UPKEEP if upkeep else ""))
         spec, ps = read(root / "ergostat.yaml")

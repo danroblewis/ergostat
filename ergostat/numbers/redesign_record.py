@@ -13,7 +13,7 @@ The mark is model-wide, as the scorecard's coherence and fit are. It is an allow
   auxiliaries: what the fit replays. (A ``once`` template's parts are left out, here and in (c): the judge's own work
   moves them, and a redesign, held to its system, never changes them, so they replay alike in both models.)
 - ``model``: the model it is scored against, as a hash of its dynamics, control and sensors (``version.whole``), its
-  words, its units and its item kinds: what ``check``'s findings and craft notes read of it. A change of words the
+  words, its units and its projections: what ``check``'s findings and craft notes read of it. A change of words the
   owner accepts leaves the version as it was (so the redesign is not carried) but moves this.
 
 It is compared for equality only, never ordered and never held against a time. It does not use

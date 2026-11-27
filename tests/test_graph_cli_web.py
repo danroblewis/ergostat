@@ -376,9 +376,9 @@ def test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_co
     half is tests/test_items_page.py): a search's ``matched`` counts every match of a kind, past the newest per_kind
     listed, and holds no kind for a miss, so the page draws no kind; a kind matched by name keeps all of its items."""
     from ergostat.web.server import _as_listed
-    its = [{"id": f"ticket/{n}", "kind": "ticket", "fields": {"title": f"t{n}"}} for n in range(1, 31)]
-    got = {"kinds": [{"name": "ticket", "show": ["title"]}, {"name": "bug", "show": []}],
-           "items": [*its, {"id": "bug/1", "kind": "bug", "fields": {}}]}
+    its = [{"id": f"ticket/{n}", "projection": "ticket", "fields": {"title": f"t{n}"}} for n in range(1, 31)]
+    got = {"projections": [{"name": "ticket", "show": ["title"]}, {"name": "bug", "show": []}],
+           "items": [*its, {"id": "bug/1", "projection": "bug", "fields": {}}]}
     assert _as_listed(got, "zzqx", 25, True)["matched"] == {}
     one = _as_listed(got, "ticket/2", 25, True)            # ticket/2 and ticket/20..29: eleven, all counted
     assert one["matched"] == {"ticket": 11} and len(one["items"]) == 11
@@ -429,9 +429,9 @@ def test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them
         def get(path):
             with urllib.request.urlopen(url + path, timeout=30) as r:
                 return json.loads(r.read())
-        counts = {k["name"]: k["counts"] for k in get("/api/items")["kinds"]}["ticket"]
-        g = get("/api/graph?view=process&kinds=ticket&by=states")
-        other = get("/api/graph?view=process&kinds=ticket&by=events")
+        counts = {k["name"]: k["counts"] for k in get("/api/items")["projections"]}["ticket"]
+        g = get("/api/graph?view=process&projections=ticket&by=states")
+        other = get("/api/graph?view=process&projections=ticket&by=events")
     finally:
         server.shutdown()
         server.server_close()
@@ -442,8 +442,8 @@ def test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them
     assert not any("now" in x for x in other["nodes"]), other["nodes"]   # by events: no states, no count of now
 
 
-def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
-    """big has no kinds of item: its Process answer is empty, so the page takes its empty branch, whose words give the
+def test_a_process_view_with_no_projections_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
+    """big has no projections: its Process answer is empty, so the page takes its empty branch, whose words give the
     reason and Dynamics, laid over the canvas (not below it). The browser half of this check, the text's box inside the
     canvas's, is tests/test_diagram_rendering.py::test_process_view_with_no_kinds_says_so_inside_the_canvas."""
     import shutil
@@ -464,9 +464,9 @@ def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_ove
     finally:
         server.shutdown()
         server.server_close()
-    assert not g["nodes"] and not g["kinds"], g                  # nothing to draw: the empty branch
-    app = (root / "ergostat" / "web" / "ui" / "src" / "pages" / "diagram" / "index.tsx").read_text()
-    assert "No kinds of item here: its parts are counted by sensors." in app
+    assert not g["nodes"] and not g["projections"], g                  # nothing to draw: the empty branch
+    app = (root / "ergostat" / "web" / "ui" / "src" / "components" / "diagram" / "useLayout.ts").read_text()
+    assert "No projections here: its parts are counted by sensors." in app
 
 
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
@@ -492,8 +492,8 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
         except urllib.error.HTTPError as e:
             return e.code, e.headers["Content-Type"], e.read()
     try:
-        for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/goals", "/loops", "/agents", "/items?kind=ticket&state=open",
-                     "/items/ticket", "/items/ticket?state=in-review&view=timeline",   # a kind's page
+        for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/goals", "/loops", "/agents", "/items?projection=ticket&state=open",
+                     "/items/ticket", "/items/ticket?state=in-review&view=timeline",   # a projection's page
                      "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
                      "/record?type=x.y", "/dashboard", "/ticket", "/ticket/7", "/mission/a/b", "/big-dashboard",
                      "/nope", "/itemsx", "/util.js", "/model", "/file/notes.md", "/d/x"):
@@ -801,7 +801,7 @@ RELATED_MODEL = """
 systems:
   planning: {description: what is planned}
   delivery: {description: what is built}
-items:
+projections:
   epic:
     id: epic/*
     system: planning
@@ -811,7 +811,7 @@ items:
     id: goal/*
     system: planning
     states: [open, met]
-    relations: {serves: {kind: epic, precedence: false}}
+    relations: {serves: {projection: epic, precedence: false}}
   ticket:
     id: ticket/*
     system: delivery

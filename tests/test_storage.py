@@ -19,7 +19,7 @@ def test_storage_defaults_and_what_it_says():
     assert s == Storage() and s.url is None and s.run is None and s.horizon("x") == 7 * 86400
     wrong: list[str] = []
     s = parse({"events": "sqlite", "measurements": {"url": "http://h:1", "run": "victoria-metrics"},
-               "rollup": {"after": "2d", "kinds": {"session": "1h", "case": "never"}, "every": "10m"}}, wrong)
+               "rollup": {"after": "2d", "projections": {"session": "1h", "case": "never"}, "every": "10m"}}, wrong)
     assert not wrong
     assert (s.events, s.url, s.run) == ("sqlite", "http://h:1", "victoria-metrics")
     assert (s.horizon("session"), s.horizon("case"), s.horizon("other"), s.every) == (3600.0, None, 2 * 86400, 600.0)

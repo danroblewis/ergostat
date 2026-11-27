@@ -26,7 +26,7 @@ name: t
 agents:
   bot: {{kind: program}}
   anon: {{}}
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -34,7 +34,7 @@ items:
 blocks:
   worker:
     type: program
-    takes: {{kind: ticket, at: ready}}
+    takes: {{projection: ticket, at: ready}}
     pool: 1
     run: "true"
   solo:

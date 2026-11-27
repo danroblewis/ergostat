@@ -1,7 +1,7 @@
 """Write a factory-size state directory, the same for a seed, so page speed and answer sizes are tested without the
 live factory (tests/README.md says what it holds): `scripts/factory_fixture.py OUT [--seed 1] [--end EPOCH]`.
 
-OUT/model is the model (an item kind each of scale_model.py's plain workflows, measures, `use: modelling`, `upkeep`),
+OUT/model is the model (a projection each of scale_model.py's plain workflows, measures, `use: modelling`, `upkeep`),
 OUT/home its ERGOSTAT_HOME, holding its record: the 24 h before --end; its readings are written to the VictoriaMetrics
 the record uses (ERGOSTAT_METRICS_URL), and kept in OUT/readings.json.gz too, so another server can be given them
 (tests/conftest.py, one VictoriaMetrics a test process). Prints what it wrote, as JSON."""
@@ -40,8 +40,8 @@ def write_model(d: Path) -> None:
         w = {"name": kind, "system": system, "plain": True, "states": states, "handoff": None}
         doc = {"defaults": {"system": system}, **{k: v for k, v in sm.plain_workflow(w, {}, 6, 3).items() if v}}
         if kind == "gap":                     # paused (parked), chained (depends_on), and its last step gated
-            doc["items"]["gap"].update(states=[*doc["items"]["gap"]["states"], "parked"], relations={"depends_on": "gap"})
-            doc["items"]["gap"]["on"]["gap.parked"] = "parked"
+            doc["projections"]["gap"].update(states=[*doc["projections"]["gap"]["states"], "parked"], relations={"depends_on": "gap"})
+            doc["projections"]["gap"]["on"]["gap.parked"] = "parked"
             doc["blocks"][GATED]["actions"] = ["ship"]
         (d / "parts" / f"{kind}.yaml").write_text(sm.dump(doc))
     agents = {f"{r}-{s}": {"kind": k, **({"at-once": 6} if k == "program" else {}), "description": f"the {r} of {s}"}

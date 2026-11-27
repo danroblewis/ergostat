@@ -95,7 +95,7 @@ def cmd_intent(args) -> int:
             return 2
         if args.json:
             return out_json(got)
-        print(f"{got['id']}  {c(got['state'], 'bold')}\n  work      {got['work']} ({got.get('kind')}, judged at "
+        print(f"{got['id']}  {c(got['state'], 'bold')}\n  work      {got['work']} ({got.get('projection')}, judged at "
               f"{got.get('at')})\n  by        {got.get('block')} ({got.get('rung')}, {got.get('mode')}"
               f"{', ' + got['model'] if got.get('model') else ''})\n  held to   {', '.join(got.get('against') or []) or 'nothing'}")
         if got.get("done_when"):
@@ -117,7 +117,7 @@ def cmd_intent(args) -> int:
     print(c(f"Work held to what the owner meant, over the last {human(t['until'] - t['since'])}", "bold"))
     rows = [[k, str(r["reached"]), str(r["met"]), str(r["unmet"]), str(r["contradicted"]), str(r["unjudged"]),
              str(r["overruled"]), str(r["accepted"]), str(r["reopened"]), _pct(r["false_done"]), _pct(r["false_done_tests"]),
-             f"${r['cost']:.2f}"] for k, r in t["kinds"].items()]
+             f"${r['cost']:.2f}"] for k, r in t["projections"].items()]
     print(table(["KIND", "REACHED", "MET", "UNMET", "CONTRADICTED", "UNJUDGED", "OVERRULED", "ACCEPTED", "REOPENED",
                  "FALSE-DONE", "FALSE-DONE (TESTS ALONE)", "COST"], rows, "no intent judge, or nothing judged yet"))
     if t["latest"]:

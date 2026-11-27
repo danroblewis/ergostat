@@ -1,6 +1,6 @@
 """The item index (SPEC §4b, §5a): every item's fold kept on disk, followed as events arrive.
 
-``<state>/items/<key>.db``, one SQLite file per fold (the model's item kinds, and whether a
+``<state>/items/<key>.db``, one SQLite file per fold (the model's projections, and whether a
 transcript's lines are folded in), shared by every process on the record (the runner, the page,
 the command line): whichever asks first after events arrive folds them, under SQLite's write lock,
 a chunk at a time, and the others read what it wrote. A process that starts reads the index; it
@@ -139,7 +139,7 @@ def touches(e: dict) -> list[str]:
 
 
 def kinds_key(spec) -> tuple:
-    """What a fold depends on in the model: its item kinds (a change being tried shares the index
+    """What a fold depends on in the model: its projections (a change being tried shares the index
     when it leaves them as they are)."""
     return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())),
                   tuple(sorted(getattr(k, "relations", None) or {})), getattr(k, "about", None),

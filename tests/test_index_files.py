@@ -24,7 +24,7 @@ from ergostat.store import Events, Project, RecordDamaged
 
 CTX = mp.get_context("spawn")
 YAML = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [{states}]

@@ -21,7 +21,7 @@ V}`` that many elements.
 
 Every name the template defines is the instance's: ``waiting`` becomes ``pings-waiting``, and every reference to it
 (``stock.waiting``, ``from: waiting``, a parameter in an equation) follows; a name that is wholly one ``${param}``
-(an item kind, ``${kind}``) is taken as given; a template written ``once: true`` (used at most once a model) keeps
+(a projection, ``${projection}``) is taken as given; a template written ``once: true`` (used at most once a model) keeps
 every name as written. What a parameter brings in (a reference to a part outside, a
 command) is never renamed. Every part made is in the instance's system, and everything it says points at the
 ``use:`` line."""
@@ -54,7 +54,7 @@ BARE = {("flows", "from"): "stocks", ("flows", "to"): "stocks", ("goals", "stock
         ("goals", "auxiliary"): "auxiliaries", ("goals", "variable"): "auxiliaries", ("blocks", "goal"): "goals",
         ("blocks", "agent"): "agents", ("systems", "within"): "systems", ("blocks", "workspace"): "workspaces",
         ("blocks", "actions"): "actions"}
-IN_SYSTEM = ("items", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks")
+IN_SYSTEM = ("projections", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks")
 FALSE = {"", "false", "no", "0", "off", "none"}
 USE_KEYS = {"use", "with", "within", "description"}
 BUILTIN_NAMES = ("name", "python", "ergostat", "lib", "here", "folder")
@@ -511,7 +511,7 @@ def rename(x, section: str, key: str | None, renames: dict):
         return {k: rename(v, section, k, renames) for k, v in x.items()}
     if not isinstance(x, str):
         return x
-    target = BARE.get((section, key)) or ("systems" if key == "system" else "items" if key == "items" else None)
+    target = BARE.get((section, key)) or ("systems" if key == "system" else "projections" if key == "projection" else None)
     if target and A not in x and x in renames.get(target, {}):
         return renames[target][x]
 

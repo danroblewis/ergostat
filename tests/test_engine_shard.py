@@ -33,7 +33,7 @@ daemons:
   probe: {run: "sleep 60"}
   spare: {run: "sleep 60"}
   solo: {run: "sleep 60"}
-items:
+projections:
   epic:
     id: epic/*
     states: [planned, shipped]
@@ -52,7 +52,7 @@ stocks:
   a-q: {unit: things, system: a, sensor: {run: echo 1, every: 1h}}
   a-tank: {unit: things, system: a, sensor: {run: echo 5, every: 1h}}
   a-d: {unit: things, system: a, sensor: {daemon: solo, every: 1h}}
-  a-jobs: {unit: items, system: a, sensor: {items: job, state: new, every: 1h}}
+  a-jobs: {unit: items, system: a, sensor: {projection: job, state: new, every: 1h}}
   b-q: {unit: things, system: b, sensor: {run: echo 2, every: 1h}}
   b-far: {unit: things, system: b, sensor: {run: echo 3, cron: "0 3 * * *"}}
   b-own: {unit: things, system: b, sensor: {run: echo 4, every: 1h}}
@@ -73,7 +73,7 @@ blocks:
   a-est: {type: expr, in: {e: stock.a-tank.estimate}, expr: e, system: a}
   a-work: {type: program, run: "true", out: flow.a-made, system: a}
   a-tick: {type: program, run: "true", every: 1h, out: flow.a-ticked, system: a}
-  a-take: {type: program, run: "true", takes: {kind: job, at: new}, system: a}
+  a-take: {type: program, run: "true", takes: {projection: job, at: new}, system: a}
   a-trig: {type: program, run: "true", on: {event: thing.happened}, out: flow.a-fired, system: a}
   judge: {type: judge, system: a}
   b-trig: {type: program, run: "true", on: {event: thing.happened}, out: flow.b-fired, system: b}
@@ -138,7 +138,7 @@ def test_shards_partition_the_work(tmp_path):
     whole, by = engines(p)
     plan = shards.plan(p.model.spec)
     assert set(by) == {"lead", "a", "b"} and plan.of("stock.c-q") == "b" and plan.of("daemon.probe") == "b"
-    assert plan.of("daemon.spare") == "lead" and plan.of("kind.loose") == "lead" and plan.of("kind.ticket") == "b"
+    assert plan.of("daemon.spare") == "lead" and plan.of("projection.loose") == "lead" and plan.of("projection.ticket") == "b"
     want, got = lists(whole), {n: lists(e) for n, e in by.items()}
     for k, all_of in want.items():
         each = [got[n][k] for n in sorted(got)]

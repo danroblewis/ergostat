@@ -28,7 +28,7 @@ class Pipe(Instance):
     def put(self, iid: str, state: str, ago: float = 10 * H, entered: float | None = None, moves=None, **fields):
         db = self.db()
         kind = iid.split("/", 1)[0]
-        db["items"][iid] = {"id": iid, "kind": kind, "state": state, "fields": fields, "first": self.now - ago,
+        db["items"][iid] = {"id": iid, "projection": kind, "state": state, "fields": fields, "first": self.now - ago,
                             "entered": self.now - (ago if entered is None else entered), "last": self.now - 60,
                             "moves": moves or []}
         self.record.write_text(json.dumps(db))
@@ -49,7 +49,7 @@ class Pipe(Instance):
         return (r.stdout + r.stderr).strip()
 
     def interventions(self, by: str | None = None) -> list[dict]:
-        return [i for i in self.db()["items"].values() if i["kind"] == "intervention"
+        return [i for i in self.db()["items"].values() if i["projection"] == "intervention"
                 and (by is None or i["fields"].get("by") == by)]
 
 
@@ -124,7 +124,7 @@ def test_one_session_carries_every_standing_trigger_and_answers_each(tmp_path):
     for part in ("# This session", by["gap/p"], "main's own lease race", "## The merge queue", "## Main's recent commits",
                  "The velocity record", "The house rules", "continue GAP"):
         assert part in text
-    (session,) = [i for i in f.db()["items"].values() if i["kind"] == "session"]
+    (session,) = [i for i in f.db()["items"].values() if i["projection"] == "session"]
     assert session["fields"]["situation"] == [sit["id"]] and session["fields"]["role"] == "pipeline_manager"
     db = f.db()
     db["items"][sit["id"]]["fields"]["raised_at"] = f.now - 3 * H
@@ -236,7 +236,7 @@ def test_situations_of_the_one_trigger_watch_are_read_and_an_old_raised_one_is_s
     said, _ = f.run("manager.py", "situation/parked-b-5678", FACTORY_STANDIN_PIPELINE_MANAGER="never asked")
     f.drain()
     assert said == ["situation.superseded"] and f.item("situation/parked-b-5678")["state"] == "superseded"
-    assert [i for i in f.db()["items"].values() if i["kind"] == "session"] == []      # never run
+    assert [i for i in f.db()["items"].values() if i["projection"] == "session"] == []      # never run
     assert subjects(f.watch()) == ["gap/b"]                     # the old handled one is handled; the superseded is not
 
 
@@ -476,7 +476,7 @@ def test_the_review_proposes_at_most_one_gap_and_asks_at_most_one_question(tmp_p
                                    DEFINITION.format(b="sharding"))
     assert " asked" in f.manage("ask", "How much would selecting tests by changed files save?", "--why", "suites bind")
     assert "one at a time" in f.manage("ask", "Would caching the environments save time?", "--why", "x", ok=False)
-    (r,) = [i for i in f.db()["items"].values() if i["kind"] == "research"]
+    (r,) = [i for i in f.db()["items"].values() if i["projection"] == "research"]
     assert r["state"] == "asked" and r["fields"]["asked_by"] == "coordinator"
     assert {"velocity", "velocity-research"} <= {i["fields"]["class"] for i in f.interventions()}
     for state in ("leased", "dead"):          # being researched, or given up on: still open, still one at a time

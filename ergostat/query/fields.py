@@ -14,14 +14,14 @@ from .labels import STATE_GROUP, word
 from .parse import AGGS, MOST_SEGMENTS, RATE_PER, SEGMENTS, TRANSFORMS
 from .sources import OHLC_SOURCES, _series_unit
 
-SAMPLE = 200                # the latest items a kind's low-cardinality fields are told from
+SAMPLE = 200                # the latest items a projection's low-cardinality fields are told from
 FEW = 12                    # the most distinct values a field to group by may have
 LABEL_MOST = 40             # characters: a longer value is prose, not a category
 KEEP = 30.0                 # seconds an answer is kept
 
 
 def _groupable(ix, k) -> list[str]:
-    """``state``, ``kind``, the fields its latest items hold few distinct texts in, and its group relations holding one
+    """``state``, ``projection``, the fields its latest items hold few distinct texts in, and its group relations holding one
     id per item (a gap's ``milestone``: a category by declaration, however many) with ``state_group``, each item's stage
     in that group's progress (``item_state_groups``), to stack them by."""
     from ..spec.grouptally import offered
@@ -36,7 +36,7 @@ def _groupable(ix, k) -> list[str]:
                 seen.setdefault(name, []).append(word(v))
     least = max(2, len(rows) // 10)               # held by a tenth of them, each value on average twice: a category
     few = [f for f, vals in seen.items() if len(vals) >= least and 1 < len(set(vals)) <= FEW and len(vals) >= 2 * len(set(vals))]
-    return ["state", "kind", *sorted(few), *groups, *([STATE_GROUP] if k.states else [])]
+    return ["state", "projection", *sorted(few), *groups, *([STATE_GROUP] if k.states else [])]
 
 
 def _series(p) -> list[dict]:
@@ -46,9 +46,13 @@ def _series(p) -> list[dict]:
 
 
 def _pipeline(name: str, k) -> dict:
-    """A kind's ``pipeline:``, and ``holds``: its relation naming the kind it takes from (its default dashboard row)."""
+    """A projection's ``pipeline:``, and ``holds``: its relation naming the projection it takes from (its default
+    dashboard row)."""
     w = k.pipeline["waiting"]
-    return {"kind": name, **k.pipeline, "holds": next((r for r, x in k.relations.items() if w and w["kind"] in x.kinds), None)}
+    took = (w.get("projection") or w.get("kind")) if w else None
+    shown = {"projection": took, **{x: v for x, v in w.items() if x not in ("kind", "projection")}} if w else None
+    return {"projection": name, **k.pipeline, "waiting": shown,
+            "holds": next((r for r, x in k.relations.items() if took and took in x.kinds), None)}
 
 
 def _read(p) -> dict:
@@ -62,11 +66,11 @@ def _read(p) -> dict:
         moves[name] = {"states": list(k.states), "finished": finished, "queue": finish_of(spec, name, set())["queue"]}
         ix = its._index(p.events, spec, its.asks_transcript([k]))
         if ix is None:
-            items_[name] = {"fields": [], "states": list(k.states), "finished": finished, "group_by": ["state", "kind"]}
+            items_[name] = {"fields": [], "states": list(k.states), "finished": finished, "group_by": ["state", "projection"]}
             continue
         items_[name] = {"fields": [{"name": f["field"], "unit": f["unit"]} for f in numberreads.fields_of(ix).get(name, ())],
                         "states": list(k.states), "finished": finished, "group_by": _groupable(ix, k)}
-    sources = {"items": {"kinds": items_}, "moves": {"kinds": moves}, "counts": {"kinds": list(kinds)},
+    sources = {"items": {"projections": items_}, "moves": {"projections": moves}, "counts": {"projections": list(kinds)},
                "series": {"series": _series(p)}, "events": {"types": sorted(types)},
                "frequency": {"needs": ["input", "output"], "segments": {"default": SEGMENTS, "min": 2, "max": MOST_SEGMENTS},
                              "goals": [g for g, x in (getattr(spec, "goals", None) or {}).items() if x.process]}}

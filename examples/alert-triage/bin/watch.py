@@ -34,7 +34,7 @@ def ergostat() -> list[str]:
 
 
 def alerts(state: str) -> list[dict]:
-    got = subprocess.run([*ergostat(), "item", "--kind", "alert", "--state", state, "-n", "1000", "--json"],
+    got = subprocess.run([*ergostat(), "item", "--projection", "alert", "--state", state, "-n", "1000", "--json"],
                          capture_output=True, text=True)
     try:
         return json.loads(got.stdout or "{}").get("items") or []

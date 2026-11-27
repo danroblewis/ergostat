@@ -67,12 +67,12 @@ from .ir import (
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
-SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "journal", "push", "every", "cron", "timeout", "parse",
+SENSOR_KEYS = {"run", "query", "manual", "projection", "builtin", "daemon", "journal", "push", "every", "cron", "timeout", "parse",
                "unit", "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
-                      "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score"}
+                      "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score", "group"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -105,7 +105,7 @@ TYPE_KEYS = {
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
     "external": {"agent", "identify", "law"},
     "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up", "reviewed",              # judge: model (SPEC §12e)
-              "judge", "kinds", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
+              "judge", "projections", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
     "onoff": {"goal", "until", "min-on", "min-off"},
     "compare": {"above", "below", "back-above", "back-below"},
     "proportional": {"goal", "gain", "min", "max"},
@@ -246,18 +246,18 @@ class Compiler:
         return str(v)
 
     def intent_policy(self, m: Map, what: str) -> IntentPolicy:
-        """An intent judge's policy (SPEC §12i): ``kinds`` (each item kind it judges: ``at``, the state it is judged in;
+        """An intent judge's policy (SPEC §12i): ``projections`` (each projection it judges: ``at``, the state it is judged in;
         ``accepted``, where it counts as done; ``scope``, ``work``, ``repo``, ``base``, ``reopen-to``), ``model`` (an AI
         judge on it, else the stand-in), ``max-cost`` (dollars a verdict), ``held`` (attention or reopen), ``within``."""
         out = IntentPolicy()
-        kinds = m.get("kinds")
+        kinds = m.get("projections")
         if not isinstance(kinds, Map) or not kinds:
-            self.err(f"{what}.kinds: the item kinds it judges, each with at: (the state the work says it is done in): "
-                     f"kinds: {{ticket: {{at: review}}}}", m.at("kinds") or m.where, "missing-key")
+            self.err(f"{what}.projections: the projections it judges, each with at: (the state the work says it is done "
+                     f"in): projections: {{ticket: {{at: review}}}}", m.at("projections") or m.where, "missing-key")
             kinds = {}
         for kn, km in kinds.items():
-            w = f"{what}.kinds.{kn}"
-            if isinstance(km, str):                      # kinds: {ticket: review}
+            w = f"{what}.projections.{kn}"
+            if isinstance(km, str):                      # projections: {ticket: review}
                 km = {"at": km}
             if not isinstance(km, dict) or not km.get("at"):
                 self.err(f"{w}: at: (the state the work is judged in)", kinds.at(kn), "missing-key")
@@ -549,17 +549,17 @@ class Compiler:
                 continue
             if not NAME.match(str(name)):
                 self.err(f"{sw}: a name is lowercase letters, digits and -, starting with a letter", s.where, "bad-name")
-            counted = s.get("items") is not None
+            counted = s.get("projection") is not None
             changes = s.get("changes")
             self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()) | ({"changes", "over"} if changes is not None
                                                                                   else {"changes"}), sw)
             if "runs-on" in s:                                # a sensor runs here, beside what reads it (§12k)
                 self.err(f"{sw}.runs-on: a sensor runs here; only a program block runs on a pool", s.at("runs-on"),
                          "runs-on-sensor")
-            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon", "journal")
+            kinds = [k for k in ("run", "query", "manual", "projection", "changes", "builtin", "daemon", "journal")
                      if s.get(k) not in (None, False)]
             if len(kinds) != 1:
-                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin:, daemon: or journal: "
+                self.err(f"{sw}: exactly one of run:, query:, manual:, projection:, changes:, builtin:, daemon: or journal: "
                          f"(it has {', '.join(kinds) or 'none'})", s.where, "sensor-kind")
             journal = s.get("journal")
             if journal is not None:                    # a folder inside the model's root (SPEC §6)
@@ -578,8 +578,8 @@ class Compiler:
                              f"@rung:KIND or @model:MODEL when about one, or ergostat.messages.unrouted (or awaiting, "
                              f"received, routed, delivered, answered, missed, reached), or ergostat.intent.false-done (or "
                              f"false-done-tests, accepted, reopened, judged, met, unmet, contradicted, held, unjudged, "
-                             f"overruled, cost), with @KIND when about one, or ergostat.leases.held (or expired, dead, "
-                             f"overdue), with @KIND or @BLOCK when about one, or ergostat.actions.held (or approved, auto, "
+                             f"overruled, cost), with @PROJECTION when about one, or ergostat.leases.held (or expired, dead, "
+                             f"overdue), with @PROJECTION or @BLOCK when about one, or ergostat.actions.held (or approved, auto, "
                              f"denied, ran, failed), with @CLASS, or ergostat.workspaces.free (or in-use, held, quarantined), "
                              f"with @POOL, or ergostat.cost.usd (or tokens, cpu, memory, runs), over the last day or with "
                              f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
@@ -614,7 +614,7 @@ class Compiler:
             if s.get("averages") is not None:
                 if of.kind != "flow" or counted or changes is not None:
                     self.err(f"{sw}.averages: on a flow's run:, query: or manual: sensor, the window its reading is an average "
-                             f"over (a count of the last ten minutes, per hour: averages: 10m); items: and changes: say theirs "
+                             f"over (a count of the last ten minutes, per hour: averages: 10m); projection: and changes: say theirs "
                              f"with over:", s.at("averages"), "bad-averages")
                 else:
                     averages = self.duration(s, "averages", sw, 0.0)
@@ -635,11 +635,11 @@ class Compiler:
         return out
 
     def item_sensor(self, s: Map, of: Ref, sw: str) -> dict | None:
-        """``items: ticket`` and how to count them: on a stock, how many are in ``state:`` (or the
+        """``projection: ticket`` and how to count them: on a stock, how many are in ``state:`` (or the
         hours the ``oldest`` has been in its state, or the ``age`` of the oldest since it was first seen); on a
-        flow, the rate per hour ``entering:`` or ``leaving:`` a state, over the last ``over:``. Kinds and states are
+        flow, the rate per hour ``entering:`` or ``leaving:`` a state, over the last ``over:``. Projections and states are
         checked once all are read."""
-        q: dict = {"kind": str(s["items"]), "where": {}}
+        q: dict = {"kind": str(s["projection"]), "where": {}}
         st = s.get("state")
         if st is not None:
             q["state"] = [str(x) for x in st] if isinstance(st, list) else [str(st)]
@@ -728,7 +728,7 @@ class Compiler:
     def pipeline(self, m: Map, what: str, rules: dict) -> dict | None:
         """``pipeline:`` (SPEC §5a, *Stages*): its items record stages, folded into ``stages`` by merge; ``title``,
         the stage names its histograms label (at most STAGES_MOST), and ``waiting``: the line of work it takes from
-        (a kind, a state, the fields it is taken in order of)."""
+        (a projection, a state, the fields it is taken in order of)."""
         p = m.get("pipeline")
         if p is None:
             return None
@@ -738,23 +738,23 @@ class Compiler:
               and isinstance(names, list) and 0 < len(names) <= STAGES_MOST
               and all(isinstance(s, str) and NAME.match(s) for s in names)
               and rules.get("stages", "merge") == "merge"
-              and (w is None or (isinstance(w, dict) and set(w) <= {"kind", "state", "order"}
-                                 and all(isinstance(w.get(k), str) and NAME.match(w[k]) for k in ("kind", "state"))
+              and (w is None or (isinstance(w, dict) and set(w) <= {"projection", "state", "order"}
+                                 and all(isinstance(w.get(k), str) and NAME.match(w[k]) for k in ("projection", "state"))
                                  and all(isinstance(f, str) and WORD.match(f) for f in w.get("order") or []))))
         if not ok:
             self.err(f"{what}.pipeline: {{title: TEXT, stages: [its stage names, at most {STAGES_MOST}], waiting: "
-                     f"{{kind: KIND, state: STATE, order: [FIELD, ...]}}}}; its items' stages field folds by merge",
+                     f"{{projection: PROJECTION, state: STATE, order: [FIELD, ...]}}}}; its items' stages field folds by merge",
                      m.at("pipeline") or m.where, "bad-pipeline")
             return None
         rules["stages"] = "merge"
         return {"title": p.get("title") or "", "stages": list(names),
-                "waiting": {"kind": w["kind"], "state": w["state"], "order": list(w.get("order") or [])} if w else None}
+                "waiting": {"kind": w["projection"], "state": w["state"], "order": list(w.get("order") or [])} if w else None}
 
     def item_kind(self, name: str, m: Map, what: str) -> ItemKind:
         self.keys(m, ITEM_KEYS, what)
         id = m.get("id")
         if not isinstance(id, str) or "/" not in id or id.startswith("/"):
-            self.err(f"{what}.id: which ids are this kind, a pattern with a / in it, like github/pull_request/* "
+            self.err(f"{what}.id: which ids are this projection's, a pattern with a / in it, like github/pull_request/* "
                      f"(ids without a / are ergostat's own parts)", m.at("id") or m.where, "bad-id")
             id = f"{name}/*"
         states = m.get("states") or []
@@ -859,14 +859,14 @@ class Compiler:
         risk = self.risk_score(m, what, states) if "risk-score" in m else None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
                         risk=risk,
-                        system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
+                        system=self.system("projections", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
                         finished=list(done), lost=list(lost), moves_from={e: tuple(s) for e, s in only.items()},
-                        if_unchanged=tuple(fenced), attention=attention)
+                        if_unchanged=tuple(fenced), attention=attention, group=self.group(m, what))
 
     def counted(self, spec: Spec) -> None:
-        """Sensors that count items name a kind and its states."""
+        """Sensors that count items name a projection and its states."""
         for s in spec.sensors():
             q = s.items
             if q is None:
@@ -874,7 +874,7 @@ class Compiler:
             sw, w = f"sensor {s.of.name}.{s.name}", q.pop("at", None) or s.where
             k = spec.items.get(q["kind"])
             if k is None:
-                self.err(f"{sw}.items: {q['kind']!r} is not a kind of item" + self.suggest(q["kind"], spec.items), w,
+                self.err(f"{sw}.projection: {q['kind']!r} is not a projection" + self.suggest(q["kind"], spec.items), w,
                          "unknown-ref")
                 continue
             for st in [*(q.get("state") or []), *[q[x] for x in ("entering", "leaving") if x in q]]:
@@ -964,8 +964,8 @@ class Compiler:
         fu = m.get("follow-up")
         if fu is not None:
             if str(fu) not in spec.items or str(fu).startswith("ergostat."):
-                self.err(f"messages.follow-up: the kind of item a follow-up is made as; {fu!r} is not one of the model's "
-                         f"kinds" + self.suggest(str(fu), spec.items), m.at("follow-up"), "unknown-ref")
+                self.err(f"messages.follow-up: the projection a follow-up is made as; {fu!r} is not one of the model's "
+                         f"projections" + self.suggest(str(fu), spec.items), m.at("follow-up"), "unknown-ref")
             else:
                 got.follow_up = str(fu)
         for key, attr in (("reopen-to", "reopen_to"), ("done", "done"), ("paused", "paused")):
@@ -973,14 +973,14 @@ class Compiler:
             if raw is None:
                 continue
             if not isinstance(raw, dict):
-                self.err(f"messages.{key}: a map of item kind to {'a state' if key == 'reopen-to' else 'its states'}",
+                self.err(f"messages.{key}: a map of projection to {'a state' if key == 'reopen-to' else 'its states'}",
                          m.at(key), "not-a-map")
                 continue
             for kind, v in raw.items():
                 k = spec.items.get(str(kind))
                 vals = [str(x) for x in (v if isinstance(v, list) else [v])]
                 if k is None:
-                    self.err(f"messages.{key}: {kind!r} is not an item kind" + self.suggest(str(kind), spec.items),
+                    self.err(f"messages.{key}: {kind!r} is not a projection" + self.suggest(str(kind), spec.items),
                              raw.at(kind) if hasattr(raw, "at") else m.at(key), "unknown-ref")
                     continue
                 bad = [x for x in vals if x not in k.states]
@@ -1040,6 +1040,17 @@ class Compiler:
             if m.where is None:
                 m.where = w
             yield name, m, what
+
+    def group(self, m: Map, what: str) -> str | None:
+        """A projection's ``group:``: the nav bar's menu it is in (its name the menu's label); none, its own link."""
+        g = m.get("group")
+        if g is None:
+            return None
+        if not isinstance(g, str) or not NAME.match(g):
+            self.err(f"{what}.group: a group's name (lowercase letters, digits and -), the menu it is shown in",
+                     m.at("group") or m.where, "bad-group")
+            return None
+        return g
 
     def system(self, section: str, name: str, m: Map) -> str | None:
         return m.get("system") or self.doc.defaults.get((section, name), {}).get("system")
@@ -1118,10 +1129,10 @@ class Compiler:
                 self.err(f"{what}.tls: a map of cert:, key: and (optional) ca:", m.at("tls"), "bad-remote")
             spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"),
                                         dict(m["tls"]) if isinstance(m.get("tls"), dict) else None)
-        for name, m, _ in self.named("items"):
-            k = self.item_kind(name, m, f"item kind {name}")
+        for name, m, _ in self.named("projections"):
+            k = self.item_kind(name, m, f"projection {name}")
             if k.id.startswith("ergostat."):
-                self.err(f"item kind {name}.id: ids starting ergostat. are ergostat's own ({MODEL_CHANGE}/*)", m.at("id") or m.where,
+                self.err(f"projection {name}.id: ids starting ergostat. are ergostat's own ({MODEL_CHANGE}/*)", m.at("id") or m.where,
                          "reserved-id")
                 continue
             spec.items[name] = k
@@ -1245,7 +1256,7 @@ class Compiler:
                                       m.get("cost") and str(m["cost"]), m.get("host") and str(m["host"]),
                                       self.text(m, "description"), m.where)
         from ..recipes import compile as recipes
-        recipes.contexts(self, spec)                         # contexts: the projection recipes (SPEC §12j)
+        recipes.contexts(self, spec)                         # contexts: the context recipes (SPEC §12j)
         for name, m, what in self.named("blocks"):
             b = self.block(name, m, what)
             if b:
@@ -1270,7 +1281,7 @@ class Compiler:
         leases.section(self, spec)                           # leases: each tier's terms (SPEC §9.5)
         from ..daemons import config as daemons
         daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
-        leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
+        leases.check(self, spec)                             # what each block takes: its projection gains leased and dead
         from ..operating import compile as operating
         operating.section(self, spec)                        # operating: the states, their pools and trips (SPEC §9.5)
         gated.state_maps(self, spec)                         # gates by those states, and the bypass kind (SPEC §12k)
@@ -1288,10 +1299,10 @@ class Compiler:
         for b in intents:
             for kn, ik in b.params["intent"].kinds.items():
                 k = spec.items.get(kn)
-                where = f"block {b.name}.kinds.{kn}"
+                where = f"block {b.name}.projections.{kn}"
                 if k is None or kn.startswith("ergostat."):
                     own = ", ".join(x for x in spec.items if not x.startswith("ergostat."))
-                    self.err(f"{where}: an item kind of the model's own ({own})", b.where, "bad-ref")
+                    self.err(f"{where}: a projection of the model's own ({own})", b.where, "bad-ref")
                     continue
                 for st in [ik.at, *ik.accepted, *([ik.reopen_to] if ik.reopen_to else [])]:
                     if st not in k.states:
@@ -1551,7 +1562,7 @@ class Compiler:
         if not isinstance(per, str) or not per:
             self.err(f"{what}.per: item, or the name of a field of its items", m.at("per"), "goal-per")
         elif s is None:
-            self.err(f"{what}.per: held per item or group only on a stock counted from items (an items: sensor)",
+            self.err(f"{what}.per: held per item or group only on a stock counted from items (a projection: sensor)",
                      m.at("per"), "goal-per")
         elif per == "item" and (s.items.get("measure") or "count") == "count":
             self.err(f"{what}.per: item: each item counts one; hold each by its age with measure: oldest or age on "
@@ -1565,7 +1576,7 @@ class Compiler:
             known = {*k.relations, *k.show, *k.fold, *k.formats, *(s.items.get("where") or {})} if k else set()
             if per != "item" and per.split(".")[0] not in known:
                 self.problems.append(Problem("finding", f"{what}.per: {per!r} is neither a relation of {k.name if k else '?'} "
-                                             "nor a field its kind shows, folds or matches: an item without it is in no group",
+                                             "nor a field its projection shows, folds or matches: an item without it is in no group",
                                              m.at("per"), "goal-per-field", f"goal.{name}"))
             return per
         return None
@@ -1730,7 +1741,7 @@ class Compiler:
                     self.err(f"{what}.out.{port}: an intent judge reports what it moved on its ports, {', '.join(INTENT_PORTS)}, "
                              f"each a flow (out: {{held: flow.work-held}})", m.at("out"), "bad-ref")
         elif t == "judge":
-            for k in ("kinds", "model", "max-cost", "held", "within"):
+            for k in ("projections", "model", "max-cost", "held", "within"):
                 if m.get(k) is not None:
                     self.err(f"{what}.{k}: only an intent judge (judge: intent) takes {k}:", m.at(k), "unknown-key")
             params["policy"] = self.judge_policy(m, what)
@@ -1801,7 +1812,7 @@ class Compiler:
         from .dashboards import check as dashboards
         dashboards(self, spec, exists)                       # dashboards:, checked as show: is (SPEC §4f)
         from .dashboards import routes
-        routes(self, spec)                                   # each kind at /KIND (SPEC §4f)
+        routes(self, spec)                                   # each projection at /PROJECTION (SPEC §4f)
         for lp in spec.named_loops.values():
             for r in lp.through:
                 if (why := exists(r)) is not None:

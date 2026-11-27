@@ -6,7 +6,7 @@ reading: |
   leave as done or dropped. A to-do that cannot go on until something else happens is waiting: a stock beside the
   chain, filled as they are held up and drained as what they wait on finishes, so they are ready again. What they
   wait on is named in `waits_on`, a precedence relation: another to-do, or something asked of someone else (an item
-  of the kind ending `-wait`, answered when they answer). The arrivals are a disturbance: what people ask of you.
+  of the projection ending `-wait`, answered when they answer). The arrivals are a disturbance: what people ask of you.
   Control: two balancing loops, each an on-off controller whose actuator is the person. The first holds the new
   to-dos at 0: they are asked to write each one's instructions and place. The second holds the ready ones at 0:
   they are asked to do a sitting. A program on the rule rung, the batcher, regroups the ready to-dos by place each
@@ -21,18 +21,18 @@ example: |
       with:
         command: cat todos.jsonl          # optional: to-dos read from a file, one JSON object a line, with an id
 params:
-  kind:
+  projection:
     type: name
     default: ${name}
-    description: 'the kind of item; ids KIND/<id>; its events KIND.added (new), KIND.ready, KIND.done, KIND.started, KIND.waiting, KIND.dropped; its fields title, requester, where, instructions (a list of steps, each a text or {do, run, check}), due, waits_on and notes; stuck, KIND.stuck, is the batcher''s: why a waiting one stays waiting though its wait ended (what it waited on was dropped), cleared on its next pass once the to-do has left waiting by any event'
-  wait-kind:
+    description: 'the projection; ids PROJECTION/<id>; its events PROJECTION.added (new), PROJECTION.ready, PROJECTION.done, PROJECTION.started, PROJECTION.waiting, PROJECTION.dropped; its fields title, requester, where, instructions (a list of steps, each a text or {do, run, check}), due, waits_on and notes; stuck, PROJECTION.stuck, is the batcher''s: why a waiting one stays waiting though its wait ended (what it waited on was dropped), cleared on its next pass once the to-do has left waiting by any event'
+  wait-projection:
     type: name
     default: ${name}-wait
-    description: the kind of the things a to-do waits on that someone else does; ids WAIT-KIND/<id>, events WAIT-KIND.asked and WAIT-KIND.answered
-  batch-kind:
+    description: the projection of the things a to-do waits on that someone else does; ids WAIT-PROJECTION/<id>, events WAIT-PROJECTION.asked and WAIT-PROJECTION.answered
+  batch-projection:
     type: name
     default: ${name}-batch
-    description: the kind of the batches, one a place; ids BATCH-KIND/<place>, events BATCH-KIND.grouped and BATCH-KIND.cleared
+    description: the projection of the batches, one a place; ids BATCH-PROJECTION/<place>, events BATCH-PROJECTION.grouped and BATCH-PROJECTION.cleared
   command:
     type: command
     description: 'optional: where to-dos are also read from, a command printing records as JSON, each with an id, and "event": ready (or added, waiting, done...) for the event it is'
@@ -50,48 +50,48 @@ params:
     type: duration
     default: 30s
     description: how often the batches are worked out again
-items:
-  ${kind}:
-    id: ${kind}/*
+projections:
+  ${projection}:
+    id: ${projection}/*
     description: something a person must do by hand, with its instructions and where it must be done
     states: [new, ready, in-progress, waiting, done, dropped]
     on:
-      ${kind}.added: new
-      ${kind}.ready: ready
-      ${kind}.done: done
-      ${kind}.started: in-progress
-      ${kind}.waiting: waiting
-      ${kind}.dropped: dropped
-      ${kind}.freed: ready
+      ${projection}.added: new
+      ${projection}.ready: ready
+      ${projection}.done: done
+      ${projection}.started: in-progress
+      ${projection}.waiting: waiting
+      ${projection}.dropped: dropped
+      ${projection}.freed: ready
     finished: [done, dropped]
     moves-from:
-      ${kind}.freed: [waiting]
-    if-unchanged: ["${kind}.freed", "${kind}.stuck"]
+      ${projection}.freed: [waiting]
+    if-unchanged: ["${projection}.freed", "${projection}.stuck"]
     fold:
       notes: append
     relations:
       waits_on:
-        kind: ["${kind}", "${wait-kind}"]
+        projection: ["${projection}", "${wait-projection}"]
         precedence: true
     show: [title, where, due, requester, stuck]
-  ${wait-kind}:
-    id: ${wait-kind}/*
+  ${wait-projection}:
+    id: ${wait-projection}/*
     description: something a to-do waits on that someone else does (a person's answer, an outside change), recorded by hand
     states: [new, asked, answered]
     on:
-      ${wait-kind}.asked: asked
-      ${wait-kind}.answered: answered
+      ${wait-projection}.asked: asked
+      ${wait-projection}.answered: answered
     finished: [answered]
     fold:
       notes: append
     show: [title, who]
-  ${batch-kind}:
-    id: ${batch-kind}/*
+  ${batch-projection}:
+    id: ${batch-projection}/*
     description: the ready to-dos of one place, in the order to do them, with every one's instructions (sitting)
     states: [open, clear]
     on:
-      ${batch-kind}.grouped: open
-      ${batch-kind}.cleared: clear
+      ${batch-projection}.grouped: open
+      ${batch-projection}.cleared: clear
     finished: [clear]
     show: [title, count, due]
 stocks:
@@ -99,21 +99,21 @@ stocks:
     unit: to-dos
     description: added, their instructions or place not written yet
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: new
       every: 10s
   ready:
     unit: to-dos
     description: ready to do (or being done), nothing they wait on unfinished
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: [ready, in-progress]
       every: 10s
   waiting:
     unit: to-dos
     description: held up until what they wait on happens
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: waiting
       every: 10s
   done:
@@ -121,7 +121,7 @@ stocks:
     cumulative: true
     description: every to-do done, a running total
     sensor:
-      items: ${kind}
+      projection: ${projection}
       state: done
       every: 30s
 auxiliaries:
@@ -130,7 +130,7 @@ auxiliaries:
     description: how many places have ready to-dos (the batches open), each one sitting
     driven-by: ["+stock.ready"]
     sensor:
-      items: ${batch-kind}
+      projection: ${batch-projection}
       state: open
       every: 30s
 flows:
@@ -140,7 +140,7 @@ flows:
     sensor:
       if: ${command}
       value:
-        run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} --id-field id --event added --window 600
+        run: ${lib} collect --name ${name} --projection ${projection} ${command:arg} --id-field id --event added --window 600
         every: ${poll}
         averages: 10m
   written-up:
@@ -152,7 +152,7 @@ flows:
     to: waiting
     description: to-dos that must wait on something
     sensor:
-      items: ${kind}
+      projection: ${projection}
       entering: waiting
       over: 1h
   freed:
@@ -164,14 +164,14 @@ flows:
     to: done
     description: to-dos done by the person
     sensor:
-      items: ${kind}
+      projection: ${projection}
       entering: done
       over: 1h
   dropping:
     from: ready
     description: to-dos dropped, no longer wanted
     sensor:
-      items: ${kind}
+      projection: ${projection}
       entering: dropped
       over: 1h
 goals:
@@ -199,6 +199,6 @@ blocks:
   batcher:
     type: program
     description: frees the waiting to-dos whose wait is over (what they wait on done or answered; one dropped keeps them waiting, said in their stuck field), then regroups the ready ones by place, one batch item a place (it reads the record and prints events; it runs nothing else)
-    run: ${lib} todo batches --kind ${kind} --batch-kind ${batch-kind} --met done,answered --flow flow.freed
+    run: ${lib} todo batches --projection ${projection} --batch-projection ${batch-projection} --met done,answered --flow flow.freed
     every: ${regroup}
     out: flow.freed

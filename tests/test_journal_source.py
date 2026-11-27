@@ -15,7 +15,7 @@ from .test_leases import project, start, wait_for
 
 MODEL = """
 name: s
-items:
+projections:
   case:
     id: case/*
     states: [open, met]

@@ -5,7 +5,7 @@
 # modelled as a program; a made-up process model; event types in three spellings; and the facets opened by a
 # scheduled sweep, so nothing records what caused them and the Process view draws no fan-out or join.
 name: alert-triage-poor
-items:
+projections:
   alert:
     id: alert/*
     states: [new, triaged, investigating, summarising, escalated, closed, dismissed]
@@ -28,17 +28,17 @@ items:
 
 stocks:
   triage:
-    sensor: {items: alert, state: new, every: 2s}
+    sensor: {projection: alert, state: new, every: 2s}
   investigate:
-    sensor: {items: alert, state: [triaged, investigating], every: 2s}
+    sensor: {projection: alert, state: [triaged, investigating], every: 2s}
   summarise:
-    sensor: {items: alert, state: summarising, every: 2s}
+    sensor: {projection: alert, state: summarising, every: 2s}
   oncall:
-    sensor: {items: alert, state: escalated, every: 2s}
+    sensor: {projection: alert, state: escalated, every: 2s}
   age:
-    sensor: {items: alert, state: new, measure: oldest, every: 2s}
+    sensor: {projection: alert, state: new, measure: oldest, every: 2s}
   facets:
-    sensor: {items: facet, state: open, every: 2s}
+    sensor: {projection: facet, state: open, every: 2s}
 
 flows:
   in:
@@ -46,19 +46,19 @@ flows:
     sensor: {run: python3 ../bin/watch.py, every: 2s}
   triaged:
     from: triage
-    sensor: {items: alert, entering: triaged}
+    sensor: {projection: alert, entering: triaged}
   investigated:
     from: investigate
-    sensor: {items: alert, entering: summarising}
+    sensor: {projection: alert, entering: summarising}
   summarised:
     from: summarise
-    sensor: {items: alert, entering: closed}
+    sensor: {projection: alert, entering: closed}
   escalations:
     from: oncall
-    sensor: {items: alert, entering: closed}
+    sensor: {projection: alert, entering: closed}
   facet-work:
     from: facets
-    sensor: {items: facet, entering: done}
+    sensor: {projection: facet, entering: done}
 
 goals:
   triage-ok:
@@ -77,7 +77,7 @@ blocks:
     type: ai
     prompt: "Triage, investigate and summarise the alert."
     run: python3 bin/poor.py handle
-    takes: {kind: alert, at: [new, summarising], to: [triaged, dismissed, closed, escalated]}
+    takes: {projection: alert, at: [new, summarising], to: [triaged, dismissed, closed, escalated]}
     pool: 4
     goal: triage-ok
     out: flow.triaged

@@ -78,7 +78,7 @@ def brief(day: dict, everything: list[dict], w: dict) -> str:
     out += [f"{n}. **{CONDITIONS.get(g, g)}**: {lp['stock']} is {lp['value']:g} (holds {str(lp['setpoint']).replace('<=', '≤').replace('>=', '≥').replace('==', '=')})"
             for n, (g, lp) in enumerate(off, 1)] or ["All true: nothing is off."]
     since = day["first"] - DAY                        # since yesterday's start
-    overnight = [i for i in everything if i["kind"] in ("alert", "outage") and i["first"] >= since]
+    overnight = [i for i in everything if i["projection"] in ("alert", "outage") and i["first"] >= since]
     out += ["", "## Since yesterday: alerts and outages", ""]
     out += [f"- {i['id']} {title(i) or i['fields'].get('service', '')} · {i['state']}{link(i, 'comment')}"
             for i in overnight[-12:]] or ["- none"]
@@ -91,21 +91,21 @@ def brief(day: dict, everything: list[dict], w: dict) -> str:
     digest.write_text("{}")                            # each brief digests what came since the last
     out += ["", "## Waiting on me", ""]
     for kind, state, label, field in WAITING:
-        its = [i for i in everything if i["kind"] == kind and i["state"] == state]
+        its = [i for i in everything if i["projection"] == kind and i["state"] == state]
         if its:
             out.append(f"**{label}** ({len(its)})")
             out += [f"- {i['id']} {title(i)}{link(i, field)}" for i in its[:6]] + [""]
-    follow = [i for i in everything if i["kind"] == "note" and i["state"] == "open"]
+    follow = [i for i in everything if i["projection"] == "note" and i["state"] == "open"]
     if follow:                                        # my notes on finished work (SPEC §12h follow-ups)
         out += ["## My notes on finished work", ""]
         out += [f"- {i['id']} on {i['fields'].get('follows')}: \u201c{i['fields'].get('note', '')}\u201d" for i in follow[:8]] + [""]
-    lost = [i for i in everything if i["kind"] == "ergostat.message" and i["state"] == "unrouted"]
+    lost = [i for i in everything if i["projection"] == "ergostat.message" and i["state"] == "unrouted"]
     if lost:                                          # what I said that reached no work
         out += ["## What I said that reached no work", ""]
         out += [f"- \u201c{i['fields'].get('text', '')}\u201d ({i['id'].split('/')[1]}: `ergostat messages "
                 f"{i['id'].split('/')[1]} --about ITEM`)" for i in lost[-6:]] + [""]
     out += ["## Today's meetings", ""]
-    boards = [i for i in everything if i["kind"] == "doc" and i["fields"].get("stage") == "board" and
+    boards = [i for i in everything if i["projection"] == "doc" and i["fields"].get("stage") == "board" and
               i["state"] != "approved"]
     for m in day["fields"].get("meetings", []):
         prep = {"standup": "yesterday's ledger and today's top three",
@@ -123,14 +123,14 @@ def ledger(day: dict, everything: list[dict]) -> str:
     start, end = day["first"], day["entered"]
     out = [f"# Ledger: {date}", "", "## What I did", ""]
     for i in everything:
-        done = DONE.get(i["kind"])
+        done = DONE.get(i["projection"])
         if done and i["state"] == done[0] and start <= i["entered"] <= end:
             url = i["fields"].get("url", "")
             out.append(f"- {done[1]} {i['id']} {title(i)}" + (f" ({url})" if url else ""))
     if len(out) == 4:
         out.append("- nothing recorded")
-    prepared = sum(1 for i in everything if i["kind"] in DONE and start <= i["last"] <= end)
-    waiting = [i for i in everything if (i["kind"], i["state"]) in {(k, s) for k, s, _, _ in WAITING}]
+    prepared = sum(1 for i in everything if i["projection"] in DONE and start <= i["last"] <= end)
+    waiting = [i for i in everything if (i["projection"], i["state"]) in {(k, s) for k, s, _, _ in WAITING}]
     out += ["", f"Items touched today: {prepared}.", "", "## Tomorrow's top three", ""]
     out += [f"{n}. {i['id']} {title(i)} ({i['state']})" for n, i in enumerate(waiting[:3], 1)] or ["1. nothing waiting"]
     return "\n".join(out)
@@ -143,12 +143,12 @@ def main() -> int:
     state, field, make = {"brief": ("started", "brief", lambda d: brief(d, everything, w)),
                           "ledger": ("ended", "ledger", lambda d: ledger(d, everything))}[what]
     n = 0
-    for day in [i for i in everything if i["kind"] == "day" and i["state"] == state]:
+    for day in [i for i in everything if i["projection"] == "day" and i["state"] == state]:
         date = day["id"].split("/")[1]
         path = OUTBOX / f"{what}-{date}.md"
         event(f"day.{'briefed' if what == 'brief' else 'recorded'}", day["id"], **{field: write_draft(day["id"], make(day), path)})
         if what == "brief":                           # the follow-ups it put in front of me
-            for i in [i for i in everything if i["kind"] == "note" and i["state"] == "open"][:8]:
+            for i in [i for i in everything if i["projection"] == "note" and i["state"] == "open"][:8]:
                 event("note.briefed", i["id"], day=day["id"])
         n += 1
     moved(n)

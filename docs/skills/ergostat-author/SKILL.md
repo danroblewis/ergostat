@@ -1,6 +1,6 @@
 ---
 name: ergostat-author
-description: Use whenever an ergostat project (ergostat.yaml) gets a request for ongoing work, and build it instead of doing it by hand - any request for something to happen as things come in, on a schedule, or until a condition holds ("do X for each new one as it arrives", "tell me if any waits too long", "every morning", "keep Y under N", "remind them until they answer", "when a ticket arrives, do these steps", "watch this API", a described workflow an item goes through: "a request is researched, approved, ramped and confirmed") becomes a small control system made from ergostat's templates (respond-to, re-ping, daily-report, keep-under, steps, collect), even when its script, URL or token is missing; tried on a scratch copy with free stand-ins, and shown to the owner (diagram and diff) before it is turned on.
+description: Use whenever an ergostat simulate (ergostat.yaml) gets a request for ongoing work, and build it instead of doing it by hand - any request for something to happen as things come in, on a schedule, or until a condition holds ("do X for each new one as it arrives", "tell me if any waits too long", "every morning", "keep Y under N", "remind them until they answer", "when a ticket arrives, do these steps", "watch this API", a described workflow an item goes through: "a request is researched, approved, ramped and confirmed") becomes a small control system made from ergostat's templates (respond-to, re-ping, daily-report, keep-under, steps, collect), even when its script, URL or token is missing; tried on a scratch copy with free stand-ins, and shown to the owner (diagram and diff) before it is turned on.
 ---
 
 # Add a small control system to an ergostat project
@@ -13,11 +13,11 @@ it; section "Modelling well" below is its summary). Then, as needed: `ergostat h
 panels, from the question each answers and the decision it supports, when the owner asks for a dashboard of what you
 built). An installed ergostat carries all of these; nothing else needs copying.
 
-**Read first, whenever you set up or change a model's item kinds:** the agent guide's section 3m, *Why isn't this
+**Read first, whenever you set up or change a model's projections:** the agent guide's section 3m, *Why isn't this
 done* (`ergostat help agent-guide`): what a model needs so that `ergostat why ITEM` and `ergostat held-up` can say
 what holds the work up (honest and finished states, relations, who or what takes each state, gates, pools, a budget,
 sensors of the real state), how to bring in outside work read-only, the owner's to-dos and access-context batches,
-a worked example, and the check: no `wait-unexplained` from `check`, and for each unfinished kind `why` names the
+a worked example, and the check: no `wait-unexplained` from `check`, and for each unfinished projection `why` names the
 true root, never `unknown`.
 
 **Read first, before writing or changing a daemon** (a long-lived program that serves many sensors or many items
@@ -56,7 +56,7 @@ because something is missing:
 
 Several shapes compose: two `uses:` entries, or one template's parts named in another's parameters by their full
 names (`INSTANCE-PART`, like `stock.questions-waiting`). Items are not tasks: an item is whatever the request is
-about (a question, a pull request, a report), and its kind says the states it moves through.
+about (a question, a pull request, a report), and its projection says the states it moves through.
 
 Call `templates` with `name` for the chosen shape: its parameters, defaults, and what stands in for each one left
 out. Read its `example`.
@@ -64,54 +64,54 @@ out. Read its `example`.
 ## From a described workflow to a model
 
 When the request describes a process an item goes through ("a request is researched, approved, ramped in stages and
-confirmed"), follow this method exactly. The model must be **one chain per item kind**: a stock per state is
+confirmed"), follow this method exactly. The model must be **one chain per projection**: a stock per state is
 right, but a move from one state to the next is a flow **from that state's stock into the next one's**, never an
 outflow to a cloud. A stock per state with each step draining to a cloud draws as a row of separate stocks and a
 row of separate loops, and says nothing about the workflow.
 
-1. **The item kind and its states, in order**: `items: {KIND: {id: KIND/*, states: [...], on: {...}}}`, the first
+1. **The projection and its states, in order**: `projections: {PROJECTION: {id: PROJECTION/*, states: [...], on: {...}}}`, the first
    state where an item arrives, the last where it is finished; an `on:` event per move.
-2. **One stock per state that waits**, counted by an `items:` sensor (`items: KIND, state: S`): a count of items
+2. **One stock per state that waits**, counted by a `projection:` sensor (`projection: PROJECTION, state: S`): a count of items
    (never `measure: oldest` or `age` on a chain stock: flows move items, not hours). A state nothing waits in (a
    moment, not a queue) needs no stock.
 3. **One flow per move between states, chained from stock to stock**: `from:` the state's stock, `to:` the next
-   state's stock, measured from the item moves (`sensor: {items: KIND, entering: NEXT}`). **Arrivals** come in from
+   state's stock, measured from the item moves (`sensor: {projection: PROJECTION, entering: NEXT}`). **Arrivals** come in from
    outside into the first stock; **completions** leave out of the last (or into a `cumulative: true` stock of
    those done). A branch (changes asked, a rework loop, stopped) is a flow between the stocks it joins too.
    **Every flow but the measured arrivals gets an `equation:`** and a `description:`: the rate as a decision rule,
    `stock.S / S-time` with a parameter `S-time: {value: 10m, estimate: true, description: ...}`; two branches out of
    one stock split it, `share * stock.S / S-time` and `(1 - share) * stock.S / S-time` (`share: {value: 0.3, unit:
-   share, range: [0, 1], estimate: true}`). Without equations the model cannot project or answer what-if.
+   share, range: [0, 1], estimate: true}`). Without equations the model cannot run forward or answer what-if.
 4. **A collector that finds the work** feeds the first stock: the `collect` template (`into:` the first stock), or
    the source's own sensor on the arrivals flow.
-5. **One block per step that does the work**, taking the items at its state: `takes: {kind: KIND, at: S, to:
+5. **One block per step that does the work**, taking the items at its state: `takes: {projection: PROJECTION, at: S, to:
    [NEXT]}`, with `pool:` (how many at once) and `lease:` (`ttl`, `attempts`), `out:` the flow it moves, and
    `goal:` the goal on the stock it drains (so its loop closes).
 6. **Goals on what matters**: nothing waiting at a state (`hold: "<= 0"` on its stock), or the age of the oldest
-   waiting item (a stock of its own beside the chain, `S-oldest: {sensor: {items: KIND, state: S, measure:
+   waiting item (a stock of its own beside the chain, `S-oldest: {sensor: {projection: PROJECTION, state: S, measure:
    oldest}}`, `hold: "<= 24"`, with no flows), throughput, and dead letters (`state: dead`).
 7. **Gated actions for outward acts** (a comment, a status change, a flag ramped): `actions:` with
    `gate: approve`, asked for by the step that needs them, never done by the step's own code.
 8. **Then run `check` and fix every structure finding** (`outflow-not-chained`, `state-stock-without-inflow`,
-   `move-without-flow`, `state-stocks-disconnected`, `loops-not-connected`, `kind-enters-many-times`: each names
+   `move-without-flow`, `state-stocks-disconnected`, `loops-not-connected`, `projection-enters-many-times`: each names
    the exact edit), and
    **review both diagrams** (below).
 9. **Last, reconcile the three views.** Run the model (`try_use`, a minute on its stand-ins, or the live record),
    then call `coherence` (`project:` the scratch folder `try_use` gave; `ergostat check` prints the same section): it holds
    the Process view (what the items really did) against the Dynamics view (the chain) and the Blocks view (what
-   moves the work). Fix the model, or the blocks, until every kind reads `N of N agree`, then look again. A kind that
+   moves the work). Fix the model, or the blocks, until every projection reads `N of N agree`, then look again. A projection that
    says it needs more record has not run long enough to judge.
 
 When every state is a step a block works on, the `steps` template is this method in one entry (`steps: [research,
-approve, ramp, confirm]`: the kind, a stock per step and its work in progress, the chained flows, a block, a goal
+approve, ramp, confirm]`: the projection, a stock per step and its work in progress, the chained flows, a block, a goal
 and the dead letters per step, the collector into the first). Write the parts by hand, as below, when the states
 are named for outcomes, a person or the outside moves some of them, or a step branches.
 
-The worked example is ergostat's `examples/ticket-factory`, a twelve-step ticket workflow. The kind, its states in
+The worked example is ergostat's `examples/ticket-factory`, a twelve-step ticket workflow. The projection, its states in
 order and the event that moves each:
 
 ```yaml
-items:
+projections:
   ticket:
     id: ticket/*
     states: [new, picked, located, worked, pr-open, review-asked, changes-asked, approved, sailed,
@@ -127,7 +127,7 @@ Arrivals from outside into the first stock, measured by the watcher that finds t
 stocks:
   new:
     unit: tickets
-    sensor: {items: ticket, state: new, every: 3s}
+    sensor: {projection: ticket, state: new, every: 3s}
 flows:
   arrivals:
     to: new
@@ -141,14 +141,14 @@ and the block that takes the items:
 stocks:
   picked:
     unit: tickets
-    sensor: {items: ticket, state: picked, every: 3s}
+    sensor: {projection: ticket, state: picked, every: 3s}
 flows:
   pick-up:
     from: new                       # the previous state's stock
     to: picked                      # this state's stock: a chain, not a cloud
     driven-by: [+stock.new]
-    equation: stock.new / pick-up-time   # the rate, so the model can project: parameters: {pick-up-time: {value: 15s, estimate: true}}
-    sensor: {items: ticket, entering: picked, over: 10m}
+    equation: stock.new / pick-up-time   # the rate, so the model can run forward: parameters: {pick-up-time: {value: 15s, estimate: true}}
+    sensor: {projection: ticket, entering: picked, over: 10m}
 goals:
   new-picked-up:
     stock: new
@@ -159,7 +159,7 @@ blocks:
     type: program
     goal: new-picked-up
     run: python3 bin/step.py pick-up
-    takes: {kind: ticket, at: new, to: [picked, stopped]}
+    takes: {projection: ticket, at: new, to: [picked, stopped]}
     pool: 3
     actions: [jira-transition]      # the outward act, gated (approve) in factory/actions.yaml
     out: flow.pick-up
@@ -168,9 +168,9 @@ blocks:
 A branch is a flow between the stocks it joins (review sends a ticket on, or back for changes):
 
 ```yaml
-  review:         {from: review-asked, to: approved, sensor: {items: ticket, entering: approved}}
-  review-changes: {from: review-asked, to: changes-asked, sensor: {items: ticket, entering: changes-asked}}
-  address:        {from: changes-asked, to: review-asked, sensor: {items: ticket, entering: review-asked}}
+  review:         {from: review-asked, to: approved, sensor: {projection: ticket, entering: approved}}
+  review-changes: {from: review-asked, to: changes-asked, sensor: {projection: ticket, entering: changes-asked}}
+  address:        {from: changes-asked, to: review-asked, sensor: {projection: ticket, entering: review-asked}}
 ```
 
 and completions end the chain: `close: {from: merged, to: done}`, `done` being `cumulative: true`.
@@ -190,13 +190,13 @@ Correct is not finished: each diagram should look the way its discipline draws i
   collector's sensor (the Blocks view titles it from that). One block per step, each with `out:`. A person is `type:
   person` with `ask:`, an AI `type: ai`, each on a declared `agents:` entry with its `kind`. A slow loop sets a fast
   one's setpoint (`out: goal.X`). Never write `process:` you did not identify.
-- **Process.** Declare `states:`; name events `kind.verb-past` (`alert.triaged`); put `via:` in the data when two
+- **Process.** Declare `states:`; name events `projection.verb-past` (`alert.triaged`); put `via:` in the data when two
   moves enter one state. A fan-out or join appears only when it is done **inside a run that holds the causing item's
   lease**: the step taking the parent prints the children's events (each citing the parent in its data); the step
   taking a child prints the parent's move when it finishes the last one (record its own last event with
   `$ERGOSTAT_CMD event --add`, under a lock, so the next sibling's run sees it), and lists the parent's flow in its
   `out:`. A scheduled sweep draws no fan-out.
-- **Everywhere.** The same names in every view; a `description` on every part, sensor, kind, system and agent; the
+- **Everywhere.** The same names in every view; a `description` on every part, sensor, projection, system and agent; the
   coherence check is the arbiter.
 
 ### Review both diagrams before calling it done
@@ -205,11 +205,11 @@ Call `where_drawn` for the system (with `project:` the scratch copy) and read bo
 (`view=dynamics`) and the control view (`view=blocks`), as the text it gives, its `shape`, or screenshots of the
 pages. It looks right when:
 
-- each item kind is **one connected chain** of stocks (`shape.dynamics_pieces` is 1 per kind, not one per state);
+- each projection is **one connected chain** of stocks (`shape.dynamics_pieces` is 1 per projection, not one per state);
 - **arrivals come in at the start** (a flow from outside into the first state's stock) and **completions go out
   at the end**;
-- **each kind comes in from outside once**: no second flow from a cloud counting the same kind into a later state
-  (`kind-enters-many-times` names the rewiring; it is a note only when the record shows items arriving there);
+- **each projection comes in from outside once**: no second flow from a cloud counting the same projection into a later state
+  (`projection-enters-many-times` names the rewiring; it is a note only when the record shows items arriving there);
 - **each step's loop shares the chain's stocks** with the next step's (`shape.blocks_pieces` is 1, not one per
   step);
 - **no stock is without an inflow** unless it is where things come from (a source);
@@ -220,9 +220,9 @@ If any does not hold, fix the model (the findings name each edit) and look again
 ### Reconcile the three views: the final step
 
 Once the system has run (`try_use` for a minute, then `coherence` with `project:` its scratch folder; or the
-project's own record, `coherence` alone), read what it says. Each kind gets a
+project's own record, `coherence` alone), read what it says. Each projection gets a
 score (`ticket: 41 of 44 agree (93%)`) and each mismatch its file and line, its fix, the pair of views that disagrees
-and the `check` finding it is linked to. Change the model (or the blocks) and run again until every kind agrees. How
+and the `check` finding it is linked to. Change the model (or the blocks) and run again until every projection agrees. How
 to read each:
 
 | Mismatch | Pair | What it means | What to change |
@@ -240,7 +240,7 @@ to read each:
 | `declared-not-seen-acting` | Blocks ↔ Process | a block had work and something else moved it on | as above: its events are not its own, or the model names the wrong mover |
 
 Notes are not mismatches: `flow-not-seen` (a path the record has not taken yet: a retry, a dead letter), a block with
-no work in the window, a kind whose states no chain models. Too little record says how much more it needs: run
+no work in the window, a projection whose states no chain models. Too little record says how much more it needs: run
 longer, then check again.
 
 ## 2. Ask only what is needed
@@ -260,7 +260,7 @@ If nobody can answer, do not ask: choose, and list your assumptions at the end.
   belongs to when there is one (see `explain`).
 - **Parameters**: durations are written `30s`, `4h`, `1d`; setpoints are quoted (`"<= 70"`); cron is quoted
   (`"30 8 * * 1-5"`); `steps` is a list (`[triage, {name: fix, run: ./bin/fix.sh}]`). A step an AI agent should
-  do is `{name: fix, prompt: prompts/fix.md}`, and its prompt must end by saying `{"event": "KIND.fix-done"}`
+  do is `{name: fix, prompt: prompts/fix.md}`, and its prompt must end by saying `{"event": "PROJECTION.fix-done"}`
   about the item; if it works on code, give `workspace: {repo: ...}` (a worktree per item), and anything outward it
   must do (a push, a pull request) as `actions:` with `gate: approve`, never as a tool. `pool` is how many items a
   step works on at once, `tries` how many attempts before an item is set aside. Only give what the request says or
@@ -301,7 +301,7 @@ Before anything is written to the project:
    (its text drawing, its `shape`, and the pages: `/diagram?view=dynamics&system=INSTANCE`, the stock-and-flow
    view, and `view=blocks`, the control view), reviewed against the checklist above: never call it done before
    both views look right;
-3. what the trial showed, in two or three sentences, what still runs on stand-ins, and each kind's coherence score;
+3. what the trial showed, in two or three sentences, what still runs on stand-ins, and each projection's coherence score;
 4. your assumptions.
 
 Ask "turn it on?" Only on yes, call `add_use` with `write: true`, then `check`. When the owner has already said to

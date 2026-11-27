@@ -7,7 +7,7 @@ stocks:
     unit: tickets
     description: waiting for the reviewers
     sensor:
-      items: ticket
+      projection: ticket
       state: review-asked
       every: 3s
 
@@ -18,7 +18,7 @@ flows:
     driven-by: [+stock.pr-open]
     equation: stock.pr-open / ask-review-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: review-asked
       over: 10m
 
@@ -39,7 +39,7 @@ blocks:
     type: program
     goal: opened-asked
     daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
-    takes: {kind: ticket, at: pr-open, to: [review-asked, stopped]}
+    takes: {projection: ticket, at: pr-open, to: [review-asked, stopped]}
     pool: 3
     actions: [request-review, pr-comment]
     out: flow.ask-review

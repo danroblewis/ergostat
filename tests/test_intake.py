@@ -22,7 +22,7 @@ from tests.ports import free_port
 
 MODEL = """
 name: pushed
-items:
+projections:
   ticket:
     id: ticket/*
     states: [new, picked]

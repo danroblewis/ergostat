@@ -25,7 +25,7 @@ def test_numbers_match_as_numbers_strings_as_strings_booleans_as_booleans():
 def test_check_notes_where_values_whose_meaning_changed(tmp_path):
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""\
         name: t
-        items:
+        projections:
           ticket:
             id: ticket/*
             states: [open, done]
@@ -33,7 +33,7 @@ def test_check_notes_where_values_whose_meaning_changed(tmp_path):
           urgent:
             unit: tickets
             sensor:
-              items: ticket
+              projection: ticket
               state: open
               where:
                 priority: 1
@@ -42,7 +42,7 @@ def test_check_notes_where_values_whose_meaning_changed(tmp_path):
           flagged:
             unit: tickets
             sensor:
-              items: ticket
+              projection: ticket
               state: open
               where: {flag: true}
         """))

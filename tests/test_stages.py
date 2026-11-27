@@ -28,7 +28,7 @@ MODEL = """
     name: st
     stocks:
       q: {unit: deploys}
-    items:
+    projections:
       deploy:
         id: deploy/*
         states: [queued, rolling, live, rolled-back]
@@ -186,11 +186,11 @@ def test_stage_durations_are_histograms_labelled_only_by_kind_declared_stage_and
 
 @pytest.mark.parametrize("bad", [
     "pipeline: {stages: []}", "pipeline: {stages: [Not A Name]}", "pipeline: {title: x}",
-    "pipeline: {stages: [a], waiting: {kind: gap}}", "pipeline: {stages: [a], colour: red}",
+    "pipeline: {stages: [a], waiting: {projection: gap}}", "pipeline: {stages: [a], colour: red}",
     "pipeline: {stages: [a]}\n    fold: {stages: append}", f"pipeline: {{stages: [{', '.join(f's{i}' for i in range(33))}]}}"])
 def test_a_pipeline_that_is_not_one_is_refused(tmp_path, bad):
     from ergostat.spec import read
-    (tmp_path / "ergostat.yaml").write_text("name: st\nstocks:\n  q: {unit: deploys}\nitems:\n  deploy:\n"
+    (tmp_path / "ergostat.yaml").write_text("name: st\nstocks:\n  q: {unit: deploys}\nprojections:\n  deploy:\n"
                                             f"    id: deploy/*\n    states: [queued, live]\n    {bad}\n")
     spec, problems = read(tmp_path / "ergostat.yaml")
     assert [x.code for x in problems if x.level == "error"] == ["bad-pipeline"], problems
@@ -200,6 +200,6 @@ def test_a_pipeline_that_is_not_one_is_refused(tmp_path, bad):
 def test_a_declared_pipeline_folds_its_stages_by_merge_and_is_listed_for_the_dashboard(p):
     assert p.model.spec.items["deploy"].fold["stages"] == "merge"
     got = api(Live(p), "query/fields", {})
-    assert got["pipelines"] == [{"kind": "deploy", "title": "Deploys", "stages": ["build", "canary-a", "canary-b", "rollout"],
+    assert got["pipelines"] == [{"projection": "deploy", "title": "Deploys", "stages": ["build", "canary-a", "canary-b", "rollout"],
                                  "waiting": None, "holds": None}]
     assert {"item_stages", "stage_estimates", "item_progress"} <= set(_itemviews.views(p.model.spec))

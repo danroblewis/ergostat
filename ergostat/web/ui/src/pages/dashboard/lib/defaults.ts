@@ -1,5 +1,5 @@
-/* The dashboard a project opens on, built from what the record holds (dashboard.js dashDefault): the lead kind's
-   numbers in a row, its charts, then the next kinds'; with no kinds, the first series. Pure. The worked examples of
+/* The dashboard a project opens on, built from what the record holds (dashboard.js dashDefault): the lead
+   projection's numbers in a row, its charts, then the next projections'; with no projections, the first series. Pure. The worked examples of
    each plot family (dashboard-examples.js) and the pipelines' SQL rows are not ported yet. */
 import type { Dashboard, Panel, Query } from "../../../lib/query";
 
@@ -15,14 +15,14 @@ export const MOST = 32;
 const RECENT = 10;
 
 interface Field { name: string; unit?: string }
-interface Kind {
+interface Projection {
   name: string; states: string[]; open: string[]; done: string[]; stopped: string[]; waiting: string[]; working: string[];
   midway: number; score: number; held: number; inWork: number; now: Record<string, number>; fields: Field[];
 }
 const isCost = (f: Field) => COST.test(f.name) || MONEY.test(f.unit || "");
 const costUnit = (f: Field) => (MONEY.test(f.unit || "") ? f.unit! : "usd");
 
-function kindOf(name: string, k: any, info: any, queue?: string[]): Kind {
+function projectionOf(name: string, k: any, info: any, queue?: string[]): Projection {
   const states: string[] = k.states || [], now: Record<string, number> = info?.counts || {};
   const done = ((info?.finished || states.slice(-1)) as string[]).filter((x) => states.includes(x));
   const stopped = states.filter((x) => (info?.paused || []).includes(x) || (x === "dead" && info?.dead !== false && !done.includes(x)));
@@ -37,19 +37,19 @@ function kindOf(name: string, k: any, info: any, queue?: string[]): Kind {
   return { name, states, open, done, stopped, waiting, working, midway, score, held: sum(states), inWork: sum(open), now, fields: k.fields || [] };
 }
 
-function kindsOf(fields: any, infos: any[] = [], queues: Record<string, string[]> = {}): Kind[] {
+function projectionsOf(fields: any, infos: any[] = [], queues: Record<string, string[]> = {}): Projection[] {
   const by = new Map(infos.map((x) => [x.name, x]));
-  const kinds = Object.entries(fields?.sources?.items?.kinds || {}).map(([name, k]) => kindOf(name, k, by.get(name), queues[name]))
+  const projections = Object.entries(fields?.sources?.items?.projections || {}).map(([name, k]) => projectionOf(name, k, by.get(name), queues[name]))
     .filter((k) => k.states.length);
-  const own = (k: Kind) => (k.name.startsWith("ergostat.") ? 1 : 0);
-  kinds.sort((a, b) => own(a) - own(b) || b.score - a.score || b.inWork - a.inWork || b.held - a.held || a.name.localeCompare(b.name));
-  return kinds.some((k) => k.held) ? kinds.filter((k) => k.held) : kinds;
+  const own = (k: Projection) => (k.name.startsWith("ergostat.") ? 1 : 0);
+  projections.sort((a, b) => own(a) - own(b) || b.score - a.score || b.inWork - a.inWork || b.held - a.held || a.name.localeCompare(b.name));
+  return projections.some((k) => k.held) ? projections.filter((k) => k.held) : projections;
 }
 
-/** The states work waits in, for the three leading kinds and the kinds their relations name. */
+/** The states work waits in, for the three leading projections and the projections their relations name. */
 export function queuesOf(fields: any, infos: any[]): Record<string, string[]> {
-  const by = new Map(infos.map((x) => [x.name, x])), moves = fields?.sources?.moves?.kinds || {}, queues: Record<string, string[]> = {};
-  const todo = kindsOf(fields, infos).filter((k) => !k.name.startsWith("ergostat.")).slice(0, 3).map((k) => k.name);
+  const by = new Map(infos.map((x) => [x.name, x])), moves = fields?.sources?.moves?.projections || {}, queues: Record<string, string[]> = {};
+  const todo = projectionsOf(fields, infos).filter((k) => !k.name.startsWith("ergostat.")).slice(0, 3).map((k) => k.name);
   for (const seen = new Set(todo); todo.length;) {
     const name = todo.shift()!;
     if (moves[name]?.queue?.length) queues[name] = moves[name].queue;
@@ -59,29 +59,29 @@ export function queuesOf(fields: any, infos: any[]): Record<string, string[]> {
   return queues;
 }
 
-function stayStates(k: Kind): string[] {
+function stayStates(k: Projection): string[] {
   const most = (list: string[], n: number) => list.filter((x) => !REWORK.test(x)).sort((a, b) => (k.now[b] || 0) - (k.now[a] || 0)).slice(0, n);
   const picked = new Set([...most(k.waiting, 2), ...most(k.working, 1)]);
   return k.states.filter((x) => picked.has(x));
 }
 const rate = { agg: "count", transform: "rate", rate_per: "hour" };
-const arrivals = (k: Kind): Query => ({ id: "a", source: "moves", kind: k.name, measure: "entries", first_only: true, state: k.states.slice(0, 1), ...rate, label: "arrivals" });
-const completions = (k: Kind): Query => ({ id: "b", source: "moves", kind: k.name, measure: "entries", state: k.done, ...rate, label: "completions" });
-const count = (k: Kind, id: string, state: string[], label: string): Query => ({ id, source: "counts", kind: k.name, state, group_by: "kind", agg: "last", transform: "none", label });
-const stay = (k: Kind, id: string, state: string, agg = "p50"): Query => ({ id, source: "moves", kind: k.name, measure: "time_in_state", state: [state], agg, transform: "none", label: state });
-const costQuery = (k: Kind, f: Field): Query => ({ id: "a", source: "items", kind: k.name, field: f.name, agg: "sum", transform: "rate", rate_per: "hour", label: "cost" });
+const arrivals = (k: Projection): Query => ({ id: "a", source: "moves", projection: k.name, measure: "entries", first_only: true, state: k.states.slice(0, 1), ...rate, label: "arrivals" });
+const completions = (k: Projection): Query => ({ id: "b", source: "moves", projection: k.name, measure: "entries", state: k.done, ...rate, label: "completions" });
+const count = (k: Projection, id: string, state: string[], label: string): Query => ({ id, source: "counts", projection: k.name, state, group_by: "projection", agg: "last", transform: "none", label });
+const stay = (k: Projection, id: string, state: string, agg = "p50"): Query => ({ id, source: "moves", projection: k.name, measure: "time_in_state", state: [state], agg, transform: "none", label: state });
+const costQuery = (k: Projection, f: Field): Query => ({ id: "a", source: "items", projection: k.name, field: f.name, agg: "sum", transform: "rate", rate_per: "hour", label: "cost" });
 const legend = (values = ["last", "max"]) => ({ legend: "right", legend_values: values });
 type Draft = Omit<Panel, "id">;
 const stat = (title: string, query: Query, unit: string, decimals?: number): Draft => ({
   title, form: "stat", size: "s", queries: [query],
   ...(query.transform === "rate" ? { note: "recent average", display: { unit, decimals, recent: RECENT } } : { display: { unit, decimals } }),
 });
-const stayStat = (k: Kind, state: string): Draft => ({
+const stayStat = (k: Projection, state: string): Draft => ({
   ...stat(`${k.name}: median wait of items that left ${state}`, stay(k, "a", state), "s"),
-  note: "whole window", display: { unit: "s", whole: true, still: { kind: k.name, state } },
+  note: "whole window", display: { unit: "s", whole: true, still: { projection: k.name, state } },
 });
 
-function kindPanels(k: Kind): Draft[] {
+function projectionPanels(k: Projection): Draft[] {
   const out: Draft[] = [];
   if (k.done.length) out.push({ title: `${k.name}: arrivals and completions per hour`, form: "line", queries: [arrivals(k), completions(k)],
     display: { unit: "/h", decimals: 1, ...legend(), y: { min: 0 } } });
@@ -93,31 +93,31 @@ function kindPanels(k: Kind): Draft[] {
     queries: stays.map((x, i) => stay(k, "abc"[i], x)), display: { unit: "s", ...legend(), y: { min: 0 } } });
   return out;
 }
-function fieldPanel(k: Kind, f: Field, want?: (typeof WANTED)[number]): Draft {
+function fieldPanel(k: Projection, f: Field, want?: (typeof WANTED)[number]): Draft {
   const unit = f.unit && f.unit !== "count" ? f.unit : "";
   const word = want?.word || f.name;
   return { title: `${k.name}: ${word}${want?.rate ? " per hour" : want?.agg === "avg" ? ", average" : ""}`, form: "line", size: "m",
-    queries: [{ id: "a", source: "items", kind: k.name, field: f.name, agg: want?.agg || "avg", ...(want?.rate ? { transform: "rate", rate_per: "hour" } : { transform: "none" }), label: word }],
+    queries: [{ id: "a", source: "items", projection: k.name, field: f.name, agg: want?.agg || "avg", ...(want?.rate ? { transform: "rate", rate_per: "hour" } : { transform: "none" }), label: word }],
     display: { unit: want?.rate ? `${unit || "items"}/h` : unit, ...legend() } };
 }
 
 export function defaultDashboard(fields: any, infos: any[] = [], queues: Record<string, string[]> = {}): Dashboard {
-  const kinds = kindsOf(fields, infos, queues), panels: Draft[] = [], lead = kinds[0];
+  const projections = projectionsOf(fields, infos, queues), panels: Draft[] = [], lead = projections[0];
   if (lead) {
-    const costKind = lead.fields.some(isCost) ? lead : kinds.find((k) => k.fields.some(isCost));
-    const cost = costKind && (costKind.fields.find((f) => MONEY.test(f.unit || "")) || costKind.fields.find(isCost));
+    const costProjection = lead.fields.some(isCost) ? lead : projections.find((k) => k.fields.some(isCost));
+    const cost = costProjection && (costProjection.fields.find((f) => MONEY.test(f.unit || "")) || costProjection.fields.find(isCost));
     const cu = cost ? `${costUnit(cost)}/h` : "";
     const stays = stayStates(lead);
     if (lead.open.length) panels.push(stat(`${lead.name}: work in progress`, count(lead, "a", lead.open, "in progress"), "items", 0));
     if (lead.done.length) panels.push(stat(`${lead.name}: completions per hour`, completions(lead), "/h", 1));
     if (stays[0]) panels.push(stayStat(lead, stays[0]));
-    if (cost && costKind) {
+    if (cost && costProjection) {
       panels.push(stat(`${lead.name}: arrivals per hour`, arrivals(lead), "/h", 1));
       if (stays[1]) panels.push(stayStat(lead, stays[1]));
-      panels.push(stat(`${costKind.name}: cost per hour`, costQuery(costKind, cost), cu, 2));
+      panels.push(stat(`${costProjection.name}: cost per hour`, costQuery(costProjection, cost), cu, 2));
     }
-    const first: Draft[] = kindPanels(lead).map((p) => ({ ...p, size: "m" as const }));
-    if (cost && costKind) first.push({ title: `${costKind.name}: cost per hour`, form: "area", size: "m", queries: [costQuery(costKind, cost)],
+    const first: Draft[] = projectionPanels(lead).map((p) => ({ ...p, size: "m" as const }));
+    if (cost && costProjection) first.push({ title: `${costProjection.name}: cost per hour`, form: "area", size: "m", queries: [costQuery(costProjection, cost)],
       display: { unit: cu, decimals: 2, ...legend(), y: { min: 0 } } });
     const asked = WANTED.map((want) => ({ want, f: lead.fields.find((f) => want.match.test(f.name)) })).filter((x) => x.f);
     const worth = asked.length ? asked : lead.fields.filter((f) => !isCost(f) && !NOT_CHARTED.test(f.name) && f.unit && f.unit !== "count")
@@ -125,8 +125,8 @@ export function defaultDashboard(fields: any, infos: any[] = [], queues: Record<
     for (const { want, f } of worth) first.push(fieldPanel(lead, f!, want));
     if (first.length % 2) first[first.length - 1].size = "full";
     panels.push(...first);
-    for (const k of kinds.slice(1).filter((x) => x.inWork && x.midway >= 2 && !x.name.startsWith("ergostat.")).slice(0, 2)) {
-      const row = kindPanels(k);
+    for (const k of projections.slice(1).filter((x) => x.inWork && x.midway >= 2 && !x.name.startsWith("ergostat.")).slice(0, 2)) {
+      const row = projectionPanels(k);
       const size = ({ 1: "full", 2: "m", 3: "s" } as const)[row.length as 1 | 2 | 3];
       panels.push(...row.map((p) => ({ ...p, size })));
     }

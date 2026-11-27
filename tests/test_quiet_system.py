@@ -7,7 +7,7 @@ from ergostat.store import Project
 
 N = 14
 MODEL = "\n".join([
-    "name: quiet", "systems:", "  shop: {}", "  yard: {}", "items:", "  job:", "    id: job/*",
+    "name: quiet", "systems:", "  shop: {}", "  yard: {}", "projections:", "  job:", "    id: job/*",
     "    states: [waiting, done]", "    system: shop", "    on: {job.done: done}", "stocks:",
     *[f"  q{i}: {{unit: jobs, system: shop, sensor: {{run: echo 1, every: 1h}}}}" for i in range(1, N + 1)],
     "  pile: {unit: jobs, system: yard, sensor: {run: echo 1, every: 1h}}",
@@ -20,7 +20,7 @@ MODEL = "\n".join([
       f"  a{i}: {{type: program, run: \"true\", in: block.k{i}, out: flow.f{i}, system: shop}}" for i in range(1, N + 1)],
     "  kp: {type: onoff, goal: pile-small, out: block.ap, system: yard}",
     "  ap: {type: program, run: \"true\", in: block.kp, out: flow.carted, system: yard}",
-    "  worker: {type: program, run: \"true\", takes: {kind: job, at: waiting, to: [done]}, out: flow.served, system: shop}",
+    "  worker: {type: program, run: \"true\", takes: {projection: job, at: waiting, to: [done]}, out: flow.served, system: shop}",
     ""])
 TAKEN = {"block": "worker", "ttl": 2400, "max": 2, "back": "waiting", "tier": "program"}
 
@@ -75,14 +75,14 @@ def test_one_unknown_goal_and_it_says_nothing(tmp_path, monkeypatch):
 
 WHERE = (("a", "plant"), ("b", "line"), ("c", "line"))
 NESTED = "\n".join([
-    "name: nested", "systems:", "  plant: {}", "  line: {within: plant}", "items:", "  job:", "    id: job/*",
+    "name: nested", "systems:", "  plant: {}", "  line: {within: plant}", "projections:", "  job:", "    id: job/*",
     "    states: [waiting, done]", "    system: line", "    on: {job.done: done}", "stocks:",
     *[f"  {s}: {{unit: jobs, system: {y}, sensor: {{run: echo 1, every: 1h}}}}" for s, y in WHERE],
     "flows:", "  served: {from: b, system: line}", *[f"  f{s}: {{from: {s}, system: {y}}}" for s, y in WHERE],
     "goals:", *[f"  g{s}: {{stock: {s}, hold: \"<= 5\", system: {y}}}" for s, y in WHERE],
     "blocks:", *[f"  k{s}: {{type: onoff, goal: g{s}, out: block.a{s}, system: {y}}}\n"
                  f"  a{s}: {{type: program, run: \"true\", in: block.k{s}, out: flow.f{s}, system: {y}}}" for s, y in WHERE],
-    "  worker: {type: program, run: \"true\", takes: {kind: job, at: waiting, to: [done]}, out: flow.served, system: line}",
+    "  worker: {type: program, run: \"true\", takes: {projection: job, at: waiting, to: [done]}, out: flow.served, system: line}",
     ""])
 
 

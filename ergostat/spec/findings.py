@@ -79,7 +79,7 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
         if causes and what:
             ys = " and ".join(causes)
             say("measured-not-caused", f"flow {f.name}: measured as every {what} of {f.target or f.source}, but drawn as "
-                f"caused by {ys}: either measure what {ys} contribute{'s' if len(causes) == 1 else ''} (an items: sensor, "
+                f"caused by {ys}: either measure what {ys} contribute{'s' if len(causes) == 1 else ''} (a projection: sensor, "
                 f"with sum: for what each one moved), or say it is any {what} (drop the cause from driven-by)",
                 f.where, f"flow.{f.name}")
     if spec.stocks and not any(b.type == "judge" for b in spec.blocks.values()):
@@ -97,12 +97,12 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
             Where(spec.files[0], 1) if spec.files else None, "model")
     unsigned(spec, say)
     structure(spec, say)
-    # a kind's state stocks, chained (the record's moves, when there is a record)
+    # a projection's state stocks, chained (the record's moves, when there is a record)
     from .chains import findings as chained
     chained(spec, say)
     from .equation_checks import findings as numbers
     numbers(spec, say)
-    from .waits import findings as waits  # a kind whose waiting `why` cannot explain (SPEC §5a)
+    from .waits import findings as waits  # a projection whose waiting `why` cannot explain (SPEC §5a)
     waits(spec, say)
     from .architecture import findings as architecture  # how it is divided into systems: notes (SPEC §12)
     architecture(spec, lambda code, msg, where, about: out.append(Problem("note", msg, where, code, about)))

@@ -13,6 +13,7 @@ SCHEMA = Path(__file__).resolve().parent.parent / "schema" / "ergostat.schema.js
 TEXT = {"type": "string", "minLength": 1}
 FLAG = {"type": "boolean"}
 NAMES = {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]}
+OLD = ("kind", "kinds", "per_kind")   # the names a projection was written under before (2026-11-26): gone
 # the parameters the newer kinds take (the older ones' are in the schema already): each one's type
 PARAMS = {
     "fit": FLAG, "quiet": FLAG, "address": {"type": "string", "pattern": "^/diagram"},
@@ -22,7 +23,8 @@ PARAMS = {
     "machine": TEXT, "remote": TEXT, "runs": FLAG, "window": FLAG,
     "from": {"type": "number", "minimum": 0}, "to": {"type": "number", "minimum": 0},
     "finished": {"enum": ["hide", "waits", "show"]}, "states": {"enum": ["all", "groups"]},
-    "per_kind": {"type": "integer", "minimum": 1, "maximum": 500},
+    "per_projection": {"type": "integer", "minimum": 1, "maximum": 500},
+    "projection": TEXT, "projections": NAMES,
     "view": {"enum": ["dynamics", "blocks", "process"]},
     "show": {"oneOf": [{"enum": ["waiting", "off", "housekeeping", "suggestions"]},
                        {"type": "array", "minItems": 1, "items": {"enum": ["waiting", "off", "housekeeping", "suggestions"]}}]},
@@ -30,7 +32,7 @@ PARAMS = {
 
 
 def panel(old: dict) -> dict:
-    props = {**old["properties"], **PARAMS}
+    props = {**{k: v for k, v in old["properties"].items() if k not in OLD}, **PARAMS}
     props["panel"] = {"enum": list(d.KINDS)}
     missing = sorted(set().union(*d.KINDS.values(), d.PANEL_KEYS) - set(props))
     if missing:

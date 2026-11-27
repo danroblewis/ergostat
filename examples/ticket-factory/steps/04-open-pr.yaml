@@ -7,7 +7,7 @@ stocks:
     unit: tickets
     description: a pull request open; no review asked yet
     sensor:
-      items: ticket
+      projection: ticket
       state: pr-open
       every: 3s
 
@@ -18,7 +18,7 @@ flows:
     driven-by: [+stock.worked]
     equation: stock.worked / open-pr-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: pr-open
       over: 10m
 
@@ -39,7 +39,7 @@ blocks:
     type: program
     goal: worked-opened
     daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
-    takes: {kind: ticket, at: worked, to: [pr-open, stopped]}
+    takes: {projection: ticket, at: worked, to: [pr-open, stopped]}
     pool: 3
     workspace: code
     actions: [git-push, open-pr, jira-transition, jira-comment]

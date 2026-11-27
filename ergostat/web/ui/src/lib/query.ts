@@ -16,8 +16,8 @@ export interface Panel {
   display?: Record<string, any>;
   options?: Record<string, any>;
   layout?: { x: number; y: number; w: number; h: number };
-  /** a diagram panel's (form "diagram", no queries): which view, of which system, item or kind */
-  diagram?: { view?: "dynamics" | "blocks" | "process"; system?: string; item?: string; kind?: string };
+  /** a diagram panel's (form "diagram", no queries): which view, of which system, item or projection */
+  diagram?: { view?: "dynamics" | "blocks" | "process"; system?: string; item?: string; projection?: string };
 }
 
 export interface Dashboard {

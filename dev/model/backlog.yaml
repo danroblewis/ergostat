@@ -17,7 +17,7 @@ flows:
   gaps-closed:
     from: gaps-open
     description: gaps groomed out of the backlog - done on main already (GAPS.md, or the groomer), or a duplicate
-    sensor: {items: gap, entering: closed, over: 1d}
+    sensor: {projection: gap, entering: closed, over: 1d}
 
 actions:
   groom-backlog:

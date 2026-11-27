@@ -26,8 +26,8 @@ playwright = pytest.importorskip("playwright.sync_api")
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = "first-loop"
 ITEM = "ticket/1"
-KIND = """
-items:
+PROJECTION = """
+projections:
   ticket:
     id: ticket/*
     states: [opened, working, done]
@@ -42,7 +42,7 @@ def project_with_items(d: Path) -> Project:
     """The first loop, with a few readings and three tickets on its record (one finished)."""
     shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__", "inbox"))
     f = d / "ergostat.yaml"
-    f.write_text(f.read_text() + KIND)
+    f.write_text(f.read_text() + PROJECTION)
     p = Project(mdl.load(d))
     now = time.time()
     for i in range(6):
@@ -101,9 +101,9 @@ def settled(pg, ms: int = 1500) -> list[str]:
 def test_the_header_names_the_pages_dashboard_first_and_no_project_list(browser, site):
     pg = opened(browser, site + "/goals")
     pg.wait_for_selector("#nav a", timeout=WAIT)
-    assert pg.locator("#nav a").all_inner_texts() == ["Dashboard", "Diagram", "Goals", "Agents", "Record"]
-    pg.get_by_role("button", name="Kinds").click()                       # the model's kinds, each at /KIND
-    pg.locator(".menu-pop [role^=menuitem]", has_text="ticket").first.click()
+    pg.wait_for_selector("#nav a:has-text('Ticket')", timeout=WAIT)     # the model's projections, after a bar
+    assert pg.locator("#nav a").all_inner_texts() == ["Dashboard", "Diagram", "Goals", "Agents", "Record", "Ticket"]
+    pg.locator("#nav a", has_text="Ticket").click()                      # each at /PROJECTION
     pg.wait_for_url("**/ticket", timeout=WAIT)
     assert pg.locator("select#project").count() == 0
     pg.wait_for_selector("#running", timeout=WAIT)          # the run state, from /api/status
@@ -195,7 +195,7 @@ def test_each_view_of_the_diagram_draws(browser, site, view, caption, nodes):
 @pytest.mark.parametrize("path, title, content", [
     ("/goals", "Goals", "inbox-short"),
     ("/agents", "Agents", "worker"),
-    ("/ticket", "ticket", "ticket/2"),                    # a kind of item: its page at /KIND
+    ("/ticket", "ticket", "ticket/2"),                    # a projection: its page at /PROJECTION
     ("/record", "Record", "ticket"),
 ])
 def test_each_list_page_draws_its_heading_and_its_rows(browser, site, path, title, content):
@@ -207,13 +207,13 @@ def test_each_list_page_draws_its_heading_and_its_rows(browser, site, path, titl
 
 
 @pytest.mark.parametrize("path", ["/ticket/1", f"/item/{quote(ITEM, safe='')}", "/items/ticket"])
-def test_an_item_page_draws_the_item_at_its_kinds_address(browser, site, path):
+def test_an_item_page_draws_the_item_at_its_projections_address(browser, site, path):
     pg = opened(browser, site + path)
-    if path == "/items/ticket":                             # an old address: the kind's own
+    if path == "/items/ticket":                             # an old address: the projection's own
         pg.wait_for_url("**/ticket", timeout=WAIT)
         pg.close()
         return
-    pg.wait_for_url("**/ticket/1", timeout=WAIT)            # /item/ID of a kind: at the kind's address
+    pg.wait_for_url("**/ticket/1", timeout=WAIT)            # /item/ID of a projection: at its address
     assert heading(pg) == ITEM
     pg.wait_for_function("() => document.querySelector('#main').innerText.includes('working')", timeout=WAIT)
     assert settled(pg) == []
@@ -257,9 +257,9 @@ dashboards:
       - {panel: note, title: Read me, text: "What this board is **for**", size: s}
       - {panel: goals, title: Goals, size: m}
       - {panel: chart, title: Inbox, refs: [stock.inbox], size: m}
-      - {panel: states, title: Ticket states, kind: ticket, size: m}
-      - {panel: cycle-time, title: Ticket cycle time, kind: ticket, size: m}
-      - {panel: items, title: Open tickets, kind: ticket, size: full}
+      - {panel: states, title: Ticket states, projection: ticket, size: m}
+      - {panel: cycle-time, title: Ticket cycle time, projection: ticket, size: m}
+      - {panel: items, title: Open tickets, projection: ticket, size: full}
       - {panel: diagram, title: Blocks, address: "/diagram?view=blocks", size: full}
 """
 

@@ -4,7 +4,7 @@ name: docs-fresh
 defaults:
   system: docs
 
-items:
+projections:
   page:                                   # a doc page: stale when a change outdates it, current once rewritten
     id: page/*
     states: [current, stale]

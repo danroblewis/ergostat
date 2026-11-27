@@ -77,7 +77,7 @@ def items(p, kind: str, states: list[str] | None = None) -> list:
     from ...spec import items as its
     spec = p.model.spec
     if kind not in spec.items:
-        raise SystemExit(f"no item kind {kind!r} in the model (kinds: {', '.join(k for k in spec.items if not k.startswith('ergostat.'))})")
+        raise SystemExit(f"no projection {kind!r} in the model (projections: {', '.join(k for k in spec.items if not k.startswith('ergostat.'))})")
     got = its.project(p.events, spec, kind)
     if states:
         got = [i for i in got if i.state in states]

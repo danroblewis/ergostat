@@ -7,7 +7,7 @@ stocks:
     unit: tickets
     description: tickets nobody has submitted work for yet (open, or being worked)
     sensor:
-      items: ticket
+      projection: ticket
       state: [open, doing]
       every: 5s
 

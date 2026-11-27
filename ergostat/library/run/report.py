@@ -1,9 +1,9 @@
 """A report on a schedule: its clock (a sensor), its writer (a block), and a free report of the model (the
 stand-in renderer).
 
-    due --kind K --cron EXPR              1 when a scheduled time has passed since the newest report, else 0
-    report --kind K --cron EXPR [--render CMD] [--folder reports] [--title T] [--flow flow.x]
-    summary                               the model now, as Markdown: the goals off, then every kind's items by state
+    due --projection K --cron EXPR              1 when a scheduled time has passed since the newest report, else 0
+    report --projection K --cron EXPR [--render CMD] [--folder reports] [--title T] [--flow flow.x]
+    summary                               the model now, as Markdown: the goals off, then every projection's items by state
 
 The writer runs the renderer (given the block's input on standard input) and keeps what it prints, as Markdown, in
 ``<folder>/<K>-<when>.md`` (``when``: the scheduled time it is for, to the day for a daily schedule, else to the
@@ -48,7 +48,7 @@ def stamp(cron: str, at: float) -> str:
 
 def due(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="due")
-    ap.add_argument("--kind", required=True)
+    ap.add_argument("--projection", dest="kind", required=True)
     ap.add_argument("--cron", required=True)
     a = ap.parse_args(argv)
     t = time.time()
@@ -86,7 +86,7 @@ def summary(argv: list[str]) -> int:
 
 def report(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="report")
-    ap.add_argument("--kind", required=True)
+    ap.add_argument("--projection", dest="kind", required=True)
     ap.add_argument("--cron", required=True)
     ap.add_argument("--render", default="")
     ap.add_argument("--folder", default="reports")

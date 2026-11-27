@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 from typing import NamedTuple
 
-KIND = {"systems": "system", "items": "item", "parameters": "parameter", "auxiliaries": "auxiliary",
+KIND = {"systems": "system", "projections": "projection", "parameters": "parameter", "auxiliaries": "auxiliary",
         "variables": "auxiliary", "stocks": "stock", "flows": "flow", "goals": "goal", "blocks": "block",
         "agents": "agent"}
 

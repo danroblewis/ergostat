@@ -4,7 +4,7 @@
 defaults:
   system: delivery
 
-items:
+projections:
   pr:
     id: pr/*
     description: a pull request of mine
@@ -22,21 +22,21 @@ stocks:
     unit: prs
     description: my PRs waiting for a first review, less than a working day so far
     sensor:
-      items: pr
+      projection: pr
       state: waiting
       every: 5s
   my-prs-stale:
     unit: prs
     description: waited over a working day for a first review, and no nudge drafted yet
     sensor:
-      items: pr
+      projection: pr
       state: stale
       every: 5s
   my-prs-nudged:
     unit: prs
     description: a nudge drafted, still waiting for a first review
     sensor:
-      items: pr
+      projection: pr
       state: nudged
       every: 5s
 
@@ -46,7 +46,7 @@ auxiliaries:
     description: my PRs waiting over 2 working days for a first review
     driven-by: [+stock.my-prs-stale, +stock.my-prs-nudged]
     sensor:
-      items: pr
+      projection: pr
       state: [waiting, stale, nudged]
       where:
         late: "yes"
@@ -63,20 +63,20 @@ flows:
     from: my-prs-waiting
     to: my-prs-stale
     sensor:
-      items: pr
+      projection: pr
       entering: stale
       over: 10m
   nudges-drafted:
     from: my-prs-stale
     to: my-prs-nudged
     sensor:
-      items: pr
+      projection: pr
       entering: nudged
       over: 10m
   reviewed-promptly:
     from: my-prs-waiting
     sensor:
-      items: pr
+      projection: pr
       entering: reviewed
       where:
         nudged: "no"
@@ -85,7 +85,7 @@ flows:
     from: my-prs-nudged
     description: a nudged PR reviewed, after I sent its nudge or asked in person (mine)
     sensor:
-      items: pr
+      projection: pr
       entering: reviewed
       where:
         nudged: "yes"
@@ -107,7 +107,7 @@ blocks:
     goal: stale-prs-nudged
     prompt: prompts/nudge-drafter.md
     run: python3 bin/prepare.py pr-nudge
-    takes: {kind: pr, at: stale}
+    takes: {projection: pr, at: stale}
     pool: 2
     max: 1
     out: flow.nudges-drafted

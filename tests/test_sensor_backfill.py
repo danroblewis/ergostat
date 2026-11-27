@@ -11,7 +11,7 @@ from ergostat.cli import main
 from ergostat.store import Project
 
 MODEL = """
-items:
+projections:
   pr:
     id: pr/*
     states: [open, done]
@@ -22,7 +22,7 @@ stocks:
       manual: true
   open-prs:
     sensor:
-      items: pr
+      projection: pr
       state: open
 flows:
   gained:

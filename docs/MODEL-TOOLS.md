@@ -27,7 +27,7 @@ the panel says why in one line and what would change that (for example "33 readi
 |---|---|---|
 | [Is my model right?](#is-my-model-right) | fit, residuals, structure checks, equation signs, extreme conditions | Model page, a part's panel, Check page |
 | [What should I change?](#what-should-i-change) | the review queue, calibration, parameter, equation and structural proposals, not exercised by the record, fit history | Model page, a valve's or auxiliary's panel |
-| [What will happen?](#what-will-happen) | replay, projection with the loops running or held, sensitivity fan, what-if, risk, leverage, loop dominance | a part's panel in the Dynamics view, a goal's panel, a block's panel, a feedback loop's panel, a proposal's effect, `ergostat project` |
+| [What will happen?](#what-will-happen) | replay, simulation with the loops running or held, sensitivity fan, what-if, risk, leverage, loop dominance | a part's panel in the Dynamics view, a goal's panel, a block's panel, a feedback loop's panel, a proposal's effect, `ergostat simulate` |
 | [How we know the improver works](#how-we-know-the-improver-works) | the pipeline tests, the judge's error rates, the recovery benchmark, the prediction check, the loop's own measures | `ergostat bench`, `ergostat verify`, the test suite |
 | [How do my loops behave, and how should they be tuned?](#how-do-my-loops-behave-and-how-should-they-be-tuned) | identification, process step response and Bode, margins, closed-loop step and Bode, monitoring, SIMC tuning, detuning, step tests | Blocks view: the process block, the controller, the summing junction; Goals page |
 
@@ -135,7 +135,7 @@ check` names it, and the Model page offers "A link's sign flipped" with Show on 
 ### Extreme conditions
 
 **What it is.** The model run forward from its own start with its loops running (the closed-loop
-projection: goals and built-in blocks as the engine works them out, each machine block by a model of it,
+simulation: goals and built-in blocks as the engine works them out, each machine block by a model of it,
 here an assumption since no record is read), pushed to the extremes: everything as usual; every stock empty
 with nothing coming in; nothing coming in; each input alone at 0 and at ten times its largest; each block
 that takes items with a pool of 0; each goal's setpoint at its limits (0, and its stock's `limit:`, else ten
@@ -146,7 +146,7 @@ hundred times its value).
 taking more than its stock held and took in, a stock rising with nothing coming in (an input at 0, or a
 constant inflow, made from nothing), a run that blows up or runs away (grows faster each quarter), a law
 block with no limits that never saturates, a one-way flow running backwards, an equation that divides by
-0. Each finding names the part, every extreme that showed it, and the projection's numbers ("from 10 to
+0. Each finding names the part, every extreme that showed it, and the simulation's numbers ("from 10 to
 −3.2 over 40h"). A failure is confirmed with far finer steps before it is said.
 
 **Where.** **Check** page (`extreme-conditions`): "extremes: running (k of n conditions)" while they run;
@@ -171,7 +171,7 @@ everything as usual, and otherwise names the input, pool, setpoint or parameter 
 of change, **where** (its parts, files and lines), **why** (the evidence in words), **how found** (the
 method, its span of record and points, how sure), its **benefit** (the fit before and after), its
 **conflicts** with others waiting, and, opened, its **effect** (each part's record, the model as it is
-dashed, with the change in blue, and the projections) and the exact **diff** Accept writes.
+dashed, with the change in blue, and the simulations) and the exact **diff** Accept writes.
 
 **What you get.** One place to review every improvement ergostat found, tested in memory before
 anything is written.
@@ -196,7 +196,7 @@ in the **History**.
 **Its forecast.** A change to the model changes nothing in the world: it revises the model's forecast.
 Opened, each entry says that forecast in one sentence above its charts ("with it the model forecasts
 queue settling at 4.4 within 1m (5.7 as it is) (over 30m, with the loops running)"): the closed-loop
-projection of the stocks it touches, the mean over the horizon's last quarter. Accepting records it on
+simulation of the stocks it touches, the mean over the horizon's last quarter. Accepting records it on
 the change's item (`predicted`); once the horizon has passed, the judge's pass reads what those stocks
 did over the same last quarter and records it beside it (`observed`, the mean of the readings, and
 which forecast it was nearer to: the revised one or the model's as it was).
@@ -316,10 +316,10 @@ up).
 
 ## What will happen?
 
-### Replay and projection
+### Replay and simulation
 
 **What it is.** The replay is the model run over the record: each stock integrated from its flows from
-its first reading, each equation worked out, every other input as measured. The projection runs on from
+its first reading, each equation worked out, every other input as measured. The simulation runs on from
 now for three of the slowest time constant the replay met (within a twentieth and a quarter of the window),
 two ways:
 
@@ -338,27 +338,27 @@ running, whether the backlog drains and the loop holds; held, where it goes if n
 
 **Where.** Diagram → **Dynamics** → click a stock, a valve or an auxiliary: its panel opens with its
 **causes strip** (the part, then what drives it, on one time axis). The replay is dashed over the
-measured line; past now, lighter, the projection. The strip's foot says how the projection runs and holds
+measured line; past now, lighter, the simulation. The strip's foot says how the simulation runs and holds
 its inputs; **With the loops running** and **Held** under it switch every chart on the page; **Each block's
 identified model** lists those near the part, a pool what-if beside each block that takes items. A flow a block
-moves has no replay, and with the loops running its projection is its identified model's. Choosing parts
-(Shift-click) charts them in the side panel too. Command line: `ergostat project` (`--held` for open loop,
+moves has no replay, and with the loops running its simulation is its identified model's. Choosing parts
+(Shift-click) charts them in the side panel too. Command line: `ergostat simulate` (`--held` for open loop,
 `--horizon 8h`).
 
 **Needs.** An equation on the part, or (for a stock) flows in the model. A part the replay takes as
-measured says so under its chart ("no replay, projection or fan: no equation works it out"). With the
-projection held, what a flow a block sets moves is left out, and the foot says so. An identified model needs six
+measured says so under its chart ("no replay, simulation or fan: no equation works it out"). With the
+simulation held, what a flow a block sets moves is left out, and the foot says so. An identified model needs six
 buckets of its flow measured while its block was commanded (five runs for a block that takes items).
 
 **How.** On image-squeeze, click `quality` or `time` in the Dynamics view (or **What's available** →
 **Tools** → its link).
 
-![A stock's causes strip: measured, replay, projection and fan](screenshots/model-tools/strip-replay-projection-fan.png)
+![A stock's causes strip: measured, replay, simulation and fan](screenshots/model-tools/strip-replay-projection-fan.png)
 
 **How far to trust it.** `tests/closedloop_validate.py DIR` (a script beside the tests, not run by them)
 identifies the models on the record up to a split, projects past it both ways, and compares each with the record
 held out by Sterman's measures (`--double all` runs the inputs doubled). Its held baseline holds every input and every
-block's flow at its recent rate and draws everything (`held=set()`); the product's held projection leaves out what a
+block's flow at its recent rate and draws everything (`held=set()`); the product's held simulation leaves out what a
 block's flow moves, so the baseline is the fairer comparison, not the chart. On demo runs of about 45 minutes
 (2026-11-19), every stock, scaled error and R², held → with the loops running:
 
@@ -377,28 +377,28 @@ fractions of a ticket where the record holds still, and the held baseline is nea
 
 ### Sensitivity fan
 
-**What it is.** The projection run two hundred times over what the model says is uncertain (a
+**What it is.** The simulation run two hundred times over what the model says is uncertain (a
 parameter's `range:`, else an estimate's standard error), estimates fitted together drawn together. With
 the loops running the fan is the closed loop's own Monte Carlo (the risk, below): a hundred runs over the
 estimates, the identified models' numbers and the inputs.
 
-**What you get.** How much of the projection depends on what is not known: where half the runs fall,
-and nine in ten, shaded under the projection. A wide fan says measure that number before acting on the
-projection.
+**What you get.** How much of the simulation depends on what is not known: where half the runs fall,
+and nine in ten, shaded under the simulation. A wide fan says measure that number before acting on the
+simulation.
 
-**Where.** The causes strip, shaded under the projection; **Spread over the record** (the button under
+**Where.** The causes strip, shaded under the simulation; **Spread over the record** (the button under
 the strip) draws the same over the window: a hundred replays.
 
 **Needs.** A parameter upstream of the part with a `range:` or a calibrated standard error; nine in ten
 from a hundred runs or more. Otherwise the foot says "no spread drawn: no parameter it uses has a range
 or an estimate's error". An equation whose parameters have neither says so in its panel.
 
-**How.** image-squeeze's `window-time` has `range: [9.6s, 38.4s]`, so `quality`'s projection has a fan.
+**How.** image-squeeze's `window-time` has `range: [9.6s, 38.4s]`, so `quality`'s simulation has a fan.
 
 ### What-if
 
 **What it is.** A parameter's value typed over in its panel; every chart on the page then draws the
-replay and the projection with the value tried, in blue, beside the model's own.
+replay and the simulation with the value tried, in blue, beside the model's own.
 
 **What you get.** "What happens to the backlog if reviews take twice as long?", and the fit of the value
 tried (each stock it moves, R² and MAPE before and after, and the scaled error) before anything is
@@ -427,11 +427,11 @@ and never proposals (they change the world, not the model):
 - a pool: the causes strip → **Each block's identified model** → beside a block that takes items, **what if its
   pool were** (`block.NAME.pool`).
 
-Command line: `ergostat project --whatif flow.directed=x2 --whatif goal.runs-within-limit=8 --risk`.
+Command line: `ergostat simulate --whatif flow.directed=x2 --whatif goal.runs-within-limit=8 --risk`.
 
 ### Risk
 
-**What it is.** The projection with the loops running, run a hundred times over what it does not know: the
+**What it is.** The simulation with the loops running, run a hundred times over what it does not know: the
 model's uncertain parameters (as the sensitivity fan samples them), each identified model's numbers by
 their standard errors (a rate, a run's time, a success rate), and each input from outside by how far its mean
 over the horizon could be from now (its readings' spread over the horizon's effective number of buckets; not when
@@ -445,7 +445,7 @@ the strip's fan, drawn when it is ready (nothing is drawn in its place till then
 
 **Where.** The causes strip with the loops running: the fan, and a line for each goal on the part. A goal's
 panel (Goals page → a goal) → **Ahead, with the loops running**. Command line:
-`ergostat project --risk` (`--runs`, `--seed`, `--budget`).
+`ergostat simulate --risk` (`--runs`, `--seed`, `--budget`).
 
 **Needs.** Controllers in the model. Bounded: at most 400 runs and 4,000 steps a run; it stops at 8 seconds on
 the page (60 at the command line) and says how many runs it made. An estimate whose error spans more than a
@@ -463,7 +463,7 @@ ranked by how far it moves what the goals hold (SD Lab's leverage).
 **Where.** Model page → **Changes to review** → an entry → **Effect and diff** → **leverage** (and for
 **Simulate all pending**).
 
-**Needs.** A proposal waiting, a goal on a part the projection reaches; a negligible move is not said.
+**Needs.** A proposal waiting, a goal on a part the simulation reaches; a negligible move is not said.
 "none to say: …" otherwise.
 
 ### Loop dominance
@@ -764,7 +764,7 @@ What follows is what a 20-minute run showed; the numbers move from run to run.
 2. `ergostat fit`: `paired` runs high (U_M 0.80), `quality` R² 0.32 with its error mostly U_C.
 3. Click `quality-turnover` in **Parameters to estimate**: the Dynamics view opens on its valve, with
    its equation `(batch-quality − quality) / window-time` and its causes strip (replay dashed,
-   projection and its fan past now). Type `30s` over `window-time` and press Enter: the charts redraw
+   simulation and its fan past now). Type `30s` over `window-time` and press Enter: the charts redraw
    with the value in blue, and the fit before and after appears under the parameters. **Put it back**
    (or **Propose these**, which puts it in the queue).
 4. Back on the Model page, **Calibrate** (each part alone), or:

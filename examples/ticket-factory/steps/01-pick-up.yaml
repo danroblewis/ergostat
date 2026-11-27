@@ -7,7 +7,7 @@ stocks:
     unit: tickets
     description: In Progress in Jira; the repository not found yet
     sensor:
-      items: ticket
+      projection: ticket
       state: picked
       every: 3s
 
@@ -18,7 +18,7 @@ flows:
     driven-by: [+stock.new]
     equation: stock.new / pick-up-time
     sensor:
-      items: ticket
+      projection: ticket
       entering: picked
       over: 10m
 
@@ -39,7 +39,7 @@ blocks:
     type: program
     goal: new-picked-up
     daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
-    takes: {kind: ticket, at: new, to: [picked, stopped]}
+    takes: {projection: ticket, at: new, to: [picked, stopped]}
     pool: 3
     actions: [jira-transition]
     out: flow.pick-up

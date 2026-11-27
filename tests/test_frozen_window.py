@@ -23,7 +23,7 @@ from ergostat.web.remote_api import answer
 
 PLAIN = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, doing, done]
@@ -32,7 +32,7 @@ blocks:
   dev:
     type: program
     run: "true"
-    takes: {kind: ticket, at: todo, to: [done], order: [-priority]}
+    takes: {projection: ticket, at: todo, to: [done], order: [-priority]}
 """
 FROZEN = PLAIN.replace("order: [-priority]}", "order: [-priority], frozen: {first: 2, urgent: rush}}")
 RUSH = {"by": "the owner", "why": "a customer's line is down"}

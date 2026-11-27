@@ -11,7 +11,7 @@ reading: |
   `agent` naming who): tests-green, claims-kept, changes-hold, and repair's fixes-hold, read here and not made again.
   Every goal is off while its reading is stale: a test run that cannot be read gives no value, never a pass.
   It is used once a model, and its parts keep the names written here. Flakes and quarantine are not in it: they need
-  an item kind of the model's own.
+  a projection of the model's own.
 example: |
   uses:
     regressions:

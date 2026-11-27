@@ -4,7 +4,7 @@ one of three ways, which it chooses:
 - ``patch``: a JSON Patch (RFC 6902), applied in order (``jsonpatch``);
 - ``set``: the whole document at once: a patch that removes every field and adds the new
   document's back, so it takes the one path and shows in history as a full replacement;
-- ``data`` (what blocks and scripts emit): each key folded by its kind's rule for it (``fold:``),
+- ``data`` (what blocks and scripts emit): each key folded by its projection's rule for it (``fold:``),
   turned into patch operations (a key with no rule replaces its field: an ``add`` at its
   path, made directly, as the operation would, since it cannot fail).
 

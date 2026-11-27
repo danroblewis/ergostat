@@ -1,4 +1,4 @@
-"""Reading leases into the spec (SPEC §9.5): ``leases:`` (each tier's terms), a kind's ``lease:``, and a block's
+"""Reading leases into the spec (SPEC §9.5): ``leases:`` (each tier's terms), a projection's ``lease:``, and a block's
 ``takes:``, ``pool:`` and ``lease:``, every mistake said with where it was written. Called by the spec compiler with
 itself, for its ``named``, ``keys``, ``err`` and ``duration``."""
 
@@ -15,7 +15,7 @@ from .lanes import MOST as LANES_MOST
 
 TERMS_KEYS = {"ttl", "attempts"}
 POOL_KEYS = {"now", "most"}
-TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order", "faults", "frozen", "lanes", "areas"}
+TAKES_KEYS = {"projection", "at", "to", "where", "unblocked", "order", "faults", "frozen", "lanes", "areas"}
 FROZEN_KEYS = {"first", "urgent"}
 LANES_KEYS = {"apart", "most", "within", "each", "ahead", "passed"}
 CPU_MOST, MEMORY_MOST = 1024, 1 << 50
@@ -56,18 +56,18 @@ def section(c, spec: Spec) -> None:
 
 
 def takes(c, m, what: str) -> Takes | None:
-    """``takes: {kind: ticket, at: ready}``, with ``to:`` (the states that count as done) and ``where:``."""
+    """``takes: {projection: ticket, at: ready}``, with ``to:`` (the states that count as done) and ``where:``."""
     raw = m.get("takes")
     if raw is None:
         return None
     if not isinstance(raw, dict):
-        c.err(f"{what}.takes: a map: kind: (a kind of item) and at: (the state it takes them from)", m.at("takes"),
+        c.err(f"{what}.takes: a map: projection: (a projection) and at: (the state it takes them from)", m.at("takes"),
               "not-a-map")
         return None
     c.keys(raw, TAKES_KEYS, f"{what}.takes")
-    kind, at = raw.get("kind"), raw.get("at")
+    kind, at = raw.get("projection"), raw.get("at")
     if not isinstance(kind, str) or at is None:
-        c.err(f"{what}.takes: kind: and at: (takes: {{kind: ticket, at: ready}})", m.at("takes"), "missing-key")
+        c.err(f"{what}.takes: projection: and at: (takes: {{projection: ticket, at: ready}})", m.at("takes"), "missing-key")
         return None
     states = [at] if isinstance(at, str) else at
     to = raw.get("to") or []
@@ -214,7 +214,7 @@ def person_gates(spec: Spec, b) -> list[str]:
 
 
 def check(c, spec: Spec) -> None:
-    """After the blocks: what each takes is a kind of the model's own, in its states; a kind taken gains the states a
+    """After the blocks: what each takes is a projection of the model's own, in its states; a projection taken gains the states a
     lease moves it through (``leased``, ``dead``) when it does not list them; a block that takes is started by its
     items, so neither every: nor cron: (nor a pool without takes:), nor mode: advise (it asks per command, not per item)."""
     for b in spec.blocks.values():
@@ -224,14 +224,14 @@ def check(c, spec: Spec) -> None:
             pool_now(c, spec, b)
         if b.takes is None:
             if b.pool != 1 or mapped:
-                c.err(f"{what}.pool: only a block that takes items runs more than once at a time (takes: {{kind: K, at: S}})",
+                c.err(f"{what}.pool: only a block that takes items runs more than once at a time (takes: {{projection: K, at: S}})",
                       b.where, "pool-without-takes")
             continue
         if b.type not in ("program", "ai"):
             c.err(f"{what}.takes: only a program or an ai block takes items (a run of it per item)", b.where, "bad-takes")
             b.takes = None
             continue
-        if b.mode == "advise":                           # (before the kind's checks, which drop b.takes on a mistake)
+        if b.mode == "advise":                           # (before the projection's checks, which drop b.takes on a mistake)
             c.err(f"{what}.mode: advise asks a person before a command or an event, never before each item it takes; to "
                   f"have a person let its items through, gate it with in: block.X from an expr block reading a "
                   f"sensor: {{manual: true}} (ergostat sensor STOCK --read 1 opens it for all its items at once, "
@@ -245,7 +245,7 @@ def check(c, spec: Spec) -> None:
         k = spec.items.get(b.takes.kind)
         if k is None or not own_kind(b.takes.kind):
             own = ", ".join(x for x in spec.items if not x.startswith("ergostat."))
-            c.err(f"{what}.takes.kind: {b.takes.kind!r} is not a kind of item of the model's own ({own or 'none'})"
+            c.err(f"{what}.takes.projection: {b.takes.kind!r} is not a projection of the model's own ({own or 'none'})"
                   + c.suggest(b.takes.kind, spec.items), b.where, "unknown-ref")
             b.takes = None
             continue

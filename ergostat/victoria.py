@@ -178,7 +178,7 @@ class Victoria:
         return self._sel()[:-1] + ',series!=""}'
 
     def put(self, rows: list[tuple[dict, float, float]]) -> None:
-        """Samples under labels of their own (``itemmetrics.py``: a name and its labels, no ``series``; an item kind's
+        """Samples under labels of their own (``itemmetrics.py``: a name and its labels, no ``series``; a projection's
         under its own name, ``promnames.item_labels``), with this project's ``project``, imported at once; a server
         away raises ``VictoriaError``."""
         groups: dict[tuple, dict] = {}

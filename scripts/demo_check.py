@@ -65,7 +65,7 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
             pg.goto(f"{url}/{route}")
             pg.wait_for_timeout(1800)
             if route == "items":
-                card = pg.locator(".kind-card a.kname").first
+                card = pg.locator(".projection-card a.kname").first
                 kind = card.get_attribute("href") if card.count() else None
             if shot and route in ("diagram", "diagram?view=blocks", "diagram?view=process", "agents"):
                 pg.screenshot(path=str(shot.with_name(f"{shot.stem}-{route.replace('?view=', '-')}.png")))
@@ -95,7 +95,7 @@ def items_as_before(url: str, spec) -> list[str]:
     out = []
     kinds = getattr(spec, "items", None) or {}
     for it in get(f"{url}/api/items")["items"][:60]:
-        k = kinds.get(it["kind"] or "")
+        k = kinds.get(it["projection"] or "")
         if k is not None and k.fold:
             continue
         d = get(f"{url}/api/items/{quote(it['id'], safe='')}")
@@ -220,7 +220,7 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
                 moved[k] = moved.get(k, 0) + 1
             notes.append("note: joined: " + (", ".join(f"{k} to {t} {n}" for (k, t), n in sorted(moved.items())) or "none"))
             if not moved:
-                problems.append("its kinds' joins moved no parent")
+                problems.append("its projections' joins moved no parent")
         url = st["web"]
         for path in ("status", "graph", "graph?view=process", "loops", "agents", "events", "items", "items-graph", "residuals",
                      "parts"):

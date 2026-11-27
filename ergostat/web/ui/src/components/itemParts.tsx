@@ -1,16 +1,16 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ago, dur, nowS, stamp } from "../lib/format";
-import { diagramHref, itemHref, kindHref } from "../lib/hrefs";
+import { diagramHref, itemHref, projectionHref } from "../lib/hrefs";
 import { Meta } from "./controls";
 import { EventsTable, useShowEvent } from "./events";
 import { FieldValue, isShort } from "./items";
 import { Table } from "./Table";
 import { Empty, Loading, Note } from "./ui";
 
-/* An item's parts (pages.js pageItem), each drawn from its answer (GET /api/items/ID, `d`): its kind, state and age;
+/* An item's parts (pages.js pageItem), each drawn from its answer (GET /api/items/ID, `d`): its projection, state and age;
    why it is not done (GET /api/why); the path it took through its states; its relations both ways; its fields (its
-   kind's chosen first, a long one as Markdown); what was refused; how it moved; its events; each field's changes.
+   projection's chosen first, a long one as Markdown); what was refused; how it moved; its events; each field's changes.
    The Item page and any dashboard draw them alike (panels/kinds/items.tsx). */
 
 /** An event of the item's record by its id, as a link that opens it; its type alone when it is not on the record. */
@@ -22,12 +22,12 @@ export function useEventLink(d: any): (eid: string, type: string) => ReactNode {
   };
 }
 
-/** Its kind, state, when it is expected done, how many events, its first and latest. */
+/** Its projection, state, when it is expected done, how many events, its first and latest. */
 export function ItemSummary({ d }: { d: any }) {
-  const k = d.kind_of;
+  const k = d.projection_of;
   return (
     <Meta rows={[
-      ["Kind", k ? <Link to={kindHref(k.name)}>{k.name}</Link> : <span className="muted">none (nothing under items: matches this id)</span>],
+      ["Projection", k ? <Link to={projectionHref(k.name)}>{k.name}</Link> : <span className="muted">none (no projection matches this id)</span>],
       ["State", d.state && <span><b>{d.state}</b> for {dur(nowS() - d.entered)}</span>],
       ["Expected done", d.eta?.unscheduled ? <span data-eta="">not scheduled: {d.eta.said || "it cannot move"}</span>
         : d.eta?.p50 && <span data-eta=""><b>{stamp(d.eta.p50)}</b>{d.eta.p90 ? <span className="muted"> (90% by {stamp(d.eta.p90)})</span> : null}</span>],
@@ -56,13 +56,13 @@ export function ItemWhy({ why }: { why: any }) {
   );
 }
 
-/** Whether its kind has states to draw a path through. */
-export const hasPath = (d: any) => !!d.kind_of?.states?.length;
+/** Whether its projection has states to draw a path through. */
+export const hasPath = (d: any) => !!d.projection_of?.states?.length;
 
 /** Where it went: the path it took, arrow by arrow, to where it is now; the other states apart (its endings
  *  double-bordered); where the model draws its path; and why its estimate waits. */
 export function ItemPath({ d }: { d: any }) {
-  const k = d.kind_of;
+  const k = d.projection_of;
   const fin = new Set<string>(k?.final || []);
   const path: string[] = d.moves.map((m: any) => m.to).filter((s: string, i: number, a: string[]) => s && s !== a[i - 1]);
   if (d.state && path[path.length - 1] !== d.state) path.push(d.state);
@@ -81,14 +81,14 @@ export function ItemPath({ d }: { d: any }) {
           {d.path && (counted ? (
             <p className="went">
               <a href={diagramHref({ item: d.id })}>Draw its path in Dynamics</a>, <a href={diagramHref({ view: "blocks", item: d.id })}>in Blocks</a>
-              {k && <>; <a href={diagramHref({ kind: k.name })}>what every {k.name} touches</a></>}.
+              {k && <>; <a href={diagramHref({ projection: k.name })}>what every {k.name} touches</a></>}.
             </p>
           ) : <p className="went muted uncounted">Its moves are not counted anywhere in the model.</p>)}
           {d.path?.some((p: any) => p.says) && (
             <ul className="small muted">{d.path.filter((p: any) => p.says).map((p: any) => <li key={p.state}>{p.says}</li>)}</ul>
           )}
         </>
-      ) : <p className="muted">Its kind has no states.</p>}
+      ) : <p className="muted">Its projection has no states.</p>}
       {d.eta?.why && <p className="note eta-why">{d.eta.waits_in && <b>Waiting in {d.eta.waits_in}: </b>}{d.eta.why}</p>}
     </>
   );
@@ -104,7 +104,7 @@ export const hasRelations = (d: any) => relationRows(d.relations).length > 0;
 
 /** Its relations both ways (pages.js relationsView): what it names, and what names it, each related item's state. */
 export function ItemRelations({ d }: { d: any }) {
-  const r = d.relations, k = d.kind_of;
+  const r = d.relations, k = d.projection_of;
   const rows = relationRows(r);
   if (!rows.length) return <p className="muted">It names no other item, and none names it.</p>;
   return (
@@ -135,15 +135,15 @@ export function ItemRelations({ d }: { d: any }) {
           ))}
         </Table.Body>
       </Table>
-      {k && <Note>All of them in <a href={`${kindHref(k.name, "view=graph")}`}>the graph</a>.</Note>}
+      {k && <Note>All of them in <a href={`${projectionHref(k.name, "view=graph")}`}>the graph</a>.</Note>}
     </>
   );
 }
 
-/** Its fields: its kind's chosen first, in their order, then the rest by name; a removed one that has changes still
+/** Its fields: its projection's chosen first, in their order, then the rest by name; a removed one that has changes still
  *  listed. `onChanges`: a field's "N changes" opens its changes (where the page has them). */
 export function ItemFields({ d, onChanges }: { d: any; onChanges?: (field: string) => void }) {
-  const k = d.kind_of;
+  const k = d.projection_of;
   const counts: Record<string, number> = d.changes || {};
   const first: string[] = (k?.show || []).filter((f: string) => f in d.fields);
   const gone = Object.keys(counts).filter((f) => f && !(f in d.fields));
@@ -210,7 +210,7 @@ export function ItemRefused({ d }: { d: any }) {
 /** How it moved: each move's time, from, to, the event that moved it and how long after the one before. */
 export function ItemMoves({ d }: { d: any }) {
   const eventLink = useEventLink(d);
-  if (!d.moves.length) return <p className="muted">Its kind has no states.</p>;
+  if (!d.moves.length) return <p className="muted">Its projection has no states.</p>;
   return (
     <div className="panel-table">
       <Table caption="Its moves">

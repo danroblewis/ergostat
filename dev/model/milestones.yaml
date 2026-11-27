@@ -15,36 +15,36 @@ stocks:
   milestones-waiting:
     unit: milestones
     description: milestones waiting on the milestones they depend on, or for room under [milestones] active_max
-    sensor: {items: milestone, state: waiting, every: 1m}
+    sensor: {projection: milestone, state: waiting, every: 1m}
   milestones-active:
     unit: milestones
     description: milestones being finished (an upkeep one among them, outside the limit)
-    sensor: {items: milestone, state: active, every: 1m}
+    sensor: {projection: milestone, state: active, every: 1m}
   milestones-completed:
     unit: milestones
     description: milestones whose gaps were all merged or closed, or upkeep ones whose cycle ended - final
     cumulative: true
-    sensor: {items: milestone, state: completed, every: 1m}
+    sensor: {projection: milestone, state: completed, every: 1m}
 
 flows:
   milestones-added:
     to: milestones-waiting
     description: milestones the coordinator added (milestones.py add)
-    sensor: {items: milestone, entering: waiting, over: 1d}
+    sensor: {projection: milestone, entering: waiting, over: 1d}
   milestones-activated:
     from: milestones-waiting
     to: milestones-active
     description: a waiting milestone whose dependencies are all completed, taken in rank order while fewer than active_max are active
     driven-by: [+stock.milestones-waiting, -stock.milestones-active]
     equation: MIN(stock.milestones-waiting, MAX(active-max - stock.milestones-active, 0)) / activate-time
-    sensor: {items: milestone, entering: active, over: 1d}
+    sensor: {projection: milestone, entering: active, over: 1d}
   milestones-completed:
     from: milestones-active
     to: milestones-completed
     description: an active milestone with gaps, every one merged or closed (a parked one holds it open), or an upkeep one at the end of its cycle
     driven-by: [+stock.milestones-active]
     equation: stock.milestones-active / finish-time
-    sensor: {items: milestone, entering: completed, over: 1d}
+    sensor: {projection: milestone, entering: completed, over: 1d}
 
 parameters:
   active-max:

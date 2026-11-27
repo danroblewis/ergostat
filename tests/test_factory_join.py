@@ -35,7 +35,7 @@ def gap_model(tmp_path) -> Project:
     """A project of the factory's own gap kind (its states, fold and join), as compiled from ergostat.yaml."""
     text = (ROOT / "ergostat.yaml").read_text()
     kind = text[text.index("\n  gap:\n"):text.index("\n  review:\n")]
-    (tmp_path / "ergostat.yaml").write_text("name: t\nitems:" + kind + "\n")
+    (tmp_path / "ergostat.yaml").write_text("name: t\nprojections:" + kind + "\n")
     return Project(mdl.load(tmp_path))
 
 

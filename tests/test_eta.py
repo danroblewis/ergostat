@@ -94,7 +94,7 @@ def test_capacity_is_never_exceeded():
     seats = inputs(n=30, pool=6, shared=[("agent:ai", 2)])          # the agent's seats bind before the pool
     g = eta.simulate(seats, runs=20)
     assert g["capacity"]["dev"] == 2
-    assert g["kinds"]["t"]["p50"] - T0 == pytest.approx(30 / 2 * 600, rel=0.05)
+    assert g["projections"]["t"]["p50"] - T0 == pytest.approx(30 / 2 * 600, rel=0.05)
 
 
 def test_the_take_order_holds_from_the_start_and_the_parked_are_not_scheduled():
@@ -118,7 +118,7 @@ def test_the_take_order_holds_from_the_start_and_the_parked_are_not_scheduled():
         "t/2": "waits on t/1, which waits on t/0, which is parked"}
     g = eta.simulate(inp, runs=20)
     assert g["items"]["t/2"]["unscheduled"] and "unscheduled" not in g["items"]["t/3"]
-    assert g["kinds"]["t"]["unscheduled"] == 3 and g["kinds"]["t"]["p50"] == pytest.approx(T0 + 2 * 600)
+    assert g["projections"]["t"]["unscheduled"] == 3 and g["projections"]["t"]["p50"] == pytest.approx(T0 + 2 * 600)
 
 
 def test_dependencies_are_respected():
@@ -137,9 +137,9 @@ def test_dependencies_are_respected():
 def test_rework_adds_time():
     plain = eta.simulate(inputs(n=20, pool=2), runs=50)
     failing = eta.simulate(inputs(n=20, pool=2, fail=0.3), runs=50)
-    assert failing["kinds"]["t"]["p50"] - T0 > (plain["kinds"]["t"]["p50"] - T0) * 1.3
+    assert failing["projections"]["t"]["p50"] - T0 > (plain["projections"]["t"]["p50"] - T0) * 1.3
     tried = eta.simulate(inputs(n=20, pool=2), runs=50, failures={"dev": 0.3})   # the what-if, the same
-    assert tried["kinds"]["t"]["p50"] - T0 == pytest.approx(failing["kinds"]["t"]["p50"] - T0, rel=0.15)
+    assert tried["projections"]["t"]["p50"] - T0 == pytest.approx(failing["projections"]["t"]["p50"] - T0, rel=0.15)
 
 
 def test_a_workspace_pool_is_held_from_its_take_until_the_item_finishes():
@@ -153,8 +153,8 @@ def test_a_workspace_pool_is_held_from_its_take_until_the_item_finishes():
         spans = [(run.start[i], run.finish[i]) for i in inp.items]
         for t, _ in spans:
             assert sum(1 for a, z in spans if a <= t < z) <= 3, (r, t)
-    plain = eta.simulate(inputs(n=12, pool=6, review=(1200.0,) * 10), runs=20)["kinds"]["t"]["p50"] - T0
-    held = eta.simulate(inp, runs=20)["kinds"]["t"]["p50"] - T0
+    plain = eta.simulate(inputs(n=12, pool=6, review=(1200.0,) * 10), runs=20)["projections"]["t"]["p50"] - T0
+    held = eta.simulate(inp, runs=20)["projections"]["t"]["p50"] - T0
     assert held == pytest.approx(4 * (600 + 1200), rel=0.05) and plain == pytest.approx(2 * 600 + 1200, rel=0.05)
     inp.items["t/0"].holds = {"code"}
     inp.items["t/1"].holds = {"code"}
@@ -213,9 +213,9 @@ def test_a_leased_item_is_conditioned_on_its_lease_age():
 
 def test_whatif_pool_and_failure_change_the_estimates():
     inp = inputs(n=24, pool=2)
-    base = eta.simulate(inp, runs=20)["kinds"]["t"]["p50"] - T0
-    assert eta.simulate(inp, runs=20, pools={"dev": 6})["kinds"]["t"]["p50"] - T0 == pytest.approx(base / 3, rel=0.05)
-    assert eta.simulate(inp, runs=20, failures={"dev": 0.5})["kinds"]["t"]["p50"] - T0 > base * 1.5
+    base = eta.simulate(inp, runs=20)["projections"]["t"]["p50"] - T0
+    assert eta.simulate(inp, runs=20, pools={"dev": 6})["projections"]["t"]["p50"] - T0 == pytest.approx(base / 3, rel=0.05)
+    assert eta.simulate(inp, runs=20, failures={"dev": 0.5})["projections"]["t"]["p50"] - T0 > base * 1.5
     held = inputs(n=8, pool=4)                                            # a pool lowered under the leases held:
     for i in range(4):
         held.items[f"t/{i}"].lease = ("dev", T0 - 10)
@@ -252,7 +252,7 @@ def test_the_owners_case_100_tickets_6_leases(tmp_path):
     # by review 1 in 10), six at once: 100 / 6 × that, and the review and merge of the last after it
     runs = 1 / 0.9 / 0.9
     expect = 100 / 6 * 1200 * math.exp(0.18) * runs
-    last = g["kinds"]["ticket"]["p50"] - at
+    last = g["projections"]["ticket"]["p50"] - at
     assert 0.85 * expect < last < 1.35 * expect, (last / 3600, expect / 3600)
     cpm = pr.build(p.events, p.model.spec, ["ticket"], at, at - 3600)       # the projection before: no pool
     assert cpm["end"] - at < expect / 4
@@ -379,7 +379,7 @@ def test_calibration_of_last_weeks_estimates_on_the_owners_record(tmp_path):
     assert cal["mae"] > 0 and cal["since"] == now - etacheck.WEEK
     assert "finished by their p90" in cal["said"] and f"({cal['items']} tickets)" in cal["said"]
     from ergostat.web.eta_api import merge
-    est = {"at": now, "runs": 1, "kinds": {}, "capacity": {}, "schedule": {}, "items": {"ticket/x": {}},
+    est = {"at": now, "runs": 1, "projections": {}, "capacity": {}, "schedule": {}, "items": {"ticket/x": {}},
            "calibration": {"ticket": cal}}
     assert merge({"items": []}, est)["eta"]["calibration"]["ticket"] == cal
     worse = etacheck.said("ticket", {"items": 41, "coverage": 0.79})   # rounded down: never said better than it was
@@ -415,7 +415,7 @@ def test_calibration_counts_an_item_open_at_every_cut_once(monkeypatch):
     cal = etacheck.calibration(P, None, ["t"], now)["t"]
     assert cal["items"] == 3 and cal["coverage"] == 1.0                    # each by its latest cut: by its p90
     assert cal["said"] == "ts: too few finished last week to check"
-    every = etacheck.score([three(None, None, None, t) for t in at], now)["kinds"]["t"]
+    every = etacheck.score([three(None, None, None, t) for t in at], now)["projections"]["t"]
     assert every["items"] == 12 and every["coverage"] == 0.25             # (the backtest's: each estimate judged)
 
 
@@ -493,7 +493,7 @@ def test_paused_item_does_not_hold_the_run():
     t = time.monotonic()
     g = eta.simulate(inp, runs=200)
     assert g["runs"] == 200 and time.monotonic() - t < 1.0      # (was: every run to the 90-day horizon)
-    assert g["kinds"]["t"]["p50"] is not None and g["kinds"]["t"]["unscheduled"] == 1
+    assert g["projections"]["t"]["p50"] is not None and g["projections"]["t"]["unscheduled"] == 1
     assert g["items"]["t/0"] == {"unscheduled": True, "why": "paused in parked", "p50": None, "p90": None,
                                  "mean": None, "start": None, "dead": 0.0, "runs": 200}
     assert g["items"]["t/1"]["p50"] is not None and "t/0" not in g["schedule"]
@@ -510,7 +510,7 @@ def test_an_item_paused_partway_through_a_run_does_not_hold_it():
     t = time.monotonic()
     g = eta.simulate(inp, runs=200)
     assert g["runs"] == 200 and time.monotonic() - t < 1.0      # (was: a run to the horizon whenever one parks)
-    assert g["kinds"]["t"]["p50"] is not None                   # (was: inf, the counted out in the kind's last)
+    assert g["projections"]["t"]["p50"] is not None                   # (was: inf, the counted out in the kind's last)
     outs = [x for x in g["items"].values() if x.get("out")]
     assert outs and all(x["why"].startswith("counted out in ") and x["p50"] is not None for x in outs)
     run = eta._Run(inp, eta.Flags(), random.Random(3), {}, {}, False)
@@ -526,7 +526,7 @@ def test_waiting_on_a_paused_item_is_unscheduled(tmp_path):
     assert inp.items["t/1"].unscheduled == "waits on t/0, which is parked"
     assert inp.items["t/2"].unscheduled == "waits on t/1, which waits on t/0, which is parked"
     assert not inp.items["t/3"].unscheduled
-    assert eta.simulate(inp, runs=20)["kinds"]["t"]["unscheduled"] == 3
+    assert eta.simulate(inp, runs=20)["projections"]["t"]["unscheduled"] == 3
     nofin = inputs(n=2)
     nofin.kinds["t"].finished = set()
     _unscheduled(nofin)

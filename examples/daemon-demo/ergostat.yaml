@@ -1,7 +1,7 @@
 # Jobs worked by one long-lived worker, many at once, and the finished ones counted by a second daemon.
 name: daemon-demo
 
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -12,7 +12,7 @@ stocks:
   ready:
     unit: jobs
     description: jobs waiting for the worker
-    sensor: {items: job, state: ready, every: 3s}
+    sensor: {projection: job, state: ready, every: 3s}
   finished:
     unit: jobs
     cumulative: true
@@ -25,14 +25,14 @@ flows:
   arrivals:
     to: ready
     description: jobs opened from outside
-    sensor: {items: job, entering: ready, over: 10m}
+    sensor: {projection: job, entering: ready, over: 10m}
   working:
     from: ready
     to: finished
     description: jobs the worker finished
     driven-by: [+stock.ready]
     equation: stock.ready / job-time
-    sensor: {items: job, entering: done, over: 10m}
+    sensor: {projection: job, entering: done, over: 10m}
 
 parameters:
   job-time: {value: 3s, estimate: true, description: roughly how long a job takes}
@@ -54,7 +54,7 @@ blocks:
   worker:
     type: program
     goal: nothing-waits
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 8
     lease: {ttl: 1m, attempts: 3}
     daemon: {run: python3 bin/worker.py, concurrency: 8, heartbeat: 30s}

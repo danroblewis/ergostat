@@ -17,7 +17,7 @@ from ergostat.store import Project
 
 MODEL = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, triaged]
@@ -32,11 +32,11 @@ blocks:
     out: flow.triaged
 stocks:
   open:
-    sensor: {items: ticket, state: open, every: 1m}
+    sensor: {projection: ticket, state: open, every: 1m}
 flows:
   triaged:
     from: open
-    sensor: {items: ticket, entering: triaged, over: 1h}
+    sensor: {projection: ticket, entering: triaged, over: 1h}
 """
 
 TRIAGE = """
@@ -139,7 +139,7 @@ def check(tmp_path, text) -> list:
 
 def test_on_is_refused_beside_every_cron_or_takes_and_on_ergostats_own_types(tmp_path):
     assert not check(tmp_path, MODEL)
-    for extra in ("every: 1m", "takes: {kind: ticket, at: open}", "cron: '0 3 * * *'"):
+    for extra in ("every: 1m", "takes: {projection: ticket, at: open}", "cron: '0 3 * * *'"):
         text = textwrap.dedent(MODEL).replace("out: flow.triaged\n", f"out: flow.triaged\n    {extra}\n", 1)
         assert any(x.code == "bad-trigger" for x in check(tmp_path, text)), extra
     for own in ("agent.ran", "block.*", "trigger.stopped", "ergostat.item.joined", "loop.*"):
@@ -184,7 +184,7 @@ def test_a_prefix_or_a_self_loop_is_a_loop_and_where_is_not_read(tmp_path):
 
 RELAYED = """
 name: relayed
-items:
+projections:
   ticket:
     id: ticket/*
     states: [open, done]
@@ -192,7 +192,7 @@ items:
 blocks:{blocks}
   relay:
     type: program
-    takes: {{kind: ticket, at: open}}
+    takes: {{projection: ticket, at: open}}
     run: python3 relay.py
     out: flow.r
 stocks:

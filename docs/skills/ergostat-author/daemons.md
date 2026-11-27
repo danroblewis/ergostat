@@ -10,7 +10,7 @@ from nothing.
 Write a daemon only when process starts or sessions are the cost: many `run:` sensors on short schedules, items
 arriving faster than a process starts, a client that is slow to start or log in, or many sensors that one batched
 query could answer. Keep `run:` for a few sensors, hourly or daily ones, one-liners, and blocks whose runs must not
-share a process. `items:`, `changes:` and `query:` sensors start no process: never replace them with a daemon.
+share a process. `projection:`, `changes:` and `query:` sensors start no process: never replace them with a daemon.
 
 Pick the shape:
 
@@ -358,7 +358,7 @@ for line in sys.stdin:
 <!-- example: t-block, file: ergostat.yaml -->
 ```yaml
 name: t-block
-items:
+projections:
   job:
     id: job/*
     states: [ready, done]
@@ -367,14 +367,14 @@ stocks:
   ready:
     unit: jobs
     description: jobs waiting
-    sensor: {items: job, state: ready, every: 3s}
+    sensor: {projection: job, state: ready, every: 3s}
 goals:
   nothing-waits: {stock: ready, hold: "<= 0", tolerance: 0}
 blocks:
   worker:
     type: program
     goal: nothing-waits
-    takes: {kind: job, at: ready, to: [done]}
+    takes: {projection: job, at: ready, to: [done]}
     pool: 8
     lease: {ttl: 1m, attempts: 3}
     daemon: {run: python3 bin/worker.py, concurrency: 8, heartbeat: 30s}
@@ -397,7 +397,7 @@ Run each of these on a scratch copy of the project, and say in your report what 
    - `echo 'not json' | CMD; echo $?` is not 0 (fails hard);
    - a read or cancel sent after a slow item is answered without waiting for it (the reader is not blocked).
 3. **A short run** (`ergostat -C COPY run`, a minute or a few rounds of `every:`): `ergostat -C COPY sensor
-   STOCK.main` shows readings from it; items reach their `to:` states (`ergostat -C COPY item --kind K`); no
+   STOCK.main` shows readings from it; items reach their `to:` states (`ergostat -C COPY item --projection K`); no
    `ergostat.daemon.restarted` or `ergostat.daemon.failed` (`ergostat -C COPY event --type 'ergostat.daemon.*'`);
    its log in the state folder's `logs/daemon-NAME.log` holds no `dropped` lines. Stop it (`run --stop`).
 4. **Replacing `run:` sensors: the readings match the old ones.** For every sensor of the group, run its old

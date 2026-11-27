@@ -20,15 +20,15 @@ ENV = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1
 COUNTER = """template: counter
 description: counts the waiting
 params:
-  kind: {type: name, default: "${name}"}
-items:
-  ${kind}:
-    id: ${kind}/*
+  projection: {type: name, default: "${name}"}
+projections:
+  ${projection}:
+    id: ${projection}/*
     states: [new, done]
 stocks:
   waiting:
     unit: items
-    sensor: {items: "${kind}", state: new}
+    sensor: {projection: "${projection}", state: new}
 """
 RUNNER = """template: runner
 description: runs its own command

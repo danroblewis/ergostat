@@ -86,8 +86,8 @@ def test_no_attention_entry_asks_for_a_unit_and_requests_handled_does_not_count_
 def test_the_fixer_proposes_a_unit_it_can_infer_from_the_sensor(tmp_path, monkeypatch):
     text = textwrap.dedent(UNITLESS).replace("  backlog:\n    description: work waiting\n    sensor: {manual: true}\n",
                                              "  backlog:\n    description: work waiting\n"
-                                             "    sensor: {items: ticket, state: open, every: 2s}\n")
-    text += "items:\n  ticket:\n    id: ticket/*\n    description: a ticket\n    states: [open, closed]\n" \
+                                             "    sensor: {projection: ticket, state: open, every: 2s}\n")
+    text += "projections:\n  ticket:\n    id: ticket/*\n    description: a ticket\n    states: [open, closed]\n" \
             "    on: {ticket.opened: open, ticket.closed: closed}\n"
     (tmp_path / "ergostat.yaml").write_text(text)
     p = Project(mdl.load(tmp_path))

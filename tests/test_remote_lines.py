@@ -1,4 +1,4 @@
-"""Lines in the process map between our items and a remote's (SPEC §4c, §5a): a relation names a remote's item kind,
+"""Lines in the process map between our items and a remote's (SPEC §4c, §5a): a relation names a remote's projection,
 the remote says where each named item was last (``at=``), and the line is drawn from our item's last step to that
 step; never gating, never dropped (each link drawn or counted ``unlinked`` by its reason), never ordered by time."""
 
@@ -24,7 +24,7 @@ from ergostat.web.server import Live
 from tests.test_remote import LOCAL, REMOTE, served_into, write
 
 REMOTE_ITEMS = REMOTE + """
-items:
+projections:
   incident:
     id: incident/*
     states: [open, fixing, closed]
@@ -32,7 +32,7 @@ items:
 """
 
 TICKET = """
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, doing, done]
@@ -159,22 +159,22 @@ def test_precedence_true_on_a_remote_relation_is_an_error(tmp_path, monkeypatch)
         served_into(tmp_path / "support", tmp_path, text=REMOTE_ITEMS)
         _, got = sp.read(tmp_path / "support" / "ergostat.yaml", extremes=False)
         return [p for p in got if p.level == "error"]
-    got = errors("{blocked_by: {kind: incidents-incident, precedence: true}}")
+    got = errors("{blocked_by: {projection: incidents-incident, precedence: true}}")
     assert [p.code for p in got] == ["remote-relation-precedence"], got
     assert "cannot gate on it" in got[0].message
     got = errors("{blocked_by: [epic, incidents-incident]}", "  epic:\n    id: epic/*\n")
-    assert [p.code for p in got] == ["bad-relation"] and "names only that kind" in got[0].message, got
-    got = errors("{parent: {kind: incidents-incident, group: true}}")
+    assert [p.code for p in got] == ["bad-relation"] and "names only that projection" in got[0].message, got
+    got = errors("{parent: {projection: incidents-incident, group: true}}")
     assert [p.code for p in got] == ["bad-relation"], got
     assert not errors("{parent: incidents-incident}")                   # parent's default group: not asked for here
 
 
 def test_a_kind_the_remote_no_longer_serves_is_a_finding_and_draws_no_line(tmp_path, monkeypatch):
-    w = World(tmp_path, monkeypatch, remote=REMOTE)                    # served, and as cached: no item kind incident
+    w = World(tmp_path, monkeypatch, remote=REMOTE)                    # served, and as cached: no projection incident
     _, problems = sp.read(w.dir / "ergostat.yaml", extremes=False)
     assert not [p for p in problems if p.level == "error"], problems
     found = [p for p in problems if p.code == "remote-reference-unresolved"]
-    assert len(found) == 1 and "has no item kind incident" in found[0].message and "(version " in found[0].message
+    assert len(found) == 1 and "has no projection incident" in found[0].message and "(version " in found[0].message
     assert w.spec.items["ticket"].relations["blocked_by"].remote == "incidents"
     now = time.time()
     a_ticket_at_doing_naming(w, now)
@@ -223,7 +223,7 @@ def test_a_local_kind_of_the_same_name_is_not_taken_for_a_remote_line(tmp_path, 
     more = ("  incidents-incident:\n    id: incident/*\n    states: [open, fixing, closed]\n"
             "    on: {incident.opened: open, incident.fixing: fixing}\n")
     w = World(tmp_path, monkeypatch, local=local_text(more=more), local_kind=True)   # the remote serves incident too
-    assert "incident" in w.spec.remotes["incidents"]["kinds"]
+    assert "incident" in w.spec.remotes["incidents"]["projections"]
     assert w.spec.items["ticket"].relations["blocked_by"].remote == ""
     now = time.time()
     a_ticket_at_doing_naming(w, now)
@@ -253,8 +253,8 @@ def test_an_activity_not_in_the_remotes_drawn_map_is_unlinked(tmp_path, monkeypa
     (lambda b: {k: v for k, v in b.items() if k != "at"}, "not-answered"),
     (lambda b: {**b, "at": [["incident/7", "fixing"]]}, "not-answered"),
     (lambda b: {**b, "at": {}}, "not-answered"),
-    (lambda b: {**b, "at": {"incident/7": {"kind": "incident", "activity": 5}}}, "not-answered"),
-    (lambda b: {**b, "at": {"incident/7": {"kind": "other", "activity": "fixing"}}}, "other-kind"),
+    (lambda b: {**b, "at": {"incident/7": {"projection": "incident", "activity": 5}}}, "not-answered"),
+    (lambda b: {**b, "at": {"incident/7": {"projection": "other", "activity": "fixing"}}}, "other-projection"),
 ])
 def test_a_reply_that_leaves_out_an_id_or_is_malformed_is_unlinked_not_dropped(tmp_path, monkeypatch, reply, reason):
     w = World(tmp_path, monkeypatch)
@@ -281,7 +281,7 @@ def test_two_relations_sharing_an_id_ask_it_once_and_are_checked_each(tmp_path, 
     assert w.ats() == [["incident/7"]]                                 # asked once
     assert [e["relation"] for e in remote_edges(out)] == ["blocked_by"]
     r = conserved(out)
-    assert r["linked"] == 1 and r["unlinked"] == {"other-kind": 1}     # the reply checked against each link's kind
+    assert r["linked"] == 1 and r["unlinked"] == {"other-projection": 1}     # the reply checked against each link's kind
 
 
 def test_an_unreachable_remote_is_ok_false_with_no_lines(tmp_path, monkeypatch):
@@ -368,7 +368,7 @@ def test_the_byte_cap_applies_before_the_count_and_the_remote_server_takes_such_
         server.shutdown()
         server.server_close()
     assert code == 200, why
-    assert body["at"] == {taken[0]: {"kind": "incident", "activity": "fixing"}}
+    assert body["at"] == {taken[0]: {"projection": "incident", "activity": "fixing"}}
 
 
 def test_the_remote_refuses_more_than_200_ids(tmp_path):
@@ -381,7 +381,7 @@ def test_the_remote_refuses_more_than_200_ids(tmp_path):
     code, body = remote_api.answer(live, "v1/process", {"at": many})
     assert code == 400 and "200" in body["error"]
     code, body = remote_api.answer(live, "v1/process", {"at": many[:200] + many[:5], "since": [str(now - 1000)]})
-    assert code == 200 and body["at"] == {"incident/7": {"kind": "incident", "activity": "open"}}
+    assert code == 200 and body["at"] == {"incident/7": {"projection": "incident", "activity": "open"}}
     assert "remote_links" not in body
 
 

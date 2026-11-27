@@ -35,7 +35,7 @@ from ergostat.web import eta_api
 
 YIELD = """
 name: lots
-items:
+projections:
   unit:
     id: unit/*
     states: [made, passed, scrapped]
@@ -43,7 +43,7 @@ items:
     finished: [passed, scrapped]
     lost: [scrapped]
     relations:
-      lot: {kind: lot, group: true}
+      lot: {projection: lot, group: true}
   lot:
     id: lot/*
     states: [open, shipped]

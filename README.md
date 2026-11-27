@@ -9,7 +9,7 @@ already exists in production but was never written down.
 
 It shows each system from two perspectives, each drawn the way its discipline draws it: **Dynamics**,
 a System Dynamics stock-and-flow diagram (what is), and **Blocks**, a control block diagram (what we
-control); plus **Process**, how the work really moved: a process map per kind of item, from the record.
+control); plus **Process**, how the work really moved: a process map per projection, from the record.
 
 New here: [docs/QUICKSTART.md](docs/QUICKSTART.md) (ten minutes, from install to your own model),
 [docs/WHY.md](docs/WHY.md) (why model systems this way, for a team deciding whether to),
@@ -179,7 +179,7 @@ improve-model` and `ergostat help modelling`.
 
 ## More
 
-The model tools (fit, checks, the review queue, calibration, replay, projection, what-if, loop dominance,
+The model tools (fit, checks, the review queue, calibration, replay, simulation, what-if, loop dominance,
 identification, margins, tuning, step tests), each with where it shows up and what it needs:
 [docs/MODEL-TOOLS.md](docs/MODEL-TOOLS.md).
 
@@ -224,8 +224,8 @@ plant, y, the sensor H feeding ym back, and feedforward when a controller measur
 `ergostat system --blocks` prints the same in text.
 The Export menu's "SVG" and "PNG" write the diagram as a standalone file, with a header and a legend; "Design SVG" writes only
 the structure (parts, flows, roles and schedules, no live values or status), for a design document. The process view draws the process map of each
-kind of item from the record (a directly-follows graph: states or events, how often, what came next, rework), and where work on one kind caused work on another. The Dashboard
-(first in the header), Goals, Agents (by rung), Items and Record show what the command line shows; the model's fit, proposals and
+projection from the record (a directly-follows graph: states or events, how often, what came next, rework), and where work on one projection caused work on another. The Dashboard
+(first in the header), Goals, Agents (by rung), each projection's page and Record show what the command line shows; the model's fit, proposals and
 checks are the command line's (`ergostat fit`, `ergostat proposals`, `ergostat check`). The header's "Last 1h" menu sets the window and
 looks at any past moment; "Back to live" returns. The page is a React app (`ergostat/web/ui`, its README.md), built into
 `ergostat/web/static/app` and committed, so Python needs nothing more at runtime.

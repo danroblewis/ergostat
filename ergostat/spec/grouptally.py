@@ -1,4 +1,4 @@
-"""How far along each group is (SPEC §5a, *Progress per group*): for a kind's group relation that holds one id per item
+"""How far along each group is (SPEC §5a, *Progress per group*): for a projection's group relation that holds one id per item
 (its field folds by ``replace``: a gap's ``milestone``), every group its items name, with its members counted by
 status group, read from the item index (the items as folded now, and their moves), never by replaying events.
 
@@ -60,7 +60,7 @@ def progress(events, spec, kind: str, by: str, now: float, since: float, points:
     from .itemindex import index_for
     k = (getattr(spec, "items", None) or {}).get(kind or "")
     if k is None:
-        raise BadSet(f"kind={kind}: no such kind of item")
+        raise BadSet(f"projection={kind}: no such projection")
     rel = k.relations.get(by or "")
     if rel is None or not offered(k, rel):
         said = ", ".join(r for r, x in k.relations.items() if offered(k, x)) or "none"
@@ -96,11 +96,11 @@ def progress(events, spec, kind: str, by: str, now: float, since: float, points:
         row["done"] = _done_over(row["done"], i, times, fin, rel.done_when)
     for gid, g in groups.items():
         r = rows.setdefault(gid, _row(gid, kind, by, points))
-        r.update(item=True, kind=g.kind, state=g.state, title=title_of(g, []), waits_on=waits[gid], first=g.first,
+        r.update(item=True, projection=g.kind, state=g.state, title=title_of(g, []), waits_on=waits[gid], first=g.first,
                  status=status(g, info[g.kind], waits[gid]))
     order = lambda r: (r["id"] is None, not r["item"], ORDER.index(r["status"]) if r["status"] in ORDER else len(ORDER),  # noqa: E731
                        r["first"] or 0.0, r["id"] or "")
-    out = {"kind": kind, "by": by, "of": rel.kinds, "stacks": list(STACKS), "times": times, "at": now,
+    out = {"projection": kind, "by": by, "of": rel.kinds, "stacks": list(STACKS), "times": times, "at": now,
            "rows": sorted(rows.values(), key=order), "odd": sorted(odd)[:20], "odd_n": len(odd)}
     with _LOCK:
         if len(_CACHE) > 16:
@@ -169,9 +169,9 @@ def _prec(spec, i) -> list[tuple]:
 
 def _row(gid: str | None, kind: str, by: str, points: int) -> dict:
     where = [f"{by}:{gid}"] if gid else [f"{by}:null", f"{by}:"]
-    return {"id": gid, "item": False, "kind": None, "state": None, "status": None, "title": "", "waits_on": [],
+    return {"id": gid, "item": False, "projection": None, "state": None, "status": None, "title": "", "waits_on": [],
             "first": None, "counts": dict.fromkeys(STACKS, 0), "total": 0, "left": 0, "summaries": 0,
-            "done": [0] * points, "params": {"kind": [kind], "where": where}}
+            "done": [0] * points, "params": {"projection": [kind], "where": where}}
 
 
 def _done_over(done: list[int], i, times: list[float], fin: set, done_when: dict) -> list[int]:

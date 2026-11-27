@@ -230,7 +230,7 @@ def paths(p) -> list[tuple[str, str]]:
     out.append(("series (one, strip)", "series?strip=1&refs=" + quote(refs[0])))
     if spec is not None and spec.items:
         for k in sorted(spec.items)[:3]:
-            out.append((f"items-flow {k}", f"items-flow?kind={quote(k)}"))
+            out.append((f"items-flow {k}", f"items-flow?projection={quote(k)}"))
         out.append(("fit", "fit"))
         out.append(("dominance", "dominance"))
     biggest = next(iter(sorted(p.events.items(), key=lambda i: -i["n"])), None)

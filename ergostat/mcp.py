@@ -33,7 +33,7 @@ TOOLS = [
      "a block with no visible effect, an open loop, ...). Call it after every edit; once the model has run, coherence holds "
      "it against what really happened.", "inputSchema": _obj()},
     {"name": "coherence", "description": "The three views held against each other over the record: Process (how the items "
-     "really moved), Dynamics (the stocks and flows that model it) and Blocks (what moves the work). Per item kind, a score "
+     "really moved), Dynamics (the stocks and flows that model it) and Blocks (what moves the work). Per projection, a score "
      "(agreements of comparisons, or how much more record it needs) and each mismatch with its file and line, the fix when "
      "it is clear, the pair of views that disagrees, and the findings of check it is linked to. Run it after the model has "
      "run for a while (try_use, or the live record), and change the model (or the blocks) until the three agree. since: "
@@ -84,7 +84,7 @@ TOOLS = [
     {"name": "trust", "description": "How far the blocks' claims hold (claim lines: {\"claim\": {\"says\": \"tests pass\", "
      "\"about\": ...}}, checked by ergostat after each run against the record and the world): per block, rung and "
      "model, the claims made, verified, contradicted and unchecked, and the share contradicted, over the last week (or "
-     "since); and the latest contradicted claims with why. Each claim is an item of kind ergostat.claim (items).",
+     "since); and the latest contradicted claims with why. Each claim is an item of projection ergostat.claim (items).",
      "inputSchema": _obj({"since": {"type": "string"}})},
     {"name": "report_done", "description": "Report the work a person block was asked for (type: person): how much was moved "
      "along its flow. The same as `ergostat block NAME --done N`.",
@@ -102,13 +102,13 @@ TOOLS = [
     {"name": "read_sensor", "description": "Record a reading of a manual sensor (manual: true), named as its stock and sensor: "
      "inbox.eyes. The same as `ergostat sensor inbox.eyes --read V`.",
      "inputSchema": _obj({"sensor": {"type": "string"}, "value": {"type": "number"}}, ["sensor", "value"])},
-    {"name": "items", "description": "The items (the record folded by id: ticket/12, github/pull_request/4231): each kind's "
-     "count per state, and the items with their state and fields. kind and state filter; id gives one item with its "
+    {"name": "items", "description": "The items (the record folded by id: ticket/12, github/pull_request/4231): each projection's "
+     "count per state, and the items with their state and fields. projection and state filter; id gives one item with its "
      "moves between states, each field's latest changes (history: op, path, before, after, by which event), what was "
      "refused, and its events.",
-     "inputSchema": _obj({"kind": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
+     "inputSchema": _obj({"projection": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
                           "n": {"type": "integer"}})},
-    {"name": "why", "description": "Why an item is not done: its state and for how long (unusual or not for its kind), "
+    {"name": "why", "description": "Why an item is not done: its state and for how long (unusual or not for its projection), "
      "the cause followed to its root (what it waits on, what that waits on: unfinished work, a person, a full pool, a "
      "gate or budget refusing runs, a dead or stale lease, a block failing or not running, a closed goal or intake, a "
      "parked or dead item, nothing taking its state, a cycle, a missing item), who must act and the command, the evidence "
@@ -119,7 +119,7 @@ TOOLS = [
      "a stall, held on purpose, queueing or unknown, with its next step; the goals off because of a root folded under "
      "it; and line, the biggest constraint in words, or that nothing is stuck. The same as `ergostat held-up --json`.",
      "inputSchema": _obj({})},
-    {"name": "context", "description": "A starting context, as Markdown: a projection recipe the model names under "
+    {"name": "context", "description": "A starting context, as Markdown: a context recipe the model names under "
      "contexts: (its parts in order, each within its budget: decisions, corrections, the owner's words, an item's history, "
      "the state now, a session's turns, documents, the model's parts), rendered for item when given; or the built-ins "
      "decisions (the owner's confirmed decisions, most relevant to scope first) and corrections (what the owner corrected "
@@ -129,9 +129,9 @@ TOOLS = [
                           "kind": {"type": "string"}, "budget": {"type": "string"}, "list": {"type": "boolean"},
                           "outcomes": {"type": "boolean"}})},
     {"name": "record_event", "description": "Record something that happened outside: an event of a type (ticket.opened), "
-     "about an item (ticket/12), with data (its fields: title, priority, ...), folded by its kind's fold: rules (replace "
+     "about an item (ticket/12), with data (its fields: title, priority, ...), folded by its projection's fold: rules (replace "
      "by default); or, in place of data, a patch (a JSON Patch, RFC 6902: [{\"op\": \"add\", \"path\": \"/tags/-\", "
-     "\"value\": \"x\"}]), applied whole or refused with why, or set (the item's whole document). An item kind's on: map "
+     "\"value\": \"x\"}]), applied whole or refused with why, or set (the item's whole document). A projection's on: map "
      "says which types move an item between states. The same as `ergostat event --add TYPE --item ID --data JSON` "
      "(or --patch, --set). To propose a decision or a correction the owner gave: ergostat.decision.proposed ({decision, "
      "words: [{text, session, line, time}], reasons, alternatives: [{option, why}], scope, supersedes}) or "
@@ -198,7 +198,7 @@ TOOLS = [
     {"name": "where_drawn", "description": "Where a system (an instance) is drawn: its parts, the diagram pages "
      "(/diagram?view=dynamics&system=NAME, the stock-and-flow view; view=blocks, the control view), with the page's address "
      "when ergostat is running, the system drawn as text (as ergostat system NAME, and its loops as blocks), and its "
-     "shape: the pieces each view falls into (one per item kind when its states are chained) and check's chain findings. "
+     "shape: the pieces each view falls into (one per projection when its states are chained) and check's chain findings. "
      "project: "
      "a scratch copy try_use made, to show it before it is written.",
      "inputSchema": _obj({"system": {"type": "string"}, "project": {"type": "string"}}, ["system"])},
@@ -273,7 +273,7 @@ class Server:
             from .store import Project
             sp = Project(mdl.load(Path(a["project"]).expanduser()))
             got = co.of_project(sp, sp.model.spec, parse_duration(a["since"], "since") if a.get("since") else co.WINDOW)
-            return _text({"scores": [co.score_line(k, x) for k, x in got["kinds"].items()], **got})
+            return _text({"scores": [co.score_line(k, x) for k, x in got["projections"].items()], **got})
         if name == "remotes":
             return self.remotes(a)
         if name == "library_update":
@@ -302,7 +302,7 @@ class Server:
             from . import coherence as co
             from .durations import parse_duration
             got = co.of_project(p, spec, parse_duration(a["since"], "since") if a.get("since") else co.WINDOW)
-            return _text({"scores": [co.score_line(k, x) for k, x in got["kinds"].items()], **got})
+            return _text({"scores": [co.score_line(k, x) for k, x in got["projections"].items()], **got})
         if name == "why":
             from .why import answer
             return _text(answer(p, str(a.get("item") or "")))
@@ -412,7 +412,7 @@ class Server:
             if a.get("id"):
                 d = its.detail(p.events, spec, a["id"], history=20)     # each field's latest changes; all of them: the CLI
                 return _text(d) if d else {**_text(f"no item {a['id']!r}"), "isError": True}
-            return _text(its.listing(p.events, spec, kind=a.get("kind") or None, state=a.get("state") or None,
+            return _text(its.listing(p.events, spec, kind=a.get("projection") or None, state=a.get("state") or None,
                                      n=min(int(a.get("n") or 100), 500)))
         if name == "message":
             from .messages import record, route

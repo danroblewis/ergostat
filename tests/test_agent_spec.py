@@ -35,7 +35,7 @@ flows:
 goals:
   todo-low: {stock: todo, hold: "<= 0"}
   aside-low: {stock: aside, hold: "<= 0"}
-items:
+projections:
   ticket:
     id: ticket/*
     states: [new, done]
@@ -50,7 +50,7 @@ blocks:
     goal: todo-low
     prompt: prompts/work.md
     run: python3 bin/step.py work
-    takes: {kind: ticket, at: new, to: [done]}
+    takes: {projection: ticket, at: new, to: [done]}
     out: flow.done
   inline:
     type: ai
@@ -120,7 +120,7 @@ def test_each_type_of_block_says_what_it_is(tmp_path):
     w = spec_of(p, "work")
     assert w["type"] == "ai" and w["implied"] is False and w["where"] == {"file": "ergostat.yaml", "line": w["where"]["line"]}
     assert w["source"].startswith("work:") and "prompt: prompts/work.md" in w["source"]
-    assert w["params"]["takes"]["kind"] == "ticket" and w["params"]["run"] == "python3 bin/step.py work"
+    assert w["params"]["takes"]["projection"] == "ticket" and w["params"]["run"] == "python3 bin/step.py work"
     assert {"name": "prompts/work.md", "role": "prompt", "format": "markdown"} in w["files"]
     assert {"name": "bin/step.py", "role": "wrapper", "format": "python"} in w["files"]
     assert w["prompt_text"] is None and w["machine"]["kind"] == "ai" and "declared ai" in w["rung_why"]
@@ -221,7 +221,7 @@ def test_the_ticket_factory_work_block_and_its_implied_rule(tmp_path):
     p = copied(tmp_path, "ticket-factory")
     w = spec_of(p, "work")
     assert {"name": "prompts/work.md", "role": "prompt", "format": "markdown"} in w["files"]
-    assert any(f["name"] == "bin/step.py" for f in w["files"]) and w["params"]["takes"]["kind"] == "ticket"
+    assert any(f["name"] == "bin/step.py" for f in w["files"]) and w["params"]["takes"]["projection"] == "ticket"
     k = spec_of(p, "keep-located-worked")
     assert k["implied"] is True and k["implied_by"] == "work" and k["law"]["says"]
 

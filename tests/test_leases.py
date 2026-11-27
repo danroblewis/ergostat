@@ -20,7 +20,7 @@ from ergostat.store import Project
 
 KIND = """
 name: t
-items:
+projections:
   ticket:
     id: ticket/*
     states: [ready, doing, done]
@@ -171,27 +171,27 @@ blocks:
   dev:
     type: ai
     prompt: do it
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
   bot:
     type: program
     run: "true"
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
   dev2:
     type: program
     agent: claude
     run: "true"
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     lease: {ttl: 90s}
   person-ish:
     type: ai
     prompt: do it
-    takes: {kind: ticket, at: doing}
+    takes: {projection: ticket, at: doing}
     lease: {ttl: 3h, attempts: 1}
 """)
     s = p.model.spec
     assert s.items["ticket"].states == ["ready", "leased", "doing", "done", "dead"], "a kind taken gains the lease's states"
     dev, bot, dev2, slow = (terms(s, s.blocks[n]) for n in ("dev", "bot", "dev2", "person-ish"))
-    assert dev["tier"] == "ai" and dev["ttl"] == 40 * 60 and dev["attempts"] == 5 and dev["from"] == {"ttl": "default", "attempts": "kind"}
+    assert dev["tier"] == "ai" and dev["ttl"] == 40 * 60 and dev["attempts"] == 5 and dev["from"] == {"ttl": "default", "attempts": "projection"}
     assert bot["tier"] == "program" and bot["ttl"] == 120 and bot["from"]["ttl"] == "leases"
     assert dev2["tier"] == "ai" and dev2["ttl"] == 90, "its agent's kind is its tier; the block's own TTL first"
     assert slow["ttl"] == 3 * 3600 and slow["attempts"] == 1
@@ -206,11 +206,11 @@ blocks:
   a:
     type: program
     run: "true"
-    takes: {kind: tickets, at: ready}
+    takes: {projection: tickets, at: ready}
   b:
     type: program
     run: "true"
-    takes: {kind: ticket, at: nowhere}
+    takes: {projection: ticket, at: nowhere}
     every: 5s
   c:
     type: program
@@ -219,7 +219,7 @@ blocks:
 """))
     _, problems = read(tmp_path / "ergostat.yaml")
     said = "\n".join(x.message for x in problems if x.level == "error")
-    assert "'tickets' is not a kind of item" in said
+    assert "'tickets' is not a projection" in said
     assert "'nowhere' is not a state of ticket" in said
     assert "started by them" in said
     assert "only a block that takes items runs more than once" in said
@@ -240,17 +240,17 @@ blocks:
   bot:
     type: program
     run: "true"
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     mode: advise
   dev:
     type: ai
     prompt: do it
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     mode: advise
   typo:
     type: program
     run: "true"
-    takes: {kind: tickets, at: ready}
+    takes: {projection: tickets, at: ready}
     mode: advise
 """)
     for name in ("bot", "dev", "typo"):
@@ -269,11 +269,11 @@ blocks:
   plain:
     type: program
     run: "true"
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
   auto:
     type: ai
     prompt: do it
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     mode: auto
   c:
     type: expr
@@ -306,7 +306,7 @@ def test_a_block_that_takes_waits_while_what_commands_it_is_off(tmp_path):
     expr: "w >= 3"
 stocks:
   waiting:
-    sensor: {items: ticket, state: ready, every: 0.2s}
+    sensor: {projection: ticket, state: ready, every: 0.2s}
 """).replace("    lease: {ttl: 1m}\n", "    lease: {ttl: 1m}\n    in: block.gate\n")
     p = project(tmp_path, text)
     opened(p, 2)
@@ -344,7 +344,7 @@ def test_the_documented_gate_opens_for_items(tmp_path):
     (tmp_path / "advised").mkdir()
     _, problems = read_model(tmp_path / "advised", KIND + """
 blocks:
-  bot: {type: program, run: "true", takes: {kind: ticket, at: ready}, mode: advise}
+  bot: {type: program, run: "true", takes: {projection: ticket, at: ready}, mode: advise}
 """)
     said = next(x.message for x in problems if x.code == "advise-with-takes")
     assert "expr block reading a sensor: {manual: true}" in said and "--read 1" in said and "not per item" in said
@@ -391,7 +391,7 @@ WORKER = KIND + """
 blocks:
   worker:
     type: program
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: 2
     run: {run}
     lease: {lease}
@@ -546,7 +546,7 @@ def test_a_goal_gates_what_a_block_takes(tmp_path):
     text = model('sleep 0.6; echo "{\\"event\\": \\"ticket.done\\"}"', extra="""
 stocks:
   waiting:
-    sensor: {items: ticket, state: ready, every: 0.2s}
+    sensor: {projection: ticket, state: ready, every: 0.2s}
 flows:
   done:
     from: waiting
@@ -914,7 +914,7 @@ blocks:
   worker:
     type: program
     run: "true"
-    takes: {kind: ticket, at: ready}
+    takes: {projection: ticket, at: ready}
     pool: 3
 """
 

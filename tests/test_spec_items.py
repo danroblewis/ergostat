@@ -14,7 +14,7 @@ from ergostat.spec.ir import Ref
 from ergostat.store import Project
 
 MODEL = """
-items:
+projections:
   pr:
     id: github/pull_request/*
     states: [open, review, merged, closed]
@@ -27,27 +27,27 @@ stocks:
   in-review:
     unit: prs
     sensor:
-      items: pr
+      projection: pr
       state: review
       every: 10s
   open-bugs:
     unit: prs
     sensor:
-      items: pr
+      projection: pr
       state: [open, review]
       where:
         label: bug
   stuck:
     unit: hours
     sensor:
-      items: pr
+      projection: pr
       state: review
       measure: oldest
 flows:
   merging:
     from: in-review
     sensor:
-      items: pr
+      projection: pr
       entering: merged
       over: 1h
 auxiliaries:
@@ -55,7 +55,7 @@ auxiliaries:
     unit: prs
     driven-by: +stock.in-review
     sensor:
-      items: pr
+      projection: pr
       state: [open, review]
       where:
         late: "yes"
@@ -80,7 +80,7 @@ def test_an_item_is_its_events_folded(tmp_path):
     assert [(m["from"], m["to"]) for m in it.moves] == [(None, "open"), ("open", "review"), ("review", "merged")]
     got = its.listing(p.events, p.model.spec)
     assert [i["id"] for i in got["items"]] == ["github/pull_request/1"]
-    assert got["kinds"][0]["counts"] == {"merged": 1}
+    assert got["projections"][0]["counts"] == {"merged": 1}
     assert [i["item"] for i in p.events.items()] == ["github/pull_request/1"]
 
 
@@ -107,7 +107,7 @@ def test_stocks_count_items_and_flows_count_their_moves(tmp_path):
 
 def test_the_compiler_refuses_what_does_not_fit(tmp_path):
     bad = """
-    items:
+    projections:
       ticket:
         id: tickets
         states: [open, done]
@@ -116,17 +116,17 @@ def test_the_compiler_refuses_what_does_not_fit(tmp_path):
     stocks:
       a:
         sensor:
-          items: tickit
+          projection: tickit
       b:
         sensor:
-          items: ticket
+          projection: ticket
           state: doing
           entering: done
     flows:
       f:
         to: a
         sensor:
-          items: ticket
+          projection: ticket
           state: open
     """
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(bad))
@@ -147,22 +147,22 @@ def test_the_engine_reads_item_counts_and_the_api_lists_them(tmp_path):
     e._read(p.model.spec.sensor(Ref("stock", "in-review", "main")))
     assert p.measurements.latest("sensor/in-review.main")[1] == 1
     live = Live(p)
-    d = api(live, "items", {"kind": ["pr"], "state": ["review"]})
-    assert d["total"] == 1 and d["items"][0]["state"] == "review" and d["kinds"][0]["show"] == ["title"]
+    d = api(live, "items", {"projection": ["pr"], "state": ["review"]})
+    assert d["total"] == 1 and d["items"][0]["state"] == "review" and d["projections"][0]["show"] == ["title"]
     one = api(live, "items/github%2Fpull_request%2F9", {})
-    assert one["kind_of"]["name"] == "pr" and len(one["moves"]) == 2 and len(one["record"]) == 2 and one["events"] == 2
+    assert one["projection_of"]["name"] == "pr" and len(one["moves"]) == 2 and len(one["record"]) == 2 and one["events"] == 2
 
 
 def test_an_items_kind_names_its_endings_as_the_process_map_counts_them(tmp_path):
-    """The item API's kind_of.final (what the lifecycle strip sets apart): the states after the first that no item
+    """The item API's projection_of.final (what the lifecycle strip sets apart): the states after the first that no item
     has left, in the kind's own order; a state an item has left is no ending."""
     from ergostat.web.server import Live, api
     p = project(tmp_path)
     for n, ev in ((9, "pr.review-asked"), (9, "pr.merged"), (8, "pr.review-asked")):
         p.events.add(ev, item=f"github/pull_request/{n}", data={"title": "x"})
     one = api(Live(p), "items/github%2Fpull_request%2F9", {})
-    assert one["kind_of"]["states"] == ["open", "review", "merged", "closed"]
-    assert one["kind_of"]["final"] == ["merged", "closed"], one["kind_of"]
+    assert one["projection_of"]["states"] == ["open", "review", "merged", "closed"]
+    assert one["projection_of"]["final"] == ["merged", "closed"], one["projection_of"]
 
 
 def test_an_agent_records_events_and_reads_items_over_mcp(tmp_path):
@@ -171,7 +171,7 @@ def test_an_agent_records_events_and_reads_items_over_mcp(tmp_path):
     out = s.call("record_event", {"type": "pr.opened", "item": "github/pull_request/3", "data": {"title": "t"}})
     assert "recorded" in out["content"][0]["text"]
     assert s.call("record_event", {"type": "loop.off", "item": "x"}).get("isError")
-    got = json.loads(s.call("items", {"kind": "pr"})["content"][0]["text"])
+    got = json.loads(s.call("items", {"projection": "pr"})["content"][0]["text"])
     assert got["items"][0]["id"] == "github/pull_request/3" and got["items"][0]["state"] == "open"
 
 

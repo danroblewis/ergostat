@@ -8,7 +8,7 @@ import { StatusProvider } from "./state/status";
 import { TimeProvider } from "./state/time";
 
 /* The app: the shell, and every address resolved by what the model names there (Resolve.tsx, lib/routes.ts): its
-   dashboards, its kinds and their items, then ergostat's own pages. The server answers every path but /api, /static
+   dashboards, its projections and their items, then ergostat's own pages. The server answers every path but /api, /static
    and /remote with this page (web/server.py, is_page_path). */
 
 export default function App() {

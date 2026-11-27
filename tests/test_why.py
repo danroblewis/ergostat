@@ -33,12 +33,12 @@ stocks:
     sensor: {manual: true}
   intake:
     unit: notes
-    sensor: {items: note, state: open, every: 1m}
+    sensor: {projection: note, state: open, every: 1m}
 goals:
   spend-low:
     stock: spend
     hold: "<= 5"
-items:
+projections:
   ticket:
     id: ticket/*
     states: [todo, doing, review, done, held]
@@ -65,13 +65,13 @@ blocks:
   worker:
     type: program
     run: "true"
-    takes: {kind: ticket, at: todo, to: [review]}
+    takes: {projection: ticket, at: todo, to: [review]}
     pool: 1
     in: block.gate
   reviewer:
     type: ai
     prompt: review it
-    takes: {kind: ticket, at: review}
+    takes: {projection: ticket, at: review}
     actions: [publish]
 actions:
   publish:
@@ -312,8 +312,8 @@ def test_nothing_takes_its_state(tmp_path):
 
 
 def test_a_where_that_does_not_match_its_fields(tmp_path):
-    p = project(tmp_path, MODEL.replace("takes: {kind: ticket, at: todo, to: [review]}",
-                                        "takes: {kind: ticket, at: todo, to: [review], where: {team: a}}"))
+    p = project(tmp_path, MODEL.replace("takes: {projection: ticket, at: todo, to: [review]}",
+                                        "takes: {projection: ticket, at: todo, to: [review], where: {team: a}}"))
     p.events.add("ticket.opened", item="ticket/1", at=NOW - 100, data={"team": "b"})
     r = why(p, "ticket/1")["root"]
     assert r["kind"] == "nothing" and "team is 'b' (it takes 'a')" in r["says"] and r["owner"] == "whatever sets team"
@@ -403,7 +403,7 @@ def test_unreadable_field_is_an_answer(tmp_path, monkeypatch):
 # ---- this factory's stalls of 2026-11-22, replayed
 
 FACTORY = """
-items:
+projections:
   gap:
     id: gap/*
     states: [open, ready, fix, building, built, in-review, approved, queued, merged, parked, closed]
@@ -420,12 +420,12 @@ blocks:
   implementor:
     type: ai
     prompt: build it
-    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true}
+    takes: {projection: gap, at: [fix, ready], to: [built], unblocked: true}
     pool: 9
   queue:
     type: program
     run: "true"
-    takes: {kind: gap, at: [approved], to: [merged, fix]}
+    takes: {projection: gap, at: [approved], to: [merged, fix]}
     pool: 1
 """
 

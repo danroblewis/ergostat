@@ -132,18 +132,18 @@ def _num(v, default: int, least: int, most: int) -> int:
 
 
 def listing(spec, name: str, kind: str | None = None, state: str | None = None, n=100, offset=0) -> dict:
-    """The remote's counts by kind and state, and a page of its items, each marked ``remote``."""
+    """The remote's counts by projection and state, and a page of its items, each marked ``remote``."""
     r = remote(spec, name)
     n, offset = _num(n, 100, 1, N_MOST), _num(offset, 0, 0, OFFSET_MOST)
     with held(name):
         c = _ask(spec, name, r, "counts", "", "counts", None,
-                 lambda b: isinstance(b, dict) and isinstance(b.get("kinds"), dict))
+                 lambda b: isinstance(b, dict) and isinstance(b.get("projections"), dict))
         got = _ask(spec, name, r, "listings", (kind, state, n, offset), "items",
-                   {"kind": kind, "state": state, "n": n, "offset": offset},
+                   {"projection": kind, "state": state, "n": n, "offset": offset},
                    lambda b: isinstance(b, dict) and isinstance(b.get("items"), list))
     worse = got if not got["ok"] or got["why"] else c
     return {"remote": name, "url": r["url"], "ok": c["ok"] and got["ok"], "why": worse["why"],
-            "read": min(c["read"], got["read"]), "age": max(c["age"], got["age"]), "counts": c["body"]["kinds"],
+            "read": min(c["read"], got["read"]), "age": max(c["age"], got["age"]), "counts": c["body"]["projections"],
             "total": got["body"].get("total", c["body"].get("total")),
             "items": [{**i, "remote": name} for i in got["body"]["items"] if isinstance(i, dict)]}
 
@@ -177,7 +177,7 @@ def forecast(spec, name: str, ids: list[str] | None = None, kinds: list[str] | N
         raise RemoteRefused(400, f"at most {FORECAST_IDS} item ids, each /-separated segments matching {ID.pattern}")
     with held(name):
         got = _ask(spec, name, r, "forecasts", (tuple(ids), tuple(kinds), tuple(sorted(ask.items()))), "forecast",
-                   {"item": ids or None, "kinds": ",".join(kinds) or None, **{k: str(v) for k, v in ask.items()}},
+                   {"item": ids or None, "projections": ",".join(kinds) or None, **{k: str(v) for k, v in ask.items()}},
                    lambda b: isinstance(b, dict) and b.get("schema") == "forecast/v1" and isinstance(b.get("items"), dict))
     return {"remote": name, "ok": got["ok"], "why": got["why"], "read": got["read"], "age": got["age"],
             "forecast": got["body"]}

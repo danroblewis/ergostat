@@ -89,7 +89,7 @@ def episodes(p, spec: Spec, kinds: dict[str, IntentKind], since: float, until: f
                 st = (v or {}).get("verdict")
                 overruled = (v or {}).get("state") == "overruled"
                 found = owner_found(p, spec, it, kk, m["time"], end, sig)
-                out.append({"work": it.id, "kind": kk.kind, "entered": m["time"], "verdict": st, "overruled": overruled,
+                out.append({"work": it.id, "projection": kk.kind, "entered": m["time"], "verdict": st, "overruled": overruled,
                             "held": st in ("unmet", "contradicted") and not overruled,
                             "accepted": accepted_at(it, kk, m["time"], end) is not None,
                             "found": found["how"] if found else None, "verdict_id": (v or {}).get("id")})

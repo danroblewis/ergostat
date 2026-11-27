@@ -12,7 +12,7 @@ from ergostat.store import Project
 
 KIND = """
 name: f
-items:
+projections:
   situation:
     id: situation/*
     states: [raised, handled]

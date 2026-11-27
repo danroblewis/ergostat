@@ -4,7 +4,7 @@
 defaults:
   system: team
 
-items:
+projections:
   team-pr:
     id: team-pr/*
     description: a teammate's PR, stale over 3 working days
@@ -27,14 +27,14 @@ stocks:
     unit: prs
     description: teammates' PRs stale over 3 days, no nudge drafted
     sensor:
-      items: team-pr
+      projection: team-pr
       state: stale
       every: 5s
   updates-due:
     unit: updates
     description: this week's update, due and not drafted
     sensor:
-      items: update
+      projection: update
       state: due
       every: 5s
 
@@ -47,7 +47,7 @@ flows:
   team-nudges:
     from: team-prs-stale
     sensor:
-      items: team-pr
+      projection: team-pr
       entering: nudged
       over: 10m
   updates-falling-due:
@@ -58,7 +58,7 @@ flows:
   update-drafting:
     from: updates-due
     sensor:
-      items: update
+      projection: update
       entering: drafted
       over: 10m
 
@@ -77,7 +77,7 @@ blocks:
     type: program
     goal: team-prs-nudged
     run: python3 bin/prepare.py team-nudge
-    takes: {kind: team-pr, at: stale}
+    takes: {projection: team-pr, at: stale}
     pool: 2
     max: 1
     out: flow.team-nudges
@@ -86,7 +86,7 @@ blocks:
     goal: update-drafted
     prompt: prompts/update-drafter.md
     run: python3 bin/prepare.py update
-    takes: {kind: update, at: due}
+    takes: {projection: update, at: due}
     pool: 2
     max: 1
     out: flow.update-drafting

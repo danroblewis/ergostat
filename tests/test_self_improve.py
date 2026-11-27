@@ -24,7 +24,7 @@ from ergostat.store import Project
 
 POOR = """\
 name: t
-items:
+projections:
   alert:
     id: alert/*
     description: an alert from the pager
@@ -36,11 +36,11 @@ items:
 stocks:
   new-alerts:
     description: alerts not yet triaged
-    sensor: {items: alert, state: new, every: 2s}
+    sensor: {projection: alert, state: new, every: 2s}
   triaged-alerts:
     unit: alerts
     description: alerts triaged, not yet closed
-    sensor: {items: alert, state: triaged, every: 2s}
+    sensor: {projection: alert, state: triaged, every: 2s}
 flows:
   alerts-fired:
     to: new-alerts
@@ -51,12 +51,12 @@ flows:
     to: triaged-alerts
     description: triaged as worth a look
     driven-by: +stock.new-alerts
-    sensor: {items: alert, entering: triaged}
+    sensor: {projection: alert, entering: triaged}
   alerts-closed:
     from: triaged-alerts
     description: closed
     driven-by: +stock.triaged-alerts
-    sensor: {items: alert, entering: closed}
+    sensor: {projection: alert, entering: closed}
 goals:
   triaged-fast:
     stock: new-alerts
@@ -69,7 +69,7 @@ blocks:
     description: triages each alert
     run: python3 bin/step.py
     goal: triaged-fast
-    takes: {kind: alert, at: new, to: [triaged]}
+    takes: {projection: alert, at: new, to: [triaged]}
     out: flow.alerts-triaged
 """
 
@@ -102,7 +102,7 @@ def test_check_notes_the_craft_and_never_the_parts_a_template_made(tmp_path):
         [("finding", "stock.new-alerts", "ergostat.yaml:13")]         # once, with its file and line
     assert got["no-equation"] == {"flow.alerts-triaged"}            # between two stocks; the outflow to a cloud is not
     assert got["collector-undescribed"] == {"flow.alerts-fired"}
-    assert got["event-names-mixed"] == {"items.alert"}
+    assert got["event-names-mixed"] == {"projections.alert"}
     assert got["queue-goal-tolerance"] == {"goal.triaged-fast"}      # a takes queue held at 3
     assert got["process-not-identified"] == {"goal.triaged-fast"}
     assert "no-description" not in got                                # every part of ours is described, theirs skipped
@@ -255,16 +255,16 @@ def test_the_requests_collector_prints_arrivals_an_hour(tmp_path):
 
 NO_EQUATIONS = """\
 name: bare
-items:
+projections:
   ticket:
     id: ticket/*
     states: [new, worked, done]
     on: {ticket.opened: new, ticket.worked: worked, ticket.done: done}
 stocks:
   new-tickets:
-    sensor: {items: ticket, state: new, every: 5s}
+    sensor: {projection: ticket, state: new, every: 5s}
   worked-tickets:
-    sensor: {items: ticket, state: worked, every: 5s}
+    sensor: {projection: ticket, state: worked, every: 5s}
 flows:
   working:
     from: new-tickets
@@ -275,7 +275,7 @@ blocks:
   worker:
     type: program
     run: python3 -c pass
-    takes: {kind: ticket, at: new, to: [worked]}
+    takes: {projection: ticket, at: new, to: [worked]}
     out: flow.working
 uses:
   modelling: {use: modelling}

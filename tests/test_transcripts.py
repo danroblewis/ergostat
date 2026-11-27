@@ -15,7 +15,7 @@ from ergostat.spec import items as its
 from ergostat.store import Project
 
 MODEL = """
-items:
+projections:
   session:
     id: session/*
     states: [open, done]
@@ -34,7 +34,7 @@ items:
 stocks:
   sessions-open:
     sensor:
-      items: session
+      projection: session
       state: open
 """
 

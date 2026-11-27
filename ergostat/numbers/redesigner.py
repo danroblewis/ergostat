@@ -140,7 +140,7 @@ def _coherence(p, spec: Spec, problems) -> list[str]:
     except Exception as e:
         return [f"(coherence could not be read: {type(e).__name__}: {e})"]
     out = [f"{s}  {t}" if s in ("head",) else t for s, t in co.lines(got)]
-    for k, x in got["kinds"].items():
+    for k, x in got["projections"].items():
         if k.startswith("ergostat.") or not x.get("moved"):
             continue
         out.append(f"observed moves of {k} in the window (process map): " + ", ".join(f"{m} ×{n}" for m, n in x["moved"].items()))
