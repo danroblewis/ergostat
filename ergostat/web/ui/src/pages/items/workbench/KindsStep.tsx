@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSend } from "../../../hooks/useSend";
+import { useEffect, useState } from "react";
 import type { Draft } from "./draft";
 import { n, Samples } from "./common";
-import { howRead } from "./QueryStep";
 
-/* Step 2, the kinds of event (POST /api/events/kinds): the query's result by shape, each a suggested kind with its
-   count, its `when:` and samples; accepted, it is an `events:` entry the user renames, edits or removes. The remainder
-   (events no kind takes, from the review) is always shown, by shape, each shape acceptable as a kind too. */
+/* Step 3, the kinds of event: its `events:` entries (each renamed, its `when:` edited, removed, with what it takes),
+   and the events no kind takes yet, by shape (POST /api/events/kinds given the kinds' `when:`s: only shapes that would
+   take an event), each accepted as a kind. */
 
 export interface Suggested { name: string; count: number; when: string; shape?: Record<string, unknown>; paths?: string[]; samples?: string[] }
 
@@ -37,23 +35,23 @@ function Suggestion({ k, onAccept, editable }: { k: Suggested; onAccept: () => v
   );
 }
 
-export function KindsStep({ draft, since, review, editable, onAdd, onRename, onWhen, onRemove }: {
-  draft: Draft; since: string; review: any; editable: boolean;
+export interface Suggestions { query: string; taken: string[]; count: number; untaken: number; kinds: Suggested[]; kinds_left?: number; read: any }
+
+export function KindsStep({ draft, review, sugg, editable, onAdd, onRename, onWhen, onRemove }: {
+  draft: Draft; review: any; sugg: { data: Suggestions | null; error: string | null }; editable: boolean;
   onAdd: (ks: { name: string; when: string }[]) => void; onRename: (from: string, to: string) => void;
   onWhen: (kind: string, when: string) => void; onRemove: (kind: string) => void;
 }) {
-  const body = useMemo(() => (draft.query.trim() ? { query: draft.query, since: since || undefined } : null), [draft.query, since]);
-  const got = useSend<{ count: number; kinds: Suggested[]; kinds_left?: number; read: any }>("events/kinds", body, 600);
   const counts: Record<string, number> = Object.fromEntries((review?.kinds || []).map((k: any) => [k.name, k.count]));
-  const fresh = (got.data?.kinds || []).filter((s) => !draft.kinds.some((k) => same(k.when, s.when)));
-  const rem = review?.residual?.remainder;
+  const s = sugg.data;
+  const fresh = (s?.kinds || []).filter((x) => !draft.kinds.some((k) => same(k.when, x.when)));
+  const left = review?.residual?.remainder?.count ?? s?.untaken;
 
   return (
     <>
-      <h3 className="small">Its kinds of event <span className="muted">(events:, in order: the first whose when: holds takes an event)</span></h3>
-      {draft.kinds.length === 0 ? <p className="muted">None yet: accept a suggestion below, or a shape of the remainder.</p> : (
+      {draft.kinds.length === 0 ? <p className="muted">None yet: accept the kinds the query's result holds, below (or all of them, in step 2).</p> : (
         <table className="wb-table" aria-label="Its kinds of event">
-          <thead><tr><th>Name</th><th>when:</th><th>Takes</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>when: <span className="muted">(the first that holds takes an event)</span></th><th>Takes</th><th /></tr></thead>
           <tbody>{draft.kinds.map((k) => (
             <tr key={k.name}>
               <td><Commit value={k.name} label={`The name of ${k.name}`} disabled={!editable}
@@ -68,27 +66,18 @@ export function KindsStep({ draft, since, review, editable, onAdd, onRename, onW
         </table>
       )}
 
-      <h3 className="small">The remainder <span className="muted">(events no kind takes)</span>{" "}
-        <strong data-testid="remainder-count">{rem ? n(rem.count) : "–"}</strong></h3>
-      {rem?.count > 0 && (
-        <ul className="wb-kinds" aria-label="The remainder, by shape">
-          {rem.kinds.map((k: Suggested) => <Suggestion key={k.when} k={k} editable={editable} onAccept={() => onAdd([k])} />)}
-        </ul>
+      {left === 0 && draft.kinds.length ? <p className="muted small" data-testid="all-taken">✓ Every event of the query's result is taken by a kind.</p> : (
+        <h3 className="small">Not taken yet <strong data-testid="remainder-count">{left == null ? "–" : n(left)}</strong>
+          {" "}<span className="muted">events no kind takes, by shape</span></h3>
       )}
-      {rem && rem.count === 0 && <p className="muted small">Every event of the query's result is taken by a kind.</p>}
-
-      <h3 className="small">Suggested from the query's result{" "}
-        {fresh.length > 1 && <button type="button" disabled={!editable} onClick={() => onAdd(fresh)}>Accept all {fresh.length}</button>}</h3>
-      {!body ? <p className="muted">Type a query first.</p> : got.error ? <p className="note lvl-error">{got.error}</p>
-        : !got.data ? <p className="muted">Reading…</p> : (
+      {!draft.query.trim() ? <p className="muted">Type a query first (step 2).</p> : sugg.error ? <p className="note lvl-error">{sugg.error}</p>
+        : !s ? (left === 0 ? null : <p className="muted">Reading…</p>)
+        : fresh.length === 0 ? null : (
           <>
-            <p className="muted small">{n(got.data.count)} events; {howRead(got.data.read || {})}.</p>
-            {fresh.length === 0 ? <p className="muted small">Each shape is a kind of event already.</p> : (
-              <ul className="wb-kinds" aria-label="Suggested kinds of event">
-                {fresh.map((k) => <Suggestion key={k.when} k={k} editable={editable} onAccept={() => onAdd([k])} />)}
-              </ul>
-            )}
-            {got.data.kinds_left ? <p className="muted small">{got.data.kinds_left} more shapes not shown.</p> : null}
+            <ul className="wb-kinds" aria-label="The remainder, by shape">
+              {fresh.map((k) => <Suggestion key={k.when} k={k} editable={editable} onAccept={() => onAdd([k])} />)}
+            </ul>
+            {s.kinds_left ? <p className="muted small">{s.kinds_left} more shapes, once these are taken.</p> : null}
           </>
         )}
     </>

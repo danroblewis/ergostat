@@ -432,3 +432,66 @@ def test_the_api_answers(tmp_path):
     assert code == 200 and r["ok"] and r["objects"]["count"] > 0
     code, e = post(live, "events/query", json.dumps({"query": "data.("}).encode(), 3600)
     assert code == 400 and "query" in e["error"]
+    code, f = post(live, "projections/fold", json.dumps({"name": "instance", "yaml": INSTANCE,
+                                                          "events": q["events"][:1]}).encode(), 3600)
+    assert code == 200 and f["ok"]
+
+
+def test_ignore_is_accepted_by_check_and_not_read_by_the_fold(tmp_path):
+    body = INSTANCE.replace("time: data.time\n", "time: data.time\nignore: [type, source, data.version, \"data['detail-type']\"]\n")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    p = project(tmp_path / "a", as_model("instance", body))
+    k = p.model.spec.items["instance"]
+    assert k.ignore == ("type", "source", "data.version", "data['detail-type']")
+    assert "ignore" not in k.definition()            # what the item index is rebuilt by: ignore: changes no object
+    assert [c for c, _ in errors(tmp_path, as_model("x", "ignore: data.version\n"))] == ["bad-ignore"]
+    p2 = project(tmp_path / "b", as_model("instance", INSTANCE))
+    delivered, _ = ec2(seed=3, instances=5, days=1)
+    recorded(p, delivered)
+    recorded(p2, delivered)
+    a = workbench.review(p, {"name": "instance", "yaml": body, "compare": False})
+    b = workbench.review(p2, {"name": "instance", "yaml": INSTANCE, "compare": False})
+    assert a["objects"]["count"] == b["objects"]["count"] and a["fields"] == b["fields"]   # the fold never reads it
+
+
+def test_the_review_reports_the_unmapped_paths(tmp_path):
+    p = project(tmp_path)
+    delivered, _ = ec2(seed=3, instances=5, days=1)
+    recorded(p, delivered)
+    r = workbench.review(p, {"name": "instance", "yaml": INSTANCE, "compare": False})
+    u = {x["path"]: x for x in r["unmapped"]["paths"]}
+    assert r["unmapped"]["count"] > 0 and "type" in u and u["type"]["events"] > 0
+    assert "data.detail.state" not in u and "data.account" not in u          # read by a field, by the key
+    assert not any(x.startswith("data.detail.requestParameters.instancesSet") for x in u)   # each() reads it
+    ign = INSTANCE.replace("time: data.time\n", "time: data.time\nignore: [type, data.detail.userAgent]\n")
+    r2 = workbench.review(p, {"name": "instance", "yaml": ign, "compare": False})
+    u2 = {x["path"] for x in r2["unmapped"]["paths"]}
+    assert "type" not in u2 and not any(x.startswith("data.detail.userAgent") for x in u2)
+    assert r2["unmapped"]["ignored"] == 2
+
+
+def test_suggestions_leave_out_what_the_kinds_accepted_take(tmp_path):
+    p = project(tmp_path)
+    delivered, _ = ec2(seed=5, instances=10, days=2)
+    recorded(p, delivered)
+    q = "data.source == 'aws.ec2'"
+    first = workbench.suggest(p, {"query": q})
+    assert first["kinds"] and all(k["count"] > 0 for k in first["kinds"])
+    after = workbench.suggest(p, {"query": q, "taken": [k["when"] for k in first["kinds"]]})
+    assert after["untaken"] == first["count"] - sum(k["count"] for k in first["kinds"])
+    assert all(k["count"] > 0 for k in after["kinds"])
+    if not first.get("kinds_left"):
+        assert after["kinds"] == [] and after["untaken"] == 0
+
+
+def test_one_event_folded_by_a_draft(tmp_path):
+    p = project(tmp_path)
+    delivered, _ = ec2(seed=3, instances=5, days=1)
+    recorded(p, delivered)
+    e = eventquery.run(p.events, {"query": "data['detail-type'] == 'EC2 Instance State-change Notification'",
+                                  "limit": 1})["events"][0]
+    r = workbench.folded(p, {"name": "instance", "yaml": INSTANCE, "events": [e]})
+    assert r["ok"] and r["took"][e["id"]] == "state-change"
+    o = r["objects"][0]
+    assert o["state"] == e["data"]["detail"]["state"] and o["fields"]["account"] == e["data"]["account"]

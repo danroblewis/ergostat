@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
-import type { JsonPath } from "../../../components/JsonValues";
+import type { JsonPath, PathMark } from "../../../components/JsonValues";
 import { useSend } from "../../../hooks/useSend";
-import { FOLDS, ofKind, pathExpr, TYPES, type Draft, type KindDef } from "./draft";
-import { EventList, short, type QEvent } from "./common";
+import { fieldName, guessType, isPath, ofKind, pathExpr, reads, TYPES, underAny, type Draft, type KindDef } from "./draft";
+import { EventValues, short, type QEvent } from "./common";
 import { Commit } from "./KindsStep";
+import { KeyParts } from "./WhatStep";
 
-/* Step 3, the mapping: the fields declared at the top (fields:, each its type, values, fold and description), the
-   projection's key (and time:), and, per kind of event, its key (the projection's or its own) and the expression for
-   each field it tells. A value clicked in one of that kind's sample events writes its path where it is put. */
+/* Step 4, the mapping: per kind of event, one of its events shown as it reads (each value read into a field tagged
+   with the field, a value nothing reads standing out, an ignored path hidden) beside the record that event makes; a
+   value clicked is put into a field, the key, a new field, or ignored (in every kind's events); what another kind
+   already maps the same way is offered at once. And the event's own time (time:). */
 
 export interface MappingEdits {
   setTop: (k: "key" | "time", v: string) => void;
@@ -16,89 +18,149 @@ export interface MappingEdits {
   renameField: (from: string, to: string) => void;
   removeField: (name: string) => void;
   setKind: (kind: string, entry: string, v: string) => void;
+  setKinds: (kind: string, pairs: [string, string][]) => void;
+  createAndMap: (kind: string, field: string, type: string, expr: string) => void;
+  ignore: (path: string) => void;
   setKeyParts: (parts: string[]) => void;
   setKindKeyParts: (kind: string, parts: string[]) => void;
 }
 
-/** A key as its parts, one expression a row (a composite key: account, region, id), with a row added or taken out.
- *  Each row is an expression as written: no brackets or quoting. */
-function KeyParts({ parts, label, editable, onChange }: {
-  parts: string[]; label: string; editable: boolean; onChange: (parts: string[]) => void;
+/** Every path in an event (its parts' and all within them), and its values' paths alone. */
+function pathsOf(e: QEvent): { all: JsonPath[]; leaves: JsonPath[] } {
+  const all: JsonPath[] = [], leaves: JsonPath[] = [];
+  const walk = (v: unknown, p: JsonPath) => {
+    all.push(p);
+    if (v !== null && typeof v === "object") {
+      const es = Array.isArray(v) ? v.map((x, i) => [i, x] as [number, unknown]) : Object.entries(v as Record<string, unknown>);
+      if (es.length) { for (const [k, x] of es) walk(x, [...p, k]); return; }
+    }
+    leaves.push(p);
+  };
+  for (const [k, v] of [["type", e.type], ["key", e.item], ["source", e.source], ["data", e.data]] as [string, unknown][]) if (v != null) walk(v, [k]);
+  return { all, leaves };
+}
+
+/** The record one event makes by the draft (POST /api/projections/fold). */
+function Made({ e, kind, fold }: { e: QEvent; kind: string; fold: (evs: QEvent[]) => Record<string, unknown> | null }) {
+  const got = useSend<any>("projections/fold", fold([e]), 500);
+  const r = got.data;
+  let body;
+  if (got.error) body = <p className="note lvl-error small">{got.error}</p>;
+  else if (!r) body = <p className="muted small">Folding…</p>;
+  else if (!r.ok) body = <p className="muted small">The draft does not check yet.</p>;
+  else if (r.took?.[e.id] && r.took[e.id] !== kind) body = <p className="muted small">{r.took[e.id]} takes this event first.</p>;
+  else if (!r.objects.length) body = <p className="muted small">Keyed to nothing: its key reads no value here.</p>;
+  else body = r.objects.slice(0, 3).map((o: any) => (
+    <div key={o.key}>
+      <p className="small"><code>{o.key}</code></p>
+      <ul className="jv">
+        {o.state != null && <li><span className="jv-key">state</span> <span className="jv-val">{JSON.stringify(o.state)}</span></li>}
+        {Object.entries(o.fields || {}).map(([f, v]) => <li key={f}><span className="jv-key">{f}</span> <span className="jv-val">{short(v, 80)}</span></li>)}
+        {o.state == null && !Object.keys(o.fields || {}).length && <li className="muted">no field yet</li>}
+      </ul>
+      {o.refused?.length > 0 && <p className="lvl-error small">refused: {o.refused[0]}</p>}
+    </div>
+  ));
+  return <div className="wb-record" aria-label={`The record ${kind}'s event makes`}><h4 className="small muted">The record it makes</h4>{body}</div>;
+}
+
+/** The value picked: into a field, a part of the key, a new field made there and then, or ignored everywhere. */
+function Picked({ k, draft, ed, editable, path, value, onDone }: {
+  k: KindDef; draft: Draft; ed: MappingEdits; editable: boolean; path: JsonPath; value: unknown; onDone: () => void;
 }) {
-  const [adding, setAdding] = useState("");
-  const add = () => { const v = adding.trim(); if (v) { onChange([...parts, v]); setAdding(""); } };
+  const expr = pathExpr(path);
+  const last = [...path].reverse().find((x) => typeof x === "string") as string | undefined;
+  const [name, setName] = useState(() => fieldName(last));
+  const [type, setType] = useState(() => guessType(value));
+  const taken = draft.fields.some((f) => f.name === name.trim());
+  const ok = /^[A-Za-z_][\w-]*$/.test(name.trim()) && !taken;
+  const done = (f: () => void) => () => { f(); onDone(); };
   return (
-    <ol className="wb-keyparts" aria-label={label}>
-      {parts.map((p, i) => (
-        <li key={`${i}:${p}`}>
-          <Commit className="mono" value={p} label={`${label}, part ${i + 1}`} disabled={!editable}
-            onCommit={(v) => onChange(parts.map((x, j) => (j === i ? v : x)).filter((x) => x.trim()))} />
-          {parts.length > 1 && <button type="button" className="ghost" disabled={!editable} aria-label={`Take out part ${i + 1}`}
-            onClick={() => onChange(parts.filter((_, j) => j !== i))}>×</button>}
-        </li>
-      ))}
-      <li>
-        <input className="mono" value={adding} onChange={(e) => setAdding(e.target.value)} disabled={!editable}
-          placeholder={parts.length ? "another part (a composite key)" : "an expression: key, data.id, ..."}
-          aria-label={`${label}, a new part`} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />{" "}
-        <button type="button" disabled={!editable || !adding.trim()} onClick={add}>Add</button>
-      </li>
-    </ol>
-  );
-}
-
-function Fields({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; editable: boolean }) {
-  const [name, setName] = useState("");
-  const add = () => { const v = name.trim(); if (/^[A-Za-z_][\w-]*$/.test(v)) { ed.addField(v); setName(""); } };
-  return (
-    <table className="wb-table" aria-label="Its fields">
-      <thead><tr><th>Field</th><th>type</th><th>values</th><th>fold</th><th>description</th><th /></tr></thead>
-      <tbody>
+    <div className="wb-picked" role="group" aria-label="The value picked">
+      <p><code>{expr}</code> = <code>{short(value)}</code>{" "}
+        <button type="button" className="ghost" aria-label="Forget the value picked" onClick={onDone}>×</button></p>
+      <p>Into{" "}
         {draft.fields.map((f) => (
-          <tr key={f.name}>
-            <td><Commit value={f.name} label={`The name of ${f.name}`} disabled={!editable} onCommit={(v) => v.trim() && ed.renameField(f.name, v.trim())} /></td>
-            <td><Commit value={f.type} label={`The type of ${f.name}`} disabled={!editable} placeholder="any"
-              onCommit={(v) => ed.setField(f.name, "type", v.trim())} /></td>
-            <td><Commit className="mono" value={f.values} label={`The values of ${f.name}`} disabled={!editable} placeholder="any"
-              onCommit={(v) => ed.setField(f.name, "values", v)} /></td>
-            <td>
-              <select value={f.fold || "replace"} aria-label={`The fold of ${f.name}`} disabled={!editable}
-                onChange={(e) => ed.setField(f.name, "fold", e.target.value)}>
-                {(FOLDS.includes(f.fold) || !f.fold ? FOLDS : [f.fold, ...FOLDS]).map((x) => <option key={x}>{x}</option>)}
-              </select>
-            </td>
-            <td><Commit value={f.description} label={`The description of ${f.name}`} disabled={!editable}
-              onCommit={(v) => ed.setField(f.name, "description", v)} /></td>
-            <td><button type="button" className="ghost" disabled={!editable} aria-label={`Remove ${f.name}`} onClick={() => ed.removeField(f.name)}>×</button></td>
-          </tr>
-        ))}
-        <tr>
-          <td colSpan={6}>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="a field's name" aria-label="A new field's name"
-              disabled={!editable} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />{" "}
-            <button type="button" disabled={!editable || !name.trim()} onClick={add}>Add a field</button>
-          </td>
-        </tr>
-      </tbody>
-      <tfoot><tr><td colSpan={6} className="muted small">type: {TYPES.join(", ")}; values: the only values it may hold (the field named <code>state</code> is the lifecycle).</td></tr></tfoot>
-    </table>
+          <button key={f.name} type="button" disabled={!editable} onClick={done(() => ed.setKind(k.name, f.name, expr))}>{f.name}</button>
+        ))}{" "}
+        <button type="button" disabled={!editable}
+          onClick={done(() => ed.setKindKeyParts(k.name, [...(k.keyParts.length ? k.keyParts : draft.keyParts), expr]))}>its key part</button>{" "}
+        <button type="button" disabled={!editable} onClick={done(() => ed.ignore(expr))}>ignore this path</button>
+      </p>
+      <p>New field{" "}
+        <input value={name} onChange={(e) => setName(e.target.value)} aria-label="The new field's name" className="mono" spellCheck={false} />{" "}
+        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="The new field's type">
+          {TYPES.map((t) => <option key={t}>{t}</option>)}
+        </select>{" "}
+        <button type="button" disabled={!editable || !ok} onClick={done(() => ed.createAndMap(k.name, name.trim(), type, expr))}>Create and map</button>
+        {taken && <span className="muted small"> (a field already)</span>}
+      </p>
+    </div>
   );
 }
 
-function KindMapping({ k, draft, ed, editable }: { k: KindDef; draft: Draft; ed: MappingEdits; editable: boolean }) {
+function KindMapping({ k, draft, ed, editable, fold }: {
+  k: KindDef; draft: Draft; ed: MappingEdits; editable: boolean; fold: (evs: QEvent[]) => Record<string, unknown> | null;
+}) {
   const q = ofKind(draft.query, k.when);
-  const body = useMemo(() => (q.trim() ? { query: q, limit: 2 } : null), [q]);
+  const body = useMemo(() => (q.trim() ? { query: q, limit: 5 } : null), [q]);
   const got = useSend<{ events: QEvent[] }>("events/query", body, 600);
-  const [picked, setPicked] = useState<JsonPath | null>(null);
+  const evs = got.data?.events || [];
+  const [at, setAt] = useState(0);
+  const e = evs.length ? evs[Math.min(at, evs.length - 1)] : null;
+  const [picked, setPicked] = useState<{ path: JsonPath; value: unknown } | null>(null);
+  const [showIgnored, setShowIgnored] = useState(false);
   const [ownKey, setOwnKey] = useState(false);
-  const expr = picked ? pathExpr(picked) : "";
+  const [adding, setAdding] = useState<string[]>([]);
+  const [unticked, setUnticked] = useState<Set<string>>(new Set());
   const told: Record<string, string> = Object.fromEntries(k.values);
-  const extra = k.values.filter(([f]) => !draft.fields.some((x) => x.name === f));
-  const put = (entry: string) => { ed.setKind(k.name, entry, expr); setPicked(null); };
-  const putKey = () => { ed.setKindKeyParts(k.name, [...(k.keyParts.length ? k.keyParts : []), expr]); setOwnKey(true); setPicked(null); };
+  const keyParts = k.keyParts.length ? k.keyParts : draft.keyParts;
+
+  const mark = (p: JsonPath): PathMark => {
+    const x = pathExpr(p);
+    if (underAny(x, draft.ignore)) return { ignored: true };
+    for (const [f, ex] of k.values) if (reads(ex, x)) return { to: f };
+    if (keyParts.some((kp) => reads(kp, x)) || (!keyParts.length && x === "key")) return { to: "key" };
+    if (draft.time && reads(draft.time, x)) return { to: "time" };
+    return {};
+  };
+  const paths = e ? pathsOf(e) : { all: [], leaves: [] };
+  const nIgnored = paths.leaves.filter((p) => underAny(pathExpr(p), draft.ignore)).length;
+
+  // what another kind maps by a plain path that this kind's events have too, and this kind does not tell yet
+  const same = useMemo(() => {
+    const present = new Set(evs.flatMap((x) => pathsOf(x).all.map(pathExpr)));
+    const out: [string, string][] = [];
+    for (const o of draft.kinds) {
+      if (o.name === k.name) continue;
+      for (const [f, ex] of o.values) {
+        if (f in told || !draft.fields.some((x) => x.name === f) || out.some(([g]) => g === f)) continue;
+        if (isPath(ex) && present.has(ex.trim())) out.push([f, ex.trim()]);
+      }
+    }
+    return out;
+  }, [evs, draft, k.name]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const chosen = same.filter(([f]) => !unticked.has(f));
+
+  const rows = [...k.values.map(([f]) => f), ...adding.filter((f) => !(f in told))];
+  const untold = draft.fields.map((f) => f.name).filter((f) => !rows.includes(f));
+
   return (
     <details className="wb-map" open>
       <summary><strong>{k.name}</strong> <code className="muted small">{short(k.when, 80)}</code></summary>
+      {same.length > 0 && (
+        <p className="wb-same" data-testid={`same-${k.name}`}>
+          Map these the same way:{" "}
+          {same.map(([f, ex]) => (
+            <label key={f} className="wb-same-one">
+              <input type="checkbox" checked={!unticked.has(f)} aria-label={`${ex} → ${f}`}
+                onChange={() => setUnticked((s) => { const x = new Set(s); if (x.has(f)) x.delete(f); else x.add(f); return x; })} />
+              <code>{ex}</code> → {f}
+            </label>
+          ))}{" "}
+          <button type="button" disabled={!editable || !chosen.length} onClick={() => ed.setKinds(k.name, chosen)}>Apply</button>
+        </p>
+      )}
       <table className="wb-table" aria-label={`What ${k.name} tells`}>
         <tbody>
           <tr>
@@ -119,48 +181,65 @@ function KindMapping({ k, draft, ed, editable }: { k: KindDef; draft: Draft; ed:
               )}
             </td>
           </tr>
-          {[...draft.fields.map((f) => f.name), ...extra.map(([f]) => f)].map((f) => (
+          {rows.map((f) => (
             <tr key={f}>
               <th scope="row">{f}</th>
               <td className="wb-grow"><Commit className="mono" value={told[f] ?? ""} label={`${k.name}: ${f}`} disabled={!editable}
-                placeholder="not told" onCommit={(v) => ed.setKind(k.name, f, v)} /></td>
+                placeholder="an expression of the event" onCommit={(v) => ed.setKind(k.name, f, v)} /></td>
             </tr>
           ))}
+          {untold.length > 0 && (
+            <tr>
+              <th scope="row" />
+              <td>
+                <select value="" aria-label={`${k.name}: tell another field`} disabled={!editable}
+                  onChange={(ev) => { const f = ev.target.value; if (f) setAdding((a) => [...a, f]); }}>
+                  <option value="">tell another field…</option>
+                  {untold.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
       {picked && (
-        <p className="wb-picked">
-          <code>{expr}</code> into{" "}
-          {draft.fields.map((f) => (
-            <button key={f.name} type="button" disabled={!editable} onClick={() => put(f.name)}>{f.name}</button>
-          ))}{" "}
-          <button type="button" disabled={!editable} onClick={putKey}>a part of its own key</button>{" "}
-          <button type="button" className="ghost" aria-label="Forget the value picked" onClick={() => setPicked(null)}>×</button>
-        </p>
+        <Picked key={JSON.stringify(picked.path)} k={k} draft={draft} ed={ed} editable={editable} path={picked.path} value={picked.value}
+          onDone={() => setPicked(null)} />
       )}
-      <p className="muted small">Its events: click a value to read a field from it.</p>
-      {got.error ? <p className="note lvl-error">{got.error}</p> : got.data && (
-        <EventList events={got.data.events} open picked={picked ? JSON.stringify(picked) : undefined} onPick={(p) => setPicked(p)} />
+      {got.error ? <p className="note lvl-error">{got.error}</p> : !e ? <p className="muted small">{got.data ? "None of its events in the query's result." : "Reading…"}</p> : (
+        <>
+          <p className="muted small wb-sample-nav">
+            An event of it{evs.length > 1 && <>, {at + 1} of {evs.length}{" "}
+              <button type="button" className="ghost" aria-label="The previous event" disabled={at === 0} onClick={() => setAt(at - 1)}>‹</button>
+              <button type="button" className="ghost" aria-label="The next event" disabled={at >= evs.length - 1} onClick={() => setAt(at + 1)}>›</button></>}
+            : click a value to put it somewhere.
+            {nIgnored > 0 && <>{" "}<button type="button" className="ghost small" aria-pressed={showIgnored}
+              onClick={() => setShowIgnored(!showIgnored)}>{showIgnored ? "hide" : "show"} ignored ({nIgnored})</button></>}
+          </p>
+          <div className="wb-pair">
+            <div className="wb-sample" aria-label={`An event of ${k.name}`}>
+              <EventValues e={e} mark={mark} showIgnored={showIgnored} picked={picked ? JSON.stringify(picked.path) : undefined}
+                onPick={(path, value) => setPicked({ path, value })} />
+            </div>
+            <Made e={e} kind={k.name} fold={fold} />
+          </div>
+        </>
       )}
     </details>
   );
 }
 
-export function MappingStep({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; editable: boolean }) {
+export function MappingStep({ draft, ed, editable, fold }: {
+  draft: Draft; ed: MappingEdits; editable: boolean; fold: (evs: QEvent[]) => Record<string, unknown> | null;
+}) {
   return (
     <>
-      <div className="wb-row">
-        <div className="wb-grow"><span className="small">key</span>{" "}
-          <span className="muted small">(an object's identity; several parts make a composite key)</span>
-          <KeyParts parts={draft.keyParts} label="The projection's key" editable={editable} onChange={ed.setKeyParts} /></div>
-        <label>time <Commit className="mono" value={draft.time} label="The event's own time" disabled={!editable}
+      <p className="wb-row">
+        <label>The event's own time <Commit className="mono" value={draft.time} label="The event's own time" disabled={!editable}
           placeholder="the recorded time" onCommit={(v) => ed.setTop("time", v)} /></label>
-      </div>
-      <h3 className="small">Its fields <span className="muted">(what an object is)</span></h3>
-      <Fields draft={draft} ed={ed} editable={editable} />
-      <h3 className="small">What each kind of event tells</h3>
-      {draft.kinds.length === 0 ? <p className="muted">No kinds of event yet (step 2).</p>
-        : draft.kinds.map((k) => <KindMapping key={k.name} k={k} draft={draft} ed={ed} editable={editable} />)}
+      </p>
+      {draft.kinds.length === 0 ? <p className="muted">No kinds of event yet (step 3).</p>
+        : draft.kinds.map((k) => <KindMapping key={k.name} k={k} draft={draft} ed={ed} editable={editable} fold={fold} />)}
     </>
   );
 }

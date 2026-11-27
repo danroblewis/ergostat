@@ -1470,7 +1470,7 @@ def handler(project):
                     from .numbers_api import save
                     code, data = save(live, body, _window(q), reset=u.path.endswith("/reset"))
                 elif u.path in ("/api/projections/try", "/api/projections/save", "/api/projections/review",
-                                "/api/events/query", "/api/events/kinds"):   # the projection workbench (SPEC §5a)
+                                "/api/projections/fold", "/api/events/query", "/api/events/kinds"):   # the projection workbench (SPEC §5a)
                     from .projection_api import BODY_MOST
                     from .projection_api import post as projection
                     if n > len(body):

@@ -3,16 +3,23 @@
 
 - ``suggest(p, ask)``: the kinds of event a query's result holds, suggested from the data (``POST /api/events/kinds``):
   the result broken down by shape (the paths present, and the values that split it into structurally different
-  groups), each with its count, a suggested ``when:``, the paths every event of it has, and two trimmed samples.
+  groups), each with its count, a suggested ``when:``, the paths every event of it has, and two trimmed samples. Given
+  ``taken`` (the ``when:``s of the kinds accepted), only the events none of them takes are suggested from, and a
+  suggestion that would take no event (the first whose ``when:`` holds takes it) is left out.
+- ``folded(p, ask)``: events folded by a draft into new objects (``POST /api/projections/fold``): the record one
+  sample event makes.
 - ``review(p, ask)``: a draft definition held against its events (``POST /api/projections/review``): per kind of event
   its count and the events it took; the remainder grouped by shape; per field its value distribution across the
   objects; per ``one of`` field the objects' lifecycle (its transitions, counted); the residual (the remainder, events
   with no key, refused events grouped by reason, contradictions, possible splits and merges); the comparison with the
-  saved definition; and, given ``item``, one object's timeline."""
+  saved definition; the unmapped paths (paths in the kinds' events no field, key or ``time:`` reads, and not in
+  ``ignore:``: what is left to decide); and, given ``item``, one object's timeline."""
 
 from __future__ import annotations
 
+import ast
 import json
+import keyword
 import re
 import time
 from collections import Counter
@@ -155,13 +162,165 @@ def shapes(evs: list[dict], cap: int = GROUPS) -> dict:
     return {"count": len(evs), "kinds": out, **({"kinds_left": len(groups) - cap} if len(groups) > cap else {})}
 
 
+def _whens(texts) -> list:
+    """``when:``s as the query engine compiles them (one that does not compile is left out)."""
+    from ..eventquery import QueryError, compile_query
+    out = []
+    for t in texts or ():
+        try:
+            out.append(compile_query(t if isinstance(t, str) else json.dumps(t)))
+        except QueryError:
+            pass
+    return out
+
+
+def _holds(q, e: dict) -> bool:
+    from ..eventquery import _env
+    from .handlers import evaluate
+    return bool(q.literal) if q.tree is None else bool(evaluate(q, _env(e)))
+
+
 def suggest(p, ask: dict) -> dict:
-    """``POST /api/events/kinds``: ``{query, since?, until?, events?}`` → the kinds of event its result holds."""
+    """``POST /api/events/kinds``: ``{query, since?, until?, events?, taken?}`` → the kinds of event its result holds
+    (``taken``: the accepted kinds' ``when:``s; only the events none of them takes are suggested from, and only
+    suggestions that would take one)."""
     if not isinstance(ask, dict):
-        raise TryError("a suggestion is {query, since?, until?, events?}")
+        raise TryError("a suggestion is {query, since?, until?, events?, taken?}")
     t0 = time.time()
     evs, how = events_for(p, ask.get("query"), ask.get("since"), ask.get("until"), ask.get("events"))
-    return {"query": ask.get("query"), "read": how, **shapes(evs), "took_s": round(time.time() - t0, 3)}
+    taken = _whens(ask.get("taken"))
+    left = [e for e in evs if not any(_holds(q, e) for q in taken)] if taken else evs
+    got = shapes(left)
+    rest, kept = left, []
+    for k in got["kinds"]:                       # in order, the first whose when: holds takes an event
+        q = _whens([k["when"]])
+        if not q:
+            continue
+        mine = [e for e in rest if _holds(q[0], e)]
+        if mine:
+            rest = [e for e in rest if not _holds(q[0], e)] if len(mine) < len(rest) else []
+            kept.append({**k, "count": len(mine)})
+    return {"query": ask.get("query"), "taken": list(ask.get("taken") or []), "read": how, **got, "kinds": kept,
+            "count": len(evs), "untaken": len(left),
+            "took_s": round(time.time() - t0, 3)}
+
+
+# ---- paths: what the kinds' events hold, and what the draft reads of them
+
+ROOTS = ("data", "type", "key", "source", "time")
+UNMAPPED_READ = 300        # events read per kind of event for its paths
+
+
+def chain(n) -> tuple | None:
+    """The path an expression names (``data.detail['instance-id']`` → (data, detail, instance-id)); through a list's
+    member (``data.items[0].id``), the list's path; None when it names none."""
+    parts: list = []
+    while isinstance(n, (ast.Attribute, ast.Subscript)):
+        if isinstance(n, ast.Attribute):
+            parts.append(n.attr)
+        elif isinstance(n.slice, ast.Constant) and isinstance(n.slice.value, str):
+            parts.append(n.slice.value)
+        else:
+            parts = []                           # a list's member, or a lookup by a value: the path up to it
+        n = n.value
+    if isinstance(n, ast.Name) and n.id in ROOTS:
+        return (n.id, *reversed(parts))
+    return None
+
+
+def refs(tree, out: set) -> set:
+    """Every path an expression reads (its longest: ``data.a.b``, not also ``data.a``)."""
+    if tree is None:
+        return out
+    c = chain(tree)
+    if c is not None:
+        out.add(c)
+        m = tree
+        while isinstance(m, (ast.Attribute, ast.Subscript)):
+            if isinstance(m, ast.Subscript) and not isinstance(m.slice, ast.Constant):
+                refs(m.slice, out)
+            m = m.value
+        return out
+    for x in ast.iter_child_nodes(tree):
+        refs(x, out)
+    return out
+
+
+def path_of_text(s: str) -> tuple | None:
+    """An ``ignore:`` entry as a path (None: not one)."""
+    try:
+        return chain(ast.parse(s.strip(), mode="eval").body)
+    except SyntaxError:
+        return None
+
+
+def path_text(parts: tuple) -> str:
+    """A path as the expression language (and the page) writes it."""
+    out = str(parts[0])
+    for x in parts[1:]:
+        out += f".{x}" if IDENT.match(str(x)) and not keyword.iskeyword(str(x)) else f"[{str(x)!r}]"
+    return out
+
+
+def leaves(e: dict) -> set:
+    """An event's paths to its values (a list a value whole): its type, source, key and data's."""
+    out = {("type",)} if e.get("type") is not None else set()
+    for k in ("source", "item"):
+        if e.get(k) is not None:
+            out.add(("source",) if k == "source" else ("key",))
+
+    def walk(v, path, depth):
+        if isinstance(v, dict) and v and depth < 8:
+            for k, x in v.items():
+                walk(x, (*path, str(k)), depth + 1)
+        elif path != ("data",):
+            out.add(path)
+    walk(e.get("data") if isinstance(e.get("data"), dict) else {}, ("data",), 0)
+    return out
+
+
+def covered(path: tuple, by) -> bool:
+    """Whether a path is read (or ignored) by one of ``by``: the same path, or one inside the other."""
+    return any(path[:len(b)] == b or b[:len(path)] == path for b in by)
+
+
+def unmapped(kind, evs: list[dict], took: dict) -> dict:
+    """The paths in the kinds' events that no field, key or ``time:`` of the kind that took them reads, and that are
+    not ignored, each with how many events have it and which kinds: what is left to decide."""
+    ignored = {x for x in (path_of_text(s) for s in kind.ignore) if x is not None}
+    base: set = set()
+    for v in (kind.key or []):
+        refs(v.tree, base)
+    if kind.key is None:
+        base.add(("key",))
+    read = {}
+    for k in kind.kinds:
+        r = set(base) if k.key is None else set()
+        if kind.own_time is not None:
+            refs(kind.own_time.tree, r)
+        for v in (k.key or []):
+            refs(v.tree, r)
+        for v in k.fields.values():
+            refs(v.tree, r)
+        read[k.name] = r
+    seen: dict[str, int] = Counter()
+    count: Counter = Counter()
+    where: dict[tuple, set] = {}
+    for e in evs:
+        kn = took.get(e["id"])
+        if kn is None or kn not in read or seen[kn] >= UNMAPPED_READ:
+            continue
+        seen[kn] += 1
+        for path in leaves(e):
+            if covered(path, read[kn]) or covered(path, ignored):
+                continue
+            count[path] += 1
+            where.setdefault(path, set()).add(kn)
+    order = [k.name for k in kind.kinds]
+    rows = [{"path": path_text(x), "events": c, "kinds": sorted(where[x], key=order.index)}
+            for x, c in count.most_common()]
+    return {"count": len(rows), "paths": rows[:FIELDS_MOST], **({"paths_left": len(rows) - FIELDS_MOST}
+            if len(rows) > FIELDS_MOST else {}), "ignored": len(kind.ignore), "read": sum(seen.values())}
 
 
 # ---- a draft, reviewed
@@ -460,6 +619,7 @@ def review(p, ask: dict) -> dict:
         "lifecycles": lives,
         "residual": residual(kind, items, by_key, took, remainder, unkeyed, lives),
         "duplicates": trying._dups([e for e in evs if took.get(e["id"]) is not None]),
+        "unmapped": unmapped(kind, evs, took),
     })
     if ask.get("compare", True) is not False and trying.existing(p.model.spec, name) is not None:
         out["compared"] = compared(p, name, items, since, until)
@@ -470,3 +630,24 @@ def review(p, ask: dict) -> dict:
         out["timeline"] = timeline(kind, items.get(k), by_key.get(k) or [], k, took)
     out["took_s"] = round(time.time() - t0, 3)
     return out
+
+
+def folded(p, ask: dict) -> dict:
+    """``POST /api/projections/fold``: ``{name, yaml, events, system?}`` → the objects those events alone make by the
+    draft (``objects: [{key, state, fields, refused}]``), and the kind of event that took each (``took``)."""
+    if not isinstance(ask, dict) or not isinstance(ask.get("yaml"), str) or not isinstance(ask.get("events"), list):
+        raise TryError("a fold is {name, yaml, events}")
+    if getattr(p.model, "spec", None) is None:
+        raise TryError("the model is an ergostat.toml: projections are declared in ergostat.yaml")
+    name, text = trying.body_of(ask.get("name"), ask["yaml"])
+    if not name:
+        raise TryError("name: the projection's name")
+    spec, _, errors = trying.compiled(p, name, text, str(ask.get("system") or ""))
+    if errors:
+        return {"ok": False, "errors": errors[:GROUPS]}
+    kind = spec.items[name]
+    evs = trying._normal(ask["events"][:50], time.time())
+    items, _, took, remainder, unkeyed = fold_all(kind, evs)
+    return {"ok": True, "took": took, "remainder": len(remainder), "no_key": len(unkeyed),
+            "objects": [{"key": k, "state": it.state, "fields": trim(it.fields),
+                         "refused": [said(r["why"], 160) for r in it.refused][:SAMPLES]} for k, it in items.items()]}

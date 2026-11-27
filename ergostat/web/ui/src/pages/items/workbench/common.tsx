@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { JsonValues, type JsonPath } from "../../../components/JsonValues";
+import { JsonValues, type JsonPath, type PathMark } from "../../../components/JsonValues";
 import { stamp } from "../../../lib/format";
 
 /** An event as the query engine gives it (POST /api/events/query). */
@@ -46,12 +46,15 @@ function telling(d: unknown): string[] {
 }
 
 /** An event's parts as the expressions name them (type, key, source, data), each value a button when `onPick`. */
-export function EventValues({ e, onPick, picked }: { e: QEvent; onPick?: (p: JsonPath, v: unknown) => void; picked?: string }) {
+export function EventValues({ e, onPick, picked, mark, showIgnored }: {
+  e: QEvent; onPick?: (p: JsonPath, v: unknown) => void; picked?: string; mark?: (p: JsonPath) => PathMark | undefined; showIgnored?: boolean;
+}) {
   const parts: [string, unknown][] = [["type", e.type], ["key", e.item], ["source", e.source], ["data", e.data]];
   return (
     <ul className="jv jv-top">
-      {parts.filter(([, v]) => v != null).map(([k, v]) => (
-        <li key={k}><span className="jv-key">{k}</span> <JsonValues value={v} path={[k]} onPick={onPick} picked={picked} /></li>
+      {parts.filter(([k, v]) => v != null && (showIgnored || !mark?.([k])?.ignored)).map(([k, v]) => (
+        <li key={k} className={mark?.([k])?.ignored ? "jv-ignored" : undefined}><span className="jv-key">{k}</span>{" "}
+          <JsonValues value={v} path={[k]} onPick={onPick} picked={picked} mark={mark} showIgnored={showIgnored} /></li>
       ))}
     </ul>
   );

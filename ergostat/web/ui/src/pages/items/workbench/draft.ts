@@ -5,10 +5,10 @@ import { Document, isMap, isScalar, isSeq, parse as parseYaml, parseDocument, ty
 
 export interface FieldDef { name: string; type: string; values: string; fold: string; description: string }
 export interface KindDef { name: string; when: string; key: string; keyParts: string[]; values: [string, string][] }
-export interface Draft { query: string; key: string; keyParts: string[]; time: string; fields: FieldDef[]; kinds: KindDef[] }
+export interface Draft { query: string; key: string; keyParts: string[]; time: string; ignore: string[]; fields: FieldDef[]; kinds: KindDef[] }
 
 const OUT = { lineWidth: 0, flowCollectionPadding: false } as const;
-const ORDER = ["query", "key", "time", "fields", "events"];
+const ORDER = ["query", "key", "time", "ignore", "fields", "events"];
 
 export const TYPES = ["text", "number", "integer", "boolean", "time", "duration", "map", "list of text"];
 export const FOLDS = ["replace", "first", "add", "min", "max", "append", "union", "merge", "count", "mean", "stdev", "rms"];
@@ -61,7 +61,8 @@ export function read(text: string): { draft: Draft } | { error: string } {
     return { name, when: said(e.when), key: said(e.key), keyParts: partsOf(e.key),
       values: Object.entries(e).filter(([k]) => k !== "when" && k !== "key").map(([k, x]) => [k, said(x)] as [string, string]) };
   });
-  return { draft: { query: said(o.query), key: said(o.key), keyParts: partsOf(o.key), time: said(o.time), fields, kinds } };
+  const ignore = Array.isArray(o.ignore) ? o.ignore.filter((x: unknown) => typeof x === "string") as string[] : [];
+  return { draft: { query: said(o.query), key: said(o.key), keyParts: partsOf(o.key), time: said(o.time), ignore, fields, kinds } };
 }
 
 // ---- edits: each takes the text and gives it back changed (unchanged when the text does not parse)
@@ -159,6 +160,10 @@ export const setKindKeyParts = (text: string, kind: string, parts: string[]) =>
     if (!isMap(p.value)) { const e = doc.createNode({}) as YAMLMap; e.flow = false; p.value = e; }
     put(doc, p.value as YAMLMap, "key", keyValue(parts), ["when", "key"]);
   });
+
+/** The paths known not to matter (`ignore:`): the workbench's list, which the fold never reads (none: taken out). */
+export const setIgnore = (text: string, paths: string[]) =>
+  edit(text, (doc, top) => put(doc, top, "ignore", paths.length ? paths : "", ORDER));
 
 export const addField = (text: string, name: string, type = "text") =>
   edit(text, (doc, top) => {
@@ -260,6 +265,37 @@ export function narrowed(query: string, cond: string): string {
   const q = query.trim();
   if (!q) return cond;
   return /\bor\b/.test(q) ? `(${q}) and ${cond}` : `${q} and ${cond}`;
+}
+
+// ---- paths: what reads each one
+
+/** Whether `path` is one of `paths` or under one of them. */
+export function underAny(path: string, paths: string[]): boolean {
+  return paths.some((x) => path === x || path.startsWith(x + ".") || path.startsWith(x + "["));
+}
+
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Whether expression `expr` reads `path` (the path itself, or inside a call: `set(data.a)`, `data.a.split('/')`). */
+export function reads(expr: string, path: string): boolean {
+  return new RegExp(`(^|[^\\w.'\\]])${esc(path)}(?![\\w\\[])(?!\\.[A-Za-z_]\\w*(?![\\w(]))`).test(expr);
+}
+
+/** A plain path expression (`data.detail['instance-id']`), nothing more. */
+export const isPath = (s: string) => /^(data|type|key|source|time)((\.[A-Za-z_]\w*)|(\['[^']*'\])|(\[\d+\]))*$/.test(s.trim());
+
+/** A field's name made from a JSON key (`instance-id` → instance_id, `instanceType` → instance_type). */
+export function fieldName(k: string | number | undefined): string {
+  const s = String(k ?? "").replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  return !s ? "field" : /^[a-z_]/.test(s) ? s : `f_${s}`;
+}
+
+/** A field's type guessed from a value: text, integer, number, boolean or time. */
+export function guessType(v: unknown): string {
+  if (typeof v === "boolean") return "boolean";
+  if (typeof v === "number") return Number.isInteger(v) ? "integer" : "number";
+  if (typeof v === "string" && /^\d{4}-\d\d-\d\d[T ]\d\d:\d\d/.test(v)) return "time";
+  return "text";
 }
 
 /** The query's events of one kind: the query and its `when:`. */

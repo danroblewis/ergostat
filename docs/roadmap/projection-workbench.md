@@ -65,18 +65,25 @@ projections:
 
 ## The workbench (on the projection's list page, in edit mode; and for a new projection, from the nav bar's `+`)
 
-1. **Query.** The whole record searchable, refined step by step; every change shows what it adds and drops
-   (+212 events, −3). A time range. The result: the projection's events, with a sample shown.
-2. **Kinds of event.** The result set broken down by shape (the fields present and the values that split it),
-   suggested from the data; the user confirms, renames and edits them into `events:` entries with their `when:`. The
-   remainder (events no kind takes) always visible, grouped by shape.
-3. **Mapping.** Per kind of event: its key (default or its own), and each field it tells, picked from the values seen
-   in that kind's events. The fields declared at the top with their types and folds.
-4. **Review.** Every field present in the result set with its value distribution; histograms and lifecycle plots of
-   the projected objects; one object's timeline (its events in time order, which kind took each, what each changed);
-   the residual — the remainder, events with no key, refused values, contradictions (impossible histories,
-   objects split under two keys or merged under one); and a comparison with the saved definition (objects that
-   appear, disappear or change). Save writes the YAML.
+1. **What it is.** The object's identity first: its key and its fields (type, values, fold, description). Then the
+   query finds its parts (the owner, 2026-11-27: "I want to know what my thing is first, then I query to make sure I
+   have all the parts").
+2. **Query.** The whole record searchable, refined step by step; every change shows what it adds and drops
+   (+212 events, −3). A time range. Right after its count, what the kinds of event in the result cover, and Accept all.
+   The result's newest events, folded.
+3. **Kinds of event.** The result set broken down by shape (the fields present and the values that split it),
+   suggested from the data, only from the events no accepted kind takes, and never a kind that would take nothing;
+   the user confirms, renames and edits them into `events:` entries with their `when:`.
+4. **Mapping.** Per kind of event: its key (default or its own), the fields it tells, and one of its events shown as
+   the draft reads it (each value tagged with the field it fills, the values nothing reads marked, ignored paths
+   hidden) beside the record it makes. A value clicked goes into a field, the key, a new field made there, or
+   `ignore:` (every kind's events); what another kind maps by the same path is offered in one click.
+5. **Review.** What each kind took, the paths left to decide (neither mapped nor ignored), the comparison with the
+   saved definition (objects that appear, disappear or change). Save writes the YAML.
+
+Beside the steps, a panel of its own: one object's record and lifespan (its events in time order, which kind took
+each, what each changed), every field's distribution, the lifecycles, and the residual (the remainder, events with no
+key, refused values, contradictions, splits, merges), each shown only when not 0.
 
 Coming back to an existing projection starts at step 4: the current distributions and residual show what drifted
 (new shapes in the remainder, a kind of event no longer matching anything).

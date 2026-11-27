@@ -73,7 +73,7 @@ SENSOR_KEYS = {"run", "query", "manual", "projection", "builtin", "daemon", "jou
                "unit", "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"query", "key", "time", "fields", "events", "show", "formats", "lease", "relations", "join", "about", "final",
+ITEM_KEYS = COMMON | {"query", "key", "time", "ignore", "fields", "events", "show", "formats", "lease", "relations", "join", "about", "final",
                       "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score", "group",
                       "dashboards"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
@@ -844,6 +844,14 @@ class Compiler:
                     raise BadExpr("an expression of the event giving its own time (data.time)")
             except BadExpr as e:
                 self.err(f"{what}.time: {e}", m.at("time") or m.where, e.code)
+        ign = m.get("ignore")                        # the workbench's paths known not to matter: the fold never reads it
+        ignore: tuple = ()
+        if ign is not None:
+            if not isinstance(ign, list) or not all(isinstance(x, str) and x.strip() for x in ign):
+                self.err(f"{what}.ignore: a list of the event's paths known not to matter ([type, source, data.version])",
+                         m.at("ignore") or m.where, "bad-ignore")
+            else:
+                ignore = tuple(x.strip() for x in ign)
         # the kinds of event it reads
         evs = m.get("events")
         kinds, handlers, moves, kind_moves = [], {}, {}, {}
@@ -920,7 +928,7 @@ class Compiler:
         if evs is None:
             handlers = {k.name: k.fields for k in kinds}
         self.kind_moves = kind_moves
-        return query, query_open, id, key, own_time, kinds, handlers, moves, declared, states
+        return query, query_open, id, key, (own_time, ignore), kinds, handlers, moves, declared, states
 
 
     def implied_id(self, name: str, m: Map, what: str, spec: Spec) -> str:
@@ -941,7 +949,7 @@ class Compiler:
     def item_kind(self, name: str, m: Map, what: str, spec: Spec) -> ItemKind:
         from . import fields as fl
         self.keys(m, ITEM_KEYS, what)
-        query, query_open, id, key, own_time, kinds, handlers, moves, declared, states = self.handlers(name, m, what, spec)
+        query, query_open, id, key, (own_time, ignore), kinds, handlers, moves, declared, states = self.handlers(name, m, what, spec)
         show = m.get("show") or [f for f in declared if f != "state"]
         if not isinstance(show, list):
             self.err(f"{what}.show: a list of field names", m.at("show"), "bad-show")
@@ -1024,7 +1032,7 @@ class Compiler:
         risk = self.risk_score(m, what, states) if "risk-score" in m else None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
                         query=query, query_open=query_open, key=key, handlers=handlers, kinds=kinds, declared=declared,
-                        own_time=own_time, functions=spec.functions,
+                        own_time=own_time, ignore=ignore, functions=spec.functions,
                         risk=risk,
                         system=self.system("projections", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, bounds=bounds, lease=leases.terms(self, m, "lease", what), relations=relations,

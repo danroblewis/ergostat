@@ -4,9 +4,10 @@ import { stamp } from "../../../lib/format";
 import { n, Samples, short } from "./common";
 import { howRead } from "./QueryStep";
 
-/* Step 4, the review (POST /api/projections/review on the draft): every field's distribution, the lifecycles, the
-   residual (each a count, opened to its samples), the comparison with the saved definition, and one object's
-   timeline. What is unexplained is counted in `unexplained`, which the workbench keeps in sight above the steps. */
+/* The review (POST /api/projections/review on the draft): step 5 in the main column (what the draft makes, what each
+   kind took, the paths left to decide, the comparison with the saved definition), and the panel on the right (one
+   object's record and lifespan, the residual, the lifecycles, every field's distribution). What is unexplained is
+   counted in `unexplained`, which the workbench keeps in sight above the steps; a 0 is never shown. */
 
 /** The residual's counts, by what the workbench calls each. */
 export function unexplained(r: any): [string, number][] {
@@ -68,9 +69,9 @@ function Lifecycle({ field, l }: { field: string; l: any }) {
   );
 }
 
-/** One line of the residual: its count, opened to what it holds. */
+/** One line of the residual: its count, opened to what it holds; nothing at all when it is 0. */
 function Residue({ label, count, children }: { label: string; count: number; children?: ReactNode }) {
-  if (!count) return <li className="muted"><span className="wb-kind-n">0</span> {label}</li>;
+  if (!count) return null;
   return (
     <li>
       <details>
@@ -81,12 +82,19 @@ function Residue({ label, count, children }: { label: string; count: number; chi
   );
 }
 
-function Timeline({ t }: { t: any }) {
+/** An object: its record (its fields now) and its lifespan (its events in time order, which kind took each, each
+    field's before → after), its state's path through its values above them. */
+function Lifespan({ t }: { t: any }) {
   if (!t.found) return <p className="muted">No object has the key <code>{t.key}</code>.</p>;
+  const moves = t.steps.filter((s: any) => s.move).map((s: any) => s.move);
+  const path = moves.length ? [moves[0].from ?? "(new)", ...moves.map((m: any) => m.to)] : [];
   return (
     <>
-      <p className="small">{n(t.events)} events; now <strong>{t.state ?? "–"}</strong>{" "}
-        <span className="muted">{Object.entries(t.fields || {}).map(([k, v]) => `${k} ${short(v, 30)}`).join(" · ")}</span></p>
+      <ul className="jv wb-now" aria-label="The object's record">
+        {t.state != null && <li><span className="jv-key">state</span> <strong>{t.state}</strong></li>}
+        {Object.entries(t.fields || {}).map(([k, v]) => <li key={k}><span className="jv-key">{k}</span> <span className="jv-val">{short(v, 60)}</span></li>)}
+      </ul>
+      {path.length > 0 && <p className="small" data-testid="state-path">{path.join(" → ")}</p>}
       <table className="wb-table" aria-label="The object's timeline">
         <thead><tr><th>Event time</th><th>Kind</th><th>What it changed</th></tr></thead>
         <tbody>{t.steps.map((s: any) => (
@@ -104,15 +112,16 @@ function Timeline({ t }: { t: any }) {
           </tr>
         ))}</tbody>
       </table>
+      {t.steps_left ? <p className="muted small">{n(t.steps_left)} more events.</p> : null}
     </>
   );
 }
 
-export function ReviewStep({ r, error, busy, item, onItem }: {
-  r: any; error: string | null; busy: boolean; item: string; onItem: (k: string) => void;
+/** Step 5, the review in the main column: what the draft makes, what each kind took, the comparison with the saved
+    definition, and the paths no field reads yet (what is left to decide), each ignorable. */
+export function ReviewStep({ r, error, busy, onIgnore, editable }: {
+  r: any; error: string | null; busy: boolean; onIgnore: (path: string) => void; editable: boolean;
 }) {
-  const [key, setKey] = useState(item);
-  useEffect(() => setKey(item), [item]);
   if (error) return <p className="note lvl-error" role="alert">{error}</p>;
   if (!r) return <p className="muted">{busy ? "Reviewing the draft on the record…" : "Nothing to review yet."}</p>;
   if (!r.ok) {
@@ -123,8 +132,8 @@ export function ReviewStep({ r, error, busy, item, onItem }: {
       </div>
     );
   }
-  const s = r.residual;
   const c = r.compared;
+  const u = r.unmapped;
   return (
     <div aria-busy={busy}>
       <p>
@@ -138,43 +147,24 @@ export function ReviewStep({ r, error, busy, item, onItem }: {
       }))} />
       {r.duplicates?.says && <p className="muted small">{r.duplicates.says}</p>}
 
-      <h3 className="small">The residual</h3>
-      <ul className="wb-residual" aria-label="The residual">
-        <Residue label="remainder: events no kind takes" count={s.remainder.count}>
-          <ul className="wb-kinds">{s.remainder.kinds.map((k: any) => (
-            <li key={k.when}><span className="wb-kind-n">{n(k.count)}</span> <code>{k.when}</code><Samples samples={k.samples} /></li>
-          ))}</ul>
-        </Residue>
-        <Residue label="no key: taken, but keyed to nothing" count={s.no_key.count}>
-          <p className="small">{Object.entries(s.no_key.by_kind || {}).map(([k, v]) => `${k} ${n(v as number)}`).join(" · ")}</p>
-          <ul className="wb-kinds">{(s.no_key.kinds || []).map((k: any) => (
-            <li key={k.when}><span className="wb-kind-n">{n(k.count)}</span> <code>{k.when}</code><Samples samples={k.samples} /></li>
-          ))}</ul>
-        </Residue>
-        <Residue label="refused" count={s.refused.count}>
-          <ul>{s.refused.groups.map((g: any, i: number) => (
-            <li key={i}><span className="wb-kind-n">{n(g.count)}</span> {g.why} <span className="muted small">{(g.objects || []).slice(0, 3).join(", ")}</span></li>
-          ))}</ul>
-        </Residue>
-        <Residue label="contradictions: rare or impossible histories" count={s.contradictions.count}>
-          <ul>{s.contradictions.rare.map((x: any, i: number) => (
-            <li key={i}><code>{x.field}</code> {x.from} → {x.to}: {n(x.count)} <span className="muted small">{(x.samples || []).join(", ")}</span></li>
-          ))}</ul>
-          {s.contradictions.after_final > 0 && <p className="small">{n(s.contradictions.after_final)} moves out of a final state</p>}
-        </Residue>
-        <Residue label="possible splits: one thing under two keys" count={s.splits.count}>
-          <ul>{s.splits.groups.map((g: any, i: number) => (
-            <li key={i}>only {g.kinds.join(", ")}: {n(g.objects)} objects <span className="muted small">{(g.samples || []).join(", ")}</span></li>
-          ))}</ul>
-        </Residue>
-        <Residue label="possible merges: two things under one key" count={s.merges.count}>
-          <ul>{s.merges.fields.map((g: any, i: number) => (
-            <li key={i}><code>{g.field}</code> given twice: {n(g.objects)} objects <span className="muted small">{(g.samples || []).join(", ")}</span></li>
-          ))}</ul>
-        </Residue>
-      </ul>
+      {u?.count > 0 && (
+        <>
+          <h3 className="small">Left to decide <span className="muted">paths in the kinds' events no field or key reads: map or ignore each</span></h3>
+          <ul className="wb-kinds" aria-label="Unmapped paths">
+            {u.paths.map((x: any) => (
+              <li key={x.path} className="wb-unmapped">
+                <span className="wb-kind-n">{n(x.events)}</span> <code>{x.path}</code>{" "}
+                <span className="muted small">{x.kinds.join(", ")}</span>{" "}
+                <button type="button" className="ghost small" disabled={!editable} onClick={() => onIgnore(x.path)}
+                  aria-label={`Ignore ${x.path}`}>ignore</button>
+              </li>
+            ))}
+          </ul>
+          {u.paths_left ? <p className="muted small">{n(u.paths_left)} more.</p> : null}
+        </>
+      )}
 
-      {c && (
+      {c && (c.appear || c.disappear || c.change) ? (
         <>
           <h3 className="small">Against the saved definition</h3>
           <ul className="wb-residual" aria-label="Against the saved definition">
@@ -189,31 +179,85 @@ export function ReviewStep({ r, error, busy, item, onItem }: {
             </Residue>
           </ul>
         </>
-      )}
+      ) : c ? <p className="muted small">✓ The same objects as the saved definition.</p> : null}
+    </div>
+  );
+}
 
-      {Object.keys(r.lifecycles || {}).length > 0 && <h3 className="small">Lifecycles</h3>}
-      <div className="wb-dists">
-        {Object.entries(r.lifecycles || {}).map(([f, l]) => <Lifecycle key={f} field={f} l={l} />)}
-      </div>
-
-      <h3 className="small">Its fields, across the objects</h3>
-      {r.fields.length === 0 ? <p className="muted">No fields yet (step 3).</p> : (
-        <div className="wb-dists">{r.fields.map((f: any) => <Distribution key={f.field} f={f} />)}</div>
-      )}
-
-      <h3 className="small">One object's timeline</h3>
+/** The panel on the right, beside the steps: one object (picked by its key) as its record and lifespan, the
+    residual (only what is not 0; all 0, one check), the lifecycles and each field's distribution. */
+export function SidePanel({ r, item, onItem }: { r: any; item: string; onItem: (k: string) => void }) {
+  const [key, setKey] = useState(item);
+  useEffect(() => setKey(item), [item]);
+  if (!r?.ok) return <p className="muted small">{r ? "The draft does not check: see the review." : "Not reviewed yet."}</p>;
+  const s = r.residual;
+  const none = unexplained(r).length === 0;
+  return (
+    <>
+      <h2 className="small">An object</h2>
       <div className="wb-row">
         <input className="wb-grow mono" list="wb-objects" value={key} onChange={(e) => setKey(e.target.value)} aria-label="An object's key"
           placeholder={r.objects.sample?.[0] || "an object's key"} onKeyDown={(e) => { if (e.key === "Enter") onItem(key.trim()); }} />
         <datalist id="wb-objects">{(r.objects.sample || []).map((k: string) => <option key={k} value={k} />)}</datalist>
-        <button type="button" disabled={!key.trim()} onClick={() => onItem(key.trim())}>Show its timeline</button>
+        <button type="button" disabled={!key.trim()} onClick={() => onItem(key.trim())}>Show</button>
       </div>
       {r.objects.sample?.length > 0 && !item && (
-        <p className="small muted">For example: {r.objects.sample.slice(0, 3).map((k: string) => (
+        <p className="small muted wb-examples">For example: {r.objects.sample.slice(0, 3).map((k: string) => (
           <button key={k} type="button" className="ghost mono" onClick={() => onItem(k)}>{k}</button>
         ))}</p>
       )}
-      {r.timeline && <Timeline t={r.timeline} />}
-    </div>
+      {r.timeline && <Lifespan t={r.timeline} />}
+
+      <h2 className="small">The residual</h2>
+      {none ? <p data-testid="residual-ok">✓ Nothing unexplained</p> : (
+        <ul className="wb-residual" aria-label="The residual">
+          <Residue label="remainder: events no kind takes" count={s.remainder.count}>
+            <ul className="wb-kinds">{s.remainder.kinds.map((k: any) => (
+              <li key={k.when}><span className="wb-kind-n">{n(k.count)}</span> <code>{k.when}</code><Samples samples={k.samples} /></li>
+            ))}</ul>
+          </Residue>
+          <Residue label="no key: taken, but keyed to nothing" count={s.no_key.count}>
+            <p className="small">{Object.entries(s.no_key.by_kind || {}).map(([k, v]) => `${k} ${n(v as number)}`).join(" · ")}</p>
+            <ul className="wb-kinds">{(s.no_key.kinds || []).map((k: any) => (
+              <li key={k.when}><span className="wb-kind-n">{n(k.count)}</span> <code>{k.when}</code><Samples samples={k.samples} /></li>
+            ))}</ul>
+          </Residue>
+          <Residue label="refused" count={s.refused.count}>
+            <ul>{s.refused.groups.map((g: any, i: number) => (
+              <li key={i}><span className="wb-kind-n">{n(g.count)}</span> {g.why} <span className="muted small">{(g.objects || []).slice(0, 3).join(", ")}</span></li>
+            ))}</ul>
+          </Residue>
+          <Residue label="contradictions: rare or impossible histories" count={s.contradictions.count}>
+            <ul>{s.contradictions.rare.map((x: any, i: number) => (
+              <li key={i}><code>{x.field}</code> {x.from} → {x.to}: {n(x.count)} <span className="muted small">{(x.samples || []).join(", ")}</span></li>
+            ))}</ul>
+            {s.contradictions.after_final > 0 && <p className="small">{n(s.contradictions.after_final)} moves out of a final state</p>}
+          </Residue>
+          <Residue label="possible splits: one thing under two keys" count={s.splits.count}>
+            <ul>{s.splits.groups.map((g: any, i: number) => (
+              <li key={i}>only {g.kinds.join(", ")}: {n(g.objects)} objects <span className="muted small">{(g.samples || []).join(", ")}</span></li>
+            ))}</ul>
+          </Residue>
+          <Residue label="possible merges: two things under one key" count={s.merges.count}>
+            <ul>{s.merges.fields.map((g: any, i: number) => (
+              <li key={i}><code>{g.field}</code> given twice: {n(g.objects)} objects <span className="muted small">{(g.samples || []).join(", ")}</span></li>
+            ))}</ul>
+          </Residue>
+          <Residue label="kinds of event take nothing" count={(r.kinds || []).filter((k: any) => k.count === 0).length}>
+            <p className="small">{(r.kinds || []).filter((k: any) => k.count === 0).map((k: any) => k.name).join(", ")}</p>
+          </Residue>
+        </ul>
+      )}
+
+      {Object.keys(r.lifecycles || {}).length > 0 && <h2 className="small">Lifecycles</h2>}
+      <div className="wb-dists">
+        {Object.entries(r.lifecycles || {}).map(([f, l]) => <Lifecycle key={f} field={f} l={l} />)}
+      </div>
+
+      <h2 className="small">Its fields, across the objects</h2>
+      {r.fields.length === 0 ? <p className="muted">No fields yet (step 1).</p> : (
+        <div className="wb-dists">{r.fields.map((f: any) => <Distribution key={f.field} f={f} />)}</div>
+      )}
+    </>
   );
 }

@@ -5,8 +5,9 @@ import { Select } from "../../../components/ui";
 import { useSend } from "../../../hooks/useSend";
 import { literal, narrowed, pathExpr } from "./draft";
 import { EventList, n, short, type QEvent } from "./common";
+import type { Suggested, Suggestions } from "./KindsStep";
 
-/* Step 1, the query (POST /api/events/query): which events the projection reads, over the whole record; each change
+/* Step 2, the query (POST /api/events/query): which events the projection reads, over the whole record; each change
    says what it added and dropped, and how it was answered (from the index, exact or evaluated; a scan; a sample). */
 
 export const SPANS = [
@@ -33,8 +34,25 @@ export function howRead(a: { indexed?: boolean; exact?: boolean; scanned?: boole
   return "";
 }
 
-export function QueryStep({ query, onQuery, since, onSince, editable }: {
+/** What the kinds of event the result holds would take, and Accept all; once all is taken, that said. */
+function Cover({ s, kinds, editable, onAccept }: { s: Suggestions; kinds: number; editable: boolean; onAccept: (ks: Suggested[]) => void }) {
+  const of = kinds ? s.untaken : s.count;
+  const took = s.kinds.reduce((a, k) => a + k.count, 0);
+  if (!s.kinds.length) {
+    return kinds && !s.untaken ? <p className="wb-cover" data-testid="accept-line">✓ All events taken by {kinds} kind{kinds === 1 ? "" : "s"} of event.</p> : null;
+  }
+  const pct = of ? Math.round((1000 * took) / of) / 10 : 0;
+  return (
+    <p className="wb-cover" data-testid="accept-line">
+      {s.kinds.length}{kinds ? " more" : ""} kind{s.kinds.length === 1 ? "" : "s"} of event cover {pct}% of {kinds ? "the events not taken yet" : "these events"}
+      {" · "}<button type="button" disabled={!editable} onClick={() => onAccept(s.kinds)}>Accept all</button>
+    </p>
+  );
+}
+
+export function QueryStep({ query, onQuery, since, onSince, editable, sugg, kinds, onAccept }: {
   query: string; onQuery: (q: string) => void; since: string; onSince: (s: string) => void; editable: boolean;
+  sugg: Suggestions | null; kinds: number; onAccept: (ks: Suggested[]) => void;
 }) {
   const shownQ = useRef<string | null>(null);     // the query whose answer is shown: what the next one is compared with
   const body = useMemo(() => (query.trim() ? {
@@ -70,6 +88,7 @@ export function QueryStep({ query, onQuery, since, onSince, editable }: {
               </span>
             )}
           </p>
+          {sugg && <Cover s={sugg} kinds={kinds} editable={editable} onAccept={onAccept} />}
           <p className="muted small" data-testid="query-how">{howRead(a)}{a.paths?.length ? `; indexed paths read: ${a.paths.join(", ")}` : ""} · {a.took_ms} ms</p>
           {picked && (
             <p className="wb-picked">
@@ -82,9 +101,11 @@ export function QueryStep({ query, onQuery, since, onSince, editable }: {
               <button type="button" className="ghost" aria-label="Forget the value picked" onClick={() => setPicked(null)}>×</button>
             </p>
           )}
-          <p className="muted small">The newest {n(a.shown)}{a.shown < a.total ? ` of ${n(a.total)}` : ""}: open one and click a value to narrow the query by it.</p>
-          <EventList events={a.events} picked={picked ? JSON.stringify(picked.path) : undefined}
-            onPick={(path, value) => setPicked({ path, value })} />
+          <details className="wb-newest">
+            <summary className="muted small">The newest {n(a.shown)}{a.shown < a.total ? ` of ${n(a.total)}` : ""}: open one and click a value to narrow the query by it</summary>
+            <EventList events={a.events} picked={picked ? JSON.stringify(picked.path) : undefined}
+              onPick={(path, value) => setPicked({ path, value })} />
+          </details>
         </>
       )}
     </>

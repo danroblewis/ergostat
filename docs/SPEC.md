@@ -2303,6 +2303,7 @@ projections:
     query: data.source == 'aws.ec2' and not data.detail.eventName.startswith('Describe')
     key: [data.account, data.region, "data.detail['instance-id']"]
     time: data.time                    # the event's own time (else the recorded time): the fold is by event time
+    ignore: [type, source, data.version]   # paths known not to matter (the workbench's list; the fold never reads it)
 
     fields:                            # what an instance is
       state:         {values: [pending, running, stopping, stopped, shutting-down, terminated]}
@@ -2341,6 +2342,7 @@ projections:
 | `query` | expression | the implied id | Which events it reads: an expression of the event (*Expressions*, below) that holds for them. Left out, the events whose item matches the projection's implied id (*The implied key*, below). A query that reads by its key's prefix alone (`key.startswith('ticket/')`, `glob(key, 'ticket/*')`) names its items by that glob, as the implied id does; any other reads the record's every event for it. ergostat's own events (`ergostat.*`: a lease, a snapshot, a reopening) are read by the item glob alone |
 | `key` | expression, or a list | `key` | The object an event belongs to: `key`, the event's own item, or any expression of the event (`data.account`); a list is a composite key, its parts joined by `/`. `each(LIST, 'field')` in a part applies the event to every object it names (one event, several objects: a `RunInstances` that launched three). An event whose key is missing (null, empty) is no object's |
 | `time` | expression | the recorded time | The event's own time (seconds, or ISO 8601 text): the fold is by it (without it, in the record's order), and an expression's `time` is it |
+| `ignore` | list of paths | none | The event's paths known not to matter (`[type, source, data.version]`, each as the expressions write it; a path ignores all under it): the workbench's list, which hides them in its events and leaves them out of the paths left to decide (*The workbench*, below). The fold never reads it; `check` says `bad-ignore` for anything but a list of paths |
 | `fields` | map of field → `{type, fold, description}` | none | What an object is (*Fields*, below). A field's entry may be its type alone (`name: text`) or nothing (`name:`: any value, replace) |
 | `events` | map of kind of event → entry | every event, its data spread in | The kinds of event it reads (*Kinds of event*, below), in order: the first whose `when:` holds takes an event |
 | `show` | list of field names | its declared fields | The columns of the projection's own page (`/PROJECTION`) and of `ergostat item` |
@@ -3593,8 +3595,11 @@ query whose last part is evaluated (`data.detail.eventName == 'RunInstances' and
 **The workbench** (`spec/workbench.py`; the page is built on these answers, an agent uses them the same way; every list
 capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 transitions, 200 timeline steps):
 
-- `POST /api/events/kinds {query, since?, until?, events?}`: the kinds of event the query's result holds, suggested
-  from the data. The result is grouped by shape: its type, then the one or two data paths whose values best tell the
+- `POST /api/events/kinds {query, since?, until?, events?, taken?}`: the kinds of event the query's result holds,
+  suggested from the data. Given `taken` (the `when:`s of the kinds accepted, in order), only the events none of them
+  takes are suggested from (`untaken` counts them), and each suggestion's `count` is what it would take after the
+  accepted kinds and the suggestions before it (the first whose `when:` holds takes an event): one that would take
+  none is left out, so accepting every suggestion leaves nothing to suggest. The result is grouped by shape: its type, then the one or two data paths whose values best tell the
   events' shapes apart (present in nine in ten of them, 2 to 20 values; an id or a time never), or, for a group
   nothing splits, the paths all its events share whose names say what happened (`eventName`, `detail-type`, `type`,
   `action`, `status`, ...). `{query, read: {source, indexed, exact, scanned, ...}, count, kinds: [{name, count, when,
@@ -3622,6 +3627,7 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
               splits: {count, groups: [{kinds, objects, samples}]},
               merges: {count, fields: [{field, objects, samples}]}},
    duplicates: {envelope_id, same_data, says?},
+   unmapped: {count, paths: [{path, events, kinds}], paths_left?, ignored, read},   # what is left to decide
    compared?: {saved, draft, appear, appear_sample, disappear, disappear_sample, change,
                fields: [{field, objects, samples: [{key, saved, draft}]}], saved_read},
    expected?: (as try's), timeline?: {key, found, state, events, steps: [{id, time, recorded, type, kind,
@@ -3636,24 +3642,40 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   changes by id alone). A possible **merge** is an object a `first` field was given two different values in (two
   births in one object's history: its key too coarse). `compared` folds the saved definition over its own query's
   events and says the objects that appear, disappear, and whose fields change (per field, how many, with samples);
-  left out for a new projection or with `compare: false`. `timeline` (with `item=KEY`) is that object's events in event
+  left out for a new projection or with `compare: false`. `unmapped` is what is left to decide: the paths to values in
+  the events each kind took (300 read per kind; its type, source, key and data's; a list a value whole) that no field
+  of that kind, no part of its key and no `time:` reads, and that are not in `ignore:` (nor under one), each with how
+  many events have it and which kinds. `timeline` (with `item=KEY`) is that object's events in event
   time order, which kind took each, each field before → after, a move, a refusal.
+- `POST /api/projections/fold {name, yaml, events, system?}`: the objects those events alone make by the draft (at
+  most 50 events): `{ok, took: {event id: kind}, remainder, no_key, objects: [{key, state, fields, refused}]}` (`{ok:
+  false, errors}` when the draft does not check). The mapping step's record of one sample event.
 - `POST /api/projections/try` (above) is still there for agents; `POST /api/projections/save` writes the definition
   (*Saving*, above).
-- **The page** (`ergostat/web/ui/src/pages/items/workbench/`): the projection's page in edit mode, four steps in a
-  column, none hiding another, what is still unexplained (the residual's counts, a kind taking nothing) kept in sight
-  above them, and the YAML beside them, the one thing edited: a step's edit rewrites the YAML (comments and the rest
-  kept), the YAML typed is read back into the steps (while it does not parse, the page says so and the steps keep what
-  they showed). **1 Query**: the query (all of the record, or the last hour, day, 7 or 30 days), its count, what the
-  last change added and dropped, how it was read (from the index, exactly or evaluated; a scan; a sample), and the
-  newest 20 events, each opened to its parts, a value clicked narrowing the query by it (`and PATH == VALUE`, `!=`).
-  **2 Kinds of event**: its `events:` entries (renamed, their `when:` edited, removed, each with what it takes), the
-  remainder by shape and the suggestions, each accepted as a kind. **3 Mapping**: `key:`, `time:`, the fields (name,
-  type, values, fold, description), and per kind its own key and each field's expression, a value clicked in one of
-  its sample events written as its path into a field or its key. **4 Review**: what each kind took, the residual
-  (each count opened to its samples), the comparison with the saved definition, the lifecycles (transitions with
-  bars), each field's distribution (top values, histogram; a time's drawn over time), and one object's timeline. A
-  new projection opens on all four; one that exists on its review, so what drifted shows.
+- **The page** (`ergostat/web/ui/src/pages/items/workbench/`): the projection's page in edit mode, five steps in the
+  main column, none hiding another, what is still unexplained (only the residual's counts that are not 0, a kind
+  taking nothing; none: one check) kept in sight above them, the YAML below them, and a panel of its own on the right
+  (sticky, scrolling on its own; below the steps on a narrow screen). The YAML is the one thing edited: a step's edit
+  rewrites it (comments and the rest kept), the YAML typed is read back into the steps (while it does not parse, the
+  page says so and the steps keep what they showed). **1 What it is**: the object's identity first: its key (one
+  expression a row) and its fields (name, type, values, fold, description). **2 Query**: the query (all of the
+  record, or the last hour, day, 7 or 30 days), its count, what the last change added and dropped, right after it
+  what the kinds of event its result holds cover (*8 kinds of event cover 100% of these events · Accept all*; once
+  accepted, *All events taken by 8 kinds*), how it was read, and the newest 20 events, folded, each opened to its
+  parts, a value clicked narrowing the query by it (`and PATH == VALUE`, `!=`). **3 Kinds of event**: its `events:`
+  entries (renamed, their `when:` edited, removed, each with what it takes) and the events no kind takes yet, by shape,
+  each accepted as a kind (never one that would take nothing). **4 Mapping**: `time:`, and per kind of event its own
+  key, the fields it tells, *Map these the same way* (what another kind maps by a plain path its events have too, each
+  ticked, applied at once), and one of its events (the others a click away) beside the record it makes
+  (`/api/projections/fold`): a value read into a field tagged with it (→ state), a value nothing reads marked, an
+  ignored path hidden (*show ignored (n)*). A value clicked goes into a field, a part of the key, `ignore:` (hidden in
+  every kind's events), or a new field made there and then (its name from the JSON key, `instance-id` → `instance_id`,
+  its type guessed from the value). **5 Review**: how many objects, what each kind took, the paths left to decide
+  (each ignorable), the comparison with the saved definition. **The panel**: one object picked by its key, its record
+  (its fields now) and its lifespan (its state's path through its values, its events in time order, which kind took
+  each, what each changed); the residual (each count that is not 0 opened to its samples; none, *✓ Nothing
+  unexplained*); the lifecycles (transitions with bars); each field's distribution (top values, histogram; a time's
+  drawn over time). A new projection opens on all five; one that exists on its review, so what drifted shows.
 
 **Where it went, on the item's page.** Right after its header, an item of a projection the model counts or takes shows its
 `path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that

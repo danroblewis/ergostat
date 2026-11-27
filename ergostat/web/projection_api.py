@@ -1,7 +1,7 @@
 """The projection workbench's API (SPEC §5a, *The workbench*): ``POST /api/events/query`` (the query engine,
 ``eventquery.py``), ``POST /api/events/kinds`` (the kinds of event a query's result holds, suggested),
 ``POST /api/projections/review`` (a draft held against its events, ``spec/workbench.py``), ``POST /api/projections/try``
-(the try's report, ``spec/trying.py``), ``POST /api/projections/save`` (the owner's Save of its definition, written and
+(the try's report, ``spec/trying.py``), ``POST /api/projections/fold`` (events folded by a draft: one sample's record), ``POST /api/projections/save`` (the owner's Save of its definition, written and
 accepted at once, its changed parts dated: ``numbers/display.save_projection``), and ``GET /api/events/shape`` (the
 stream's shape)."""
 
@@ -64,7 +64,7 @@ def post(live, path: str, body: bytes, window: float) -> tuple[int, dict]:
             return 200, tried(p, ask)
         except trying.TryError as e:
             return 400, {"error": str(e)}
-    if path in ("events/query", "events/kinds", "projections/review"):
+    if path in ("events/query", "events/kinds", "projections/review", "projections/fold"):
         from ..eventquery import QueryError
         from ..eventquery import run as query
         from ..spec import workbench
@@ -73,6 +73,8 @@ def post(live, path: str, body: bytes, window: float) -> tuple[int, dict]:
                 ask = {**ask, **{k: moment(ask.get(k)) for k in ("since", "until") if ask.get(k) not in (None, "")}}
             if path == "events/query":
                 return 200, query(p.events, ask)
+            if path == "projections/fold":
+                return 200, workbench.folded(p, ask)
             return 200, (workbench.suggest(p, ask) if path == "events/kinds" else workbench.review(p, ask))
         except (trying.TryError, QueryError) as e:
             return 400, {"error": str(e)}

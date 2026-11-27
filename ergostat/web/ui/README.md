@@ -62,14 +62,15 @@ header's project list and `ergostat snapshot`.
                              three drawings, useDiagramLayout, usePanZoom, a part's panels (usePartPanels)
       pages/<page>/          one folder per page; index.tsx is the page, composed of components/.
         items/ProjectionPage  a projection's list page; its Edit also edits the projection's definition
-        items/workbench/     the projection workbench (SPEC §5a, *The workbench*), the page's edit mode: four steps in a
-                             column (QueryStep: POST /api/events/query, its count, +added/−dropped, how it was read, the
-                             events with each value clickable; KindsStep: POST /api/events/kinds, accepted into
-                             events:, the remainder; MappingStep: fields:, key:, time:, each kind's key and values, a
-                             sample's value clicked into a field; ReviewStep: POST /api/projections/review, its
-                             distributions, lifecycles, residual, comparison and one object's timeline), what is still
-                             unexplained above them, the YAML beside them: the one thing edited (draft.ts reads it into
-                             the steps and writes their edits back with the `yaml` package, comments kept).
+        items/workbench/     the projection workbench (SPEC §5a, *The workbench*), the page's edit mode: five steps in
+                             the main column (WhatStep: key: and fields:; QueryStep: POST /api/events/query, its count,
+                             +added/−dropped, Accept all, the events folded; KindsStep: POST /api/events/kinds given
+                             the kinds' when:s; MappingStep: each kind's key, values, Map these the same way, a sample
+                             annotated beside its record from POST /api/projections/fold, a value picked into a field,
+                             the key, a new field or ignore:; ReviewStep: POST /api/projections/review, the paths left
+                             to decide), the YAML below them: the one thing edited (draft.ts reads it into the steps
+                             and writes their edits back with the `yaml` package, comments kept); SidePanel on the
+                             right: one object's record and lifespan, the residual (no 0 shown), lifecycles, fields.
         items/DefinitionEditor  the draft tried (POST /api/projections/try, useTry) for check's errors on their lines
                              and the draft's id (draft=ID on items, projections/P, items-flow), so the page's panels draw
                              its items; Save writes it (POST /api/projections/save) before the list dashboard
