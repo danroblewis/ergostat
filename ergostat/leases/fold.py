@@ -46,6 +46,17 @@ def _summary(lease: dict) -> dict:
     return {k: lease.get(k) for k in ("fence", "holder", "block", "expires", "attempts") if lease.get(k) is not None}
 
 
+def ours(it, e: dict, kind) -> bool:
+    """Whether a lease event is this projection's item's: a lease is taken on one projection's item (``taken`` names
+    it, and so does each event written about the lease since: ``projection``), and the other projections that see the
+    id never fold it. One that names none (written before leases named theirs): a ``taken`` is every projection's, the
+    rest the item's that holds a lease."""
+    named = (e.get("data") or {}).get("projection") if isinstance(e.get("data"), dict) else None
+    if named is not None:
+        return kind is not None and named == kind.name
+    return e["type"] == TAKEN or isinstance(it.fields.get("lease"), dict)
+
+
 def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | None]:
     """A lease event folded onto the item: the state it moves the item to (None: it stays), and why it was refused
     (None: it applied)."""
@@ -135,20 +146,20 @@ def refused_expiries(events, spec, evs: list[dict], items: dict | None = None, i
     want = sorted({e.get("item") for e in evs if e["type"] == EXPIRED and e.get("item")})
     if not want:
         return set()
-    got: dict = {i: items[i] for i in want if items and i in items}
-    rest = [i for i in want if i not in got]
+    got: list = [items[i] for i in want if items and i in items]
+    rest = [i for i in want if not (items and i in items)]
     if rest:
         ix = ix if ix is not None else its._index(events, spec, False)
         if ix is not None:
             with ix.lock:
-                got.update({it.id: it for it in ix.items(ids=rest, moves=False)})
-    for item in want:
-        if item not in got:
-            got_evs = events.query(n=None, item=item, skip=(its.TRANSCRIPT_TYPES,))
-            got[item] = its.fold(item, got_evs, its.kind_of(spec, item), transcript=False) if got_evs else None
+                had = ix.items(ids=rest, moves=False)          # (every projection's item of each: the lease is one's)
+            got += had
+            rest = sorted(set(rest) - {it.id for it in had})
+    for item in rest:
+        got_evs = events.query(n=None, item=item, skip=(its.TRANSCRIPT_TYPES,))
+        got += [its.fold(item, got_evs, k, transcript=False) for k in its.projections_of(spec, item) or [None]] if got_evs else []
     ids = {e["id"] for e in evs if e["type"] == EXPIRED}
-    return {r["event"] for it in got.values() if it is not None for r in it.refused
-            if r.get("type") == EXPIRED and r.get("event") in ids}
+    return {r["event"] for it in got for r in it.refused if r.get("type") == EXPIRED and r.get("event") in ids}
 
 
 def fenced(it, e: dict) -> str | None:

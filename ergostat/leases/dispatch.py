@@ -197,7 +197,7 @@ class Dispatcher:
         if pool is None or (pool > 0 and (inline or self.flying(b, it.id) < pool)):
             return False
         self.p.events.add(ENDED, item=it.id, source=SOURCE, causedby=run,
-                          data={"run": run, "fence": fence, "how": "nack", "why": why, "count": False,
+                          data={"projection": it.kind, "run": run, "fence": fence, "how": "nack", "why": why, "count": False,
                                 **self.after(it, lease, False)})
         self.e.say(f"{b.name}: gave {it.id} back at once: {why}")
         return True
@@ -394,7 +394,7 @@ class Dispatcher:
                 return None                                       # reserved here, before its lease is written (SPEC §2a)
             bounds.hold(self.e, key, b)
             self.ours.add(run)                                    # (before its write: a lease of ours is never missed)
-        data = {"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"], "max": t["attempts"],
+        data = {"item": it.id, "projection": it.kind, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"], "max": t["attempts"],
                 "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1, "engine": self.me,
                 **({"on": list(on)} if on else {})}             # (a lane on top of these: leases/lanes.py)
         spec = self.spec
@@ -409,7 +409,7 @@ class Dispatcher:
                 if out is not None:
                     out["refused"] = no
                 return None
-            now = its.one(self.p.events, spec, it.id)
+            now = its.one(self.p.events, spec, it.id, it.kind)
             got = held(now.fields) if now else None
             back = (not got or got.get("holder") != run           # someone else took it first: the fold refused this one,
                     or self.spec.operating and self.entered_meanwhile(b, now, got, run, fence, inline))  # or given back
@@ -499,7 +499,7 @@ class Dispatcher:
         never given back as we stop. Still going, its lease is renewed now: the time no engine was up is not held
         against it (a lease held by another, a newer fence, is left as it is: the fold refuses its run's lines). A lane
         on top keeps its lease's ``on``, so a base that does not pass stops it (leases/lanes.py ``discard``)."""
-        it = its.one(self.p.events, self.spec, item) if b.takes and b.takes.lanes else None
+        it = its.one(self.p.events, self.spec, item, b.takes.kind) if b.takes and b.takes.lanes else None
         lease = (held(it.fields) if it else None) or {}
         on = lease.get("on") if lease.get("holder") == run and lease.get("fence") == fence else None
         with self.lock:
@@ -512,13 +512,15 @@ class Dispatcher:
         if on:
             lanes.taken_up(self, b, item, run, fence, on)      # (a base that failed before it was in going)
         if live:
-            self.renew(item, run, fence, "taken up")
+            self.renew(item, run, fence, "taken up", b.takes.kind if b.takes else None)
 
-    def renew(self, item: str, run: str, fence: int, seen: str) -> None:
-        it = its.one(self.p.events, self.spec, item)
+    def renew(self, item: str, run: str, fence: int, seen: str, kind: str | None = None) -> None:
+        """The lease on projection ``kind``'s item renewed (a block's ``takes:`` names the projection its leases are on)."""
+        it = its.one(self.p.events, self.spec, item, kind)
         lease = held(it.fields) if it else None
         if lease and lease.get("holder") == run and lease.get("fence") == fence:
-            self.p.events.add(RENEWED, item=item, source=SOURCE, data={"run": run, "fence": fence, "seen": seen})
+            self.p.events.add(RENEWED, item=item, source=SOURCE, data={"run": run, "fence": fence, "seen": seen,
+                                                                       **({"projection": kind} if kind else {})})
 
     def taken_up_ended(self, block: str, item: str | None, run: str) -> None:
         with self.lock:
@@ -557,7 +559,8 @@ class Dispatcher:
         (``failing``): the watchdog ends it."""
         self.ending.setdefault(run, (b, item, fence, out, time.time()))
         seq = self.p.events.last_seq()
-        it = its.one(self.p.events, self.spec, item)
+        kind = b.takes.kind if b.takes else None               # (the projection its lease is on)
+        it = its.one(self.p.events, self.spec, item, kind)
         if until is None:
             until = float(((held(it.fields) if it else None) or {}).get("expires") or 0) - self.e.lock_wait
         pause = 0.05
@@ -569,7 +572,7 @@ class Dispatcher:
             pause = min(pause * 2, 5.0)
         try:
             if self.p.events.query(n=1, item=item, after_seq=seq):   # (anything since: ended, renewed, moved on)
-                it = its.one(self.p.events, self.spec, item)
+                it = its.one(self.p.events, self.spec, item, kind)
             ev = self._finish(b, it, item, fence, run, out)
             self.mine.pop(run, None)
             self.marks.pop(run, None)
@@ -582,7 +585,7 @@ class Dispatcher:
             if b.takes and b.takes.lanes and not lanes.passed(b, ev["data"]["how"], ev["data"].get("state")):
                 lanes.discard(self, b, item, run, ev["data"].get("why") or f"left {ev['data'].get('state')}")
             if ev["data"]["how"] == "nack":
-                dead = (its.one(self.p.events, self.spec, item) or it).state == DEAD
+                dead = (its.one(self.p.events, self.spec, item, kind) or it).state == DEAD
                 self.e.say(f"{b.name}: gave {item} back ({ev['data']['why']})" + (": a dead letter now" if dead else ""))
 
     def _finish(self, b, it, item: str, fence: int, run: str, out: dict) -> dict | None:
@@ -590,7 +593,8 @@ class Dispatcher:
         if not lease or lease.get("fence") != fence or lease.get("holder") != run:
             self.ours.discard(run)                       # (ended already: expired, or given back from outside)
             return None
-        data = {"run": run, "fence": fence, "exit": out.get("exit"), **({"note": out["note"]} if out.get("note") else {})}
+        data = {"projection": it.kind, "run": run, "fence": fence, "exit": out.get("exit"),
+                **({"note": out["note"]} if out.get("note") else {})}
         nack = out.get("nack")
         stopping = self.e.stop.is_set() or out.get("stopped")
         thrown = lanes.out(self, run)
@@ -692,7 +696,7 @@ class Dispatcher:
         if not self.ends.acquire(timeout=self.e.lock_wait):
             return False                                   # (the next pass tries again)
         try:
-            fresh = its.one(self.p.events, self.spec, it.id)
+            fresh = its.one(self.p.events, self.spec, it.id, it.kind)
             ev = self._finish(b, fresh, it.id, lease["fence"], lease["holder"], {"gone": why}) if fresh else None
         finally:
             self.ends.release()
@@ -722,12 +726,13 @@ class Dispatcher:
         if lease["holder"] in self.adopted:                # taken up: its keeper says whether it lives (SPEC §9.1)
             proc = self.e.live.get(lease["holder"])
             if proc is not None and proc.poll() is None:
-                return self.renew(it.id, lease["holder"], lease["fence"], "keeper")
+                return self.renew(it.id, lease["holder"], lease["fence"], "keeper", it.kind)
             return                                         # (ended: its end is being written, by its own thread)
         seen = self.activity(it.id, lease)
         if seen is not None and seen > now - ttl:
             self.p.events.add(RENEWED, item=it.id, source=SOURCE, at=seen,
-                              data={"run": lease["holder"], "fence": lease["fence"], "seen": "activity"})
+                              data={"projection": it.kind, "run": lease["holder"], "fence": lease["fence"],
+                                    "seen": "activity"})
             return
         key = (it.id, lease["fence"], lease.get("expires"))     # (renewed since: a first look again)
         first = overdue[key] = self.overdue.get(key, mono)
@@ -738,7 +743,7 @@ class Dispatcher:
         """The lease expires, unless the fold refuses it (renewed since it was judged): then nothing else is done. Its
         run, when this engine started it, is killed. Held by a run this engine did not take (a previous engine
         process's, its finish never recorded: a hard restart, a crash), its attempt is not counted."""
-        fresh = its.one(self.p.events, self.spec, it.id)              # (the record now, not the look's index)
+        fresh = its.one(self.p.events, self.spec, it.id, it.kind)     # (the record now, not the look's index)
         now_held = held(fresh.fields) if fresh else None
         if (not now_held or now_held.get("fence") != lease["fence"]
                 or float(now_held.get("expires") or 0) > float(lease.get("expires") or 0)):
@@ -752,11 +757,12 @@ class Dispatcher:
         if counted and (fault := self.groups.fault(b, fresh.fields)):    # (its group held: no attempt spent)
             counted = False
         ev = self.p.events.add(EXPIRED, item=it.id, source=SOURCE,
-                               data={"run": lease["holder"], "fence": lease["fence"], "block": lease.get("block"),
+                               data={"projection": it.kind, "run": lease["holder"], "fence": lease["fence"],
+                                     "block": lease.get("block"),
                                      "silent": round(silent, 1), "ttl": ttl, "expires": lease.get("expires"),
                                      **({} if counted else {"count": False}), **({"fault": fault} if fault else {}),
                                      **self.after(it, lease, counted)})
-        after = its.one(self.p.events, self.spec, it.id)
+        after = its.one(self.p.events, self.spec, it.id, it.kind)
         if after is None or any(r["event"] == ev["id"] for r in after.refused):    # (renewed meanwhile: it holds on)
             return
         self.resources(ev)

@@ -187,8 +187,8 @@ def test_the_whole_fold_when_most_items_changed_agrees_with_the_per_item_read(tm
     one = pr.build(ev, spec, ["ticket", "epic"], U, T0 - 10, until=U)
     (v1,) = made
     one_up = pr.build(ev, spec, ["epic"], U, T0 - 10, until=U)      # the tickets reached from the epic (links_to)
-    assert v1.whole is None and {"ticket/3", "ticket/4", "ticket/5", "epic/e"} <= set(v1.folded)
-    assert "ticket/9" in v1.late_ids and "ticket/9" not in v1.folded          # late, and not there at U
+    assert v1.whole is None and {"ticket/3", "ticket/4", "ticket/5", "epic/e"} <= {i for _, i in v1.folded}
+    assert "ticket/9" in v1.late_ids and "ticket/9" not in {i for _, i in v1.folded}      # late, and not there at U
     ix = index_for(ev, spec, False)
     with ix.lock:
         n1 = asof.AsOf(ix, ev, spec, U).count("ticket", OPEN)
@@ -231,7 +231,7 @@ def test_an_item_of_no_kind_changed_since_has_no_links_and_the_rest_answers(tmp_
         monkeypatch.setattr(its, "late_cap", lambda ix, kind=None: 0)
     g = pr.build(ev, spec, ["ticket"], U, T0 - 10, until=U)
     assert (made[0].whole is not None) == (mode == "whole")
-    assert mode == "whole" or "misc/1" in made[0].folded
+    assert mode == "whole" or (None, "misc/1") in made[0].folded            # (by item: its projection, none, and its id)
     by = by_id(g)
     m = by["misc/1"]
     assert m["projection"] is None and m["links"] == {} and m["status"] == "unblocked"

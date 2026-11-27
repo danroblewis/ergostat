@@ -259,17 +259,18 @@ def rollup_errors(demo: Path) -> list[str]:
         by: dict = {}
         for e in p.events.of_items(None, skip=() if tr else (its.TRANSCRIPT_TYPES,)):
             by.setdefault(e["item"], []).append(e)
-        return {i: its.fold(i, evs, its.kind_of(spec, i), transcript=tr).as_dict(moves=True) for i, evs in by.items()}
+        return {f"{k.name if k else ''}:{i}": its.fold(i, evs, k, transcript=tr).as_dict(moves=True)
+                for i, evs in by.items() for k in its.projections_of(spec, i) or [None]}
     before = {tr: folded(tr) for tr in (False, True)}
     got = compact(p, now=time.time() + 10 * 365 * 86400)
     out = [f"rolled up, item {i} folds differently ({'with' if tr else 'without'} its transcript)"
            for tr in (False, True) for i, it in folded(tr).items() if before[tr].get(i) != it]
     for tr in (False, True):                       # the item index (spec/itemindex.py) is the fold of the record
-        idx = {i.id: i.as_dict(moves=True) for i in its.project(p.events, spec, transcript=tr)}
+        idx = {f"{i.kind or ''}:{i.id}": i.as_dict(moves=True) for i in its.project(p.events, spec, transcript=tr)}
         out += [f"the item index differs from the record for {i} ({'with' if tr else 'without'} its transcript)"
                 for i in set(idx) | set(before[tr]) if idx.get(i) != before[tr].get(i)][:5]
-    out += [f"rolled up, item {i}: {a['total']} events in its full history, not {before[True][i]['events']}"
-            for i in before[True] if (a := archived(p, i, n=0)) and a["total"] != before[True][i]["events"]]
+    out += [f"rolled up, item {k.split(':', 1)[1]}: {a['total']} events in its full history, not {before[True][k]['events']}"
+            for k in before[True] if (a := archived(p, k.split(":", 1)[1], n=0)) and a["total"] != before[True][k]["events"]]
     notes.append(f"note: rolled up {got['events']} events of {got['items']} items; every item folds as before")
     return out
 

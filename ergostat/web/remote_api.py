@@ -134,7 +134,7 @@ def answer(live, path: str, q: dict):
     if head == "items":
         from ..spec import items as its
         if rest:
-            got = its.detail(p.events, spec, "/".join(rest))
+            got = its.detail(p.events, spec, "/".join(rest), kind=(q.get("projection") or [None])[0])
             return (200, got) if got is not None else (404, {"error": "no such item"})
         n = max(1, min(_int(q, "n", 100) or 100, ITEMS_MOST))
         got = its.listing(p.events, spec, kind=(q.get("projection") or [None])[0], state=(q.get("state") or [None])[0], n=n,

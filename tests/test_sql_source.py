@@ -212,15 +212,16 @@ def test_the_views_survive_an_index_layout_change(p, monkeypatch):
     path = index_file(p)
     c = sqlite3.connect(path, isolation_level=None)               # another layout: columns reordered and added, a table
     c.executescript("""
+        pragma legacy_alter_table = on;
         begin;
         create table items2 (body blob, extra text, text text, id text unique not null, raw_first real, raw integer,
             arrived real, latest integer, n integer, entered real, newest real, last real, first real, state integer,
             kind integer, rid integer primary key);
         insert into items2 (body, text, id, raw_first, raw, arrived, latest, n, entered, newest, last, first, state, kind,
             rid) select body, text, id, raw_first, raw, arrived, latest, n, entered, newest, last, first, state, kind, rid
-            from items;
-        drop table items;
-        alter table items2 rename to items;
+            from "items/ticket";
+        drop table "items/ticket";
+        alter table items2 rename to "items/ticket";
         alter table moves add column weight real;
         create table spans (rid integer, t real);
         commit;

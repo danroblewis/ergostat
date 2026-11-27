@@ -307,7 +307,7 @@ model's: only `/api` (a project file at `/api/file/PATH`), `/static` and `/remot
 answers every other path with the page, the React app in `ergostat/web/ui` built into `static/app`. The page resolves
 a path (`web/ui/src/lib/routes.ts`) in this order: a dashboard the model declares, at `/NAME`; a projection, at
 `/PROJECTION` (its list) and `/PROJECTION/REST` (one item: REST is what the projection's id glob's `*` matched, so `ticket/1` is at
-`/ticket/1`); then ergostat's own pages, each a dashboard of its own at its name: `/diagram?view=blocks`, `/dashboard`,
+`/ticket/1`; an id several projections match is an item of each, at each one's address, and `/item/ID` lists them); then ergostat's own pages, each a dashboard of its own at its name: `/diagram?view=blocks`, `/dashboard`,
 `/goals`, `/agents`, `/agent/NAME`, `/record?type=T`, and `/item/ID` (any id, a projection's or not, the id encoded). The
 model's names come first, so a dashboard or projection named `goals` is drawn at `/goals`; `?builtin=1` shows ergostat's own
 page all the same. Old addresses (`/items/PROJECTION`, `/item/ID` of a projection's item, `/d/NAME`, `/loops`) lead to the new ones. The page routes with the History API: a plain click on one of its links draws

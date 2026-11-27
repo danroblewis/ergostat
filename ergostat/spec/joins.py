@@ -22,6 +22,7 @@ projections:
 from __future__ import annotations
 
 from .ir import DEAD, LEASED, Join
+from . import items as its
 from .items import JOINED
 from .load import Problem
 
@@ -141,13 +142,14 @@ class Joins:
                 kids = [a for a, r, _ in ix.links_to([p.id]) if r == j.children]
                 if not kids:
                     continue
-                got = {i.id: i for i in ix.items(ids=kids, moves=False)}
+                got = its.one_each(ix.items(ids=kids, moves=False), spec,     # (each child as the projection
+                                   [c.name for c in spec.items.values() if j.children in c.relations])   # naming it)
                 ins = [x in got and got[x].state in j.states for x in kids]
                 if not (all(ins) if j.all else any(ins)):
                     continue
                 cause = db.execute(f"select m.event from moves m join items i on i.rid = m.rid where i.id in "
                                    f"({','.join('?' * len(got))}) order by m.t desc, m.rowid desc limit 1", list(got)).fetchone()
                 out.append((p.id, j.to, cause[0] if cause else None,
-                            {"children": j.children, "all" if j.all else "any": j.states, "n": len(kids)}))
+                            {"projection": p.kind, "children": j.children, "all" if j.all else "any": j.states, "n": len(kids)}))
                 state = j.to
         return out

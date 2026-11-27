@@ -125,7 +125,7 @@ export function ItemRelations({ d }: { d: any }) {
                   return (
                     <span key={i} className="rel-item">
                       {j > 0 && <br />}
-                      <Link to={itemHref(i)}>{i}</Link>
+                      <Link to={itemHref(i, undefined, x?.projection)}>{i}</Link>
                       <span className="muted">{x ? ` ${x.done ? "✓ " : ""}${x.state || ""}${x.title ? " · " + x.title : ""}` : " not recorded"}</span>
                     </span>
                   );

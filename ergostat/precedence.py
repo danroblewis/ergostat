@@ -323,6 +323,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     and parent relations, of those kinds; such a target of another kind is ``outside`` (a stub: its id, kind, system
     and status), and no other relation is an edge (``about`` lists what they name)."""
     from .spec.itemindex import index_for
+    from .spec.items import one_each
     ix = ix if ix is not None else index_for(events, spec, False)
     out = {"now": now, "since": since, "projections": [], "items": [], "edges": [], "cycles": [], "critical": [], "end": now,
            "capped": {}, "assumed": None}
@@ -355,10 +356,10 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
                 if len(done) > MOST_DONE:
                     out["capped"]["done"] = True
                 for i in opened[:MOST_OPEN] + done[:MOST_DONE]:
-                    got[i.id] = i
+                    got.setdefault(i.id, i)              # (an id two of the kinds see: drawn once, the first's)
             else:
                 for i in ix.items(k, n=MOST_OPEN):
-                    got[i.id] = i
+                    got.setdefault(i.id, i)
         frontier, pulled = set(got), 0
         for _ in range(HOPS):
             if not frontier:
@@ -375,7 +376,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             if room <= 0:
                 out["capped"]["pulled"] = True
                 break
-            fetched = ix.items(None, ids=new[:room])
+            fetched = list(one_each(ix.items(None, ids=new[:room]), spec).values())
             if mine is not None:                                 # a system's: its own kinds, along its own relations
                 other.update(i.id for i in fetched if i.kind not in mine)
                 fetched = [i for i in fetched if i.kind in mine
@@ -397,7 +398,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             if MOST_PULLED - pulled <= 0:
                 out["capped"]["pulled"] = True
                 break
-            fetched = ix.items(None, ids=new[:MOST_PULLED - pulled])
+            fetched = list(one_each(ix.items(None, ids=new[:MOST_PULLED - pulled]), spec).values())
             got.update((i.id, i) for i in fetched)
             shadow.update(i.id for i in fetched)
             pulled += len(fetched)
@@ -410,7 +411,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
         cut = sorted({d for a, r, d in links if d not in got
                       and (getattr((rels.get(got[a].kind or "") or {}).get(r), "precedence", False)
                            or mine is not None and walk(got[a].kind, r))})
-        beyond = {i.id: i for i in ix.items(None, ids=cut, moves=False)} if cut else {}     # (status reads no moves)
+        beyond = one_each(ix.items(None, ids=cut, moves=False), spec) if cut else {}     # (status reads no moves)
     outside = {d: got.get(d) or beyond[d] for a, r, d in links if mine is not None and a in drawn and d not in drawn
                and (d in got or d in beyond) and walk(got[a].kind, r) and (got.get(d) or beyond[d]).kind not in mine}
     if mine is not None:
@@ -578,6 +579,7 @@ def order_ready(events, spec, kind: str, items: list, now: float) -> list:
     the critical first (the least slack,
     then the longest path ahead: the bottom level), the block's own order kept among equals."""
     from .spec.itemindex import index_for
+    from .spec.items import one_each
     ix = index_for(events, spec, False)
     if ix is None or not items:
         return items
@@ -590,7 +592,8 @@ def order_ready(events, spec, kind: str, items: list, now: float) -> list:
             with ix.lock:
                 prec = _prec(spec, it.kind)
                 links = [(r, d) for _, r, d in ix.links_from([it.id]) if r in prec]
-                by_id = {i.id: i for i in ix.items(None, ids=[d for _, d in links])} if links else {}
+                by_id = one_each(ix.items(None, ids=[d for _, d in links]), spec,
+                                 [x for r in prec.values() for x in r.kinds]) if links else {}
             if any(d not in by_id or (status(by_id[d], Kinds(spec, ix)[by_id[d].kind], []) != "done"
                                       and not starts(by_id[d], prec[r])) for r, d in links):
                 continue

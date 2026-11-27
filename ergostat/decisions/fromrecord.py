@@ -13,7 +13,7 @@ Scanning again records nothing new: each correction's id comes from the event it
 
 from __future__ import annotations
 
-from ..spec.items import kind_of, project
+from ..spec.items import project
 from . import acts, standin
 from .kinds import CORRECTION, DECISION
 from .transcript import Turn
@@ -45,18 +45,22 @@ def found(p, spec=None) -> list[dict]:
             "corrects": f"what proposed {e['item']}", "kind_of_work": [WORK.get(kind, what)], "scope": [kind or what],
             "source": {"type": "dismissal", "event": e["id"], "item": e["item"]}}})
     if spec is not None and getattr(spec, "items", None):
+        moved = set()
         for it in project(p.events, spec):
-            k = kind_of(spec, it.id)
+            k = spec.items.get(it.kind or "")
             if not k or not k.states or it.kind in (CORRECTION, DECISION):
                 continue
             for m in it.moves:
                 back = m["from"] in k.states and m["to"] in k.states and k.states.index(m["to"]) < k.states.index(m["from"])
                 if not (back or m["type"].endswith(".reopened")):
                     continue
+                if m["event"] in moved:             # (a move two projections of one id both make: one correction)
+                    continue
                 e = p.events.get(m["event"]) or {}
                 r = _reason(e.get("data") or {})
                 if not r:
                     continue
+                moved.add(m["event"])
                 out.append({"item": f"{CORRECTION}/from-{m['event'][:12]}", "data": {
                     "correction": r[:acts.TEXT_MAX], "words": [{"text": r, **_when(e)}],
                     "corrects": f"{it.id} taken as {m['from']} when it was not", "kind_of_work": [it.kind or "general"],

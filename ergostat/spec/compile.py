@@ -823,16 +823,16 @@ class Compiler:
                 if not isinstance(f, str) or not f:
                     self.err(f"{what}.fold: {f!r} is not a field name", raw.at(f), "bad-fold")
                 elif isinstance(rule, dict):            # a rule with its bound: {append: 20}, the last 20 values kept
-                    (name, n), = rule.items() if len(rule) == 1 else ((None, None),)
-                    if name not in BOUNDED:
+                    (rn, n), = rule.items() if len(rule) == 1 else ((None, None),)
+                    if rn not in BOUNDED:
                         self.err(f"{what}.fold.{f}: only {', '.join(BOUNDED)} takes a bound, written {{append: 20}} "
                                  f"(the last 20 values kept), not {', '.join(map(str, rule)) or 'an empty map'}",
                                  raw.at(f), "bad-fold")
                     elif type(n) is not int or n < 1:
-                        self.err(f"{what}.fold.{f}: {name}'s bound is the most values kept, a whole number of 1 or more, "
+                        self.err(f"{what}.fold.{f}: {rn}'s bound is the most values kept, a whole number of 1 or more, "
                                  f"not {n!r}", raw.at(f), "bad-fold")
                     else:
-                        rules[f], bounds[f] = str(name), n
+                        rules[f], bounds[f] = str(rn), n
                 elif str(rule) not in RULES:
                     self.err(f"{what}.fold.{f}: {rule!r} is not a fold rule ({', '.join(RULES)})" + self.suggest(str(rule), RULES),
                              raw.at(f), "bad-fold")

@@ -226,8 +226,7 @@ TOOLS = [
 def _refused(p, spec, ev: dict) -> str | None:
     """Why the event just recorded did not change its item, when it did not (a patch whose test failed)."""
     from .spec import items as its
-    it = its.one(p.events, spec, ev["item"]) if spec is not None else None
-    return next((r["why"] for r in (it.refused if it else []) if r["event"] == ev["id"]), None)
+    return its.refused_by(p.events, spec, ev, every=True) if spec is not None else None
 
 
 class Server:
@@ -410,7 +409,8 @@ class Server:
         if name == "items":
             from .spec import items as its
             if a.get("id"):
-                d = its.detail(p.events, spec, a["id"], history=20)     # each field's latest changes; all of them: the CLI
+                d = its.detail(p.events, spec, a["id"], history=20,     # each field's latest changes; all of them: the CLI
+                               kind=a.get("projection") or None)
                 return _text(d) if d else {**_text(f"no item {a['id']!r}"), "isError": True}
             return _text(its.listing(p.events, spec, kind=a.get("projection") or None, state=a.get("state") or None,
                                      n=min(int(a.get("n") or 100), 500)))

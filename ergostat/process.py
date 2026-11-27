@@ -64,13 +64,11 @@ def kinds_of(spec, system: str | None) -> list[str]:
 
 
 def _kind(spec, kinds: list[str], id: str | None) -> str | None:
-    """The kind an item's id is (the first that matches, of all of them), when it is one of ``kinds``."""
+    """The projection of ``kinds`` (the map's, in the order asked) an id is drawn as: the first of them that matches it
+    (an id two of them see is drawn once)."""
     if not id or "/" not in id:
         return None
-    for name, k in spec.items.items():
-        if fnmatch.fnmatchcase(id, k.id):
-            return name if name in kinds else None
-    return None
+    return next((name for name in kinds if name in spec.items and fnmatch.fnmatchcase(id, spec.items[name].id)), None)
 
 
 def _done(spec, events, kind) -> set[str]:
@@ -109,7 +107,7 @@ def _moved_ids(events, spec, kind: str, since: float, until: float) -> tuple[lis
                 k = ix.known(kind)
                 if k == -1:
                     return []
-                return ix.db.execute("select i.id from moves m join items i on i.rid = m.rid where m.kind = ? and m.t >= ? "
+                return ix.db.execute(f"select i.id from moves m join {ix.rows(kind)} i on i.rid = m.rid where m.kind = ? and m.t >= ? "
                                      "and m.t <= ? group by m.rid order by max(m.t) desc limit ?",
                                      (k, since, until, MOST_ITEMS + 1)).fetchall()
             rows = ix.guard(read)

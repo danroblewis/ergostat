@@ -271,7 +271,7 @@ def test_as_of_a_moment_only_an_item_whose_matched_fields_may_have_changed_is_fo
                 still = real(late, tuple(where), at)
             kept, folded = kept + len(still), folded + len(late) - len(still)
             with monkeypatch.context() as m:              # every item changed since folded again (the old way)
-                m.setattr(itemindex.Index, "still", lambda self, ids, keys, at: set())
+                m.setattr(itemindex.Index, "still", lambda self, ids, keys, at, kind=None: set())
                 assert got == its.moved(p.events, spec, "ticket", "to", "done", a, b, where, at=at), (at, a, b, where)
     assert kept and folded                                # (both ways were taken)
     late = t + 1e5                                        # done, then done again written late, as of between them:

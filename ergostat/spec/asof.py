@@ -6,7 +6,7 @@ before it, as everywhere (``EventStore.query(until=)``, ``Index.late``)."""
 from __future__ import annotations
 
 from . import items as its
-from .items import TRANSCRIPT_TYPES, Item, fold, kind_of
+from .items import TRANSCRIPT_TYPES, Item, fold, projections_of
 from .relations import links_of
 
 
@@ -31,9 +31,9 @@ class AsOf:
         self.ix, self.events, self.spec, self.until = ix, events, spec, until
         self.lock = ix.lock
         self.late_ids: set[str] = set()              # every id seen late, with or without an event by ``until``
-        self.folded: dict[str, Item] = {}            # those of them that were there at ``until``, folded to then
-        self.whole: dict[str, Item] | None = None    # the whole mode: every item at ``until``
-        self._links: dict[str, list[tuple[str, str]]] = {}
+        self.folded: dict[tuple, Item] = {}          # those of them that were there at ``until``, folded to then,
+        self.whole: dict[tuple, Item] | None = None  # by (projection, id); the whole mode: every item at ``until``
+        self._links: dict[tuple, list[tuple[str, str]]] = {}
         with ix.lock:
             self.cap = its.late_cap(ix)
             self._late()
@@ -48,14 +48,15 @@ class AsOf:
         """The late set read again, and the ids new in it folded to ``until``; True when it gained one."""
         ids = set(self.ix.late(self.until, limit=self.cap + 1))
         if len(ids | self.late_ids) > self.cap:
-            self.whole = {i.id: i for i in its.fold_all(self.events, self.spec, None, self.until, self.ix.transcript)}
+            self.whole = {(i.kind, i.id): i for i in its.fold_all(self.events, self.spec, None, self.until,
+                                                                  self.ix.transcript)}
             return False
         new = ids - self.late_ids
         skip = () if self.ix.transcript else (TRANSCRIPT_TYPES,)
         for i in sorted(new):
             evs = self.events.query(n=None, item=i, until=self.until, skip=skip)
-            if evs:
-                self.folded[i] = fold(i, evs, kind_of(self.spec, i), transcript=self.ix.transcript)
+            for k in (projections_of(self.spec, i) or [None]) if evs else ():
+                self.folded[(k.name if k else None, i)] = fold(i, evs, k, transcript=self.ix.transcript)
         self.late_ids |= new
         return bool(new)
 
@@ -70,13 +71,14 @@ class AsOf:
                     return rows
         return None
 
-    def _pool(self, rows) -> dict[str, Item]:
+    def _pool(self, rows) -> dict[tuple, Item]:
         return self.whole if rows is None else self.folded       # type: ignore[return-value]
 
     def _links_of(self, it: Item) -> list[tuple[str, str]]:
-        if it.id not in self._links:
-            self._links[it.id] = links_of(self.spec.items.get(it.kind or ""), it.fields)
-        return self._links[it.id]
+        key = (it.kind, it.id)
+        if key not in self._links:
+            self._links[key] = links_of(self.spec.items.get(it.kind or ""), it.fields)
+        return self._links[key]
 
     # ---- the index's reads, as of ``until``
 
@@ -97,14 +99,15 @@ class AsOf:
         ids = list(ids)
         rows = self._rows("links_from", lambda: self.ix.links_from(ids))
         pool = self._pool(rows)
+        want = set(ids)
         out = [x for x in rows or [] if x[0] not in self.late_ids]
-        return out + [(i, r, t) for i in ids if i in pool for r, t in self._links_of(pool[i])]
+        return out + sorted({(it.id, r, t) for it in pool.values() if it.id in want for r, t in self._links_of(it)})
 
     def links_to(self, ids) -> list[tuple[str, str, str]]:
         want = set(ids)
         rows = self._rows("links_to", lambda: self.ix.links_to(list(want)))
         out = [x for x in rows or [] if x[0] not in self.late_ids]
-        return out + [(i, r, t) for i, it in self._pool(rows).items() for r, t in self._links_of(it) if t in want]
+        return out + sorted({(it.id, r, t) for it in self._pool(rows).values() for r, t in self._links_of(it) if t in want})
 
     def left(self, kind: str) -> set[str]:
         return self.ix.left(kind)

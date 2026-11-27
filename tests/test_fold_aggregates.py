@@ -180,7 +180,7 @@ def _events(seed: int, n: int = 90) -> list[tuple]:
 
 
 def _state(items) -> dict:
-    return {i.id: (i.fields, i.acc, i.n, [x["why"] for x in i.refused]) for i in items}
+    return {(i.kind, i.id): (i.fields, i.acc, i.n, [x["why"] for x in i.refused]) for i in items}
 
 
 def _scratch(p) -> dict:
@@ -188,7 +188,7 @@ def _scratch(p) -> dict:
     for e in p.events.of_items(None):
         by.setdefault(e["item"], []).append(e)
     spec = p.model.spec
-    return _state(its.fold(id, evs, its.kind_of(spec, id)) for id, evs in by.items())
+    return _state(its.fold(id, evs, k) for id, evs in by.items() for k in its.projections_of(spec, id) or [None])
 
 
 def _cold() -> None:

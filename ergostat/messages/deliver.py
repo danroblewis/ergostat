@@ -146,8 +146,7 @@ def for_context(p, spec: Spec, b: Block, run: str, item: str | None = None) -> l
         for t in m.get("routed_to") or []:
             if t.get("run") in live or t.get("finished"):
                 continue
-            item_kind = route_kind(spec, t.get("item"))
-            if t.get("block") == b.name or (t.get("item") and not t.get("block") and item_kind in kinds
+            if t.get("block") == b.name or (t.get("item") and not t.get("block") and kinds & seen_by(spec, t.get("item"))
                                             and (item is None or t.get("item") == item)):
                 delivered(p, m, "context", run=run, block=b.name, item=t.get("item"))
                 out.append(_brief(m))
@@ -155,19 +154,17 @@ def for_context(p, spec: Spec, b: Block, run: str, item: str | None = None) -> l
     return out
 
 
-def route_kind(spec: Spec, item: str | None) -> str | None:
-    if not item:
-        return None
-    from ..spec.items import kind_of
-    k = kind_of(spec, item)
-    return k.name if k else None
+def seen_by(spec: Spec, item: str | None) -> set[str]:
+    """The projections that see an item's id: a message routed to the item reaches a run working on any of them."""
+    from ..spec.items import projections_of
+    return {k.name for k in projections_of(spec, item)} if item else set()
 
 
 # ---- finished work
 
 def _follow_up_id(p, spec: Spec, kind_name: str, item: str, mid: str) -> str | None:
     k = spec.items[kind_name]
-    if kind_name == route_kind(spec, item):           # its own projection: review/2041 → review/2041.1, .2, ...
+    if kind_name in seen_by(spec, item):              # its own projection: review/2041 → review/2041.1, .2, ...
         n = 1 + sum(1 for x in p.events.items() if x["item"].startswith(item + "."))
         cand = f"{item}.{n}"
         if k.matches(cand):
@@ -193,7 +190,7 @@ def finished(p, spec: Spec, msg: dict, it: dict, by: str = "ergostat", policy: s
         k = spec.items[it["projection"]]
         to = spec.messages.reopen_to.get(it["projection"]) or (k.states[0] if k.states else None)
         p.events.add(REOPENED, item=it["id"], source=by, causedby=cause,
-                     data={"reopened": {"to": to, "message": msg["id"], "says": text[:500], "missed": missed,
+                     data={"reopened": {"projection": it["projection"], "to": to, "message": msg["id"], "says": text[:500], "missed": missed,
                                         "from": it["state"], "at": time.time()}})
         return delivered(p, msg, "reopen", item=it["id"], by=by, to=to, missed=missed)
     if policy == "follow-up":

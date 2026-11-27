@@ -68,13 +68,16 @@ def work_items(p, spec: Spec, text: str | None = None, ids=None) -> list[dict]:
         return _every_work_item(p, spec)
     named = set(ids or ()) | set(ID.findall(text or ""))
     nums = set(re.findall(r"\b\d{2,}\b", text or ""))
-    out, seen = [], set()
+    out, seen = [], {}
 
     def add(it, k, done) -> None:
-        if it.id not in seen:
-            seen.add(it.id)
-            out.append({"id": it.id, "projection": k.name, "state": it.state, "fields": it.fields, "last": it.last,
-                        "entered": it.entered, "finished": bool(it.state and it.state in done)})
+        fin = bool(it.state and it.state in done)
+        if it.id in seen:              # an id several projections see: finished only when finished in each of them
+            seen[it.id]["finished"] = seen[it.id]["finished"] and fin
+            return
+        seen[it.id] = {"id": it.id, "projection": k.name, "state": it.state, "fields": it.fields, "last": it.last,
+                       "entered": it.entered, "finished": fin}
+        out.append(seen[it.id])
     for name, k in spec.items.items():
         if name in OWN_KINDS:
             continue
@@ -96,16 +99,20 @@ def work_items(p, spec: Spec, text: str | None = None, ids=None) -> list[dict]:
 
 def _every_work_item(p, spec: Spec) -> list[dict]:
     from ..spec import items as its
-    out = []
+    out: dict[str, dict] = {}
     for name, k in spec.items.items():
         if name in OWN_KINDS:
             continue
         got = its.project(p.events, spec, name)
         done = route_done_states(spec, k, got)
         for it in got:
-            out.append({"id": it.id, "projection": name, "state": it.state, "fields": it.fields, "last": it.last,
-                        "entered": it.entered, "finished": bool(it.state and it.state in done)})
-    return out
+            fin = bool(it.state and it.state in done)
+            if it.id in out:           # (as ``work_items``: finished only when finished in each projection)
+                out[it.id]["finished"] = out[it.id]["finished"] and fin
+                continue
+            out[it.id] = {"id": it.id, "projection": name, "state": it.state, "fields": it.fields, "last": it.last,
+                          "entered": it.entered, "finished": fin}
+    return list(out.values())
 
 
 def running(p, spec: Spec, now: float | None = None) -> list[dict]:

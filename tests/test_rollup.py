@@ -76,7 +76,8 @@ def _fresh(p, transcript: bool, until=None) -> dict:
     by: dict = {}
     for e in p.events.of_items(None, until=until, skip=() if transcript else (its.TRANSCRIPT_TYPES,)):
         by.setdefault(e["item"], []).append(e)
-    return {id: _seen(its.fold(id, evs, its.kind_of(spec, id), transcript=transcript)) for id, evs in by.items()}
+    return {(k.name if k else None, id): _seen(its.fold(id, evs, k, transcript=transcript))
+            for id, evs in by.items() for k in its.projections_of(spec, id) or [None]}
 
 
 def _seen(it) -> dict:
@@ -108,12 +109,13 @@ def test_folding_the_snapshot_and_what_came_after_is_folding_the_originals(tmp_p
         assert got["items"], f"nothing rolled up at {frac}"
         for tr in (False, True):
             assert _fresh(p, tr) == want[tr], (frac, tr)
-            assert {i.id: _seen(i) for i in its.project(p.events, p.model.spec, transcript=tr)} == want[tr]
+            assert {(i.kind, i.id): _seen(i) for i in its.project(p.events, p.model.spec, transcript=tr)} == want[tr]
     assert p.events.count() < total / 3
-    for id in want[True]:                                # nothing lost: the archive and the record hold every event
+    for key in want[True]:                               # nothing lost: the archive and the record hold every event
+        id = key[1]
         arc = archived(p, id, n=10_000)
         kept = [e for e in p.events.query(n=None, item=id) if e["type"] != its.SNAPSHOT]
-        assert arc["total"] == len(kept) + arc["archived"] == want[True][id]["events"]
+        assert arc["total"] == len(kept) + arc["archived"] == want[True][key]["events"]
         assert len({e["id"] for e in arc["events"]}) == arc["total"]
 
 

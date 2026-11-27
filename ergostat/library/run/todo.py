@@ -155,7 +155,7 @@ def free(p, kind: str, met: set[str]) -> int:
     waiting = [i for i in items(p, kind) if i.state == "waiting" or i.fields.get("stuck") is not None]
     if not waiting:
         return 0
-    known = {i.id: i for i in its.project(p.events, spec)}
+    known = its.one_each(its.project(p.events, spec), spec)          # (an id two projections see: the first's)
     for was in waiting:
         evs = p.events.query(item=was.id, n=None)          # the to-do folded from the very events judged: what is
         it = its.fold(was.id, evs, spec.items[kind])       # said carries their count (read), and the projection's

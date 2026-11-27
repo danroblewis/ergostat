@@ -28,7 +28,7 @@ def _groupable(ix, k) -> list[str]:
     groups = [r for r, x in k.relations.items() if offered(k, x)]
     kn = ix.known(k.name)
     rows = [] if kn == -1 else ix.guard(lambda: ix.db.execute(
-        "select body from items where kind = ? order by last desc limit ?", (kn, SAMPLE)).fetchall())
+        f"select body from {ix.rows(k.name)} where kind = ? order by last desc limit ?", (kn, SAMPLE)).fetchall())
     seen: dict[str, list] = {}
     for (body,) in rows:
         for name, v in codec.unpack(body)["f"].items():

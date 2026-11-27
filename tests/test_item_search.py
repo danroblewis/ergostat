@@ -111,8 +111,13 @@ def test_old_index_rebuilt_and_searchable(tmp_path, monkeypatch):
     old = _file(p)                                                           # folded by the release before this one
     _cold()
     with sqlite3.connect(old) as c:                                          # and in its layout: no text at all
-        c.execute("drop index items_textless")
-        c.execute("alter table items drop column text")
+        c.execute("drop view items")
+        for (t,) in c.execute("select name from sqlite_master where type = 'table' and (name like 'items/%' "
+                              "or name = 'unprojected')").fetchall():
+            for (i,) in c.execute("select name from sqlite_master where type = 'index' and tbl_name = ? and "
+                                  "name like '%textless'", (t,)).fetchall():
+                c.execute(f'drop index "{i}"')
+            c.execute(f'alter table "{t}" drop column text')
     monkeypatch.undo()
     new = _file(p)                                                           # the upgrade: its own file, from the record
     assert new != old
@@ -124,7 +129,7 @@ def test_old_index_rebuilt_and_searchable(tmp_path, monkeypatch):
     _cold()                                                                  # an old stamp at the new path: rebuilt too
     with sqlite3.connect(new) as c:
         c.execute("update meta set value = ? where key = 'version'", (itemindex.VERSION - 1,))
-        c.execute("update items set text = ''")
+        c.execute('update "items/ticket" set text = \'\'')
     assert _found(p, "upgrade") == ["ticket/1"]
 
 
@@ -134,11 +139,11 @@ def test_a_row_without_its_text_is_rebuilt_not_read_as_no_match(tmp_path):
     path = _file(p)
     _cold()
     with sqlite3.connect(path) as c:
-        c.execute("update items set text = null")
+        c.execute('update "items/ticket" set text = null')
     assert _found(p, "kept") == ["ticket/1"]
     with sqlite3.connect(path) as c:                                         # the check before each search: one lookup
         plan = " ".join(r[-1] for r in c.execute("explain query plan select 1 from items where text is null limit 1"))
-    assert "items_textless" in plan, plan
+    assert plan.count("SCAN ") == plan.count("_textless") > 0, plan    # (each projection's table by its own)
 
 
 def _model_repo(tmp_path):
