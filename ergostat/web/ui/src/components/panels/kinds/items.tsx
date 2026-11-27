@@ -149,7 +149,8 @@ function ItemListFrame({ def, every, refreshKey, tools }: FrameProps) {
 
 /** The item's answer (GET /api/items/ID), the page's when it has one; `history` asks for its changes. */
 function useItem(def: PanelDef, every: number | null | undefined, refreshKey: unknown, history?: string) {
-  return usePanelAnswer<any>(pathOf("items", def.item), history ? { history } : {}, every, refreshKey, !history);
+  return usePanelAnswer<any>(pathOf("items", def.item), { ...(def.projection ? { projection: def.projection } : {}),
+    ...(history ? { history } : {}) }, every, refreshKey, !history);
 }
 
 /** An item's part, drawn once its answer is here; `nothing`: whether it has nothing to say, so that a quiet panel (a

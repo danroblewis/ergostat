@@ -47,7 +47,7 @@ def prepare(p, spec, b, ctx: dict, run: str, env: dict, given: dict | None, runn
             raise pl.PoolError(f"workspace pool {b.params['workspace']}: this run names no item to take a workspace "
                                f"for (a lease's ERGOSTAT_ITEM, its context's item, or its command's item)")
         from ..workspaces.leases import fields_of
-        out.workspace = pl.acquire(p, spec, b.params["workspace"], item, fields_of(p, spec, item), run, lease)
+        out.workspace = pl.acquire(p, spec, b.params["workspace"], item, fields_of(p, spec, item, b.takes.kind if b.takes else None), run, lease)
         out.workdir = Path(out.workspace["dir"])
     elif b.params.get("workdir"):
         out.workdir = pl.root_of(spec, b.params["workdir"]).resolve()

@@ -6,8 +6,11 @@ the command line): whichever asks first after events arrive folds them, under SQ
 a chunk at a time, and the others read what it wrote. A process that starts reads the index; it
 folds only what is newer than it.
 
-- ``items``: per item its kind, state, times, counts and its document (``body``: its fields, what was
-  refused and its aggregates' running state, packed by ``codec.py``); kinds, states and event types are numbers (``names``).
+- a table per projection (``"items/NAME"``, and ``unprojected`` for the ids no projection matches), and the view
+  ``items`` of them all: per item (one projection's fold of one id's events: an id that several projections match is
+  an item of each, folded by each one's rules) its projection, state, times, counts and its document (``body``: its
+  fields, what was refused and its aggregates' running state, packed by ``codec.py``); projections, states and event
+  types are numbers (``names``). Every other table names an item by its row's number (``rid``), unique across them.
 - ``moves``: every move of every item (when, from, to, by which event), so a flow counted from
   items reads only its window, and a count of items in a state reads only that state.
 - ``left`` and ``reached``: each kind's states some item has left, and has reached, so what a kind
@@ -65,14 +68,15 @@ from ..leases import PREFIX as LEASE_PREFIX
 from ..store import damaged
 from . import codec, itemnumbers, projections
 from .about import parts_named
-from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
+from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, projections_of, text_of
 from .relations import links_of
 
-VERSION = 10                # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
+VERSION = 11                # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
 #                             6: the numbers, or what the status reads, on the two branches that each took 6;
 #                             7: both; 8: records.last, latest, ticks, each item's fields touched, or event_counts
 #                             and carried for the item metrics (itemmetrics.py), on the two branches that each took 8;
-#                             9: both; 10: each sensor's newest sensor.failed in latest)
+#                             9: both; 10: each sensor's newest sensor.failed in latest; 11: a table per projection,
+#                             an id folded by every projection that matches it)
 ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
@@ -87,15 +91,6 @@ log = logging.getLogger("ergostat")
 SCHEMA = """
 create table if not exists meta (key text primary key, value);
 create table if not exists names (id integer primary key, name text unique not null);
-create table if not exists items (
-    rid integer primary key, id text unique not null, kind integer, state integer,
-    first real, last real, newest real, entered real, n integer, latest integer,
-    arrived real, raw integer, raw_first real, body blob, text text);
-create index if not exists items_kind_state_last on items(kind, state, last);
-create index if not exists items_kind_last on items(kind, last);
-create index if not exists items_last on items(last);
-create index if not exists items_textless on items(rid) where text is null;
-create index if not exists items_newest on items(newest);
 create table if not exists moves (rid integer, kind integer, t real, frm integer, dst integer, event text, type integer);
 create index if not exists moves_rid on moves(rid);
 create index if not exists moves_dst on moves(kind, dst, t);
@@ -115,6 +110,35 @@ create table if not exists event_counts (type text not null, source text not nul
     primary key (type, source, at)) without rowid;
 create table if not exists carried (t real, name text, labels text, value real);
 """
+UNPROJECTED = "unprojected"    # the table of the ids no projection matches
+ROWS = """
+create table if not exists {t} (
+    rid integer primary key, id text unique not null, kind integer, state integer,
+    first real, last real, newest real, entered real, n integer, latest integer,
+    arrived real, raw integer, raw_first real, body blob, text text);
+create index if not exists {i}_state_last on {t}(state, last);
+create index if not exists {i}_last on {t}(last);
+create index if not exists {i}_textless on {t}(rid) where text is null;
+create index if not exists {i}_newest on {t}(newest);
+"""
+
+
+def table_of(kind: str | None) -> str:
+    """The table a projection's rows are kept in (``"items/NAME"``), quoted; ``unprojected`` for an id no projection
+    matches."""
+    return '"' + ("items/" + kind).replace('"', '""') + '"' if kind else UNPROJECTED
+
+
+def layout(kinds) -> str:
+    """A table per projection, one for the ids none matches, and ``items``, every row of them (each row an item: one
+    projection's fold of one id's events), as one view. An index file is for one set of projections (its name holds
+    them: ``kinds_key``), so its tables are made once."""
+    names = sorted(kinds)
+    tables = [table_of(k) for k in names] + [UNPROJECTED]
+    rows = "".join(ROWS.format(t=t, i=f"p{n}" if t != UNPROJECTED else "u") for n, t in enumerate(tables))
+    cols = "rid, id, kind, state, first, last, newest, entered, n, latest, arrived, raw, raw_first, body, text"
+    return rows + "create view if not exists items as " + " union all ".join(f"select {cols} from {t}" for t in tables) + ";\n"
+
 
 COLS = "rid, id, kind, state, first, last, newest, entered, n, latest, arrived, raw, raw_first, body"
 
@@ -303,7 +327,7 @@ class Index:
         self._db: sqlite3.Connection | None = None
         self._held: int | None = None                 # the shared lock on ``<file>.lock`` while open
         self._events = None                           # the record last followed (to build it again from)
-        self._kind_of: dict[str, object] = {}
+        self._kinds_of: dict[str, list] = {}
         self._forget()
 
     def _forget(self) -> None:
@@ -312,6 +336,7 @@ class Index:
         self.rnames: dict[int | None, str | None] = {None: None}
         self.cache: OrderedDict[str, tuple[Item, int, float | None]] = OrderedDict()   # id: (fold state, raw, raw_first)
         self.seq, self.gen = -1, None
+        self._next = 0
         self._left: dict[str, set[str]] = {}
 
     @property
@@ -327,7 +352,8 @@ class Index:
                 c.execute("pragma synchronous=normal")
                 c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
                 c.execute("pragma temp_store=memory")
-                c.executescript(SCHEMA + projections.SCHEMA)   # (an older layout is another file: its name holds VERSION)
+                c.executescript(SCHEMA + layout(self.kinds) + projections.SCHEMA)   # (an older layout is another file:
+                #                                                                       its name holds VERSION)
             except BaseException:
                 c.close()
                 raise
@@ -365,14 +391,34 @@ class Index:
             self._load_names()
         return self.names.get(name, -1)
 
-    def kind(self, id: str):
-        k = self._kind_of.get(id, False)
-        if k is False:
-            k = kind_of(self.spec, id) if self.kinds else None
-            if len(self._kind_of) > 200_000:
-                self._kind_of.clear()
-            self._kind_of[id] = k
-        return k
+    def kinds_of(self, id: str) -> list:
+        """Every projection that folds ``id`` (``[None]`` when none matches: its row is in ``unprojected``)."""
+        ks = self._kinds_of.get(id)
+        if ks is None:
+            ks = (projections_of(self.spec, id) if self.kinds else []) or [None]
+            if len(self._kinds_of) > 200_000:
+                self._kinds_of.clear()
+            self._kinds_of[id] = ks
+        return ks
+
+    def tables(self) -> list[str]:
+        """Every table of rows: one per projection, then ``unprojected``."""
+        return [table_of(k) for k in sorted(self.kinds)] + [UNPROJECTED]
+
+    def rows(self, kind: str | None) -> str:
+        """What a read of ``kind``'s items reads: its own table (``""``: the ids no projection matches), or the view of
+        every table (None: any projection; one this index does not have: none of them, by its ``kind = ?``)."""
+        return UNPROJECTED if kind == "" else table_of(kind) if kind in self.kinds else "items"
+
+    def _numbered(self) -> None:
+        """Under the write lock: the rows' greatest number, across every table, so the next row made is numbered one
+        more (``_rid``): rows are numbered in the order they were made, whatever their projection (``counts.py``
+        follows the new ones by it)."""
+        self._next = max(self.db.execute(f"select coalesce(max(rid), 0) from {t}").fetchone()[0] for t in self.tables())
+
+    def _rid(self) -> int:
+        self._next += 1
+        return self._next
 
     # ---- following the record
 
@@ -471,6 +517,7 @@ class Index:
             self._reconcile(events)                         # events taken out (rolled up, pruned): items gone go
             projections.again(self, events, seq)            # and what the status reads folded again from what is left
         self._set_meta(gen=gen)
+        self._numbered()
         new = events.of_items(None, after_seq=seq, skip=skip, limit=CHUNK)
         top = max([seq, *(e["seq"] for e in new)])
         finished = len(new) < CHUNK
@@ -487,7 +534,7 @@ class Index:
         return finished
 
     def _reset(self) -> None:
-        for t in ("items", "moves", "left", "reached", "links", "number_log", "numbers", "names", "meta", "event_counts",
+        for t in (*self.tables(), "moves", "left", "reached", "links", "number_log", "numbers", "names", "meta", "event_counts",
                   "carried", *projections.TABLES):
             self.db.execute(f"delete from {t}")
         self.names, self.rnames = {None: None}, {None: None}
@@ -498,7 +545,7 @@ class Index:
     def _reconcile(self, events) -> None:
         """After events were taken out: an item none of whose events is left is forgotten."""
         live = events.item_ids()
-        gone = [(rid,) for rid, id in self.db.execute("select rid, id from items") if id not in live]
+        gone = [(rid,) for rid, id in self.db.execute("select rid, id from items") if id not in live]   # (every row of it)
         if gone:
             from ..itemmetrics import carry
             carry(self.db, [r[0] for r in gone], self.name, time.time())   # what they counted, kept (and their move to (gone))
@@ -506,7 +553,8 @@ class Index:
             self.db.executemany("delete from links where rid = ?", gone)
             self.db.executemany("delete from number_log where rid = ?", gone)
             self.db.executemany("delete from numbers where rid = ?", gone)
-            self.db.executemany("delete from items where rid = ?", gone)
+            for t in self.tables():
+                self.db.executemany(f"delete from {t} where rid = ?", gone)
             dead = {r[0] for r in gone}
             for id in [i for i, (it, *_) in self.cache.items() if getattr(it, "rid", None) in dead]:
                 self.cache.pop(id, None)
@@ -524,13 +572,15 @@ class Index:
                 per[k] = per.get(k, 0) + 1
         self.db.executemany("insert into event_counts(type, source, at, n) values (?,?,?,?) "
                             "on conflict(type, source, at) do update set n = n + excluded.n", [(*k, n) for k, n in per.items()])
-        have = {id: x for id in by if (x := self.cache.pop(id, None)) is not None}
-        rows = self._rows_of([id for id in by if id not in have])
+        keys = [(k.name if k else None, id) for id in by for k in self.kinds_of(id)]   # an item: (projection, id)
+        have = {key: x for key in keys if (x := self.cache.pop(key, None)) is not None}
+        rows = self._rows_of([key for key in keys if key not in have])
         now = time.time()
-        for id, evs in by.items():
-            k = self.kind(id)
-            got = have.get(id)
-            row = rows.get(id)
+        for key in keys:
+            id, evs = key[1], by[key[1]]
+            k = self.kinds.get(key[0]) if key[0] else None
+            got = have.get(key)
+            row = rows.get(key)
             if got is not None:
                 it, raw, raw_first = got
                 rid, arrived, newest = it.rid, it.arrived, it.newest            # type: ignore[attr-defined]
@@ -562,11 +612,13 @@ class Index:
                       codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled, "t": touched, "d": dis,
                                   **({"a": it.acc} if it.acc else {})}),
                       text_of(it.fields))
+            t = table_of(key[0])
             if rid is None:
-                rid = self.db.execute("insert into items(id, kind, state, first, last, newest, entered, n, latest, arrived, "
-                                      "raw, raw_first, body, text) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (id, *values)).lastrowid
+                rid = self._rid()
+                self.db.execute(f"insert into {t}(rid, id, kind, state, first, last, newest, entered, n, latest, arrived, "
+                                "raw, raw_first, body, text) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (rid, id, *values))
             else:
-                self.db.execute("update items set kind=?, state=?, first=?, last=?, newest=?, entered=?, n=?, latest=?, "
+                self.db.execute(f"update {t} set kind=?, state=?, first=?, last=?, newest=?, entered=?, n=?, latest=?, "
                                 "arrived=?, raw=?, raw_first=?, body=?, text=? where rid=?", (*values, rid))
             if restored:
                 self.db.execute("delete from moves where rid = ?", (rid,))
@@ -591,7 +643,7 @@ class Index:
                 it.moves = []                                # on disk: what is kept in memory is the rest of the fold
             it.rid, it.arrived, it.newest = rid, arrived, newest                 # type: ignore[attr-defined]
             if self._open(it, k, now):
-                self.cache[id] = (it, raw, raw_first)
+                self.cache[key] = (it, raw, raw_first)
         while len(self.cache) > CACHED:
             self.cache.popitem(last=False)
 
@@ -629,12 +681,18 @@ class Index:
         declared = getattr(getattr(self.spec, "messages", None), "done", None)
         return it.state not in done_states(k, self.left(k.name), declared)
 
-    def _rows_of(self, ids: list[str]) -> dict[str, tuple]:
+    def _rows_of(self, keys: list[tuple]) -> dict[tuple, tuple]:
+        """The rows of these items, (projection, id), by item."""
+        by: dict[str | None, list[str]] = {}
+        for kind, id in keys:
+            by.setdefault(kind, []).append(id)
         out = {}
-        for i in range(0, len(ids), 500):
-            part = ids[i:i + 500]
-            for r in self.db.execute(f"select {COLS} from items where id in ({','.join('?' * len(part))})", part):
-                out[r[1]] = r
+        for kind, ids in by.items():
+            for i in range(0, len(ids), 500):
+                part = ids[i:i + 500]
+                for r in self.db.execute(f"select {COLS} from {table_of(kind)} where id in ({','.join('?' * len(part))})",
+                                         part):
+                    out[(kind, r[1])] = r
         return out
 
     def _item(self, r: tuple, moves: list[dict] | None = None) -> Item:
@@ -698,29 +756,32 @@ class Index:
 
     @_healing
     def late(self, until: float, kind: str | None = None, limit: int | None = None) -> list[str]:
-        """The items with an event after ``until`` (``kind``'s only, when given)."""
+        """The ids with an event after ``until`` (``kind``'s only, when given)."""
         w, a = self._where(kind)
         w = (w + " and " if w else " where ") + "newest > ?"
-        return [r[0] for r in self.db.execute(f"select id from items{w}" + (f" limit {int(limit)}" if limit else ""), (*a, until))]
+        return [r[0] for r in self.db.execute(f"select distinct id from {self.rows(kind)}{w}" + (f" limit {int(limit)}" if limit else ""),
+                                              (*a, until))]
 
     @_healing
-    def still(self, ids, keys, at: float) -> set[str]:
-        """Of ``ids``, those whose fields ``keys`` (``lease.back``: ``lease``'s too) no event after ``at`` may have
-        changed (``touches``), and whose events came in time order around ``at``: what came by then is a prefix of
-        their fold, so those fields now, and their moves up to ``at``, are theirs as of then."""
+    def still(self, ids, keys, at: float, kind: str | None = None) -> set[str]:
+        """Of ``ids`` (``kind``'s items; with none, each id's items of every projection), those whose fields ``keys``
+        (``lease.back``: ``lease``'s too) no event after ``at`` may have changed (``touches``), and whose events came in
+        time order around ``at``: what came by then is a prefix of their fold, so those fields now, and their moves up
+        to ``at``, are theirs as of then."""
         roots = {"*", *keys, *(k.split(".", 1)[0] for k in keys)}
-        out = set()
-        for r in self._rows_of(list(ids)).values():
+        rows = [r for k in ([kind] if kind is not None else [*self.kinds, None])
+                for r in self._rows_of([(k, i) for i in ids]).values()]
+        ok: dict[str, bool] = {}
+        for r in rows:
             b = codec.unpack(r[13])
             t, d = b.get("t", {"*": 1e300}), b.get("d")
-            if all(t.get(k, -1e300) <= at for k in roots) and not (d and d[0] <= at < d[1]):
-                out.add(r[1])
-        return out
+            ok[r[1]] = ok.get(r[1], True) and all(t.get(k, -1e300) <= at for k in roots) and not (d and d[0] <= at < d[1])
+        return {i for i, x in ok.items() if x}
 
     @_healing
     def total(self, kind: str | None = None) -> int:
         w, a = self._where(kind)
-        return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]
+        return self.db.execute(f"select count(*) from {self.rows(kind)}{w}", a).fetchone()[0]
 
     @_healing
     def counts(self, until: float | None = None) -> dict[str, dict[str, int]]:
@@ -745,7 +806,7 @@ class Index:
     @_healing
     def count(self, kind: str | None, states=None, until: float | None = None, words=()) -> int:
         w, a = self._where(kind, states, until, words)
-        return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]
+        return self.db.execute(f"select count(*) from {self.rows(kind)}{w}", a).fetchone()[0]
 
     @_healing
     def items(self, kind: str | None = None, states=None, until: float | None = None, n: int | None = None,
@@ -764,11 +825,11 @@ class Index:
             for i in range(0, len(ids), 500):
                 part = ids[i:i + 500]
                 ww = (w + " and " if w else " where ") + f"id in ({','.join('?' * len(part))})"
-                rows += self.db.execute(f"select {COLS} from items{ww}", (*a, *part)).fetchall()
+                rows += self.db.execute(f"select {COLS} from {self.rows(kind)}{ww}", (*a, *part)).fetchall()
             rows.sort(key=lambda r: -r[5])
         else:
             lim = f" limit {int(n)} offset {int(offset)}" if n is not None else ""
-            rows = self.db.execute(f"select {COLS} from items{w} order by last desc{lim}", a).fetchall()
+            rows = self.db.execute(f"select {COLS} from {self.rows(kind)}{w} order by last desc{lim}", a).fetchall()
         mv = self.moves_of([r[0] for r in rows]) if moves else {}
         return [self._item(r, mv.get(r[0], [])) for r in rows]
 
@@ -802,7 +863,7 @@ class Index:
         if until_newest is not None:
             extra = " and i.newest <= ?"
             args.append(until_newest)
-        return self.db.execute(f"select i.id, m.t from moves m join items i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
+        return self.db.execute(f"select i.id, m.t from moves m join {self.rows(kind)} i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
                                f"and m.t >= ? and m.t <= ?{extra} order by m.t", args).fetchall()
 
     @_healing
@@ -851,7 +912,7 @@ class Index:
             until_newest = None
         if until_newest is None:
             return self.db.execute(f"select count(*) from moves where kind = ? and {col} = ? and t <= ?", (k, s, before)).fetchone()[0]
-        return self.db.execute(f"select count(*) from moves m join items i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
+        return self.db.execute(f"select count(*) from moves m join {self.rows(kind)} i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
                                "and m.t <= ? and i.newest <= ?", (k, s, before, until_newest)).fetchone()[0]
 
     @_healing
@@ -871,18 +932,21 @@ class Index:
             extra = " and i.newest <= ?"
             args.append(until_newest)
         rows = self.db.execute(                       # those that finished in the window: then when each first did
-            f"select i.id, min(m.t), i.arrived from moves m join items i on i.rid = m.rid where {into} and m.rid in "
+            f"select i.id, min(m.t), i.arrived from moves m join {self.rows(kind)} i on i.rid = m.rid where {into} and m.rid in "
             f"(select m.rid from moves m where {into} and m.t >= ? and m.t <= ?){extra} group by m.rid", args).fetchall()
         return [r for r in rows if since <= r[1] <= until]
 
     @_healing
     def links_from(self, ids) -> list[tuple[str, str, str]]:
-        """(item, relation, the id it names) of each link the items ``ids`` hold (the ``@about`` links are not to items)."""
+        """(item, relation, the id it names) of each link the items ``ids`` hold (the ``@about`` links are not to items);
+        a link two projections' items of one id hold, once (``items.relation_of``: the relation is the one declaring
+        projection's)."""
         ids, out = list(ids), []
         for i in range(0, len(ids), 500):
             part = ids[i:i + 500]
             out += [(a, self.name(r), d) for a, r, d in self.db.execute(
-                f"select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid where i.id in ({','.join('?' * len(part))})",
+                f"select distinct i.id, l.rel, l.dst from links l join items i on i.rid = l.rid "
+                f"where i.id in ({','.join('?' * len(part))})",
                 part) if self.name(r) != ABOUT]
         return out
 
@@ -893,7 +957,8 @@ class Index:
         for i in range(0, len(ids), 500):
             part = ids[i:i + 500]
             out += [(a, self.name(r), d) for a, r, d in self.db.execute(
-                f"select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid where l.dst in ({','.join('?' * len(part))})",
+                f"select distinct i.id, l.rel, l.dst from links l join items i on i.rid = l.rid "
+                f"where l.dst in ({','.join('?' * len(part))})",
                 part) if self.name(r) != ABOUT]
         return out
 
@@ -904,7 +969,7 @@ class Index:
         rel = self.known(ABOUT)
         if rel == -1:
             return []
-        sql, args = "select i.id, l.dst from links l join items i on i.rid = l.rid where l.rel = ?", [rel]
+        sql, args = "select distinct i.id, l.dst from links l join items i on i.rid = l.rid where l.rel = ?", [rel]
         if parts is None:
             return [tuple(r) for r in self.db.execute(sql, args)]
         parts, out = list(parts), []
@@ -916,7 +981,7 @@ class Index:
     @_healing
     def links(self, rels=None, limit: int | None = None) -> list[tuple[str, str, str]]:
         """Every link (of the relations ``rels``, when given): (item, relation, the id it names)."""
-        sql, args = "select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid", []
+        sql, args = "select distinct i.id, l.rel, l.dst from links l join items i on i.rid = l.rid", []
         if rels is not None:
             named = [x for x in (self.known(r) for r in rels) if x != -1]
             if not named:
@@ -941,8 +1006,9 @@ class Index:
         fin = {x for x in (self.known(f) for f in finished) if x != -1}
         if until is None:
             rows = self.db.execute(
-                "select m.rid, m.t, m.dst, i.state from moves m join items i on i.rid = m.rid where m.kind = ? and m.rid in "
-                "(select rid from items where kind = ? order by last desc limit ?) order by m.rid, m.rowid", (k, k, int(most)))
+                f"select m.rid, m.t, m.dst, i.state from moves m join {self.rows(kind)} i on i.rid = m.rid where m.kind = ? "
+                f"and m.rid in (select rid from {self.rows(kind)} where kind = ? order by last desc limit ?) order by m.rid, m.rowid",
+                (k, k, int(most)))
         else:
             rows = self.db.execute(
                 "select rid, t, dst, null from moves where kind = ? and t <= ? and rid in (select rid from moves where "
@@ -983,10 +1049,12 @@ class Index:
                 for id, evs in rest.items():
                     mine = [t for q, t in sorted(evs) if q <= seq]
                     rows.append((len(mine), mine[0] if mine else None, id))
-                    got = self.cache.get(id)
-                    if got is not None:
-                        self.cache[id] = (got[0], len(mine), mine[0] if mine else None)
-                self.db.executemany("update items set raw = ?, raw_first = ? where id = ?", rows)
+                    for key in [(k.name if k else None, id) for k in self.kinds_of(id)]:
+                        got = self.cache.get(key)
+                        if got is not None:
+                            self.cache[key] = (got[0], len(mine), mine[0] if mine else None)
+                for t in self.tables():
+                    self.db.executemany(f"update {t} set raw = ?, raw_first = ? where id = ?", rows)
                 self.db.execute("commit")
             except BaseException:
                 self.db.execute("rollback")

@@ -148,9 +148,11 @@ def cmd_item(args) -> int:
         return 0
     at = at_of(args) if getattr(args, "at", None) else None     # as it stood then: its fields, its history to then
     hist = getattr(args, "history", None)
-    d = its.detail(p.events, spec, args.name, until=at, history=None if hist is not None else its.HISTORY_SHOWN)
+    d = its.detail(p.events, spec, args.name, until=at, history=None if hist is not None else its.HISTORY_SHOWN,
+                   kind=args.projection)
     if d is None:
-        print(f"no item {args.name!r}" + (" then" if at else ""), file=sys.stderr)
+        print(f"no item {args.name!r}" + (f" of projection {args.projection}" if args.projection else "")
+              + (" then" if at else ""), file=sys.stderr)
         return 2
     if hist is not None:
         if args.json:
@@ -322,20 +324,13 @@ def add_event(p, args) -> int:
         return 2
     print(json.dumps(ev, default=str) if args.json else event_line(ev))
     spec = getattr(p.model, "spec", None)
-    if ev["item"] and "/" in ev["item"] and spec is not None and (ev.get("patch") is not None or ev.get("set") is not None
-                                                                   or getattr(its_kind(spec, ev["item"]), "fold", None)):
+    if spec is not None:
         from ..spec import items as its
-        it = its.one(p.events, spec, ev["item"])
-        why = next((r["why"] for r in (it.refused if it else []) if r["event"] == ev["id"]), None)
+        why = its.refused_by(p.events, spec, ev)
         if why:                                          # recorded, as it happened; its item is as it was
             print(f"recorded, but it changed nothing: {why}", file=sys.stderr)
             return 1
     return 0
-
-
-def its_kind(spec, id: str):
-    from ..spec import items as its
-    return its.kind_of(spec, id)
 
 
 def _short(v, n: int = 60) -> str:

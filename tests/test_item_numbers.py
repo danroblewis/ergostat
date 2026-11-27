@@ -62,11 +62,9 @@ def _refold(p) -> tuple[set, set]:
         by.setdefault(e["item"], []).append(e)
     log, now = set(), set()
     for id, evs in by.items():
-        k = its.kind_of(spec, id)
-        if k is None:
-            continue
-        log |= {(k.name, f, t, id, v, d) for f, t, v, d in itemnumbers.history_of(id, evs, k, False)}
-        now |= {(id, f, v) for f, v in itemnumbers.values(its.fold(id, evs, k, transcript=False).fields).items()}
+        for k in its.projections_of(spec, id):
+            log |= {(k.name, f, t, id, v, d) for f, t, v, d in itemnumbers.history_of(id, evs, k, False)}
+            now |= {(id, f, v) for f, v in itemnumbers.values(its.fold(id, evs, k, transcript=False).fields).items()}
     return log, now
 
 

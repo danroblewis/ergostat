@@ -19,7 +19,7 @@ from tests.test_rollup import BACKENDS, EXAMPLES, T0, _fresh, _project, _record,
 
 
 def _indexed(p, transcript: bool) -> dict:
-    return {i.id: _seen(i) for i in its.project(p.events, p.model.spec, transcript=transcript)}
+    return {(i.kind, i.id): _seen(i) for i in its.project(p.events, p.model.spec, transcript=transcript)}
 
 
 def _cold(p) -> None:
@@ -117,7 +117,7 @@ def test_only_open_items_are_kept_folded_in_memory(tmp_path):
     p.events.add("ticket.done", item="ticket/done", at=now)
     p.events.add("ticket.opened", item="ticket/idle", at=now - 7200)
     ix = itemindex.index_for(p.events, p.model.spec, False)
-    assert set(ix.cache) == {"ticket/open"}
+    assert set(ix.cache) == {("ticket", "ticket/open")}               # (an item: its projection, its id)
     assert {i.id: i.state for i in its.project(p.events, p.model.spec)} == {"ticket/open": "open", "ticket/done": "done",
                                                                             "ticket/idle": "open"}
     p.events.add("ticket.worked", item="ticket/done", data={"spent": 2}, at=now)   # read from disk to fold it further
@@ -148,13 +148,13 @@ def test_counts_pages_and_moves_read_from_the_index_are_a_folds(tmp_path, backen
     p.events.add("x.y", item="loose/1", at=T0)                # an item of no kind
     every = list(_fresh(p, False).values())
     until = T0 + 2500
-    past = {i["id"]: its.fold(i["id"], evs, its.kind_of(spec, i["id"])) for i in every
+    past = {i["id"]: its.fold(i["id"], evs, its.projection(spec, i["id"])) for i in every
             if (evs := p.events.query(n=None, item=i["id"], until=until))}       # each item as it stood, from the record
     assert any(i["last"] > until for i in every)
 
     def fresh_moves(key, state, lo, hi, where=None, at=None):
         src = past.values() if at is not None else [its.fold(i["id"], p.events.query(n=None, item=i["id"]),
-                                                             its.kind_of(spec, i["id"])) for i in every]
+                                                             its.projection(spec, i["id"])) for i in every]
         return sorted(m["time"] for i in src if i.kind == "ticket" and its.matches(i, where or {})
                       for m in i.moves if m[key] == state and lo <= m["time"] <= hi)
     for key, state in (("to", "doing"), ("from", "doing"), ("to", "done"), ("to", "open")):

@@ -26,7 +26,10 @@ shortcuts (query/sources.py) are SQL over these views and nothing else.
   Python when a text names it.
 - ``events(type, source, at, n)``: how many events of each type and source the index folded in the minute ending ``at``.
 - one view per projection, named for the projection (``-`` read as ``_``; a name that is not then a plain word, or that is one
-  of the views above, has none): ``(id, state, first, last, entered, events, <the projection's show: fields>)``.
+  of the views above, has none): ``(id, state, first, last, entered, events, <the projection's show: fields>)``, read
+  from the projection's own table of the index (an id several projections match is a row of each, folded by each one's
+  rules). The views above hold every projection's rows, each with its ``projection``: an id two projections match is
+  two rows of ``item_list``, one per projection.
 
 Times are Unix seconds. Each view names its columns, so a change of the index's own tables (a column or a table added,
 the columns in another order, the file built again) leaves what a view answers as it was
@@ -47,6 +50,7 @@ import time
 
 from .. import stages
 from ..spec import codec
+from ..spec.itemindex import UNPROJECTED, layout, table_of
 
 STATE_GROUPS = "item_state_groups"
 STABLE = {
@@ -146,8 +150,7 @@ def _definitions(spec, finished: dict[str, list[str]]) -> dict[str, str]:
     for view, (kind, shown) in kind_views(spec).items():
         cols = "".join(f", json_extract(_fields(i.body), '$.{f}') as \"{f}\"" for f in shown)
         out[view] = (f"select i.id as id, n.name as state, i.first as first, i.last as last, i.entered as entered, "
-                     f"i.n as events{cols} from main.items i join main.names k on k.id = i.kind and k.name = {_q(kind)} "
-                     + names.format(a="n", c="i.state"))
+                     f"i.n as events{cols} from main.{table_of(kind)} i " + names.format(a="n", c="i.state"))
     return out
 
 
@@ -324,7 +327,7 @@ def check(spec, deadline: float, text: str, params: dict, why: list, forecast: d
     from ..spec import itemindex, projections
     c = sqlite3.connect(":memory:", isolation_level=None)
     try:
-        c.executescript(itemindex.SCHEMA + projections.SCHEMA)
+        c.executescript(itemindex.SCHEMA + layout(getattr(spec, "items", None) or {}) + projections.SCHEMA)
         _bounded(c, deadline, why)
         if forecast is not None:            # (the group functions, as on the index: only their names are checked)
             _group_functions(c, forecast, why)
@@ -438,8 +441,10 @@ def opened(ix, spec, deadline: float, text: str | None = None, why: list | None 
             _state_group_table(c, ix, spec)
             names.add(STATE_GROUPS)
         c.execute("pragma query_only = 1")
-        tables = {"items", "moves", "names", "number_log", "event_counts", "json_each"}   # (what the definitions read;
-        #                                                                       json_each is item_fields' and item_labels')
+        tables = {"items", "moves", "names", "number_log", "event_counts", "json_each", UNPROJECTED,
+                  *(table_of(k)[1:-1].replace('""', '"').lower() for k in getattr(ix, "kinds", None) or {})}
+        #             (what the definitions read: the projections' tables, through ``items`` or each its own; json_each
+        #              is item_fields' and item_labels')
         c.set_authorizer(_authorizer(why, lambda db, a: (db == "main" and a in tables) or (db == "temp" and a in names),
                                      FUNCTIONS | {"_fields", "json_each"}, names | (own or set())))
         yield c, why

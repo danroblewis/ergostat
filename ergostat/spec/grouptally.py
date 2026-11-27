@@ -119,14 +119,15 @@ def _read(ix, spec, info, k, rel) -> tuple[list, dict, dict, dict]:
             raise BadSet(f"{k.name}: more than {MOST} items; the progress per group reads every one")
         members = ix.items(k.name)
         named = sorted({v for i in members for v in [i.fields.get(by)] if by and isinstance(v, str) and v})
-        groups = {i.id: i for i in ix.items(None, ids=named, moves=False)} if named else {}
+        groups = its.one_each(ix.items(None, ids=named, moves=False), spec, rel.kinds if rel is not None else ()) \
+            if named else {}
         for t in rel.kinds if rel is not None else ():     # every group, an empty one too (of 0)
             if ix.count(t) > MOST:
                 raise BadSet(f"{t}: more than {MOST} items; the progress per group reads every one")
             groups.update({g.id: g for g in ix.items(t, moves=False)})
         known = {i.id: i for i in members} | groups
         after = sorted({d for i in known.values() for _, d in _prec(spec, i)} - set(known))
-        known |= {i.id: i for i in ix.items(None, ids=after, moves=False)} if after else {}
+        known |= its.one_each(ix.items(None, ids=after, moves=False), spec) if after else {}
 
     def unfinished(i) -> list[str]:         # its precedence targets not finished (one not in the record: not known to be)
         return [d for r, d in _prec(spec, i) if (t := known.get(d)) is None

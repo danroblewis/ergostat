@@ -84,7 +84,8 @@ def test_a_parent_moves_once_all_its_children_reach_the_state(tmp_path):
         assert wait_for(lambda: state(p, "epic/1") == "shipped"), "the last child's move ships it"
         shipped = p.events.query(n=1, item="epic/1", type=JOINED)[-1]
         assert shipped["causedby"] == last["id"], "caused by the move that completed it"
-        assert shipped["data"]["joined"] == {"to": "shipped", "children": "parent", "all": ["done"], "n": 3}
+        assert shipped["data"]["joined"] == {"projection": "epic", "to": "shipped", "children": "parent", "all": ["done"],
+                                             "n": 3}                    # (the projection it moves: SPEC §5a, *Join*)
     finally:
         e.close()
 

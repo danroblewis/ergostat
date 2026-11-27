@@ -39,26 +39,29 @@ def fence_of(value) -> int | None:
         return None
 
 
-def finished(p, spec, item: str) -> bool:
-    """Whether the item is in a state its kind finishes in: as ``messages: {done:}`` says, else its last state or a
-    dead letter (as a lease's end says ``terminal``). A state between, a review, is not finished: its work is kept."""
+def finished(p, spec, item: str, kind: str | None = None) -> bool:
+    """Whether the item is in a state its projection finishes in (``kind``, the lease's; with none named, each
+    projection that sees the id and has states): as ``messages: {done:}`` says, else its last state or a dead letter
+    (as a lease's end says ``terminal``). A state between, a review, is not finished: its work is kept."""
     from ..leases.dispatch import terminal
     from ..spec import items as its
-    k = its.kind_of(spec, item)
-    if k is None or not k.states:
+    ks = [k for k in ([its.projection(spec, item, kind)] if kind else its.projections_of(spec, item)) if k and k.states]
+    if not ks:
         return False
-    it = its.one(p.events, spec, item)
-    if it is None or not it.state:
-        return False
-    if k.name in spec.messages.done:
-        return it.state in spec.messages.done[k.name]
-    return terminal(spec, k.name, it.state)
+    for k in ks:
+        it = its.one(p.events, spec, item, k.name)
+        if it is None or not it.state:
+            return False
+        if not (it.state in spec.messages.done[k.name] if k.name in spec.messages.done else terminal(spec, k.name, it.state)):
+            return False
+    return True
 
 
-def fields_of(p, spec, item: str) -> dict:
+def fields_of(p, spec, item: str, kind: str | None = None) -> dict:
+    """The item's fields: projection ``kind``'s fold of its events (a block's ``takes:``; with none, ``items.projection``)."""
     from ..spec import items as its
-    evs = p.events.query(n=None, item=item)
-    return its.fold(item, evs, its.kind_of(spec, item)).fields if evs else {}
+    it = its.one(p.events, spec, item, kind)
+    return it.fields if it else {}
 
 
 def run_going(p, run: str | None) -> bool:
@@ -91,7 +94,7 @@ def on_event(p, spec, ev: dict) -> list[dict]:
     if ev["type"] == EXPIRED and ev["id"] in refused_expiries(p.events, spec, [ev]):
         return []                                        # (renewed after it was judged: not an expiry, nothing released)
     how = "expired" if ev["type"] == EXPIRED else "ended"
-    done = bool(d["terminal"]) if "terminal" in d else finished(p, spec, item)
+    done = bool(d["terminal"]) if "terminal" in d else finished(p, spec, item, d.get("projection"))
     why = f"its lease {how}" + (f" ({d['state']})" if d.get("state") else "")
     why += ", the item finished" if done else ", the item not finished"
     fenced = None

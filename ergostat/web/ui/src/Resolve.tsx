@@ -53,7 +53,7 @@ export default function Resolve() {
     }
     const id = idOf(head, rest.join("/"));
     const t = !builtin && template("item");
-    return t ? declared(t.name, { item: id }) : <Item key={id} id={id} />;
+    return t ? declared(t.name, { item: id, projection: head }) : <Item key={`${head}:${id}`} id={id} projection={head} />;
   }
   // the old addresses, while the model names nothing there
   if (head === "items" && projections) {
@@ -95,7 +95,8 @@ const BUILTIN_PAGES: Record<string, (rest: string[], c: Ctx) => ReactNode> = {
   item: (rest, c) => {
     const id = rest.join("/");
     const remote = new URLSearchParams(c.search).has("remote");
-    const there = !remote && c.projections ? itemPath(id) : null;          // an item of a projection: at the projection's address
+    const there = !remote && c.projections ? itemPath(id) : null;   // an item of one projection: at the projection's
+    //                                                                 address (one several see: here, listing them)
     if (there) return <Navigate replace to={there + c.search} />;
     const t = !remote && c.template?.("item");
     return t ? c.declared(t.name, { item: id }) : <Item key={id} id={id} />;

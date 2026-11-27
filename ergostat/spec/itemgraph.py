@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from .items import kind_of
+from .items import relation_of
 from .relations import inverse_of
 
 VISIT = 2000            # items a query visits at most
@@ -46,7 +46,7 @@ def _known(ix, *ids: str) -> None:
 
 
 def _inverse(spec, src: str, rel: str) -> str:
-    r = (getattr(kind_of(spec, src), "relations", None) or {}).get(rel)
+    r = relation_of(spec, src, rel)
     return getattr(r, "inverse", "") or inverse_of(rel)
 
 

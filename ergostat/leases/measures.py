@@ -49,7 +49,8 @@ def counts(p, spec: Spec, who: str | None = None, now: float | None = None) -> d
     kinds = set(_kinds(spec, who))
     evs = [e for e in query(p, EXPIRED, n=None, since=now - DAY, until=now)
            if not (by_block and (e.get("data") or {}).get("block") != who)
-           and (k := its.kind_of(spec, e.get("item") or "")) is not None and k.name in kinds]
+           and ((e.get("data") or {}).get("projection") in kinds if (e.get("data") or {}).get("projection")
+                else any(k.name in kinds for k in its.projections_of(spec, e.get("item") or "")))]
     void = refused_expiries(p.events, spec, evs, items=seen)      # (the items just projected: none folded again)
     out["expired"] = sum(1 for e in evs if e["id"] not in void)
     return {k: float(v) for k, v in out.items()}

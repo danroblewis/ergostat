@@ -3,9 +3,11 @@
      1. a dashboard the model declares, at /NAME (named as a projection: that projection's page, its $projection the
         projection);
      2. a projection, at /NAME (its list) and /NAME/REST (one of its items: REST is what its id glob's * matched,
-        ticket/1 at /ticket/1; a projection whose glob is not PREFIX* writes the whole id);
+        ticket/1 at /ticket/1; a projection whose glob is not PREFIX* writes the whole id). An id several projections
+        match is an item of each, each at its own projection's address;
      3. ergostat's own pages, each a dashboard of its own (lib/pages.ts) at its name: /diagram, /dashboard, /goals,
-        /agents, /record, /agent/NAME and /item/ID (any id, a projection's or not).
+        /agents, /record, /agent/NAME and /item/ID (any id, a projection's or not: an id one projection matches
+        leads to its item's address; one several match lists them).
    ?builtin=1 shows ergostat's own page for an address whatever the model names there. The projections are set once the
    page has asked (/api/routes, state/dashboards.tsx); until then an item's link is /item/ID, which leads to the same. */
 
@@ -16,7 +18,7 @@ export const BUILTIN = ["diagram", "dashboard", "goals", "agents", "agent", "rec
 let projections: ProjectionRoute[] = [];
 const globs = new Map<string, RegExp>();
 
-/** The model's projections, in its order (an item's address is under the first whose glob matches its id). */
+/** The model's projections, in its order. */
 export function setProjections(p: ProjectionRoute[]): void {
   projections = p;
 }
@@ -49,15 +51,18 @@ function prefixOf(glob: string): string | null {
   return /[*?[]/.test(p) ? null : p;
 }
 
-export const projectionOfId = (id: string) => projections.find((k) => globRe(k.id).test(id));
+/** Every projection whose glob matches an id: each folds its events into an item of its own. */
+export const projectionsOfId = (id: string) => projections.filter((k) => globRe(k.id).test(id));
 export const isProjection = (name: string) => projections.some((k) => k.name === name);
 
 /** An id written into an address: each part between its slashes encoded, the slashes kept (ticket/12, not ticket%2F12). */
 export const segs = (s: string) => s.split("/").map(encodeURIComponent).join("/");
 
-/** An item's own address, /PROJECTION/REST; null when no projection is known to match it (then /item/ID). */
-export function itemPath(id: string): string | null {
-  const k = projectionOfId(id);
+/** An item's own address, /PROJECTION/REST: projection's item of the id (with none named, the one projection that
+ *  matches it); null when it is not known to match, or several do and none is named (then /item/ID, which lists them). */
+export function itemPath(id: string, projection?: string | null): string | null {
+  const ks = projectionsOfId(id);
+  const k = projection ? ks.find((x) => x.name === projection) : ks.length === 1 ? ks[0] : undefined;
   if (!k) return null;
   const p = prefixOf(k.id);
   const rest = p != null && id.startsWith(p) ? id.slice(p.length) : id;

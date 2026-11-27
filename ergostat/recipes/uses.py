@@ -100,7 +100,7 @@ def evidence(p, spec, use: dict) -> list[dict]:
             out.append({"for": False, "says": f"the run failed: {(e.get('data') or {}).get('note') or 'exited badly'}"})
         it = e.get("item") or ""
         if "/" in it and not it.startswith((CONTEXT + "/", "ergostat.claim/", "session/")) and it not in work:
-            if its.kind_of(spec, it) is not None:
+            if its.projections_of(spec, it):
                 work.append(it)
     for wid in work:
         it = its.one(p.events, spec, wid)

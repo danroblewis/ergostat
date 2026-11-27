@@ -52,13 +52,7 @@ def event(eng, req: dict) -> dict:
     spec = eng.spec
     unchanged = {}
     for e, eid in zip(req.get("events") or [], got["ids"], strict=False):
-        item = e.get("item")
-        if not (isinstance(item, str) and "/" in item):
-            continue
-        if e.get("patch") is None and e.get("set") is None and not getattr(its.kind_of(spec, item), "fold", None):
-            continue
-        it = its.one(eng.p.events, spec, item)
-        why = next((r["why"] for r in (it.refused if it else []) if r["event"] == eid), None)
+        why = its.refused_by(eng.p.events, spec, {**e, "id": eid})
         if why:
             unchanged[eid] = why
     return {**got, **({"unchanged": unchanged} if unchanged else {})}
@@ -66,7 +60,8 @@ def event(eng, req: dict) -> dict:
 
 def item(eng, req: dict) -> dict:
     from ..spec import items as its
-    d = its.detail(eng.p.events, eng.spec, str(req.get("id") or ""), history=its.HISTORY_SHOWN)
+    d = its.detail(eng.p.events, eng.spec, str(req.get("id") or ""), history=its.HISTORY_SHOWN,
+                   kind=req.get("projection") or None)
     if d is None:
         raise Refused(f"no item {req.get('id')!r}")
     return {"item": d}

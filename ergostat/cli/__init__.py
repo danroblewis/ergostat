@@ -213,7 +213,8 @@ def build() -> argparse.ArgumentParser:
     e.add_argument("--as", dest="by", metavar="SOURCE", help="with --add: who says so (default: the user)")
     i = topic("item", cmd_item, "The items: the record folded by id, with each projection's states")
     i.add_argument("-n", type=int, default=30, help="how many (default 30)")
-    i.add_argument("--projection", help="only items of this projection")
+    i.add_argument("--projection", help="only items of this projection; with an id, that projection's item of it (an id "
+                                        "several projections see is an item of each)")
     i.add_argument("--state", help="only items in this state")
     i.add_argument("--search", metavar="WORDS", help="only items whose fields' text contains every word (1 to 8; case "
                                                      "ignored; a plain substring, no ranking; the first 65,536 "

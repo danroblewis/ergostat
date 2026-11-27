@@ -282,8 +282,7 @@ class Counts:
                 ids = set()
                 for e in events.of_items(None, after_seq=self.seq, skip=skip):
                     if e["seq"] <= seq:
-                        k = ix.kind(e["item"])
-                        if k is not None and k.name in fielded:
+                        if any(k is not None and k.name in fielded for k in ix.kinds_of(e["item"])):
                             ids.add(e["item"])
                 ids = list(ids)
                 for i in range(0, len(ids), 500):

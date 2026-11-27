@@ -45,7 +45,8 @@ def waits_in(ctx, its: list) -> tuple[dict, dict]:
     then queued) is still ahead of one waiting there. Never taken, or back since: none. Moves unread: none."""
     ids = [i.id for i in its]
     with ctx.ix.lock:
-        moved = {i.id: i.moves or [] for i in ctx.ix.items(None, ids=ids)} if ids else {}
+        want = {(i.kind, i.id) for i in its}                 # (each its own projection's moves)
+        moved = {i.id: i.moves or [] for i in ctx.ix.items(None, ids=ids) if (i.kind, i.id) in want} if ids else {}
     out, taken = {i.id: i.state for i in its}, {}
     for iid, moves in moved.items():
         took = None

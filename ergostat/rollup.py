@@ -11,7 +11,9 @@ the ``seq`` of the last event it replaces, so it folds where they did, and foldi
 came after gives the same item as folding the originals (``tests/test_rollup.py``). Only a prefix
 of the item's events (by ``seq``) all older than the horizon is rolled up. A transcript's lines
 (``claude.*``) are rolled up with the rest, and the snapshot keeps both folds: without them (its
-``set``, what counting items reads) and with them (``rollup.transcript``).
+``set``, what counting items reads) and with them (``rollup.transcript``). An id several projections fold keeps each
+one's fold: the first's (in the model's order) at the top, the others' in ``rollup.projections`` by name, each with its
+document (``set``); its events are kept as long as the longest horizon of them asks.
 
 The archive: ``archive/<projection>/<YYYY-MM>.jsonl.gz`` (gzip members appended, one per roll-up, an
 event per line) and ``<YYYY-MM>.idx.jsonl`` beside it (per item and member: where it is, how many,
@@ -31,7 +33,7 @@ from pathlib import Path
 
 from . import mirror
 from .spec.itemnumbers import history_of
-from .spec.items import SNAPSHOT, TRANSCRIPT_TYPES, field_of, fold, kind_of
+from .spec.items import SNAPSHOT, TRANSCRIPT_TYPES, field_of, fold, projections_of
 from .store import KEPT  # (an item holding an operating state's events is never rolled up: operating/trips.py)
 
 MIN_EVENTS = 2              # a prefix of fewer events is left as it is: one event is already as small as a snapshot
@@ -147,9 +149,22 @@ def _meta(it) -> dict:
             "moves": it.moves, "refused": it.refused, "fields": summarise(it), **({"acc": it.acc} if it.acc else {})}
 
 
-def snapshot_of(id: str, prefix: list[dict], kind, segments: list[str], now: float) -> dict:
-    """The snapshot that replaces ``prefix`` (an item's oldest events, by ``seq``): its document and
-    the fold's state without the transcript's lines, and, when it has some, the fold with them."""
+def snapshot_of(id: str, prefix: list[dict], kinds, segments: list[str], now: float) -> dict:
+    """The snapshot that replaces ``prefix`` (an id's oldest events, by ``seq``): for each projection of ``kinds`` (a
+    list, the first at the top, the rest in ``projections``; or one, or None), its document and the fold's state
+    without the transcript's lines, and, when it has some, the fold with them."""
+    kinds = list(kinds) if isinstance(kinds, list | tuple) else [kinds]
+    snap = _snapshot(id, prefix, kinds[0] if kinds else None, segments, now)
+    rest = {}
+    for k in kinds[1:]:
+        o = _snapshot(id, prefix, k, segments, now)
+        rest[k.name] = {**o["data"]["rollup"], "set": o["set"]}
+    if rest:
+        snap["data"]["rollup"]["projections"] = rest
+    return snap
+
+
+def _snapshot(id: str, prefix: list[dict], kind, segments: list[str], now: float) -> dict:
     line = lambda e: e["type"].startswith(TRANSCRIPT_TYPES[:-1])           # noqa: E731
     own = fold(id, [e for e in prefix if not line(e)], kind, history=True, transcript=False)
     old = next((e["data"].get("rollup") or {} for e in prefix if e["type"] == SNAPSHOT), {})
@@ -183,9 +198,13 @@ def candidates(p, now: float, cap: float | None) -> list[str] | None:
         return None
     with ix.lock:
         rows = ix.candidates()
+    by: dict[str, tuple[list, float | None]] = {}
+    for id, kind, t in rows:                        # (a row per projection that folds the id: its events are shared)
+        ks, first = by.get(id, ([], None))
+        by[id] = ([*ks, kind], t if first is None else min(first, t) if t is not None else first)
     out = set()
-    for id, kind, t in rows:
-        h = cfg.horizon(kind)
+    for id, (kinds, t) in by.items():
+        h = horizon(cfg, kinds)
         if h is None and cap is None:
             continue
         if t is not None and t < now - min(x for x in (h, cap) if x is not None):
@@ -194,8 +213,15 @@ def candidates(p, now: float, cap: float | None) -> list[str] | None:
     return sorted(out)
 
 
+def horizon(cfg, kinds) -> float | None:
+    """How long an id's events stay as they are: the longest of the horizons of the projections that fold it (None,
+    kept: one that keeps them keeps them for all)."""
+    hs = [cfg.horizon(k) for k in kinds or [None]]
+    return None if any(h is None for h in hs) else max(hs)
+
+
 def batches(p, now: float | None = None, cap: float | None = None):
-    """What a roll-up would take, a batch of items at a time: per item, its kind and the prefix of its
+    """What a roll-up would take, a batch of ids at a time: per id, the projections that fold it and the prefix of its
     events (by ``seq``, a transcript's lines among them) all older than its horizon (``cap``: never
     later than this). Only the items the index names are read (``candidates``)."""
     now = now if now is not None else time.time()
@@ -208,8 +234,8 @@ def batches(p, now: float | None = None, cap: float | None = None):
             by.setdefault(e["item"], []).append(e)
         out = []
         for id, evs in by.items():
-            k = kind_of(spec, id) if spec is not None and getattr(spec, "items", None) else None
-            h = cfg.horizon(k.name if k else None)
+            ks = projections_of(spec, id) if spec is not None else []
+            h = horizon(cfg, [k.name for k in ks])
             if h is None and cap is None:
                 continue
             cut = now - min(x for x in (h, cap) if x is not None)
@@ -221,13 +247,13 @@ def batches(p, now: float | None = None, cap: float | None = None):
             originals = sum(1 for e in prefix if e["type"] != SNAPSHOT)
             if originals == 0 or len(prefix) < MIN_EVENTS or any(e["type"].startswith(KEPT) for e in prefix):
                 continue
-            out.append((id, k, prefix, evs[len(prefix):]))
+            out.append((id, ks, prefix, evs[len(prefix):]))
         if out:
             yield out
 
 
 def plan(p, now: float | None = None, cap: float | None = None) -> list[tuple[str, object, list[dict]]]:
-    """Every batch of ``batches`` at once: per item, its kind and the prefix a roll-up takes."""
+    """Every batch of ``batches`` at once: per id, the projections that fold it and the prefix a roll-up takes."""
     return [(id, k, pre) for b in batches(p, now, cap) for id, k, pre, _ in b]
 
 
@@ -245,14 +271,14 @@ def compact(p, now: float | None = None, cap: float | None = None, dry: bool = F
         if dry:
             continue
         by_kind: dict[str, list] = {}
-        for id, k, pre, after in todo:
-            by_kind.setdefault(k.name if k else "unprojected", []).append((id, k, pre))
+        for id, ks, pre, after in todo:
+            by_kind.setdefault(ks[0].name if ks else "unprojected", []).append((id, ks, pre))
             rest[id] = [(e["seq"], e["time"]) for e in after if not e["type"].startswith(TRANSCRIPT_TYPES[:-1])]
         for kind, rows in by_kind.items():
             segs = arc.write(kind, [e for *_, pre in rows for e in pre if e["type"] != SNAPSHOT])
-            for id, k, pre in rows:
+            for id, ks, pre in rows:
                 months = {f"{_safe(kind)}/{_month(e['time'])}" for e in pre if e["type"] != SNAPSHOT}
-                changes.append((id, [e["seq"] for e in pre], packed(snapshot_of(id, pre, k, sorted(months & set(segs)), now))))
+                changes.append((id, [e["seq"] for e in pre], packed(snapshot_of(id, pre, ks, sorted(months & set(segs)), now))))
         if len(changes) >= FLUSH:
             _replace(p, changes, rest)
             changes, rest = [], {}

@@ -1049,7 +1049,8 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             return archived(p, name, offset=int(one("offset") or 0), n=min(int(one("n") or 200), EVENTS_MOST))
         if name:
             hist = one("history")                 # FIELD, or all, or none at all: the counts always (SPEC §5a, History)
-            d = its.detail(p.events, spec, name, until=snap["at"], history=None if hist else its.HISTORY_SHOWN)
+            d = its.detail(p.events, spec, name, until=snap["at"], history=None if hist else its.HISTORY_SHOWN,
+                           kind=one("projection"))          # (an id several projections see: one's item; else the first)
             if d:
                 if hist != "all":
                     d = {**d, "history": {hist: d["history"].get(hist, [])}} if hist else \

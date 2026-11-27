@@ -14,6 +14,7 @@ from ..precedence import _prec, starts, status
 from ..precedence import held as _held  # (the name ``held`` is this package's module, held.py)
 from ..spec.finished import finish_of
 from ..spec.ir import DEAD
+from ..spec.items import one_each
 
 ROOTS = ("work", "person", "pool-full", "gate", "lease", "block", "closed", "parked", "nothing", "cycle", "missing",
          "unknown")
@@ -69,11 +70,11 @@ class Ctx:
             want = [i for i in dict.fromkeys(ids) if i not in self.cache]
             if want:
                 with self.ix.lock:
-                    got = {i.id: i for i in self.ix.items(None, ids=want, moves=False)}
+                    got = one_each(self.ix.items(None, ids=want, moves=False), self.spec)
                 self.cache.update({i: got.get(i) for i in want})
             return {i: self.cache[i] for i in ids if self.cache[i] is not None}
         with self.ix.lock:
-            return {i.id: i for i in self.ix.items(None, ids=ids, moves=False)} if ids else {}
+            return one_each(self.ix.items(None, ids=ids, moves=False), self.spec) if ids else {}
 
     @property
     def engine(self) -> dict:

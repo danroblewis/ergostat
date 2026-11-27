@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import re
 
-from .items import SNAPSHOT, Item, fold
+from .items import SNAPSHOT, Item, fold, rollup_of
 
 NOT_A_MEASURE = re.compile(r"(^|_)(id|ids|pid|seq|sha|port|at|time|times|ts|timestamp|since|until|when|date|started|"
                            r"ended|finished|created|updated|deadline|expires)$", re.I)
@@ -40,7 +40,7 @@ def unit_of(field: str) -> str:
 
 def _carried(e: dict, transcript: bool, it: Item) -> list[tuple]:
     """The rows a snapshot carries; one written before snapshots carried them: its values, at its time."""
-    r = (e.get("data") or {}).get("rollup") or {}
+    r, _ = rollup_of(e, it.kind)
     if transcript and r.get("transcript"):
         r = r["transcript"]
     if r.get("numbers") is not None:

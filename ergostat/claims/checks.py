@@ -65,8 +65,8 @@ def kind_of(spec: Spec, claim: dict) -> tuple[str | None, dict]:
         return "tests", {}
     item = about.get("item")
     if item:
-        k = next((k for k in spec.items.values() if k.matches(item)), None)
-        for st in (k.states if k else []):
+        from ..spec.items import projections_of
+        for st in dict.fromkeys(st for k in projections_of(spec, item) for st in k.states):
             if re.search(rf"\b{re.escape(st)}\b", says, re.I):
                 return "state", {"state": st}
     if (about.get("file") or about.get("part") or about.get("commit")) and CHANGED.search(says):
@@ -255,19 +255,24 @@ def state(p, spec: Spec, c: dict, params: dict) -> tuple[str, dict, str]:
     want = params.get("state")
     if not item or not want:
         raise Unchecked("a state is checked on an item, with the state claimed ({\"state\": \"done\"})")
-    k = it.kind_of(spec, item)
-    if k is None or want not in k.states:
-        raise Unchecked(f"{item}'s projection has no state {want}" if k else f"no projection matches {item}")
-    got = it.one(p.events, spec, item)
-    if got is None:
-        return "contradicted", {"item": item}, f"nothing is recorded about {item}"
+    seen = it.projections_of(spec, item)
+    ks = [k for k in seen if want in k.states]          # (each projection that sees it and has the state: any one holds)
+    if not ks:
+        raise Unchecked(f"{item}'s projection has no state {want}" if seen else f"no projection matches {item}")
     since = run_start(p, c)
-    moved = [m for m in got.moves if m["to"] == want and m["time"] >= since - 1]
-    ev = {"item": item, "state": got.state, "claimed": want, "moves": [{k_: m[k_] for k_ in ("time", "from", "to", "type")}
-                                                                       for m in got.moves[-6:]]}
-    if got.state == want or moved:
-        return "verified", ev, f"{item} is {got.state}" + ("" if got.state == want else f" (it was {want} since the run began)")
-    return "contradicted", ev, f"{item} is {got.state}, not {want}"
+    out = None
+    for k in ks:
+        got = it.one(p.events, spec, item, k.name)
+        if got is None:
+            return "contradicted", {"item": item}, f"nothing is recorded about {item}"
+        moved = [m for m in got.moves if m["to"] == want and m["time"] >= since - 1]
+        ev = {"item": item, "state": got.state, "claimed": want,
+              "moves": [{k_: m[k_] for k_ in ("time", "from", "to", "type")} for m in got.moves[-6:]],
+              **({"projection": k.name} if len(seen) > 1 else {})}
+        if got.state == want or moved:
+            return "verified", ev, f"{item} is {got.state}" + ("" if got.state == want else f" (it was {want} since the run began)")
+        out = out or ("contradicted", ev, f"{item} is {got.state}, not {want}")
+    return out
 
 
 def exit_(p, spec: Spec, c: dict, params: dict) -> tuple[str, dict, str]:

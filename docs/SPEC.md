@@ -1010,7 +1010,10 @@ SQLite file per fold (the model's projections, and whether a transcript's lines 
 followed as events arrive: whichever process asks first after events land (the runner, the page,
 the command line) folds them, a chunk per transaction under SQLite's write lock, and the others read
 what it wrote. A process that starts reads the index and folds only what is newer than it, so a
-record of half a million items starts in seconds. Per item it holds its projection, state, times and
+record of half a million items starts in seconds. Each projection's items are a table of their own (`"items/NAME"`;
+`unprojected` for the ids none matches; the view `items` is every row of them, and a row's number is unique across
+them): an id several projections match is a row in each, folded by each one's rules (section 5a, *Overlapping
+projections*). Per item it holds its projection, state, times and
 counts as columns and its document (fields and what was refused) packed small (marshal, compressed
 when that saves, chosen by measurement over JSON and msgpack; JSON stays the format of the API and
 the pages); projections, states and event types are numbers. Every move is a row, so a flow counted from
@@ -1789,7 +1792,8 @@ just SQL or PromQL and can ask the same text of the source itself (`:since` and 
     - `reason` is the finished state the item ended in (the projection's finished states, as its page reckons
       them), and null while the item is open.
     - Write `left` quoted (`"left"`) where SQL would read it as a join.
-  - `item_list(id, projection, state, first, last, entered, events)`: every item of every projection, as it is now.
+  - `item_list(id, projection, state, first, last, entered, events)`: every item of every projection, as it is now (an id
+    several projections see is a row of each: section 5a, *Overlapping projections*).
   - `item_numbers(id, projection, field, at, value, delta)`: each change of an item's numeric field: when, the value it took
     and by how much it moved (what `items` reads).
   - `item_labels(id, projection, label, value)`: what each item is labelled by for a filter or a group: its `state`, and each
@@ -1800,7 +1804,7 @@ just SQL or PromQL and can ask the same text of the source itself (`:since` and 
   - `events(type, source, at, n)`: how many events of each type and source the item index folded in each minute ending
     `at` (what `events` reads; kept when events are taken out).
   - One view per projection, named for the projection with `-` read as `_`: `(id, state, first, last, entered, events, ...)`,
-    then the projection's `show:` fields that are plain words. A projection whose name is not then a plain word, or that is named
+    then the projection's `show:` fields that are plain words, read from the projection's own table of the index. A projection whose name is not then a plain word, or that is named
     like a view above, has none.
   - `item_stages`, `stage_estimates` and `item_progress`: the stages of the items of each projection declaring `pipeline:`,
     their expected times and each open item's time left (section 5a, *Stages*).
@@ -2182,7 +2186,7 @@ projections:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `id` | glob with a `/` | required | Which ids it matches. The first projection that matches an id is its projection |
+| `id` | glob with a `/` | required | Which ids it matches. Every projection that matches an id folds its events (*Overlapping projections*, below) |
 | `states` | list of names | none | The states, in their usual order; a new item starts in the first |
 | `on` | map of event type → state | none | Which events move an item, and where to |
 | `show` | list of field names | none | The columns of the projection's own page (`/PROJECTION`) and of `ergostat item` |
@@ -2199,6 +2203,25 @@ projections:
 | `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
 | `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{projection, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge`; any other rule for it is refused (`bad-pipeline`), as is a library's |
 | `system`, `description` | | | |
+
+**Overlapping projections.** An event has no projection: it is about an id. Every projection whose `id` glob matches
+the id folds its events, by its own `states:`, `on:` and `fold:`, into an item of its own, so one id is an item of each
+projection that sees it: two identical definitions under two names each have it, the same; a copy of one with one more
+field (`fold: {hours: sum}` where the other replaces it) has the same events folded otherwise; two projections reading
+different fields of the same events, with other rules and other states, each keep their own. Each projection has its own
+table in the item index (`"items/NAME"`, kept up to date as events come in, every projection's at once), its own SQL view
+(section 4e), its own counts, sensors, list and items (`/PROJECTION/REST` is that projection's item of the id). What acts
+on items names the projection it acts on: a block's `takes:` (its lease is on that projection's item: the
+`ergostat.lease.*` events name it in `projection`, and the other projections that see the id never fold them; a run's
+`ERGOSTAT_PROJECTION` says it), a sensor's `projection:`, a relation's projections (an id a relation names is read as the
+first of them it is in), a join's parent (`joined.projection`), a message's reopening (`reopened.projection`; the owner's
+own reopening names none and moves each). `/api/items/ID?projection=P` (`ergostat item ID --projection P`, MCP `items`
+with `projection`) is projection P's item of the id; without it, the first in the model's order, and `projections` lists
+every one that sees it (the page's `/item/ID` leads to the one projection's address, or, for an id several see, lists
+them). A roll-up's snapshot (section 4b) keeps each projection's fold (`rollup.projections`, beside the first's), and the
+id's events stay as long as the longest horizon of them. A part of ergostat that reads an item by its id alone, with no
+projection in its context (a message's finished work: finished only when finished in each projection that sees it; a
+claim's state: verified when any projection with that state has it), says so where it does.
 
 **Stages** (`ergostat/stages.py`). A projection with `pipeline:` is a pipeline: each of its items records the named stages it
 goes through as ordinary events, any type (the merge queue's are `batch.stage-started` and `batch.stage-finished`),
