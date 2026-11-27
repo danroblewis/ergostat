@@ -182,8 +182,8 @@ class Hands:
 
     def _own_event(self, daemon: str, obj: dict, now: float | None) -> bool:
         """A daemon's event line tagged with no run or sensor: what a collector that runs forever saw, recorded as a
-        block's printed event is, from the daemon (its name the source), within the same cap as a sensor's
-        observations. Its item is optional (an event about no item, as a raw stream's is, until a projection keys it)."""
+        block's printed event is, from the daemon (its name the source), every one: a collector's events are the record,
+        so none is dropped for coming fast (a sensor's observations are capped; these are not). Its item is optional (an event about no item, as a raw stream's is, until a projection keys it)."""
         from .. import runner as old
         obj, why = old.keyed(obj)
         t = obj.get("event")
@@ -196,13 +196,6 @@ class Hands:
         data = obj.get("data") if obj.get("data") is not None else {}
         if why is None and not isinstance(data, dict):
             why = "data must be an object"
-        ok, closed = self.observed.admit(f"daemon {daemon}", now)
-        if ok is None:
-            return False
-        if closed:
-            self._dropped(f"daemon {daemon}", closed)
-        if not ok:
-            return True
         if why is not None:
             self.e.p.events.add("agent.refused", item=daemon, source="ergostat", data={"why": why, "line": obj})
             self.e.say(f"daemon {daemon}: {why}")

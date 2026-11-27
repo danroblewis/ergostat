@@ -5441,7 +5441,7 @@ Out, on its standard output, every line tagged with what it is for:
 | `{"reading": V, "request": ID}` | The answer to a reading (`{"error": WHY, "request": ID}`: none) |
 | `{"reading": V, "sensor": "STOCK.SENSOR"}` | A reading it sends by itself, for a sensor with `push: true` |
 | `{"event": T, "item": I, "data": {...}, "sensor": "STOCK.SENSOR"}`, `{"message": {...}, "sensor": "STOCK.SENSOR"}` | What one of its sensors observed (section 6), or a message it relays: checked and recorded as a `run` sensor's are, from that sensor (a refused one is a `sensor.refused`). No `reading` beside it |
-| `{"event": T, "item": I?, "data": {...}}`, tagged with no run, request or sensor | An event of its own: a collector that runs forever, recorded from the daemon (its name the source; `item` or `key` optional), checked as a block's printed event is (a refused one is an `agent.refused` of the daemon's), at most 50 a second as observations are. A daemon starts when a sensor or a block names it: a collector is a program block with `daemon:` |
+| `{"event": T, "item": I?, "data": {...}}`, tagged with no run, request or sensor | An event of its own: a collector that runs forever, recorded from the daemon (its name the source; `item` or `key` optional), checked as a block's printed event is (a refused one is an `agent.refused` of the daemon's), every one however fast it comes: a collector's events are the record. A daemon starts when a sensor or a block names it: a collector is a program block with `daemon:` |
 | `{"heartbeat": true}` | It lives (any line says so) |
 
 A line that is not a JSON object, tags nothing, or names a run or request the daemon does not hold, is written to its
