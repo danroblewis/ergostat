@@ -505,7 +505,7 @@ def run(p, name: str | None, text: str, since: float | None = None, until: float
         "refused": {"count": sum(len(x) for x in refusals.values()),
                     "groups": [{"why": w, "count": len(x), "events": [r["event"] for _, r in x[:SAMPLES]]}
                                for w, x in sorted(refusals.items(), key=lambda kv: -len(kv[1]))[:GROUPS]]},
-        "items": {"count": len(items), "key": [v.text for v in kind.key] if kind.key else ["key (the events' item)"],
+        "items": {"count": len(items), "key": list(kind.key) if kind.key else ["key (the events' item)"],
                   "sample": list(items)[:3], "one_event": sum(1 for it in items.values() if it.n == 1)},
         **fields_of(list(items.values())),
         "states": dict(states.most_common()) if kind.states else None,

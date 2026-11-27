@@ -21,7 +21,6 @@ MISSION = """
 projections:
   mission:
     query: type.startswith('mission.')
-    key: key
     fields:
       state:
         values: [planned, ongoing, done]
@@ -190,16 +189,18 @@ def test_match_by_type_glob_and_by_a_data_field_and_a_composite_key(tmp_path):
 projections:
   instance:
     query: source == 'aws' and data['detail-type'] == 'EC2 Instance State-change Notification'
-    key: [data.region, "data.detail['instance-id']"]
+    key: [region, instance_id]
     fields:
       status: {}
       region: {}
+      instance_id: {}
     events:
       other:
         when: true
         '...': data
         status: data.detail.state
         region: data["region"]
+        instance_id: data.detail['instance-id']
   noted:
     query: type.startswith('note.')
 """)

@@ -27,7 +27,7 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
   const [good, setGood] = useState<D.Draft | null>(null);
   useEffect(() => { if ("draft" in parsed) setGood(parsed.draft); }, [parsed]);
   const draft = "draft" in parsed ? parsed.draft
-    : good ?? { query: "", key: "", keyParts: [], time: "", ignore: [], fields: [], kinds: [] };
+    : good ?? { query: "", key: [], time: "", ignore: [], fields: [], kinds: [] };
   const editable = "draft" in parsed;
   const change = (f: (t: string) => string) => { if (editable) setText(f(text)); };
 
@@ -64,8 +64,7 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
     setKinds: (k, pairs) => change((t) => pairs.reduce((x, [f, e]) => D.setKind(x, k, f, e), t)),
     createAndMap: (k, f, type, e) => change((t) => D.setKind(D.addField(t, f, type), k, f, e)),
     ignore,
-    setKeyParts: (parts) => change((t) => D.setKeyParts(t, parts)),
-    setKindKeyParts: (k, parts) => change((t) => D.setKindKeyParts(t, k, parts)),
+    setKey: (names) => change((t) => D.setKey(t, names)),
   };
   const nUnmapped = r?.ok ? r.unmapped?.count ?? 0 : 0;
 
@@ -80,7 +79,7 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
           {since && <span className="muted small"> (over {SPANS.find((s) => s.value === since)?.label})</span>}
         </p>
         <Step no={1} id="wb-what" title="What it is" open={open.has(1)} onToggle={() => toggle(1)}
-          said={`${draft.fields.length} field${draft.fields.length === 1 ? "" : "s"}, keyed by ${draft.keyParts.join(" / ") || "the events' key"}`}>
+          said={`${draft.fields.length} field${draft.fields.length === 1 ? "" : "s"}, keyed by ${draft.key.join(" / ") || "the events' key"}`}>
           <WhatStep draft={draft} ed={ed} editable={editable} />
         </Step>
         <Step no={2} id="wb-query" title="Query" open={open.has(2)} onToggle={() => toggle(2)}

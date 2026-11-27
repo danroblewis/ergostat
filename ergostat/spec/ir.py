@@ -1044,7 +1044,8 @@ class ItemKind:
     risk: dict | None = None       # risk-score: {at, failed, passed, undone, from, least} (numbers/itemrisk.py); off when None
     query: object = None           # which events it reads (handlers.Value); None: those whose item ``id`` matches
     query_open: bool = False       # its query reads by more than an id glob (its items are not told by their ids)
-    key: list | None = None        # the object an event belongs to (handlers.Value parts, joined by /); None: its item
+    key: list | None = None        # the fields that are an object's identity, in order (each kind's solved key: its
+    #                                 EventKind.key, its parts joined by /); None: the events' own item
     handlers: dict | None = None   # kind of event → field → handlers.Value; None: on: and fold: (ergostat's own)
     kinds: list = field(default_factory=list)      # its kinds of event (EventKind), in order: the first whose when holds
     declared: dict = field(default_factory=dict)   # field → fields.Field: what an object is (its fields: section)
@@ -1072,7 +1073,7 @@ class ItemKind:
     def by_item(self) -> bool:
         """Whether its items are the events' own items (no ``key:``, nor a kind's): each item's events are the record's
         by its id."""
-        return self.key is None and not any(k.key is not None for k in self.kinds)
+        return self.key is None
 
     def reads(self, e: dict) -> bool:
         """Whether this projection reads event ``e``: its ``query:``; else (and ergostat's own events, a lease, a
@@ -1104,13 +1105,16 @@ class ItemKind:
         """The objects event ``e`` belongs to in this projection (``each(...)`` in a key: several; none: it is not one
         of its objects, or no kind of event takes it)."""
         from .changes import form_of
-        parts = self.key
+        parts = None
         if self.handlers is not None and form_of(e) == "data" and not str(e.get("type") or "").startswith("ergostat."):
             k = self.kind_of(e)
             if k is None:
                 return []
-            parts = k.key if k.key is not None else self.key
-        if parts is None:
+            if self.key is not None:                 # keyed by its fields: the kind's solved key (none: no key)
+                if not k.key:
+                    return []
+                parts = k.key
+        if parts is None:                            # by the events' own item (and ergostat's own events, always)
             item = e.get("item")
             return [item] if isinstance(item, str) and item else []
         from .handlers import env_of, keys_from
@@ -1120,7 +1124,7 @@ class ItemKind:
         """Its reading of events as plain data: query, key, time, fields, and each kind of event's when, key and
         values (the page's and the API's)."""
         return {"query": self.query.text if self.query is not None else None,
-                "key": [v.text for v in self.key] if self.key else "key",
+                "key": list(self.key) if self.key else "key",
                 "time": self.own_time.text if self.own_time is not None else None,
                 "fields": {f: d.spec() for f, d in self.declared.items()},
                 "events": {k.name: {"when": k.when.text if k.when.tree is not None else k.when.literal,
@@ -1136,14 +1140,16 @@ class ItemKind:
 
 @dataclass
 class EventKind:
-    """A projection's kind of event (SPEC §5a): its name, its ``when:``, its own ``key:`` (None: the projection's),
-    and what it tells, field → handlers.Value (``"..."``: a spread)."""
+    """A projection's kind of event (SPEC §5a): its name, its ``when:``, its key solved from what it maps to the
+    projection's key fields (handlers.Value parts, in the key's order; None: the projection has no key, or the kind
+    does not tell ``untold`` of it), and what it tells, field → handlers.Value (``"..."``: a spread)."""
 
     name: str
     when: object
     key: list | None = None
     fields: dict = field(default_factory=dict)
     where: Where | None = None
+    untold: list = field(default_factory=list)
 
 
 @dataclass

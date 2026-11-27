@@ -2287,7 +2287,7 @@ from a sensor's observations, from `ergostat event --add`, pushed to the running
 webhook: section 5c), from a collector, or from an agent over MCP (`record_event`).
 
 A projection is a way of looking at a set of events (2026-11-27, the owner's design, `docs/roadmap/projection-workbench.md`):
-which events it reads (`query:`), the object each belongs to (`key:`), what an object is (`fields:`, each with its type
+which events it reads (`query:`), the fields that are an object's identity (`key:`), what an object is (`fields:`, each with its type
 and how values fold into it), and the kinds of event it reads and what each tells it (`events:`, named by the person
 who writes it: an event log cannot be relied on to have a field naming its kind). It folds the events into its own
 table of the SQLite cache, kept up to date as events come in; each row is an item (a projection's items). Several
@@ -2301,11 +2301,14 @@ projections:
   instance:
     # updated 2026-11-27
     query: data.source == 'aws.ec2' and not data.detail.eventName.startswith('Describe')
-    key: [data.account, data.region, "data.detail['instance-id']"]
+    key: [account, region, instance_id]   # its fields that are an object's identity: each kind maps them
     time: data.time                    # the event's own time (else the recorded time): the fold is by event time
     ignore: [type, source, data.version]   # paths known not to matter (the workbench's list; the fold never reads it)
 
     fields:                            # what an instance is
+      account:       text
+      region:        text
+      instance_id:   text
       state:         {values: [pending, running, stopping, stopped, shutting-down, terminated]}
       instance_type: {type: text}
       launched_by:   {type: text, fold: first}
@@ -2317,22 +2320,31 @@ projections:
       # updated 2026-11-27
       state-change:
         when: data['detail-type'] == 'EC2 Instance State-change Notification'
+        account: data.account          # its key: data.account / data.region / data.detail['instance-id']
+        region: data.region
+        instance_id: data.detail['instance-id']
         state: data.detail.state
       # updated 2026-11-27
       launch:
         when: data.detail.eventName == 'RunInstances'
-        key: [data.account, data.region, "each(data.detail.responseElements.instancesSet.items, 'instanceId')"]
+        account: data.account          # its key: one object for each instance it launched
+        region: data.region
+        instance_id: each(data.detail.responseElements.instancesSet.items, 'instanceId')
         instance_type: data.detail.requestParameters.instanceType
         launched_by: data.detail.userIdentity.arn
         launched_at: time
       # updated 2026-11-27
       restart:
         when: data.detail.eventName == 'RebootInstances'
-        key: [data.account, data.region, "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"]
+        account: data.account
+        region: data.region
+        instance_id: each(data.detail.requestParameters.instancesSet.items, 'instanceId')
         restarts: 1
       tagged:
         when: data.detail.eventName == 'CreateTags'
-        key: [data.account, data.region, "each(data.detail.requestParameters.resourcesSet.items, 'resourceId')"]
+        account: data.account
+        region: data.region
+        instance_id: each(data.detail.requestParameters.resourcesSet.items, 'resourceId')
         tags: pairs(data.detail.requestParameters.tagSet.items, 'key', 'value')
     show: [instance_type, launched_by, restarts]
 ```
@@ -2340,7 +2352,7 @@ projections:
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `query` | expression | the implied id | Which events it reads: an expression of the event (*Expressions*, below) that holds for them. Left out, the events whose item matches the projection's implied id (*The implied key*, below). A query that reads by its key's prefix alone (`key.startswith('ticket/')`, `glob(key, 'ticket/*')`) names its items by that glob, as the implied id does; any other reads the record's every event for it. ergostat's own events (`ergostat.*`: a lease, a snapshot, a reopening) are read by the item glob alone |
-| `key` | expression, or a list | `key` | The object an event belongs to: `key`, the event's own item, or any expression of the event (`data.account`); a list is a composite key, its parts joined by `/`. `each(LIST, 'field')` in a part applies the event to every object it names (one event, several objects: a `RunInstances` that launched three). An event whose key is missing (null, empty) is no object's |
+| `key` | a field's name, or a list of them | the events' own item | The fields that are an object's identity, in order (`[account, region, instance_id]`; a list is a composite key, its parts joined by `/`): each a declared field (`bad-key` names one that is not), mapped by each kind of event like any other field. Each kind's key is solved from them (*The key*, below). Left out, every event is its own item's (the envelope's `item`, an expression's `key`) |
 | `time` | expression | the recorded time | The event's own time (seconds, or ISO 8601 text): the fold is by it (without it, in the record's order), and an expression's `time` is it |
 | `ignore` | list of paths | none | The event's paths known not to matter (`[type, source, data.version]`, each as the expressions write it; a path ignores all under it): the workbench's list, which hides them in its events and leaves them out of the paths left to decide (*The workbench*, below). The fold never reads it; `check` says `bad-ignore` for anything but a list of paths |
 | `fields` | map of field → `{type, fold, description}` | none | What an object is (*Fields*, below). A field's entry may be its type alone (`name: text`) or nothing (`name:`: any value, replace) |
@@ -2379,14 +2391,28 @@ kept in the item's history like any field's, and the workbench counts them as a 
 
 **Kinds of event.** Each entry of `events:` is a kind of event, named by the person who writes it (lowercase letters,
 digits and `-`). Its `when:` (an expression, or `true`: every event) says which events of the query's result it takes;
-the first kind whose `when:` holds takes an event, and an entry without `when:` is a `check` error (`missing-when`). Its
-own `key:` replaces the projection's for its events (the key sits elsewhere in them). Every other entry is a field it
+the first kind whose `when:` holds takes an event, and an entry without `when:` is a `check` error (`missing-when`); a
+kind has no `key:` of its own (`bad-key`: its key is what it maps to the key's fields). Every other entry is a field it
 tells, and the expression giving its value. A plain value is folded by the field's rule (`restarts: 1` with
 `fold: add` adds one); a fold call is that kind's own rule for the field (`name: set(data.name)` replaces where the
 field appends; `runs: set(0)` resets a count). An entry may fill only declared fields (`undeclared-field`), but the
 spread `"..."` (below), which brings each of an object's fields, declared or not, each folded by its declared rule (an
 undeclared one replaced). A constant a `one of` does not hold is a `check` error (`not-one-of`; `unknown-state` for
 `state`), and one given at fold time refuses the event.
+
+**The key** (2026-11-27, the owner's decision: the key is said in the projection's own fields, and the software works
+back to the expression that reads it). Each kind's key is, part by part in the key's order, the expression it maps to
+each key field: `key: [account, region, instance_id]` with `account: data.account`, `region: data.region`,
+`instance_id: data.detail['instance-id']` is `data.account / data.region / data.detail['instance-id']` for that kind,
+and another kind's `instance_id: data.detail.requestParameters.instanceId` is its own. A key field's value is a plain
+expression of the event, never a fold call (`bad-key` for `id: set(data.id)`); `each(LIST, 'field')` in it applies the
+event to every object it names (one event, several objects: a `RunInstances` that launched three), and each object's
+key field holds its own value (`i-a`, not the list). A key field a kind tells only by a spread of a plain path
+(`"...": data`, `"...": data.detail`) is that path's field (`data.account`); a spread of anything else (`pick(data,
+'a')`) is not read for the key. A kind that does not tell one of the key's fields has no key for its events (they are
+counted under *no key* in the review, by kind, with the fields it does not tell), and `check` says so as a finding
+(`key-not-told`), not an error. An event whose key part reads nothing (null, empty) is no object's. With no `key:`, the
+default, an object is the events' own item (`item` in the envelope), as ergostat's own projections are.
 
 Events in the query's result that no kind takes are **the remainder**: they fold into no object, and the workbench
 shows them, counted and grouped by shape, never silently dropped. A projection that writes no `events:` takes every
@@ -2403,7 +2429,7 @@ separate events differ), the same type and data whole is the same event again (a
 remembers its latest 256 events' digests. Without `time:`, the same data twice is two events (a value set, cleared
 and set again).
 
-**Expressions** (`spec/handlers.py`). A query's, a `when:`'s, a key's and a value's expression is one small
+**Expressions** (`spec/handlers.py`). A query's, a `when:`'s and a value's expression is one small
 expression in Python's syntax, parsed with `ast` and walked against an allow-list (nothing else is run): the event's
 parts `data`, `time`, `type`, `key`, `source`, and in a value `current` (the field's value now); dotted access into
 nested data (`data.detail.state`) and subscripts for names that are not identifiers (`data["aws-region"]`,
@@ -2412,7 +2438,7 @@ nested data (`data.detail.state`) and subscripts for names that are not identifi
 < <= > >= in`, `not in`), `and`, `or`, `not`, `a if c else b`; a value's methods `startswith`, `endswith`, `lower`,
 `upper`, `strip`, `split`, `replace` (of text) and `get` (of an object), each null on null; the helpers `pick(obj,
 'a')`, `omit(obj, 'secret')`, `rename(obj, by='started_by')`, `glob(text, 'pattern*')`, `pairs(list, 'key', 'value')`
-(a list of key/value objects as one object: AWS's tags), and `each(list, 'field')` in a key; and calls to the fold
+(a list of key/value objects as one object: AWS's tags), and `each(list, 'field')` in a key field's value; and calls to the fold
 functions in a value. Nothing else: no other names, no imports, comprehensions or lambdas. A YAML number, boolean or
 null is a constant on its own (`restarts: 1`). Text is quoted inside the expression (`state: "'done'"`,
 `set('planned')`); a bare word that is none of the names is a `check` error (`bad-expression`: `planned is not a name:
@@ -2458,11 +2484,13 @@ field's type, a state not among its states refuses the event for that object (ke
 `refused`, as every refusal below). A relation's field (`relations:`, below) and a pipeline's `stages` fold by their own
 rule when an entry sets them with a plain value.
 
-**`check`'s errors for a projection**: a value for an undeclared field (`undeclared-field`), a fold that does not fit
+**`check`'s errors for a projection**: a key that names what is not a declared field, a kind's own `key:`, or a key
+field's value that is a fold call (`bad-key`), a value for an undeclared field (`undeclared-field`), a fold that does not fit
 its field's type (`bad-fold`), a type that is none (`bad-type`), a constant not in a `one of` (`not-one-of`,
 `unknown-state`), an unknown function (`unknown-function`), an expression that does not parse or uses what is not
 allowed (`bad-expression`), a kind of event with no `when:` (`missing-when`), and the old keys (`match:`, `states:`,
-`otherwise:`: `unknown-key`; the old syntax is gone, `scripts/convert_projections.py` rewrote this repository's).
+`otherwise:`: `unknown-key`; the old syntax is gone, `scripts/convert_projections.py` rewrote this repository's). Its
+finding: a kind of event that does not tell one of the key's fields (`key-not-told`, naming the kind and the fields).
 
 **Saving** (`spec/dated.py`). Save (the workbench's, the projection page's: `POST /api/projections/save`) writes `#
 updated YYYY-MM-DD` above the projection, above its `query:` and above each `events:` entry that changed, replacing the
@@ -3621,7 +3649,7 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
    lifecycles: {FIELD: {values, objects, now: {value: n},                       # per one-of field
                         transitions: [{from, to, count, objects}], rare: [...]}},
    residual: {remainder: {count, kinds: [as events/kinds]},                     # events no kind takes, by shape
-              no_key: {count, by_kind, kinds},                                  # taken, but keyed to nothing
+              no_key: {count, by_kind, lacks, kinds},                           # taken, but keyed to nothing
               refused: {count, groups: [{why, count, objects, events}]},
               contradictions: {count, rare: [{field, from, to, count, objects, samples}], after_final},
               splits: {count, groups: [{kinds, objects, samples}]},
@@ -3637,14 +3665,15 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   A number's or a time's field has its range and a histogram (a time's bounds as ISO 8601); any other its top values.
   A **contradiction** is a transition of a `one of` field seen in fewer than 1% of the objects that have the field
   (once 50 have it: an impossible history is a rare one), or a move out of a `final:` state (refused, counted in
-  `after_final`). A possible **split** is an object whose events all came from kinds with a key of their own when the
-  projection has kinds keyed its way (the same thing named two ways: a launch keyed by account/region/id and its state
-  changes by id alone). A possible **merge** is an object a `first` field was given two different values in (two
+  `after_final`). `no_key.lacks` is, per kind whose events had no key, the key fields it does not tell. A possible
+  **split** is an object whose events all came from kinds whose solved key differs from the one the kinds that took the
+  most events solve to (the same thing named two ways: its state changes keyed by account/region/id, its launches by a
+  region read otherwise). A possible **merge** is an object a `first` field was given two different values in (two
   births in one object's history: its key too coarse). `compared` folds the saved definition over its own query's
   events and says the objects that appear, disappear, and whose fields change (per field, how many, with samples);
   left out for a new projection or with `compare: false`. `unmapped` is what is left to decide: the paths to values in
   the events each kind took (300 read per kind; its type, source, key and data's; a list a value whole) that no field
-  of that kind, no part of its key and no `time:` reads, and that are not in `ignore:` (nor under one), each with how
+  of that kind (its key fields among them) and no `time:` reads, and that are not in `ignore:` (nor under one), each with how
   many events have it and which kinds. `timeline` (with `item=KEY`) is that object's events in event
   time order, which kind took each, each field before → after, a move, a refusal.
 - `POST /api/projections/fold {name, yaml, events, system?}`: the objects those events alone make by the draft (at
@@ -3657,19 +3686,21 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   taking nothing; none: one check) kept in sight above them, the YAML below them, and a panel of its own on the right
   (sticky, scrolling on its own; below the steps on a narrow screen). The YAML is the one thing edited: a step's edit
   rewrites it (comments and the rest kept), the YAML typed is read back into the steps (while it does not parse, the
-  page says so and the steps keep what they showed). **1 What it is**: the object's identity first: its key (one
-  expression a row) and its fields (name, type, values, fold, description). **2 Query**: the query (all of the
+  page says so and the steps keep what they showed). **1 What it is**: the object's identity first: its fields (name,
+  type, values, fold, description) and its key, picked from them in order (each moved up or down or taken out, the
+  others offered to add; no expression typed). **2 Query**: the query (all of the
   record, or the last hour, day, 7 or 30 days), its count, what the last change added and dropped, right after it
   what the kinds of event its result holds cover (*8 kinds of event cover 100% of these events · Accept all*; once
   accepted, *All events taken by 8 kinds*), how it was read, and the newest 20 events, folded, each opened to its
   parts, a value clicked narrowing the query by it (`and PATH == VALUE`, `!=`). **3 Kinds of event**: its `events:`
   entries (renamed, their `when:` edited, removed, each with what it takes) and the events no kind takes yet, by shape,
-  each accepted as a kind (never one that would take nothing). **4 Mapping**: `time:`, and per kind of event its own
-  key, the fields it tells, *Map these the same way* (what another kind maps by a plain path its events have too, each
+  each accepted as a kind (never one that would take nothing). **4 Mapping**: `time:`, and per kind of event its key
+  as solved, read only (`key: account ✓ data.account · region ✓ data.region · instance_id ✗ not told`: a ✗ clicked
+  opens that field's mapping for the kind, ready to type), the fields it tells, *Map these the same way* (what another kind maps by a plain path its events have too, each
   ticked, applied at once), and one of its events (the others a click away) beside the record it makes
   (`/api/projections/fold`): a value read into a field tagged with it (→ state), a value nothing reads marked, an
-  ignored path hidden (*show ignored (n)*). A value clicked goes into a field, a part of the key, `ignore:` (hidden in
-  every kind's events), or a new field made there and then (its name from the JSON key, `instance-id` → `instance_id`,
+  ignored path hidden (*show ignored (n)*). A value clicked goes into a field (a key field is
+  one: mapping it is mapping the key), `ignore:` (hidden in every kind's events), or a new field made there and then (its name from the JSON key, `instance-id` → `instance_id`,
   its type guessed from the value). **5 Review**: how many objects, what each kind took, the paths left to decide
   (each ignorable), the comparison with the saved definition. **The panel**: one object picked by its key, its record
   (its fields now) and its lifespan (its state's path through its values, its events in time order, which kind took

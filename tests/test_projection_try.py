@@ -19,8 +19,9 @@ from tests.test_dashboards import MODEL, write
 
 GADGET = """\
 query: type.startswith('gadget.')
-key: data.gid
+key: gid
 fields:
+  gid: text
   state:
     values: [made, sold]
   colour: {}
@@ -28,17 +29,21 @@ fields:
 events:
   gadget-made:
     when: type == 'gadget.made'
+    gid: data.gid
     state: set('made')
     colour: data.colour
     price: data.price
   gadget-sold:
     when: type == 'gadget.sold'
+    gid: data.gid
     state: set('sold')
   gadget-repriced:
     when: type == 'gadget.repriced'
+    gid: data.gid
     price: add(data.by)
   other:
     when: true
+    gid: data.gid
 """
 
 
@@ -73,7 +78,7 @@ def test_the_report_on_a_small_stream(tmp_path):
     unchanged = {g["shape"]["type"]: g["count"] for g in r["unchanged"]["groups"]}
     assert unchanged == {"gadget.sold": 1, "gadget.polished": 1}
     assert r["refused"]["count"] == 1 and "add needs numbers" in r["refused"]["groups"][0]["why"]
-    assert r["items"]["count"] == 5 and r["items"]["key"] == ["data.gid"]
+    assert r["items"]["count"] == 5 and r["items"]["key"] == ["gid"]
     assert r["states"] == {"made": 4, "sold": 1}
     f = {x["field"]: x for x in r["fields"]}
     assert f["colour"]["pct"] == 100.0 and dict(map(tuple, f["colour"]["top"])) == {"blue": 3, "red": 2}
@@ -94,7 +99,7 @@ def test_an_item_s_trace_and_the_refused_events(tmp_path):
     r = trying.run(p, "gadget", GADGET, item="g1", refused="add needs", keep=False)
     t = r["trace"]
     assert t["found"] and t["state"] == "made" and [s["handler"] for s in t["steps"]] == ["gadget-made", "gadget-repriced"]
-    assert {c["field"] for c in t["steps"][0]["changes"]} == {"colour", "price"} and t["steps"][0]["move"] == "None -> made"
+    assert {c["field"] for c in t["steps"][0]["changes"]} == {"gid", "colour", "price"} and t["steps"][0]["move"] == "None -> made"
     assert "add needs numbers" in t["steps"][1]["refused"]
     assert r["refused_events"]["count"] == 1 and r["refused_events"]["events"][0]["item"] == "g1"
     assert "draft" not in r
@@ -105,7 +110,7 @@ def test_check_errors_are_returned_with_their_line_and_nothing_is_folded(tmp_pat
     r = trying.run(p, "gadget", GADGET.replace("state: set('sold')", "state: set('gone')"))
     assert not r["ok"] and "events" not in r
     e = r["errors"][0]
-    assert "'gone' is not one of its values" in e["message"] and e["line"] == 16
+    assert "'gone' is not one of its values" in e["message"] and e["line"] == 19
     bad = trying.run(p, "gadget", "match: {type: [\n")
     assert not bad["ok"] and "does not read" in bad["errors"][0]["message"]
     assert trying.run(p, "gadget", "price: add(\n")["ok"] is False
@@ -196,18 +201,20 @@ def test_the_cli_and_the_mcp_tools(tmp_path):
 
 EC2 = """\
 query: type == 'aws.eventbridge' and data.source == 'aws.ec2'
-key: [data.account, data.region, "data.detail['instance-id']"]
+key: [account, region, instance_id]
 fields:
   state:
     values: [pending, running, stopping, stopped, shutting-down, terminated]
   account: {}
   region: {}
+  instance_id: {}
 events:
   aws-eventbridge:
     when: type == 'aws.eventbridge'
     state: "data.detail.state if data['detail-type'] == 'EC2 Instance State-change Notification' else current"
     account: data.account
     region: data.region
+    instance_id: data.detail['instance-id']
   other:
     when: true
 """

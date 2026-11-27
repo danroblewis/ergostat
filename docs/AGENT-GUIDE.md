@@ -60,8 +60,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
       with its `when:` (the suggested one, edited). An event log rarely names its own kinds: you do.
    3. *Fields*: declare what an object is under `fields:`, each with a `type` (`text`, `integer`, `time`, `map`,
       `values: [...]` for the only values it may hold: the field `state` is the lifecycle) and a `fold` (`replace`, `first`, `add`, `merge`...). Then
-      map each kind's values onto them; a kind whose key sits elsewhere gives its own `key:` (`each(...)` when one
-      event names several objects). Name `time:` when the events carry their own time.
+      name the fields that are an object's identity in `key:` (`key: [account, region, instance_id]`), and map each
+      kind's values onto the fields, the key's among them: each kind's key is what it maps to them (`each(...)` in a
+      key field when one event names several objects; a kind that tells no key field has no key, a `check` finding).
+      With no `key:`, an object is the events' own item. Name `time:` when the events carry their own time.
    4. *Review*: `/api/projections/review` until nothing is unexplained: no remainder (or only what you mean to leave
       out), nothing refused, no rare transitions, no splits or merges, every field's distribution plausible; read one
       object's timeline. Then Save (`/api/projections/save`), which dates what changed.

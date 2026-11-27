@@ -6,6 +6,7 @@ answers on the EC2 simulator's stream, an instance definition scored against the
 from __future__ import annotations
 
 import json
+import re
 import textwrap
 import time
 from datetime import datetime, timezone
@@ -23,7 +24,7 @@ T0 = 1_700_000_000.0
 
 INSTANCE = """\
 query: type == 'aws.eventbridge' and data.source == 'aws.ec2' and not data.detail.eventName.startswith('Describe')
-key: [data.account, data.region, "data.detail['instance-id']"]
+key: [account, region, instance_id]
 time: data.time
 fields:
   state: {values: [pending, running, stopping, stopped, shutting-down, terminated]}
@@ -46,7 +47,9 @@ events:
     instance_id: data.detail['instance-id']
   launch:
     when: data.detail.eventName == 'RunInstances'
-    key: [data.account, data.region, "each(data.detail.responseElements.instancesSet.items, 'instanceId')"]
+    account: data.account
+    region: data.region
+    instance_id: "each(data.detail.responseElements.instancesSet.items, 'instanceId')"
     type: data.detail.requestParameters.instanceType
     image: data.detail.requestParameters.imageId
     launched_by: data.detail.userIdentity.arn.split('/')[-1]
@@ -54,23 +57,33 @@ events:
     starts: 1
   start:
     when: data.detail.eventName == 'StartInstances'
-    key: [data.account, data.region, "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"]
+    account: data.account
+    region: data.region
+    instance_id: "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"
     starts: 1
   restart:
     when: data.detail.eventName == 'RebootInstances'
-    key: [data.account, data.region, "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"]
+    account: data.account
+    region: data.region
+    instance_id: "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"
     reboots: 1
   resize:
     when: data.detail.eventName == 'ModifyInstanceAttribute'
-    key: [data.account, data.region, data.detail.requestParameters.instanceId]
+    account: data.account
+    region: data.region
+    instance_id: data.detail.requestParameters.instanceId
     type: data.detail.requestParameters.instanceType.value
   tagged:
     when: data.detail.eventName == 'CreateTags'
-    key: [data.account, data.region, "each(data.detail.requestParameters.resourcesSet.items, 'resourceId')"]
+    account: data.account
+    region: data.region
+    instance_id: "each(data.detail.requestParameters.resourcesSet.items, 'resourceId')"
     tags: pairs(data.detail.requestParameters.tagSet.items, 'key', 'value')
   stop-or-end:
     when: data.detail.eventName in ['StopInstances', 'TerminateInstances']
-    key: [data.account, data.region, "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"]
+    account: data.account
+    region: data.region
+    instance_id: "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"
 """
 
 
@@ -148,9 +161,10 @@ FOLD = """\
 projections:
   job:
     query: type.startswith('job.')
-    key: data.job
+    key: job
     time: data.at
     fields:
+      job: text
       state: {values: [new, running, done]}
       name: text
       first_seen: {type: time, fold: first}
@@ -162,12 +176,14 @@ projections:
     events:
       made:
         when: type == 'job.made'
+        job: data.job
         state: "'new'"
         name: data.name
         first_seen: data.at
         size: data.size
       ran:
         when: type == 'job.ran'
+        job: data.job
         state: "'running'"
         runs: 1
         notes: data.note
@@ -175,10 +191,12 @@ projections:
         cost: data.cost
       renamed:
         when: type == 'job.renamed'
+        job: data.job
         name: set(data.name)
         runs: set(0)
       finished:
         when: type == 'job.finished'
+        job: data.job
         state: "'done'"
 """
 
@@ -228,6 +246,7 @@ def test_each_applies_one_event_to_several_objects(tmp_path):
     a = its.one(p.events, p.model.spec, "1/r/i-a", "instance")
     b = its.one(p.events, p.model.spec, "1/r/i-b", "instance")
     assert a.fields["launched_by"] == "ana" and b.fields["type"] == "t3.micro" and a.fields["starts"] == 1
+    assert (a.fields["instance_id"], b.fields["instance_id"], a.fields["account"]) == ("i-a", "i-b", "1")   # each its own
     del got
 
 
@@ -240,17 +259,20 @@ projections:
   job:
     # who asked for it: ops
     query: type.startswith('job.')   # every job event
-    key: data.job
+    key: job
     fields:
+      job: text
       state: {values: [new, done]}   # its lifecycle
       name: text
     events:
       # updated 2026-01-01
       made:
         when: type == 'job.made'   # born
+        job: data.job
         name: data.name
       done:
         when: type == 'job.done'
+        job: data.job
         state: "'done'"
 stocks:
   jobs: {unit: jobs}
@@ -279,7 +301,7 @@ def test_save_dates_what_changed_and_keeps_the_rest_byte_for_byte(tmp_path):
     text2 = (tmp_path / "ergostat.yaml").read_text()
     assert f"    # updated {today}\n    query: type.startswith('jobs.')" in text2
     assert "# who asked for it: ops" in text2 and text2.count(f"# updated {today}") == 3   # the projection's replaced
-    assert "      # updated 2026-01-01\n      made:\n        when: type == 'job.made'   # born\n" in text2
+    assert "      # updated 2026-01-01\n      made:\n        when: type == 'job.made'   # born\n        job: data.job\n" in text2
 
 
 # ---- the query engine
@@ -376,20 +398,20 @@ def test_the_residual_shows_a_remainder_a_merge_and_a_split(tmp_path):
     recorded(p, delivered)
     draft = INSTANCE.replace("""  restart:
     when: data.detail.eventName == 'RebootInstances'
-    key: [data.account, data.region, "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"]
+    account: data.account
+    region: data.region
+    instance_id: "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"
     reboots: 1
 """, "")                                               # reboots no longer taken: the remainder
-    draft = draft.replace("key: [data.account, data.region, \"data.detail['instance-id']\"]",
-                          "key: [data.account, \"data.detail['instance-id']\"]")    # state changes keyed without region
+    draft = draft.replace("    region: data.region\n    instance_id: data.detail['instance-id']\n",
+                          "    region: \"'unknown'\"\n    instance_id: data.detail['instance-id']\n")   # state changes keyed otherwise
     r = workbench.review(p, {"name": "instance", "yaml": draft})
     assert r["ok"], r.get("errors")
     rem = r["residual"]["remainder"]
     assert rem["count"] > 0 and any("RebootInstances" in k["when"] for k in rem["kinds"])
     assert r["residual"]["splits"]["count"] > 0                                   # launches under another key
-    merged = INSTANCE.replace("key: [data.account, data.region, \"data.detail['instance-id']\"]",
-                              "key: data.region").replace(
-        "key: [data.account, data.region, \"each(data.detail.responseElements.instancesSet.items, 'instanceId')\"]",
-        "key: data.region")
+    merged = re.sub(r"\n    instance_id: \"each\(.*", "", INSTANCE.replace("key: [account, region, instance_id]",
+                                                                     "key: region"))      # too coarse a key
     r2 = workbench.review(p, {"name": "instance", "yaml": merged})
     assert r2["residual"]["merges"]["count"] > 0 and r2["residual"]["merges"]["fields"][0]["field"] in (
         "launched_by", "launched_at")
@@ -495,3 +517,71 @@ def test_one_event_folded_by_a_draft(tmp_path):
     assert r["ok"] and r["took"][e["id"]] == "state-change"
     o = r["objects"][0]
     assert o["state"] == e["data"]["detail"]["state"] and o["fields"]["account"] == e["data"]["account"]
+
+
+# ---- the key: named by its fields, solved per kind of event
+
+def findings(tmp_path, body: str) -> list[tuple[str, str]]:
+    from ergostat.spec import read
+    (tmp_path / "ergostat.yaml").write_text(body)
+    _, problems = read(tmp_path / "ergostat.yaml", extremes=False)
+    return [(x.code, x.message) for x in problems if x.level == "finding"]
+
+
+@pytest.mark.parametrize("bad, says", [
+    ("    key: [gid, colour]\n    fields:\n      gid: text\n", "colour is not one of its fields"),
+    ("    key: data.gid\n    fields:\n      gid: text\n", "data.gid is not one of its fields"),
+    ("    key: gid\n    fields:\n      gid: text\n    events:\n      a:\n        when: true\n        gid: set(data.g)\n",
+     "not a fold call like set(...)"),
+    ("    key: gid\n    fields:\n      gid: text\n    events:\n      a:\n        when: true\n        gid: data.g\n"
+     "        key: data.h\n", "has no key of its own"),
+])
+def test_the_key_names_declared_fields_each_a_plain_expression(tmp_path, bad, says):
+    got = errors(tmp_path, "projections:\n  thing:\n" + bad)
+    assert any(c == "bad-key" and says in m for c, m in got), got
+
+
+def test_a_kind_that_does_not_tell_a_key_field_is_a_finding_and_its_events_have_no_key(tmp_path):
+    body = INSTANCE.replace("    region: data.region\n    instance_id: \"each(data.detail.requestParameters.resourcesSet",
+                            "    instance_id: \"each(data.detail.requestParameters.resourcesSet")   # tagged: no region
+    assert not errors(tmp_path, as_model("instance", body))
+    got = findings(tmp_path, as_model("instance", body))
+    got = [m for c, m in got if c == "key-not-told"]
+    assert len(got) == 1 and "events.tagged: tells no region of the key" in got[0]
+    p = project(tmp_path, as_model("instance", body))
+    k = p.model.spec.items["instance"]
+    by = {x.name: x for x in k.kinds}
+    assert by["tagged"].key is None and by["tagged"].untold == ["region"]
+    assert [v.text for v in by["state-change"].key] == ["data.account", "data.region", "data.detail['instance-id']"]
+    assert by["launch"].key[2].text.startswith("each(")
+    delivered, _ = ec2(seed=3, instances=5, days=1)
+    recorded(p, delivered)
+    r = workbench.review(p, {"name": "instance", "yaml": body, "compare": False})
+    nk = r["residual"]["no_key"]
+    assert nk["count"] > 0 and set(nk["by_kind"]) == {"tagged"} and nk["lacks"] == {"tagged": ["region"]}
+    assert r["objects"]["key"] == ["account", "region", "instance_id"]
+
+
+def test_a_key_field_told_by_a_spread_is_that_path_s_field_and_no_key_is_the_envelope_s_item(tmp_path):
+    p = project(tmp_path, as_model("gadget", """\
+query: type.startswith('gadget.')
+key: gid
+fields:
+  gid: text
+  colour: text
+events:
+  made:
+    when: type == 'gadget.made'
+    "...": data
+  painted:
+    when: type == 'gadget.painted'
+    "...": pick(data, 'colour')
+"""))
+    k = p.model.spec.items["gadget"]
+    by = {x.name: x for x in k.kinds}
+    assert [v.text for v in by["made"].key] == ["data.gid"] and by["painted"].untold == ["gid"]
+    p.events.add("gadget.made", item="x/1", data={"gid": "g1", "colour": "red"}, at=T0)
+    assert its.one(p.events, p.model.spec, "g1", "gadget").fields == {"gid": "g1", "colour": "red"}
+    (tmp_path / "b").mkdir()
+    k2 = project(tmp_path / "b", as_model("note", "query: type.startswith('note.')\n")).model.spec.items["note"]
+    assert k2.key is None and k2.by_item and k2.key_of({"type": "note.x", "item": "note/1", "data": {}}) == "note/1"

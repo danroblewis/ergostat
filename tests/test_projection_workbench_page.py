@@ -1,8 +1,8 @@
 """The projection workbench's page (docs/roadmap/projection-workbench.md; SPEC §5a, *The workbench*), in Chromium, on a
 record of the EC2 simulator (tests/fixtures/ec2_stream.py, batch mode): a new projection made from the nav bar's +
-through its five steps (what it is: its key and fields; the query, what each change added and dropped, and Accept all
-right after its count, no suggestion left that takes nothing; the mapping: a value clicked into a field, a field made
-from a pick, another kind mapped the same way, a path ignored in every kind's events; the review, and the panel on the
+through its five steps (what it is: its fields and its key, picked from them in order; the query, what each change added and dropped, and Accept all
+right after its count, no suggestion left that takes nothing; the mapping: each kind's key solved from its key fields
+(✓ or ✗ a part, a ✗ clicked to map it), a value clicked into a field, a field made from a pick, another kind mapped the same way, a path ignored in every kind's events; the review, and the panel on the
 right: the residual with no 0 shown, the lifecycle, the distributions, one object's record and lifespan), saved with
 its dated comments and reopened on its review; a projection with nothing unexplained (one check; the panel below the
 steps on a narrow page); and an existing projection's drift, events of a new shape shown in its remainder.
@@ -83,18 +83,20 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     steps = pg.locator(".wb-step-head button").all_inner_texts()
     assert [s.split(" ", 1)[1] for s in steps] == ["What it is", "Query", "Kinds of event", "Mapping", "Review"]
 
-    # 1. what it is: its key, one part a row (no quoting), and its fields
-    for part in ("data.account", "data.region", "data.detail['instance-id']"):
-        pg.get_by_label("The projection's key, a new part").fill(part)
-        pg.keyboard.press("Enter")
-    yaml_has(pg, "key: [data.account, data.region")
-    for f in ("state", "instance_type"):
+    # 1. what it is: its fields, and its key picked from them, in order
+    for f in ("state", "instance_type", "account", "region", "instance_id"):
         pg.get_by_label("A new field's name").fill(f)
         pg.get_by_role("button", name="Add a field").click()
         pg.get_by_label(f"The name of {f}").wait_for(timeout=WAIT)
     pg.get_by_label("The values of state").fill(STATES)
     pg.keyboard.press("Enter")
     yaml_has(pg, "values: [pending")
+    for f in ("account", "instance_id", "region"):
+        pg.get_by_label("Add a field to the key").select_option(f)
+    yaml_has(pg, "key: [account, instance_id, region]")
+    pg.get_by_role("button", name="Move region up").click()
+    yaml_has(pg, "key: [account, region, instance_id]")
+    assert pg.locator("ol[aria-label=\"The projection's key\"] li code").all_inner_texts() == ["account", "region", "instance_id"]
 
     # 2. the query: its count, and what a change added and dropped
     query_box(pg).wait_for(timeout=WAIT)
@@ -136,16 +138,35 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     change.locator(".wb-picked").get_by_role("button", name="state", exact=True).click()
     yaml_has(pg, "state: data.detail.state")
     change.locator(".wb-sample .jv-to", has_text="state").wait_for(timeout=WAIT)          # tagged with the field it fills
-    change.locator(".wb-record").get_by_text("state").first.wait_for(timeout=WAIT)        # the record it makes
-    change.locator(".wb-sample button[data-path='[\"data\",\"account\"]']").click()
-    assert change.get_by_label("The new field's name").input_value() == "account"
+    change.locator(".wb-record").get_by_text("Keyed to nothing").wait_for(timeout=WAIT)          # no key yet
+    change.locator(".wb-sample button[data-path='[\"data\",\"id\"]']").click()
+    assert change.get_by_label("The new field's name").input_value() == "id"
     assert change.get_by_label("The new field's type").input_value() == "text"
+    assert change.locator(".wb-picked").get_by_role("button", name="its key part").count() == 0   # a key field is a field
     change.get_by_role("button", name="Create and map").click()
+    yaml_has(pg, "id: data.id")
+    assert "id: {type: text}" in pg.locator(".wb-yaml .cm-content").inner_text()
+    # its key, solved from the key's fields: a ✗ for each it does not tell, clicked to map it, then a ✓
+    key = change.locator(f"[data-testid=key-{CHANGE}]")
+    assert " ".join(key.inner_text().split()) == "account ✗ not told · region ✗ not told · instance_id ✗ not told"
+    change.locator(".wb-sample button[data-path='[\"data\",\"account\"]']").click()
+    change.locator(".wb-picked").get_by_role("button", name="account", exact=True).click()
     yaml_has(pg, "account: data.account")
-    assert "account: {type: text}" in pg.locator(".wb-yaml .cm-content").inner_text()
+    key.get_by_text("account ✓ data.account").wait_for(timeout=WAIT)
+    for f, expr in (("region", "data.region"), ("instance_id", "data.detail['instance-id']")):
+        key.get_by_role("button", name=f"Map {f} for {CHANGE}").click()
+        box = pg.get_by_label(f"{CHANGE}: {f}")
+        pg.wait_for_function("(l) => document.activeElement?.getAttribute('aria-label') === l", arg=f"{CHANGE}: {f}", timeout=WAIT)
+        box.fill(expr)
+        pg.keyboard.press("Enter")
+    pg.wait_for_function("(t) => document.querySelector(t).textContent.replace(/\\s+/g, ' ').includes(\"instance_id ✓ data.detail['instance-id']\")",
+                         arg=f"[data-testid=key-{CHANGE}]", timeout=WAIT)
+    assert "✗" not in key.inner_text()
+    change.locator(".wb-record").get_by_text("state").first.wait_for(timeout=WAIT)        # the record it makes, keyed
     run = kind_box(pg, "runinstances")
     same = run.locator("[data-testid=same-runinstances]")
     same.wait_for(timeout=WAIT)
+    pg.wait_for_function("() => /data\\.region → region/.test(document.querySelector('[data-testid=same-runinstances]').textContent)", timeout=WAIT)
     assert "data.account → account" in " ".join(same.inner_text().split())
     same.get_by_role("button", name="Apply").click()
     pg.wait_for_function("() => /runinstances:[\\s\\S]*account: data.account/.test(document.querySelector('.wb-yaml .cm-content').textContent)", timeout=WAIT)
@@ -157,13 +178,15 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     pg.wait_for_function("() => document.querySelectorAll(\".wb-sample button[data-path='[\\\"type\\\"]']\").length === 0", timeout=WAIT)
     change.get_by_role("button", name="show ignored (1)").click()
     assert change.locator(".wb-sample button[data-path='[\"type\"]']").count() == 1
-    # an expression typed for a field it does not tell yet, and a key of its own
+    # an expression typed for a field it does not tell yet, and its key's last part: each(...), one object a launch
     run.get_by_label("runinstances: tell another field").select_option("instance_type")
     pg.get_by_label("runinstances: instance_type").fill("data.detail.requestParameters.instanceType")
     pg.keyboard.press("Enter")
-    run.get_by_role("button", name="Its ids are elsewhere: give it its own").click()   # starts from the projection's
-    pg.get_by_label("The key of runinstances, part 3").fill("each(data.detail.responseElements.instancesSet.items, 'instanceId')")
+    run_key = run.locator("[data-testid=key-runinstances]")
+    run_key.get_by_role("button", name="Map instance_id for runinstances").click()
+    pg.get_by_label("runinstances: instance_id").fill("each(data.detail.responseElements.instancesSet.items, 'instanceId')")
     pg.keyboard.press("Enter")
+    run_key.get_by_text("instance_id ✓ each(").wait_for(timeout=WAIT)
 
     # 5. the review, and the panel on the right: the residual (no 0 shown), the lifecycle, the fields, one object
     side = pg.locator("aside.wb-side")
@@ -173,6 +196,8 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     assert number(pg, "review-objects") > 5
     residual = side.locator("ul[aria-label='The residual']").inner_text()
     assert "no key" in residual and "remainder" not in residual                          # its 0 not shown
+    side.locator("ul[aria-label='The residual'] li", has_text="no key").locator("summary").click()
+    assert "tells no account, region, instance_id" in side.locator("ul[aria-label='No key, by kind']").inner_text()
     unexpl = pg.locator("[data-testid=unexplained]").inner_text()
     assert "Unexplained" in unexpl and " 0 " not in unexpl
     assert pg.locator("ul[aria-label='Unmapped paths'] li").count() > 0                  # what is left to decide
@@ -202,13 +227,19 @@ name: wb
 projections:
   instance:
     query: data['detail-type'] == 'EC2 Instance State-change Notification'
-    key: [data.account, data.region, "data.detail['instance-id']"]
+    key: [account, region, instance_id]
     fields:
       state: {values: [pending, running, stopping, stopped, shutting-down, terminated]}
+      account: text
+      region: text
+      instance_id: text
     events:
       state-change:
         when: "true"
         state: data.detail.state
+        account: data.account
+        region: data.region
+        instance_id: data.detail['instance-id']
 """
 
 
@@ -233,13 +264,19 @@ name: wb
 projections:
   instance:
     query: data.source == 'aws.ec2'
-    key: [data.account, data.region, "data.detail['instance-id']"]
+    key: [account, region, instance_id]
     fields:
       state: {values: [pending, running, stopping, stopped, shutting-down, terminated]}
+      account: text
+      region: text
+      instance_id: text
     events:
       state-change:
         when: data['detail-type'] == 'EC2 Instance State-change Notification'
         state: data.detail.state
+        account: data.account
+        region: data.region
+        instance_id: data.detail['instance-id']
       api-call:
         when: data['detail-type'] == 'AWS API Call via CloudTrail'
 """

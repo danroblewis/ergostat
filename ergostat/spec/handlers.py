@@ -508,6 +508,24 @@ def keys_from(parts: list[Value], env: dict) -> list[str]:
     return ["/".join(o) for o in outs]
 
 
+def _key_text(x) -> str:
+    return str(x).lower() if isinstance(x, bool) else str(x)
+
+
+def key_values(parts: list[Value], env: dict, id: str) -> list | None:
+    """The key parts' values that name object ``id`` (``each(...)`` in a part: the one of its values that does), as
+    the event gives them: what the key's fields are set to for that object. None when no combination names it."""
+    outs = [[]]
+    for p in parts:
+        v = evaluate(p, env)
+        vals = [x for x in (list(v) if isinstance(v, Each) else [v])
+                if not (x is None or x == "" or isinstance(x, (dict, list)))]
+        if not vals:
+            return None
+        outs = [o + [g] for o in outs for g in vals][:1000]
+    return next((o for o in outs if "/".join(_key_text(x) for x in o) == id), None)
+
+
 def key_of(parts: list[Value], e: dict) -> str | None:
     """The first object an event belongs to (``keys_from``); None when it belongs to none."""
     got = keys_from(parts, env_of(e))
@@ -584,6 +602,11 @@ def apply_event(kind, it, e: dict) -> tuple[list[tuple], str | None, str | None,
         if getattr(kind, "own_time", None) is not None else None     # by event time when it names one; else in order
     times = dict(acc.get(TIMES) or {})
     declared = getattr(kind, "declared", None) or {}
+    keyed = {}                                       # the key's fields: the values that name this object
+    if getattr(kind, "key", None) and ek.key and isinstance(getattr(it, "id", None), str):
+        vals = key_values(ek.key, env, it.id)
+        if vals is not None:
+            keyed = dict(zip(kind.key, vals, strict=True))
     fields = dict(it.fields)
     changed: dict[str, str] = {}
     to = None
@@ -630,7 +653,10 @@ def apply_event(kind, it, e: dict) -> tuple[list[tuple], str | None, str | None,
             if latest and older:                     # an older value than the field's: newest by event time wins
                 continue
             env["current"] = (to or it.state) if f == "state" else (None if first and older else fields.get(f))
-            new, rule = value_of(kind, f, v, fields, acc, env, (kind.fold or {}).get(f) if f != "state" else None)
+            if f in keyed:
+                new, rule = keyed[f], "set"
+            else:
+                new, rule = value_of(kind, f, v, fields, acc, env, (kind.fold or {}).get(f) if f != "state" else None)
             if new is KEEP:
                 continue
             if latest or first:

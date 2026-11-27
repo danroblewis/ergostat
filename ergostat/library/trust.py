@@ -121,7 +121,7 @@ JOIN = {"children": (S, "the relation children name it by"), "all": (L, "the sta
 
 SYSTEM = {"description": (S, "words shown with it"), "within": (S, "the system it is drawn in"),
           "show": (L, "parts shown on its box")}
-ITEM = {**COMMON, "query": (S, "which events it reads"), "key": (one_of(S, L), "the object each event belongs to"),
+ITEM = {**COMMON, "query": (S, "which events it reads"), "key": (one_of(S, L), "the fields that are an object's identity, each kind's key solved from what it maps to them"),
         "time": (S, "the event's own time"), "fields": (each(M), "what an object is: each field's type and fold"),
         "final": (L, "its states no event moves it out of"), "finished": (L, "its states that count as finished"),
         "lost": (L, "its finished states that are a loss"),

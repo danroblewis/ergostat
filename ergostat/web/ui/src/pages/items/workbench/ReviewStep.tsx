@@ -217,7 +217,11 @@ export function SidePanel({ r, item, onItem }: { r: any; item: string; onItem: (
             ))}</ul>
           </Residue>
           <Residue label="no key: taken, but keyed to nothing" count={s.no_key.count}>
-            <p className="small">{Object.entries(s.no_key.by_kind || {}).map(([k, v]) => `${k} ${n(v as number)}`).join(" · ")}</p>
+            <ul className="small" aria-label="No key, by kind">{Object.entries(s.no_key.by_kind || {}).map(([k, v]) => (
+              <li key={k}><strong>{k}</strong> {n(v as number)}{s.no_key.lacks?.[k]?.length
+                ? <>: tells no <code>{s.no_key.lacks[k].join(", ")}</code></>
+                : <span className="muted">: a key field it maps reads no value</span>}</li>
+            ))}</ul>
             <ul className="wb-kinds">{(s.no_key.kinds || []).map((k: any) => (
               <li key={k.when}><span className="wb-kind-n">{n(k.count)}</span> <code>{k.when}</code><Samples samples={k.samples} /></li>
             ))}</ul>

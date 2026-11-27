@@ -288,14 +288,10 @@ def unmapped(kind, evs: list[dict], took: dict) -> dict:
     """The paths in the kinds' events that no field, key or ``time:`` of the kind that took them reads, and that are
     not ignored, each with how many events have it and which kinds: what is left to decide."""
     ignored = {x for x in (path_of_text(s) for s in kind.ignore) if x is not None}
-    base: set = set()
-    for v in (kind.key or []):
-        refs(v.tree, base)
-    if kind.key is None:
-        base.add(("key",))
+    base: set = {("key",)} if kind.key is None else set()
     read = {}
     for k in kind.kinds:
-        r = set(base) if k.key is None else set()
+        r = set(base)
         if kind.own_time is not None:
             refs(kind.own_time.tree, r)
         for v in (k.key or []):
@@ -457,14 +453,20 @@ def residual(kind, items: dict, by_key: dict, took: dict, remainder: list, unkey
             refusals.setdefault(str(r["why"])[:160], []).append((it.id, r))
     contradictions = [{"field": f, **r} for f, lc in lives.items() for r in lc["rare"]]
     finals = [(k, r) for k, x in refusals.items() for _, r in x if r.get("form") == "final"]
-    # splits: objects only kinds with a key of their own ever wrote, when kinds keyed the default way exist
-    own_keyed = {k.name for k in kind.kinds if k.key is not None}
-    default_keyed = {k.name for k in kind.kinds if k.key is None}
+    # splits: objects only kinds keyed another way ever wrote: the key the kinds that took the most events solve to is
+    # the main way; an object none of those kinds wrote may be one thing named two ways
+    sig = {k.name: tuple(v.text.strip() for v in k.key) for k in kind.kinds if k.key}
+    by_sig: Counter = Counter()
+    for kn in took.values():
+        if kn in sig:
+            by_sig[sig[kn]] += 1
     splits: dict[tuple, list] = {}
-    if own_keyed and default_keyed:
+    if len(by_sig) > 1:
+        main = by_sig.most_common(1)[0][0]
+        others = {kn for kn, s in sig.items() if s != main}
         for key, es in by_key.items():
             ks = {took.get(e["id"]) for e in es} - {None}
-            if ks and ks <= own_keyed:
+            if ks and ks <= others:
                 splits.setdefault(tuple(sorted(ks)), []).append(key)
     # merges: a field written by first twice, with different values (two births in one object's history)
     merges: dict[str, list] = {}
@@ -493,6 +495,8 @@ def residual(kind, items: dict, by_key: dict, took: dict, remainder: list, unkey
     return {
         "remainder": shapes(remainder),
         "no_key": {"count": len(unkeyed), "by_kind": dict(Counter(took.get(e["id"]) or "-" for e in unkeyed).most_common(GROUPS)),
+                   "lacks": {kn: kinds[kn].untold for kn in dict.fromkeys(took.get(e["id"]) for e in unkeyed)
+                             if kn in kinds and kinds[kn].untold},
                    **shapes(unkeyed, GROUPS // 2)},
         "refused": {"count": sum(len(x) for x in refusals.values()),
                     "groups": [{"why": w, "count": len(x), "objects": len({k for k, _ in x}),
@@ -613,7 +617,7 @@ def review(p, ask: dict) -> dict:
         "read": {"events": len(evs), **how},
         "kinds": per_kind,
         "objects": {"count": len(items), "sample": sorted(items)[:3],
-                    "key": [v.text for v in kind.key] if kind.key else ["key (the events' item)"],
+                    "key": list(kind.key) if kind.key else ["key (the events' item)"],
                     "one_event": sum(1 for it in its if it.n == 1)},
         "fields": distributions(kind, its),
         "lifecycles": lives,

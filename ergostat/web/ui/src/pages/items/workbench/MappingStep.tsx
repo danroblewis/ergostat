@@ -1,18 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { JsonPath, PathMark } from "../../../components/JsonValues";
 import { useSend } from "../../../hooks/useSend";
-import { fieldName, guessType, isPath, ofKind, pathExpr, reads, TYPES, underAny, type Draft, type KindDef } from "./draft";
+import { fieldName, guessType, isPath, ofKind, pathExpr, reads, solvedKey, TYPES, underAny, type Draft, type KindDef } from "./draft";
 import { EventValues, short, type QEvent } from "./common";
 import { Commit } from "./KindsStep";
-import { KeyParts } from "./WhatStep";
 
-/* Step 4, the mapping: per kind of event, one of its events shown as it reads (each value read into a field tagged
-   with the field, a value nothing reads standing out, an ignored path hidden) beside the record that event makes; a
-   value clicked is put into a field, the key, a new field, or ignored (in every kind's events); what another kind
-   already maps the same way is offered at once. And the event's own time (time:). */
+/* Step 4, the mapping: per kind of event, its key as solved from what it maps to the key's fields (✓ each part's
+   expression, ✗ a part it does not tell, a click away from its mapping), one of its events shown as it reads (each
+   value read into a field tagged with the field, a value nothing reads standing out, an ignored path hidden) beside
+   the record that event makes; a value clicked is put into a field (a key field among them), a new field, or ignored
+   (in every kind's events); what another kind already maps the same way is offered at once. And the event's own time
+   (time:). */
 
 export interface MappingEdits {
-  setTop: (k: "key" | "time", v: string) => void;
+  setTop: (k: "time", v: string) => void;
   addField: (name: string) => void;
   setField: (name: string, part: "type" | "values" | "fold" | "description", v: string) => void;
   renameField: (from: string, to: string) => void;
@@ -21,8 +22,7 @@ export interface MappingEdits {
   setKinds: (kind: string, pairs: [string, string][]) => void;
   createAndMap: (kind: string, field: string, type: string, expr: string) => void;
   ignore: (path: string) => void;
-  setKeyParts: (parts: string[]) => void;
-  setKindKeyParts: (kind: string, parts: string[]) => void;
+  setKey: (names: string[]) => void;
 }
 
 /** Every path in an event (its parts' and all within them), and its values' paths alone. */
@@ -49,7 +49,7 @@ function Made({ e, kind, fold }: { e: QEvent; kind: string; fold: (evs: QEvent[]
   else if (!r) body = <p className="muted small">Folding…</p>;
   else if (!r.ok) body = <p className="muted small">The draft does not check yet.</p>;
   else if (r.took?.[e.id] && r.took[e.id] !== kind) body = <p className="muted small">{r.took[e.id]} takes this event first.</p>;
-  else if (!r.objects.length) body = <p className="muted small">Keyed to nothing: its key reads no value here.</p>;
+  else if (!r.objects.length) body = <p className="muted small">Keyed to nothing: a part of its key (above) is not told, or reads no value here.</p>;
   else body = r.objects.slice(0, 3).map((o: any) => (
     <div key={o.key}>
       <p className="small"><code>{o.key}</code></p>
@@ -83,8 +83,6 @@ function Picked({ k, draft, ed, editable, path, value, onDone }: {
         {draft.fields.map((f) => (
           <button key={f.name} type="button" disabled={!editable} onClick={done(() => ed.setKind(k.name, f.name, expr))}>{f.name}</button>
         ))}{" "}
-        <button type="button" disabled={!editable}
-          onClick={done(() => ed.setKindKeyParts(k.name, [...(k.keyParts.length ? k.keyParts : draft.keyParts), expr]))}>its key part</button>{" "}
         <button type="button" disabled={!editable} onClick={done(() => ed.ignore(expr))}>ignore this path</button>
       </p>
       <p>New field{" "}
@@ -110,17 +108,23 @@ function KindMapping({ k, draft, ed, editable, fold }: {
   const e = evs.length ? evs[Math.min(at, evs.length - 1)] : null;
   const [picked, setPicked] = useState<{ path: JsonPath; value: unknown } | null>(null);
   const [showIgnored, setShowIgnored] = useState(false);
-  const [ownKey, setOwnKey] = useState(false);
   const [adding, setAdding] = useState<string[]>([]);
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
   const told: Record<string, string> = Object.fromEntries(k.values);
-  const keyParts = k.keyParts.length ? k.keyParts : draft.keyParts;
+  const solved = solvedKey(draft.key, k);
+  const [focus, setFocus] = useState<string | null>(null);
+  useEffect(() => {                                   // a ✗ clicked: that field's mapping for this kind, ready to type
+    if (!focus) return;
+    const el = document.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(`${k.name}: ${focus}`)}"]`);
+    if (el) { el.focus(); el.scrollIntoView({ block: "nearest" }); setFocus(null); }
+  });
 
   const mark = (p: JsonPath): PathMark => {
     const x = pathExpr(p);
     if (underAny(x, draft.ignore)) return { ignored: true };
     for (const [f, ex] of k.values) if (reads(ex, x)) return { to: f };
-    if (keyParts.some((kp) => reads(kp, x)) || (!keyParts.length && x === "key")) return { to: "key" };
+    for (const kp of solved) if (kp.spread && kp.expr && reads(kp.expr, x)) return { to: kp.field };
+    if (!draft.key.length && x === "key") return { to: "key" };
     if (draft.time && reads(draft.time, x)) return { to: "time" };
     return {};
   };
@@ -165,19 +169,19 @@ function KindMapping({ k, draft, ed, editable, fold }: {
         <tbody>
           <tr>
             <th scope="row">its key</th>
-            <td className="wb-grow">
-              {k.keyParts.length || ownKey ? (
-                <>
-                  <KeyParts parts={k.keyParts} label={`The key of ${k.name}`} editable={editable}
-                    onChange={(ps) => { ed.setKindKeyParts(k.name, ps); if (!ps.length) setOwnKey(false); }} />
-                  <button type="button" className="ghost small" disabled={!editable}
-                    onClick={() => { ed.setKindKeyParts(k.name, []); setOwnKey(false); }}>Use the projection's key</button>
-                </>
-              ) : (
-                <span className="muted small">the projection's ({draft.keyParts.join(" / ") || "key"}){" "}
-                  <button type="button" className="ghost small" disabled={!editable}
-                    onClick={() => { setOwnKey(true); ed.setKindKeyParts(k.name, draft.keyParts.length ? draft.keyParts : ["key"]); }}>
-                    Its ids are elsewhere: give it its own</button></span>
+            <td className="wb-grow" data-testid={`key-${k.name}`}>
+              {!solved.length ? <span className="muted small">the events&apos; own item (<code>key</code>)</span> : (
+                <span className="wb-solved" aria-label={`The key of ${k.name}`}>
+                  {solved.map((kp, i) => (
+                    <span key={kp.field} className={kp.expr ? "wb-key-ok" : "wb-key-no"}>
+                      {i > 0 && <span className="muted"> · </span>}
+                      {kp.field}{" "}
+                      {kp.expr ? <><span aria-label="told">✓</span> <code>{short(kp.expr, 60)}</code>{kp.spread && <span className="muted small"> (by the spread)</span>}</>
+                        : <button type="button" className="ghost lvl-error" disabled={!editable} aria-label={`Map ${kp.field} for ${k.name}`}
+                          onClick={() => { setAdding((x) => (x.includes(kp.field) ? x : [...x, kp.field])); setFocus(kp.field); }}>✗ not told</button>}
+                    </span>
+                  ))}
+                </span>
               )}
             </td>
           </tr>

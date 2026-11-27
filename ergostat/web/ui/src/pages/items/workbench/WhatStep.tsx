@@ -3,34 +3,42 @@ import { FOLDS, TYPES, type Draft } from "./draft";
 import { Commit } from "./KindsStep";
 import type { MappingEdits } from "./MappingStep";
 
-/* Step 1, what it is: the object's identity before any event is read. Its key (key:, one expression a row: a
-   composite key is several) and its fields (fields:, each its type, values, fold and description). The query, the
-   kinds of event and the mapping then find the parts. */
+/* Step 1, what it is: the object's identity before any event is read. Its key (key:, the fields that are its
+   identity, in order: several make a composite key; each kind of event's key is then what it maps to them, step 4) and
+   its fields (fields:, each its type, values, fold and description). The query, the kinds of event and the mapping
+   then find the parts. */
 
-/** A key as its parts, one expression a row (a composite key: account, region, id), with a row added or taken out.
- *  Each row is an expression as written: no brackets or quoting. */
-export function KeyParts({ parts, label, editable, onChange }: {
-  parts: string[]; label: string; editable: boolean; onChange: (parts: string[]) => void;
-}) {
-  const [adding, setAdding] = useState("");
-  const add = () => { const v = adding.trim(); if (v) { onChange([...parts, v]); setAdding(""); } };
+/** The key: the declared fields chosen, in order (each moved up or down, or taken out), and a choice of the others
+ *  to add. None chosen: the events' own item. */
+export function KeyFields({ draft, editable, onChange }: { draft: Draft; editable: boolean; onChange: (names: string[]) => void }) {
+  const key = draft.key;
+  const others = draft.fields.map((f) => f.name).filter((f) => !key.includes(f));
+  const move = (i: number, by: number) => {
+    const x = [...key];
+    [x[i], x[i + by]] = [x[i + by], x[i]];
+    onChange(x);
+  };
   return (
-    <ol className="wb-keyparts" aria-label={label}>
-      {parts.map((p, i) => (
-        <li key={`${i}:${p}`}>
-          <Commit className="mono" value={p} label={`${label}, part ${i + 1}`} disabled={!editable}
-            onCommit={(v) => onChange(parts.map((x, j) => (j === i ? v : x)).filter((x) => x.trim()))} />
-          {parts.length > 1 && <button type="button" className="ghost" disabled={!editable} aria-label={`Take out part ${i + 1}`}
-            onClick={() => onChange(parts.filter((_, j) => j !== i))}>×</button>}
-        </li>
-      ))}
-      <li>
-        <input className="mono" value={adding} onChange={(e) => setAdding(e.target.value)} disabled={!editable}
-          placeholder={parts.length ? "another part (a composite key)" : "an expression: key, data.id, ..."}
-          aria-label={`${label}, a new part`} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />{" "}
-        <button type="button" disabled={!editable || !adding.trim()} onClick={add}>Add</button>
-      </li>
-    </ol>
+    <div className="wb-keyfields">
+      {key.length === 0 ? <p className="muted small">None: each event is its own item&apos;s (its <code>key</code>).</p> : (
+        <ol className="wb-keyparts" aria-label="The projection's key">
+          {key.map((f, i) => (
+            <li key={f}>
+              <code>{f}</code>{!draft.fields.some((x) => x.name === f) && <span className="lvl-error small"> not a field</span>}{" "}
+              <button type="button" className="ghost" disabled={!editable || i === 0} aria-label={`Move ${f} up`} onClick={() => move(i, -1)}>↑</button>
+              <button type="button" className="ghost" disabled={!editable || i === key.length - 1} aria-label={`Move ${f} down`} onClick={() => move(i, 1)}>↓</button>
+              <button type="button" className="ghost" disabled={!editable} aria-label={`Take ${f} out of the key`}
+                onClick={() => onChange(key.filter((x) => x !== f))}>×</button>
+            </li>
+          ))}
+        </ol>
+      )}
+      <select value="" aria-label="Add a field to the key" disabled={!editable || !others.length}
+        onChange={(e) => { const f = e.target.value; if (f) onChange([...key, f]); }}>
+        <option value="">{others.length ? "add a field to the key…" : draft.fields.length ? "every field is in the key" : "declare a field first"}</option>
+        {others.map((f) => <option key={f} value={f}>{f}</option>)}
+      </select>
+    </div>
   );
 }
 
@@ -75,8 +83,8 @@ function Fields({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; edita
 export function WhatStep({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; editable: boolean }) {
   return (
     <>
-      <h3 className="small">Its key <span className="muted">(an object's identity; several parts make a composite key)</span></h3>
-      <KeyParts parts={draft.keyParts} label="The projection's key" editable={editable} onChange={ed.setKeyParts} />
+      <h3 className="small">Its key <span className="muted">(the fields that are an object&apos;s identity, in order; each kind of event maps them)</span></h3>
+      <KeyFields draft={draft} editable={editable} onChange={ed.setKey} />
       <h3 className="small">Its fields</h3>
       <Fields draft={draft} ed={ed} editable={editable} />
     </>

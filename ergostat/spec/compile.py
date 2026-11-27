@@ -820,21 +820,25 @@ class Compiler:
         if id is None:                               # its implied id: what it reads with no query, and its own events
             id = self.implied_id(name, m, what, spec) if q is None else f"{name}/*"
 
-        def key_parts(raw, at) -> list | None:
-            if raw is None:
-                return None
-            got = []
-            for p in (raw if isinstance(raw, list) else [raw]):
-                try:
-                    if not isinstance(p, str):
-                        raise BadExpr("an expression naming a part of the event (key, data.account, "
-                                      "each(data.items, 'id'))")
-                    got.append(compile_value(p, {**spec.functions, "each": None}, names))
-                except BadExpr as e:
-                    self.err(f"{what}.key: {e}", at, "bad-key")
-            return None if [v.text.strip() for v in got] == ["key"] or not got else got
-
-        key = key_parts(m.get("key"), m.at("key") or m.where)
+        # the key: the names of the fields that are an object's identity, in order (none: the events' own item)
+        key = None
+        rk = m.get("key")
+        if rk is not None:
+            names_k = rk if isinstance(rk, list) else [rk]
+            kat = m.at("key") or m.where
+            if not names_k or not all(isinstance(x, str) and x.strip() for x in names_k):
+                self.err(f"{what}.key: the names of the fields that are an object's identity ([account, region, "
+                         f"instance_id]; one name for one field)", kat, "bad-key")
+            else:
+                names_k = [x.strip() for x in names_k]
+                bad = [x for x in names_k if x not in declared]
+                if bad:
+                    self.err(f"{what}.key: {bad[0]} is not one of its fields: the key names declared fields, each "
+                             f"mapped by its kinds of event ({', '.join(declared) or 'none yet'})", kat, "bad-key")
+                elif len(set(names_k)) != len(names_k):
+                    self.err(f"{what}.key: a field named twice", kat, "bad-key")
+                else:
+                    key = names_k
         t = m.get("time")
         own_time = None
         if t is not None:
@@ -856,6 +860,7 @@ class Compiler:
         evs = m.get("events")
         kinds, handlers, moves, kind_moves = [], {}, {}, {}
         rel_fields = set((m.get("relations") or {}) if isinstance(m.get("relations"), dict) else ())
+        keyset = set(key or ())
         if evs is None:                              # none written: every event it reads, its data spread in
             kinds.append(EventKind("event", Value(True, literal=True), None, {SPREAD: compile_value("data", {}, names)}))
         elif not isinstance(evs, dict):
@@ -885,6 +890,10 @@ class Compiler:
                     self.err(f"{what}.events.{kn}.when: {e}", h.at("when") if hasattr(h, "at") else w, e.code)
                     continue
                 got = {}
+                if "key" in h:
+                    self.err(f"{what}.events.{kn}.key: a kind of event has no key of its own: the projection's key: names "
+                             f"its fields, and each kind maps them like any other field", h.at("key") if hasattr(h, "at")
+                             else w, "bad-key")
                 for f, raw_v in h.items():
                     if f in ("when", "key"):
                         continue
@@ -896,6 +905,19 @@ class Compiler:
                     if f != SPREAD and d is None and f not in rel_fields and not (f == "stages" and m.get("pipeline")):
                         self.err(f"{what}.events.{kn}.{f}: {f} is not one of its fields: declare it under fields: "
                                  f"({', '.join(declared) or 'none yet'})", fw, "undeclared-field")
+                        continue
+                    if f in keyset:                  # a part of the key: a plain expression (each() fans it out)
+                        try:
+                            v = compile_value(raw_v, {**spec.functions, "each": None})
+                        except BadExpr as e:
+                            self.err(f"{what}.events.{kn}.{f}: {e}", fw, e.code)
+                            continue
+                        if v.call is not None:
+                            self.err(f"{what}.events.{kn}.{f}: {f} is part of the key: its value is a plain expression of "
+                                     f"the event (data.id, each(data.items, 'id')), not a fold call like {v.call}(...)",
+                                     fw, "bad-key")
+                            continue
+                        got[f] = v
                         continue
                     try:
                         v = compile_value(raw_v, spec.functions)
@@ -923,13 +945,44 @@ class Compiler:
                             moves[when_type(when.tree) or kn] = lit
                             kind_moves[kn] = lit
                     got[f] = v
-                kinds.append(EventKind(kn, when, key_parts(h.get("key"), h.at("key") if hasattr(h, "at") else w), got, w))
+                kinds.append(EventKind(kn, when, None, got, w))
                 handlers[kn] = got
         if evs is None:
             handlers = {k.name: k.fields for k in kinds}
+        if key:                                      # each kind's key, solved from what it maps to the key's fields
+            for k in kinds:
+                k.key, k.untold = self.solved_key(k, key, names)
+                if k.untold:
+                    via = SPREAD in k.fields
+                    self.problems.append(Problem(
+                        "finding", f"{what}.events.{k.name}: tells no {', '.join(k.untold)} of the key "
+                        f"({', '.join(key)}), so its events have no key: map "
+                        f"{'it' if len(k.untold) == 1 else 'them'} in this kind"
+                        + (" (a spread of anything but a plain path, like pick(...), is not read for the key)" if via else ""),
+                        k.where or m.at("events") or m.where, "key-not-told", ""))
         self.kind_moves = kind_moves
         return query, query_open, id, key, (own_time, ignore), kinds, handlers, moves, declared, states
 
+
+    @staticmethod
+    def solved_key(k, key: list, names) -> tuple[list | None, list]:
+        """A kind of event's key (SPEC §5a, *The key*): part by part, the expression it maps to each of the key's
+        fields; a field it tells only by a spread of a plain path (``"...": data.detail``) is that path's field. None
+        (and the fields it does not tell) when it leaves one out: its events have no key."""
+        import ast as _ast
+        from .handlers import SPREAD, compile_value
+        parts, untold = [], []
+        sp = k.fields.get(SPREAD)
+        plain = sp is not None and isinstance(sp.tree, (_ast.Name, _ast.Attribute, _ast.Subscript))
+        for f in key:
+            if f in k.fields:
+                parts.append(k.fields[f])
+            elif plain:
+                src = sp.text.strip()
+                parts.append(compile_value(f"{src}.{f}" if f.isidentifier() else f"{src}[{f!r}]", {}, names))
+            else:
+                untold.append(f)
+        return (None if untold else parts), untold
 
     def implied_id(self, name: str, m: Map, what: str, spec: Spec) -> str:
         """A projection's id when it writes none (SPEC §5a): its defined-in system's chain from the top level, its

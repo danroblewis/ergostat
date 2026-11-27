@@ -14,9 +14,12 @@ projections:
   instance:
     # updated 2026-11-27
     query: data.source == 'aws.ec2' and not data.detail.eventName.startswith('Describe')
-    key: [data.account, data.region, data.detail['instance-id']]
+    key: [account, region, instance_id]      # the fields that are an instance's identity
 
     fields:                                   # what an instance is
+      account:       text
+      region:        text
+      instance_id:   text
       state:         {values: [pending, running, stopping, stopped, shutting-down, terminated]}
       instance_type: {type: text}
       launched_by:   {type: text, fold: first}
@@ -28,27 +31,39 @@ projections:
       # updated 2026-11-27
       state-change:
         when: data['detail-type'] == 'EC2 Instance State-change Notification'
+        account: data.account                 # its key, solved: data.account / data.region / data.detail['instance-id']
+        region: data.region
+        instance_id: data.detail['instance-id']
         state: data.detail.state
       # updated 2026-11-27
       launch:
         when: data.detail.eventName == 'RunInstances'
-        key: [data.account, data.region, each(data.detail.responseElements.instancesSet.items, 'instanceId')]
+        account: data.account                 # its key: one object for each instance launched
+        region: data.region
+        instance_id: each(data.detail.responseElements.instancesSet.items, 'instanceId')
         instance_type: data.detail.requestParameters.instanceType
         launched_by: data.detail.userIdentity.arn
         launched_at: time
       # updated 2026-11-27
       restart:
         when: data.detail.eventName == 'RebootInstances'
-        key: [data.account, data.region, each(data.detail.requestParameters.instancesSet.items, 'instanceId')]
+        account: data.account
+        region: data.region
+        instance_id: each(data.detail.requestParameters.instancesSet.items, 'instanceId')
         restarts: 1
 ```
 
 - `query:` which events the projection reads: an expression over the event (the handlers' expression language:
   `data`, `type`, `key`, `source`, `time`; missing paths are null). The language can change later; what matters is
   that its results can be used.
-- `key:` the usual key: an expression, or a list (a composite key, joined by /). An event kind whose key sits elsewhere
-  gives its own `key:`. `each(LIST, 'field')` in a key applies the event to every object named there (one event,
-  several objects).
+- `key:` the fields that are an object's identity, in order (one name, or a list: a composite key, joined by /), each a
+  declared field (the owner, 2026-11-27: "specify the key in terms of the projection's fields, and have the software
+  work backwards to solve for an expression that extracts the key"). Each kind of event maps the key's fields like any
+  other, and its key is, part by part, what it maps to them; a field it tells only by a spread of a plain path
+  (`"...": data`) is that path's field. A kind that tells one of them not at all has no key for its events (*no key*
+  in the review, with the fields it lacks; a `check` finding). `each(LIST, 'field')` in a key field applies the event
+  to every object named there (one event, several objects), each object's field its own value. No `key:`: each
+  event is its own item's (the envelope's `item`).
 - `fields:` the object: each field's `type` (`text`, `number`, `integer`, `boolean`, `time`, `duration`, `map`,
   `list of T`; or `values: [...]`, the only values it may hold) and `fold` (how values from events combine: `replace`, the default, newest by event time
   wins; `first`, `add`, `min`, `max`, `append(N)`, `union`, `merge`, `count`, `mean`, `stdev`, `rms`, a model's own
@@ -65,7 +80,8 @@ projections:
 
 ## The workbench (on the projection's list page, in edit mode; and for a new projection, from the nav bar's `+`)
 
-1. **What it is.** The object's identity first: its key and its fields (type, values, fold, description). Then the
+1. **What it is.** The object's identity first: its fields (type, values, fold, description) and its key, picked
+   from them in order. Then the
    query finds its parts (the owner, 2026-11-27: "I want to know what my thing is first, then I query to make sure I
    have all the parts").
 2. **Query.** The whole record searchable, refined step by step; every change shows what it adds and drops
@@ -74,9 +90,10 @@ projections:
 3. **Kinds of event.** The result set broken down by shape (the fields present and the values that split it),
    suggested from the data, only from the events no accepted kind takes, and never a kind that would take nothing;
    the user confirms, renames and edits them into `events:` entries with their `when:`.
-4. **Mapping.** Per kind of event: its key (default or its own), the fields it tells, and one of its events shown as
+4. **Mapping.** Per kind of event: its key as solved (`account ✓ data.account · region ✗ not told`, a ✗ clicked to
+   map that field), the fields it tells, and one of its events shown as
    the draft reads it (each value tagged with the field it fills, the values nothing reads marked, ignored paths
-   hidden) beside the record it makes. A value clicked goes into a field, the key, a new field made there, or
+   hidden) beside the record it makes. A value clicked goes into a field (a key field among them), a new field made there, or
    `ignore:` (every kind's events); what another kind maps by the same path is offered in one click.
 5. **Review.** What each kind took, the paths left to decide (neither mapped nor ignored), the comparison with the
    saved definition (objects that appear, disappear or change). Save writes the YAML.

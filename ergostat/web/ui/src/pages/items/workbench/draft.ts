@@ -4,8 +4,9 @@ import { Document, isMap, isScalar, isSeq, parse as parseYaml, parseDocument, ty
    makes written back into the text, the rest of it (comments, order, quoting) kept as it was. Pure: no React. */
 
 export interface FieldDef { name: string; type: string; values: string; fold: string; description: string }
-export interface KindDef { name: string; when: string; key: string; keyParts: string[]; values: [string, string][] }
-export interface Draft { query: string; key: string; keyParts: string[]; time: string; ignore: string[]; fields: FieldDef[]; kinds: KindDef[] }
+export interface KindDef { name: string; when: string; values: [string, string][] }
+/** `key`: the names of the fields that are an object's identity, in order (none: the events' own item). */
+export interface Draft { query: string; key: string[]; time: string; ignore: string[]; fields: FieldDef[]; kinds: KindDef[] }
 
 const OUT = { lineWidth: 0, flowCollectionPadding: false } as const;
 const ORDER = ["query", "key", "time", "ignore", "fields", "events"];
@@ -13,7 +14,7 @@ const ORDER = ["query", "key", "time", "ignore", "fields", "events"];
 export const TYPES = ["text", "number", "integer", "boolean", "time", "duration", "map", "list of text"];
 export const FOLDS = ["replace", "first", "add", "min", "max", "append", "union", "merge", "count", "mean", "stdev", "rms"];
 
-/** A key's parts: a list's members, or a single expression as one part (none: []). */
+/** A key's field names: a list's members, or one name (none: []). */
 function partsOf(v: unknown): string[] {
   if (v == null || v === "") return [];
   if (Array.isArray(v)) return v.map((x) => (x == null ? "" : String(x)));
@@ -58,11 +59,11 @@ export function read(text: string): { draft: Draft } | { error: string } {
   }));
   const kinds: KindDef[] = Object.entries(o.events && typeof o.events === "object" ? o.events : {}).map(([name, v]: [string, any]) => {
     const e = v && typeof v === "object" && !Array.isArray(v) ? v : {};
-    return { name, when: said(e.when), key: said(e.key), keyParts: partsOf(e.key),
+    return { name, when: said(e.when),
       values: Object.entries(e).filter(([k]) => k !== "when" && k !== "key").map(([k, x]) => [k, said(x)] as [string, string]) };
   });
   const ignore = Array.isArray(o.ignore) ? o.ignore.filter((x: unknown) => typeof x === "string") as string[] : [];
-  return { draft: { query: said(o.query), key: said(o.key), keyParts: partsOf(o.key), time: said(o.time), ignore, fields, kinds } };
+  return { draft: { query: said(o.query), key: partsOf(o.key), time: said(o.time), ignore, fields, kinds } };
 }
 
 // ---- edits: each takes the text and gives it back changed (unchanged when the text does not parse)
@@ -137,29 +138,36 @@ function rename(m: YAMLMap, from: string, to: string, doc: Document) {
   if (p && !pairOf(m, to)) p.key = doc.createNode(to) as any;
 }
 
-/** The query, the key or the time (`time:`), a key's text read as a list when it is one. */
-export const setTop = (text: string, k: "query" | "key" | "time", v: string) =>
-  edit(text, (doc, top) => put(doc, top, k, k === "key" ? valueOf(v) : v.trim() ? v : "", ORDER));
+/** The query or the time (`time:`). */
+export const setTop = (text: string, k: "query" | "time", v: string) =>
+  edit(text, (doc, top) => put(doc, top, k, v.trim() ? v : "", ORDER));
 
-/** A key as its parts: one part written as itself, several as a list, none takes the key out. Each part is one
- *  expression, never parsed as YAML here, so `data.detail['instance-id']` needs no quoting. */
-function keyValue(parts: string[]): unknown {
-  const ps = parts.map((x) => x.trim()).filter(Boolean);
-  return ps.length === 0 ? "" : ps.length === 1 ? ps[0] : ps;
+/** The projection's key, the names of its fields in order: one written as itself, several as a list, none takes the
+ *  key out (the events' own item). */
+export const setKey = (text: string, names: string[]) => edit(text, (doc, top) => putKey(doc, top, names));
+
+function putKey(doc: Document, top: YAMLMap, names: string[]) {
+  const ns = names.map((x) => x.trim()).filter(Boolean);
+  put(doc, top, "key", ns.length === 0 ? "" : ns.length === 1 ? ns[0] : ns, ORDER);
 }
 
-/** The projection's key, from its parts. */
-export const setKeyParts = (text: string, parts: string[]) =>
-  edit(text, (doc, top) => put(doc, top, "key", keyValue(parts), ORDER));
+/** The key's field names as the text has them. */
+function keyNames(top: YAMLMap): string[] {
+  const v = pairOf(top, "key")?.value as any;
+  return partsOf(v && typeof v.toJSON === "function" ? v.toJSON() : v);
+}
 
-/** A kind of event's own key, from its parts (none: it uses the projection's). */
-export const setKindKeyParts = (text: string, kind: string, parts: string[]) =>
-  edit(text, (doc, top) => {
-    const p = pairOf(mapAt(doc, top, "events"), kind);
-    if (!p) return;
-    if (!isMap(p.value)) { const e = doc.createNode({}) as YAMLMap; e.flow = false; p.value = e; }
-    put(doc, p.value as YAMLMap, "key", keyValue(parts), ["when", "key"]);
-  });
+/** One part of a kind's key, solved: the expression the kind maps to the key's field `field`, or the field of a spread
+ *  of a plain path (`"...": data` → `data.gid`); null when the kind does not tell it. */
+export interface KeyPart { field: string; expr: string | null; spread?: boolean }
+
+export function solvedKey(key: string[], k: KindDef): KeyPart[] {
+  const told: Record<string, string> = Object.fromEntries(k.values);
+  const sp = told["..."]?.trim();
+  return key.map((f) => (f in told ? { field: f, expr: told[f] }
+    : sp && isPath(sp) ? { field: f, expr: `${sp}${/^[A-Za-z_][A-Za-z0-9_]*$/.test(f) && !KEYWORDS.has(f) ? `.${f}` : `[${quoted(f)}]`}`, spread: true }
+    : { field: f, expr: null }));
+}
 
 /** The paths known not to matter (`ignore:`): the workbench's list, which the fold never reads (none: taken out). */
 export const setIgnore = (text: string, paths: string[]) =>
@@ -196,13 +204,17 @@ export const setField = (text: string, name: string, part: "type" | "values" | "
 export const renameField = (text: string, from: string, to: string) =>
   edit(text, (doc, top) => {
     rename(mapAt(doc, top, "fields"), from, to, doc);
+    const key = keyNames(top);                          // and in the key
+    if (key.includes(from)) putKey(doc, top, key.map((x) => (x === from ? to : x)));
     const ev = pairOf(top, "events");
     if (ev && isMap(ev.value)) for (const k of (ev.value as YAMLMap).items) if (isMap(k.value)) rename(k.value as YAMLMap, from, to, doc);
   });
 
 /** A field taken out, and out of every kind of event that told it. */
 export const removeField = (text: string, name: string) =>
-  edit(text, (_doc, top) => {
+  edit(text, (doc, top) => {
+    const key = keyNames(top);                          // and out of the key
+    if (key.includes(name)) putKey(doc, top, key.filter((x) => x !== name));
     const f = pairOf(top, "fields");
     if (f && isMap(f.value)) (f.value as YAMLMap).delete(name);
     const ev = pairOf(top, "events");
@@ -232,7 +244,7 @@ export const setKind = (text: string, kind: string, entry: string, v: string) =>
     const p = pairOf(mapAt(doc, top, "events"), kind);
     if (!p) return;
     if (!isMap(p.value)) { const e = doc.createNode({}) as YAMLMap; e.flow = false; p.value = e; }
-    put(doc, p.value as YAMLMap, entry, v.trim() ? valueOf(v) : "", ["when", "key"]);
+    put(doc, p.value as YAMLMap, entry, v.trim() ? valueOf(v) : "", ["when"]);
   });
 
 // ---- expressions made from a value clicked in an event
