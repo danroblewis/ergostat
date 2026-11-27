@@ -130,7 +130,41 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(config, items):
     _flagged_off(items)
+    _broken_by_redesign(items)
     _slow_first(items)
+
+
+BROKEN = Path(__file__).resolve().parent / "broken_by_redesign.txt"
+BROKEN_REASON = "broken by the systems/projections redesign (tests/broken_by_redesign.txt)"
+
+
+def broken_by_redesign(path: Path = BROKEN) -> list[str]:
+    """The node ids in tests/broken_by_redesign.txt: one per line; a line starting with ``#`` is a comment (only a whole
+    line: a node id may hold a ``#``), blank lines ignored."""
+    if not path.exists():
+        return []
+    return [x for line in path.read_text().splitlines() if (x := line.strip()) and not x.startswith("#")]
+
+
+def _broken_by_redesign(items):
+    """Each test listed in tests/broken_by_redesign.txt skipped (the owner, 2026-11-26: the redesign breaks them; left
+    broken for now); a listed file (no ``::``), every test in it. A listed id that names no test is ignored here;
+    tests/test_broken_by_redesign.py fails on it."""
+    listed = set(broken_by_redesign())
+    for it in items:
+        if it.nodeid in listed or it.nodeid.split("::", 1)[0] in listed:
+            it.add_marker(pytest.mark.skip(reason=BROKEN_REASON))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_make_collect_report(collector):
+    """A listed file that does not even import (it loads a broken model at module level) is skipped, not an error."""
+    report = yield
+    if report.failed and isinstance(collector, pytest.Module) and collector.nodeid in set(broken_by_redesign()):
+        report.outcome = "skipped"
+        report.longrepr = (str(collector.path), 0, f"Skipped: {BROKEN_REASON}")
+        report.result = []
+    return report
 
 
 def _flagged_off(items):

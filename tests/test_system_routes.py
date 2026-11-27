@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 
 from ergostat import model as mdl
-from ergostat.spec import read
-from ergostat.spec.routes import collisions, href, problems, resolve, table
+from ergostat.spec import SpecError, load, read
+from ergostat.spec.routes import collisions, href, resolve, table
 from ergostat.store import Project
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,7 +31,8 @@ def table_of(tmp_path, name) -> tuple[dict, list]:
     d = tmp_path / name
     d.mkdir()
     spec, probs = read(write(d, MODELS[name]["files"]))
-    assert not [p for p in probs if p.level == "error"], [str(p) for p in probs if p.level == "error"]
+    other = [p for p in probs if p.level == "error" and p.code != "address-collision"]
+    assert not other, [str(p) for p in other]
     return table(spec), probs
 
 
@@ -56,8 +57,9 @@ def test_a_collision_names_both_things_and_the_scope_and_is_a_problem_of_the_mod
                               "events; rename one")
     assert said["api"] == "/api names 2 things in the top level: system api and the server's own /api; rename one"
     assert sorted(p.about for p in probs if p.code == "address-collision") == ["factory.review", "top.api", "top.events"]
-    spec, _ = read(tmp_path / "collisions" / "ergostat.yaml")
-    assert {p.level for p in problems(spec, "error")} == {"error"}        # the level the design gives them, once wired
+    assert {p.level for p in probs if p.code == "address-collision"} == {"error"}        # the model does not load
+    with pytest.raises(SpecError, match="address collision"):
+        load(tmp_path / "collisions" / "ergostat.yaml")
 
 
 def test_the_factory_model_has_no_collision_and_every_written_address_reads_back(tmp_path):

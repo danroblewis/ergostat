@@ -28,9 +28,9 @@ systems as things that cross: an open question).
 
 **Collisions.** Two things at one segment of one scope (a subsystem and a dashboard both named ``review`` in
 ``factory``; a projection named ``events``; a top-level one named ``api``) are a problem of the model (``collisions``,
-``problems``), at ``LEVEL``. The design makes them errors (the model does not load, and the page shows the errors);
-until these addresses are the page's they are findings, since the project's own model and two examples have one (a
-system and a projection of one name, in one scope). The two exceptions above (a model's dashboard over a default, or
+``problems``), at ``LEVEL``: errors (the model does not load, and the page shows the errors). The project's own model
+and two examples have one for now (a system and a projection of one name, in one scope), and their tests are disabled
+(tests/broken_by_redesign.txt). The two exceptions above (a model's dashboard over a default, or
 over a projection) are not collisions.
 
 The table is plain JSON, served at GET /api/route-table; the page reads it with the same rules
@@ -46,7 +46,7 @@ from .scope import TOP, scope
 
 RESERVED = ("api", "static", "remote")
 DEFAULTS = ("overview", "diagrams", "goals", "agents", "events")
-LEVEL = "finding"       # "error" once the page reads its addresses here (docs/roadmap/systems-and-projections.md, step 5)
+LEVEL = "error"         # a collision stops the model loading (docs/roadmap/systems-and-projections.md, step 5)
 SHOWS = {"goals": "goal", "agents": "agent"}        # a default dashboard whose next segment names one thing
 
 

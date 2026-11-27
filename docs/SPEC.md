@@ -2132,8 +2132,7 @@ projection there is that projection's list (its items still under it). A project
 scope redirects to the highest scope on that scope's chain that contains it (`/factory/intake/ticket/1234` to
 `/factory/ticket/1234` once a flow carries `ticket` into `factory`), never sideways; a thing is at no scope that does
 not contain it. Two things at one segment of one scope (a system and a dashboard both `review`; a projection named
-`events`; a top-level system `api`) are an **address-collision**: a finding until the page reads these addresses, then
-an error.
+`events`; a top-level system `api`) are an **address-collision**, an error: the model does not load.
 
 **Namespaced by its file.** A dashboard written in a file whose `defaults:` sets a system is named `SYSTEM.NAME`
 (`delivery.review` in `factory/delivery.yaml`), so two systems' files may each have an `overview`.
