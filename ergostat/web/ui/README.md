@@ -62,13 +62,20 @@ header's project list and `ergostat snapshot`.
                              three drawings, useDiagramLayout, usePanZoom, a part's panels (usePartPanels)
       pages/<page>/          one folder per page; index.tsx is the page, composed of components/.
         items/ProjectionPage  a projection's list page; its Edit also edits the projection's definition
-        items/DefinitionEditor  (SPEC §5a, Trying a projection): the YAML in the code editor, tried ~500 ms after
-                             typing stops (POST /api/projections/try, the one in flight cancelled: useTry), the report
-                             and the Stream shape (GET /api/events/shape) beside it, the page's panels given the draft's
-                             id (draft=ID on items, projections/P, items-flow) so they draw its items; Save writes it
-                             (POST /api/projections/save) before the list dashboard (useEditing's `before`). The nav
-                             bar's + after the projections (Shell.tsx NewProjection) asks a name and opens the page
-                             in edit mode (Resolve.tsx, state newProjection) until it is saved.
+        items/workbench/     the projection workbench (SPEC §5a, *The workbench*), the page's edit mode: four steps in a
+                             column (QueryStep: POST /api/events/query, its count, +added/−dropped, how it was read, the
+                             events with each value clickable; KindsStep: POST /api/events/kinds, accepted into
+                             events:, the remainder; MappingStep: fields:, key:, time:, each kind's key and values, a
+                             sample's value clicked into a field; ReviewStep: POST /api/projections/review, its
+                             distributions, lifecycles, residual, comparison and one object's timeline), what is still
+                             unexplained above them, the YAML beside them: the one thing edited (draft.ts reads it into
+                             the steps and writes their edits back with the `yaml` package, comments kept).
+        items/DefinitionEditor  the draft tried (POST /api/projections/try, useTry) for check's errors on their lines
+                             and the draft's id (draft=ID on items, projections/P, items-flow), so the page's panels draw
+                             its items; Save writes it (POST /api/projections/save) before the list dashboard
+                             (useEditing's `before`). The nav bar's + after the projections (Shell.tsx NewProjection)
+                             asks a name and opens the page in edit mode (Resolve.tsx, state newProjection), from
+                             `query: type.startswith('NAME.')`, until it is saved.
 
 ## Rules
 

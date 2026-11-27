@@ -1,7 +1,7 @@
 /** What the query editor is given: the source the text is asked of (ergostat has two, promql and sql), the text, and
     what it says when the text changes. */
 export interface QueryEditorProps {
-  source: "sql" | "promql" | "yaml";
+  source: "sql" | "promql" | "yaml" | "expression";
   value: string;
   onChange: (text: string) => void;
   label?: string;

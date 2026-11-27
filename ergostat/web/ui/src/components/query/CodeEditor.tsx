@@ -22,6 +22,7 @@ import type { CodeEditorProps } from "./types";
 function language(source: CodeEditorProps["source"], views: Record<string, string[]> | undefined): Extension {
   if (source === "sql") return sql({ dialect: SQLite, schema: views || {}, upperCaseKeywords: false });
   if (source === "yaml") return [yaml(), lintGutter()];       // a projection's definition (its check errors on their lines)
+  if (source === "expression") return [];                     // an expression of the event (a projection's query): plain text
   return new PromQLExtension().setComplete({ remote: suggestClient(source) }).asExtension();
 }
 

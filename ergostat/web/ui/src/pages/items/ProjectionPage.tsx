@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ErrorNote, Filters, FinishedToggle, ProjectionBar, Page, PAGE_SIZES, SearchBox, StatesChoice } from "../../components";
 import { EditableDashboard, useEditing } from "../../components/panels/EditableDashboard";
@@ -8,7 +8,8 @@ import type { PanelDef } from "../../components/panels/types";
 import { usePanelApi } from "../../components/panels/usePanelApi";
 import { apiSend } from "../../lib/api";
 import { PROJECTION_PANELS } from "../../lib/pages";
-import { DefinitionEditor, starter, useTry } from "./DefinitionEditor";
+import { starter, useTry } from "./DefinitionEditor";
+import { Workbench } from "./workbench/Workbench";
 
 /* /PROJECTION, a dashboard made in advance (kindpage.js): its bar as the page's heading (a state chip filters the
    list), then its panels: Now (projection-now: its states over the window and how long its finished took), In the
@@ -18,8 +19,9 @@ import { DefinitionEditor, starter, useTry } from "./DefinitionEditor";
    states=all. Edited in place, it is saved as the projection's list dashboard (`dashboards: list:`, in the file the
    projection is defined in), drawn at /PROJECTION in place of this one.
 
-   Editing also edits the projection's definition (DefinitionEditor.tsx): its YAML body, tried on the record as it is
-   typed, the page's panels drawing the draft's items (draft=ID) meanwhile; Save writes the definition into the model
+   Editing also edits the projection's definition in the workbench (workbench/Workbench.tsx: query, kinds of event,
+   mapping, review, and the YAML beside them), the draft tried on the record as it changes (DefinitionEditor.tsx), the
+   page's panels drawing the draft's items (draft=ID) meanwhile; Save writes the definition into the model
    (POST /api/projections/save) and then the list dashboard if its panels changed; Cancel forgets both. A new
    projection (the nav bar's + after the projections, `creating`) opens here in edit mode with a starting definition. */
 
@@ -79,6 +81,7 @@ export default function ProjectionPage({ projection, system = "", creating = fal
     const t = creating || fp.error ? starter(projection) : fp.data ? (fp.data.yaml ?? null) : null;
     if (t != null) { setText(t); setWas(t); }
   }, [ed.editing, fp.data, fp.error]);                    // eslint-disable-line react-hooks/exhaustive-deps
+  const problems = useMemo(() => (tried.report && !tried.report.ok ? tried.report.errors : tried.report ? [] : undefined), [tried.report]);
   const draft: string | undefined = ed.editing && tried.report?.ok ? tried.report.draft : undefined;
 
   // what the address chooses, given to the list's panel and the states' (the first of each kind: the page's own)
@@ -109,7 +112,8 @@ export default function ProjectionPage({ projection, system = "", creating = fal
       )}
       {ed.bar && <div className="page-edit">{ed.bar}</div>}
       {ed.editing && text != null && (
-        <DefinitionEditor text={text} onChange={setText} report={tried.report} error={tried.error} busy={tried.busy} />
+        <Workbench name={projection} system={system} text={text} setText={setText} creating={creating}
+          problems={problems} />
       )}
       <SharedAnswers answers={[
         { path: "items", params: asked, state: items },

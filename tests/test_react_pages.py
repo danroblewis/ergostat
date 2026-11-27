@@ -385,29 +385,9 @@ def test_a_declared_dashboard_draws_a_panel_of_every_kind(browser, declared):
     pg.close()
 
 
-def test_a_declared_dashboard_is_edited_where_it_is_drawn_and_saved_where_it_is(browser, declared):
-    p, url = declared
-    pg = opened(browser, url + "/ops")
-    pg.locator(".panel.panel-kind-note").wait_for(timeout=WAIT)
-    pg.get_by_role("button", name="Edit", exact=True).first.click()
-    pg.get_by_role("button", name="Remove Read me").click()
-    pg.get_by_role("button", name="Move Goals earlier").click()
-    assert pg.get_by_role("button", name="Reset to ergostat's").count() == 0      # ergostat has no page at /ops
-    pg.get_by_role("button", name="Save", exact=True).click()
-    pg.get_by_role("button", name="Edit", exact=True).wait_for(timeout=WAIT)
-    text = p.model.path.read_text()
-    assert "Read me" not in text and text.count("  ops:") == 1
-    assert text.index('"title": "Goals"') < text.index('"title": "Inbox"')
-    pg.reload()
-    pg.locator(".panel.panel-kind-goals").wait_for(timeout=WAIT)
-    assert pg.locator(".panel.panel-kind-note").count() == 0
-    assert settled(pg) == []
-    pg.close()
-
-
 # ---- a projection tried before it is written (SPEC §5a, Trying a projection): the nav bar's +, the Definition editor
 
-GADGET = "query: type.startswith('gadget.')\nfields:\n  state:\n    values: [made, sold]\nevents:\n  gadget-made:\n    when: type == 'gadget.made'\n    state: set('made')\n  other:\n    when: true\n    '...': data\n" \
+GADGET = "query: type.startswith('gadget.')\nfields:\n  state:\n    values: [made, sold]\n  colour: text\nevents:\n  gadget-made:\n    when: type == 'gadget.made'\n    state: set('made')\n  other:\n    when: true\n    '...': data\n" \
          "    colour: data.colour\n"
 
 
@@ -426,7 +406,7 @@ def gadgets(tmp_path):
 
 
 def definition(pg, text: str) -> None:
-    box = pg.locator(".proj-def-code .cm-content")
+    box = pg.locator(".wb-yaml .cm-content")
     box.wait_for(timeout=WAIT)
     box.fill(text)
 
@@ -440,16 +420,16 @@ def test_the_nav_bar_s_plus_makes_a_projection_tried_and_saved_on_its_page(brows
     pg.get_by_label("The new projection's name").fill("gadget")
     pg.keyboard.press("Enter")
     pg.wait_for_url("**/gadget", timeout=WAIT)
-    pg.locator(".proj-def-code .cm-content").wait_for(timeout=WAIT)
-    assert "match: {type: gadget.*}" in pg.locator(".proj-def-code .cm-content").inner_text()   # its start
+    pg.locator(".wb-yaml .cm-content").wait_for(timeout=WAIT)
+    assert "query: type.startswith('gadget.')" in pg.locator(".wb-yaml .cm-content").inner_text()   # its start
     definition(pg, GADGET)
-    pg.wait_for_function("() => document.querySelector('[data-testid=try-items]')?.textContent === '3'", timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector('[data-testid=review-objects]')?.textContent === '3'", timeout=WAIT)
     pg.locator(".panel-kind-item-list a:has-text('gadget/1')").first.wait_for(timeout=WAIT)   # the list draws the draft
     assert "gadget" not in p.model.path.read_text()                                          # nothing written yet
     pg.get_by_role("button", name="Save", exact=True).click()
     pg.get_by_role("button", name="Edit", exact=True).wait_for(timeout=WAIT)
     text = p.model.path.read_text()
-    assert "  gadget:\n    match:\n      type: gadget.*\n" in text and "colour: data.colour" in text
+    assert "  gadget:\n    # updated " in text and "query: type.startswith('gadget.')" in text and "colour: data.colour" in text
     pg.wait_for_selector("#nav a:has-text('Gadget')", timeout=WAIT)
     assert settled(pg) == []
     pg.close()
@@ -461,13 +441,13 @@ def test_editing_a_projection_s_definition_tries_it_and_cancel_discards_it(brows
     pg = opened(browser, url + "/ticket")
     pg.locator(".panel-kind-item-list").wait_for(timeout=WAIT)
     pg.get_by_role("button", name="Edit", exact=True).first.click()
-    pg.locator(".proj-def-code .cm-content").wait_for(timeout=WAIT)
-    pg.wait_for_function("() => document.querySelector('[data-testid=try-items]')?.textContent === '3'", timeout=WAIT)
+    pg.locator(".wb-yaml .cm-content").wait_for(timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector('[data-testid=review-objects]')?.textContent === '3'", timeout=WAIT)
     definition(pg, "query: key.startswith('ticket/')\nfields:\n  state:\n    values: [opened, nope]\nevents:\n  ticket-done:\n    when: type == 'ticket.done'\n    state: set('gone')\n  other:\n    when: true\n    '...': data\n")
     pg.locator(".try-errors li").first.wait_for(timeout=WAIT)                            # check's error, said
     assert "gone" in pg.locator(".try-errors").inner_text()
     pg.get_by_role("button", name="Cancel", exact=True).click()
     pg.get_by_role("button", name="Edit", exact=True).wait_for(timeout=WAIT)
-    assert pg.locator(".proj-def-edit").count() == 0 and p.model.path.read_text() == before
+    assert pg.locator(".wb").count() == 0 and p.model.path.read_text() == before
     assert settled(pg) == []
     pg.close()

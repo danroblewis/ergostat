@@ -41,7 +41,7 @@ create index if not exists ev_time on ev(time);
 create table if not exists post (p integer not null, v text not null, seq integer not null);
 create index if not exists post_pv on post(p, v, seq);
 """
-_LOCK = threading.Lock()
+_LOCK = threading.RLock()   # also held through a query: one connection, shared by the server's threads
 
 
 class QueryError(ValueError):
@@ -395,6 +395,11 @@ def matches(ix: Index, q, since=None, until=None, sample: int | None = None) -> 
 
 def run(events, ask: dict) -> dict:
     """``POST /api/events/query``: ``{query, since?, until?, limit?, sample?, compare?}``."""
+    with _LOCK:                    # the index's one connection is not read by two threads at once, nor closed under one
+        return _run(events, ask)
+
+
+def _run(events, ask: dict) -> dict:
     if not isinstance(ask, dict):
         raise QueryError("a query is {query, since?, until?, limit?, sample?, compare?}")
     q = compile_query(ask.get("query"))
@@ -424,6 +429,11 @@ def events_matching(events, text: str, since=None, until=None, most: int = 200_0
     """Every event a query holds for, oldest first (at most ``most``, the newest), and how they were found: what the
     workbench's answers read."""
     q = compile_query(text)
+    with _LOCK:
+        return _matching(events, q, since, until, most)
+
+
+def _matching(events, q, since, until, most: int) -> tuple[list[dict], dict]:
     ix = index_for(events)
     m = matches(ix, q, since, until)
     seqs = m.pop("seqs")

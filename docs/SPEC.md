@@ -3545,16 +3545,15 @@ no file, no item index, no model.
   [--refused REASON] [--json]` (FILE holds the body, or `projections: {NAME: …}`), its text a few aligned lines, exit 1
   when it does not check; `ergostat events shape [--type GLOB] [--since 7d] [--json]`; MCP's `projection_try` and
   `events_shape`, with the same parameters.
-- On the projection's page, **Edit** also edits its definition: the body as written (its `dashboards:` left out, kept
-  on Save) in the code editor (YAML, check's errors on their lines), tried ~500 ms after typing stops (the try in
-  flight cancelled), the report beside it with a **Stream** disclosure (its shape), and the page's panels drawing the
-  draft's items. **Save** writes the definition into the model where it is defined (a new one: the main file, or the
-  system's file of the system whose page it is), a change to the model the owner makes and accepts in one step, as
-  Accept writes any (`numbers/display.py save_projection`, `POST /api/projections/save {name, yaml, system?, new?}`;
-  refused when `check` would refuse it), then the list dashboard if its panels changed. **Cancel** forgets both. The
-  nav bar's hover `+` after the projections asks a name and opens that projection's page at the scope's address, in
-  edit mode, starting from `query: type.startswith('NAME.')` and no `events:`; nothing is in the model until it is
-  saved. The workbench (below) is that page's edit mode, built on its answers.
+- On the projection's page, **Edit** is the workbench (below): the body as written (its `dashboards:` left out, kept
+  on Save) in the code editor beside its steps (YAML, check's errors on their lines, tried as it changes, the page's
+  panels drawing the draft's items). **Save** writes the definition into the model where it is defined (a new one:
+  the main file, or the system's file of the system whose page it is), a change to the model the owner makes and
+  accepts in one step, as Accept writes any (`numbers/display.py save_projection`, `POST /api/projections/save {name,
+  yaml, system?, new?}`; refused when `check` would refuse it), then the list dashboard if its panels changed.
+  **Cancel** forgets both. The nav bar's hover `+` after the projections asks a name and opens that projection's page
+  at the scope's address, in edit mode, starting from `query: type.startswith('NAME.')` and no `events:`; nothing is in
+  the model until it is saved.
 
 **The query engine** (`ergostat/eventquery.py`; 2026-11-27). The workbench's query runs over the whole record and must
 stay fast as the record grows, so it never scans the record per query. An index of its own (`<state>/eventquery.db`,
@@ -3641,6 +3640,20 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   time order, which kind took each, each field before → after, a move, a refusal.
 - `POST /api/projections/try` (above) is still there for agents; `POST /api/projections/save` writes the definition
   (*Saving*, above).
+- **The page** (`ergostat/web/ui/src/pages/items/workbench/`): the projection's page in edit mode, four steps in a
+  column, none hiding another, what is still unexplained (the residual's counts, a kind taking nothing) kept in sight
+  above them, and the YAML beside them, the one thing edited: a step's edit rewrites the YAML (comments and the rest
+  kept), the YAML typed is read back into the steps (while it does not parse, the page says so and the steps keep what
+  they showed). **1 Query**: the query (all of the record, or the last hour, day, 7 or 30 days), its count, what the
+  last change added and dropped, how it was read (from the index, exactly or evaluated; a scan; a sample), and the
+  newest 20 events, each opened to its parts, a value clicked narrowing the query by it (`and PATH == VALUE`, `!=`).
+  **2 Kinds of event**: its `events:` entries (renamed, their `when:` edited, removed, each with what it takes), the
+  remainder by shape and the suggestions, each accepted as a kind. **3 Mapping**: `key:`, `time:`, the fields (name,
+  type, values, fold, description), and per kind its own key and each field's expression, a value clicked in one of
+  its sample events written as its path into a field or its key. **4 Review**: what each kind took, the residual
+  (each count opened to its samples), the comparison with the saved definition, the lifecycles (transitions with
+  bars), each field's distribution (top values, histogram; a time's drawn over time), and one object's timeline. A
+  new projection opens on all four; one that exists on its review, so what drifted shows.
 
 **Where it went, on the item's page.** Right after its header, an item of a projection the model counts or takes shows its
 `path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that

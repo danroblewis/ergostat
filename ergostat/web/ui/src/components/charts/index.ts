@@ -7,3 +7,4 @@ export { QueryPanel, usePanelResults } from "./QueryPanel";
 export { Spark } from "./Spark";
 export { FlowChart } from "./FlowChart";
 export { ProjectionStates } from "./ProjectionStates";
+export { Bars } from "./Bars";

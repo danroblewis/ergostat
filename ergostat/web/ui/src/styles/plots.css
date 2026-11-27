@@ -29,3 +29,22 @@
 .graph-holds { fill: var(--muted); text-anchor: middle; }
 .panel-cell-bar { position: relative; z-index: 0; }
 .panel-cell-bar::before { content: ""; position: absolute; inset: var(--sp-0) 0; z-index: -1; width: var(--cell, 0%); background: var(--accent-wash); border-radius: var(--sp-0); }
+
+/* a JSON value's paths, each value a button (components/JsonValues.tsx) */
+.jv { list-style: none; margin: 0; padding-left: var(--sp-3); font-family: var(--mono); font-size: var(--text-sm); }
+.jv.jv-top { padding-left: 0; }
+.jv li { margin: 0; line-height: var(--leading); }
+.jv-key { color: var(--muted); }
+button.jv-val { font: inherit; background: none; border: var(--hair) solid transparent; border-radius: var(--radius); padding: 0 var(--sp-0); color: var(--ink); cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+button.jv-val:hover, button.jv-val.on { border-color: var(--accent); background: var(--accent-wash); }
+.jv-string { color: var(--ink); }
+.jv-number, .jv-boolean, .jv-null { color: var(--accent); }
+
+/* counts as bars (components/charts/Bars.tsx) */
+.bars { border-collapse: collapse; width: 100%; font-size: var(--text-sm); margin: var(--sp-1) 0; }
+.bars th { text-align: left; font-weight: normal; padding: 0 var(--sp-1) 0 0; max-width: 16em; overflow-wrap: anywhere; }
+.bars td { padding: 0 var(--sp-1); }
+.bars-n { text-align: right; width: 4em; color: var(--ink-2); }
+.bars-bar { width: 40%; }
+.bars-bar span { display: block; height: 0.8em; background: var(--accent-2); border-radius: var(--radius); min-width: var(--hair); }
+.bars caption { caption-side: bottom; text-align: left; }
