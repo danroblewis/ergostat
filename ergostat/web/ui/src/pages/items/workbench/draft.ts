@@ -4,14 +4,21 @@ import { Document, isMap, isScalar, isSeq, parse as parseYaml, parseDocument, ty
    makes written back into the text, the rest of it (comments, order, quoting) kept as it was. Pure: no React. */
 
 export interface FieldDef { name: string; type: string; values: string; fold: string; description: string }
-export interface KindDef { name: string; when: string; key: string; values: [string, string][] }
-export interface Draft { query: string; key: string; time: string; fields: FieldDef[]; kinds: KindDef[] }
+export interface KindDef { name: string; when: string; key: string; keyParts: string[]; values: [string, string][] }
+export interface Draft { query: string; key: string; keyParts: string[]; time: string; fields: FieldDef[]; kinds: KindDef[] }
 
 const OUT = { lineWidth: 0, flowCollectionPadding: false } as const;
 const ORDER = ["query", "key", "time", "fields", "events"];
 
 export const TYPES = ["text", "number", "integer", "boolean", "time", "duration", "map", "list of text"];
 export const FOLDS = ["replace", "first", "add", "min", "max", "append", "union", "merge", "count", "mean", "stdev", "rms"];
+
+/** A key's parts: a list's members, or a single expression as one part (none: []). */
+function partsOf(v: unknown): string[] {
+  if (v == null || v === "") return [];
+  if (Array.isArray(v)) return v.map((x) => (x == null ? "" : String(x)));
+  return [String(v)];
+}
 
 /** An expression's text as the steps show it (a list, as YAML writes one in a line). */
 function said(v: unknown): string {
@@ -51,10 +58,10 @@ export function read(text: string): { draft: Draft } | { error: string } {
   }));
   const kinds: KindDef[] = Object.entries(o.events && typeof o.events === "object" ? o.events : {}).map(([name, v]: [string, any]) => {
     const e = v && typeof v === "object" && !Array.isArray(v) ? v : {};
-    return { name, when: said(e.when), key: said(e.key),
+    return { name, when: said(e.when), key: said(e.key), keyParts: partsOf(e.key),
       values: Object.entries(e).filter(([k]) => k !== "when" && k !== "key").map(([k, x]) => [k, said(x)] as [string, string]) };
   });
-  return { draft: { query: said(o.query), key: said(o.key), time: said(o.time), fields, kinds } };
+  return { draft: { query: said(o.query), key: said(o.key), keyParts: partsOf(o.key), time: said(o.time), fields, kinds } };
 }
 
 // ---- edits: each takes the text and gives it back changed (unchanged when the text does not parse)
@@ -132,6 +139,26 @@ function rename(m: YAMLMap, from: string, to: string, doc: Document) {
 /** The query, the key or the time (`time:`), a key's text read as a list when it is one. */
 export const setTop = (text: string, k: "query" | "key" | "time", v: string) =>
   edit(text, (doc, top) => put(doc, top, k, k === "key" ? valueOf(v) : v.trim() ? v : "", ORDER));
+
+/** A key as its parts: one part written as itself, several as a list, none takes the key out. Each part is one
+ *  expression, never parsed as YAML here, so `data.detail['instance-id']` needs no quoting. */
+function keyValue(parts: string[]): unknown {
+  const ps = parts.map((x) => x.trim()).filter(Boolean);
+  return ps.length === 0 ? "" : ps.length === 1 ? ps[0] : ps;
+}
+
+/** The projection's key, from its parts. */
+export const setKeyParts = (text: string, parts: string[]) =>
+  edit(text, (doc, top) => put(doc, top, "key", keyValue(parts), ORDER));
+
+/** A kind of event's own key, from its parts (none: it uses the projection's). */
+export const setKindKeyParts = (text: string, kind: string, parts: string[]) =>
+  edit(text, (doc, top) => {
+    const p = pairOf(mapAt(doc, top, "events"), kind);
+    if (!p) return;
+    if (!isMap(p.value)) { const e = doc.createNode({}) as YAMLMap; e.flow = false; p.value = e; }
+    put(doc, p.value as YAMLMap, "key", keyValue(parts), ["when", "key"]);
+  });
 
 export const addField = (text: string, name: string, type = "text") =>
   edit(text, (doc, top) => {

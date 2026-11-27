@@ -23,7 +23,7 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
   const parsed = useMemo(() => D.read(text), [text]);
   const [good, setGood] = useState<D.Draft | null>(null);
   useEffect(() => { if ("draft" in parsed) setGood(parsed.draft); }, [parsed]);
-  const draft = "draft" in parsed ? parsed.draft : good ?? { query: "", key: "", time: "", fields: [], kinds: [] };
+  const draft = "draft" in parsed ? parsed.draft : good ?? { query: "", key: "", keyParts: [], time: "", fields: [], kinds: [] };
   const editable = "draft" in parsed;
   const change = (f: (t: string) => string) => { if (editable) setText(f(text)); };
 
@@ -45,6 +45,8 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
     renameField: (a, b) => change((t) => D.renameField(t, a, b)),
     removeField: (f) => change((t) => D.removeField(t, f)),
     setKind: (k, e, v) => change((t) => D.setKind(t, k, e, v)),
+    setKeyParts: (parts) => change((t) => D.setKeyParts(t, parts)),
+    setKindKeyParts: (k, parts) => change((t) => D.setKindKeyParts(t, k, parts)),
   };
 
   return (

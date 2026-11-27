@@ -96,8 +96,10 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     assert "ec2-instance-state-change-notification:" in yaml_box.inner_text()
 
     # 3. the mapping: a key, fields declared, a value clicked into a field, an expression typed
-    pg.get_by_label("The projection's key").fill("[data.account, data.region, \"data.detail['instance-id']\"]")
-    pg.keyboard.press("Enter")
+    for part in ("data.account", "data.region", "data.detail['instance-id']"):   # one part a row: no quoting
+        pg.get_by_label("The projection's key, a new part").fill(part)
+        pg.keyboard.press("Enter")
+    pg.wait_for_function("() => document.querySelector('.wb-yaml .cm-content').textContent.includes('key: [data.account, data.region')", timeout=WAIT)
     for f in ("state", "instance_type"):
         pg.get_by_label("A new field's name").fill(f)
         pg.get_by_role("button", name="Add a field").click()
@@ -112,8 +114,9 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     launch = pg.get_by_label("runinstances: instance_type")
     launch.fill("data.detail.requestParameters.instanceType")
     pg.keyboard.press("Enter")
-    pg.get_by_label("The key of runinstances").fill(
-        "[data.account, data.region, \"each(data.detail.responseElements.instancesSet.items, 'instanceId')\"]")
+    run = pg.locator("details.wb-map", has=pg.locator("summary strong", has_text="runinstances"))
+    run.get_by_role("button", name="Its ids are elsewhere: give it its own").click()   # starts from the projection's
+    pg.get_by_label("The key of runinstances, part 3").fill("each(data.detail.responseElements.instancesSet.items, 'instanceId')")
     pg.keyboard.press("Enter")
 
     # 4. the review: distributions, the lifecycle, the residual, one object's timeline

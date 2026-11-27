@@ -16,6 +16,35 @@ export interface MappingEdits {
   renameField: (from: string, to: string) => void;
   removeField: (name: string) => void;
   setKind: (kind: string, entry: string, v: string) => void;
+  setKeyParts: (parts: string[]) => void;
+  setKindKeyParts: (kind: string, parts: string[]) => void;
+}
+
+/** A key as its parts, one expression a row (a composite key: account, region, id), with a row added or taken out.
+ *  Each row is an expression as written: no brackets or quoting. */
+function KeyParts({ parts, label, editable, onChange }: {
+  parts: string[]; label: string; editable: boolean; onChange: (parts: string[]) => void;
+}) {
+  const [adding, setAdding] = useState("");
+  const add = () => { const v = adding.trim(); if (v) { onChange([...parts, v]); setAdding(""); } };
+  return (
+    <ol className="wb-keyparts" aria-label={label}>
+      {parts.map((p, i) => (
+        <li key={`${i}:${p}`}>
+          <Commit className="mono" value={p} label={`${label}, part ${i + 1}`} disabled={!editable}
+            onCommit={(v) => onChange(parts.map((x, j) => (j === i ? v : x)).filter((x) => x.trim()))} />
+          {parts.length > 1 && <button type="button" className="ghost" disabled={!editable} aria-label={`Take out part ${i + 1}`}
+            onClick={() => onChange(parts.filter((_, j) => j !== i))}>×</button>}
+        </li>
+      ))}
+      <li>
+        <input className="mono" value={adding} onChange={(e) => setAdding(e.target.value)} disabled={!editable}
+          placeholder={parts.length ? "another part (a composite key)" : "an expression: key, data.id, ..."}
+          aria-label={`${label}, a new part`} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />{" "}
+        <button type="button" disabled={!editable || !adding.trim()} onClick={add}>Add</button>
+      </li>
+    </ol>
+  );
 }
 
 function Fields({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; editable: boolean }) {
@@ -61,19 +90,34 @@ function KindMapping({ k, draft, ed, editable }: { k: KindDef; draft: Draft; ed:
   const body = useMemo(() => (q.trim() ? { query: q, limit: 2 } : null), [q]);
   const got = useSend<{ events: QEvent[] }>("events/query", body, 600);
   const [picked, setPicked] = useState<JsonPath | null>(null);
+  const [ownKey, setOwnKey] = useState(false);
   const expr = picked ? pathExpr(picked) : "";
   const told: Record<string, string> = Object.fromEntries(k.values);
   const extra = k.values.filter(([f]) => !draft.fields.some((x) => x.name === f));
   const put = (entry: string) => { ed.setKind(k.name, entry, expr); setPicked(null); };
+  const putKey = () => { ed.setKindKeyParts(k.name, [...(k.keyParts.length ? k.keyParts : []), expr]); setOwnKey(true); setPicked(null); };
   return (
     <details className="wb-map" open>
       <summary><strong>{k.name}</strong> <code className="muted small">{short(k.when, 80)}</code></summary>
       <table className="wb-table" aria-label={`What ${k.name} tells`}>
         <tbody>
           <tr>
-            <th scope="row">key</th>
-            <td className="wb-grow"><Commit className="mono" value={k.key} label={`The key of ${k.name}`} disabled={!editable}
-              placeholder={`the projection's: ${draft.key || "key"}`} onCommit={(v) => ed.setKind(k.name, "key", v)} /></td>
+            <th scope="row">its key</th>
+            <td className="wb-grow">
+              {k.keyParts.length || ownKey ? (
+                <>
+                  <KeyParts parts={k.keyParts} label={`The key of ${k.name}`} editable={editable}
+                    onChange={(ps) => { ed.setKindKeyParts(k.name, ps); if (!ps.length) setOwnKey(false); }} />
+                  <button type="button" className="ghost small" disabled={!editable}
+                    onClick={() => { ed.setKindKeyParts(k.name, []); setOwnKey(false); }}>Use the projection's key</button>
+                </>
+              ) : (
+                <span className="muted small">the projection's ({draft.keyParts.join(" / ") || "key"}){" "}
+                  <button type="button" className="ghost small" disabled={!editable}
+                    onClick={() => { setOwnKey(true); ed.setKindKeyParts(k.name, draft.keyParts.length ? draft.keyParts : ["key"]); }}>
+                    Its ids are elsewhere: give it its own</button></span>
+              )}
+            </td>
           </tr>
           {[...draft.fields.map((f) => f.name), ...extra.map(([f]) => f)].map((f) => (
             <tr key={f}>
@@ -90,7 +134,7 @@ function KindMapping({ k, draft, ed, editable }: { k: KindDef; draft: Draft; ed:
           {draft.fields.map((f) => (
             <button key={f.name} type="button" disabled={!editable} onClick={() => put(f.name)}>{f.name}</button>
           ))}{" "}
-          <button type="button" disabled={!editable} onClick={() => put("key")}>its key</button>{" "}
+          <button type="button" disabled={!editable} onClick={putKey}>a part of its own key</button>{" "}
           <button type="button" className="ghost" aria-label="Forget the value picked" onClick={() => setPicked(null)}>×</button>
         </p>
       )}
@@ -106,8 +150,9 @@ export function MappingStep({ draft, ed, editable }: { draft: Draft; ed: Mapping
   return (
     <>
       <div className="wb-row">
-        <label className="wb-grow">key <Commit className="mono" value={draft.key} label="The projection's key" disabled={!editable}
-          placeholder="key (the events' item); a list is a composite key" onCommit={(v) => ed.setTop("key", v)} /></label>
+        <div className="wb-grow"><span className="small">key</span>{" "}
+          <span className="muted small">(an object's identity; several parts make a composite key)</span>
+          <KeyParts parts={draft.keyParts} label="The projection's key" editable={editable} onChange={ed.setKeyParts} /></div>
         <label>time <Commit className="mono" value={draft.time} label="The event's own time" disabled={!editable}
           placeholder="the recorded time" onCommit={(v) => ed.setTop("time", v)} /></label>
       </div>
