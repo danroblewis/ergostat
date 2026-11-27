@@ -40,8 +40,12 @@ def write_model(d: Path) -> None:
         w = {"name": kind, "system": system, "plain": True, "states": states, "handoff": None}
         doc = {"defaults": {"system": system}, **{k: v for k, v in sm.plain_workflow(w, {}, 6, 3).items() if v}}
         if kind == "gap":                     # paused (parked), chained (depends_on), and its last step gated
-            doc["projections"]["gap"].update(states=[*doc["projections"]["gap"]["states"], "parked"], relations={"depends_on": "gap"})
-            doc["projections"]["gap"]["events"]["gap.parked"] = {"state": "set('parked')"}
+            g = doc["projections"]["gap"]
+            g["fields"]["state"]["values"].append("parked")
+            g["relations"] = {"depends_on": "gap"}
+            other = g["events"].pop("other")            # (the catch-all stays last: the first kind that takes an event wins)
+            g["events"]["gap-parked"] = {"when": "type == 'gap.parked'", "...": "data", "state": "set('parked')"}
+            g["events"]["other"] = other
             doc["blocks"][GATED]["actions"] = ["ship"]
         (d / "parts" / f"{kind}.yaml").write_text(sm.dump(doc))
     agents = {f"{r}-{s}": {"kind": k, **({"at-once": 6} if k == "program" else {}), "description": f"the {r} of {s}"}

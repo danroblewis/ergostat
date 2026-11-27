@@ -2314,7 +2314,7 @@ projections:
       launched_by:   {type: text, fold: first}
       launched_at:   {type: time, fold: first}
       restarts:      {type: integer, fold: add}
-      tags:          {type: map, fold: merge, description: the instance's tags, merged as they are set}
+      tags:          {type: map, fold: merge, description: "the instance's tags, merged as they are set"}
 
     events:                            # the kinds of event it reads, and what each tells it
       # updated 2026-11-27
