@@ -27,15 +27,22 @@ HEX = "0123456789abcdef"
 KINDS = """
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [{states}]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [{states}]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 storage:
   events: sqlite
 """

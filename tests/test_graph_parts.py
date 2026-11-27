@@ -230,32 +230,47 @@ def test_an_epic_over_more_than_the_bound_draws_its_active_work():
 MODEL = """
 projections:
   epic:
-    match:
-      key: epic/*
-    states: [planned, underway, shipped]
+    query: key.startswith('epic/')
+    fields:
+      state:
+        type: one of [planned, underway, shipped]
     events:
-      epic.started:
+      epic-started:
+        when: type == 'epic.started'
+        '...': data
         state: set('underway')
-      epic.shipped:
+      epic-shipped:
+        when: type == 'epic.shipped'
+        '...': data
         state: set('shipped')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       blocked_by: ticket
       parent: epic
   note:
-    match:
-      key: note/*
-    states: [open]
+    query: key.startswith('note/')
+    fields:
+      state:
+        type: one of [open]
     relations:
       about: ticket
 messages:

@@ -1042,44 +1042,107 @@ class ItemKind:
     attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
     pipeline: dict | None = None   # its items record stages (ergostat/stages.py): {title, stages, waiting}
     risk: dict | None = None       # risk-score: {at, failed, passed, undone, from, least} (numbers/itemrisk.py); off when None
-    match: dict | None = None      # which events it reads (handlers.match_ok); None: those whose item ``id`` matches
-    key: list | None = None        # the item an event belongs to (handlers.Value parts, joined by /); None: its item
-    handlers: dict | None = None   # event type (or "*") → field → handlers.Value; None: on: and fold: (ergostat's own)
-    otherwise: str = "merge"       # an event type with no handler: merge its data, ignore it, or (rest) merge what none names
+    query: object = None           # which events it reads (handlers.Value); None: those whose item ``id`` matches
+    query_open: bool = False       # its query reads by more than an id glob (its items are not told by their ids)
+    key: list | None = None        # the object an event belongs to (handlers.Value parts, joined by /); None: its item
+    handlers: dict | None = None   # kind of event → field → handlers.Value; None: on: and fold: (ergostat's own)
+    kinds: list = field(default_factory=list)      # its kinds of event (EventKind), in order: the first whose when holds
+    declared: dict = field(default_factory=dict)   # field → fields.Field: what an object is (its fields: section)
+    own_time: object = None        # the event's own time (handlers.Value; ``time:``); None: the recorded time
     functions: dict = field(default_factory=dict, repr=False, compare=False)   # the model's fold functions, by name
+    memo: dict = field(default_factory=dict, repr=False, compare=False)        # event id → its kind of event
+
+    match = None                   # (the old syntax's; never set)
 
     def matches(self, id: str) -> bool:
-        """Whether ``id`` may be one of its items: by its key glob (``match: {key: ...}``); one that reads its events
-        by anything else, or keys them by their data, says so of no id (``open``: asked by name, any)."""
+        """Whether ``id`` may be one of its items: by its id glob (its implied id, or a query that reads by its key's
+        prefix); one that reads its events by anything else, or keys them by their data, says so of no id (``open``:
+        asked by name, any)."""
         import fnmatch
         return not self.open and fnmatch.fnmatchcase(id, self.id)
 
     @property
     def open(self) -> bool:
-        """Whether its items are not told by an id glob: its match names no key, or its key is not the events' item."""
-        return self.match is not None and (self.key is not None or not any(
-            isinstance(self.match.get(p), str) for p in ("key", "item")))
+        """Whether its items are not told by an id glob: its query reads by more than one, or its key is not the
+        events' item."""
+        return self.query_open or not self.by_item
 
     @property
     def by_item(self) -> bool:
-        """Whether its items are the events' own items (``key: $key``): each item's events are the record's by its id."""
-        return self.key is None
+        """Whether its items are the events' own items (no ``key:``, nor a kind's): each item's events are the record's
+        by its id."""
+        return self.key is None and not any(k.key is not None for k in self.kinds)
 
     def reads(self, e: dict) -> bool:
-        """Whether this projection reads event ``e`` (its ``match:``; else its item matches ``id``)."""
-        if self.match is None:
+        """Whether this projection reads event ``e``: its ``query:``; else (and ergostat's own events, a lease, a
+        snapshot, always) its item matches ``id``."""
+        if self.query is None or str(e.get("type") or "").startswith("ergostat."):
             item = e.get("item")
-            return isinstance(item, str) and self.matches(item)
-        from .handlers import match_ok
-        return match_ok(self.match, e)
+            import fnmatch
+            return isinstance(item, str) and fnmatch.fnmatchcase(item, self.id)
+        from .handlers import env_of, evaluate
+        return bool(evaluate(self.query, env_of(e, self)))
+
+    def kind_of(self, e: dict):
+        """The kind of event that takes ``e``: the first whose ``when:`` holds (None: none does, the remainder)."""
+        if self.handlers is None:
+            return None
+        i = e.get("id")
+        if i is not None and i in self.memo:
+            return self.memo[i]
+        from .handlers import env_of, evaluate
+        env = env_of(e, self)
+        got = next((k for k in self.kinds if evaluate(k.when, env)), None)
+        if i is not None:
+            if len(self.memo) > 8192:
+                self.memo.clear()
+            self.memo[i] = got
+        return got
+
+    def keys_of(self, e: dict) -> list[str]:
+        """The objects event ``e`` belongs to in this projection (``each(...)`` in a key: several; none: it is not one
+        of its objects, or no kind of event takes it)."""
+        from .changes import form_of
+        parts = self.key
+        if self.handlers is not None and form_of(e) == "data" and not str(e.get("type") or "").startswith("ergostat."):
+            k = self.kind_of(e)
+            if k is None:
+                return []
+            parts = k.key if k.key is not None else self.key
+        if parts is None:
+            item = e.get("item")
+            return [item] if isinstance(item, str) and item else []
+        from .handlers import env_of, keys_from
+        return keys_from(parts, env_of(e, self))
+
+    def definition(self) -> dict:
+        """Its reading of events as plain data: query, key, time, fields, and each kind of event's when, key and
+        values (the page's and the API's)."""
+        return {"query": self.query.text if self.query is not None else None,
+                "key": [v.text for v in self.key] if self.key else "key",
+                "time": self.own_time.text if self.own_time is not None else None,
+                "fields": {f: d.spec() for f, d in self.declared.items()},
+                "events": {k.name: {"when": k.when.text if k.when.tree is not None else k.when.literal,
+                                    **({"key": [v.text for v in k.key]} if k.key else {}),
+                                    **{f: v.text for f, v in k.fields.items()}} for k in self.kinds}
+                if self.handlers is not None else {t: {"state": f"set('{s}')"} for t, s in self.on.items()}}
 
     def key_of(self, e: dict) -> str | None:
-        """The item event ``e`` belongs to in this projection (None: none)."""
-        if self.key is None:
-            item = e.get("item")
-            return item if isinstance(item, str) and item else None
-        from .handlers import key_of
-        return key_of(self.key, e)
+        """The (first) object event ``e`` belongs to in this projection (None: none)."""
+        got = self.keys_of(e)
+        return got[0] if got else None
+
+
+@dataclass
+class EventKind:
+    """A projection's kind of event (SPEC §5a): its name, its ``when:``, its own ``key:`` (None: the projection's),
+    and what it tells, field → handlers.Value (``"..."``: a spread)."""
+
+    name: str
+    when: object
+    key: list | None = None
+    fields: dict = field(default_factory=dict)
+    where: Where | None = None
 
 
 @dataclass

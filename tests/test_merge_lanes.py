@@ -27,17 +27,26 @@ MODEL = """
 name: t
 projections:
   batch:
-    match:
-      key: batch/*
-    states: [ready, landed, failed]
+    query: key.startswith('batch/')
+    fields:
+      state:
+        type: one of [ready, landed, failed]
     events:
-      batch.ready:
+      batch-ready:
+        when: type == 'batch.ready'
+        '...': data
         state: set('ready')
-      batch.landed:
+      batch-landed:
+        when: type == 'batch.landed'
+        '...': data
         state: set('landed')
-      batch.failed:
+      batch-failed:
+        when: type == 'batch.failed'
+        '...': data
         state: set('failed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 blocks:
   lane:
     type: program

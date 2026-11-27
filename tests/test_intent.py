@@ -58,19 +58,30 @@ MODEL = """
 name: t
 projections:
   change:
-    match:
-      key: change/*
-    states: [proposed, building, review, merged, dropped]
+    query: key.startswith('change/')
+    fields:
+      state:
+        type: one of [proposed, building, review, merged, dropped]
     events:
-      change.started:
+      change-started:
+        when: type == 'change.started'
+        '...': data
         state: set('building')
-      change.review:
+      change-review:
+        when: type == 'change.review'
+        '...': data
         state: set('review')
-      change.merged:
+      change-merged:
+        when: type == 'change.merged'
+        '...': data
         state: set('merged')
-      change.dropped:
+      change-dropped:
+        when: type == 'change.dropped'
+        '...': data
         state: set('dropped')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title]
 stocks:
   todo:

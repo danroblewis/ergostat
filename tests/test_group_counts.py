@@ -37,31 +37,47 @@ YIELD = """
 name: lots
 projections:
   unit:
-    match:
-      key: unit/*
-    states: [made, passed, scrapped]
+    query: key.startswith('unit/')
+    fields:
+      state:
+        type: one of [made, passed, scrapped]
     events:
-      unit.made:
+      unit-made:
+        when: type == 'unit.made'
+        '...': data
         state: set('made')
-      unit.passed:
+      unit-passed:
+        when: type == 'unit.passed'
+        '...': data
         state: set('passed')
-      unit.scrapped:
+      unit-scrapped:
+        when: type == 'unit.scrapped'
+        '...': data
         state: set('scrapped')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     finished: [passed, scrapped]
     lost: [scrapped]
     relations:
       lot: {projection: lot, group: true}
   lot:
-    match:
-      key: lot/*
-    states: [open, shipped]
+    query: key.startswith('lot/')
+    fields:
+      state:
+        type: one of [open, shipped]
     events:
-      lot.opened:
+      lot-opened:
+        when: type == 'lot.opened'
+        '...': data
         state: set('open')
-      lot.shipped:
+      lot-shipped:
+        when: type == 'lot.shipped'
+        '...': data
         state: set('shipped')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 """
 SQL = ""
 MEMBERS, BY = 50, 4000.0

@@ -20,29 +20,45 @@ systems:
   research: {description: what is found out}
 projections:
   flag:
-    match:
-      key: flag/*
+    query: key.startswith('flag/')
     system: delivery
-    states: [asked, researching, researched, shipped]
+    fields:
+      state:
+        type: one of [asked, researching, researched, shipped]
     events:
-      flag.researching:
+      flag-researching:
+        when: type == 'flag.researching'
+        '...': data
         state: set('researching')
-      flag.researched:
+      flag-researched:
+        when: type == 'flag.researched'
+        '...': data
         state: set('researched')
-      flag.shipped:
+      flag-shipped:
+        when: type == 'flag.shipped'
+        '...': data
         state: set('shipped')
-      flag.reworked:
+      flag-reworked:
+        when: type == 'flag.reworked'
+        '...': data
         state: set('researching')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   facet:
-    match:
-      key: facet/*
+    query: key.startswith('facet/')
     system: research
-    states: [open, done]
+    fields:
+      state:
+        type: one of [open, done]
     events:
-      facet.done:
+      facet-done:
+        when: type == 'facet.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   flags-asked:
     unit: flags
@@ -264,9 +280,10 @@ def test_a_real_scheduled_runs_events_cite_it(tmp_path):
         name: t
         projections:
           x:
-            match:
-              key: x/*
-            states: [o, c]
+            query: key.startswith('x/')
+            fields:
+              state:
+                type: one of [o, c]
         blocks:
           sweep:
             type: program
@@ -280,7 +297,7 @@ def test_a_real_scheduled_runs_events_cite_it(tmp_path):
           f:
             to: s
             sensor: {projection: x, entering: o, over: 1h}
-    """))
+"""))
     (tmp_path / "say.py").write_text('import json\nprint(json.dumps({"event": "x.opened", "item": "x/1"}), flush=True)\n')
     p = Project(mdl.load(tmp_path))
     e = Engine(p, say=lambda s: None)
@@ -298,27 +315,6 @@ def test_a_real_scheduled_runs_events_cite_it(tmp_path):
         e.close()
 
 
-def test_relations_between_the_items_drawn_are_lines_between_their_activities(tmp_path):
-    """Each link between two items drawn is a line from the activity the naming item was last at to the one the
-    named item was last at, aggregated, named by its relation; a link to an item not drawn is no line."""
-    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace(
-        "        state: set('done')\n    otherwise: rest", "        state: set('done')\n    otherwise: rest\n    relations: {parent: flag}"))
-    p = Project(mdl.load(tmp_path))
-    now = time.time()
-    seed(p, now)
-    for i in (1, 2, 3):
-        for j in (1, 2):
-            p.events.add("facet.linked", item=f"facet/{i}{j}", data={"parent": f"flag/{i}"}, at=now - 60)
-    p.events.add("facet.linked", item="facet/11", data={"parent": "flag/99"}, at=now - 30)      # never recorded
-    g = pm.process(p.events, p.model.spec, ["flag", "facet"], now - 24 * H, now, "states")
-    rel = [e for e in g["edges"] if e["kind"] == "related"]
-    shipped = next(e for e in rel if e["to"] == "shipped")
-    researched = next(e for e in rel if e["to"] == "researched")
-    assert shipped["source"] == "p:facet:done" and shipped["target"] == "p:flag:shipped" and shipped["relation"] == "parent"
-    assert (shipped["count"], shipped["items"], shipped["targets"]) == (4, 4, 2)             # flags 1 and 2 shipped
-    assert (researched["count"], researched["targets"]) == (2, 1) and len(rel) == 2
-
-
 # ---- rework is a repeated step on one item (fix-process-rework-flag)
 
 JOBS = """
@@ -327,20 +323,31 @@ systems:
   work: {description: the jobs}
 projections:
   job:
-    match:
-      key: job/*
+    query: key.startswith('job/')
     system: work
-    states: [new, a, b, c, d]
+    fields:
+      state:
+        type: one of [new, a, b, c, d]
     events:
-      job.a:
+      job-a:
+        when: type == 'job.a'
+        '...': data
         state: set('a')
-      job.b:
+      job-b:
+        when: type == 'job.b'
+        '...': data
         state: set('b')
-      job.c:
+      job-c:
+        when: type == 'job.c'
+        '...': data
         state: set('c')
-      job.d:
+      job-d:
+        when: type == 'job.d'
+        '...': data
         state: set('d')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 """
 
 

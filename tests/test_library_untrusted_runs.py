@@ -30,9 +30,10 @@ params:
   work: {type: map, default: {type: program, run: "true", every: 5m}}
 projections:
   ${projection}:
-    match:
-      key: ${projection}/*
-    states: [ready, done]
+    query: key.startswith('${projection}/')
+    fields:
+      state:
+        type: one of [ready, done]
 stocks:
   waiting:
     unit: items

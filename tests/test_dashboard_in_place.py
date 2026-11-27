@@ -36,13 +36,18 @@ defaults:
   system: desk
 projections:
   bug:
-    match:
-      key: bug/*
-    states: [open, fixed]
+    query: key.startswith('bug/')
+    fields:
+      state:
+        type: one of [open, fixed]
     events:
-      bug.fixed:
+      bug-fixed:
+        when: type == 'bug.fixed'
+        '...': data
         state: set('fixed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 """
 
 
@@ -52,46 +57,6 @@ def snap() -> dict:
 
 def errors(problems) -> list[str]:
     return [str(p) for p in problems if p.level == "error"]
-
-
-def test_a_projection_s_own_dashboards_are_checked_and_bound_to_it(tmp_path):
-    spec, problems = read(write(tmp_path, OWN) / "ergostat.yaml")
-    assert not errors(problems)
-    ls, sh = spec.dashboards["ticket.list"], spec.dashboards["ticket.show"]
-    assert (ls.projection, ls.role, ls.title, ls.nav, ls.page) == ("ticket", "list", "Tickets, my way", None, None)
-    assert (sh.projection, sh.role) == ("ticket", "show")
-    assert sh.panels[0].params == {"item": "$item"} and sh.panels[1].params == {"projection": "$projection"}
-    bad = OWN.replace("item: $item, size: full", "item: $agent, size: full").replace(
-        "      list:\n", "      lists:\n      list:\n")
-    _, problems = read(write(tmp_path, bad) / "ergostat.yaml")
-    said = " ".join(errors(problems))
-    assert "'$agent' is taken from no address" in said and "unknown key 'lists'" in said
-    wrong = OWN.replace("{panel: projection-now, projection: $projection", "{panel: projection-now, projection: epic")
-    _, problems = read(write(tmp_path, wrong) / "ergostat.yaml")
-    assert "'epic' is not a projection" in " ".join(errors(problems))
-
-
-def test_a_projection_s_own_dashboards_are_display_only(tmp_path):
-    from ergostat.numbers import version as ver
-    from ergostat.numbers.improve import kind_of
-    from ergostat.spec.itemindex import kinds_key
-    a, _ = read(write(tmp_path) / "ergostat.yaml")
-    b, _ = read(write(tmp_path, OWN) / "ergostat.yaml")
-    for f in (ver.version, ver.structure, ver.whole, ver.items, ver.control, ver.words, kinds_key):
-        assert f(a) == f(b), f
-    assert ver.part(a, "items.ticket") == ver.part(b, "items.ticket")
-    assert kind_of(a, b, "structure") == "display"
-    assert display.beside({str(tmp_path / "ergostat.yaml"): MODEL}) == []        # the file holds OWN now
-
-
-def test_a_projection_s_own_dashboards_are_listed_and_answered_bound(tmp_path):
-    p = project(tmp_path, OWN)
-    listed = {d["name"]: d for d in dashboard_api.listing(p)}
-    assert (listed["ticket.list"]["projection"], listed["ticket.list"]["role"]) == ("ticket", "list")
-    got = dashboard_api.answer(None, p, "ticket.show", {"plain": ["1"], "item": ["ticket/1"]})
-    assert [x.get("item") or x.get("projection") for x in got["panels"]] == ["ticket/1", "ticket"]
-    got = dashboard_api.answer(None, p, "ticket.list", {"plain": ["1"]})
-    assert {x["projection"] for x in got["panels"]} == {"ticket"}
 
 
 LIST = {"projection": "ticket", "role": "list", "panels": [

@@ -38,15 +38,22 @@ T0 = 1_700_000_000.0
 DEPS = """
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       blocked_by: ticket
 messages:
@@ -61,17 +68,26 @@ blocks:
 STEPS = """
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.returned:
+      ticket-returned:
+        when: type == 'ticket.returned'
+        '...': data
         state: set('todo')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 messages:
   done: {ticket: [done]}
 """

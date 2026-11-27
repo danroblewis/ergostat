@@ -24,38 +24,58 @@ systems:
 
 projections:
   batch:
-    match:
-      key: batch/*
+    query: key.startswith('batch/')
     description: one merge queue run's batch (batch/<run tag>) - its gaps tested together, each run of the suites (full, named, halves) with its outcome, the gaps isolated, what landed and was given back (dev/bin/batches.py)
-    states: [new, testing, isolating, pushing, landed, partial, failed, given-back]
+    fields:
+      state:
+        type: one of [new, testing, isolating, pushing, landed, partial, failed, given-back]
+      runs: {fold: append}
+      isolated: {fold: append}
                                     # new: no event puts one there; it arrives testing, a working state the merge
                                     # queue moves on (batch.run-finished), so why names it (AGENT-GUIDE 3m); the
                                     # events into testing are written last, so a later state names its way on
     final: [landed, partial, failed, given-back]
     events:
-      "*":
-        runs: append(data.runs)
-        isolated: append(data.isolated)
-      batch.run-finished:
+      batch-run-finished:
+        when: type == 'batch.run-finished'
+        '...': data
         state: set('isolating')  # between runs: a red run's tests checked alone and on main, the next run chosen
-      batch.isolated:
+      batch-isolated:
+        when: type == 'batch.isolated'
+        '...': data
         state: set('isolating')  # a gap found failing: how, and its tests
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-      batch.landed:
+      batch-landed:
+        when: type == 'batch.landed'
+        '...': data
         state: set('pushing')  # merged on main, its push asked for
-      batch.ended-landed:
+      batch-ended-landed:
+        when: type == 'batch.ended-landed'
+        '...': data
         state: set('landed')  # every gap landed and pushed
-      batch.ended-partial:
+      batch-ended-partial:
+        when: type == 'batch.ended-partial'
+        '...': data
         state: set('partial')  # some landed and pushed, the rest failed or given back
-      batch.ended-failed:
+      batch-ended-failed:
+        when: type == 'batch.ended-failed'
+        '...': data
         state: set('failed')  # none landed and a gap failed, or its push was denied
-      batch.ended-given-back:
+      batch-ended-given-back:
+        when: type == 'batch.ended-given-back'
+        '...': data
         state: set('given-back')  # none landed and none blamed: a stall, main red, out of time, an error
-      batch.started:
+      batch-started:
+        when: type == 'batch.started'
+        '...': data
         state: set('testing')
-      batch.run-started:
+      batch-run-started:
+        when: type == 'batch.run-started'
+        '...': data
         state: set('testing')  # a run of the suites under way: one Timeline bar a run
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [size, run, outcome, base, main_sha, runs_n, minutes, why]
     relations:
       gaps: {projection: gap, precedence: false, inverse: batches}   # each gap's page lists the batches it was in

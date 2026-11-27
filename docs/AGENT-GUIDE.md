@@ -24,7 +24,8 @@ acting on that chain. If your drawing has many separate stocks each draining to 
 loops that share nothing, the model is the wrong shape (section 4).
 
 Items are how individual pieces of work are tracked: each ticket, request or pull request is an
-**item**, a fold of the events about one id. A projection lists its **states** in order. The stocks
+**item**, a fold of the events about one id. A projection's `state` field (`one of [...]`) lists its **states**
+in order. The stocks
 count items in each state; the flows count items moving between states. That is the bridge between
 "a ticket moves through my process" and the diagrams.
 
@@ -45,10 +46,25 @@ Work through these steps in order. Ask the person only what you cannot infer.
 4. **A collector that finds the work**: a program block (or sensor) that polls the outside system
    (Jira, GitHub, a queue) and prints one event per new or changed item, e.g.
    `{"event": "request.new", "item": "request/123", "data": {"title": "...", "url": "..."}}`. The
-   projection's `events:` handlers set each event type's state (`state: set('open')`). This is the **sensor** of the whole workflow: without it
-   nothing arrives. The projection's `match:` may be left out: `request` in no system matches `request/*`, and in system
-   `intake`, within `factory`, `factory/intake/request/*` (SPEC §5a, *The implied id*); the collector's ids must
-   then start that way. Write `match: {key: ...}` when the outside system's ids are already fixed.
+   projection's kinds of event set its state (`events: {started: {when: "type == 'request.started'", state:
+   "'researching'"}}`). This is the **sensor** of the whole workflow: without it nothing arrives. The projection's
+   `query:` may be left out: `request` in no system reads `request/*`, and in system `intake`, within `factory`,
+   `factory/intake/request/*` (SPEC §5a, *The implied id*); the collector's ids must then start that way. Write
+   `query: key.startswith('...')` when the outside system's ids are already fixed.
+
+   **The projection recipe** (SPEC §5a; the workbench answers each step, `POST /api/events/query`, `/api/events/kinds`,
+   `/api/projections/review`):
+   1. *Query*: the events it reads, an expression (`data.source == 'aws.ec2'`); refine it until it holds what you
+      want and nothing else (each change says what it adds and drops: `compare`).
+   2. *Kinds of event*: ask `/api/events/kinds` for the result's shapes; name each kind you keep under `events:`
+      with its `when:` (the suggested one, edited). An event log rarely names its own kinds: you do.
+   3. *Fields*: declare what an object is under `fields:`, each with a `type` (`text`, `integer`, `time`, `map`,
+      `one of [...]`: the field `state` is the lifecycle) and a `fold` (`replace`, `first`, `add`, `merge`...). Then
+      map each kind's values onto them; a kind whose key sits elsewhere gives its own `key:` (`each(...)` when one
+      event names several objects). Name `time:` when the events carry their own time.
+   4. *Review*: `/api/projections/review` until nothing is unexplained: no remainder (or only what you mean to leave
+      out), nothing refused, no rare transitions, no splits or merges, every field's distribution plausible; read one
+      object's timeline. Then Save (`/api/projections/save`), which dates what changed.
 
    **When the work is related** (a ticket blocked by another, tickets under an epic, a duplicate), declare the
    relations on the projection and have the collector record them as fields (SPEC §5a, *Relations*):
@@ -56,15 +72,13 @@ Work through these steps in order. Ask the person only what you cannot infer.
    ```yaml
    projections:
      ticket:
-       match:
-         key: ticket/*
+       query: key.startswith('ticket/')
        relations:
          blocked_by: ticket          # precedence: ready once each one it names is done
          parent: epic                # cross-projection: the epic it is part of
      epic:
-       match:
-         key: epic/*
-   ```
+       query: key.startswith('epic/')
+```
 
    An issue tracker's links map onto them: Jira's "is blocked by" links (inward, of the type Blocks) are
    `blocked_by`, "blocks" is the inverse ergostat derives (never record both), the epic link or parent is
@@ -212,30 +226,45 @@ Work through these steps in order. Ask the person only what you cannot infer.
 ```yaml
 projections:
   request:
-    match:
-      key: request/*
-    states: [new, researching, awaiting-approval, rolling-out, done, rejected]
+    query: key.startswith('request/')
+    fields:
+      state:
+        type: one of [new, researching, awaiting-approval, rolling-out, done, rejected]
     events:
-      request.new:
+      request-new:
+        when: type == 'request.new'
+        '...': data
         state: set('new')
-      request.researching:
+      request-researching:
+        when: type == 'request.researching'
+        '...': data
         state: set('researching')
-      request.researched:
+      request-researched:
+        when: type == 'request.researched'
+        '...': data
         state: set('awaiting-approval')
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-      request.approved:
+      request-approved:
+        when: type == 'request.approved'
+        '...': data
         state: set('rolling-out')
-      request.rejected:
+      request-rejected:
+        when: type == 'request.rejected'
+        '...': data
         state: set('rejected')
-      request.done:
+      request-done:
+        when: type == 'request.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title, url]
 
 stocks:
-  requests-new:        {unit: requests, sensor: {projection: request, state: new, every: 1m}}
+  requests-new: {unit: requests, sensor: {projection: request, state: new, every: 1m}}
   requests-researching: {unit: requests, sensor: {projection: request, state: researching, every: 1m}}
-  requests-awaiting:   {unit: requests, sensor: {projection: request, state: awaiting-approval, every: 1m}}
+  requests-awaiting: {unit: requests, sensor: {projection: request, state: awaiting-approval, every: 1m}}
   requests-rolling-out: {unit: requests, sensor: {projection: request, state: rolling-out, every: 1m}}
 
 auxiliaries:                     # no memory of its own: an age, a ratio, a score
@@ -245,12 +274,12 @@ auxiliaries:                     # no memory of its own: an age, a ratio, a scor
     sensor: {projection: request, state: awaiting-approval, measure: oldest, every: 1m}
 
 flows:
-  arriving:     {to: requests-new, sensor: {projection: request, entering: new}}
-  started:      {from: requests-new, to: requests-researching, sensor: {projection: request, entering: researching}}
-  researched:   {from: requests-researching, to: requests-awaiting, sensor: {projection: request, entering: awaiting-approval}}
-  approved:     {from: requests-awaiting, to: requests-rolling-out, sensor: {projection: request, entering: rolling-out}}
-  rejected:     {from: requests-awaiting, sensor: {projection: request, entering: rejected}}
-  completed:    {from: requests-rolling-out, sensor: {projection: request, entering: done}}
+  arriving: {to: requests-new, sensor: {projection: request, entering: new}}
+  started: {from: requests-new, to: requests-researching, sensor: {projection: request, entering: researching}}
+  researched: {from: requests-researching, to: requests-awaiting, sensor: {projection: request, entering: awaiting-approval}}
+  approved: {from: requests-awaiting, to: requests-rolling-out, sensor: {projection: request, entering: rolling-out}}
+  rejected: {from: requests-awaiting, sensor: {projection: request, entering: rejected}}
+  completed: {from: requests-rolling-out, sensor: {projection: request, entering: done}}
 
 goals:
   approvals-prompt: {auxiliary: oldest-awaiting, hold: "<= 4"}
@@ -1133,71 +1162,112 @@ The model, item by item from what was said (scripts are the person's; `scaffold`
 ```yaml
 projections:
   change:
-    match:
-      key: change/*
+    query: key.startswith('change/')
     description: one change to the product, from proposal to release
-    states: [proposed, building, in-review, releasing, released, on-hold, dropped]
+    fields:
+      state:
+        type: one of [proposed, building, in-review, releasing, released, on-hold, dropped]
     events:
-      change.proposed:
+      change-proposed:
+        when: type == 'change.proposed'
+        '...': data
         state: set('proposed')
-      change.built:
+      change-built:
+        when: type == 'change.built'
+        '...': data
         state: set('in-review')
-      change.reviewed:
+      change-reviewed:
+        when: type == 'change.reviewed'
+        '...': data
         state: set('releasing')
-      change.released:
+      change-released:
+        when: type == 'change.released'
+        '...': data
         state: set('released')
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-      change.held:
+      change-held:
+        when: type == 'change.held'
+        '...': data
         state: set('on-hold')
-      change.dropped:
+      change-dropped:
+        when: type == 'change.dropped'
+        '...': data
         state: set('dropped')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       depends_on: change                                # precedence: it waits for these to be released
       pull_request: {projection: pr, precedence: true}        # and for its pull request to be merged
   pr:
-    match:
-      key: pr/*
+    query: key.startswith('pr/')
     description: a pull request on the code host, as the collector saw it
-    states: [new, open, merged, closed]
+    fields:
+      state:
+        type: one of [new, open, merged, closed]
     events:
-      pr.merged:
+      pr-merged:
+        when: type == 'pr.merged'
+        '...': data
         state: set('merged')
-      pr.closed:
+      pr-closed:
+        when: type == 'pr.closed'
+        '...': data
         state: set('closed')
-      pr.opened:
+      pr-opened:
+        when: type == 'pr.opened'
+        '...': data
         state: set('open')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   todo:
-    match:
-      key: todo/*
+    query: key.startswith('todo/')
     description: one of the owner's own to-dos
-    states: [new, todo, done, dropped]
+    fields:
+      state:
+        type: one of [new, todo, done, dropped]
     events:
-      todo.done:
+      todo-done:
+        when: type == 'todo.done'
+        '...': data
         state: set('done')
-      todo.dropped:
+      todo-dropped:
+        when: type == 'todo.dropped'
+        '...': data
         state: set('dropped')
-      todo.added:
+      todo-added:
+        when: type == 'todo.added'
+        '...': data
         state: set('todo')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       needs: {projection: batch, precedence: true, starts_at: [open]}   # a sitting in an access context
       covers: change                                              # an update's subject: says, never waits
   batch:
-    match:
-      key: batch/*
+    query: key.startswith('batch/')
     description: one sitting in an access context (the lab network)
-    states: [new, planned, open, closed]
+    fields:
+      state:
+        type: one of [new, planned, open, closed]
     events:
-      batch.opened:
+      batch-opened:
+        when: type == 'batch.opened'
+        '...': data
         state: set('open')
-      batch.closed:
+      batch-closed:
+        when: type == 'batch.closed'
+        '...': data
         state: set('closed')
-      batch.planned:
+      batch-planned:
+        when: type == 'batch.planned'
+        '...': data
         state: set('planned')
-    otherwise: rest
-
+      other:
+        when: true
+        '...': data
 messages:
   done: {change: [released, dropped], pr: [merged], todo: [done, dropped], batch: [closed]}
   paused: {change: [on-hold], pr: [closed]}

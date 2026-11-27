@@ -37,10 +37,30 @@ systems:
   qa: {within: factory, description: checks the work}
   delivery: {within: factory, description: ships it}
 projections:
-  ticket: {match: {key: ticket/*}, states: [new, checking, done], system: factory}
-  qa-note: {match: {key: qa-note/*}, states: [open, closed], system: qa}
-  shared-ref: {match: {key: ref/*}, states: [open], system: factory}
-  unused-parent: {match: {key: unused/*}, states: [open], system: factory}
+  ticket:
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [new, checking, done]
+    system: factory
+  qa-note:
+    query: key.startswith('qa-note/')
+    fields:
+      state:
+        type: one of [open, closed]
+    system: qa
+  shared-ref:
+    query: key.startswith('ref/')
+    fields:
+      state:
+        type: one of [open]
+    system: factory
+  unused-parent:
+    query: key.startswith('unused/')
+    fields:
+      state:
+        type: one of [open]
+    system: factory
 stocks:
   arrived:
     system: intake
@@ -131,7 +151,12 @@ systems:
   a: {within: plant}
   b: {within: plant}
 projections:
-  job: {match: {key: job/*}, states: [open], system: plant}
+  job:
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [open]
+    system: plant
 stocks:
   queue:
     system: a
@@ -188,7 +213,12 @@ systems:
   a: {within: plant}
   b: {within: plant}
 projections:
-  job: {match: {key: job/*}, states: [open], system: a}
+  job:
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [open]
+    system: a
 stocks:
   queue:
     system: a
@@ -373,11 +403,17 @@ systems:
   plan: {}
   build: {}
 projections:
-  epic: {match: {key: epic/*}, states: [open], system: plan}
+  epic:
+    query: key.startswith('epic/')
+    fields:
+      state:
+        type: one of [open]
+    system: plan
   ticket:
-    match:
-      key: ticket/*
-    states: [open]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [open]
     system: build
     relations: {parent: epic}
 """))

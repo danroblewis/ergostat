@@ -17,20 +17,24 @@ from ergostat.store import Project
 MODEL = """
 projections:
   session:
-    match:
-      key: session/*
-    states: [open, done]
+    query: key.startswith('session/')
+    fields:
+      state:
+        type: one of [open, done]
+      messages: {fold: append}
+      tool_calls: {fold: append}
+      tool_results: {fold: append}
+      thinking: {fold: append}
+      tokens_in: {fold: add}
+      tokens_out: {fold: add}
     events:
-      "*":
-        messages: append(data.messages)
-        tool_calls: append(data.tool_calls)
-        tool_results: append(data.tool_results)
-        thinking: append(data.thinking)
-        tokens_in: add(data.tokens_in)
-        tokens_out: add(data.tokens_out)
-      session.ran:
+      session-ran:
+        when: type == 'session.ran'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [role, cost_usd]
     formats:
       transcript: claude-session

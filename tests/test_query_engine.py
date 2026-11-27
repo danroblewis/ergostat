@@ -28,20 +28,26 @@ MODEL = """
       queue: {unit: tickets}
     projections:
       ticket:
-        match:
-          key: ticket/*
-        states: [open, doing, done]
+        query: key.startswith('ticket/')
+        fields:
+          state:
+            type: one of [open, doing, done]
+          ai_cost_usd: {fold: add}
         events:
-          "*":
-            ai_cost_usd: add(data.ai_cost_usd)
-          ticket.started:
+          ticket-started:
+            when: type == 'ticket.started'
+            '...': data
             state: set('doing')
-          ticket.done:
+          ticket-done:
+            when: type == 'ticket.done'
+            '...': data
             state: set('done')
-        otherwise: rest
+          other:
+            when: true
+            '...': data
     storage:
       events: segments
-    """
+"""
 
 
 def _record(tmp_path) -> Project:

@@ -25,30 +25,46 @@ MODEL = """
 name: t
 projections:
   gap:
-    match:
-      key: gap/*
-    states: [open, building, merged]
+    query: key.startswith('gap/')
+    fields:
+      state:
+        type: one of [open, building, merged]
+      cost_usd: {fold: add}
     events:
-      "*":
-        cost_usd: add(data.cost_usd)
+      gap-found:
+        when: type == 'gap.found'
+        '...': data
         milestone: "data.milestone if 'milestone' in data else current"
-      gap.found:
         state: set('open')
-      gap.started:
+      gap-started:
+        when: type == 'gap.started'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('building')
-      gap.merged:
+      gap-merged:
+        when: type == 'gap.merged'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('merged')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
     relations:
       milestone: {projection: milestone, group: true}
   milestone:
-    match:
-      key: milestone/*
-    states: [waiting, active]
+    query: key.startswith('milestone/')
+    fields:
+      state:
+        type: one of [waiting, active]
     events:
-      milestone.added:
+      milestone-added:
+        when: type == 'milestone.added'
+        '...': data
         state: set('waiting')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 """
 
 

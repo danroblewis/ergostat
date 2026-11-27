@@ -90,19 +90,20 @@ params:
     description: what a person is asked about the dead letters; false for nobody
 projections:
   ${projection}:
-    match:
-      key: ${projection}/*
+    query: key.startswith('${projection}/')
     description: an item worked through the steps
-    states:
-      - each: steps
-        value: ${it.name}
-      - done
+    fields:
+      state:
+        type:
+          - each: steps
+            value: ${it.name}
+          - done
     events:
       each:
         each: steps
-        key: ${projection}.${it.name}-done
-        value: {state: "set('${it.next}')"}
-    otherwise: rest
+        key: ${it.name}-done
+        value: {when: "type == '${projection}.${it.name}-done'", '...': data, state: "set('${it.next}')"}
+      other: {when: true, '...': data}
     show: [title, error, failed_at]
 workspaces:
   workspace:

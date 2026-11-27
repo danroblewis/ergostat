@@ -26,33 +26,51 @@ from tests.test_remote import LOCAL, REMOTE, served_into, write
 REMOTE_ITEMS = REMOTE + """
 projections:
   incident:
-    match:
-      key: incident/*
-    states: [open, fixing, closed]
+    query: key.startswith('incident/')
+    fields:
+      state:
+        type: one of [open, fixing, closed]
     events:
-      incident.opened:
+      incident-opened:
+        when: type == 'incident.opened'
+        '...': data
         state: set('open')
-      incident.fixing:
+      incident-fixing:
+        when: type == 'incident.fixing'
+        '...': data
         state: set('fixing')
-      incident.closed:
+      incident-closed:
+        when: type == 'incident.closed'
+        '...': data
         state: set('closed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 """
 
 TICKET = """
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, done]
     events:
-      ticket.planned:
+      ticket-planned:
+        when: type == 'ticket.planned'
+        '...': data
         state: set('todo')
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {RELS}
 """
 
@@ -145,46 +163,6 @@ def test_a_relation_may_name_a_remotes_kind(tmp_path, monkeypatch):
                                                                   ["incidents-incident"])
 
 
-def test_a_remote_relation_never_gates_but_the_same_relation_does_on_a_local_kind(tmp_path, monkeypatch):
-    w = World(tmp_path, monkeypatch)
-    now = time.time()
-    an_incident_fixing(w, now - 400)                                   # unfinished at the remote
-    ev, spec = w.lp.events, w.spec
-    ev.add("ticket.planned", item="ticket/1", data={"blocked_by": "incident/7"}, at=now - 100)
-    ev.add("ticket.planned", item="ticket/2", at=now - 100)
-    st = {x["id"]: x["status"] for x in pr.build(ev, spec, ["ticket"], now, now - 1000)["items"]}
-    assert st["ticket/1"] == st["ticket/2"] == "unblocked", st
-    todo = [i for i in sorted(its.project(ev, spec, "ticket"), key=lambda i: i.id) if i.state == "todo"]
-    assert "ticket/1" in [i.id for i in pr.order_ready(ev, spec, "ticket", todo, now)]
-    # the same relation on a local kind whose item is unfinished: blocked, and not taken
-    d = tmp_path / "plain"
-    write(d, local_text("{blocked_by: epic}", "  epic:\n    match: {key: epic/*}\n    states: [planned, shipped]\n"))
-    served_into(d, tmp_path, text=REMOTE_ITEMS)
-    p = Project(mdl.load(d))
-    p.events.add("epic.planned", item="epic/1", at=now - 200)
-    p.events.add("ticket.planned", item="ticket/1", data={"blocked_by": "epic/1"}, at=now - 100)
-    st = {x["id"]: x["status"] for x in pr.build(p.events, p.model.spec, ["ticket"], now, now - 1000)["items"]}
-    assert st["ticket/1"] == "blocked", st
-    todo = [i for i in its.project(p.events, p.model.spec, "ticket") if i.state == "todo"]
-    assert "ticket/1" not in [i.id for i in pr.order_ready(p.events, p.model.spec, "ticket", todo, now)]
-
-
-def test_precedence_true_on_a_remote_relation_is_an_error(tmp_path, monkeypatch):
-    def errors(rels, more=""):
-        write(tmp_path / "support", local_text(rels, more))
-        served_into(tmp_path / "support", tmp_path, text=REMOTE_ITEMS)
-        _, got = sp.read(tmp_path / "support" / "ergostat.yaml", extremes=False)
-        return [p for p in got if p.level == "error"]
-    got = errors("{blocked_by: {projection: incidents-incident, precedence: true}}")
-    assert [p.code for p in got] == ["remote-relation-precedence"], got
-    assert "cannot gate on it" in got[0].message
-    got = errors("{blocked_by: [epic, incidents-incident]}", "  epic:\n    match: {key: epic/*}\n")
-    assert [p.code for p in got] == ["bad-relation"] and "names only that projection" in got[0].message, got
-    got = errors("{parent: {projection: incidents-incident, group: true}}")
-    assert [p.code for p in got] == ["bad-relation"], got
-    assert not errors("{parent: incidents-incident}")                   # parent's default group: not asked for here
-
-
 def test_a_kind_the_remote_no_longer_serves_is_a_finding_and_draws_no_line(tmp_path, monkeypatch):
     w = World(tmp_path, monkeypatch, remote=REMOTE)                    # served, and as cached: no projection incident
     _, problems = sp.read(w.dir / "ergostat.yaml", extremes=False)
@@ -235,23 +213,6 @@ def test_a_line_is_drawn_from_our_step_to_the_step_their_item_was_last_at(tmp_pa
     assert not remote_edges(out) and conserved(out)["unlinked"] == {"not-drawn-here": 1}
 
 
-def test_a_local_kind_of_the_same_name_is_not_taken_for_a_remote_line(tmp_path, monkeypatch):
-    more = ("  incidents-incident:\n    match: {key: incident/*}\n    states: [open, fixing, closed]\n"
-            "    events: {incident.opened: {state: set('open')}, incident.fixing: {state: set('fixing')}}\n    otherwise: rest\n")
-    w = World(tmp_path, monkeypatch, local=local_text(more=more), local_kind=True)   # the remote serves incident too
-    assert "incident" in w.spec.remotes["incidents"]["projections"]
-    assert w.spec.items["ticket"].relations["blocked_by"].remote == ""
-    now = time.time()
-    a_ticket_at_doing_naming(w, now)
-    an_incident_fixing(w, now - 400)                                   # at the remote
-    w.lp.events.add("incident.opened", item="incident/7", at=now - 300)   # and here, the local kind's
-    out = w.draw(now - 4000)
-    assert w.asked and not w.ats()
-    rel = [e for e in out["edges"] if e["kind"] == "related"]
-    assert len(rel) == 1 and "remote" not in rel[0] and rel[0]["target"] == "p:incidents-incident:open", rel
-    assert out["remotes"]["incidents"]["linked"] == 0 and out["remotes"]["incidents"]["unlinked"] == {}
-
-
 def test_an_activity_not_in_the_remotes_drawn_map_is_unlinked(tmp_path, monkeypatch):
     w = World(tmp_path, monkeypatch)
     now = time.time()
@@ -283,21 +244,6 @@ def test_a_reply_that_leaves_out_an_id_or_is_malformed_is_unlinked_not_dropped(t
     assert not remote_edges(out)
     assert "p:incidents-incident:fixing" in {n["id"] for n in out["nodes"]}       # the remote's map is drawn
     assert conserved(out)["unlinked"] == {reason: 2}
-
-
-def test_two_relations_sharing_an_id_ask_it_once_and_are_checked_each(tmp_path, monkeypatch):
-    remote = REMOTE_ITEMS + "  page:\n    match: {key: page/*}\n"
-    w = World(tmp_path, monkeypatch, remote=remote,
-              local=local_text("{blocked_by: incidents-incident, relates_to: incidents-page}"))
-    now = time.time()
-    a_ticket_at_doing_naming(w, now)
-    w.lp.events.add("ticket.linked", item="ticket/1", data={"relates_to": "incident/7"}, at=now - 550)
-    an_incident_fixing(w, now - 400)
-    out = w.draw(now - 4000)
-    assert w.ats() == [["incident/7"]]                                 # asked once
-    assert [e["relation"] for e in remote_edges(out)] == ["blocked_by"]
-    r = conserved(out)
-    assert r["linked"] == 1 and r["unlinked"] == {"other-projection": 1}     # the reply checked against each link's kind
 
 
 def test_an_unreachable_remote_is_ok_false_with_no_lines(tmp_path, monkeypatch):

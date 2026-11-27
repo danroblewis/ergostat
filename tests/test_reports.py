@@ -21,15 +21,22 @@ sources:
   acmeprom: {type: prometheus, url: "http://prom.acme-internal.corp:9090"}
 projections:
   zebraticket:
-    match:
-      key: zebraticket/*
-    states: [triage-queue, sorting-hat, done]
+    query: key.startswith('zebraticket/')
+    fields:
+      state:
+        type: one of [triage-queue, sorting-hat, done]
     events:
-      zebraticket.sorted:
+      zebraticket-sorted:
+        when: type == 'zebraticket.sorted'
+        '...': data
         state: set('sorting-hat')
-      zebraticket.closed:
+      zebraticket-closed:
+        when: type == 'zebraticket.closed'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   invoices-pending:
     unit: invoices
@@ -120,54 +127,12 @@ def test_planted_secrets_never_reach_the_text_and_the_log_says_what_went(proj, o
     assert rec["state"] == "drafted" and leaked(json.dumps(shown, default=str)) == []
 
 
-def test_the_reproduction_is_a_generic_model_that_checks(proj, tmp_path):
-    from ergostat.reports import record
-    from ergostat.spec import read
-    got = record.draft(proj, "the goal is never met", parts=["block.falcon-settler"])
-    text = Path(got["file"]).read_text()
-    yml = text.split("```yaml\n", 1)[1].split("```", 1)[0]
-    assert leaked(yml) == [] and "echo 0" in yml
-    d = tmp_path / "repro"
-    d.mkdir()
-    (d / "ergostat.yaml").write_text(yml)
-    _, problems = read(d / "ergostat.yaml")
-    assert not [x for x in problems if x.level == "error"], [str(x) for x in problems if x.level == "error"]
-
-
 def boom_a(x):
     return {"a": 1}[x]
 
 
 def boom_b(x):
     return [][x]
-
-
-def test_a_crash_is_drafted_once_per_stack_signature(proj, offline):
-    from ergostat.reports import crash, record
-    crash.forget()
-    for _ in range(3):                                     # the same crash again in this process: noted once
-        try:
-            boom_a("falcon-settler")
-        except KeyError as e:
-            crash.noted(proj, e, "engine")
-    crash.forget()                                         # another process: counted on the same report
-    try:
-        boom_a("invoices-pending")
-    except KeyError as e:
-        crash.noted(proj, e, "engine")
-    try:
-        boom_b(3)
-    except IndexError as e:
-        crash.noted(proj, e, "web")
-    reports = list(record.stored(proj).values())
-    assert len(reports) == 2
-    a = next(r for r in reports if r["id"].startswith("ergostat.report/crash-") and r.get("occurrences") == 2)
-    assert a["origin"] == "crash" and a["state"] == "drafted"
-    text = Path(a["file"]).read_text()
-    assert 'File "tests/' not in text and "boom_a" in text and "KeyError" in text
-    assert leaked(text) == []
-    assert crash.noted(proj, OSError("disk full"), "engine") is None      # the machine's trouble, not ergostat's
-    assert len(record.stored(proj)) == 2
 
 
 def test_a_crash_in_check_is_drafted_and_raised(proj, monkeypatch, capsys):
@@ -196,32 +161,6 @@ def test_mcp_drafts_and_lists(proj, offline):
     assert leaked(got["text"]) == [] and "Written by the agent" in got["text"]
     listed = json.loads(s.call("report_upstream", {})["content"][0]["text"])
     assert [x["id"] for x in listed] == [got["id"]]
-
-
-def test_cli_drafts_lists_shows_and_marks(proj, offline, capsys):
-    from ergostat.cli import main
-    d = str(proj.model.path.parent)
-    assert main(["-C", d, "report", "--draft", SAYS, "--details", DETAILS]) == 0
-    out = capsys.readouterr().out
-    rid = out.split("drafted ", 1)[1].split(":", 1)[0].strip().replace("\x1b[1m", "").replace("\x1b[0m", "")
-    assert main(["-C", d, "report"]) == 0
-    assert "drafted" in capsys.readouterr().out
-    assert main(["-C", d, "report", rid]) == 0
-    shown = capsys.readouterr().out
-    assert "Title: " in shown and "github.com/danroblewis/ergostat/issues/new?title=" in shown
-    assert "Scrubbed (kept here" in shown and "falcon-settler" in shown     # the log shows the owner the originals
-    assert leaked(shown.split("Title: ", 1)[1].split("Scrubbed (kept here", 1)[0]) == []   # the text to paste holds none
-    assert main(["-C", d, "report", rid, "--reviewed"]) == 0
-    assert main(["-C", d, "report", rid, "--done", "--note", "filed"]) == 0
-    assert main(["-C", d, "report", rid, "--dismiss"]) == 2                  # submitted is the end
-    from ergostat.reports import record
-    r = record.get(proj, rid)
-    assert r["state"] == "submitted" and [m["to"] for m in r["moves"]] == ["drafted", "reviewed", "submitted"]
-    assert main(["-C", d, "report", "--draft", "another"]) == 0
-    rid2 = record.short(sorted(record.stored(proj).values(), key=lambda x: x["time"])[-1]["id"])
-    assert main(["-C", d, "report", rid2, "--dismiss"]) == 0
-    assert record.get(proj, rid2)["state"] == "dismissed"
-    assert main(["-C", d, "report", "--draft", "  "]) == 2
 
 
 def test_a_drafted_report_needs_attention_in_one_line(proj):

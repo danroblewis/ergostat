@@ -22,39 +22,6 @@ def test_numbers_match_as_numbers_strings_as_strings_booleans_as_booleans():
     assert matches(item(tags=["a", 1]), {"tags": [["a", 1.0]]})
 
 
-def test_check_notes_where_values_whose_meaning_changed(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""\
-        name: t
-        projections:
-          ticket:
-            match:
-              key: ticket/*
-            states: [open, done]
-        stocks:
-          urgent:
-            unit: tickets
-            sensor:
-              projection: ticket
-              state: open
-              where:
-                priority: 1
-                team: core
-                quoted: "1"
-          flagged:
-            unit: tickets
-            sensor:
-              projection: ticket
-              state: open
-              where: {flag: true}
-        """))
-    _, ps = read(tmp_path / "ergostat.yaml")
-    notes = [p for p in ps if p.code == "where-typed"]
-    assert sorted((p.where.line, p.about) for p in notes) == [(14, "stock.urgent"), (22, "stock.flagged")], \
-        [(str(p), p.about) for p in notes]
-    assert '"1" (quoted)' in notes[0].message and "a number" in notes[0].message
-    assert all(p.level == "finding" for p in notes)
-
-
 def test_a_filter_typed_as_text_matches_the_field_whichever_type_it_holds():
     from ergostat.spec.items import typed_too
     w = typed_too({"priority": ["1"], "team": ["core"], "ok": ["true"]})

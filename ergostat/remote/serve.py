@@ -19,7 +19,7 @@ SENSOR_KEEP = {"every", "cron", "unit", "description", "averages", "state", "ent
                "projection", "changes", "builtin", "manual"}
 PART_KEEP = {
     "systems": {"description", "within", "show"},
-    "projections": {"match", "states", "show", "description", "system"},
+    "projections": {"query", "fields", "show", "description", "system"},
     "parameters": {"value", "unit", "estimate", "table", "range", "description", "system"},
     "auxiliaries": {"unit", "driven-by", "exogenous", "equation", "description", "system"},
     "stocks": {"unit", "limit", "initial", "cumulative", "rate-unit", "description", "system"},
@@ -101,8 +101,8 @@ def document(doc, instance: str) -> dict:
             if via is not None:
                 got[str(name)] = {**part(section, entry), "via": via, **(box(name, entry) if section == "systems"
                                                                            else {})}
-                if section == "projections" and isinstance(entry, dict) and entry.get("match") is None:
-                    got[str(name)]["match"] = {"key": implied(doc, str(name), entry)}   # the host names it for the remote
+                if section == "projections" and isinstance(entry, dict) and entry.get("query") is None:
+                    got[str(name)]["query"] = f"glob(key, {implied(doc, str(name), entry)!r})"   # the host names it
         sections[section] = got
     return {"format": FORMAT, "name": doc.name, "instance": instance, "sections": sections}
 

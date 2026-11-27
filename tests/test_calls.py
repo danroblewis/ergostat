@@ -30,15 +30,22 @@ MODEL = """
 name: calls
 projections:
   job:
-    match:
-      key: job/*
-    states: [ready, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [ready, done]
     events:
-      job.arrived:
+      job-arrived:
+        when: type == 'job.arrived'
+        '...': data
         state: set('ready')
-      job.done:
+      job-done:
+        when: type == 'job.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 actions:
   noop:
     run: "echo did it"
@@ -200,8 +207,8 @@ def test_the_socket_lists_items_as_the_command_does(engine, tmp_path):
 
 
 def test_the_socket_pages_through_more_items_than_one_listing_holds(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("name: many\nprojections:\n  doc:\n    match: {key: doc/*}\n    states: [open]\n"
-                                            "    events: {doc.opened: {state: set('open')}}\n    otherwise: rest\n")
+    (tmp_path / "ergostat.yaml").write_text("name: many\nprojections:\n  doc:\n    query: key.startswith('doc/')\n    fields:\n      state:\n        type: one of [open]\n"
+                                            "    events:\n      doc-opened:\n        when: type == 'doc.opened'\n        '...': data\n        state: set('open')\n      other:\n        when: true\n        '...': data\n")
     p = Project(mdl.load(tmp_path))
     for n in range(600):
         p.events.add("doc.opened", item=f"doc/{n}", source="test")

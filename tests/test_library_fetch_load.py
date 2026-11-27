@@ -23,9 +23,10 @@ params:
   projection: {type: name, default: "${name}"}
 projections:
   ${projection}:
-    match:
-      key: ${projection}/*
-    states: [new, done]
+    query: key.startswith('${projection}/')
+    fields:
+      state:
+        type: one of [new, done]
 stocks:
   waiting:
     unit: items

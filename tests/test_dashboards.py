@@ -23,15 +23,22 @@ systems:
     show: [stock.queue]
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [open, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [open, doing, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   queue:
     system: desk

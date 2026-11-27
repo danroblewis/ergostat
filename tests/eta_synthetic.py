@@ -18,21 +18,34 @@ from ergostat.store import Project
 MODEL = """
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [new, review, merging, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [new, review, merging, done]
     events:
-      ticket.opened:
+      ticket-opened:
+        when: type == 'ticket.opened'
+        '...': data
         state: set('new')
-      ticket.implemented:
+      ticket-implemented:
+        when: type == 'ticket.implemented'
+        '...': data
         state: set('review')
-      ticket.changes:
+      ticket-changes:
+        when: type == 'ticket.changes'
+        '...': data
         state: set('new')
-      ticket.approved:
+      ticket-approved:
+        when: type == 'ticket.approved'
+        '...': data
         state: set('merging')
-      ticket.merged:
+      ticket-merged:
+        when: type == 'ticket.merged'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       blocked_by: ticket
 messages:

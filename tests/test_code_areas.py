@@ -17,19 +17,30 @@ PLAIN = """
 name: t
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, fix, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, fix, done]
     events:
-      ticket.opened:
+      ticket-opened:
+        when: type == 'ticket.opened'
+        '...': data
         state: set('todo')
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.back:
+      ticket-back:
+        when: type == 'ticket.back'
+        '...': data
         state: set('fix')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 blocks:
   dev:
     type: program

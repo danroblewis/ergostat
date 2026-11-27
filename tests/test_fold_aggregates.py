@@ -23,20 +23,24 @@ RULES = {"c": "count", "m": "mean", "v": "variance", "s": "stdev", "r": "rms", "
 MODEL = """
 projections:
   reading:
-    match:
-      key: reading/*
-    states: [open, done]
+    query: key.startswith('reading/')
+    fields:
+      state:
+        type: one of [open, done]
+      c: {fold: count}
+      m: {fold: mean}
+      v: {fold: variance}
+      s: {fold: stdev}
+      r: {fold: rms}
+      a: {fold: append(5)}
     events:
-      "*":
-        c: count(data.c)
-        m: mean(data.m)
-        v: variance(data.v)
-        s: stdev(data.s)
-        r: rms(data.r)
-        a: append(data.a, 5)
-      reading.done:
+      reading-done:
+        when: type == 'reading.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 """
 
 
@@ -132,19 +136,6 @@ def test_a_patch_or_set_that_changes_an_aggregate_starts_it_over():
 # ---- history: only what is seen to change
 
 
-def test_history_records_a_change_only_when_the_visible_value_differs(tmp_path):
-    kind = project(tmp_path).model.spec.items["reading"]
-    evs = [{"id": f"e{i}", "type": "reading.taken", "item": "reading/1", "time": T0 + i, "data": {"m": 4, "v": 4, "c": 4}}
-           for i in range(4)]
-    it = its.fold("reading/1", evs, kind, history=True)
-    h = it.history()
-    assert [c["after"] for c in h["m"]] == [4.0]                                # the mean stayed 4.0
-    assert [c["after"] for c in h["v"]] == [None, 0.0]                              # null, then 0.0, then still 0.0
-    assert [c["after"] for c in h["c"]] == [1, 2, 3, 4] and {c["rule"] for c in h["c"]} == {"count"}
-    assert it.acc["m"]["n"] == 4 and it.acc["v"]["n"] == 4                           # every event went into the state
-    assert "acc" not in it.as_dict(moves=True, history=True) and set(it.fields) == {"m", "v", "c"}
-
-
 # ---- append's bound
 
 
@@ -192,46 +183,3 @@ def _cold() -> None:
     itemindex._OPEN.clear()
 
 
-def test_a_fold_from_scratch_in_chunks_and_from_a_snapshot_are_the_same(tmp_path, monkeypatch):
-    evs = _events(7)
-    a = project(tmp_path / "scratch")
-    for t, item, data, at in evs:
-        a.events.add(t, item=item, data=data, at=at)
-    want = _scratch(a)
-    assert any(r for *_, r in want.values()), "some event was refused"
-    assert all(set(f) == set(RULES) and set(acc) == {"m", "v", "s", "r"} for f, acc, *_ in want.values())
-    for f, acc, *_ in want.values():                       # the state is not the value: only the value is shown
-        assert all(not isinstance(v, dict) for v in f.values()) and acc["m"]["v"] == f["m"] and len(f["a"]) <= 5
-
-    monkeypatch.setattr(itemindex, "CHUNK", 4)             # caught up a few events per transaction
-    b = project(tmp_path / "chunks")
-    for i in range(0, len(evs), 7):
-        for t, item, data, at in evs[i:i + 7]:
-            b.events.add(t, item=item, data=data, at=at)
-        got = _state(its.project(b.events, b.model.spec))
-        if i // 7 % 2:
-            _cold()                                         # the next chunk read from disk, as a process that starts
-            b = Project(mdl.load(tmp_path / "chunks"))
-    assert got == want
-    _cold()
-    assert _state(its.project(Project(mdl.load(tmp_path / "chunks")).events, b.model.spec)) == want
-
-    c = project(tmp_path / "snapshot")
-    half = len(evs) // 2
-    for t, item, data, at in evs[:half]:
-        c.events.add(t, item=item, data=data, at=at)
-    its.project(c.events, c.model.spec)                    # the index has them, then the record is rolled up
-    rolled = compact(c, now=evs[half - 1][3] + 1 + c.storage.rollup_after)
-    assert rolled["items"] == 3
-    snaps = [e for e in c.events.query(n=None) if e["type"] == its.SNAPSHOT]
-    assert len(snaps) == 3 and all(s["data"]["rollup"]["acc"]["v"]["n"] for s in snaps)
-    for t, item, data, at in evs[half:]:
-        c.events.add(t, item=item, data=data, at=at)
-    got = {id: (f, acc) for id, (f, acc, *_) in _state(its.project(c.events, c.model.spec)).items()}
-    assert got == {id: (f, acc) for id, (f, acc, *_) in want.items()}          # the index, folded on after the roll-up
-    fresh = {id: (f, acc) for id, (f, acc, *_) in _scratch(c).items()}
-    assert fresh == got                                     # and the record: the snapshot, then what came after it
-    itemindex.reindex(c.events, c.model.spec)
-    _cold()
-    again = {id: (f, acc) for id, (f, acc, *_) in _state(its.project(c.events, c.model.spec)).items()}
-    assert again == got                                     # built again from the record

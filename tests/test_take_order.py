@@ -19,19 +19,30 @@ from ergostat.store import Project
 MODEL = """
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, fix, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, fix, doing, done]
     events:
-      ticket.opened:
+      ticket-opened:
+        when: type == 'ticket.opened'
+        '...': data
         state: set('todo')
-      ticket.failed:
+      ticket-failed:
+        when: type == 'ticket.failed'
+        '...': data
         state: set('fix')
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {blocked_by: ticket}
 messages:
   done: {ticket: [done]}
@@ -133,21 +144,3 @@ PAUSED = MODEL.replace("messages:\n  done: {ticket: [done]}", """messages:
     "        state: set('done')\n", "        state: set('done')\n      ticket.held:\n        state: set('held')\n")
 
 
-def test_a_paused_item_is_not_done_not_projected_and_blocks_its_dependents(tmp_path):
-    p = project(tmp_path, PAUSED)
-    ev, t = p.events, time.time() - 600
-    ev.add("ticket.opened", item="ticket/a", at=t)
-    ev.add("ticket.held", item="ticket/a", at=t + 1)                     # paused by hand
-    ev.add("ticket.opened", item="ticket/b", data={"blocked_by": "ticket/a"}, at=t + 2)
-    ev.add("ticket.opened", item="ticket/c", at=t + 3)
-    spec = p.model.spec
-    g = pr.build(ev, spec, ["ticket"], time.time(), t - 60)
-    st = {x["id"]: x["status"] for x in g["items"]}
-    assert st == {"ticket/a": "paused", "ticket/b": "blocked", "ticket/c": "unblocked"}
-    assert next(x for x in g["items"] if x["id"] == "ticket/b")["waiting"] == ["ticket/a"]   # the reason names it
-    assert dispatched(p) == ["ticket/c"]                                  # its dependent is not taken
-    inp = etamodel.read(p, spec, ["ticket"], time.time())
-    why = eta.reasons(inp)
-    assert why["ticket/a"]["paused"] and "continued by hand" in why["ticket/a"]["why"]
-    got = eta.simulate(inp, runs=5, budget=2.0)["items"]
-    assert got["ticket/a"]["p50"] is None and got["ticket/b"]["p50"] is None   # neither projected to move

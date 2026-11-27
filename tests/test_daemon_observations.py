@@ -17,13 +17,18 @@ CASES = """
 name: s
 projections:
   case:
-    match:
-      key: case/*
-    states: [open, met]
+    query: key.startswith('case/')
+    fields:
+      state:
+        type: one of [open, met]
     events:
-      case.met:
+      case-met:
+        when: type == 'case.met'
+        '...': data
         state: set('met')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   q:
     unit: things

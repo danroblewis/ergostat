@@ -15,19 +15,32 @@ from ergostat.store import Project
 MODEL = """
 name: t
 projections:
-  epic: {match: {key: epic/*}, states: [planned, underway, shipped]}
+  epic:
+    query: key.startswith('epic/')
+    fields:
+      state:
+        type: one of [planned, underway, shipped]
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, review, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, review, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.review:
+      ticket-review:
+        when: type == 'ticket.review'
+        '...': data
         state: set('review')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {parent: epic}
 stocks:
   review-age:

@@ -61,8 +61,16 @@ def _done_ticket(p: Project, id: str = "ticket/1") -> None:
 UNCOUNTED = """
     name: t
     projections:
-      ticket: {match: {key: ticket/*}, states: [todo, done]}
-      note: {match: {key: note/*}, states: [open, closed]}
+      ticket:
+        query: key.startswith('ticket/')
+        fields:
+          state:
+            type: one of [todo, done]
+      note:
+        query: key.startswith('note/')
+        fields:
+          state:
+            type: one of [open, closed]
     stocks:
       todo:
         sensor: {projection: ticket, state: todo, every: 3s}
@@ -75,7 +83,7 @@ UNCOUNTED = """
         run: "true"
         takes: {projection: ticket, at: todo, to: [done], where: {priority: high}}
         out: flow.done
-    """
+"""
 
 
 def test_a_kind_nothing_counts_is_empty_and_says_why_and_a_where_takes_only_some(tmp_path):

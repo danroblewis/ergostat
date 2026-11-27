@@ -14,17 +14,26 @@ from ergostat.store import Project
 MODEL = """
 projections:
   gap:
-    match:
-      key: gap/*
-    states: [open, building, merged]
+    query: key.startswith('gap/')
+    fields:
+      state:
+        type: one of [open, building, merged]
     events:
-      gap.opened:
+      gap-opened:
+        when: type == 'gap.opened'
+        '...': data
         state: set('open')
-      gap.started:
+      gap-started:
+        when: type == 'gap.started'
+        '...': data
         state: set('building')
-      gap.merged:
+      gap-merged:
+        when: type == 'gap.merged'
+        '...': data
         state: set('merged')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       depends_on: gap
       parent: gap
@@ -90,23 +99,35 @@ TWO = """
 name: t
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [ready, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [ready, doing, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   part:
-    match:
-      key: part/*
-    states: [ready, made]
+    query: key.startswith('part/')
+    fields:
+      state:
+        type: one of [ready, made]
     events:
-      part.made:
+      part-made:
+        when: type == 'part.made'
+        '...': data
         state: set('made')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 blocks:
   first:
     type: program

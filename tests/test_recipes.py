@@ -30,33 +30,50 @@ systems:
     description: the shop
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [open, building, done, dropped]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [open, building, done, dropped]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('building')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-      ticket.dropped:
+      ticket-dropped:
+        when: type == 'ticket.dropped'
+        '...': data
         state: set('dropped')
-      ticket.reopened:
+      ticket-reopened:
+        when: type == 'ticket.reopened'
+        '...': data
         state: set('open')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     system: shop
   session:
-    match:
-      key: session/*
-    states: [open, done, failed]
+    query: key.startswith('session/')
+    fields:
+      state:
+        type: one of [open, done, failed]
+      messages: {fold: append}
+      tool_calls: {fold: append}
     events:
-      "*":
-        messages: append(data.messages)
-        tool_calls: append(data.tool_calls)
-      session.ran:
+      session-ran:
+        when: type == 'session.ran'
+        '...': data
         state: set('done')
-      session.failed:
+      session-failed:
+        when: type == 'session.failed'
+        '...': data
         state: set('failed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [role, recipe, outcome]
     formats: {transcript: claude-session}
 stocks:

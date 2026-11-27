@@ -90,33 +90,51 @@ def milestone_answer(n_extra: int = 0, per: int = 6) -> dict:
 MODEL = """
 projections:
   gap:
-    match:
-      key: gap/*
-    states: [ready, building, merged]
+    query: key.startswith('gap/')
+    fields:
+      state:
+        type: one of [ready, building, merged]
     events:
-      gap.defined:
+      gap-defined:
+        when: type == 'gap.defined'
+        '...': data
         state: set('ready')
-      gap.started:
+      gap-started:
+        when: type == 'gap.started'
+        '...': data
         state: set('building')
-      gap.merged:
+      gap-merged:
+        when: type == 'gap.merged'
+        '...': data
         state: set('merged')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       depends_on: gap
       parent: gap
       milestone: {projection: milestone, group: true, precedence: false, inverse: gaps}
   milestone:
-    match:
-      key: milestone/*
-    states: [waiting, active, completed]
+    query: key.startswith('milestone/')
+    fields:
+      state:
+        type: one of [waiting, active, completed]
     events:
-      milestone.added:
+      milestone-added:
+        when: type == 'milestone.added'
+        '...': data
         state: set('waiting')
-      milestone.activated:
+      milestone-activated:
+        when: type == 'milestone.activated'
+        '...': data
         state: set('active')
-      milestone.completed:
+      milestone-completed:
+        when: type == 'milestone.completed'
+        '...': data
         state: set('completed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       depends_on: milestone
 messages:

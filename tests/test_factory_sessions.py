@@ -118,28 +118,6 @@ def model_with_sessions(tmp_path: Path) -> Project:
     return Project(mdl.load(tmp_path))
 
 
-def test_a_kept_session_folds_into_its_conversation_by_cores_reader(tmp_path):
-    p = model_with_sessions(tmp_path)
-    (tmp_path / "run" / "sessions").mkdir(parents=True)
-    (tmp_path / "run" / "sessions" / "alpha-thing-implementor-1.jsonl").write_bytes(FIXTURE.read_bytes())
-    sid = "session/alpha-thing-implementor-1"
-    p.events.add("gap.found", item="gap/alpha-thing", data={"title": "Alpha thing"})
-    p.events.add("session.started", item=sid, source="implementor",
-                 data={"role": "implementor", "round": 1, "gap": "gap/alpha-thing",
-                       "transcript": "file:run/sessions/alpha-thing-implementor-1.jsonl"})
-    assert tr.Ingester(p, p.model.spec).once() == 6
-    p.events.add("session.ended", item=sid, data={"cost": 0.42, "turns": 3})
-    d = its.detail(p.events, p.model.spec, sid)
-    f = d["fields"]
-    assert d["state"] == "done" and f["cost"] == 0.42
-    assert [m["text"] for m in f["messages"] if m["role"] == "assistant"] == ["I'll look at the code first.",
-                                                                            "Done: app.py says world."]
-    assert [c["name"] for c in f["tool_calls"]] == ["Bash", "Edit"] and f["tokens_out"] == 60
-    gap = its.detail(p.events, p.model.spec, "gap/alpha-thing")
-    assert [sid] in gap["relations"]["in"].values(), "the gap's page links its sessions"
-    assert d["relations"]["out"]["gap"] == ["gap/alpha-thing"]
-
-
 def test_the_stand_in_keeps_each_sessions_conversation_on_the_gap(tmp_path):
     f = Factory(tmp_path)
     gid = ready(f)

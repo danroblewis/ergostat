@@ -35,24 +35,36 @@ daemons:
   solo: {run: "sleep 60"}
 projections:
   epic:
-    match:
-      key: epic/*
-    states: [planned, shipped]
+    query: key.startswith('epic/')
+    fields:
+      state:
+        type: one of [planned, shipped]
     system: a
     join:
       - {children: parent, all: done, to: shipped}
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, done]
     system: b
     events:
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {parent: epic}
-  job: {match: {key: job/*}, states: [new, done], system: a}
-  loose: {match: {key: loose/*}}
+  job:
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [new, done]
+    system: a
+  loose:
+    query: key.startswith('loose/')
 stocks:
   a-q: {unit: things, system: a, sensor: {run: echo 1, every: 1h}}
   a-tank: {unit: things, system: a, sensor: {run: echo 5, every: 1h}}

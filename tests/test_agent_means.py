@@ -29,9 +29,10 @@ goals:
   inner-low: {stock: inner, hold: "<= 5"}
 projections:
   request:
-    match:
-      key: request/*
-    states: [new, approved, denied, deferred]
+    query: key.startswith('request/')
+    fields:
+      state:
+        type: one of [new, approved, denied, deferred]
 agents:
   approver: {kind: decision}
   picker: {kind: decision}

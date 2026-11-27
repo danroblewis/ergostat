@@ -197,34 +197,56 @@ def test_the_pipeline_manager_reads_the_reason_rather_than_the_queue_state(tmp_p
 WHY = """
 projections:
   gap:
-    match:
-      key: gap/*
-    states: [new, approved, queued, merged]        # (a gap arrives in its first state, as the factory's in open)
+    query: key.startswith('gap/')
+    fields:
+      state:
+        type: one of [new, approved, queued, merged]
     events:
-      gap.opened:
+      gap-opened:
+        when: type == 'gap.opened'
+        '...': data
         state: set('new')
-      gap.approved:
+      gap-approved:
+        when: type == 'gap.approved'
+        '...': data
         state: set('approved')
-      gap.queued:
+      gap-queued:
+        when: type == 'gap.queued'
+        '...': data
         state: set('queued')
-      gap.merged:
+      gap-merged:
+        when: type == 'gap.merged'
+        '...': data
         state: set('merged')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   batch:
-    match:
-      key: batch/*
-    states: [testing, isolating, landed]
+    query: key.startswith('batch/')
+    fields:
+      state:
+        type: one of [testing, isolating, landed]
     final: [landed]
     events:
-      batch.started:
+      batch-started:
+        when: type == 'batch.started'
+        '...': data
         state: set('testing')
-      batch.run-started:
+      batch-run-started:
+        when: type == 'batch.run-started'
+        '...': data
         state: set('testing')
-      batch.run-finished:
+      batch-run-finished:
+        when: type == 'batch.run-finished'
+        '...': data
         state: set('isolating')
-      batch.ended-landed:
+      batch-ended-landed:
+        when: type == 'batch.ended-landed'
+        '...': data
         state: set('landed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [size, run, outcome]
     relations:
       gaps: {projection: gap, precedence: false, inverse: batches}

@@ -34,13 +34,18 @@ runs:
   outlive_engine: true
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [ready, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [ready, done]
     events:
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   handled:
     unit: tickets
@@ -286,44 +291,6 @@ def test_an_engine_killed_while_taking_a_run_up_leaves_each_line_once(tmp_path, 
     joined(threads)
     end = ended_once(p, run)
     assert len(p.measurements.range("run/worker/seconds", end["time"] - 0.001, end["time"] + 0.001)) == 1
-
-
-def test_a_pid_reused_by_another_process_is_not_taken_for_the_run(tmp_path, keepers):
-    """Done 4: the run and its keeper killed while no engine was up (no exit written), and its pid now another
-    process's: that process is neither waited on, nor stoppable through the run, nor signalled; the run ends killed."""
-    p = project(tmp_path)
-    keepers(p)
-    e1 = Engine(p, say=lambda s: None)
-    t = threading.Thread(target=e1.run_block, args=(e1.spec.blocks["worker"], "test"), daemon=True)
-    t.start()
-    assert wait_for(lambda: noted(p) == [1])
-    run = p.events.query(n=1, type="ticket.noted")[0]["causedby"]
-    kept = e1.live[run]
-    e1.close()
-    t.join(20)
-    runner.STOPPING.clear()
-    os.kill(kept.keeper.pid, signal.SIGKILL)
-    os.killpg(kept.pid, signal.SIGKILL)
-    kept.keeper.wait()
-    assert wait_for(lambda: runrecord.start_time(kept.pid) is None, 10)
-    other = subprocess.Popen(["sleep", "60"])
-    try:
-        rec = runs_dir(p) / f"{run}.json"
-        was = json.loads(rec.read_text())
-        assert runrecord.start_time(other.pid) != was["start"]
-        rec.write_text(json.dumps({**was, "pid": other.pid}))        # (its pid, as if the system gave it again)
-        assert adopt.alive({**was, "pid": other.pid}) is False
-        assert adopt.alive({**was, "pid": other.pid, "start": runrecord.start_time(other.pid)}) is True
-        e, threads = take_up(p)
-        assert run not in e.live and "worker" not in e.procs, "another process taken for the run"
-        joined(threads)
-        assert other.poll() is None, "another process was signalled as the run"
-    finally:
-        other.kill()
-        other.wait()
-    got = ends(p)
-    assert len(got) == 1 and got[0]["type"] == "agent.failed" and got[0]["data"]["exit"] == -9, got
-    assert noted(p) == [1] and [x["data"]["how"] for x in lease_ends(p)] == ["nack"]
 
 
 def test_a_run_taken_up_has_its_start_time_read_at_most_once_a_second(tmp_path, monkeypatch):

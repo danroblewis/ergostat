@@ -89,7 +89,7 @@ def test_the_factory_model_declares_milestones():
 
 
 def test_a_final_state_must_be_one_of_its_states(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("name: t\nprojections:\n  x:\n    match: {key: x/*}\n    states: [a, b]\n    final: [c]\n")
+    (tmp_path / "ergostat.yaml").write_text("name: t\nprojections:\n  x:\n    query: key.startswith('x/')\n    fields:\n      state:\n        type: one of [a, b]\n    final: [c]\n")
     _, problems = read(tmp_path / "ergostat.yaml")
     assert [p.code for p in problems if p.level == "error"] == ["bad-final"]
 

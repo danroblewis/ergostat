@@ -21,19 +21,30 @@ BASE = """
 name: coh
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [new, doing, review, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [new, doing, review, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.submitted:
+      ticket-submitted:
+        when: type == 'ticket.submitted'
+        '...': data
         state: set('review')
-      ticket.merged:
+      ticket-merged:
+        when: type == 'ticket.merged'
+        '...': data
         state: set('done')
-      ticket.reopened:
+      ticket-reopened:
+        when: type == 'ticket.reopened'
+        '...': data
         state: set('doing')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   new: {unit: tickets, sensor: {projection: ticket, state: new}}
   doing: {unit: tickets, sensor: {projection: ticket, state: doing}}

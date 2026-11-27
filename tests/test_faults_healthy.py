@@ -24,13 +24,18 @@ BODY = """
 name: t
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [ready, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [ready, doing, done]
     events:
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   up:
     unit: flag

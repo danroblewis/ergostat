@@ -19,16 +19,20 @@ MODEL = """
 name: t
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [open, triaged]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [open, triaged]
     events:
-      ticket.triaged:
+      ticket-triaged:
+        when: type == 'ticket.triaged'
+        '...': data
         state: set('triaged')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   note:
-    match:
-      key: note/*
+    query: key.startswith('note/')
 blocks:
   triage:
     type: program
@@ -191,15 +195,22 @@ RELAYED = """
 name: relayed
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [open, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [open, done]
     events:
-      ticket.reopened:
+      ticket-reopened:
+        when: type == 'ticket.reopened'
+        '...': data
         state: set('open')
-      ticket.closed:
+      ticket-closed:
+        when: type == 'ticket.closed'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 blocks:{blocks}
   relay:
     type: program

@@ -171,10 +171,8 @@ def kinds_key(spec) -> tuple:
                   *((("if-unchanged", tuple(k.if_unchanged)),) if getattr(k, "if_unchanged", None) else ()),
                   *((("final", tuple(sorted(k.final))),) if getattr(k, "final", None) else ()),
                   *((("bounds", tuple(sorted(k.bounds.items()))),) if getattr(k, "bounds", None) else ()),
-                  *((("handlers", repr(sorted(getattr(k, "match", None).items(), key=str)),
-                      tuple(v.text for v in k.key or ()), k.otherwise,
-                      tuple((t, tuple((f, repr(v.text)) for f, v in h.items())) for t, h in (k.handlers or {}).items()),
-                      getattr(spec, "functions_hash", "")),) if getattr(k, "match", None) is not None else ()))
+                  *((("handlers", repr(k.definition()), getattr(spec, "functions_hash", "")),)
+                    if getattr(k, "handlers", None) is not None else ()))
                  for k in (getattr(spec, "items", None) or {}).values())
 
 
@@ -408,9 +406,10 @@ class Index:
     def routes(self, e: dict) -> list[tuple]:
         """Every (projection, item) event ``e`` folds into (``items.routes``); for a model whose projections all read
         their events by item id alone, by the id's projections, kept."""
-        if self.kinds and all(k.match is None for k in self.kinds.values()):
+        if self.kinds and all(k.query is None and k.by_item for k in self.kinds.values()):
             item = e.get("item")
-            return [(k, item) for k in self.kinds_of(item)] if isinstance(item, str) and "/" in item else []
+            return [(k, item) for k in self.kinds_of(item) if k is None or k.handlers is None or k.keys_of(e)] \
+                if isinstance(item, str) and "/" in item else []
         return routes(self.spec, e) if self.kinds else ([(None, e["item"])] if "/" in str(e.get("item") or "") else [])
 
     def tables(self) -> list[str]:

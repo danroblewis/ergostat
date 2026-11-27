@@ -2429,33 +2429,51 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "match": {
-          "description": "Which events it reads: a path into the event (type, key, source, time, data.a.b) to the value it must hold, or a glob with * (type: mission.*); every entry must hold. When absent: {key: its system's chain from the top level, its name, then *} (factory/intake/ticket/*)",
-          "type": "object",
-          "propertyNames": {"pattern": "^(type|key|item|source|time|data(\\..+)?)$"}
+        "query": {
+          "description": "Which events it reads: an expression of the event (type, key, source, time, data.a.b; data.source == 'aws.ec2' and not data.detail.eventName.startswith('Describe')). When absent: the events whose item matches its system's chain from the top level, its name, then * (factory/intake/ticket/*)",
+          "type": "string"
         },
         "key": {
-          "description": "The item each event belongs to: an expression (key, the event's own item; data.account), or a list of them, joined by / (a composite key). Default: key",
+          "description": "The object each event belongs to: an expression (key, the event's own item; data.account), or a list of them, joined by / (a composite key); each(LIST, 'field') in a part applies one event to several objects. Default: key",
           "oneOf": [
             {"type": "string"},
             {"type": "array", "items": {"type": "string"}, "minItems": 1}
           ]
         },
-        "events": {
-          "description": "One handler per event type (or \"*\": every event it reads, before the type's own): field: an expression saying how the event changes it (SPEC section 5a). state: set('done') moves the item; data.reason sets a field from the event; add(1), append(data.reason, 20), union(data.member), remove(x), min, max, merge, first, unset(), count(), mean, variance, stdev, rms fold it; the model's own functions: too. \"...\": an object whose fields each set the item's (pick, omit, rename). A YAML number, boolean or null is a constant; text is quoted inside the expression.",
+        "time": {
+          "description": "The event's own time, an expression (data.time: seconds or ISO 8601); the fold is by it. Default: the recorded time",
+          "type": "string"
+        },
+        "fields": {
+          "description": "What an object is: each field's type (text, number, integer, boolean, time, duration, map, list of T, one of [a, b]; the field state, a one of, is its lifecycle), fold (replace, first, add, min, max, append, append(N), union, merge, count, mean, variance, stdev, rms, or a model's own function) and description. A type alone, or nothing (any value, replace), is allowed.",
           "type": "object",
           "additionalProperties": {
-            "type": "object"
+            "anyOf": [
+              {"type": "null"},
+              {"type": "string"},
+              {"type": "array", "items": {"type": "string"}},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}, {"type": "object"}]},
+                  "fold": {"type": "string"},
+                  "description": {"type": "string"}
+                }
+              }
+            ]
           }
         },
-        "otherwise": {
-          "description": "An event type with no handler: merge its data into the item (default), ignore it, or rest (every event's data that no handler names is merged in)",
-          "enum": ["merge", "ignore", "rest"]
-        },
-        "states": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/name"
+        "events": {
+          "description": "Its kinds of event, named by you (SPEC section 5a): each a when: (an expression of the event, or true; the first kind whose when holds takes an event), an optional key: of its own, and field: an expression giving the value it tells (folded by the field's rule; a fold call, set(...) or add(...), is this kind's own rule). Only declared fields; \"...\": an object whose fields each fold into the object's (pick, omit, rename). Events no kind takes are the remainder.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["when"],
+            "properties": {
+              "when": {"anyOf": [{"type": "string"}, {"type": "boolean"}]},
+              "key": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}, "minItems": 1}]}
+            }
           }
         },
         "show": {

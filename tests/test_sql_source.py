@@ -66,21 +66,32 @@ def p(tmp_path):
           queue: {unit: tickets}
         projections:
           ticket:
-            match:
-              key: ticket/*
-            states: [open, doing, done, dropped]
+            query: key.startswith('ticket/')
+            fields:
+              state:
+                type: one of [open, doing, done, dropped]
             events:
-              ticket.started:
+              ticket-started:
+                when: type == 'ticket.started'
+                '...': data
                 state: set('doing')
-              ticket.back:
+              ticket-back:
+                when: type == 'ticket.back'
+                '...': data
                 state: set('open')
-              ticket.done:
+              ticket-done:
+                when: type == 'ticket.done'
+                '...': data
                 state: set('done')
-              ticket.dropped:
+              ticket-dropped:
+                when: type == 'ticket.dropped'
+                '...': data
                 state: set('dropped')
-            otherwise: rest
+              other:
+                when: true
+                '...': data
             show: [owner, size]
-        """))
+"""))
     p = Project(mdl.load(tmp_path))
     for item, type_, at, data in EVENTS:
         p.events.add(type_, item=item, data=data, at=T + at)

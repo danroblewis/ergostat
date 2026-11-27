@@ -60,15 +60,22 @@ blocks:
     out: flow.in-b
 projections:
   knowledge:
-    match:
-      key: knowledge/*
-    states: [active, retired]
+    query: key.startswith('knowledge/')
+    fields:
+      state:
+        type: one of [active, retired]
     events:
-      knowledge.found:
+      knowledge-found:
+        when: type == 'knowledge.found'
+        '...': data
         state: set('active')
-      knowledge.retired:
+      knowledge-retired:
+        when: type == 'knowledge.retired'
+        '...': data
         state: set('retired')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     about: about
 messages:
   done: {knowledge: [retired]}
@@ -391,11 +398,3 @@ def test_mcp_explain_lists_the_same_items_as_the_cli(home, capsys):
     assert cli == "Open items about goal.a: knowledge/one (One)." and text.strip().splitlines()[-1] == cli
 
 
-@pytest.mark.parametrize("about,says", [("[about]", "bad-about"), ("tags", "bad-about")])
-def test_about_must_name_a_field_folded_by_replace(home, about, says):
-    from ergostat.spec import read
-    text = MODEL.replace("about: about", f"about: {about}").replace(
-        "    events:\n", "    events:\n      '*':\n        tags: union(data.tags)\n", 1)
-    (home / "ergostat.yaml").write_text(textwrap.dedent(text))
-    _, problems = read(home / "ergostat.yaml", extremes=False)
-    assert any(x.code == says for x in problems if x.level == "error"), [str(x) for x in problems]

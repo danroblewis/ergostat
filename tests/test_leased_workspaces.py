@@ -26,15 +26,22 @@ MODEL = """
 name: t
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [open, review, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [open, review, done]
     events:
-      ticket.review:
+      ticket-review:
+        when: type == 'ticket.review'
+        '...': data
         state: set('review')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title]
 stocks:
   open-tickets:

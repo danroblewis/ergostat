@@ -17,15 +17,22 @@ MODEL = """
 name: t
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [open, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [open, done]
     events:
-      ticket.reopened:
+      ticket-reopened:
+        when: type == 'ticket.reopened'
+        '...': data
         state: set('open')
-      ticket.closed:
+      ticket-closed:
+        when: type == 'ticket.closed'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 blocks:
   triage:
     type: program
@@ -101,15 +108,22 @@ FANNED = """
 name: fanned
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [open, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [open, done]
     events:
-      ticket.reopened:
+      ticket-reopened:
+        when: type == 'ticket.reopened'
+        '...': data
         state: set('open')
-      ticket.closed:
+      ticket-closed:
+        when: type == 'ticket.closed'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 blocks:
   poke:
     type: program

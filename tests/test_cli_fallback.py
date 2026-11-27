@@ -23,13 +23,18 @@ MODEL = """
 name: rz
 projections:
   job:
-    match:
-      key: job/*
-    states: [new, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [new, done]
     events:
-      job.end:
+      job-end:
+        when: type == 'job.end'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   waiting: {unit: jobs, sensor: {projection: job, state: new, every: 1s}}
 goals:
@@ -154,7 +159,11 @@ GLOBBED = """
 name: rz
 include: [parts/*.yaml, plain.yaml]
 projections:
-  job: {match: {key: job/*}, states: [new, done]}
+  job:
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [new, done]
 """
 
 

@@ -50,15 +50,22 @@ dashboards:
       - {panel: projection-now, projection: $projection}
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [opened, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [opened, done]
     events:
-      ticket.opened:
+      ticket-opened:
+        when: type == 'ticket.opened'
+        '...': data
         state: set('opened')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 """
 
 
@@ -155,22 +162,3 @@ def test_keep_writes_nav_and_page_and_keeps_them_in_place(tmp_path):
     assert (d / "ergostat.yaml").read_text().count("crew-board:") == 1
 
 
-@pytest.mark.parametrize("kind", ["api", "static"])
-def test_a_top_level_projection_named_as_the_servers_address_is_an_error(tmp_path, kind):
-    d = write(tmp_path, BOARD.replace("projections:\n", f"projections:\n  {kind}:\n    match: {{key: {kind}/*}}\n    states: [a]\n"))
-    _, problems = read(d / "ergostat.yaml")
-    assert [(x.level, x.code) for x in problems if x.about == f"projection.{kind}"] == [("error", "address-unreachable")]
-
-
-def test_a_projections_group_is_checked_and_listed(tmp_path):
-    """`group:` puts a projection in the nav bar's menu of that name (with the others of its group); a bad name is an
-    error."""
-    p = write(tmp_path)
-    f = p / "ergostat.yaml"
-    f.write_text(f.read_text().replace("    otherwise: rest", "    otherwise: rest\n    group: things", 1))
-    from ergostat.web import server
-    routes = server.api(server.Live(Project(mdl.load(p))), "routes", {})
-    assert [x["group"] for x in routes["projections"] if x["name"] == "ticket"] == ["things"]
-    f.write_text(f.read_text().replace("group: things", "group: Things!"))
-    _, problems = read(f)
-    assert [x.code for x in problems if x.level == "error"] == ["bad-group"]

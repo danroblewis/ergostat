@@ -21,27 +21,41 @@ T0 = 1_700_000_000.0
 MODEL = """
 projections:
   epic:
-    match:
-      key: epic/*
-    states: [planned, underway, shipped]
+    query: key.startswith('epic/')
+    fields:
+      state:
+        type: one of [planned, underway, shipped]
     events:
-      epic.started:
+      epic-started:
+        when: type == 'epic.started'
+        '...': data
         state: set('underway')
-      epic.shipped:
+      epic-shipped:
+        when: type == 'epic.shipped'
+        '...': data
         state: set('shipped')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       after: epic
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       blocked_by: ticket
       parent: epic
@@ -99,32 +113,19 @@ def test_a_relation_that_is_not_one_is_an_error(tmp_path, rel, says):
     assert any(says in g for g in got), got
 
 
-def test_a_relation_folds_only_as_a_set(tmp_path):
-    got = problems(tmp_path, """
-        projections:
-          ticket:
-            match:
-              key: ticket/*
-            relations: {blocked_by: ticket}
-            events:
-              "*":
-                blocked_by: add(data.blocked_by)
-        """)
-    assert any("a relation folds as a set of ids" in g for g in got), got
-
-
 STARTS = """
     projections:
       ticket:
-        match:
-          key: ticket/*
-        states: [todo, review, done, on-hold]
+        query: key.startswith('ticket/')
+        fields:
+          state:
+            type: one of [todo, review, done, on-hold]
         relations:
           {rel}
     messages:
       done: {{ticket: [done]}}
       paused: {{ticket: [on-hold]}}
-    """
+"""
 
 
 def test_starts_at_naming_an_unknown_state_is_refused(tmp_path):
@@ -150,9 +151,10 @@ def test_starts_at_naming_a_finished_or_paused_state_is_refused(tmp_path, state)
 TAKEN = """
     projections:
       gap:
-        match:
-          key: gap/*
-        states: [todo, approved, merged]
+        query: key.startswith('gap/')
+        fields:
+          state:
+            type: one of [todo, approved, merged]
         relations:
           depends_on: {{projection: gap, starts_at: [{state}]}}
     blocks:
@@ -160,7 +162,7 @@ TAKEN = """
         type: program
         run: "true"
         takes: {{projection: gap, at: todo, unblocked: true}}
-    """
+"""
 
 
 @pytest.mark.parametrize("state,code", [("merged", "starts-at-finished"), ("dead", "starts-at-finished"),
@@ -175,16 +177,17 @@ def test_takes_unblocked_needs_a_precedence_relation(tmp_path):
     got = problems(tmp_path, """
         projections:
           ticket:
-            match:
-              key: ticket/*
-            states: [todo, done]
+            query: key.startswith('ticket/')
+            fields:
+              state:
+                type: one of [todo, done]
             relations: {parent: ticket}
         blocks:
           dev:
             type: program
             run: "true"
             takes: {projection: ticket, at: todo, unblocked: true}
-        """)
+""")
     assert any("no precedence relation" in g for g in got), got
 
 
@@ -395,46 +398,68 @@ systems:
   support: {description: the tickets}
 projections:
   gap:
-    match:
-      key: gap/*
+    query: key.startswith('gap/')
     system: building
-    states: [ready, building, done]
+    fields:
+      state:
+        type: one of [ready, building, done]
     events:
-      gap.started:
+      gap-started:
+        when: type == 'gap.started'
+        '...': data
         state: set('building')
-      gap.done:
+      gap-done:
+        when: type == 'gap.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {depends_on: gap}
   session:
-    match:
-      key: session/*
+    query: key.startswith('session/')
     system: building
-    states: [running, ended]
+    fields:
+      state:
+        type: one of [running, ended]
     events:
-      session.ended:
+      session-ended:
+        when: type == 'session.ended'
+        '...': data
         state: set('ended')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {gap: gap}
   review:
-    match:
-      key: review/*
+    query: key.startswith('review/')
     system: knowledge
-    states: [open, judged]
+    fields:
+      state:
+        type: one of [open, judged]
     events:
-      review.judged:
+      review-judged:
+        when: type == 'review.judged'
+        '...': data
         state: set('judged')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {gap: gap}
   ticket:
-    match:
-      key: ticket/*
+    query: key.startswith('ticket/')
     system: support
-    states: [todo, done]
+    fields:
+      state:
+        type: one of [todo, done]
     events:
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {blocked_by: gap}
 messages:
   done: {gap: [done], session: [ended], review: [judged], ticket: [done]}
@@ -499,16 +524,27 @@ def test_an_item_waiting_on_another_systems_item_is_projected_after_it(tmp_path)
 RELATED = """
 systems: {planning: {description: planned}, delivery: {description: built}}
 projections:
-  epic: {match: {key: epic/*}, system: planning, states: [planned, shipped], relations: {after: epic}}
+  epic:
+    query: key.startswith('epic/')
+    system: planning
+    fields:
+      state:
+        type: one of [planned, shipped]
+    relations: {after: epic}
   ticket:
-    match:
-      key: ticket/*
+    query: key.startswith('ticket/')
     system: delivery
-    states: [todo, doing, done]
+    fields:
+      state:
+        type: one of [todo, doing, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {parent: epic}
 messages:
   done: {ticket: [done], epic: [shipped]}

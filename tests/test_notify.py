@@ -23,16 +23,22 @@ name: n
 storage: {{events: {backend}}}
 projections:
   job:
-    match:
-      key: job/*
-    states: [ready, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [ready, done]
     events:
-      job.arrived:
+      job-arrived:
+        when: type == 'job.arrived'
+        '...': data
         state: set('ready')
-      job.done:
+      job-done:
+        when: type == 'job.done'
+        '...': data
         state: set('done')
-    otherwise: rest
-"""
+      other:
+        when: true
+        '...': data"""
 
 TAKES = KIND + """
 stocks:

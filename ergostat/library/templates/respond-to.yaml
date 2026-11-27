@@ -90,14 +90,19 @@ params:
     description: what a person is asked when the commitment is missed; false for nobody
 projections:
   ${projection}:
-    match:
-      key: ${projection}/*
+    query: key.startswith('${projection}/')
     description: an item that arrived and wants an answer
-    states: [waiting, leased, answered, dead]
+    fields:
+      state:
+        type: one of [waiting, leased, answered, dead]
     events:
-      ${projection}.answered:
+      answered:
+        when: type == '${projection}.answered'
+        '...': data
         state: set('answered')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title, from, result]
 stocks:
   waiting:

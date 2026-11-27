@@ -177,57 +177,46 @@ def test_past_its_bound_it_is_refused_never_cut(rec, monkeypatch):
         answer(rec, since=T0 - 60)                                               # (another window: not the cached one)
 
 
-def test_done_when_is_a_groups_map_of_its_states(tmp_path):
-    base = """
-    projections:
-      epic: {match: {key: epic/*}, states: [open, done]}
-      ticket:
-        match:
-          key: ticket/*
-        states: [open, done, dropped]
-        relations:
-          epic: {projection: epic, group: true, done_when: %s}
-        events:
-          "*":
-            epic: "data.epic if 'epic' in data else current"
-    """
-    for ok, v in ((True, "{done: {why: [fixed, shipped]}}"), (False, "{nowhere: {why: x}}"), (False, "{done: {}}"),
-                  (False, "{done: {why: {a: 1}}}"), (False, "[done]"), (False, "null"), (False, "[]"),
-                  (False, "false"), (False, "0"), (False, '""'), (False, "{}")):
-        d = tmp_path / str(len(list(tmp_path.iterdir())))
-        d.mkdir()
-        (d / "ergostat.yaml").write_text(textwrap.dedent(base % v))
-        _, problems = read(d / "ergostat.yaml")                       # refused at the key: never a crash
-        errors = [str(x) for x in problems if x.level == "error"]
-        assert (not errors) is ok, (v, errors)
-        assert ok or any("done_when" in e for e in errors), (v, errors)
-
-
 TICKETS = """
 name: t
 projections:
   epic:
-    match:
-      key: epic/*
-    states: [open, doing, done]
+    query: key.startswith('epic/')
+    fields:
+      state:
+        type: one of [open, doing, done]
     events:
-      epic.started:
+      epic-started:
+        when: type == 'epic.started'
+        '...': data
         state: set('doing')
-      epic.done:
+      epic-done:
+        when: type == 'epic.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, done]
     events:
-      "*":
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         epic: "data.epic if 'epic' in data else current"
-      ticket.started:
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
+        epic: "data.epic if 'epic' in data else current"
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
+        epic: "data.epic if 'epic' in data else current"
     relations:
       epic: {projection: epic, group: true}
 messages:

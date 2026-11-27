@@ -25,15 +25,22 @@ FINDINGS = """
 name: s
 projections:
   finding:
-    match:
-      key: finding/*
-    states: [new, kept]
+    query: key.startswith('finding/')
+    fields:
+      state:
+        type: one of [new, kept]
     events:
-      finding.found:
+      finding-found:
+        when: type == 'finding.found'
+        '...': data
         state: set('new')
-      finding.kept:
+      finding-kept:
+        when: type == 'finding.kept'
+        '...': data
         state: set('kept')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   found:
     unit: findings
@@ -234,15 +241,22 @@ LEASED = """
 name: t
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [ready, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [ready, doing, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 blocks:
   worker:
     type: program

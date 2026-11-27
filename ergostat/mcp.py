@@ -109,7 +109,7 @@ TOOLS = [
      "inputSchema": _obj({"projection": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
                           "n": {"type": "integer"}})},
     {"name": "projection_try", "description": "Try a projection before writing it (SPEC §5a, Trying a projection): yaml is "
-     "its body (match:, key:, states:, events:...) or projections: {NAME: ...}; it is compiled with the model and folded "
+     "its body (query:, key:, fields:, events:...) or projections: {NAME: ...}; it is compiled with the model and folded "
      "in memory over the record (since/until: 7d or epoch seconds; limit: the newest N) or over events given, and a small "
      "report comes back instead of the events: matched by handler, not read / no key / unchanged grouped by shape (the "
      "event type and the data paths that tell them apart, a trimmed sample each), refused by reason, items, each field's "

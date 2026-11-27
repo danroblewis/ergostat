@@ -33,13 +33,15 @@ from .jsonpatch import apply, pointer
 
 NAMES = ("data", "time", "type", "key", "source", "current")          # what an expression may name
 CONSTS = {"true": True, "false": False, "null": None, "True": True, "False": False, "None": None}
-OTHERWISE = ("merge", "ignore", "rest")
-MATCH_PATHS = ("type", "key", "item", "source", "time")              # and data.a.b
 POW_MOST = 1000                                                      # the largest exponent ** takes
 
 
 class BadExpr(ValueError):
-    """An expression that does not parse, or uses what is not allowed."""
+    """An expression that does not parse, or uses what is not allowed (``code``: the check's code)."""
+
+    def __init__(self, msg: str, code: str = "bad-expression"):
+        super().__init__(msg)
+        self.code = code
 
 
 class _Keep:
@@ -160,11 +162,37 @@ def _rename(obj, **names):
     return {names.get(k, k): copy.deepcopy(v) for k, v in o.items()} if obj is not None else None
 
 
-HELPERS = {"pick": _pick, "omit": _omit, "rename": _rename}   # plain functions of an object, usable anywhere (a spread's)
+def _glob(x, pattern):
+    return isinstance(x, str) and isinstance(pattern, str) and fnmatch.fnmatchcase(x, pattern)
+
+
+class Each(list):
+    """``each(LIST, 'field')`` in a key: the values that name the objects one event applies to (one event, several)."""
+
+
+def _each(lst, field=None):
+    if lst is None:
+        return Each()
+    lst = lst if isinstance(lst, list) else [lst]
+    return Each([x.get(field) if isinstance(x, dict) else None for x in lst] if field is not None else lst)
+
+
+def _pairs(obj, k="key", v="value"):
+    """A list of {key, value} objects as one object (AWS's tags: ``pairs(data.tagSet.items, 'key', 'value')``)."""
+    if obj is None:
+        return None
+    if not isinstance(obj, list):
+        raise PatchError(f"pairs takes a list, not {type(obj).__name__}")
+    return {str(x.get(k)): copy.deepcopy(x.get(v)) for x in obj if isinstance(x, dict) and x.get(k) is not None}
+
+
+HELPERS = {"pick": _pick, "omit": _omit, "rename": _rename, "glob": _glob, "pairs": _pairs}   # plain functions,
+#                                                                                   usable anywhere (a spread's too)
 SPREAD = "..."                         # a handler's key whose object's fields each set the item's field of that name
 ARITY = {"set": (1, 1), "add": (1, 1), "min": (1, 1), "max": (1, 1), "append": (1, 2), "union": (1, 1), "remove": (1, 1),
          "merge": (1, 1), "first": (1, 1), "unset": (0, 0), "count": (0, 1), "mean": (1, 1), "variance": (1, 1),
-         "stdev": (1, 1), "rms": (1, 1)}
+         "stdev": (1, 1), "rms": (1, 1), "each": (1, 2)}
+METHODS = ("startswith", "endswith", "lower", "upper", "strip", "split", "replace", "get")   # called on a value
 
 
 # ---- the model's own functions
@@ -235,8 +263,8 @@ class Value:
 
     def __init__(self, text, literal=None, tree=None):
         self.text, self.literal, self.tree = text, literal, tree
-        self.call = tree.func.id if isinstance(tree, ast.Call) and tree.func.id not in HELPERS else None   # its fold
-        #                                                                                    function, at the top
+        self.call = tree.func.id if isinstance(tree, ast.Call) and isinstance(tree.func, ast.Name) and \
+            tree.func.id not in HELPERS and tree.func.id != "each" else None   # its fold function, at the top
 
     def __repr__(self):
         return f"Value({self.text!r})"
@@ -292,9 +320,20 @@ def _check(n, fns: dict, names, top: bool = False) -> None:
             raise BadExpr("comparisons are == != < <= > >= in, not in")
         for v in (n.left, *n.comparators):
             _check(v, fns, names)
+    elif isinstance(n, (ast.List, ast.Tuple)):
+        if len(n.elts) > 1000:
+            raise BadExpr("a list of at most 1000 values")
+        for v in n.elts:
+            _check(v, fns, names)
     elif isinstance(n, ast.IfExp):
         for v in (n.test, n.body, n.orelse):
             _check(v, fns, names)
+    elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
+        if n.func.attr not in METHODS or n.keywords or any(isinstance(a, ast.Starred) for a in n.args):
+            raise BadExpr(f".{n.func.attr}(): the methods a value has are {', '.join(METHODS)}")
+        _check(n.func.value, fns, names)
+        for a in n.args:
+            _check(a, fns, names)
     elif isinstance(n, ast.Call):
         if not isinstance(n.func, ast.Name):
             raise BadExpr("only fold functions are called, by name: add(1), append(data.reason, 20)")
@@ -311,8 +350,9 @@ def _check(n, fns: dict, names, top: bool = False) -> None:
             return
         if name not in fns:
             raise BadExpr(f"{name}() is not a fold function (built in: {', '.join(BUILTINS)}"
-                          + (f"; the model's: {', '.join(sorted(set(fns) - set(BUILTINS)))}" if set(fns) - set(BUILTINS) else "")
-                          + ")")
+                          + (f"; the model's: {', '.join(sorted(set(fns) - set(BUILTINS) - {'each'}))}"
+                             if set(fns) - set(BUILTINS) - {"each"} else "")
+                          + ("; each() is for a key" if name == "each" else "") + ")", "unknown-function")
         if n.keywords or any(isinstance(a, ast.Starred) for a in n.args):
             raise BadExpr(f"{name}(): arguments are given in order, without names or *")
         if name in AGGREGATES and not top:
@@ -374,11 +414,25 @@ def _ev(n, env: dict):
                 return False
             left = right
         return True
+    if isinstance(n, (ast.List, ast.Tuple)):
+        return [_ev(x, env) for x in n.elts]
     if isinstance(n, ast.IfExp):
         return _ev(n.body, env) if _ev(n.test, env) else _ev(n.orelse, env)
+    if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
+        obj = _ev(n.func.value, env)
+        args = [_ev(a, env) for a in n.args]
+        m = n.func.attr
+        try:
+            if m == "get":
+                return obj.get(*args) if isinstance(obj, dict) else None
+            return getattr(obj, m)(*args) if isinstance(obj, str) else None
+        except (TypeError, ValueError):
+            return None
     if isinstance(n, ast.Call):
         name = n.func.id
         args = [_ev(a, env) for a in n.args]
+        if name == "each":
+            return _each(*args)
         if name in HELPERS:
             return HELPERS[name](*args, **{k.arg: _ev(k.value, env) for k in n.keywords})
         fn = BUILTINS.get(name) or env["functions"][name]
@@ -414,60 +468,50 @@ def evaluate(v: Value, env: dict):
 
 
 # ---- events: what a projection reads, and the item each belongs to
-
-def path_of(e: dict, path: str):
-    """``type``, ``key`` (or ``item``), ``source``, ``time``, ``data.a.b`` of an event: None when missing."""
-    if path in ("key", "item"):
-        return e.get("item")
-    if path in ("type", "source", "time"):
-        return e.get(path)
-    if path == "data" or path.startswith("data."):
-        v = e.get("data")
-        for part in path.split(".")[1:]:
-            if not isinstance(v, dict):
-                return None
-            v = v.get(part)
-        return v
-    return None
+def env_of(e: dict, kind=None) -> dict:
+    """The names an expression reads of event ``e``: ``data``, ``time`` (the event's own time when the projection
+    names it, ``time:``; else the recorded time), ``type``, ``key`` (its item), ``source``."""
+    data = e.get("data") if isinstance(e.get("data"), dict) else {}
+    return {"data": data, "time": own_time(kind, e, data), "type": e.get("type"), "key": e.get("item"),
+            "source": e.get("source")}
 
 
-def match_ok(match: dict, e: dict) -> bool:
-    """Whether every entry of ``match`` holds for ``e``: a value with ``*`` a glob over text, any other the value
-    itself. ergostat's own events (``ergostat.*``: a lease, a snapshot) are read by the key entry alone, so they reach
-    the projection whose items they are about (and none without a key entry)."""
-    own = str(e.get("type") or "").startswith("ergostat.")
-    if own and not any(p in match for p in ("key", "item")):
-        return False
-    for p, want in match.items():
-        if own and p not in ("key", "item"):
-            continue
-        have = path_of(e, p)
-        if isinstance(want, str) and any(c in want for c in "*?["):
-            if not isinstance(have, str) or not fnmatch.fnmatchcase(have, want):
-                return False
-        elif isinstance(want, list):
-            from .items import same
-            if not any(same(have, w) for w in want):
-                return False
-        else:
-            from .items import same
-            if not same(have, want):
-                return False
-    return True
+def own_time(kind, e: dict, data: dict | None = None) -> float:
+    """The event's time by the projection's ``time:`` (an expression of it, as seconds or ISO 8601 text), else the
+    recorded time."""
+    v = getattr(kind, "own_time", None) if kind is not None else None
+    if v is None:
+        return e.get("time")
+    from .fields import seconds
+    got = seconds(evaluate(v, {"data": data if data is not None else (e.get("data") or {}), "time": e.get("time"),
+                                "type": e.get("type"), "key": e.get("item"), "source": e.get("source")}))
+    return got if got is not None else e.get("time")
+
+
+def keys_from(parts: list[Value], env: dict) -> list[str]:
+    """The objects an event applies to: its key parts' values joined by ``/`` (``each(...)`` in a part: one for each
+    of its values); none when a part is missing (the event is not one of this projection's objects)."""
+    outs = [[]]
+    for p in parts:
+        v = evaluate(p, env)
+        vals = list(v) if isinstance(v, Each) else [v]
+        got = []
+        for x in vals:
+            if x is None or x == "" or isinstance(x, (dict, list)):
+                continue
+            got.append(str(x).lower() if isinstance(x, bool) else str(x))
+        if not got:
+            return []
+        outs = [o + [g] for o in outs for g in dict.fromkeys(got)]
+        if len(outs) > 1000:
+            outs = outs[:1000]
+    return ["/".join(o) for o in outs]
 
 
 def key_of(parts: list[Value], e: dict) -> str | None:
-    """The item an event belongs to: its key parts' values joined by ``/``; None when one is missing (the event is
-    not one of this projection's items)."""
-    env = {"data": e.get("data") if isinstance(e.get("data"), dict) else {}, "time": e.get("time"), "type": e.get("type"),
-           "key": e.get("item"), "source": e.get("source")}
-    out = []
-    for p in parts:
-        v = evaluate(p, env)
-        if v is None or v == "" or isinstance(v, (dict, list)):
-            return None
-        out.append(str(v).lower() if isinstance(v, bool) else str(v))
-    return "/".join(out)
+    """The first object an event belongs to (``keys_from``); None when it belongs to none."""
+    got = keys_from(parts, env_of(e))
+    return got[0] if got else None
 
 
 # ---- folding one event
@@ -507,69 +551,112 @@ def _by_rule(f: str, x, fields: dict, acc: dict, kind, rule: str):
     return tmp[f] if f in tmp else UNSET
 
 
-def apply_event(kind, it, e: dict) -> tuple[list[tuple], str | None, str | None]:
-    """One plain-data event applied to item ``it`` by projection ``kind``'s handlers: what changed
-    ``(op, path, before, after, rule)``, why it was refused (and nothing changed), and the state it moves to."""
+SEEN = "~seen"           # acc's key: the latest events' digests (an event delivered twice counts once)
+TIMES = "~t"             # acc's key: each field's event time, as last written (the fold is by event time)
+SEEN_MOST = 256          # the latest events an object remembers, to know one delivered twice
+LATEST_WINS = ("set", "replace", None)
+
+
+def _digest(e: dict) -> str:
+    return hashlib.sha1(json.dumps([e.get("type"), e.get("data")], sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def apply_event(kind, it, e: dict) -> tuple[list[tuple], str | None, str | None, str | None]:
+    """One plain-data event applied to object ``it`` by projection ``kind``: the first kind of event whose ``when:``
+    holds takes it, and its entry's values fold into their fields. What changed ``(op, path, before, after, rule)``,
+    why it was refused (and nothing changed), the state it moves to, and the kind of event that took it (None: none
+    did, the remainder). The fold is by event time: a value folded by replace (or a state) older than the field's is
+    not taken, a ``first`` older than the field's replaces it; an event the object saw already (the same type and data
+    whole) changes nothing."""
     data = e.get("data") if isinstance(e.get("data"), dict) else {}
-    env = {"data": data, "time": e.get("time"), "type": e.get("type"), "key": e.get("item"), "source": e.get("source"),
-           "functions": kind.functions or {}}
-    fields, acc = dict(it.fields), dict(it.acc)
-    own = kind.handlers.get(e.get("type") or "")
-    named: set[str] = set()
+    ek = kind.kind_of(e)
+    if ek is None:
+        return [], None, None, None
+    acc = dict(it.acc)
+    if getattr(kind, "own_time", None) is not None:  # events that carry their own time: the same type and data whole
+        h = _digest(e)                               # is the same event, delivered twice (without it, a value set,
+        seen = list(acc.get(SEEN) or [])             # cleared and set again is three events, not a repeat)
+        if h in seen:
+            return [], None, None, ek.name
+        acc[SEEN] = (seen + [h])[-SEEN_MOST:]
+    env = {**env_of(e, kind), "functions": kind.functions or {}}
+    t_own = (env["time"] if isinstance(env["time"], (int, float)) else e.get("time")) \
+        if getattr(kind, "own_time", None) is not None else None     # by event time when it names one; else in order
+    times = dict(acc.get(TIMES) or {})
+    declared = getattr(kind, "declared", None) or {}
+    fields = dict(it.fields)
     changed: dict[str, str] = {}
     to = None
     try:
-        for h in (kind.handlers.get("*"), own):
-            for f, v in sorted((h or {}).items(), key=lambda fv: fv[0] != SPREAD):    # a spread first: the rest after
-                if f == SPREAD:
-                    env["current"] = None
-                    got = evaluate_strict(v, env)
-                    if got is None:
-                        continue
-                    if not isinstance(got, dict):
-                        raise PatchError(f"...: a spread takes an object, and {v.text!r} gave "
-                                         f"{json.dumps(got, default=str)[:60]}")
-                    for k, x in got.items():
-                        named.add(k)
-                        fields[k] = copy.deepcopy(x) if isinstance(x, (dict, list)) else x
-                        changed[k] = "set"
+        for f, v in sorted(ek.fields.items(), key=lambda fv: fv[0] != SPREAD):    # a spread first: the rest after
+            if f == SPREAD:
+                env["current"] = None
+                got = evaluate_strict(v, env)
+                if got is None:
                     continue
-                named.add(f)
-                env["current"] = (to or it.state) if f == "state" else fields.get(f)
-                new, rule = value_of(kind, f, v, fields, acc, env, (kind.fold or {}).get(f) if f != "state" else None)
-                if new is KEEP:
-                    continue
-                if f == "state":
-                    if new is UNSET or new is None:
-                        continue
-                    if not isinstance(new, str) or (kind.states and new not in kind.states):
-                        raise PatchError(f"state: {json.dumps(new, default=str)[:60]} is not one of its states "
-                                         f"({', '.join(kind.states) or 'none'})")
-                    to = new
-                    continue
-                if new is UNSET:
-                    fields.pop(f, None)
-                else:
-                    fields[f] = new
-                changed[f] = rule
-        if kind.otherwise == "rest" or (kind.otherwise == "merge" and own is None):
-            for f, x in data.items():
-                if f in named:
-                    continue
-                rule = (kind.fold or {}).get(f, "replace")
-                if rule == "replace":
-                    fields[f] = copy.deepcopy(x) if isinstance(x, (dict, list)) else x
-                else:
-                    new = _by_rule(f, x, fields, acc, kind, rule)
-                    if new is UNSET:
-                        fields.pop(f, None)
+                if not isinstance(got, dict):
+                    raise PatchError(f"...: a spread takes an object, and {v.text!r} gave "
+                                     f"{json.dumps(got, default=str)[:60]}")
+                for k, x in got.items():
+                    if k in ek.fields or k == "state" and kind.states:
+                        continue                     # the entry's own value for it wins
+                    d = declared.get(k)
+                    rule = (kind.fold or {}).get(k)
+                    if d is not None and d.fold in (kind.functions or {}):     # folded by the model's own function
+                        new = kind.functions[d.fold](copy.deepcopy(fields.get(k)), x)
+                        if new is KEEP:
+                            continue
+                    elif rule and rule not in ("replace", "first"):          # folded by its declared rule
+                        if x is None:
+                            continue
+                        new = _by_rule(k, x, fields, acc, kind, rule)
                     else:
-                        fields[f] = new
-                changed[f] = rule
+                        older = t_own is not None and k in times and t_own < times[k]
+                        if rule == "first" and k in fields and not older or rule != "first" and older:
+                            continue
+                        new = copy.deepcopy(x) if isinstance(x, (dict, list)) else x
+                        times[k] = t_own
+                    if d is not None and new is not UNSET and not d.type.fits(new):
+                        raise PatchError(f"{k}: {json.dumps(new, default=str)[:60]} is not {d.type}")
+                    if new is UNSET:
+                        fields.pop(k, None)
+                    else:
+                        fields[k] = new
+                    changed[k] = rule or "set"
+                continue
+            latest = v.call in LATEST_WINS
+            first = v.call == "first"
+            older = t_own is not None and f in times and t_own < times[f]
+            if latest and older:                     # an older value than the field's: newest by event time wins
+                continue
+            env["current"] = (to or it.state) if f == "state" else (None if first and older else fields.get(f))
+            new, rule = value_of(kind, f, v, fields, acc, env, (kind.fold or {}).get(f) if f != "state" else None)
+            if new is KEEP:
+                continue
+            if latest or first:
+                times[f] = t_own
+            if f == "state":
+                if new is UNSET or new is None:
+                    continue
+                if not isinstance(new, str) or (kind.states and new not in kind.states):
+                    raise PatchError(f"state: {json.dumps(new, default=str)[:60]} is not one of its states "
+                                     f"({', '.join(kind.states) or 'none'})")
+                to = new
+                continue
+            d = declared.get(f)
+            if d is not None and new is not UNSET and not d.type.fits(new):
+                raise PatchError(f"{f}: {json.dumps(new, default=str)[:60]} is not {d.type}")
+            if new is UNSET:
+                fields.pop(f, None)
+            else:
+                fields[f] = new
+            changed[f] = rule
     except PatchError as err:
-        return [], str(err), None
+        return [], str(err), None, ek.name
     except Exception as err:                         # noqa: BLE001 - a fold never stops on one event
-        return [], f"{type(err).__name__}: {err}", None
+        return [], f"{type(err).__name__}: {err}", None, ek.name
+    if times:
+        acc[TIMES] = times
     done = []
     for f, rule in changed.items():
         had, before = f in it.fields, it.fields.get(f)
@@ -589,5 +676,45 @@ def apply_event(kind, it, e: dict) -> tuple[list[tuple], str | None, str | None]
                 it.fields.pop(f, None)
     it.acc.clear()
     it.acc.update(acc)
-    return done, None, to
+    return done, None, to, ek.name
 
+
+def key_glob(tree) -> str | None:
+    """The id glob a query reads by, when it reads by its key's prefix alone (``key.startswith('ticket/')``,
+    ``glob(key, 'ticket/*')``); None for any other query."""
+    if not isinstance(tree, ast.Call) or len(tree.args) not in (1, 2):
+        return None
+    f, a = tree.func, tree.args
+    if isinstance(f, ast.Attribute) and f.attr == "startswith" and isinstance(f.value, ast.Name) and f.value.id == "key" \
+            and len(a) == 1 and isinstance(a[0], ast.Constant) and isinstance(a[0].value, str):
+        return a[0].value.replace("[", "[[]").replace("*", "[*]").replace("?", "[?]") + "*"
+    if isinstance(f, ast.Name) and f.id == "glob" and len(a) == 2 and isinstance(a[0], ast.Name) and a[0].id == "key" \
+            and isinstance(a[1], ast.Constant) and isinstance(a[1].value, str):
+        return a[1].value
+    return None
+
+
+def one_literal(v: Value):
+    """The constant a value gives, when it is one: ``'done'``, ``set('done')``, ``first('x')`` (None: an expression)."""
+    if v.tree is None:
+        return v.literal if isinstance(v.literal, str) else None
+    t = v.tree
+    if isinstance(t, ast.Constant) and isinstance(t.value, str):
+        return t.value
+    if isinstance(t, ast.Call) and isinstance(t.func, ast.Name) and t.func.id in ("set", "first") and len(t.args) == 1 \
+            and isinstance(t.args[0], ast.Constant) and isinstance(t.args[0].value, str):
+        return t.args[0].value
+    return None
+
+
+def when_type(tree) -> str | None:
+    """The one event type a ``when:`` takes, when it says one (``type == 'ticket.done'``, alone or first of an
+    ``and``); None otherwise."""
+    if isinstance(tree, ast.BoolOp) and isinstance(tree.op, ast.And):
+        return next((t for t in (when_type(v) for v in tree.values) if t), None)
+    if isinstance(tree, ast.Compare) and len(tree.ops) == 1 and isinstance(tree.ops[0], ast.Eq):
+        a, b = tree.left, tree.comparators[0]
+        for x, y in ((a, b), (b, a)):
+            if isinstance(x, ast.Name) and x.id == "type" and isinstance(y, ast.Constant) and isinstance(y.value, str):
+                return y.value
+    return None

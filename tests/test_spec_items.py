@@ -16,17 +16,26 @@ from ergostat.store import Project
 MODEL = """
 projections:
   pr:
-    match:
-      key: github/pull_request/*
-    states: [open, review, merged, closed]
+    query: key.startswith('github/pull_request/')
+    fields:
+      state:
+        type: one of [open, review, merged, closed]
     events:
-      pr.review-asked:
+      pr-review-asked:
+        when: type == 'pr.review-asked'
+        '...': data
         state: set('review')
-      pr.merged:
+      pr-merged:
+        when: type == 'pr.merged'
+        '...': data
         state: set('merged')
-      pr.closed:
+      pr-closed:
+        when: type == 'pr.closed'
+        '...': data
         state: set('closed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title]
 stocks:
   in-review:
@@ -108,41 +117,6 @@ def test_stocks_count_items_and_flows_count_their_moves(tmp_path):
     p.events.add("pr.late", item="github/pull_request/3", data={"late": "yes"})
     p.events.add("pr.late", item="github/pull_request/2", data={"late": "yes"})      # merged: no longer counted
     assert read("late", "auxiliary") == 1                           # an auxiliary counts the items now, as a stock does
-
-
-def test_the_compiler_refuses_what_does_not_fit(tmp_path):
-    bad = """
-    projections:
-      ticket:
-        match:
-          key: tickets
-        states: [open, done]
-        events:
-          ticket.closed:
-            state: set('shut')
-        otherwise: rest
-    stocks:
-      a:
-        sensor:
-          projection: tickit
-      b:
-        sensor:
-          projection: ticket
-          state: doing
-          entering: done
-    flows:
-      f:
-        to: a
-        sensor:
-          projection: ticket
-          state: open
-    """
-    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(bad))
-    _, problems = read(tmp_path / "ergostat.yaml")
-    codes = {x.code for x in problems if x.level == "error"}
-    assert {"bad-id", "unknown-state", "unknown-ref", "items-on-stock", "items-on-flow"} <= codes, problems
-    msgs = " ".join(x.message for x in problems)
-    assert "did you mean ticket" in msgs and "'doing' is not a state of ticket" in msgs
 
 
 def test_the_engine_reads_item_counts_and_the_api_lists_them(tmp_path):

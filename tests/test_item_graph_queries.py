@@ -22,17 +22,23 @@ MODEL = """
 name: graphs
 projections:
   epic:
-    match:
-      key: epic/*
-    states: [planned, shipped]
+    query: key.startswith('epic/')
+    fields:
+      state:
+        type: one of [planned, shipped]
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, done]
     events:
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       blocked_by: ticket
       parent: epic

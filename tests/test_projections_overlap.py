@@ -26,51 +26,75 @@ MODEL = """
     name: overlap
     projections:
       ticket:                         # the first
-        match:
-          key: ticket/*
-        states: [open, doing, done]
+        query: key.startswith('ticket/')
+        fields:
+          state:
+            type: one of [open, doing, done]
         events:
-          ticket.started:
+          ticket-started:
+            when: type == 'ticket.started'
+            '...': data
             state: set('doing')
-          ticket.done:
+          ticket-done:
+            when: type == 'ticket.done'
+            '...': data
             state: set('done')
-        otherwise: rest
+          other:
+            when: true
+            '...': data
         show: [title, hours]
       twin:                           # the same, under another name
-        match:
-          key: ticket/*
-        states: [open, doing, done]
+        query: key.startswith('ticket/')
+        fields:
+          state:
+            type: one of [open, doing, done]
         events:
-          ticket.started:
+          ticket-started:
+            when: type == 'ticket.started'
+            '...': data
             state: set('doing')
-          ticket.done:
+          ticket-done:
+            when: type == 'ticket.done'
+            '...': data
             state: set('done')
-        otherwise: rest
+          other:
+            when: true
+            '...': data
         show: [title, hours]
       summed:                         # a copy with one more field: hours summed, not replaced
-        match:
-          key: ticket/*
-        states: [open, doing, done]
+        query: key.startswith('ticket/')
+        fields:
+          state:
+            type: one of [open, doing, done]
+          hours: {fold: add}
         events:
-          "*":
-            hours: add(data.hours)
-          ticket.started:
+          ticket-started:
+            when: type == 'ticket.started'
+            '...': data
             state: set('doing')
-          ticket.done:
+          ticket-done:
+            when: type == 'ticket.done'
+            '...': data
             state: set('done')
-        otherwise: rest
+          other:
+            when: true
+            '...': data
         show: [title, hours]
       effort:                         # the same events read otherwise: other fields, other rules, other states
-        match:
-          key: ticket/*
-        states: [unworked, worked]
+        query: key.startswith('ticket/')
+        fields:
+          state:
+            type: one of [unworked, worked]
+          hours: {fold: max}
+          titles: {fold: append}
         events:
-          "*":
-            hours: max(data.hours)
-            titles: append(data.titles)
-          ticket.started:
+          ticket-started:
+            when: type == 'ticket.started'
+            '...': data
             state: set('worked')
-        otherwise: rest
+          other:
+            when: true
+            '...': data
         show: [hours, titles]
     stocks:
       open-tickets: {unit: tickets, sensor: {projection: ticket, state: open, every: 1m}}

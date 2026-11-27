@@ -82,10 +82,13 @@ a disturbance is added to the model.
   Never "kind" for a projection.
 - **Item**: one id's row of a projection: the fold of that id's events (a projection's items). An event's `item` field
   (a printed line may say `key`, the same) is the id it is about.
-- **Handlers** (2026-11-27, the owner's design): a projection reads the events its `match:` holds for, keys each to an
-  item (`key:`), and says per event type, field by field, what the event does to the item (`events:`), each value an
-  expression (`add(1)`, `data.reason`, `set('done')`) of built-in fold functions and the model's own Python
-  `functions:`. Events are facts; the handlers are the projection. `id:`, `on:` and `fold:` are gone.
+- **Handlers** (2026-11-27, the owner's design): each value an expression (`add(1)`, `data.reason`, `set('done')`)
+  of built-in fold functions and the model's own Python `functions:`. Events are facts; the reading is the projection.
+- **The projection workbench's syntax** (2026-11-27, the owner's design, `docs/roadmap/projection-workbench.md`): a
+  projection is `query:` (which events), `key:` (the object each belongs to; `each(...)` for several), `fields:` (what
+  an object is: each field's type and fold) and `events:` (kinds of event named by the person, each a `when:` and the
+  fields it tells); events no kind takes are the remainder, shown, never dropped. The fold is by event time when `time:` names it. `match:`,
+  `states:` (now the `one of` field `state`) and `otherwise:` are gone; Save dates the parts that changed.
 - **Metrics**: time-series measurements. Kept in a store of their own, separate from events,
   because there will be few events and many metrics.
 - **Every metric goes through PromQL, recorded in VictoriaMetrics** (2026-11-25, the owner's decision). VictoriaMetrics

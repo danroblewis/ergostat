@@ -24,33 +24,52 @@ MODEL = """
 name: pushed
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [new, picked]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [new, picked]
     events:
-      ticket.found:
+      ticket-found:
+        when: type == 'ticket.found'
+        '...': data
         state: set('new')
-      ticket.picked:
+      ticket-picked:
+        when: type == 'ticket.picked'
+        '...': data
         state: set('picked')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   pr:
-    match:
-      key: pr/*
-    states: [open, reviewed]
+    query: key.startswith('pr/')
+    fields:
+      state:
+        type: one of [open, reviewed]
     events:
-      pr.reviewed:
+      pr-reviewed:
+        when: type == 'pr.reviewed'
+        '...': data
         state: set('reviewed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   alert:
-    match:
-      key: alert/*
-    states: [open, resolved]
+    query: key.startswith('alert/')
+    fields:
+      state:
+        type: one of [open, resolved]
     events:
-      alert.triggered:
+      alert-triggered:
+        when: type == 'alert.triggered'
+        '...': data
         state: set('open')
-      alert.resolved:
+      alert-resolved:
+        when: type == 'alert.resolved'
+        '...': data
         state: set('resolved')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 intake:
   hooks:
     jira:

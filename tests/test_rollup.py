@@ -161,7 +161,7 @@ def test_snapshot_is_a_set_with_its_history_summarised_and_the_full_history_arch
 
 
 def test_the_kept_fold_follows_new_events_and_a_past_moment(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text("projections:\n  t:\n    match: {key: t/*}\n    states: [a, b]\n    events: {t.b: {state: set('b')}}\n    otherwise: rest\n")
+    (tmp_path / "ergostat.yaml").write_text("projections:\n  t:\n    query: key.startswith('t/')\n    fields:\n      state:\n        type: one of [a, b]\n    events:\n      t-b:\n        when: type == 't.b'\n        '...': data\n        state: set('b')\n      other:\n        when: true\n        '...': data\n")
     p = Project(mdl.load(tmp_path))
     spec = p.model.spec
     for i in range(30):
@@ -202,13 +202,15 @@ def test_a_transcript_read_again_records_none_of_its_rolled_up_lines(tmp_path):
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
         projections:
           session:
-            match:
-              key: session/*
+            query: key.startswith('session/')
             formats: {transcript: claude-session}
+            fields:
+              messages: {fold: append}
             events:
-              "*":
-                messages: append(data.messages)
-        """))
+              other:
+                when: true
+                '...': data
+"""))
     lines = [{"type": "user", "uuid": f"u{i}", "timestamp": "2023-11-14T22:13:20Z", "message": {"role": "user", "content": f"m{i}"}}
              for i in range(6)]
     (tmp_path / "s.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))

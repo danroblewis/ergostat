@@ -113,18 +113,35 @@ order and the event that moves each:
 ```yaml
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [new, picked, located, worked, pr-open, review-asked, changes-asked, approved, sailed,
-             ci-failed, ci-green, merged, done, stopped]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [new, picked, located, worked, pr-open, review-asked, changes-asked, approved, sailed, ci-failed, ci-green, merged, done, stopped]
     events:
-      ticket.pick-up: {state: set('picked')}
-      ticket.locate: {state: set('located')}
-      ticket.work: {state: set('worked')}
+      ticket-pick-up:
+        when: type == 'ticket.pick-up'
+        '...': data
+        state: set('picked')
+      ticket-locate:
+        when: type == 'ticket.locate'
+        '...': data
+        state: set('located')
+      ticket-work:
+        when: type == 'ticket.work'
+        '...': data
+        state: set('worked')
       # ... one handler per moving event ...
-      ticket.close: {state: set('done')}
-      ticket.stopped: {state: set('stopped')}
-    otherwise: rest
+      ticket-close:
+        when: type == 'ticket.close'
+        '...': data
+        state: set('done')
+      ticket-stopped:
+        when: type == 'ticket.stopped'
+        '...': data
+        state: set('stopped')
+      other:
+        when: true
+        '...': data
     lease: {attempts: 3}
 ```
 

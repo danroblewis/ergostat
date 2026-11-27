@@ -2281,142 +2281,204 @@ A stock with no sensor cannot be judged: any goal on it is reported (section 12)
 ## 5a. Projections and their items
 
 What the work is made of, one thing at a time: a ticket, a pull request, a deploy, a customer's
-order. An item is not written in the model; it is every event about one id, replayed in order.
-Its id names it the way the system it lives in does, with a `/` in it: `ticket/12`,
-`github/pull_request/4231`. (ergostat's own events are about the model's parts, whose names never
-have a `/`; the two never mix.) An event about an item comes from a block's output
-(`{"event": "pr.merged", "item": "github/pull_request/4231", "data": {...}}`), from a sensor's
-observations, from `ergostat event --add`, pushed to the running ergostat (`POST /api/events`, a webhook: section
-5c), or from an agent over MCP (`record_event`).
+order, a cloud instance. An item (an object) is not written in the model; it is every event about it, replayed in
+order. Events come from a block's output (`{"event": "pr.merged", "item": "github/pull_request/4231", "data": {...}}`),
+from a sensor's observations, from `ergostat event --add`, pushed to the running ergostat (`POST /api/events`, a
+webhook: section 5c), from a collector, or from an agent over MCP (`record_event`).
 
-A projection is a way of looking at a set of events: it folds the events it reads into its own table of the SQLite
-cache, kept up to date as events come in, and each row of it is an item (a projection's items). Several projections may
-look at the same events. It is event sourcing: events are facts, never changed; a projection's handlers say what each
-event type does to the item it belongs to, field by field (a `mission.retried` adds one to `retry_count`).
+A projection is a way of looking at a set of events (2026-11-27, the owner's design, `docs/roadmap/projection-workbench.md`):
+which events it reads (`query:`), the object each belongs to (`key:`), what an object is (`fields:`, each with its type
+and how values fold into it), and the kinds of event it reads and what each tells it (`events:`, named by the person
+who writes it: an event log cannot be relied on to have a field naming its kind). It folds the events into its own
+table of the SQLite cache, kept up to date as events come in; each row is an item (a projection's items). Several
+projections may read the same events. It is event sourcing: events are facts, never changed; the projection is how
+they are read. Turning a log into a projection is a person's work (an AI agent may draft, reviewed the same way), and
+the workbench (below) makes it quick and checkable.
 
 ```yaml
-functions: [folds.py]                  # top level, main file only: Python files whose functions the handlers may call
+functions: [folds.py]                  # top level, main file only: Python files whose functions a projection may call
 projections:
-  mission:
-    match: {type: mission.*}           # which events it reads: each a path into the event → a value or a glob; all hold
-    key: key                           # the item each event belongs to: an expression, or a list of them (composite)
-    states: [planned, ongoing, done]   # what its state may hold
-    events:
-      "*":                             # every event it reads, before the type's own handler
-        last_seen: time
-      mission.planned:
-        state: set('planned')          # text is quoted: set('planned')
-        name: data.name                # an expression with no fold function sets the field to its value
-        crew: data.crew
-        retry_count: 0                 # a YAML number, boolean or null is a constant
-      mission.retried:
-        retry_count: add(1)            # a fold function: how the field folds
-        last_error: data.reason
-        errors: append(data.reason, 20)
-      crew.joined:
-        crew: union(data.member)
-      mission.completed:
-        state: set('done')
-        completed_at: time
-        outcome: data.outcome
-      mission.turpitude-read:
-        turpitude: rms(data.turpitude)
-        drift: add(data.turpitude)
-        late: time - data.planned_at > 3600
-    otherwise: merge                   # an event type with no handler: merge (default), ignore, or rest
-    show: [name, crew]
+  instance:
+    # updated 2026-11-27
+    query: data.source == 'aws.ec2' and not data.detail.eventName.startswith('Describe')
+    key: [data.account, data.region, "data.detail['instance-id']"]
+    time: data.time                    # the event's own time (else the recorded time): the fold is by event time
+
+    fields:                            # what an instance is
+      state:         {type: "one of [pending, running, stopping, stopped, shutting-down, terminated]"}
+      instance_type: {type: text}
+      launched_by:   {type: text, fold: first}
+      launched_at:   {type: time, fold: first}
+      restarts:      {type: integer, fold: add}
+      tags:          {type: map, fold: merge, description: the instance's tags, merged as they are set}
+
+    events:                            # the kinds of event it reads, and what each tells it
+      # updated 2026-11-27
+      state-change:
+        when: data['detail-type'] == 'EC2 Instance State-change Notification'
+        state: data.detail.state
+      # updated 2026-11-27
+      launch:
+        when: data.detail.eventName == 'RunInstances'
+        key: [data.account, data.region, "each(data.detail.responseElements.instancesSet.items, 'instanceId')"]
+        instance_type: data.detail.requestParameters.instanceType
+        launched_by: data.detail.userIdentity.arn
+        launched_at: time
+      # updated 2026-11-27
+      restart:
+        when: data.detail.eventName == 'RebootInstances'
+        key: [data.account, data.region, "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"]
+        restarts: 1
+      tagged:
+        when: data.detail.eventName == 'CreateTags'
+        key: [data.account, data.region, "each(data.detail.requestParameters.resourcesSet.items, 'resourceId')"]
+        tags: pairs(data.detail.requestParameters.tagSet.items, 'key', 'value')
+    show: [instance_type, launched_by, restarts]
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `match` | map of event path → value or glob | `{key: IMPLIED}` | Which events it reads: each entry a path into the event (`type`, `key` (or `item`), `source`, `time`, `data.a.b`) and the value it must hold (typed: `1` is not `"1"`), a glob over text when it has `*`, `?` or `[`, or a list (any of them); every entry must hold. Left out, `{key: ...}` with the implied glob (*The implied key*, below). ergostat's own events (`ergostat.*`: a lease, a snapshot, a reopening) are read by its `key` entry alone, so a projection matched by type alone has no leases or roll-ups |
-| `key` | expression, or a list | `key` | The item an event belongs to: `key`, the event's own item (the line's `"key"` or `"item"`), or any expression of the event (`data.account`); a list is a composite key, its parts joined by `/` (`[data.region, "data.detail['instance-id']"]`). An event whose key is missing (null, empty) is not one of its items |
-| `events` | map of event type (or `"*"`) → handler | none | What each event type does to its item: field → expression (*Handlers*, below). `"*"` runs on every event it reads, before the type's own |
-| `otherwise` | `merge`, `ignore` or `rest` | `merge` | An event type with no handler of its own merges its data into the item (each key replaces its field), or is ignored; `rest`: every event's data keys that none of its handlers names are merged in, handled or not |
-| `states` | list of names | none | What `state` may hold, in its usual order; a new item starts in the first |
-| `show` | list of field names | none | The columns of the projection's own page (`/PROJECTION`) and of `ergostat item` |
+| `query` | expression | the implied id | Which events it reads: an expression of the event (*Expressions*, below) that holds for them. Left out, the events whose item matches the projection's implied id (*The implied key*, below). A query that reads by its key's prefix alone (`key.startswith('ticket/')`, `glob(key, 'ticket/*')`) names its items by that glob, as the implied id does; any other reads the record's every event for it. ergostat's own events (`ergostat.*`: a lease, a snapshot, a reopening) are read by the item glob alone |
+| `key` | expression, or a list | `key` | The object an event belongs to: `key`, the event's own item, or any expression of the event (`data.account`); a list is a composite key, its parts joined by `/`. `each(LIST, 'field')` in a part applies the event to every object it names (one event, several objects: a `RunInstances` that launched three). An event whose key is missing (null, empty) is no object's |
+| `time` | expression | the recorded time | The event's own time (seconds, or ISO 8601 text): the fold is by it (without it, in the record's order), and an expression's `time` is it |
+| `fields` | map of field → `{type, fold, description}` | none | What an object is (*Fields*, below). A field's entry may be its type alone (`name: text`) or nothing (`name:`: any value, replace) |
+| `events` | map of kind of event → entry | every event, its data spread in | The kinds of event it reads (*Kinds of event*, below), in order: the first whose `when:` holds takes an event |
+| `show` | list of field names | its declared fields | The columns of the projection's own page (`/PROJECTION`) and of `ergostat item` |
 | `formats` | map of field → format | by extension | How a file a field names is shown: `image`, `markdown`, `code`, `text`, `json`, or `claude-session` (a Claude Code transcript, as the conversation; its lines are also recorded as events, below) |
-| `relations` | map of name → projection(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
+| `relations` | map of name → projection(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below); a relation's field needs no `fields:` entry |
 | `join` | a rule, or a list | none | When its children move it on (*Join*, below) |
 | `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
 | `attention` | a field name | none | A finding said where it is seen: the words of this field on the projection's latest item that has them (by its latest event, then its id; blank words are none) are a warning on the page's attention list, naming the item, cut at 400 characters; a projection that cannot be read says so there instead. Only the latest: a newer finding replaces it. A relation's field is refused (`bad-attention`) |
 | `final` | list of its states | none | States no event moves an item out of: a later move is ignored and said (the item's `refused`, form `final`) |
 | `finished` | list of its states, not its first | none | The states it counts as finished, when `messages: done:` does not name the projection (a template's projection says its own: a template writes no `messages:`); `bad-finished` for a state it does not have, or its first |
 | `lost` | list of its states, not its first | none | Its finished states that are a loss (scrapped, rejected): a group's counts take an item ending there as lost, not out (§5a, *Group counts*); a state named that is not finished is never reached as a loss; `bad-lost` for a state it does not have, or its first |
-| `moves-from` | map of one of its events that sets `state` to a constant → a list of its states | none | The only states that event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for an event with no such handler or a state it does not have) |
+| `moves-from` | map of one of its kinds of event that sets `state` to a constant → a list of its states | none | The only states that kind of event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for a kind with no such value or a state it does not have) |
 | `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
-| `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{projection, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge`; any other rule for it is refused (`bad-pipeline`), as is a library's |
+| `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{projection, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge` (it needs no `fields:` entry); any other rule for it is refused (`bad-pipeline`), as is a library's |
 | `dashboards` | `{list: DASHBOARD, show: DASHBOARD}` | ergostat's | The projection's own dashboards, display only (section 4f): `list` drawn at `/PROJECTION` (its panels may write `projection: $projection`), `show` for each of its items at `/PROJECTION/REST` (`item: $item`, and `$projection`). Each is a dashboard's `title`, `description`, `window` and `panels`, checked as a `dashboards:` entry is (no `nav` or `page`: it is drawn at the projection's addresses), served as `PROJECTION.list` and `PROJECTION.show`, in no version hash and nothing the item index folds by. Written here when the owner edits the page in place and saves; a library's refused |
-| `system`, `description` | | | |
+| `lease`, `group`, `system`, `description` | | | As for every part (`lease:`: §9.5; `group:`: the nav bar menu it is shown in) |
 
-**Handlers** (`spec/handlers.py`; 2026-11-27, the owner's design). A handler's value is one small expression in
-Python's syntax, parsed with `ast` and walked against an allow-list (nothing else is run): the event's parts `data`,
-`time`, `type`, `key`, `source`, and `current` (the field's value now); dotted access into nested data
-(`data.detail.state`) and subscripts for names that are not identifiers (`data["aws-region"]`, `data.list[0]`); a missing
-field reads as null, never an error; quoted text, numbers, `true`/`false`/`null` (and `True`/`False`/`None`);
-arithmetic (`+ - * / // % **`), comparisons (`== != < <= > >= in`, `not in`), `and`, `or`, `not`, `a if c else b`; and
-calls to the fold functions. Nothing else: no other names, no attribute access but into the event, no imports,
-comprehensions or lambdas. A YAML number, boolean or null is a constant on its own (`retry_count: 0`). Text is quoted
-inside the expression (`set('planned')`); a bare word that is none of the names is a `check` error (`planned is not a
-name: write set('planned') for the text`), and text that looks like a call is still text when quoted:
-`set('add(data.blah)')`, `set('$5')`.
+**Fields** (`spec/fields.py`). Each field has a type: `text`, `number`, `integer`, `boolean`, `time` (seconds, or ISO
+8601 text), `duration`, `map`, `list of T`, or `one of [a, b, ...]` (left out: any value). In a flow map the `one of`
+is quoted (`{type: "one of [a, b]"}`: YAML reads `[` there as a list), or written `{one of: [a, b]}`. And a fold, how
+values from events combine: `replace` (the default: the newest by event time wins), `first` (the earliest by event
+time), `add`, `min`, `max`, `append` (`append(N)`: only the last N kept), `union` (a set, kept sorted), `merge` (a deep
+merge of objects), `count`, `mean`, `variance`, `stdev`, `rms` (exact, their running state kept beside the item,
+*The aggregates*, below), or one of the model's own functions. A fold that does not fit the type is a `check` error
+(`bad-fold`: `add` folds numbers, `merge` maps, `append` and `union` lists, `mean`... numbers, `min` and `max` numbers,
+times and text). A value an event gives that is not of its field's type refuses the event (`size: "big" is not
+integer`), as does one not in a `one of`.
 
-- **An expression with no fold function sets the field** to its value (`data.reason` is `set(data.reason)`, null
-  included): `current + 1`, `time - data.planned_at > 3600`.
+**The state** is the field named `state`, a `one of`: its values are the projection's states, in their usual order; a
+new object starts in the first. A change of it is a move, recorded in the item's moves, counted and timed (the flows,
+the stocks of items in a state, sensors, leases, joins, finished states). Every other `one of` field's changes are
+kept in the item's history like any field's, and the workbench counts them as a lifecycle (its transitions, below); only
+`state`'s are moves (2026-11-27: one lifecycle per projection drives the model's counts; the others are reviewed).
+
+**Kinds of event.** Each entry of `events:` is a kind of event, named by the person who writes it (lowercase letters,
+digits and `-`). Its `when:` (an expression, or `true`: every event) says which events of the query's result it takes;
+the first kind whose `when:` holds takes an event, and an entry without `when:` is a `check` error (`missing-when`). Its
+own `key:` replaces the projection's for its events (the key sits elsewhere in them). Every other entry is a field it
+tells, and the expression giving its value. A plain value is folded by the field's rule (`restarts: 1` with
+`fold: add` adds one); a fold call is that kind's own rule for the field (`name: set(data.name)` replaces where the
+field appends; `runs: set(0)` resets a count). An entry may fill only declared fields (`undeclared-field`), but the
+spread `"..."` (below), which brings each of an object's fields, declared or not, each folded by its declared rule (an
+undeclared one replaced). A constant a `one of` does not hold is a `check` error (`not-one-of`; `unknown-state` for
+`state`), and one given at fold time refuses the event.
+
+Events in the query's result that no kind takes are **the remainder**: they fold into no object, and the workbench
+shows them, counted and grouped by shape, never silently dropped. A projection that writes no `events:` takes every
+event it reads as one kind whose data is spread in.
+
+**The fold is by event time** when the projection names the event's own time (`time:`): a value folded by
+replace (and a state) older than the field's is not taken, so a notification delivered late never undoes a newer one;
+a `first` older than the field's replaces it. Folds that do not depend on order (`add`, `union`, `merge`, `count`,
+`min`, `max`, the aggregates) take every event as it comes. Without `time:`, events fold in the record's order
+(2026-11-27: ergostat's own writers set the recorded time of events they record late, a transcript's lines among
+them, so the recorded time is not an order to fold by). **An event delivered twice** changes an object once: the
+same envelope id is recorded once, and, for a projection that names `time:` (its events carry their own time, so two
+separate events differ), the same type and data whole is the same event again (an upstream's retry): each object
+remembers its latest 256 events' digests. Without `time:`, the same data twice is two events (a value set, cleared
+and set again).
+
+**Expressions** (`spec/handlers.py`). A query's, a `when:`'s, a key's and a value's expression is one small
+expression in Python's syntax, parsed with `ast` and walked against an allow-list (nothing else is run): the event's
+parts `data`, `time`, `type`, `key`, `source`, and in a value `current` (the field's value now); dotted access into
+nested data (`data.detail.state`) and subscripts for names that are not identifiers (`data["aws-region"]`,
+`data.list[0]`, `data.x[-1]`); a missing field reads as null, never an error; quoted text, numbers, `true`/`false`/`null`
+(and `True`/`False`/`None`), lists of values (`x in ['a', 'b']`); arithmetic (`+ - * / // % **`), comparisons (`== !=
+< <= > >= in`, `not in`), `and`, `or`, `not`, `a if c else b`; a value's methods `startswith`, `endswith`, `lower`,
+`upper`, `strip`, `split`, `replace` (of text) and `get` (of an object), each null on null; the helpers `pick(obj,
+'a')`, `omit(obj, 'secret')`, `rename(obj, by='started_by')`, `glob(text, 'pattern*')`, `pairs(list, 'key', 'value')`
+(a list of key/value objects as one object: AWS's tags), and `each(list, 'field')` in a key; and calls to the fold
+functions in a value. Nothing else: no other names, no imports, comprehensions or lambdas. A YAML number, boolean or
+null is a constant on its own (`restarts: 1`). Text is quoted inside the expression (`state: "'done'"`,
+`set('planned')`); a bare word that is none of the names is a `check` error (`bad-expression`: `planned is not a name:
+write set('planned') for the text`), as is a call to a function that is none (`unknown-function`).
+
 - **The built-in fold functions**, each called `f(current, ...)`: `set(x)`; `add(x)` (numbers; nothing yet is 0);
   `min(x)`, `max(x)` (numbers with numbers, text with text); `append(x, N?)` (to a list; a list appends each; `N`: only
   the last N kept); `union(x)` (a set, kept sorted); `remove(x)` (from a list: the value, or each of a list); `merge(x)`
   (a deep merge of objects); `first(x)` (only while the field is empty); `unset()` (the field taken out); `count()` (one
-  more; `count(x)`: one more when x is not null); `mean`, `variance` (sample, n - 1; null until two), `stdev`, `rms`, the
-  aggregates: exact, their running state kept beside the item (*The aggregates*, below), each the whole expression,
-  never part of one. Given a null value (a missing field), each of them but `set` changes nothing.
+  more; `count(x)`: one more when x is not null); `mean`, `variance` (sample, n - 1; null until two), `stdev`, `rms`,
+  the aggregates, each the whole expression, never part of one. Given a null value (a missing field), each of them but
+  `set` changes nothing.
 - **The model's own functions.** `functions: [folds.py, ...]` (main file only; an included file, a template or a
   library brings none: `functions-in-include`, or the template's unknown section) names Python files in the model's
-  folder. Each top-level `def name(current, *args)` (not starting `_`) is a fold function, called by name, returning the
-  field's new value: `ewma(data.x, 0.1)` is `def ewma(current, x, alpha)`. It is the owner's own code, run in ergostat's
-  process as a sensor's command is. `check` says a file that does not load, a name a built-in has (`add` cannot be
-  replaced), a function not defined, and a call whose arguments do not fit its signature. The files' text is in the
-  item index's key, so a change to them folds the record again. A function that raises refuses the event, with its
-  message.
-- **`state`** is a field like any other, read by `current` and set by an expression, but a change of it is a move,
-  recorded in the item's moves, counted and timed (the flows, the stocks of items in a state). A constant state not in
-  `states:` is a `check` error (`unknown-state`); one an expression gives at fold time that is not refuses the event.
-- **A spread.** The handler key `"..."` (quoted: YAML reads a bare `...` as the end of the document) takes an expression
-  giving an object, and each of its fields sets the item's field of that name; the handler's other fields apply after
-  it, so they override it or fold by their own rule. A null spreads nothing; anything else not an object refuses the
-  event. `"*"` may spread too. Three helpers, ordinary functions usable anywhere: `pick(obj, 'a', 'b')` (only those
-  fields), `omit(obj, 'secret')` (all but those), `rename(obj, by='started_by')`.
+  folder. Each top-level `def name(current, *args)` (not starting `_`) is a fold function, called by name in a value or
+  named as a field's `fold:`, returning the field's new value: `ewma(data.x, 0.1)` is `def ewma(current, x, alpha)`.
+  It is the owner's own code, run in ergostat's process as a sensor's command is. `check` says a file that does not
+  load, a name a built-in has (`add` cannot be replaced), a function not defined, and a call whose arguments do not
+  fit its signature. The files' text is in the item index's key, so a change to them folds the record again. A
+  function that raises refuses the event, with its message.
+- **A spread.** The entry `"..."` (quoted: YAML reads a bare `...` as the end of the document) takes an expression
+  giving an object, and each of its fields folds into the object's field of that name, by its declared rule; the
+  entry's own fields win over it. A null spreads nothing; anything else not an object refuses the event.
 
 ```yaml
 events:
-  mission.planned:
-    "...": data                                   # every field of data, as is
-    state: set('planned')                         # then these, which win
-    retry_count: 0
-  mission.updated:
+  planned:
+    when: type == 'mission.planned'
+    "...": data                                   # every field of data, each by its rule
+    state: "'planned'"                            # then these, which win
+  updated:
+    when: type == 'mission.updated'
     "...": pick(data, 'name', 'crew', 'priority') # only these fields
     started_by: data.by                           # and one renamed
-  instance.changed:                               # a cloud provider's nested JSON
+  changed:                                        # a cloud provider's nested JSON
+    when: type == 'instance.changed'
     "...": data.detail                            # one level down
     region: data["aws-region"]
 ```
 
-The whole event applies to an item or none of it does: a type error, a function that raises, a state not among its
-states refuses the event for that item (kept on the record, shown in its `refused`, as every refusal below). A relation's
-field (`relations:`, below) and a pipeline's `stages` fold by their own rule when a handler or `otherwise:` sets them
-with a plain value.
+The whole event applies to an object or none of it does: a type error, a function that raises, a value not of its
+field's type, a state not among its states refuses the event for that object (kept on the record, shown in its
+`refused`, as every refusal below). A relation's field (`relations:`, below) and a pipeline's `stages` fold by their own
+rule when an entry sets them with a plain value.
 
-**The implied key** (2026-11-26, the owner's decision). A projection that writes no `match:` matches the ids of the system it
+**`check`'s errors for a projection**: a value for an undeclared field (`undeclared-field`), a fold that does not fit
+its field's type (`bad-fold`), a type that is none (`bad-type`), a constant not in a `one of` (`not-one-of`,
+`unknown-state`), an unknown function (`unknown-function`), an expression that does not parse or uses what is not
+allowed (`bad-expression`), a kind of event with no `when:` (`missing-when`), and the old keys (`match:`, `states:`,
+`otherwise:`: `unknown-key`; the old syntax is gone, `scripts/convert_projections.py` rewrote this repository's).
+
+**Saving** (`spec/dated.py`). Save (the workbench's, the projection page's: `POST /api/projections/save`) writes `#
+updated YYYY-MM-DD` above the projection, above its `query:` and above each `events:` entry that changed, replacing the
+`# updated` line that was there. Only the parts that changed are rewritten: a top-level key or an events entry whose
+value is the same as before (however it is written) keeps its old text, comments and all, byte for byte, and so does
+the rest of the file. A new projection is dated throughout (the projection, its query, every entry).
+
+**The implied key** (2026-11-26, the owner's decision). A projection that writes no `query:` reads the ids of the system it
 is defined in (its `system:`, else its file's `defaults: system:`): that system's chain from the top level (each system
 and the one it is `within:`), its name, then `*`. `ticket` defined in `intake`, within `factory`, matches
 `factory/intake/ticket/*`; one defined in no system matches `ticket/*`. A part a template or a remote made is named
 by its short name in its system (`ticket`, not `INSTANCE-ticket`), and a remote serves its projections' implied ids
 written out (section 4c), so the consumer matches the ids the remote's events carry. A system in the chain that is not
-a name (`bad-id`) needs a `match:` written. A `match: {key: ...}` written overrides it, checked as ever (`bad-id`: a
-pattern with a `/` in it, not starting with one).
+a name (`bad-id`) needs a `query:` written. A query that reads by its key's prefix alone (`key.startswith('ticket/')`,
+`glob(key, 'ticket/*')`) names its items by that glob instead.
 
-**Overlapping projections.** An event has no projection: it is about an id. Every projection whose `match:` holds for
-it folds it, by its own `states:` and `events:`, into an item of its own (the one its `key:` names), so one id is an item
+**Overlapping projections.** An event has no projection: it is about an id. Every projection whose `query:` holds for
+it folds it, by its own fields and kinds of event, into an item of its own (the one its `key:` names), so one id is an item
 of each projection that sees it: two identical definitions under two names each have it, the same; a copy of one with
 one more field (`hours: add(data.hours)` where the other sets it) has the same events folded otherwise; two projections reading
 different fields of the same events, with other rules and other states, each keep their own. Each projection has its own
@@ -2437,8 +2499,10 @@ claim's state: verified when any projection with that state has it), says so whe
 ```yaml
 projections:
   ticket:
-    match: {key: ticket/*}
-    states: [open, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [open, doing, done]
     dashboards:
       list:
         title: Tickets
@@ -2610,15 +2674,17 @@ cross-projection is the usual case):
 ```yaml
 projections:
   epic:
-    match:
-      key: epic/*
-    states: [planned, underway, shipped]
+    query: key.startswith('epic/')
+    fields:
+      state:
+        type: one of [planned, underway, shipped]
     relations:
       after: epic                           # precedence: it follows the epic it names
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, review, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, review, done]
     relations:
       blocked_by: ticket                    # a projection, or a list of projections
       parent: epic                          # a group
@@ -2876,9 +2942,10 @@ projection of its own, and a model none of whose projections declares `about:` l
 ```yaml
 projections:
   note:
-    match:
-      key: note/*
-    states: [open, retired]
+    query: key.startswith('note/')
+    fields:
+      state:
+        type: one of [open, retired]
     about: about                            # "data": {"about": ["goal.inbox-short", "stock.inbox"]}
 messages:
   done: {note: [retired]}
@@ -2910,7 +2977,9 @@ name it by, not a block that lists and matches items:
 ```yaml
 projections:
   epic:
-    states: [planned, underway, shipped]
+    fields:
+      state:
+        type: one of [planned, underway, shipped]
     join:
       - {children: parent, any: [doing, review, done], to: underway}   # once one has started
       - {children: parent, all: done, to: shipped}                      # once every one is done
@@ -3329,16 +3398,15 @@ conversation:
 
 ```yaml
   session:
-    match: {key: session/*}
+    query: key.startswith('session/')
     formats: {transcript: claude-session}
-    events:
-      "*":
-        messages: append(data.messages)
-        tool_calls: append(data.tool_calls)
-        tool_results: append(data.tool_results)
-        thinking: append(data.thinking)
-        tokens_in: add(data.tokens_in)
-        tokens_out: add(data.tokens_out)
+    fields:
+      messages: {fold: append}
+      tool_calls: {fold: append}
+      tool_results: {fold: append}
+      thinking: {fold: append}
+      tokens_in: {type: integer, fold: add}
+      tokens_out: {type: integer, fold: add}
 ```
 
 What does not ask for a transcript leaves its events out: a sensor counting sessions, the Items
@@ -3454,7 +3522,8 @@ no file, no item index, no model.
 - `POST /api/projections/try` with `{name, yaml, since?, until?, events?, expected?, item?, refused?, limit?, system?}`
   (`since`/`until` a span back, `7d`, or epoch seconds; `events` a list of recorded events or event lines, else the
   record). Check errors are returned, never raised: `{ok: false, errors: [{line, message}]}`, `line` in the body. Else
-  `{ok: true, events: {read, source}, matched: {count, pct, by_handler}, unmatched: {not_read, no_key}, unchanged,
+  `{ok: true, events: {read, source}, matched: {count, pct, by_handler (by kind of event; `remainder`: none took it)},
+  unmatched: {not_read, no_key}, unchanged,
   refused: {count, groups: [{why, count, events}]}, items: {count, key, sample, one_event}, fields: [{field, pct,
   types, distinct, top | min, max}], states, duplicates, expected?, trace?, refused_events?, draft, took_s}`. Each of
   `not_read`, `no_key` and `unchanged` (events folded that changed nothing) is grouped by shape: the event type, then
@@ -3463,7 +3532,7 @@ no file, no item index, no model.
   that came twice: the same envelope id, or the same type and data whole (an upstream's own event id in it too).
   `expected` (a map key → fields; `state` its state) scores each field: right, wrong, the wrong by likely cause
   (`missing`, `number vs text`, `case`, `fewer`/`more`, `different value`), a sample or two. `item=KEY` adds that
-  item's trace (each event's id, time, type, the handler that ran, each field before → after, a move, a refusal);
+  item's trace (each event's id, time, type, the kind of event that took it, each field before → after, a move, a refusal);
   `refused=WORDS` the events refused for that reason. Every list is capped (10 groups, 2 samples, 200 characters a
   sample, 30 fields, 60 trace steps).
 - The draft's items are kept in the server's memory for 15 minutes (8 at most) under `draft`: `GET /api/items`,
@@ -3484,7 +3553,94 @@ no file, no item index, no model.
   Accept writes any (`numbers/display.py save_projection`, `POST /api/projections/save {name, yaml, system?, new?}`;
   refused when `check` would refuse it), then the list dashboard if its panels changed. **Cancel** forgets both. The
   nav bar's hover `+` after the projections asks a name and opens that projection's page at the scope's address, in
-  edit mode, starting from `match: {type: NAME.*}` and an empty `events:`; nothing is in the model until it is saved.
+  edit mode, starting from `query: type.startswith('NAME.')` and no `events:`; nothing is in the model until it is
+  saved. The workbench (below) is that page's edit mode, built on its answers.
+
+**The query engine** (`ergostat/eventquery.py`; 2026-11-27). The workbench's query runs over the whole record and must
+stay fast as the record grows, so it never scans the record per query. An index of its own (`<state>/eventquery.db`,
+SQLite, a cache rebuilt from the record when missing or when the record went back) holds every event's row and a
+posting for each value at the paths queries and `when:`s use: the event's `type`, `source` and `key`, and its data's
+paths three levels deep (`data.a`, `data.a.b`, `data.a.b.c`; at most 64 postings an event; a list or an object posted
+as there; text over 100 characters by its first 100). It is caught up from the last indexed `seq` before each answer, a
+transaction per 20,000 events, so its upkeep per event is constant. A query is planned over its expression: `path ==
+value`, `path != value`, `path == null`, `path.startswith('text')`, `glob(path, 'pattern')`, a path alone (it is
+there), `not`, `and` and `or` of them read their candidates from the index (`and` intersects; `or` unions when each
+side can; `not` of an exact set is its complement). When every part is exact (on an indexed path), the candidates are
+the answer and no event is read but those shown; otherwise the expression is evaluated on the candidates (at most
+100,000, the newest). A query no part of which the index answers is a scan, of the newest 50,000 events, and says so.
+
+`POST /api/events/query {query, since?, until?, limit?, sample?, compare?}` (`since`/`until` epoch seconds or a span
+back, `7d`; `limit` default 50, at most 500; `sample` N: evaluate N candidates picked evenly at random and estimate the
+total; `compare` an earlier query) answers:
+
+```
+{query, total, events: [{seq, id, time, type, item, source, data}], shown,       # newest first
+ indexed, exact, paths: [the indexed paths it read], scanned,
+ candidates?, read, capped?, sampled?, sample_of?, estimated?, record,           # how it was answered
+ compare?: {query, total, added, dropped, estimated?}, took_ms}
+```
+
+`read` is the events evaluated (0 for an exact answer), `capped` that the candidates or the scan were cut at their
+most, `record` the events indexed. A query that does not parse is 400 `{error}`. Measured (`scripts/query_bench.py`,
+2026-11-27, this Mac, SQLite store): a record of 200,000 events of the EC2 simulator (`tests/fixtures/ec2_stream.py`,
+batch mode, 200 instances × 30 days a seed, seeds 1 on), the index built from nothing in 7.3 s (31 µs an event; 293 MB, the
+events' data kept beside the postings), caught up after 1,000 new events in 9 ms (7 µs an event); an exact indexed
+query (`data['detail-type'] == '…State-change…' and data.detail.state == 'running'`, 28,779 events) 29 ms, an exact
+`not` over the whole record (`… and not data.detail.eventName.startswith('Describe')`, 201,000) 65 ms, an indexed
+query whose last part is evaluated (`data.detail.eventName == 'RunInstances' and data.detail.responseElements
+.instancesSet.items[0].instanceType == 't3.micro'`: 7,863 candidates read, 1,585 matched) 70 ms, and a scan
+(`data.detail.state + '' == 'running'`, capped at 50,000 events) 289 ms (medians of five).
+
+**The workbench** (`spec/workbench.py`; the page is built on these answers, an agent uses them the same way; every list
+capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 transitions, 200 timeline steps):
+
+- `POST /api/events/kinds {query, since?, until?, events?}`: the kinds of event the query's result holds, suggested
+  from the data. The result is grouped by shape: its type, then the one or two data paths whose values best tell the
+  events' shapes apart (present in nine in ten of them, 2 to 20 values; an id or a time never), or, for a group
+  nothing splits, the paths all its events share whose names say what happened (`eventName`, `detail-type`, `type`,
+  `action`, `status`, ...). `{query, read: {source, indexed, exact, scanned, ...}, count, kinds: [{name, count, when,
+  shape, paths, samples}], kinds_left?, took_s}`: `when` is the suggested `when:` (`data['detail-type'] == 'AWS API
+  Call via CloudTrail' and data.detail.eventName == 'RunInstances'`; the type left out when the result has one), `name`
+  a name made from its last value, `paths` the data paths every event of it has (30 at most), `samples` two trimmed
+  events.
+- `POST /api/projections/review {name, yaml, since?, until?, item?, events?, expected?, compare?, system?}` (`yaml` the
+  draft's body, as `try`'s): the draft compiled in the model (its check errors returned, never raised: `{ok: false,
+  errors: [{line, message}]}`), its query run by the engine (or the events given), every event it reads folded as the
+  item index folds, and:
+
+  ```
+  {projection, ok, read: {events, source, indexed, exact, scanned, capped?, ...},
+   kinds: [{name, when, count, events: [ids], objects}],                       # per kind of event: what it took
+   objects: {count, sample, key, one_event},
+   fields: [{field, type, declared, have, objects,                              # per field, across the objects
+             top: [[value, n]], distinct | min, max, histogram: [[from, to, n]] | sizes, not_its_type?}],
+   lifecycles: {FIELD: {values, objects, now: {value: n},                       # per one-of field
+                        transitions: [{from, to, count, objects}], rare: [...]}},
+   residual: {remainder: {count, kinds: [as events/kinds]},                     # events no kind takes, by shape
+              no_key: {count, by_kind, kinds},                                  # taken, but keyed to nothing
+              refused: {count, groups: [{why, count, objects, events}]},
+              contradictions: {count, rare: [{field, from, to, count, objects, samples}], after_final},
+              splits: {count, groups: [{kinds, objects, samples}]},
+              merges: {count, fields: [{field, objects, samples}]}},
+   duplicates: {envelope_id, same_data, says?},
+   compared?: {saved, draft, appear, appear_sample, disappear, disappear_sample, change,
+               fields: [{field, objects, samples: [{key, saved, draft}]}], saved_read},
+   expected?: (as try's), timeline?: {key, found, state, events, steps: [{id, time, recorded, type, kind,
+               changes: [{field, before, after}], move: {from, to}, refused, unchanged}], fields}, took_s}
+  ```
+
+  A number's or a time's field has its range and a histogram (a time's bounds as ISO 8601); any other its top values.
+  A **contradiction** is a transition of a `one of` field seen in fewer than 1% of the objects that have the field
+  (once 50 have it: an impossible history is a rare one), or a move out of a `final:` state (refused, counted in
+  `after_final`). A possible **split** is an object whose events all came from kinds with a key of their own when the
+  projection has kinds keyed its way (the same thing named two ways: a launch keyed by account/region/id and its state
+  changes by id alone). A possible **merge** is an object a `first` field was given two different values in (two
+  births in one object's history: its key too coarse). `compared` folds the saved definition over its own query's
+  events and says the objects that appear, disappear, and whose fields change (per field, how many, with samples);
+  left out for a new projection or with `compare: false`. `timeline` (with `item=KEY`) is that object's events in event
+  time order, which kind took each, each field before → after, a move, a refusal.
+- `POST /api/projections/try` (above) is still there for agents; `POST /api/projections/save` writes the definition
+  (*Saving*, above).
 
 **Where it went, on the item's page.** Right after its header, an item of a projection the model counts or takes shows its
 `path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that
@@ -4830,17 +4986,26 @@ keeps failing.
 ```yaml
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [ready, doing, review, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [ready, doing, review, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.submitted:
+      ticket-submitted:
+        when: type == 'ticket.submitted'
+        '...': data
         state: set('review')
-      ticket.merged:
+      ticket-merged:
+        when: type == 'ticket.merged'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     lease: {attempts: 5}               # optional: this projection's terms (below)
 
 leases:                                # optional: each tier's terms, over the defaults

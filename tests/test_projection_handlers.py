@@ -20,31 +20,63 @@ T0 = 1_700_000_000.0
 MISSION = """
 projections:
   mission:
-    match: {type: mission.*}
+    query: type.startswith('mission.')
     key: key
-    states: [planned, ongoing, done]
+    fields:
+      state:
+        type: one of [planned, ongoing, done]
+      last_seen: {}
+      name: {}
+      crew: {}
+      retry_count: {}
+      last_error: {}
+      errors: {}
+      completed_at: {}
+      outcome: {}
+      turpitude: {}
+      drift: {}
+      low: {}
+      high: {}
+      mean: {}
+      var: {}
+      sd: {}
+      reads: {}
+      firstread: {}
+      tags: {}
     events:
-      "*":
+      mission-planned:
+        when: type == 'mission.planned'
         last_seen: time
-      mission.planned:
         state: set('planned')
         name: data.name
         crew: data.crew
-      mission.started:
+      mission-started:
+        when: type == 'mission.started'
+        last_seen: time
         state: set('ongoing')
-      mission.retried:
+      mission-retried:
+        when: type == 'mission.retried'
+        last_seen: time
         retry_count: add(1)
         last_error: data.reason
         errors: append(data.reason, 2)
-      mission.joined:
+      mission-joined:
+        when: type == 'mission.joined'
+        last_seen: time
         crew: union(data.member)
-      mission.left:
+      mission-left:
+        when: type == 'mission.left'
+        last_seen: time
         crew: remove(data.member)
-      mission.completed:
+      mission-completed:
+        when: type == 'mission.completed'
+        last_seen: time
         state: set('done')
         completed_at: time
         outcome: data.outcome
-      mission.read:
+      mission-read:
+        when: type == 'mission.read'
+        last_seen: time
         turpitude: rms(data.turpitude)
         drift: add(data.turpitude)
         low: min(data.turpitude)
@@ -54,10 +86,18 @@ projections:
         sd: stdev(data.turpitude)
         reads: count()
         firstread: first(data.turpitude)
-      mission.tagged:
+      mission-tagged:
+        when: type == 'mission.tagged'
+        last_seen: time
         tags: merge(data.tags)
-      mission.cleared:
+      mission-cleared:
+        when: type == 'mission.cleared'
+        last_seen: time
         outcome: unset()
+      other:
+        when: true
+        '...': data
+        last_seen: time
 """
 
 
@@ -149,14 +189,19 @@ def test_match_by_type_glob_and_by_a_data_field_and_a_composite_key(tmp_path):
     p = _project(tmp_path, """
 projections:
   instance:
-    match: {source: aws, data.detail-type: EC2 Instance State-change Notification}
+    query: source == 'aws' and data['detail-type'] == 'EC2 Instance State-change Notification'
     key: [data.region, "data.detail['instance-id']"]
+    fields:
+      status: {}
+      region: {}
     events:
-      "*":
+      other:
+        when: true
+        '...': data
         status: data.detail.state
         region: data["region"]
   noted:
-    match: {type: note.*}
+    query: type.startswith('note.')
 """)
     ev = lambda st, at, region="eu-west-1", src="aws": p.events.add(   # noqa: E731
         "aws.ec2", source=src, at=T0 + at,
@@ -178,33 +223,26 @@ projections:
     assert _indexed(p) == _fresh(p)                           # catch-up == rebuild
 
 
-def test_otherwise_merge_ignore_and_rest(tmp_path):
-    body = """
-projections:
-  t:
-    match: {key: t/*}
-    otherwise: {o}
-    events:
-      t.named:
-        name: data.name
-"""
-    for o, want in (("merge", {"name": "n", "x": 1}), ("ignore", {"name": "n"}), ("rest", {"name": "n", "x": 1, "y": 2})):
-        d = tmp_path / o
-        d.mkdir()
-        p = _project(d, body.replace("{o}", o))
-        p.events.add("t.named", item="t/1", data={"name": "n", "y": 2}, at=T0)
-        p.events.add("t.other", item="t/1", data={"x": 1}, at=T0 + 1)
-        assert _items(p)["t/1"].fields == want, o
-
-
 def test_expressions_current_arithmetic_brackets_and_a_missing_field(tmp_path):
     p = _project(tmp_path, """
 projections:
   t:
-    match: {key: t/*}
-    otherwise: ignore
+    query: key.startswith('t/')
+    fields:
+      n: {}
+      late: {}
+      region: {}
+      gone: {}
+      both: {}
+      word: {}
+      dollar: {}
+      nine: {}
+      yes: {}
+      modded: {}
+      inn: {}
     events:
-      t.x:
+      t-x:
+        when: type == 't.x'
         n: (current or 0) + 1
         late: time - data.planned_at > 3600
         region: data["aws-region"]
@@ -216,6 +254,8 @@ projections:
         yes: true
         modded: 7 % 3 + 2 ** 3 - 10 // 3
         inn: "'b' in data.list"
+      other:
+        when: true
 """)
     p.events.add("t.x", item="t/1", data={"planned_at": T0 - 7200, "aws-region": "eu", "a": 2, "list": ["b"]}, at=T0)
     p.events.add("t.x", item="t/1", data={"planned_at": T0, "list": []}, at=T0 + 1)
@@ -232,7 +272,7 @@ projections:
     ("[x for x in data]", "ListComp is not allowed"),
     ("lambda: 1", "Lambda is not allowed"),
     ("len(data)", "len() is not a fold function"),
-    ("data.a.b()", "only fold functions are called"),
+    ("data.a.b()", "the methods a value has are"),
     ("add(1, 2)", "add takes 1 argument, not 2"),
     ("add(x=1)", "without names"),
     ("data[1:2]", "slices are not allowed"),
@@ -240,7 +280,7 @@ projections:
     ("1 if mean(data.x) else 2", "it is the whole expression"),
     ("data.a @ data.b", "MatMult is not allowed"),
     ("(data).a.__dict__", "starting with _"),
-    ("current.x()", "only fold functions"),
+    ("current.x()", "the methods a value has are"),
 ])
 def test_what_an_expression_may_not_do(value, says):
     with pytest.raises(h.BadExpr, match=None) as e:
@@ -259,17 +299,26 @@ def test_check_errors_a_bare_word_an_unknown_state_and_a_function(tmp_path):
     out = _errors(tmp_path, """
 projections:
   t:
-    states: [a, b]
+    fields:
+      state:
+        type: one of [a, b]
+      n: {}
     events:
-      t.x:
+      t-x:
+        when: type == 't.x'
         state: b
-      t.y:
+      t-y:
+        when: type == 't.y'
         state: set('c')
-      t.z:
+      t-z:
+        when: type == 't.z'
         n: ewma(data.x, 0.1)
+      other:
+        when: true
+        '...': data
 """)
-    assert "events.t.x.state: b is not a name: write set('b') for the text" in out
-    assert "'c' is not one of its states" in out
+    assert "events.t-x.state: b is not a name: write set('b') for the text" in out
+    assert "'c' is not one of its values" in out
     assert "ewma() is not a fold function" in out
 
 
@@ -277,11 +326,18 @@ def test_a_state_from_the_event_not_among_its_states_refuses_the_event(tmp_path)
     p = _project(tmp_path, """
 projections:
   t:
-    states: [a, b]
+    fields:
+      state:
+        type: one of [a, b]
+      seen: {}
     events:
-      t.x:
+      t-x:
+        when: type == 't.x'
         state: data.to
         seen: add(1)
+      other:
+        when: true
+        '...': data
 """)
     p.events.add("t.x", item="t/1", data={"to": "b"}, at=T0)
     p.events.add("t.x", item="t/1", data={"to": "zz"}, at=T0 + 1)
@@ -305,11 +361,18 @@ def test_a_user_function_and_its_refusal_and_a_refold_when_its_file_changes(tmp_
 functions: [folds.py]
 projections:
   t:
+    fields:
+      avg: {}
     events:
-      t.x:
+      t-x:
+        when: type == 't.x'
         avg: ewma(data.x, 0.5)
-      t.bad:
+      t-bad:
+        when: type == 't.bad'
         avg: boom(data.x)
+      other:
+        when: true
+        '...': data
 """
     p = _project(tmp_path, body, {"folds.py": FOLDS})
     p.events.add("t.x", item="t/1", data={"x": 10}, at=T0)
@@ -327,11 +390,11 @@ projections:
 
 def test_user_function_errors(tmp_path):
     for name, body, files, says in [
-        ("arity", "functions: [folds.py]\nprojections:\n  t:\n    events:\n      t.x:\n        a: ewma(data.x)\n",
+        ("arity", "functions: [folds.py]\nprojections:\n  t:\n    fields:\n      a: {}\n    events:\n      t-x:\n        when: type == 't.x'\n        a: ewma(data.x)\n      other:\n        when: true\n        '...': data\n",
          {"folds.py": FOLDS}, "does not fit it"),
-        ("unknown", "functions: [folds.py]\nprojections:\n  t:\n    events:\n      t.x:\n        a: nope(1)\n",
+        ("unknown", "functions: [folds.py]\nprojections:\n  t:\n    fields:\n      a: {}\n    events:\n      t-x:\n        when: type == 't.x'\n        a: nope(1)\n      other:\n        when: true\n        '...': data\n",
          {"folds.py": FOLDS}, "nope() is not a fold function"),
-        ("shadow", "functions: [folds.py]\nprojections:\n  t:\n    events:\n      t.x:\n        a: add(1)\n",
+        ("shadow", "functions: [folds.py]\nprojections:\n  t:\n    fields:\n      a: {}\n    events:\n      t-x:\n        when: type == 't.x'\n        a: add(1)\n      other:\n        when: true\n        '...': data\n",
          {"folds.py": "def add(current, x):\n    return 0\n"}, "add is a built-in fold function"),
         ("loads", "functions: [folds.py]\n", {"folds.py": "def x(:\n"}, "folds.py does not load"),
         ("missing", "functions: [gone.py]\n", {}, "gone.py: cannot be read"),
@@ -373,31 +436,47 @@ def test_catch_up_equals_rebuild(tmp_path):
 SPREAD = """
 projections:
   m:
-    states: [planned, ongoing]
-    otherwise: ignore
+    fields:
+      state:
+        type: one of [planned, ongoing]
+      retry_count: {}
+      started_by: {}
+      n: {}
+      region: {}
+      seen: {}
     events:
-      m.planned:
+      m-planned:
+        when: type == 'm.planned'
         "...": data
         state: set('planned')
         retry_count: 0
-      m.updated:
+      m-updated:
+        when: type == 'm.updated'
         "...": pick(data, 'name', 'crew')
         started_by: data.by
-      m.secret:
+      m-secret:
+        when: type == 'm.secret'
         "...": omit(data, 'secret')
-      m.renamed:
+      m-renamed:
+        when: type == 'm.renamed'
         "...": rename(data, by='started_by')
-      m.counted:
+      m-counted:
+        when: type == 'm.counted'
         "...": data
         n: add(data.n)
-      m.nested:
+      m-nested:
+        when: type == 'm.nested'
         "...": data.detail
         region: data["aws-region"]
-      m.bad:
+      m-bad:
+        when: type == 'm.bad'
         "...": data.n
-      m.none:
+      m-none:
+        when: type == 'm.none'
         "...": data.missing
         seen: 1
+      other:
+        when: true
 """
 
 
@@ -417,7 +496,7 @@ def test_a_spread_and_its_helpers(tmp_path):
     a("m.nested", {"detail": {"state": "running", "deep": {"a": 1}}, "aws-region": "eu"}, 6)
     f = its.one(p.events, p.model.spec, "m/1", "m").fields
     assert "secret" not in f and f["public"] == 1 and f["started_by"] == "you"
-    assert f["k"] == 2 and f["n"] == 6                        # the spread set n (3), then add folded it (3 more)
+    assert f["k"] == 2 and f["n"] == 5                        # the entry's own n wins over the spread's: 2 + 3
     assert f["deep"] == {"a": 1} and f["region"] == "eu"
     a("m.bad", {"n": 3}, 7)
     a("m.none", {}, 8)

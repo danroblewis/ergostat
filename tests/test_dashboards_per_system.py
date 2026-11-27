@@ -21,15 +21,22 @@ defaults:
   system: desk
 projections:
   bug:
-    match:
-      key: bug/*
-    states: [open, fixed]
+    query: key.startswith('bug/')
+    fields:
+      state:
+        type: one of [open, fixed]
     events:
-      bug.opened:
+      bug-opened:
+        when: type == 'bug.opened'
+        '...': data
         state: set('open')
-      bug.fixed:
+      bug-fixed:
+        when: type == 'bug.fixed'
+        '...': data
         state: set('fixed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 """
 
 

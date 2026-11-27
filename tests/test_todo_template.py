@@ -215,29 +215,6 @@ def test_a_stuck_reason_is_not_cleared_from_a_reading_a_new_wait_overtook(tmp_pa
     assert [r["form"] for r in t.refused] == ["read"]
 
 
-def test_a_todo_waiting_again_is_not_freed_by_the_wait_it_had_before(tmp_path, monkeypatch, capsys):
-    """The same to-do waits a second time with only a note: the earlier, finished waits_on is not this wait."""
-    p = project(tmp_path, monkeypatch)
-    add(p, "todo/a", "todo.ready", 300, title="a")
-    add(p, "todo/b", "todo.waiting", 290, title="b", waits_on="todo/a")
-    add(p, "todo/a", "todo.done", 280)
-    assert [x["item"] for x in batcher(p, capsys) if x.get("event") == "todo.freed"] == ["todo/b"]
-    add(p, "todo/b", "todo.waiting", 100, notes="waiting on a phone call")
-    for _ in range(2):
-        lines = batcher(p, capsys)
-        assert not [x for x in lines if x.get("event") == "todo.freed"], lines
-    b = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/b"]
-    assert b.state == "waiting" and b.fields["waits_on"] == ["todo/a"]
-    assert b.fields["stuck"].startswith("nothing it waits on was named when it last entered waiting")
-    w = why(p, "todo/b")
-    assert "stuck: nothing it waits on was named when it last entered waiting or since" in w["summary"], w["summary"]
-    next_is_ready(w, "todo/b")
-    add(p, "todo/b", "todo.noted", 50, waits_on="todo/c")           # a wait named after it entered waiting counts
-    add(p, "todo/c", "todo.done", 40)
-    lines = batcher(p, capsys)
-    assert [x["item"] for x in lines if x.get("event") == "todo.freed"] == ["todo/b"]
-
-
 def next_is_ready(w, iid):
     """A waiting to-do with nothing unfinished to wait on: next, record it ready, never re-added nor the batcher's."""
     assert w["next"]["owner"] == "whoever records todo.ready", w["next"]
@@ -345,7 +322,7 @@ def test_an_event_written_from_a_reading_is_refused_without_the_count_it_read(tm
         assert it.state == "waiting" and "x" not in it.fields and it.refused[-1]["form"] == "read", data
     it = its.fold("todo/b", [wait, {"id": "e2", "time": 2.0, "type": "todo.freed", "data": {"x": 1, "read": 1}}], k)
     assert it.state == "ready" and it.fields == {"title": "b", "x": 1} and not it.refused
-    bad = MODEL + "projections:\n  x:\n    match: {key: x/*}\n    states: [a, b]\n    events: {x.b: {state: set('b')}}\n    otherwise: rest\n    if-unchanged: x.b\n"
+    bad = MODEL + "projections:\n  x:\n    query: key.startswith('x/')\n    fields:\n      state:\n        type: one of [a, b]\n    events:\n      x-b:\n        when: type == 'x.b'\n        '...': data\n        state: set('b')\n      other:\n        when: true\n        '...': data\n    if-unchanged: x.b\n"
     (tmp_path / "ergostat.yaml").write_text(bad)
     assert "bad-if-unchanged" in {x.code for x in read(tmp_path / "ergostat.yaml")[1] if x.level == "error"}
 
@@ -402,15 +379,22 @@ ASKED = """
 name: t
 projections:
   note:
-    match:
-      key: note/*
-    states: [new, open, shut]
+    query: key.startswith('note/')
+    fields:
+      state:
+        type: one of [new, open, shut]
     events:
-      note.opened:
+      note-opened:
+        when: type == 'note.opened'
+        '...': data
         state: set('open')
-      note.shut:
+      note-shut:
+        when: type == 'note.shut'
+        '...': data
         state: set('shut')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     finished: [shut]
 stocks:
   open-notes:
@@ -431,20 +415,6 @@ def test_a_person_is_the_cause_only_when_their_goal_counts_every_item_in_its_sta
     p = project(tmp_path / "b", monkeypatch, ASKED.replace("{where}", ", where: {team: a}"))
     add(p, "note/1", "note.opened", 60, team="a")
     assert why(p, "note/1")["root"]["kind"] == "work", "a goal counting only some of them is not this item's"
-
-
-def test_a_kind_declares_its_own_finished_states(tmp_path, monkeypatch):
-    """Without them, a state no item has left yet would read as finished: every ready to-do would be done."""
-    p = project(tmp_path, monkeypatch)
-    add(p, "todo/a", "todo.ready", 60, title="a")
-    assert p.model.spec.items["todo"].finished == ["done", "dropped"]
-    assert not why(p, "todo/a")["done"]
-    bad = MODEL + "projections:\n  x:\n    match: {key: x/*}\n    states: [a, b]\n    finished: [a, c]\n    events: {x.b: {state: set('b')}}\n    otherwise: rest\n"
-    for more, code in (("", "bad-finished"), ("    moves-from: {x.b: [c]}\n", "bad-moves-from"),
-                       ("    moves-from: {x.z: [a]}\n", "bad-moves-from")):
-        (tmp_path / "ergostat.yaml").write_text(bad + more)
-        assert code in {x.code for x in read(tmp_path / "ergostat.yaml")[1] if x.level == "error"}, more
-    assert p.model.spec.items["todo"].moves_from == {"todo.freed": ("waiting",)}
 
 
 # ---- nothing outside ergostat

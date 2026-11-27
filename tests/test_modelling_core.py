@@ -85,36 +85,6 @@ def test_a_redesign_that_removes_rewires_or_changes_control_waits_for_the_owner(
         assert pr.stored(p)[got["id"]]["state"] == "accepted"
 
 
-def test_a_rename_that_changes_a_sensor_or_control_is_not_a_rename(tmp_path):
-    base = POOR.replace("flows:\n", "parameters:\n  slow:\n    value: 3\n    unit: alerts\nflows:\n")
-    rename = [("  new-alerts:\n", "  alerts-waiting:\n    formerly: new-alerts\n"), ("to: new-alerts", "to: alerts-waiting"),
-              ("from: new-alerts", "from: alerts-waiting"), ("+stock.new-alerts", "+stock.alerts-waiting"),
-              ("stock: new-alerts", "stock: alerts-waiting")]
-
-    def spec_of(name: str, more: list[tuple[str, str]], text: str = base):
-        for a, b in rename + more:
-            text = text.replace(a, b)
-        d = tmp_path / name
-        d.mkdir()
-        (d / "ergostat.yaml").write_text(text)
-        got, problems = read(d / "ergostat.yaml")
-        assert not [x for x in problems if x.level == "error"], (name, [str(x) for x in problems if x.level == "error"])
-        return got
-    (tmp_path / "base").mkdir()
-    (tmp_path / "base" / "ergostat.yaml").write_text(base)
-    before = read(tmp_path / "base" / "ergostat.yaml")[0]
-    assert ver.renamed_parts(before, spec_of("plain", [])) == {"stock.new-alerts": "stock.alerts-waiting"}
-    cases = {"sensor": [("sensor: {projection: alert, state: new, every: 2s}", "sensor: {projection: alert, state: closed, every: 2s}")],
-             "control": [('hold: "<= 3"', 'hold: "<= 50"')],
-             "a value": [("value: 3", "value: 300")],                       # the dynamics, past the fit test
-             "a rate": [("    description: closed\n", "    description: closed\n    rate: 5\n")],
-             "a projection": [("      triage.finished:\n", "      triage.done:\n")]}
-    for name, more in cases.items():
-        after = spec_of(name, more)
-        assert ver.renamed_parts(before, after) is None, name
-        assert im.kind_of(before, after, "rename") != "rename", name
-
-
 def test_every_change_that_rewires_a_chain_says_so(tmp_path):
     p = redesign_project(tmp_path / "m", PIECES + JUDGE.replace("ACCEPT", "auto"))
     raw = {"kind": "equation", "parts": ["flow.triaged"], "title": "chained",

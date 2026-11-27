@@ -1626,8 +1626,8 @@ def long_record(tmp_path, monkeypatch, n: int = 600):
     is outside the last 500 that `ergostat item --json` carries; and gap/short, three events."""
     from ergostat import model as mdl
     from ergostat.store import Project
-    (tmp_path / "ergostat.yaml").write_text("name: timer\nprojections:\n  gap:\n    match: {key: gap/*}\n    states: [ready, building, built]\n"
-                                            "    events: {gap.ready: {state: set('ready')}, gap.started: {state: set('building')}, gap.built: {state: set('built')}}\n    otherwise: rest\n")
+    (tmp_path / "ergostat.yaml").write_text("name: timer\nprojections:\n  gap:\n    query: key.startswith('gap/')\n    fields:\n      state:\n        type: one of [ready, building, built]\n"
+                                            "    events:\n      gap-ready:\n        when: type == 'gap.ready'\n        '...': data\n        state: set('ready')\n      gap-started:\n        when: type == 'gap.started'\n        '...': data\n        state: set('building')\n      gap-built:\n        when: type == 'gap.built'\n        '...': data\n        state: set('built')\n      other:\n        when: true\n        '...': data\n")
     p = Project(mdl.load(tmp_path))
     p.events.add("gap.ready", item="gap/long", source="test", at=100.0)
     p.events.add("gap.built", item="gap/long", source="test", data={"build_hours": 0.5}, at=200.0)
@@ -4289,15 +4289,22 @@ PUSH_MODEL = """
 name: t
 projections:
   gap:
-    match:
-      key: gap/*
-    states: [approved, queued]
+    query: key.startswith('gap/')
+    fields:
+      state:
+        type: one of [approved, queued]
     events:
-      gap.approved:
+      gap-approved:
+        when: type == 'gap.approved'
+        '...': data
         state: set('approved')
-      gap.queued:
+      gap-queued:
+        when: type == 'gap.queued'
+        '...': data
         state: set('queued')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   approved:
     sensor: {projection: gap, state: approved, every: 5s}

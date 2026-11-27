@@ -186,13 +186,18 @@ def test_a_sensor_records_what_it_observed_about_items_and_never_a_command(tmp_p
     p = project(tmp_path, """
 projections:
   case:
-    match:
-      key: case/*
-    states: [unmet, met]
+    query: key.startswith('case/')
+    fields:
+      state:
+        type: one of [unmet, met]
     events:
-      case.met:
+      case-met:
+        when: type == 'case.met'
+        '...': data
         state: set('met')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 auxiliaries:
   score:
     unit: KB/MP

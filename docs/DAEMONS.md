@@ -373,15 +373,22 @@ name: daemon-demo
 
 projections:
   job:
-    match:
-      key: job/*
-    states: [ready, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [ready, done]
     events:
-      job.opened:
+      job-opened:
+        when: type == 'job.opened'
+        '...': data
         state: set('ready')
-      job.done:
+      job-done:
+        when: type == 'job.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     description: a job; its work leaves a file in done/
 
 stocks:
@@ -575,15 +582,22 @@ wait                                                    # the job under way fini
 name: shell-jobs
 projections:
   job:
-    match:
-      key: job/*
-    states: [ready, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [ready, done]
     events:
-      job.opened:
+      job-opened:
+        when: type == 'job.opened'
+        '...': data
         state: set('ready')
-      job.done:
+      job-done:
+        when: type == 'job.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   ready:
     unit: jobs

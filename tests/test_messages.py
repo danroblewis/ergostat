@@ -25,39 +25,62 @@ BASE = """
 name: t
 projections:
   review:
-    match:
-      key: review/*
-    states: [requested, briefed, answered]
+    query: key.startswith('review/')
+    fields:
+      state:
+        type: one of [requested, briefed, answered]
     events:
-      review.briefed:
+      review-briefed:
+        when: type == 'review.briefed'
+        '...': data
         state: set('briefed')
-      review.answered:
+      review-answered:
+        when: type == 'review.answered'
+        '...': data
         state: set('answered')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title, author]
   ramp:
-    match:
-      key: ramp/*
-    states: [pending, briefed, approved]
+    query: key.startswith('ramp/')
+    fields:
+      state:
+        type: one of [pending, briefed, approved]
     events:
-      ramp.briefed:
+      ramp-briefed:
+        when: type == 'ramp.briefed'
+        '...': data
         state: set('briefed')
-      ramp.approved:
+      ramp-approved:
+        when: type == 'ramp.approved'
+        '...': data
         state: set('approved')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [flag, team]
   session:
-    match:
-      key: session/*
-    states: [open, done, failed, lost]
+    query: key.startswith('session/')
+    fields:
+      state:
+        type: one of [open, done, failed, lost]
     events:
-      session.ran:
+      session-ran:
+        when: type == 'session.ran'
+        '...': data
         state: set('done')
-      session.failed:
+      session-failed:
+        when: type == 'session.failed'
+        '...': data
         state: set('failed')
-      session.lost:
+      session-lost:
+        when: type == 'session.lost'
+        '...': data
         state: set('lost')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   to-brief:
     sensor: {projection: review, state: requested, every: 5s}

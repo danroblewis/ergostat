@@ -17,7 +17,19 @@ from ergostat.store import Project
 MODEL = """\
 name: traces-demo
 projections:
-  issue: {match: {key: issue/*}, states: [open, closed], events: {issue.seen: {state: set('open')}}, otherwise: rest}
+  issue:
+    query: key.startswith('issue/')
+    fields:
+      state:
+        type: one of [open, closed]
+    events:
+      issue-seen:
+        when: type == 'issue.seen'
+        '...': data
+        state: set('open')
+      other:
+        when: true
+        '...': data
 stocks:
   open-issues: {unit: issues, cumulative: true, sensor: {projection: issue, state: open, every: 1h}}
 flows:

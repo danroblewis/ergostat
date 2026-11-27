@@ -5,17 +5,26 @@ defaults:
 
 projections:
   session:                                   # each run of the improver: a Claude Code session, or the stand-in's
-    match:
-      key: session/*
-    states: [open, done, failed, lost]
+    query: key.startswith('session/')
+    fields:
+      state:
+        type: one of [open, done, failed, lost]
     events:
-      session.ran:
+      session-ran:
+        when: type == 'session.ran'
+        '...': data
         state: set('done')
-      session.failed:
+      session-failed:
+        when: type == 'session.failed'
+        '...': data
         state: set('failed')
-      session.lost:
+      session-lost:
+        when: type == 'session.lost'
+        '...': data
         state: set('lost')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [role, model, cost_usd, turns, seconds]
 
 stocks:

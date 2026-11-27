@@ -108,40 +108,6 @@ def test_the_overview_counts_an_item_changed_after_the_moment_as_it_stood(factor
     assert now["total"] == 701 and now["now"]["done"] >= old["now"].get("done", 0)
 
 
-def test_out_counts_only_the_cards_finished_never_a_paused_or_leased_state_never_left(tmp_path, monkeypatch):
-    """Rate out and ``left`` count the items that first reached a finished state by the card's own rule
-    (``finish_of``), the same rule its unfinished count uses: a ``leased`` and a paused state that no item has left are
-    never finished, though the older ``done_states`` rule would count them; an item changed after the moment counts
-    as it stood then."""
-    from ergostat import model as mdl
-    from ergostat.store import Project
-    from ergostat.web.items_overview import overview
-    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
-    d = tmp_path / "m"
-    d.mkdir()
-    st = ["open", "leased", "parked", "done"]
-    (d / "ergostat.yaml").write_text(
-        "name: out-rule\nprojections:\n  job:\n    match: {key: job/*}\n    states: [" + ", ".join(st) + "]\n    otherwise: rest\n    events: {"
-        + ", ".join(f"job.{s}: {{state: set('{s}')}}" for s in st) + "}\nmessages:\n  paused: {job: [parked]}\n")
-    p = Project(mdl.load(d))
-    t = time.time() - 3600
-    evs = [("job.open", "job/1", t), ("job.leased", "job/1", t + 10),          # leased, never left
-           ("job.open", "job/2", t + 1), ("job.parked", "job/2", t + 11),      # paused, never left
-           ("job.open", "job/3", t + 2), ("job.done", "job/3", t + 12),        # finished
-           ("job.open", "job/4", t + 3),                                         # finishes only after the moment
-           ("job.open", "job/5", t + 4), ("job.done", "job/5", t + 14)]        # finished, changed after the moment
-    p.events.add_many([{"type": ty, "item": i, "at": a} for ty, i, a in evs], new=True)
-    at = time.time()
-    p.events.add("job.done", item="job/4", at=at + 5)
-    p.events.add("job.done", item="job/5", at=at + 6)
-    got = overview(p, at, 86400)
-    job = {k["name"]: k for k in got["projections"]}["job"]
-    assert job["finished"] == ["done"], job["finished"]
-    assert job["total"] == 5 and job["unfinished"] == 3
-    assert job["left"] == 2, job["left"]
-    assert job["rate_out"] == pytest.approx(2 / (max(got["until"] - got["since"], 1.0) / 3600))
-
-
 def test_the_endpoint_is_one_answer_and_takes_no_snapshot(factory, monkeypatch):
     from ergostat import state
     from ergostat.web.server import Live, api

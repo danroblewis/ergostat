@@ -23,9 +23,9 @@ params:
   threshold: {type: number, default: 100, description: the level the signal is judged against}
   side: {default: above, choices: [above, below], description: which side of the threshold fires}
   for: {type: duration, default: 5m, description: how long past the threshold before it fires}
-  every: {type: duration, default: 15s, description: how often it is evaluated, and the sensors read}
+  every: {type: duration, default: 15s, description: how often it is evaluated, and the sensors read: null}
   unit: {default: units, description: the signal's unit}
-  signal: {type: command, default: "${lib} standin signal --threshold ${threshold}", stand-in: a made-up signal swelling past the threshold and back, description: the sensor of the signal, a command printing it}
+  signal: {type: command, default: "${lib} standin signal --threshold ${threshold}", stand-in: a made-up signal swelling past the threshold and back, description: the sensor of the signal, a command printing it: null}
   signal-query: {type: map, stand-in: a made-up signal swelling past the threshold and back, description: "the sensor of the signal as a query ({source: prom, promql: ...}), in place of the command"}
   firing: {type: command, default: "${lib} standin firing --threshold ${threshold} --side ${side}", stand-in: firing while the made-up signal is past, description: "the sensor of the alerts firing, a command printing how many"}
   firing-query: {type: map, stand-in: firing while the made-up signal is past, description: "the sensor of the alerts firing as a query (ALERTS{alertname=...})"}
@@ -34,16 +34,23 @@ params:
 projections:
   ${pages}:
     if: ${pages}
-    match:
-      key: ${pages}/*
+    query: key.startswith('${pages}/')
     description: an alert firing, then resolved
-    states: [firing, resolved]
+    fields:
+      state:
+        type: one of [firing, resolved]
     events:
-      "${pages}.fired":
+      fired:
+        when: type == '${pages}.fired'
+        '...': data
         state: set('firing')
-      "${pages}.resolved":
+      resolved:
+        when: type == '${pages}.resolved'
+        '...': data
         state: set('resolved')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 auxiliaries:
   signal:
     unit: ${unit}

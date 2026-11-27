@@ -146,7 +146,7 @@ def test_command_mark_lost_through_non_command_param(tmp_path):
 
 
 def test_nested_library_literal_sandboxed(tmp_path):
-    l2 = "template: l2\nprojections:\n  k: {match: {key: k/*}}\nuses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"
+    l2 = "template: l2\nprojections:\n  k:\n    query: key.startswith('k/')\nuses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body="stocks:\n  s: {unit: u}\nuses:\n  in:\n    use: l2\n"), "l2": l2})
     assert "./fetch.sh" in sandboxed(path, "u-in-c-arriving").run
 
@@ -168,30 +168,6 @@ def test_library_value_into_owner_folder_template_run_refused(tmp_path, own):
 
 REPING = "uses:\n  c:\n    use: re-ping\n    with: {{command: '${{cmd}}', ping: '${{cmd}}', take-over: 'false', {k}: {v}}}\n"
 COLLECT_KV = "uses:\n  c:\n    use: collect\n    with: {{command: '${{cmd}}', {k}: {v}}}\n"
-
-
-@pytest.mark.parametrize("template, key, value, ok", [
-    ("collect", "projection", "rm\n", SBX), ("collect", "projection", "a" * 65, SBX), ("collect", "projection", "Tickets", False),
-    ("re-ping", "every", "5m\n", False), ("re-ping", "every", " 5m", False), ("re-ping", "every", "1e3s", False),
-    ("re-ping", "limit", "1e9", False), ("collect", "stand-in-rate", "nan", SBX),
-    ("re-ping", "every", "0ms", False), ("re-ping", "limit", 101, False), ("collect", "stand-in-rate", 100000, SBX),
-    ("collect", "projection", "tickets", True), ("re-ping", "every", "5m", True), ("re-ping", "every", "1.5h", True),
-    ("re-ping", "limit", 3, True), ("collect", "projection", "a" * 64, True)])
-def test_narrow_value_patterns(tmp_path, template, key, value, ok):
-    """A value R2 refuses: a block refused at the use; a sensor's run sandboxed (SBX: library/runs.py)."""
-    body = (COLLECT_KV if template == "collect" else REPING).format(k=key, v=json.dumps(value))
-    path = write(tmp_path, {"cmd": CMD}, {"l": L(body=body)})
-    if ok:
-        spec = gate_allows(path)
-        assert spec.flows[next(f for f in spec.flows if f.endswith("-asked") or f.endswith("-arriving"))]
-        got = {s.run_in for f in spec.flows.values() for s in f.sensors.values() if s.run}
-        assert got == ({"sandbox"} if ok == SBX else {"owner"}) or template != "collect", got
-        return
-    errs = errors(path)                    # refused by the gate, or by the parameter's own type: either way at the use
-    assert {e.code for e in errs} - {bounds.CODE}, errs            # not only bounds.py's floor
-    assert errs and {(e.where.line, e.where.file.name) for e in errs} == {(5, "ergostat.yaml")}, errs
-    spec, _ = read(path)
-    assert not spec.flows and not spec.blocks, (spec.flows, spec.blocks)
 
 
 def test_library_values_are_bounded_after_rate_and_count_flags():

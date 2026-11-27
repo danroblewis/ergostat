@@ -12,20 +12,23 @@ systems:
   code-health:
     within: factory
     description: the code kept small - one module picked by its evidence every few days and a gap asked for that removes code from it
-    show: [auxiliary.days-since-simplify, auxiliary.simplifications-in-flight, stock.removals-recorded,
-           auxiliary.code-net-lines, auxiliary.code-long-functions, auxiliary.code-duplicates,
-           auxiliary.code-dead-candidates, auxiliary.code-coverage]
+    show: [auxiliary.days-since-simplify, auxiliary.simplifications-in-flight, stock.removals-recorded, auxiliary.code-net-lines, auxiliary.code-long-functions, auxiliary.code-duplicates, auxiliary.code-dead-candidates, auxiliary.code-coverage]
 
 projections:
   removal:
-    match:
-      key: removal/*
+    query: key.startswith('removal/')
     description: one removal a merged simplification made, from its commit's Removed trailer - class, path, name, lines
-    states: [recorded]
+    fields:
+      state:
+        type: one of [recorded]
     events:
-      removal.recorded:
+      removal-recorded:
+        when: type == 'removal.recorded'
+        '...': data
         state: set('recorded')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [class, path, name, lines, gap]
     relations:
       gap: gap

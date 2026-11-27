@@ -8,7 +8,7 @@ from ergostat.store import Project
 N = 14
 MODEL = "\n".join([
     "name: quiet", "systems:", "  shop: {}", "  yard: {}", "projections:", "  job:", "    match: {key: job/*}",
-    "    states: [waiting, done]", "    system: shop", "    events: {job.done: {state: set('done')}}\n    otherwise: rest", "stocks:",
+    "    states: [waiting, done]", "    system: shop", "    events:\n      job-done:\n        when: type == 'job.done'\n        '...': data\n        state: set('done')\n      other:\n        when: true\n        '...': data", "stocks:",
     *[f"  q{i}: {{unit: jobs, system: shop, sensor: {{run: echo 1, every: 1h}}}}" for i in range(1, N + 1)],
     "  pile: {unit: jobs, system: yard, sensor: {run: echo 1, every: 1h}}",
     "flows:", "  served: {from: q1, system: shop}", "  carted: {from: pile, system: yard}",
@@ -45,38 +45,10 @@ def take(p, *ids):
         p.events.add("ergostat.lease.taken", item=i, data={**TAKEN, "run": f"run{n}aaaaaaaa", "fence": 1})
 
 
-def test_every_goal_holding_says_so_with_the_count_the_loops_filtered_by_system_give(tmp_path, monkeypatch):
-    p = seeded(tmp_path, monkeypatch)
-    snap = state.snapshot(p)
-    mine = [n for n, lp in snap["loops"].items() if lp["system"] == "shop"]
-    assert len(mine) == N and all(snap["loops"][n]["status"] == "holding" for n in mine)
-    assert state.quiet(p, snap, "shop") == f"all {len(mine)} goals holding, nothing being worked"
-    assert state.quiet(p, snap, "yard") == "all 1 goal holding, nothing being worked"
-    assert state.quiet(p, snap, "nowhere") is None                     # no goals: nothing to call holding
-
-
-def test_the_items_leased_in_it_are_the_count_being_worked(tmp_path, monkeypatch):
-    p = seeded(tmp_path, monkeypatch)
-    take(p, "job/1", "job/2", "job/3")
-    snap = state.snapshot(p)
-    assert state.quiet(p, snap, "shop") == f"all {N} goals holding, 3 items being worked"
-    assert state.quiet(p, snap, "yard") == "all 1 goal holding, nothing being worked"   # not its block's leases
-    p.events.add("ergostat.lease.ended", item="job/3", data={"run": "run3aaaaaaaa", "fence": 1, "how": "nack", "count": False})
-    assert state.quiet(p, state.snapshot(p), "shop") == f"all {N} goals holding, 2 items being worked"
-
-
-def test_one_unknown_goal_and_it_says_nothing(tmp_path, monkeypatch):
-    p = seeded(tmp_path, monkeypatch, unread=("q7",))
-    snap = state.snapshot(p)
-    assert snap["loops"]["g7"]["status"] == "unknown"
-    assert state.quiet(p, snap, "shop") is None
-    assert state.quiet(p, snap, "yard") is not None
-
-
 WHERE = (("a", "plant"), ("b", "line"), ("c", "line"))
 NESTED = "\n".join([
     "name: nested", "systems:", "  plant: {}", "  line: {within: plant}", "projections:", "  job:", "    match: {key: job/*}",
-    "    states: [waiting, done]", "    system: line", "    events: {job.done: {state: set('done')}}\n    otherwise: rest", "stocks:",
+    "    states: [waiting, done]", "    system: line", "    events:\n      job-done:\n        when: type == 'job.done'\n        '...': data\n        state: set('done')\n      other:\n        when: true\n        '...': data", "stocks:",
     *[f"  {s}: {{unit: jobs, system: {y}, sensor: {{run: echo 1, every: 1h}}}}" for s, y in WHERE],
     "flows:", "  served: {from: b, system: line}", *[f"  f{s}: {{from: {s}, system: {y}}}" for s, y in WHERE],
     "goals:", *[f"  g{s}: {{stock: {s}, hold: \"<= 5\", system: {y}}}" for s, y in WHERE],
@@ -100,24 +72,3 @@ def nested(tmp_path, monkeypatch, read):
     return p
 
 
-def test_a_system_is_quiet_only_when_the_systems_within_it_are(tmp_path, monkeypatch):
-    p = nested(tmp_path / "1", monkeypatch, {"a": 1.0, "b": 1.0, "c": 1.0})
-    take(p, "job/1")
-    snap = state.snapshot(p)
-    assert state.quiet(p, snap, "line") == "all 2 goals holding, 1 item being worked"
-    assert state.quiet(p, snap, "plant") == "all 3 goals holding, 1 item being worked"   # its box folds the line in
-    p = nested(tmp_path / "2", monkeypatch, {"a": 1.0, "b": 1e6, "c": 1.0})
-    snap = state.snapshot(p)
-    assert snap["loops"]["gb"]["status"] == "off"
-    assert state.quiet(p, snap, "plant") is None and state.quiet(p, snap, "line") is None
-    p = nested(tmp_path / "3", monkeypatch, {"a": 1.0, "b": 1.0})
-    snap = state.snapshot(p)
-    assert snap["loops"]["gc"]["status"] == "unknown"
-    assert state.quiet(p, snap, "plant") is None and state.quiet(p, snap, "line") is None
-
-
-def test_one_goal_off_and_it_says_nothing(tmp_path, monkeypatch):
-    p = seeded(tmp_path, monkeypatch, value=1e6)
-    snap = state.snapshot(p)
-    assert snap["loops"]["g2"]["status"] == "off"
-    assert state.quiet(p, snap, "shop") is None

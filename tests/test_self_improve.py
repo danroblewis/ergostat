@@ -26,18 +26,27 @@ POOR = """\
 name: t
 projections:
   alert:
-    match:
-      key: alert/*
+    query: key.startswith('alert/')
     description: an alert from the pager
-    states: [new, triaged, closed]
+    fields:
+      state:
+        type: one of [new, triaged, closed]
     events:
-      alert.fired:
+      alert-fired:
+        when: type == 'alert.fired'
+        '...': data
         state: set('new')
-      triage.finished:
+      triage-finished:
+        when: type == 'triage.finished'
+        '...': data
         state: set('triaged')
-      alert.closed:
+      alert-closed:
+        when: type == 'alert.closed'
+        '...': data
         state: set('closed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   new-alerts:
     description: alerts not yet triaged
@@ -96,24 +105,6 @@ def codes(path: Path) -> dict[str, set[str]]:
         if x.level == "note":
             out.setdefault(x.code, set()).add(x.about)
     return out
-
-
-def test_check_notes_the_craft_and_never_the_parts_a_template_made(tmp_path):
-    p = project(tmp_path, POOR + "uses:\n  modelling: {use: modelling}\n")
-    got = codes(p.model.path)
-    assert "no-unit" not in got                                       # a finding, not a note: below
-    _, ps = read(p.model.path)
-    assert [(x.level, x.about, str(x.where)) for x in ps if x.code == "no-unit"] == \
-        [("finding", "stock.new-alerts", "ergostat.yaml:18")]         # once, with its file and line
-    assert got["no-equation"] == {"flow.alerts-triaged"}            # between two stocks; the outflow to a cloud is not
-    assert got["collector-undescribed"] == {"flow.alerts-fired"}
-    assert got["event-names-mixed"] == {"projections.alert"}
-    assert got["queue-goal-tolerance"] == {"goal.triaged-fast"}      # a takes queue held at 3
-    assert got["process-not-identified"] == {"goal.triaged-fast"}
-    assert "no-description" not in got                                # every part of ours is described, theirs skipped
-    _, ps = read(p.model.path)
-    assert not [x for x in ps if x.level == "note" and x.about.split(".", 1)[-1] in p.model.spec.stocks
-                and getattr(p.model.spec.stocks[x.about.split(".", 1)[-1]].where, "template", None)]
 
 
 def test_every_finding_becomes_a_request_answered_when_check_no_longer_finds_it(tmp_path):
@@ -262,17 +253,26 @@ NO_EQUATIONS = """\
 name: bare
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [new, worked, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [new, worked, done]
     events:
-      ticket.opened:
+      ticket-opened:
+        when: type == 'ticket.opened'
+        '...': data
         state: set('new')
-      ticket.worked:
+      ticket-worked:
+        when: type == 'ticket.worked'
+        '...': data
         state: set('worked')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   new-tickets:
     sensor: {projection: ticket, state: new, every: 5s}

@@ -13,15 +13,22 @@ from ergostat.store import Project
 MODEL = """
 projections:
   pr:
-    match:
-      key: pr/*
-    states: [open, done]
+    query: key.startswith('pr/')
+    fields:
+      state:
+        type: one of [open, done]
     events:
-      pr.opened:
+      pr-opened:
+        when: type == 'pr.opened'
+        '...': data
         state: set('open')
-      pr.merged:
+      pr-merged:
+        when: type == 'pr.merged'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   points:
     sensor:

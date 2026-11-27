@@ -17,15 +17,22 @@ KINDS = """
 name: rs
 projections:
   job:
-    match:
-      key: job/*
-    states: [new, doing, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [new, doing, done]
     events:
-      job.start:
+      job-start:
+        when: type == 'job.start'
+        '...': data
         state: set('doing')
-      job.end:
+      job-end:
+        when: type == 'job.end'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   waiting: {unit: jobs, sensor: {projection: job, state: new, every: 1s}}
   doing: {unit: jobs, sensor: {projection: job, state: doing, every: 1s}}

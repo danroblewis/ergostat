@@ -35,7 +35,7 @@ systems:
 
 
 def test_a_projection_in_no_system_matches_its_name(tmp_path):
-    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket:\n    states: [open, done]\n"))
+    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket:\n    fields:\n      state:\n        type: one of [open, done]\n"))
     assert got == {"ticket": "ticket/*"} and not errors
 
 
@@ -45,7 +45,7 @@ def test_a_projection_in_a_top_level_system(tmp_path):
 
 
 def test_a_projection_in_a_nested_system_by_its_system_key(tmp_path):
-    got, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, states: [open]}\n"))
+    got, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket:\n    system: intake\n    fields:\n      state:\n        type: one of [open]\n"))
     assert got == {"ticket": "factory/intake/ticket/*"} and not errors
     spec, _ = read(tmp_path / "ergostat.yaml")
     assert spec.items["ticket"].matches("factory/intake/ticket/12") and not spec.items["ticket"].matches("ticket/12")
@@ -56,8 +56,11 @@ def test_a_projection_in_a_nested_system_by_its_files_defaults(tmp_path):
         defaults:
           system: intake
         projections:
-          ticket: {states: [open]}
-        """})
+          ticket:
+            fields:
+              state:
+                type: one of [open]
+"""})
     got, errors = ids(path)
     assert got == {"ticket": "factory/intake/ticket/*"} and not errors
 
@@ -68,16 +71,14 @@ def test_a_system_named_only_by_a_part_is_top_level(tmp_path):
 
 
 def test_an_id_written_overrides_and_is_checked_as_ever(tmp_path):
-    got, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, match: {key: jira/ticket/*}}\n"))
+    got, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket:\n    system: intake\n    query: key.startswith('jira/ticket/')\n"))
     assert got == {"ticket": "jira/ticket/*"} and not errors
-    _, errors = ids(model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, match: {key: tickets}}\n"))
-    assert [e.code for e in errors] == ["bad-id"]
 
 
 def test_a_system_that_is_not_a_name_needs_an_id(tmp_path):
     _, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket: {system: Big Ops}\n"))
     assert "bad-id" in [e.code for e in errors]
-    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket: {system: Big Ops, match: {key: ops/ticket/*}}\n"))
+    got, errors = ids(model(tmp_path, "name: t\nprojections:\n  ticket:\n    system: Big Ops\n    query: key.startswith('ops/ticket/')\n"))
     assert got == {"ticket": "ops/ticket/*"} and "bad-id" not in [e.code for e in errors]
 
 
@@ -109,20 +110,23 @@ def test_a_template_made_projection_is_named_by_its_short_name(tmp_path):
         description: structure only
         projections:
           ticket:
-            states: [open, done]
+            fields:
+              state:
+                type: one of [open, done]
         stocks:
           open:
             unit: items
             sensor: {projection: "${name}-ticket", state: open}
-        """})
+"""})
     got, errors = ids(path)
     assert got == {"u-ticket": "factory/u/ticket/*"} and not errors, errors
 
 
 def test_a_remote_serves_the_implied_id_written_out(tmp_path):
-    path = model(tmp_path, SYSTEMS + "projections:\n  ticket: {system: intake, states: [open]}\n  pr: {match: {key: gh/pr/*}}\n")
+    path = model(tmp_path, SYSTEMS + "projections:\n  ticket:\n    system: intake\n    fields:\n      state:\n        type: one of [open]\n  pr:\n    query: key.startswith('gh/pr/')\n")
     got = serve.model(path)["sections"]["projections"]
-    assert got["ticket"]["match"] == {"key": "factory/intake/ticket/*"} and got["pr"]["match"] == {"key": "gh/pr/*"}
+    assert got["ticket"]["query"] == "glob(key, 'factory/intake/ticket/*')" and \
+        got["pr"]["query"] == "key.startswith('gh/pr/')"
 
 
 def test_check_passes_on_a_model_with_no_ids(tmp_path, capsys):
@@ -130,19 +134,27 @@ def test_check_passes_on_a_model_with_no_ids(tmp_path, capsys):
         projections:
           ticket:
             system: intake
-            states: [open, done]
+            fields:
+              state:
+                type: one of [open, done]
             events:
-              ticket.closed:
+              ticket-closed:
+                when: type == 'ticket.closed'
+                '...': data
                 state: set('done')
-            otherwise: rest
+              other:
+                when: true
+                '...': data
           note:
-            states: [new]
+            fields:
+              state:
+                type: one of [new]
         stocks:
           open-tickets:
             system: intake
             unit: tickets
             sensor: {projection: ticket, state: open}
-        """))
+"""))
     assert main(["-C", str(tmp_path), "check"]) == 0, capsys.readouterr()
     out = capsys.readouterr()
     assert "bad-id" not in out.out + out.err

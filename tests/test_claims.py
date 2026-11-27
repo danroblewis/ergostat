@@ -110,15 +110,22 @@ def test_a_claim_line_that_says_nothing_is_refused(tmp_path):
 ITEMS = """
 projections:
   job:
-    match:
-      key: job/*
-    states: [waiting, running, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [waiting, running, done]
     events:
-      job.started:
+      job-started:
+        when: type == 'job.started'
+        '...': data
         state: set('running')
-      job.finished:
+      job-finished:
+        when: type == 'job.finished'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 """
 
 

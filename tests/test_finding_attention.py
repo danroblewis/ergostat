@@ -14,15 +14,22 @@ KIND = """
 name: f
 projections:
   situation:
-    match:
-      key: situation/*
-    states: [raised, handled]
+    query: key.startswith('situation/')
+    fields:
+      state:
+        type: one of [raised, handled]
     events:
-      situation.raised:
+      situation-raised:
+        when: type == 'situation.raised'
+        '...': data
         state: set('raised')
-      situation.handled:
+      situation-handled:
+        when: type == 'situation.handled'
+        '...': data
         state: set('handled')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     attention: finding
 """
 

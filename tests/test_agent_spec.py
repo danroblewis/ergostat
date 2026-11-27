@@ -37,9 +37,10 @@ goals:
   aside-low: {stock: aside, hold: "<= 0"}
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [new, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [new, done]
 agents:
   ai: {kind: ai}
   small: {kind: narrow-ai}

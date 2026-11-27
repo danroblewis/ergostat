@@ -369,7 +369,9 @@ def reset(p, draft, snap: dict, by: str = "owner") -> dict:
 def save_projection(p, draft, snap: dict, by: str = "owner") -> dict:
     """The owner's Save of a projection's definition from its own page (``{name, yaml, system?, new?}``: the YAML its
     body, as the page's Definition editor holds it), put in place of the projection (its ``dashboards:`` kept) or, a
-    new one, at the end of ``projections:`` in its system's file (else the main file). Not a display change: a change
+    new one, at the end of ``projections:`` in its system's file (else the main file), the parts that changed dated
+    ``# updated YYYY-MM-DD`` (the projection, its query, each events entry) and the rest kept as written (``spec/dated.py``).
+    Not a display change: a change
     to the model, made by the owner and accepted in the same step, as Accept writes any (``proposals.accept``);
     refused when the model it leaves does not pass ``check``."""
     from ..spec import trying
@@ -382,7 +384,8 @@ def save_projection(p, draft, snap: dict, by: str = "owner") -> dict:
     if d.get("new") and name in spec.items:
         raise pr.ProposalError(f"not saved: a projection named {name} is in the model already; name this one otherwise")
     try:
-        _, edit, errors = trying.compiled(p, name, text, system)
+        import datetime
+        _, edit, errors = trying.compiled(p, name, text, system, today=datetime.date.today().isoformat())
     except trying.TryError as e:
         raise pr.ProposalError(f"not saved: {e}") from None
     if errors:

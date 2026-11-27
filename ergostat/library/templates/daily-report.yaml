@@ -39,14 +39,19 @@ params:
     description: how often the clock is read
 projections:
   ${projection}:
-    match:
-      key: ${projection}/*
+    query: key.startswith('${projection}/')
     description: one report, its file in report
-    states: [written]
+    fields:
+      state:
+        type: one of [written]
     events:
-      ${projection}.written:
+      written:
+        when: type == '${projection}.written'
+        '...': data
         state: set('written')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title, report]
     formats:
       report: markdown

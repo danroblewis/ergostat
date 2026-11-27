@@ -53,17 +53,26 @@ def test_flow_rates_come_from_valves_and_else_from_the_stocks_changes(project):
 MODEL = """
 projections:
   pr:
-    match:
-      key: pr/*
-    states: [open, review, merged, closed]
+    query: key.startswith('pr/')
+    fields:
+      state:
+        type: one of [open, review, merged, closed]
     events:
-      pr.review-asked:
+      pr-review-asked:
+        when: type == 'pr.review-asked'
+        '...': data
         state: set('review')
-      pr.merged:
+      pr-merged:
+        when: type == 'pr.merged'
+        '...': data
         state: set('merged')
-      pr.closed:
+      pr-closed:
+        when: type == 'pr.closed'
+        '...': data
         state: set('closed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   in-review:
     unit: prs

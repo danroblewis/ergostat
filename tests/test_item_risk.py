@@ -295,17 +295,26 @@ KIND = """
 name: t
 projections:
   change:
-    match:
-      key: change/*
-    states: [open, ready, landed, failed]
+    query: key.startswith('change/')
+    fields:
+      state:
+        type: one of [open, ready, landed, failed]
     events:
-      change.readied:
+      change-readied:
+        when: type == 'change.readied'
+        '...': data
         state: set('ready')
-      change.landed:
+      change-landed:
+        when: type == 'change.landed'
+        '...': data
         state: set('landed')
-      change.failed:
+      change-failed:
+        when: type == 'change.failed'
+        '...': data
         state: set('failed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     risk-score:
       at: ready
       failed: [change.failed, change.reverted]

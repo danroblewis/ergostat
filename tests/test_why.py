@@ -40,41 +40,66 @@ goals:
     hold: "<= 5"
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, review, done, held]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, review, done, held]
     events:
-      ticket.opened:
+      ticket-opened:
+        when: type == 'ticket.opened'
+        '...': data
         state: set('todo')
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.reviewed:
+      ticket-reviewed:
+        when: type == 'ticket.reviewed'
+        '...': data
         state: set('review')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-      ticket.held:
+      ticket-held:
+        when: type == 'ticket.held'
+        '...': data
         state: set('held')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       blocked_by: ticket
   note:
-    match:
-      key: note/*
-    states: [open, shut]
+    query: key.startswith('note/')
+    fields:
+      state:
+        type: one of [open, shut]
     events:
-      note.opened:
+      note-opened:
+        when: type == 'note.opened'
+        '...': data
         state: set('open')
-      note.shut:
+      note-shut:
+        when: type == 'note.shut'
+        '...': data
         state: set('shut')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   slot:
-    match:
-      key: slot/*
-    states: [held]
+    query: key.startswith('slot/')
+    fields:
+      state:
+        type: one of [held]
     events:
-      slot.made:
+      slot-made:
+        when: type == 'slot.made'
+        '...': data
         state: set('held')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 messages:
   done: {ticket: [done], note: [shut]}
   paused: {ticket: [held]}
@@ -427,33 +452,58 @@ def test_unreadable_field_is_an_answer(tmp_path, monkeypatch):
 FACTORY = """
 projections:
   gap:
-    match:
-      key: gap/*
-    states: [open, ready, fix, building, built, in-review, approved, queued, merged, parked, closed]
+    query: key.startswith('gap/')
+    fields:
+      state:
+        type: one of [open, ready, fix, building, built, in-review, approved, queued, merged, parked, closed]
     events:
-      gap.found:
+      gap-found:
+        when: type == 'gap.found'
+        '...': data
         state: set('open')
-      gap.defined:
+      gap-defined:
+        when: type == 'gap.defined'
+        '...': data
         state: set('ready')
-      gap.started:
+      gap-started:
+        when: type == 'gap.started'
+        '...': data
         state: set('building')
-      gap.built:
+      gap-built:
+        when: type == 'gap.built'
+        '...': data
         state: set('built')
-      gap.review-started:
+      gap-review-started:
+        when: type == 'gap.review-started'
+        '...': data
         state: set('in-review')
-      gap.approved:
+      gap-approved:
+        when: type == 'gap.approved'
+        '...': data
         state: set('approved')
-      gap.sent-back:
+      gap-sent-back:
+        when: type == 'gap.sent-back'
+        '...': data
         state: set('fix')
-      gap.queued:
+      gap-queued:
+        when: type == 'gap.queued'
+        '...': data
         state: set('queued')
-      gap.merged:
+      gap-merged:
+        when: type == 'gap.merged'
+        '...': data
         state: set('merged')
-      gap.parked:
+      gap-parked:
+        when: type == 'gap.parked'
+        '...': data
         state: set('parked')
-      gap.closed:
+      gap-closed:
+        when: type == 'gap.closed'
+        '...': data
         state: set('closed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations:
       depends_on: gap
 messages:

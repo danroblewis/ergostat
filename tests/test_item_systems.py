@@ -36,19 +36,22 @@ systems:
   b: {}
 projections:
   job:
-    match:
-      key: job/*
-    states: [open, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [open, done]
     events:
-      job.done:
+      job-done:
+        when: type == 'job.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   lone:
-    match:
-      key: lone/*
+    query: key.startswith('lone/')
   mine:
-    match:
-      key: mine/*
+    query: key.startswith('mine/')
     system: b
 stocks:
   open-a:

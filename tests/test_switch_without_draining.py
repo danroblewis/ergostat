@@ -30,31 +30,48 @@ runs:
   outlive_engine: true
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [ready, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [ready, done]
     events:
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   gap:
-    match:
-      key: gap/*
-    states: [open]
+    query: key.startswith('gap/')
+    fields:
+      state:
+        type: one of [open]
   upgrade:
-    match:
-      key: upgrade/*
-    states: [switched, healthy, reverted, failed]
+    query: key.startswith('upgrade/')
+    fields:
+      state:
+        type: one of [switched, healthy, reverted, failed]
     events:
-      upgrade.switched:
+      upgrade-switched:
+        when: type == 'upgrade.switched'
+        '...': data
         state: set('switched')
-      upgrade.kept:
+      upgrade-kept:
+        when: type == 'upgrade.kept'
+        '...': data
         state: set('healthy')
-      upgrade.reverted:
+      upgrade-reverted:
+        when: type == 'upgrade.reverted'
+        '...': data
         state: set('reverted')
-      upgrade.failed:
+      upgrade-failed:
+        when: type == 'upgrade.failed'
+        '...': data
         state: set('failed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 SENSED
 stocks:
   handled:

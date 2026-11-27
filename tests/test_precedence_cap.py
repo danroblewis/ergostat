@@ -19,28 +19,44 @@ from ergostat.store import Project
 MODEL = """
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [todo, doing, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [todo, doing, done]
     events:
-      ticket.opened:
+      ticket-opened:
+        when: type == 'ticket.opened'
+        '...': data
         state: set('todo')
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {blocked_by: [ticket, part]}
   part:
-    match:
-      key: part/*
-    states: [open, made]
+    query: key.startswith('part/')
+    fields:
+      state:
+        type: one of [open, made]
     events:
-      part.opened:
+      part-opened:
+        when: type == 'part.opened'
+        '...': data
         state: set('open')
-      part.made:
+      part-made:
+        when: type == 'part.made'
+        '...': data
         state: set('made')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 messages:
   done: {ticket: [done], part: [made]}
 blocks:

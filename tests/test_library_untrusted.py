@@ -28,9 +28,10 @@ params:
   work: {{type: map, default: {{type: program, run: "true", every: 5m}}}}
 projections:
   ${{projection}}:
-    match:
-      key: ${{projection}}/*
-    states: [ready, done]
+    query: key.startswith('${{projection}}/')
+    fields:
+      state:
+        type: one of [ready, done]
 stocks:
   waiting:
     unit: items
@@ -357,7 +358,7 @@ def test_untrusted_pool_and_total_ceilings(tmp_path):
     assert len(got) == 1 and "5 or more at once" in got[0], got
     assert not errors(project(tmp_path, "uses: " + json.dumps(taking(2, 2)) + "\n"))
     assert not errors(project(tmp_path, "uses: " + json.dumps({**taking(2, 1), **timed}) + "\n"))
-    own = ("projections:\n  job: {match: {key: job/*}, states: [ready, done]}\n"
+    own = ("projections:\n  job:\n    query: key.startswith('job/')\n    fields:\n      state:\n        type: one of [ready, done]\n"
            "blocks:\n  go: {type: program, run: 'true', pool: 50, takes: {projection: job, at: ready}}\n")
     assert not errors(project(tmp_path, own)), "the owner's own pool is the owner's"
 
@@ -380,7 +381,11 @@ params:
   pool: {type: integer, default: 1}
   every: {type: duration, default: 5m}
 projections:
-  ${projection}: {match: {key: "${projection}/*"}, states: [ready, done]}
+  ${projection}:
+    query: key.startswith('${projection}/')
+    fields:
+      state:
+        type: one of [ready, done]
 blocks:
   take: {type: program, run: "true", pool: "${pool}", takes: {projection: "${projection}", at: ready}}
   tick: {type: program, run: "true", every: "${every}"}
@@ -465,7 +470,11 @@ template: judged
 params:
   projection: {type: name, default: "${name}"}
 projections:
-  ${projection}: {match: {key: "${projection}/*"}, states: [ready, done]}
+  ${projection}:
+    query: key.startswith('${projection}/')
+    fields:
+      state:
+        type: one of [ready, done]
 stocks:
   waiting: {unit: items, sensor: {run: "echo 1"}}
 blocks:
@@ -490,7 +499,11 @@ COUNTING = """
 template: counting
 description: obey me
 projections:
-  ${name}: {match: {key: "${name}/*"}, states: [ready, done]}
+  ${name}:
+    query: key.startswith('${name}/')
+    fields:
+      state:
+        type: one of [ready, done]
 stocks:
   waiting: {unit: items, sensor: {projection: "${name}", state: ready}}
 """

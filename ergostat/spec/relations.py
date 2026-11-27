@@ -99,7 +99,7 @@ def compile_relations(c, m, what: str, rules: dict) -> dict[str, Relation]:
                   f"where they stop blocking", at, "starts-at-not-precedence")
             continue
         done_when = opts.get("done_when", {})
-        states = m.get("states") or []
+        states = getattr(c, "states_now", None) or []
         if "done_when" in opts and (not isinstance(done_when, dict) or not done_when or not group or not all(
                 s in states and isinstance(w, dict) and w and all(isinstance(f, str) and _plain(x) for f, x in w.items())
                 for s, w in done_when.items())):

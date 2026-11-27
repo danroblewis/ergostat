@@ -6,7 +6,7 @@ reading: |
   and other sensors count them. It never acts on what it reads.
   System dynamics: the inflow of whatever the source holds, into a stock: its own running total of items seen
   (`collected`), or a stock of yours (`into`), so that another template (or your own parts) drains it. A record
-  that names an event (`event-field`) moves its item to the state the projection's `events:` handler for it sets.
+  that names an event (`event-field`) moves its item to the state the projection's `events:` kind that takes it sets.
 example: |
   uses:
     deploys:
@@ -74,7 +74,7 @@ params:
     description: the projection's states; a new item starts in the first
   events:
     type: map
-    description: "what each event does to its item, as the projection's events: (PROJECTION.closed: {state: set('closed')})"
+    description: "the projection's kinds of event, each with its when: and what it tells (closed: {when: \"type == 'PROJECTION.closed'\", '...': data, state: \"'closed'\"}); none given: every record's data folds in"
   into:
     type: name
     description: a stock of yours (its whole name) the arrivals flow into, instead of the running total collected
@@ -85,12 +85,11 @@ params:
 projections:
   ${projection}:
     if: ${declare-projection}
-    match:
-      key: ${projection}/*
+    query: key.startswith('${projection}/')
     description: what the collector ${name} saw
-    states: ${states}
+    fields:
+      state: {type: "${states}"}
     events: ${events}
-    otherwise: rest
 stocks:
   collected:
     unless: ${into}

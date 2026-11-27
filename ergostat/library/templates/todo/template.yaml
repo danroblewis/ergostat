@@ -52,31 +52,47 @@ params:
     description: how often the batches are worked out again
 projections:
   ${projection}:
-    match:
-      key: ${projection}/*
+    query: key.startswith('${projection}/')
     description: something a person must do by hand, with its instructions and where it must be done
-    states: [new, ready, in-progress, waiting, done, dropped]
+    fields:
+      state:
+        type: one of [new, ready, in-progress, waiting, done, dropped]
+      notes: {fold: append}
     events:
-      "*":
-        notes: append(data.notes)
-      ${projection}.added:
+      added:
+        when: type == '${projection}.added'
+        '...': data
         state: set('new')
-      ${projection}.ready:
+      ready:
+        when: type == '${projection}.ready'
+        '...': data
         state: set('ready')
-      ${projection}.done:
+      done:
+        when: type == '${projection}.done'
+        '...': data
         state: set('done')
-      ${projection}.started:
+      started:
+        when: type == '${projection}.started'
+        '...': data
         state: set('in-progress')
-      ${projection}.waiting:
+      waiting:
+        when: type == '${projection}.waiting'
+        '...': data
         state: set('waiting')
-      ${projection}.dropped:
+      dropped:
+        when: type == '${projection}.dropped'
+        '...': data
         state: set('dropped')
-      ${projection}.freed:
+      freed:
+        when: type == '${projection}.freed'
+        '...': data
         state: set('ready')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     finished: [done, dropped]
     moves-from:
-      ${projection}.freed: [waiting]
+      freed: [waiting]
     if-unchanged: ["${projection}.freed", "${projection}.stuck"]
     relations:
       waits_on:
@@ -84,31 +100,44 @@ projections:
         precedence: true
     show: [title, where, due, requester, stuck]
   ${wait-projection}:
-    match:
-      key: ${wait-projection}/*
+    query: key.startswith('${wait-projection}/')
     description: something a to-do waits on that someone else does (a person's answer, an outside change), recorded by hand
-    states: [new, asked, answered]
+    fields:
+      state:
+        type: one of [new, asked, answered]
+      notes: {fold: append}
     events:
-      "*":
-        notes: append(data.notes)
-      ${wait-projection}.asked:
+      asked:
+        when: type == '${wait-projection}.asked'
+        '...': data
         state: set('asked')
-      ${wait-projection}.answered:
+      answered:
+        when: type == '${wait-projection}.answered'
+        '...': data
         state: set('answered')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     finished: [answered]
     show: [title, who]
   ${batch-projection}:
-    match:
-      key: ${batch-projection}/*
+    query: key.startswith('${batch-projection}/')
     description: the ready to-dos of one place, in the order to do them, with every one's instructions (sitting)
-    states: [open, clear]
+    fields:
+      state:
+        type: one of [open, clear]
     events:
-      ${batch-projection}.grouped:
+      grouped:
+        when: type == '${batch-projection}.grouped'
+        '...': data
         state: set('open')
-      ${batch-projection}.cleared:
+      cleared:
+        when: type == '${batch-projection}.cleared'
+        '...': data
         state: set('clear')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     finished: [clear]
     show: [title, count, due]
 stocks:

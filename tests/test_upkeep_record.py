@@ -32,15 +32,22 @@ UPKEEP = "uses:\n  upkeep:\n    use: upkeep\n"
 MODEL = """
 projections:
   t:
-    match:
-      key: t/*
-    states: [open, done]
+    query: key.startswith('t/')
+    fields:
+      state:
+        type: one of [open, done]
     events:
-      t.opened:
+      t-opened:
+        when: type == 't.opened'
+        '...': data
         state: set('open')
-      t.done:
+      t-done:
+        when: type == 't.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   open-ts:
     sensor: {projection: t, state: open, every: 1m}
@@ -305,7 +312,7 @@ def test_storage_rollup_every_with_upkeep_is_a_finding(tmp_path):
     def codes(name: str, upkeep: bool, every: bool) -> set[str]:
         root = tmp_path / name
         root.mkdir()
-        (root / "ergostat.yaml").write_text("name: x\nprojections:\n  t:\n    match: {key: t/*}\n"
+        (root / "ergostat.yaml").write_text("name: x\nprojections:\n  t:\n    query: key.startswith('t/')\n"
                                             + ("storage:\n  rollup:\n    every: 2h\n" if every else "")
                                             + (UPKEEP if upkeep else ""))
         spec, ps = read(root / "ergostat.yaml")

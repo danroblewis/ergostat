@@ -90,83 +90,137 @@ systems:
 
 projections:
   gap:
-    match:
-      key: gap/*
+    query: key.startswith('gap/')
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
-    states: [open, replan, planned, split, joined, ready, fix, building, built, in-review, approved, queued, push-pending,
-             queue-failed, merged, parked, closed]
+    fields:
+      state:
+        type: one of [open, replan, planned, split, joined, ready, fix, building, built, in-review, approved, queued, push-pending, queue-failed, merged, parked, closed]
+      rounds: {fold: add}
+      reviews_n: {fold: add}
+      fix_rounds: {fold: add}
+      failed_gates: {fold: add}
+      retries: {fold: add}
+      queue_attempts: {fold: add}
+      stalls: {fold: add}         # its suite runs stopped for a limit, it alone in the batch (queue, triage)
+      sessions: {fold: add}
+      ai_cost_usd: {fold: add}
+      planning_cost_usd: {fold: add}                    # the planner's share of it (plan.py; measure.py)
+      build_hours: {fold: add}
+      build_failures: {fold: add}                 # one per failed build, over the gap's life: the kill rule (dev/README.md)
+      review_hours: {fold: add}
+      queue_wait_hours: {fold: add}
+      queue_runs: {fold: append}             # each queue run it was in: its id, whole minutes, end (merges-per-hour)
+      reviews: {fold: append}
+      contexts: {fold: append}
+      flakes: {fold: union}
+      plan_failures: {fold: add}
+      research: {fold: union}
+      research_waits: {fold: add}
+      measured_runs: {fold: append}                # each measure-runs of a named measurement: its head, counts, runs (dev/bin/runs.py)
+      join_verdicts: {fold: append}                # each judgment of the join judge: covered or short, the points not built
+      resources: {fold: append}            # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
+      tool_denials: {fold: add}               # its sessions' tool calls refused (dev/bin/sessions.py), and which (denied); a
+      tool_denials_unknown: {fold: add}                       # session whose result said nothing of them counts in tool_denials_unknown
+      denied: {fold: append}
+      conflicts: {fold: add}            # its merges refused in the queue for a conflict (queue.py refuse)
     events:
-      "*":
-        rounds: add(data.rounds)
-        reviews_n: add(data.reviews_n)
-        fix_rounds: add(data.fix_rounds)
-        failed_gates: add(data.failed_gates)
-        retries: add(data.retries)
-        queue_attempts: add(data.queue_attempts)
-        stalls: add(data.stalls)  # its suite runs stopped for a limit, it alone in the batch (queue, triage)
-        sessions: add(data.sessions)
-        ai_cost_usd: add(data.ai_cost_usd)
-        planning_cost_usd: add(data.planning_cost_usd)  # the planner's share of it (plan.py; measure.py)
-        build_hours: add(data.build_hours)
-        build_failures: add(data.build_failures)  # one per failed build, over the gap's life: the kill rule (dev/README.md)
-        review_hours: add(data.review_hours)
-        queue_wait_hours: add(data.queue_wait_hours)
-        queue_runs: append(data.queue_runs)  # each queue run it was in: its id, whole minutes, end (merges-per-hour)
-        reviews: append(data.reviews)
-        contexts: append(data.contexts)
-        flakes: union(data.flakes)
-        plan_failures: add(data.plan_failures)
-        research: union(data.research)
-        research_waits: add(data.research_waits)
-        measured_runs: append(data.measured_runs)  # each measure-runs of a named measurement: its head, counts, runs (dev/bin/runs.py)
-        join_verdicts: append(data.join_verdicts)  # each judgment of the join judge: covered or short, the points not built
-        resources: append(data.resources)  # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
-        tool_denials: add(data.tool_denials)  # its sessions' tool calls refused (dev/bin/sessions.py), and which (denied); a
-        tool_denials_unknown: add(data.tool_denials_unknown)  # session whose result said nothing of them counts in tool_denials_unknown
-        denied: append(data.denied)
-        conflicts: add(data.conflicts)  # its merges refused in the queue for a conflict (queue.py refuse)
-        milestone: "data.milestone if 'milestone' in data else current"   # replaced, not a set of ids (below)
-      gap.found:
+      gap-found:
+        when: type == 'gap.found'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('open')  # intake: an entry of docs/GAPS.md
-      gap.requested:
+      gap-requested:
+        when: type == 'gap.requested'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('open')  # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
-      gap.planned:
+      gap-planned:
+        when: type == 'gap.planned'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('planned')  # planner: its definition of done written (run/plans/)
-      gap.plan-sent-back:
+      gap-plan-sent-back:
+        when: type == 'gap.plan-sent-back'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('replan')  # plan lint: sent back to the planner with its findings
-      gap.split:
+      gap-split:
+        when: type == 'gap.split'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('split')  # planner: split into sub-gaps, each naming it as parent; joined once all merged
         # (or the join judge: short, a new sub-gap requested first)
-      gap.defined:
+      gap-defined:
+        when: type == 'gap.defined'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('ready')  # intake, or the planner: its definition of done exists
-      gap.started:
+      gap-started:
+        when: type == 'gap.started'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('building')  # implementor
-      gap.built:
+      gap-built:
+        when: type == 'gap.built'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('built')
-      gap.review-started:
+      gap-review-started:
+        when: type == 'gap.review-started'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('in-review')  # reviewer
-      gap.approved:
+      gap-approved:
+        when: type == 'gap.approved'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('approved')
-      gap.sent-back:
+      gap-sent-back:
+        when: type == 'gap.sent-back'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('fix')  # reviewer (fix), queue (a conflict) or triage (a real failure): its findings
-      gap.queued:
+      gap-queued:
+        when: type == 'gap.queued'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('queued')  # merge queue
-      gap.push-pending:
+      gap-push-pending:
+        when: type == 'gap.push-pending'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('push-pending')  # merge queue: its run's gap did not land; its outcome waits for its batch's push
-      gap.queue-failed:
+      gap-queue-failed:
+        when: type == 'gap.queue-failed'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('queue-failed')
-      gap.retried:
+      gap-retried:
+        when: type == 'gap.retried'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('approved')  # triage: a flake, back to the queue
-      gap.merged:
+      gap-merged:
+        when: type == 'gap.merged'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('merged')
-      gap.parked:
+      gap-parked:
+        when: type == 'gap.parked'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('parked')  # the kill rule, or a park verdict: where it stopped
-      gap.closed:
+      gap-closed:
+        when: type == 'gap.closed'
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
         state: set('closed')  # out of the backlog: done on main already, or a duplicate (backlog.py; the pipeline
         # manager's close, once the coordinator approved it)
-    otherwise: rest
-    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason,
-           parked_for, loop_rounds, loop_hours]
+      other:
+        when: true
+        '...': data
+        milestone: "data.milestone if 'milestone' in data else current"
+    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason, parked_for, loop_rounds, loop_hours]
     # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended, gates, catches and catch_times
     # (dev/bin/times.py)
     relations:
@@ -202,63 +256,91 @@ projections:
     # gap.resumed (no state): a park resumed (resumed_as, resumed_for, resumed_by, cleared: the condition; parks.py)
 
   milestone:
-    match:
-      key: milestone/*
+    query: key.startswith('milestone/')
     description: a group of gaps finished together (the owner, 2026-11-22) - waiting on the milestones it depends on, active (at most [milestones] active_max at once, in rank order; an upkeep one always), completed once it has gaps and every one is merged or closed, or an upkeep one at the end of its cycle (dev/bin/milestones.py)
-    states: [waiting, active, completed]
+    fields:
+      state:
+        type: one of [waiting, active, completed]
     final: [completed]               # no event moves a completed milestone out of it
     events:
-      milestone.added:
+      milestone-added:
+        when: type == 'milestone.added'
+        '...': data
         state: set('waiting')  # milestones.py add
-      milestone.activated:
+      milestone-activated:
+        when: type == 'milestone.activated'
+        '...': data
         state: set('active')  # milestones.py pass: its dependencies completed, and room under the limit
-      milestone.completed:
+      milestone-completed:
+        when: type == 'milestone.completed'
+        '...': data
         state: set('completed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title, rank, upkeep, upkeep_ends]
     # milestone.changed (no state): its dependencies (milestones.py depends)
     relations:
       depends_on: milestone          # precedence: active only once every milestone it names is completed
 
   review:
-    match:
-      key: review/*
+    query: key.startswith('review/')
     description: one review of a gap's branch - its verdict (merge, fix or park) and its findings
-    states: [written, merge, fix, park]
+    fields:
+      state:
+        type: one of [written, merge, fix, park]
     events:
-      review.written:
+      review-written:
+        when: type == 'review.written'
+        '...': data
         state: set('written')
-      review.approved:
+      review-approved:
+        when: type == 'review.approved'
+        '...': data
         state: set('merge')
-      review.sent-back:
+      review-sent-back:
+        when: type == 'review.sent-back'
+        '...': data
         state: set('fix')
-      review.parked:
+      review-parked:
+        when: type == 'review.parked'
+        '...': data
         state: set('park')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [gap, round, verdict, ai_cost_usd]
     relations:
       gap: gap
 
   session:
-    match:
-      key: session/*
+    query: key.startswith('session/')
     description: one AI session of the factory's (implementor, reviewer, planner, researcher, librarian) - its conversation, live while it runs, and what it cost (dev/bin/sessions.py)
-    states: [running, done, failed]
+    fields:
+      state:
+        type: one of [running, done, failed]
+      messages: {fold: append}
+      tool_calls: {fold: append}
+      tool_results: {fold: append}
+      thinking: {fold: append}
+      tokens_in: {fold: add}
+      tokens_out: {fold: add}
     events:
-      "*":
-        messages: append(data.messages)
-        tool_calls: append(data.tool_calls)
-        tool_results: append(data.tool_results)
-        thinking: append(data.thinking)
-        tokens_in: add(data.tokens_in)
-        tokens_out: add(data.tokens_out)
-      session.started:
+      session-started:
+        when: type == 'session.started'
+        '...': data
         state: set('running')
-      session.ended:
+      session-ended:
+        when: type == 'session.ended'
+        '...': data
         state: set('done')
-      session.errored:
+      session-errored:
+        when: type == 'session.errored'
+        '...': data
         state: set('failed')  # no result, an error result, a timeout or a crash
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [role, round, gap, model, cost, turns, seconds, transcript]
     # resources (no fold: one container's): its CPU and memory, peak and mean (dev/bin/resources.py)
     relations:
@@ -270,10 +352,13 @@ projections:
       transcript: claude-session     # Claude Code's own session file, the token scrubbed: shown as the conversation,
                                      # each line recorded as a claude.* event about the session (SPEC 5a)
   flake:
-    match:
-      key: flake/*
+    query: key.startswith('flake/')
     description: a test that failed in a suite and passed alone (seen) - counted each time, until fixed; or one that fails on main too (main-broken, the implementor's triage, dev/bin/onmain.py), until it passes twice alone on the pushed main (main-mend, dev/bin/mend.py)
-    states: [seen, main-broken, fixed]
+    fields:
+      state:
+        type: one of [seen, main-broken, fixed]
+      times: {fold: add}
+      gaps: {fold: union}
     # written only by dev/bin/flakes.py, on the item as it stands, under its lock: seen on a main-broken item is
     # flake.measured (counted, still main's); a second main-broken keeps main_broken_at; either on a fixed item makes
     # it again (times 1, main_fixed_at, fixed_by, green_passes and passed_on removed); flake.fixed by hand is
@@ -281,52 +366,76 @@ projections:
     # flake.released (no state): the quarantine's release, its test off main's list (quarantined: false,
     # released_at; fac.beside); quarantined folds from it and from flake.measured as before
     events:
-      "*":
-        times: add(data.times)
-        gaps: union(data.gaps)
-      flake.seen:
+      flake-seen:
+        when: type == 'flake.seen'
+        '...': data
         state: set('seen')
-      flake.main-broken:
+      flake-main-broken:
+        when: type == 'flake.main-broken'
+        '...': data
         state: set('main-broken')  # failed on a branch and on clean main: main's, not the gap's
-      flake.fixed:
+      flake-fixed:
+        when: type == 'flake.fixed'
+        '...': data
         state: set('fixed')
-      flake.main-fixed:
+      flake-main-fixed:
+        when: type == 'flake.main-fixed'
+        '...': data
         state: set('fixed')  # passed twice alone on the pushed main (dev/bin/mend.py, under flakes.py's
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [test, times, main]
   intervention:
-    match:
-      key: intervention/*
+    query: key.startswith('intervention/')
     description: the coordinator stepping in by hand, with why - evidence of a loop the factory still lacks
-    states: [open, remedied]
+    fields:
+      state:
+        type: one of [open, remedied]
+      tests: {fold: union}
+      gaps: {fold: union}
     events:
-      "*":
-        tests: union(data.tests)
-        gaps: union(data.gaps)
-      intervention.recorded:
+      intervention-recorded:
+        when: type == 'intervention.recorded'
+        '...': data
         state: set('open')
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-      intervention.remedied:
+      intervention-remedied:
+        when: type == 'intervention.remedied'
+        '...': data
         state: set('remedied')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [reason, class, by, remedy]
   situation:
-    match:
-      key: situation/*
+    query: key.startswith('situation/')
     description: one pipeline manager session - every standing trigger no earlier session handled (the queue blocked, gaps dead, parked or stuck, aging defects) and the merge pipeline's broken conditions, raised by pipeline-watch on its schedule or at once when the merge pipeline breaks (dev/bin/watch.py)
-    states: [raised, handled, failed, superseded]
+    fields:
+      state:
+        type: one of [raised, handled, failed, superseded]
     events:
-      situation.raised:
+      situation-raised:
+        when: type == 'situation.raised'
+        '...': data
         state: set('raised')  # reason: scheduled or broken; triggers, each with its fingerprint (prints)
-      situation.handled:
+      situation-handled:
+        when: type == 'situation.handled'
+        '...': data
         state: set('handled')  # the session's calls run (manage.py), each with what it said; an answer per trigger
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-      situation.failed:
+      situation-failed:
+        when: type == 'situation.failed'
+        '...': data
         state: set('failed')
-      situation.superseded:
+      situation-superseded:
+        when: type == 'situation.superseded'
+        '...': data
         state: set('superseded')  # one raised by the one-trigger watch (no prints): closed, never run
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [reason, triggers_n, actions_n, summary, ai_cost_usd]
     attention: finding               # the latest session's finding, on the page's attention list (not only stored here)
     relations:
@@ -334,125 +443,193 @@ projections:
     lease: {attempts: 2}
 
   pool:
-    match:
-      key: pool/*
+    query: key.startswith('pool/')
     description: an AI pool (pool/implementor, pool/reviewer) - how many sessions at once, ramped up on good results
-    states: [held]
+    fields:
+      state:
+        type: one of [held]
     events:
-      pool.measured:
+      pool-measured:
+        when: type == 'pool.measured'
+        '...': data
         state: set('held')
-      pool.raise-asked:
+      pool-raise-asked:
+        when: type == 'pool.raise-asked'
+        '...': data
         state: set('held')
-      pool.lowered:
+      pool-lowered:
+        when: type == 'pool.lowered'
+        '...': data
         state: set('held')
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [pool, most, decision, risk_bound, tolerance, target, why]
 
   upgrade:
-    match:
-      key: upgrade/*
+    query: key.startswith('upgrade/')
     description: a version of main the instance may run - installed into its own folder, switched to, kept or reverted
-    states: [available, installed, approved, draining, switched, healthy, reverted, superseded, withdrawn, failed]
+    fields:
+      state:
+        type: one of [available, installed, approved, draining, switched, healthy, reverted, superseded, withdrawn, failed]
     events:
-      upgrade.opened:
+      upgrade-opened:
+        when: type == 'upgrade.opened'
+        '...': data
         state: set('available')  # merge queue: a new green main
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-      upgrade.installed:
+      upgrade-installed:
+        when: type == 'upgrade.installed'
+        '...': data
         state: set('installed')  # upgrader
-      upgrade.superseded:
+      upgrade-superseded:
+        when: type == 'upgrade.superseded'
+        '...': data
         state: set('superseded')
-      upgrade.failed:
+      upgrade-failed:
+        when: type == 'upgrade.failed'
+        '...': data
         state: set('failed')
-      upgrade.switch-approved:
+      upgrade-switch-approved:
+        when: type == 'upgrade.switch-approved'
+        '...': data
         state: set('approved')  # the switcher (drain.py): its switch-instance approved
-      upgrade.switch-begun:
+      upgrade-switch-begun:
+        when: type == 'upgrade.switch-begun'
+        '...': data
         state: set('approved')  # the switch started (live.py, its own process): the runs under way carry on
-      upgrade.draining:
+      upgrade-draining:
+        when: type == 'upgrade.draining'
+        '...': data
         state: set('draining')  # (the record's before switch-without-draining: a switch waited for the runs
-      upgrade.drained:
+      upgrade-drained:
+        when: type == 'upgrade.drained'
+        '...': data
         state: set('draining')  # under way to drain; kept so the record of those still reads)
-      upgrade.withdrawn:
+      upgrade-withdrawn:
+        when: type == 'upgrade.withdrawn'
+        '...': data
         state: set('withdrawn')  # a newer version waits, or runs: its switch request withdrawn
-      upgrade.switched:
+      upgrade-switched:
+        when: type == 'upgrade.switched'
+        '...': data
         state: set('switched')  # the switch (live.py): the new version's engine started
-      upgrade.kept:
+      upgrade-kept:
+        when: type == 'upgrade.kept'
+        '...': data
         state: set('healthy')
-      upgrade.reverted:
+      upgrade-reverted:
+        when: type == 'upgrade.reverted'
+        '...': data
         state: set('reverted')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [sha, check, switch, previous]
 
   research:
-    match:
-      key: research/*
+    query: key.startswith('research/')
     description: a question for the researcher (dev/bin/ask.py, or a planner's) - asked, then answered with a report whose sources were checked (dev/bin/research.py); an answer with none checked is asked again once, then dead
-    states: [asked, unsourced, answered, dead]
+    fields:
+      state:
+        type: one of [asked, unsourced, answered, dead]
+      unsourced: {fold: add}
     events:
-      "*":
-        unsourced: add(data.unsourced)
-      research.asked:
+      research-asked:
+        when: type == 'research.asked'
+        '...': data
         state: set('asked')
-      research.unsourced:
+      research-unsourced:
+        when: type == 'research.unsourced'
+        '...': data
         state: set('unsourced')  # no source checked: given back (counted), asked again with the why in its brief
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-      research.answered:
+      research-answered:
+        when: type == 'research.answered'
+        '...': data
         state: set('answered')  # at least one source checked (sources_checked; the rest in sources_unchecked)
-      research.dead-lettered:
+      research-dead-lettered:
+        when: type == 'research.dead-lettered'
+        '...': data
         state: set('dead')  # unsourced a second time: its lease's last attempt, a dead letter
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [question, gap, summary, report, sources_checked, sources_unchecked, unsourced_why]
   lesson:
-    match:
-      key: lesson/*
+    query: key.startswith('lesson/')
     description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), or a finding (kind finding) the researcher proposed from a checked answer, carried by its areas - approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
-    states: [new, seen, proposed, requested, approved, applied, denied, retired]
+    fields:
+      state:
+        type: one of [new, seen, proposed, requested, approved, applied, denied, retired]
+      times: {fold: add}
+      reviews: {fold: union}
+      findings: {fold: append}
                                      # new: no event puts one there; it arrives seen, a working state the librarian
                                      # moves on (lesson.proposed) once a second review finds its class, so why names it;
                                      # lesson.seen is written last, so proposed names lesson.requested, not a move back
     events:
-      "*":
-        times: add(data.times)
-        reviews: union(data.reviews)
-        findings: append(data.findings)
-      lesson.proposed:
+      lesson-proposed:
+        when: type == 'lesson.proposed'
+        '...': data
         state: set('proposed')  # librarian: a new shape of a known class, or a class found twice; researcher: a finding
-      lesson.requested:
+      lesson-requested:
+        when: type == 'lesson.requested'
+        '...': data
         state: set('requested')  # before the knowledge queue: a gap with the exact edit (migrated by lesson.py settle)
-      lesson.approved:
+      lesson-approved:
+        when: type == 'lesson.approved'
+        '...': data
         state: set('approved')  # knowledge-change approved, or lesson.py add / retire
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-      lesson.applied:
+      lesson-applied:
+        when: type == 'lesson.applied'
+        '...': data
         state: set('applied')  # lesson-apply: carried by the briefs from the record
-      lesson.denied:
+      lesson-denied:
+        when: type == 'lesson.denied'
+        '...': data
         state: set('denied')  # knowledge-change denied: settled, never proposed again (lesson.py settle)
-      lesson.retired:
+      lesson-retired:
+        when: type == 'lesson.retired'
+        '...': data
         state: set('retired')  # lesson-apply, for lesson.py retire: no longer carried
-      lesson.seen:
+      lesson-seen:
+        when: type == 'lesson.seen'
+        '...': data
         state: set('seen')  # librarian: a class not listed, found in one review
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [kind, lesson, name, entry, areas, research, text, times, gap, denied_by, why]
   knowledge:
-    match:
-      key: knowledge/*
+    query: key.startswith('knowledge/')
     description: one entry of dev/knowledge/ in the running version, of its file's declared kind (component, rule, lesson, finding, question, source; briefs carry the rules and lessons), kept by the collector knowledge-sync - the owner's decisions are ergostat.decision items instead
-    states: [new, active, retired]   # new: no event puts one there; it arrives active, a working state knowledge-sync
-                                     # moves on (knowledge.retired) once it is gone from the files, so why names it;
-                                     # active is not finished, so explain, check and status still read its about
+    fields:
+      state:
+        type: one of [new, active, retired]
     events:
-      knowledge.found:
+      knowledge-found:
+        when: type == 'knowledge.found'
+        '...': data
         state: set('active')  # knowledge-sync: an entry in the files (or back in them)
-      knowledge.changed:
+      knowledge-changed:
+        when: type == 'knowledge.changed'
+        '...': data
         state: set('active')  # knowledge-sync: its title, text, areas or how many briefs carried it changed
-      knowledge.retired:
+      knowledge-retired:
+        when: type == 'knowledge.retired'
+        '...': data
         state: set('retired')  # knowledge-sync: no longer in the files
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     about: about                     # its *About:* line: the parts of this model it bears on (explain, check, status)
     show: [kind, title, file, areas, about, carried, text]
 
 messages:
-  done: {gap: [merged, closed], milestone: [completed], batch: [landed, partial, failed, given-back], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
-         lesson: [requested, applied, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
+  done: {gap: [merged, closed], milestone: [completed], batch: [landed, partial, failed, given-back], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered], lesson: [requested, applied, denied, retired], knowledge: [retired]} # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 

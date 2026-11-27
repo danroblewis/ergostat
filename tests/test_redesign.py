@@ -61,18 +61,27 @@ PIECES = """\
 name: t
 projections:
   alert:
-    match:
-      key: alert/*
+    query: key.startswith('alert/')
     description: an alert from the pager
-    states: [new, triaged, closed]
+    fields:
+      state:
+        type: one of [new, triaged, closed]
     events:
-      alert.fired:
+      alert-fired:
+        when: type == 'alert.fired'
+        '...': data
         state: set('new')
-      alert.triaged:
+      alert-triaged:
+        when: type == 'alert.triaged'
+        '...': data
         state: set('triaged')
-      alert.closed:
+      alert-closed:
+        when: type == 'alert.closed'
+        '...': data
         state: set('closed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   triage:
     sensor: {projection: alert, state: new, every: 2s}

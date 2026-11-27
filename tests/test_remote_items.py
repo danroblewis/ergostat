@@ -32,8 +32,7 @@ systems:
       every: 60s
 projections:
   thing:
-    match:
-      key: thing/*
+    query: key.startswith('thing/')
 stocks:
   queue:
     sensor: {run: echo 1}

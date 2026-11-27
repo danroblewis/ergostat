@@ -248,13 +248,15 @@ def test_a_session_in_the_record_is_read_from_its_claude_events(tmp_path):
     p = project(tmp_path, """
         projections:
           session:
-            match:
-              key: session/*
+            query: key.startswith('session/')
             formats: {transcript: claude-session}
+            fields:
+              messages: {fold: append}
             events:
-              "*":
-                messages: append(data.messages)
-        """)
+              other:
+                when: true
+                '...': data
+""")
     (tmp_path / "run").mkdir()
     synthetic(tmp_path / "run" / "a.jsonl")
     long = "Never merge without the suites passing. " + "Because. " * 600

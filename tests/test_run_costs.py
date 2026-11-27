@@ -398,9 +398,21 @@ def test_an_items_cost_counts_every_take_past_its_records_latest_events_and_roll
     from ergostat.web.server import _item_cost
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
         projections:
-          ticket: {match: {key: ticket/*}, states: [open, done], events: {ticket.done: {state: set('done')}}, otherwise: rest}
+          ticket:
+            query: key.startswith('ticket/')
+            fields:
+              state:
+                type: one of [open, done]
+            events:
+              ticket-done:
+                when: type == 'ticket.done'
+                '...': data
+                state: set('done')
+              other:
+                when: true
+                '...': data
         storage: {rollup: {after: 1h, projections: {ticket: 2h}}}
-        """))
+"""))
     p = Project(mdl.load(tmp_path))
     t0, m = 1_700_000_000.0, NS(agents={"worker": NS(rung=1)})
     p.events.add("ticket.opened", item="ticket/1", source="test", at=t0)

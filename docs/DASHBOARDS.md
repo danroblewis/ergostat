@@ -518,22 +518,32 @@ stocks:
       busy: {run: ./count-busy.sh, every: 1m}
 projections:
   request:
-    match:
-      key: request/*
-    states: [waiting, working, review, done, failed]
-    events:
-      "*":
-        cost_usd: add(data.cost_usd)
+    query: key.startswith('request/')
+    fields:
+      state:
+        type: one of [waiting, working, review, done, failed]
+      cost_usd: {fold: add}
         # lock): a patch testing /main as read, so a newer break refuses it and its move
-      request.started:
+    events:
+      request-started:
+        when: type == 'request.started'
+        '...': data
         state: set('working')
-      request.reviewed:
+      request-reviewed:
+        when: type == 'request.reviewed'
+        '...': data
         state: set('review')
-      request.done:
+      request-done:
+        when: type == 'request.done'
+        '...': data
         state: set('done')
-      request.failed:
+      request-failed:
+        when: type == 'request.failed'
+        '...': data
         state: set('failed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [requester, size]
 ```
 

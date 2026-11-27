@@ -104,7 +104,7 @@ def _yaml_error(text: str) -> dict | None:
         return {"line": mark.line + 1 if mark else None, "message": f"the YAML does not read: "
                 f"{getattr(e, 'problem', None) or e}"}
     if data is not None and not isinstance(data, dict):
-        return {"line": 1, "message": "a projection's body is a map (match:, key:, states:, events:...)"}
+        return {"line": 1, "message": "a projection's body is a map (query:, key:, fields:, events:...)"}
     if isinstance(data, dict) and "dashboards" in data:
         return {"line": None, "message": "dashboards: are edited on the page, not in the definition"}
     return None
@@ -132,11 +132,13 @@ def definition_text(spec, name: str) -> str | None:
     return "\n".join(_dedent("\n".join(body))) + "\n"
 
 
-def placed(p, spec, name: str, text: str, system: str = ""):
+def placed(p, spec, name: str, text: str, system: str = "", today: str | None = None):
     """The YAML edit that puts the draft in the model (in place of the projection, its ``dashboards:`` kept; a new one
-    at the end of ``projections:`` in the system's file, else the main file), and the line its body starts on."""
+    at the end of ``projections:`` in the system's file, else the main file), and the line its body starts on.
+    ``today`` (Save's): the parts that changed dated ``# updated TODAY``, the rest kept as written (``dated.py``)."""
     from ..numbers import display
     from ..numbers import yamledit as ye
+    from .dated import UPDATED, dated
     body = _dedent(text)
     k = (getattr(spec, "items", None) or {}).get(name)
     if k is not None and getattr(k, "where", None) is None:
@@ -152,20 +154,35 @@ def placed(p, spec, name: str, text: str, system: str = ""):
         if dash is not None:
             dend, _ = ye.children(ls, dash)
             kept = ls[dash - 1:dend]
-        new = [head, *((pad + x) if x else "" for x in body), *kept]
-        return ye.Edit(str(f), [ye.Hunk(at, ls[at - 1:end], new)]), at + 1, len(body)
+        if today is None:
+            new = [head, *((pad + x) if x else "" for x in body), *kept]
+            return ye.Edit(str(f), [ye.Hunk(at, ls[at - 1:end], new)]), at + 1, len(body)
+        old = [x for i, x in enumerate(ls[at:end], at + 1) if dash is None or not dash <= i < dash + len(kept)]
+        old = [(x[len(pad):] if x.startswith(pad) else x.lstrip()) if x.strip() else "" for x in old]
+        body, changed = dated(old, body, today)
+        new = [ls[at - 1], *((pad + x) if x else "" for x in body), *kept]
+        first = at
+        if changed:
+            stamp = " " * ye.indent(head) + f"# updated {today}"
+            if at >= 2 and UPDATED.match(ls[at - 2]):
+                first = at - 1
+            new = [stamp, *new]
+        return ye.Edit(str(f), [ye.Hunk(first, ls[first - 1:end], new)]), at + 1 + (1 if changed and first == at else 0), \
+            len(body)
     if not NAME.match(name):
         raise TryError(f"{name!r} is not a projection's name (lowercase letters, digits and -, starting with a letter)")
     f = (display.system_file(spec, system) if system else None) or Path(p.model.path)
     extra = [f"    system: {json.dumps(system)}"] if system and display._defaults_system(f) != system else []
-    lines = [f"  {name}:", *extra, *(("    " + x) if x else "" for x in body)]
+    if today is not None:
+        body = dated(None, body, today)[0]
+    lines = [*([f"  # updated {today}"] if today else []), f"  {name}:", *extra, *(("    " + x) if x else "" for x in body)]
     edit = ye.add_entries(f, "projections", [lines])
     h = edit.hunks[0]
     start = h.line + next(i for i, x in enumerate(h.new) if x.strip() == f"{name}:") + 1 + len(extra)
     return edit, start, len(body)
 
 
-def compiled(p, name: str, text: str, system: str = ""):
+def compiled(p, name: str, text: str, system: str = "", today: str | None = None):
     """The model with the draft in it: ``(spec, edit, errors)``; each error of the draft's with its line in the body
     (None: not on one). The model's own errors elsewhere are not the draft's."""
     from ..numbers import trial as tr
@@ -175,7 +192,7 @@ def compiled(p, name: str, text: str, system: str = ""):
         return None, None, [bad]
     spec = p.model.spec
     try:
-        edit, start, n = placed(p, spec, name, text, system)
+        edit, start, n = placed(p, spec, name, text, system, today)
         texts = tr.texts_after([edit])
     except (ye.EditError, tr.TrialError, TryError) as e:
         return None, None, [{"line": None, "message": str(e)}]
@@ -226,11 +243,8 @@ def handler_of(kind, e: dict) -> str:
         return "ergostat"
     if kind.handlers is None or form_of(e) != "data":
         return "fold" if form_of(e) == "data" else form_of(e)
-    if t in kind.handlers:
-        return t
-    if "*" in kind.handlers:
-        return "*"
-    return f"otherwise: {kind.otherwise}"
+    k = kind.kind_of(e)
+    return k.name if k is not None else "remainder"
 
 
 # ---- telling groups apart
@@ -462,10 +476,10 @@ def run(p, name: str | None, text: str, since: float | None = None, until: float
         if not kind.reads(e):
             continue
         read.append(e)
-        k = kind.key_of(e)
-        if k:
+        ks = kind.keys_of(e)
+        for k in ks:
             by_key.setdefault(k, []).append(e)
-        else:
+        if not ks and handler_of(kind, e) != "remainder":
             unkeyed.append(e)
     items = {k: fold(k, es, kind, history=True) for k, es in by_key.items()}
     changed: set[str] = set()

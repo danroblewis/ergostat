@@ -18,17 +18,26 @@ sources:
   prom: {type: prometheus, url: "http://127.0.0.1:1"}
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [new, awaiting, approved, done]
+    query: key.startswith('ticket/')
+    fields:
+      state:
+        type: one of [new, awaiting, approved, done]
     events:
-      ticket.asked:
+      ticket-asked:
+        when: type == 'ticket.asked'
+        '...': data
         state: set('awaiting')
-      ticket.approved:
+      ticket-approved:
+        when: type == 'ticket.approved'
+        '...': data
         state: set('approved')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title, area]
 stocks:
   awaiting-approval:
@@ -211,15 +220,22 @@ TAKES = """
 name: taken
 projections:
   job:
-    match:
-      key: job/*
-    states: [new, doing, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [new, doing, done]
     events:
-      job.started:
+      job-started:
+        when: type == 'job.started'
+        '...': data
         state: set('doing')
-      job.done:
+      job-done:
+        when: type == 'job.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     show: [title]
 stocks:
   todo: {unit: jobs, sensor: {projection: job, state: new}}
@@ -264,31 +280,51 @@ GAPS = """
 name: gaps
 projections:
   gap:
-    match:
-      key: gap/*
-    states: [open, building, merged, parked, closed, dead]
+    query: key.startswith('gap/')
+    fields:
+      state:
+        type: one of [open, building, merged, parked, closed, dead]
     events:
-      gap.opened:
+      gap-opened:
+        when: type == 'gap.opened'
+        '...': data
         state: set('open')
-      gap.started:
+      gap-started:
+        when: type == 'gap.started'
+        '...': data
         state: set('building')
-      gap.merged:
+      gap-merged:
+        when: type == 'gap.merged'
+        '...': data
         state: set('merged')
-      gap.parked:
+      gap-parked:
+        when: type == 'gap.parked'
+        '...': data
         state: set('parked')
-      gap.closed:
+      gap-closed:
+        when: type == 'gap.closed'
+        '...': data
         state: set('closed')
-      gap.died:
+      gap-died:
+        when: type == 'gap.died'
+        '...': data
         state: set('dead')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   pool:
-    match:
-      key: pool/*
-    states: [held]
+    query: key.startswith('pool/')
+    fields:
+      state:
+        type: one of [held]
     events:
-      pool.measured:
+      pool-measured:
+        when: type == 'pool.measured'
+        '...': data
         state: set('held')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 messages:
   done: {gap: [merged, closed]}
   paused: {gap: [parked]}

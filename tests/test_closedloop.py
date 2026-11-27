@@ -176,13 +176,18 @@ TAKES = """\
 name: t
 projections:
   job:
-    match:
-      key: job/*
-    states: [ready, done]
+    query: key.startswith('job/')
+    fields:
+      state:
+        type: one of [ready, done]
     events:
-      job.done:
+      job-done:
+        when: type == 'job.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   ready:
     unit: jobs

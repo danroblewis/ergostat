@@ -1,6 +1,9 @@
-"""Trying a projection before it is written (SPEC §5a, *Trying a projection*): ``POST /api/projections/try`` (the
-report, ``spec/trying.py``), ``POST /api/projections/save`` (the owner's Save of its definition, written and accepted at
-once: ``numbers/display.save_projection``), and ``GET /api/events/shape`` (the stream's shape)."""
+"""The projection workbench's API (SPEC §5a, *The workbench*): ``POST /api/events/query`` (the query engine,
+``eventquery.py``), ``POST /api/events/kinds`` (the kinds of event a query's result holds, suggested),
+``POST /api/projections/review`` (a draft held against its events, ``spec/workbench.py``), ``POST /api/projections/try``
+(the try's report, ``spec/trying.py``), ``POST /api/projections/save`` (the owner's Save of its definition, written and
+accepted at once, its changed parts dated: ``numbers/display.save_projection``), and ``GET /api/events/shape`` (the
+stream's shape)."""
 
 from __future__ import annotations
 
@@ -37,7 +40,7 @@ def tried(p, ask: dict, keep: bool = True) -> dict:
         raise trying.TryError("a try is {name, yaml, since?, until?, events?, expected?, item?, refused?, limit?}")
     text = ask.get("yaml")
     if not isinstance(text, str):
-        raise trying.TryError("yaml: the projection's body (match:, key:, states:, events:...) as text")
+        raise trying.TryError("yaml: the projection's body (query:, key:, fields:, events:...) as text")
     evs = ask.get("events")
     if evs is not None and not isinstance(evs, list):
         raise trying.TryError("events: a list of events (or leave it out to read the record)")
@@ -60,6 +63,18 @@ def post(live, path: str, body: bytes, window: float) -> tuple[int, dict]:
         try:
             return 200, tried(p, ask)
         except trying.TryError as e:
+            return 400, {"error": str(e)}
+    if path in ("events/query", "events/kinds", "projections/review"):
+        from ..eventquery import QueryError
+        from ..eventquery import run as query
+        from ..spec import workbench
+        try:
+            if isinstance(ask, dict):
+                ask = {**ask, **{k: moment(ask.get(k)) for k in ("since", "until") if ask.get(k) not in (None, "")}}
+            if path == "events/query":
+                return 200, query(p.events, ask)
+            return 200, (workbench.suggest(p, ask) if path == "events/kinds" else workbench.review(p, ask))
+        except (trying.TryError, QueryError) as e:
             return 400, {"error": str(e)}
     from ..numbers import display
     oldest = min((t for t in (p.events.first_time(), p.measurements.first_time()) if t), default=None)

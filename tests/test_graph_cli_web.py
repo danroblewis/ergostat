@@ -679,30 +679,36 @@ systems:
   delivery: {description: what is built}
 projections:
   epic:
-    match:
-      key: epic/*
+    query: key.startswith('epic/')
     system: planning
-    states: [planned, underway, shipped]
+    fields:
+      state:
+        type: one of [planned, underway, shipped]
     relations: {after: epic}
   goal:
-    match:
-      key: goal/*
+    query: key.startswith('goal/')
     system: planning
-    states: [open, met]
+    fields:
+      state:
+        type: one of [open, met]
     relations: {serves: {projection: epic, precedence: false}}
   ticket:
-    match:
-      key: ticket/*
+    query: key.startswith('ticket/')
     system: delivery
-    states: [todo, doing, done]
+    fields:
+      state:
+        type: one of [todo, doing, done]
     events:
-      ticket.started:
+      ticket-started:
+        when: type == 'ticket.started'
+        '...': data
         state: set('doing')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
     relations: {blocked_by: ticket, parent: epic}
   note:
-    match:
-      key: note/*
+    query: key.startswith('note/')
     system: delivery
 messages:
   done: {ticket: [done], epic: [shipped]}

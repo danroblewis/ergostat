@@ -27,57 +27,97 @@ DEMOS = ("first-loop", "image-squeeze", "roadmap", "software-factory", "the-job"
 FACTORY = """
 projections:
   gap:
-    match:
-      key: gap/*
-    states: [open, ready, building, in-review, merged, parked, closed]
+    query: key.startswith('gap/')
+    fields:
+      state:
+        type: one of [open, ready, building, in-review, merged, parked, closed]
     events:
-      gap.opened:
+      gap-opened:
+        when: type == 'gap.opened'
+        '...': data
         state: set('open')
-      gap.ready:
+      gap-ready:
+        when: type == 'gap.ready'
+        '...': data
         state: set('ready')
-      gap.started:
+      gap-started:
+        when: type == 'gap.started'
+        '...': data
         state: set('building')
-      gap.built:
+      gap-built:
+        when: type == 'gap.built'
+        '...': data
         state: set('in-review')
-      gap.merged:
+      gap-merged:
+        when: type == 'gap.merged'
+        '...': data
         state: set('merged')
-      gap.parked:
+      gap-parked:
+        when: type == 'gap.parked'
+        '...': data
         state: set('parked')
-      gap.closed:
+      gap-closed:
+        when: type == 'gap.closed'
+        '...': data
         state: set('closed')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   pool:
-    match:
-      key: pool/*
-    states: [held]
+    query: key.startswith('pool/')
+    fields:
+      state:
+        type: one of [held]
     events:
-      pool.measured:
+      pool-measured:
+        when: type == 'pool.measured'
+        '...': data
         state: set('held')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   answer:
-    match:
-      key: answer/*
-    states: [asked, answered]
+    query: key.startswith('answer/')
+    fields:
+      state:
+        type: one of [asked, answered]
     events:
-      answer.asked:
+      answer-asked:
+        when: type == 'answer.asked'
+        '...': data
         state: set('asked')
-      answer.given:
+      answer-given:
+        when: type == 'answer.given'
+        '...': data
         state: set('answered')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
   task:
-    match:
-      key: task/*
-    states: [todo, doing, waiting, done]
+    query: key.startswith('task/')
+    fields:
+      state:
+        type: one of [todo, doing, waiting, done]
     events:
-      task.made:
+      task-made:
+        when: type == 'task.made'
+        '...': data
         state: set('todo')
-      task.begun:
+      task-begun:
+        when: type == 'task.begun'
+        '...': data
         state: set('doing')
-      task.waits:
+      task-waits:
+        when: type == 'task.waits'
+        '...': data
         state: set('waiting')
-      task.done:
+      task-done:
+        when: type == 'task.done'
+        '...': data
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 messages:
   done: {gap: [merged, closed]}
   paused: {gap: [parked], task: [waiting]}

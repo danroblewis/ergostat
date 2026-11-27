@@ -30,22 +30,31 @@ MODEL = """
       q: {unit: deploys}
     projections:
       deploy:
-        match:
-          key: deploy/*
-        states: [queued, rolling, live, rolled-back]
+        query: key.startswith('deploy/')
+        fields:
+          state:
+            type: one of [queued, rolling, live, rolled-back]
         events:
-          deploy.rolling:
+          deploy-rolling:
+            when: type == 'deploy.rolling'
+            '...': data
             state: set('rolling')
-          deploy.live:
+          deploy-live:
+            when: type == 'deploy.live'
+            '...': data
             state: set('live')
-          deploy.rolled-back:
+          deploy-rolled-back:
+            when: type == 'deploy.rolled-back'
+            '...': data
             state: set('rolled-back')
-        otherwise: rest
+          other:
+            when: true
+            '...': data
         finished: [live, rolled-back]
         pipeline:
           title: Deploys
           stages: [build, canary-a, canary-b, rollout]
-    """
+"""
 
 
 @pytest.fixture
@@ -195,11 +204,11 @@ def test_stage_durations_are_histograms_labelled_only_by_kind_declared_stage_and
 @pytest.mark.parametrize("bad", [
     "pipeline: {stages: []}", "pipeline: {stages: [Not A Name]}", "pipeline: {title: x}",
     "pipeline: {stages: [a], waiting: {projection: gap}}", "pipeline: {stages: [a], colour: red}",
-    "pipeline: {stages: [a]}\n    events: {'*': {stages: append(data.stages)}}", f"pipeline: {{stages: [{', '.join(f's{i}' for i in range(33))}]}}"])
+    "pipeline: {stages: [a]}\n    events: {e: {when: true, stages: append(data.stages)}}", f"pipeline: {{stages: [{', '.join(f's{i}' for i in range(33))}]}}"])
 def test_a_pipeline_that_is_not_one_is_refused(tmp_path, bad):
     from ergostat.spec import read
     (tmp_path / "ergostat.yaml").write_text("name: st\nstocks:\n  q: {unit: deploys}\nprojections:\n  deploy:\n"
-                                            f"    match: {{key: deploy/*}}\n    states: [queued, live]\n    {bad}\n")
+                                            f"    fields: {{state: [queued, live]}}\n    {bad}\n")
     spec, problems = read(tmp_path / "ergostat.yaml")
     assert [x.code for x in problems if x.level == "error"] == ["bad-pipeline"], problems
     assert spec.items["deploy"].pipeline is None

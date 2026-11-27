@@ -29,9 +29,21 @@ systems:
   qa: {within: factory, description: checks the work}
   delivery: {within: factory, description: ships it}
 projections:
-  ticket: {states: [new, shipped], system: intake}
-  note: {states: [open], system: qa}
-  run: {match: {key: run/*}, states: [going]}
+  ticket:
+    fields:
+      state:
+        type: one of [new, shipped]
+    system: intake
+  note:
+    fields:
+      state:
+        type: one of [open]
+    system: qa
+  run:
+    query: key.startswith('run/')
+    fields:
+      state:
+        type: one of [going]
 stocks:
   arrived: {system: intake, unit: tickets, sensor: {projection: ticket, state: new}}
   shipped: {system: delivery, unit: tickets, sensor: {projection: ticket, state: shipped}}
