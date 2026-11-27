@@ -2182,7 +2182,7 @@ projections:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `id` | glob with a `/` | required | Which ids it matches. The first projection that matches an id is its projection |
+| `id` | glob with a `/` | implied | Which ids it matches. The first projection that matches an id is its projection. Left out, it is implied (*The implied id*, below) |
 | `states` | list of names | none | The states, in their usual order; a new item starts in the first |
 | `on` | map of event type → state | none | Which events move an item, and where to |
 | `show` | list of field names | none | The columns of the projection's own page (`/PROJECTION`) and of `ergostat item` |
@@ -2199,6 +2199,15 @@ projections:
 | `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
 | `pipeline` | `{title, stages, waiting}` | none | Its items record stages (*Stages*, below): `stages` the stage names its histograms are labelled by (1 to 32 names), `title` its default dashboard row's, `waiting` (`{projection, state, order: [fields]}`) the line of work it takes from. Its `stages` field folds by `merge`; any other rule for it is refused (`bad-pipeline`), as is a library's |
 | `system`, `description` | | | |
+
+**The implied id** (2026-11-26, the owner's decision). A projection that writes no `id:` matches the ids of the system it
+is defined in (its `system:`, else its file's `defaults: system:`): that system's chain from the top level (each system
+and the one it is `within:`), its name, then `*`. `ticket` defined in `intake`, within `factory`, matches
+`factory/intake/ticket/*`; one defined in no system matches `ticket/*`. A part a template or a remote made is named
+by its short name in its system (`ticket`, not `INSTANCE-ticket`), and a remote serves its projections' implied ids
+written out (section 4c), so the consumer matches the ids the remote's events carry. A system in the chain that is not
+a name (`bad-id`) needs the `id:` written. An `id:` written overrides it, checked as ever (`bad-id`: a pattern with a
+`/` in it, not starting with one).
 
 **Stages** (`ergostat/stages.py`). A projection with `pipeline:` is a pipeline: each of its items records the named stages it
 goes through as ordinary events, any type (the merge queue's are `batch.stage-started` and `batch.stage-finished`),

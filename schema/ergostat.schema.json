@@ -2444,11 +2444,9 @@
     "projection": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id"
-      ],
       "properties": {
         "id": {
+          "description": "The ids it matches, a pattern with a / in it; when absent, its system's chain from the top level, its name, then * (factory/intake/ticket/*)",
           "type": "string",
           "pattern": "^[^/].*/"
         },

@@ -101,8 +101,26 @@ def document(doc, instance: str) -> dict:
             if via is not None:
                 got[str(name)] = {**part(section, entry), "via": via, **(box(name, entry) if section == "systems"
                                                                            else {})}
+                if section == "projections" and isinstance(entry, dict) and entry.get("id") is None:
+                    got[str(name)]["id"] = implied(doc, str(name), entry)      # the host names it for the remote
         sections[section] = got
     return {"format": FORMAT, "name": doc.name, "instance": instance, "sections": sections}
+
+
+def implied(doc, name: str, entry) -> str:
+    """The id a projection that writes none matches here (SPEC §5a), served written out: the consumer renames it and
+    puts it in a system of its own, so it could not work this out."""
+    from ..spec.belongs import of
+    from ..spec.compile import implied_id
+    system = entry.get("system") or doc.defaults.get(("projections", name), {}).get("system")
+    systems = doc.sections.get("systems") or {}
+    chain: list[str] = []
+    s = system
+    while isinstance(s, str) and s and s not in chain:
+        chain.append(s)
+        s = (systems.get(s) or {}).get("within") if isinstance(systems.get(s), dict) else None
+    b = of(doc.defined.get(("projections", name)))
+    return implied_id(list(reversed(chain)), b.short if b is not None and b.system == system else name)
 
 
 def version_of(served: dict) -> str:

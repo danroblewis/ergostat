@@ -64,6 +64,7 @@ from .ir import (
     verdict_kind,
     workspace_kind,
 )
+from .belongs import of as belongs_of
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
@@ -750,10 +751,27 @@ class Compiler:
         return {"title": p.get("title") or "", "stages": list(names),
                 "waiting": {"kind": w["projection"], "state": w["state"], "order": list(w.get("order") or [])} if w else None}
 
-    def item_kind(self, name: str, m: Map, what: str) -> ItemKind:
+    def implied_id(self, name: str, m: Map, what: str, spec: Spec) -> str:
+        """A projection's id when it writes none (SPEC §5a): its defined-in system's chain from the top level, its
+        name, then ``*``: ``ticket`` in ``intake``, within ``factory``, is ``factory/intake/ticket/*``; one in no
+        system ``ticket/*``. A template's or a remote's part is named by its short name in its system."""
+        system = self.system("projections", name, m)
+        chain = list(reversed(spec.chain(str(system)))) if system else []
+        bad = [s for s in chain if not NAME.match(s)]
+        if bad:
+            self.err(f"{what}: its system {bad[0]!r} is not a name (lowercase letters, digits and -), so it cannot be "
+                     f"part of an id: write id:", m.at("system") or m.where, "bad-id")
+            return f"{name}/*"
+        b = belongs_of(self.doc.defined.get(("projections", name)))
+        short = b.short if b is not None and b.system == system else name
+        return implied_id(chain, short)
+
+    def item_kind(self, name: str, m: Map, what: str, spec: Spec) -> ItemKind:
         self.keys(m, ITEM_KEYS, what)
         id = m.get("id")
-        if not isinstance(id, str) or "/" not in id or id.startswith("/"):
+        if id is None:
+            id = self.implied_id(name, m, what, spec)
+        elif not isinstance(id, str) or "/" not in id or id.startswith("/"):
             self.err(f"{what}.id: which ids are this projection's, a pattern with a / in it, like github/pull_request/* "
                      f"(ids without a / are ergostat's own parts)", m.at("id") or m.where, "bad-id")
             id = f"{name}/*"
@@ -1141,7 +1159,7 @@ class Compiler:
             spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"),
                                         dict(m["tls"]) if isinstance(m.get("tls"), dict) else None)
         for name, m, _ in self.named("projections"):
-            k = self.item_kind(name, m, f"projection {name}")
+            k = self.item_kind(name, m, f"projection {name}", spec)
             if k.id.startswith("ergostat."):
                 self.err(f"projection {name}.id: ids starting ergostat. are ergostat's own ({MODEL_CHANGE}/*)", m.at("id") or m.where,
                          "reserved-id")
@@ -1994,6 +2012,12 @@ def _one(m: Map, k) -> Map:
     one = Map({k: m[k]})
     one.where, one.lines = m.where, {k: m.at(k)}
     return one
+
+
+def implied_id(chain: list[str], name: str) -> str:
+    """The id pattern a projection named ``name`` matches when it writes no ``id:`` (SPEC §5a): the systems it is
+    defined in, from the top level (``chain``), then its name, then ``*``."""
+    return "/".join([*chain, name, "*"])
 
 
 def compile_doc(doc: Document) -> tuple[Spec, list[Problem]]:

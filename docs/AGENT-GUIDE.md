@@ -46,7 +46,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    (Jira, GitHub, a queue) and prints one event per new or changed item, e.g.
    `{"event": "request.new", "item": "request/123", "data": {"title": "...", "url": "..."}}`. The
    projection's `on:` maps event types to states. This is the **sensor** of the whole workflow: without it
-   nothing arrives.
+   nothing arrives. The projection's `id:` may be left out: `request` in no system matches `request/*`, and in system
+   `intake`, within `factory`, `factory/intake/request/*` (SPEC §5a, *The implied id*); the collector's ids must
+   then start that way. Write `id:` when the outside system's ids are already fixed.
 
    **When the work is related** (a ticket blocked by another, tickets under an epic, a duplicate), declare the
    relations on the projection and have the collector record them as fields (SPEC §5a, *Relations*):
