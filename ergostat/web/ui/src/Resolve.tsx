@@ -25,6 +25,7 @@ const Agents = lazy(() => import("./pages/agents"));
 const Agent = lazy(() => import("./pages/agents/AgentPage"));
 const Projection = lazy(() => import("./pages/items/ProjectionPage"));
 const Item = lazy(() => import("./pages/items/ItemPage"));
+const Proposed = lazy(() => import("./pages/items/ProposedProjection"));
 const Events = lazy(() => import("./pages/events"));
 // a dashboard the model declares: loaded when one is shown, so the first load does not bring every panel
 const Declared = lazy(() => import("./components/panels/Declared").then((m) => ({ default: m.DeclaredDashboard })));
@@ -62,6 +63,9 @@ export default function Resolve() {
 
   if (!table || !list) return failed ? <Page title="ergostat"><ErrorNote error="The server does not answer the page's addresses (GET /api/route-table)." /></Page> : <Loading />;
   const at = resolve(table, pathname);
+  if (q.get("workbench") && q.get("proposal")) {               // a drafted projection, opened in the workbench
+    return <Proposed key={`${q.get("workbench")}:${q.get("proposal")}`} name={q.get("workbench")!} proposal={q.get("proposal")!} />;
+  }
   if ((state as any)?.newDashboard) {
     const system = at?.scope ?? "";
     return <NewDashboard key={(state as any).newDashboard} system={system}

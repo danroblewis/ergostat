@@ -30,8 +30,10 @@ import { Workbench, WorkbenchYaml } from "./workbench/Workbench";
 const SIZES = PAGE_SIZES;
 const BASE = { title: "", panels: PROJECTION_PANELS };
 
-export default function ProjectionPage({ projection, system = "", creating = false, onCreated, onCancel }: {
+export default function ProjectionPage({ projection, system = "", creating = false, onCreated, onCancel, proposed }: {
   projection: string; system?: string; creating?: boolean; onCreated?: () => void; onCancel?: () => void;
+  /** a drafted definition a model change proposes (/?workbench=NAME&proposal=ID): opened in the workbench, to edit */
+  proposed?: string;
 }) {
   const [q, setQ] = useSearchParams();
   // a value for another projection (page=gap:3) is not this one's
@@ -80,10 +82,16 @@ export default function ProjectionPage({ projection, system = "", creating = fal
   const kk = draftKey(system, projection);
   const forget = () => keptDrop(kk, stepsKey(system, projection));
   const fp = usePanelApi<any>(`projections/${encodeURIComponent(projection)}`, {}, 30000, saved);
-  useEffect(() => { if ((creating || keptGet(kk)) && !ed.editing) ed.begin(); }, [creating]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if ((creating || proposed != null || keptGet(kk)) && !ed.editing) ed.begin(); }, [creating, proposed]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {                                       // editing: the definition as written (a new one: a start)
     if (!ed.editing) { setText(null); setWas(null); return; }
     if (text != null) return;
+    if (proposed != null) {                               // the draft proposed, against the definition as written
+      if (!creating && !fp.data && !fp.error) return;
+      setText(proposed);
+      setWas(creating || fp.error ? "" : (fp.data?.yaml ?? ""));
+      return;
+    }
     const kept = keptGet<{ text: string; was: string }>(kk);
     if (kept && typeof kept.text === "string") { setText(kept.text); setWas(typeof kept.was === "string" ? kept.was : kept.text); return; }
     const t = creating || fp.error ? starter(projection) : fp.data ? (fp.data.yaml ?? null) : null;

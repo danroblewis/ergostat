@@ -60,6 +60,7 @@ ENDED = ("refused", "failed", "dismissed", "inconclusive")
 DISMISSAL = ("note", "dismissed_by", "dismissed", "part", "approved_by")   # cleared when it is raised again
 TAKEN_UP = {"check", "craft", "coherence", "fit"}   # the sources the tiers take up (gather's): never a redesign's
 TIERS = {"rule", "ai"}
+DRAFTED = ("modelling", "draft")                    # the drafter's run: it takes up the events' requests (unexplained.py)
 
 
 def fresh() -> dict:
@@ -82,7 +83,7 @@ def item_of(x: str) -> str:
 
 def evidence_of(r: dict) -> str:
     """How a change cites a request: its finding (``finding:CODE@ABOUT``) or its mismatch (``coherence:CODE@ABOUT``)."""
-    if r.get("source") == "fit":
+    if r.get("source") in ("fit", "events"):          # (an event request: its group, by its id)
         return f"request:{r['id']}"
     fid = f"{r['code']}@{r['about']}" if r.get("about") else r["code"]
     return f"{'coherence' if r.get('source') == 'coherence' else 'finding'}:{fid}"
@@ -182,7 +183,10 @@ def locked(p):
     return pr.locked(p, "requests")
 
 
-def _moved(p, spec: Spec, now: float, found: dict[str, dict]) -> dict:
+def _moved(p, spec: Spec, now: float, found: dict[str, dict], scope=None) -> dict:
+    """``found`` raised, moved and answered against the requests ``scope`` holds (by default every one but the events'
+    requests, which ``unexplained.sync`` collects apart)."""
+    scope = scope or (lambda x: x.get("source") != "events")
     have = stored(p)
     changes = pr.changes(p)
     cites = _citing(changes)
@@ -237,6 +241,8 @@ def _moved(p, spec: Spec, now: float, found: dict[str, dict]) -> dict:
             event(p, k, "reopened", {"change": None, "version": v, "why": None, "since": now})
             moved["reopened"] += 1
     for k, x in have.items():
+        if not scope(x):
+            continue
         if x.get("source") == "redesign":                 # a redesign's trigger: answered when its change is decided
             c = (changes.get(x.get("change") or "") or (None, {}))[0]
             if x["state"] == "proposed" and c is not None and c not in LIVE:
@@ -257,9 +263,11 @@ def approvable(spec: Spec, r: dict) -> bool:
     note, a coherence mismatch or the fit (``TAKEN_UP``; never a redesign's, which the redesigner holds), its tier the
     rule or the ai tier (never ``owner``), its code not one only the owner changes (``OWNER``), and the model running
     the ai tier (a block whose run is ``... modelling ai``, the modelling template's ``modeller``)."""
-    def ai(b) -> bool:
+    def ai(b, run=("modelling", "ai")) -> bool:
         w = str(b.params.get("run") or "").split()
-        return any(w[i:i + 2] == ["modelling", "ai"] for i in range(len(w)))
+        return any(tuple(w[i:i + 2]) == run for i in range(len(w)))
+    if r.get("source") == "events":                 # an event request: the drafter's, when the model runs one
+        return any(ai(b, DRAFTED) for b in spec.blocks.values())
     return (r.get("source") in TAKEN_UP and r.get("tier") in TIERS and r.get("code") not in OWNER
             and any(ai(b) for b in spec.blocks.values()))
 
@@ -281,11 +289,12 @@ def _answer(p, spec: Spec, x: str, yes: bool, note: str | None, by: str) -> str:
         if not approvable(spec, r):
             raise RequestError(f"no tier of the modelling loop takes {r.get('code')} up: write the change (citing "
                                f"{evidence_of(r)}), or --deny --note WHY")
-        event(p, x, "reopened", {"why": None, "change": None, "owner": False, "tier": "ai", "since": time.time(),
+        event(p, x, "reopened", {"why": None, "change": None, "owner": False,
+                                 "tier": "events" if r.get("source") == "events" else "ai", "since": time.time(),
                                  "tried": {**(r.get("tried") or {}), "ai": 0}, "version": ver.version(spec),
                                  "failed": {**(r.get("failed") or {}), "ai": 0}, "error": None,
                                  "approved_by": by}, source=by)
-        return "approved: open again, for the ai tier"
+        return "approved: open again, for the " + ("drafter" if r.get("source") == "events" else "ai tier")
     if not (note or "").strip():
         raise RequestError("a dismissal says why: --note WHY")
     event(p, x, "dismissed", {"note": note, "dismissed_by": by, "dismissed": time.time(),

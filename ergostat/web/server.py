@@ -755,6 +755,17 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         at0 = float(one("at")) if one("at") and one("at").replace(".", "", 1).isdigit() else None
         return _answer(live, path, {k: v for k, v in q.items() if k != "draft"}, dp,
                        pinned=pinned or live.snapshot(p, _window(q), at0))
+    if head == "proposal-draft":                  # a drafted projection a change proposes, for the workbench (SPEC §12e)
+        from ..numbers import proposals as pr
+        x = pr.stored(p).get(str(one("id") or "").removeprefix("ergostat.model-change/"))
+        drafted = (x or {}).get("drafted") or {}
+        name = one("name") or next(iter(drafted), None)
+        if x is None or name not in drafted:
+            return None
+        spec = getattr(m, "spec", None)
+        return {"id": x["id"], "name": name, "yaml": drafted[name], "state": x.get("state"), "title": x.get("title"),
+                "verdict": (x.get("verdict") or {}).get("why"),
+                "exists": bool(spec is not None and name in (spec.items or {}))}
     if head == "query":                           # every chart's numbers, read-only, without a snapshot (ergostat/query)
         return _query(live, p, parts, q)
     if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now

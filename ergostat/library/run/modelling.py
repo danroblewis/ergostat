@@ -12,6 +12,12 @@
     modelling redesign [--when ask|off] [--model haiku] [--budget 0.5] [--rounds 3] [--daily 2]
         the redesigner: what the owner asked for, one change set for a whole system, made on a scratch copy over a few
         rounds and proposed as one change (redesign.py), within the day's cap; its cost printed as a result line
+    modelling events [--json]
+        the unexplained events' sensor: the events no projection takes, kept incrementally and grouped, each group a
+        request (unexplained.py); prints how many are unexplained
+    modelling draft --daily D [--model haiku] [--budget 0.5] [--most N]
+        the drafter: the open event requests given to one AI session with ergostat's workbench commands; its drafts
+        proposed as changes to the projections (drafter.py), within the AI tier's daily cap
     modelling review [--model haiku] [--most N] [--daily 2]
         the reviewer: each change the judge passed of a reviewed kind, read as a senior modeller would; its verdict
         (pass, revise, reject) recorded on the change (reviewer.py), within the same daily cap
@@ -292,8 +298,47 @@ def _near(p, reqs: list[dict]) -> list[dict]:
     return sorted(reqs, key=key)
 
 
+def events(argv: list[str]) -> int:
+    """The unexplained events' sensor (unexplained.py): the tally brought up to the record (only what is new read),
+    its groups raised or answered as requests; prints the unexplained events now (the ignored left out)."""
+    ap = argparse.ArgumentParser(prog="modelling events")
+    ap.add_argument("--json", action="store_true", help="the groups, whole, instead of the count")
+    a = ap.parse_args(argv)
+    from ...numbers import unexplained as ux
+    p = project()
+    got = ux.sync(p)
+    moved = ", ".join(f"{k} {v}" for k, v in got.items() if k in ("raised", "answered", "reopened", "held") and v)
+    note(f"events: {got['events']} unexplained in {got['groups']} groups"
+         + (f", {got['ignored']} ignored" if got["ignored"] else "") + (f" ({moved})" if moved else ""))
+    if a.json:
+        import json
+        print(json.dumps({"events": got["events"], "groups": ux.groups(p)}, default=str))
+    else:
+        print(got["events"])
+    return 0
+
+
+def draft(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="modelling draft")
+    ap.add_argument("--model", default="haiku")
+    ap.add_argument("--budget", type=_between(float, 0.01, 5), default=0.5, help="dollars one session may spend")
+    ap.add_argument("--most", type=_between(int, 1, 16), default=4, help="event requests given to one session")
+    ap.add_argument("--daily", type=_between(float, 0, 20), required=True,
+                    help="the AI tier's dollars a day (ai-daily), shared with the modeller")
+    ap.add_argument("--timeout", type=float, default=None, help="the block's timeout, in seconds")
+    a = ap.parse_args(argv)
+    sys.stdin.read()
+    from ...numbers import drafter as dr
+    p = project()
+    out = dr.run(p, a.model, a.budget, a.daily, a.most, max(30.0, 0.9 * a.timeout) if a.timeout else 900.0,
+                 on_call=_said)
+    note(out["said"])
+    return 0
+
+
 def main(argv: list[str]) -> int:
-    subs = {"requests": requests, "rules": rules, "ai": ai, "redesign": redesign, "review": review}
+    subs = {"requests": requests, "rules": rules, "ai": ai, "redesign": redesign, "review": review, "events": events,
+            "draft": draft}
     if not argv or argv[0] not in subs:
         print(f"usage: ... modelling {{{','.join(subs)}}} ...", file=sys.stderr)
         return 2

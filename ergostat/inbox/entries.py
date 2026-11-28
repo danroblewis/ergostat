@@ -155,6 +155,13 @@ def _steptests(p, spec, now: float) -> list[dict]:
     return out
 
 
+def workbench_link(projection: str, change: str) -> str:
+    """The page's workbench with a drafted projection loaded (``?workbench=NAME&proposal=ID``): the owner may edit it
+    there before saving, or accept the change as it is."""
+    from urllib.parse import quote
+    return f"/?workbench={quote(projection)}&proposal={quote(change)}"
+
+
 def _changes(p, spec, now: float) -> list[dict]:
     from ..numbers import proposals as pr
     from ..numbers.review import control_pending
@@ -164,7 +171,9 @@ def _changes(p, spec, now: float) -> list[dict]:
     return [{"id": f"change/{x['id']}", "kind": "change", "time": x.get("created") or now, "verbs": ["approve", "deny"],
              "link": f"/item/ergostat.model-change/{x['id']}", "class": f"change:{x.get('kind')}",
              "summary": f"model change: {x.get('title') or x['id']}", "why": x.get("reason") or "",
-             **({"control": True} if x.get("kind") in ("process", "tuning") else {})}
+             **({"control": True} if x.get("kind") in ("process", "tuning") else {}),
+             **({"workbench": [{"projection": n, "link": workbench_link(n, x["id"])} for n in x["drafted"]]}
+                if x.get("drafted") else {})}
             for x in xs + control_pending(p, spec)]
 
 
@@ -182,9 +191,12 @@ def _requests(p, spec, now: float) -> list[dict]:
              "link": f"/item/{MODELLING_REQUEST}/{r['id']}", "class": f"request:{r.get('code')}",
              "summary": f"{str(r.get('says') or r.get('code')).rstrip('.')}. Modelling cannot decide it"
                         + (f": {r['why']}" if r.get("why") else "") + "."
-                        + (" Approve hands it back to modelling's AI tier." if rq.approvable(spec, r) else "")
-                        + f" Deny tells it to stop asking until {r.get('about')} changes; the change is yours to make"
-                          " through the Supervisor.", "why": "",
+                        + ((" Approve hands it back to the drafter." if r.get("source") == "events" else
+                            " Approve hands it back to modelling's AI tier.") if rq.approvable(spec, r) else "")
+                        + (" Deny dismisses it until the model changes; to leave these events unexplained for good, add"
+                           " them to the modelling template's ignore-events." if r.get("source") == "events" else
+                           f" Deny tells it to stop asking until {r.get('about')} changes; the change is yours to make"
+                           " through the Supervisor."), "why": "",
              "fold": f"{r.get('code')}|{r.get('source')}", "about": r.get("about"),
              "system": spec.owner(ref) if (ref := Ref.parse(r.get("about"))) else None}
             for r in rq.stored(p).values() if r["state"] == "held"]

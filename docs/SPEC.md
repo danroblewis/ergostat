@@ -7931,6 +7931,64 @@ block of the template, answer them, the cheapest first:
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":
 "parameters", "name": "t", "set": {...}}` besides `replace` and hunks.
 
+### Unexplained events: projections drafted for what the blocks emit
+
+The modelling template's third balancing loop, beside the fit and the requests, on with `ai: true` (nothing of it
+exists, nor runs, without: invariant 12). The way to start a model: write the blocks (programs and agents) so they
+emit good events, use `modelling` with `ai: true`, and the projections are drafted for you; accept them, then write
+the goals on the stocks they make.
+
+- **The stock** `unexplained-events` (unit events, `ergostat/numbers/unexplained.py`, read by the sensor
+  `modelling events` every `events-every`): the events in the record no projection of the model takes. An event is
+  unexplained when none reads it (`unread`), when one reads it and no kind of event takes it (`remainder:P`, its
+  review's remainder), or when a kind takes it and its key finds nothing (`no-key:P`). Never counted: ergostat's own
+  events (its types `ergostat.*`, `model.*`, `agent.*`, `loop.*`, `controller.*`, `valve.*`, `sensor.*`, `block.*`,
+  `person.*`, `trigger.*`, `steptest.*`, `session.*`, `claude.*` and the like, a snapshot, any event whose source is
+  `ergostat`) and a projection's own published events (`source: projection:*`). The goal `events-explained` holds it
+  at 0 (tolerance 0). Its inflow `unexplained-arrived` is its rises; its outflow `events-taken` is what each change
+  written explained (the judge's count, `explained`, summed as changes are accepted); what neither says is the
+  residual.
+- **Kept incrementally**, never a scan of the record: a cursor (the record's seq) and the groups in
+  `<state>/modelling/unexplained.json`; each reading folds only the events after the cursor (20,000 at most), per
+  group and day, keeping each group's newest 20 event ids. When the projections change, each group is held again by
+  its samples (gone when none is unexplained now; scaled by the share still unexplained, said `estimated`,
+  otherwise); when events are taken out (the generation moved), the days before the record's first event are dropped.
+- **Requests, grouped**: never one an event. A group is the events of one source and type, and, for a type that tells
+  nothing (`log`, `event`, `message`, an empty one), of one envelope shape (the data's top-level keys) as well. Each
+  is a request (`ergostat.modelling-request`, `source: events`, `code: events-unexplained`, `tier: events`, `about:
+  events:GROUP`), with `group`, and `unexplained`: its count, first and last time, five example event ids and why
+  (`unread`, `remainder:P`, `no-key:P`); cited as `request:ID`. Answered when none of its events is unexplained. They
+  are not `unanswered-requests` (its sensor counts the requests of check, craft, coherence, fit, redesign and
+  architecture): the events' loop has its own stock. The modeller never takes them.
+- **Ignored, by the owner, in the model**: `with: {ignore-events: [...]}` on the modelling template, each a type glob
+  (`debug.*`), `SOURCE TYPE` globs, or `{source: GLOB, type: GLOB}`. An ignored group is explained, as `ignored`, and
+  raises no request. Since a `with:` is only the owner's to change (a proposal that changes it is refused), no agent
+  ignores anything. Denying a held event request in the inbox dismisses it in the record as any request.
+- **The drafter**, an AI agent block (`drafter`, `type: ai`, its prompt `drafter.md`, AGENT-GUIDE §3o's recipe; run
+  `modelling draft`, every `draft-every`, `ai-model`'s model), given the largest open event requests (`draft-most`
+  a session). Its session may run only `ergostat events ...` and `ergostat projection ...`, and read and write only its
+  own scratch folder: it looks (`events shape`, `query`, `kinds`), drafts, tries and reviews until nothing it targets
+  is unexplained, and answers `{"draft": {name, yaml, requests, review}}` lines (or `{"cannot": ID, why}`). Each draft
+  becomes an ordinary proposal (`made_by: drafter`, kind `structure`): the edit that puts the body in the model (in
+  place of the projection of that name, or at the end of `projections:`), its reasons citing the requests, the
+  review's numbers among them, and the body kept on the change (`drafted`). The lines it writes begin `# inferred:
+  ergostat.model-change/ID` (a projection has no `inferred:` key: the comment says it was drafted, not declared; one
+  the owner saves from the workbench is the owner's, and says nothing). Its cost counts in `ai-daily` with the AI
+  tier's (`modeller_spend`): a session starts only when the day's spend plus its whole `draft-budget` stays within it;
+  one that fails is charged its budget. A request tried twice waits for the owner (approve hands it back to the
+  drafter). The stand-in for tests is `ERGOSTAT_AI`, as the modeller's.
+- **The judge's rule for it** (`unexplained.judged`): a change citing event requests is judged on the record it reads,
+  at once, not by a replay: applied beside the model, the newest 2,000 events of each group it cites (by their indexed
+  type) are counted unexplained before and with it, and each projection it adds or changes is reviewed as the
+  workbench reviews it (its residual) before and with it. It **passes** only when the unexplained events it targets
+  fall and it adds no event with no key, no refused event, no contradiction, no split and no finding of check's; else
+  it **fails**, saying which (its request is then held, with why). The verdict says `on: events`, its evidence (the
+  targeted counts and each projection's residual before and after) and `explained`.
+- **Written by the owner.** A projection change is structure: by default (`accept`) it waits in the review queue and
+  the inbox, read first by the reviewer when that is on. Its inbox entry and its page link to the workbench with the
+  draft loaded (`/?workbench=NAME&proposal=ID`, read from `GET /api/proposal-draft`): the owner edits it there and
+  saves it, or accepts the change as it is.
+
 ### Redesign: a change set, judged as a whole
 
 Refinement (the tiers above, the improver) answers what `check` finds one change at a time, each judged alone, and the

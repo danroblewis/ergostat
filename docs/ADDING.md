@@ -292,6 +292,8 @@ uses:
       ai-model: haiku                     # (default haiku); ai-every 10m, ai-most 8 requests a call (at most 16), ai-daily $1 (at most 20)
       redesign: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2, review: sonnet}   # with ai: true, the redesigner (auto|ask|off); review: the daily architecture review's model, or off
       review: {when: auto, model: haiku, kinds: structure redesign, most: 3}  # with ai: true, the reviewer (auto|off)
+      ignore-events: ['debug.*']          # with ai: true, events the drafter never drafts projections for (draft-every
+                                          # 10m, draft-budget $0.5 a session in ai-daily, draft-most 4, events-every 2m)
       accept:
         parameter: auto                   # a value the judge passes is written at once (else the owner accepts each)
         description: auto                 # and so on for unit, equation, rename, structure (a rewired chain or a

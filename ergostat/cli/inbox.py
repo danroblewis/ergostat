@@ -98,6 +98,8 @@ def cmd_inbox(args) -> int:
         for line in (e["why"] and f"why: {e['why']}", e.get("run") and f"runs: {e['run']}", e["link"], e.get("record"), e.get("suggest")):
             if line:
                 print(c(f"    {line}", "dim"))
+        for w in e.get("workbench") or []:               # a drafted projection: opened in the workbench, to edit first
+            print(c(f"    open {w['projection']} in the workbench: {w['link']}", "dim"))
         if e["verbs"]:                                   # a kind with none is not shown as answerable
             print(c(f"    {entries.command(e)}", "dim"))
     return 0

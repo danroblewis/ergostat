@@ -1,0 +1,1 @@
+import{j as t,P as e}from"./index-BYKzlaIh.js";import{G as o}from"./GoalDetail-DNhqEsCq.js";function l({name:a}){return t.jsx(e,{title:a,className:"goal-page",children:t.jsx(o,{name:a})})}export{l as default};

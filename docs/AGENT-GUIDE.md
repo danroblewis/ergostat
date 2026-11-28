@@ -1479,6 +1479,26 @@ since 1h ago; the record spans 3d`). An outside log replayed into the record is 
 7. **Write it** when the review reads right: into the model's `projections:` (the owner's page writes it from the
    projection's own page: Edit, its Definition, Save), then `ergostat check`.
 
+### Let the modelling subsystem draft the projections
+
+The same recipe runs inside the model (SPEC §12e, *Unexplained events*), so at the start of a project you need not
+write the projections yourself:
+
+1. **Write the blocks** (programs and agents) so they emit good events: a type that says what happened
+   (`deploy.finished`, not `log`), a stable source, and data that names the thing it is about (its id, and what makes
+   the id unique: an account, a region) and its state.
+2. **Use modelling with `ai: true`**: `uses: {modelling: {use: modelling, with: {ai: true}}}`. The stock
+   `unexplained-events` counts the events no projection takes (ergostat's own never count), grouped by source and
+   type, each group a request; the goal `events-explained` holds it at 0; and the drafter, an AI agent following this
+   section's recipe with ergostat's own commands, drafts a projection for each group (or adds the kinds an existing
+   one lacks), tries and reviews it, and proposes it. Its sessions count in `ai-daily`.
+3. **Accept them**: the judge passes a draft only when the events it targets become explained and it adds no event
+   with no key, no refusal, contradiction, split or finding; it then waits for the owner in the inbox (`ergostat
+   inbox`), with a link to open it in the workbench and edit it before saving, or to accept it as it is. Events you do
+   not mean to model are ignored in the template's `with: ignore-events: ['debug.*']`.
+4. **Then the goals**: the projections make stocks and flows (their states counted); write the goals on them, and the
+   blocks that hold them.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |

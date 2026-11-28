@@ -385,6 +385,8 @@ class Evidence:
             from . import requests as rq
             x = rq.stored(self.p).get(what.removeprefix(f"{rq.MODELLING_REQUEST}/")) or {}
             about = x.get("about")
+            if x.get("source") == "events":            # events no projection takes: the judge counts them before and
+                return None                            # after (unexplained.judged); only a projection change answers it
             return None if about in (None, "model") or about in near else \
                 f"{ev}: about {about}, which the change does not touch (it touches {where})"
         if kind in ("finding", "coherence"):
@@ -699,6 +701,18 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
     about = [r for r in [*refs, *joins, *x["gone_parts"]] if pr._part(spec, r) is not None]
     if about:                                            # what it is about, as the model has it: held to it when carried
         x["subject"] = pr.subject(spec, about)
+    explains = sorted({str(e).split(":", 1)[1].removeprefix(f"{rq.MODELLING_REQUEST}/") for r in kept for e in r["evidence"]
+                       if isinstance(e, str) and e.startswith("request:")
+                       and (rq.stored(p).get(e.split(":", 1)[1].removeprefix(f"{rq.MODELLING_REQUEST}/")) or {}).get("source")
+                       == "events"})
+    if explains:                                         # it answers events no projection takes: judged by what it takes
+        from . import unexplained as ux
+        x["explains"] = explains
+        x["projections_changed"] = ux.changed_projections(spec, after)
+        if not x["projections_changed"]:
+            raise ProposeError("it cites events no projection takes, and changes no projection")
+        bodies = raw.get("drafted") if isinstance(raw.get("drafted"), dict) else {}
+        x["drafted"] = {str(n): str(b)[:20000] for n, b in bodies.items() if str(n) in x["projections_changed"]}
     x["key"] = mem.key(x)
     return x
 

@@ -39,10 +39,26 @@ export default function ItemPage({ id, projection }: { id: string; projection?: 
         <SharedAnswers answers={[{ path: `items/${encodeURIComponent(id)}`, params: asked, state: item }]}>
           {item.data && !item.data.projection_of && id.includes("/") && <Unmodelled id={id} />}
           {item.data && !projection && (item.data.projections || []).length > 1 && <SeenBy id={id} d={item.data} />}
+          {item.data?.fields?.drafted && typeof item.data.fields.drafted === "object" && <Drafted id={id} drafted={item.data.fields.drafted} />}
           <EditableDashboard ed={ed} decorate={decorate} />
         </SharedAnswers>
       )}
     </Page>
+  );
+}
+
+/** A model change that drafts projections (the modelling subsystem's drafter, SPEC §12e): each opened in the workbench
+ *  with the draft loaded (/?workbench=NAME&proposal=ID), to edit before saving, or accepted as it is. */
+function Drafted({ id, drafted }: { id: string; drafted: Record<string, string> }) {
+  const pid = id.slice(id.indexOf("/") + 1);
+  return (
+    <div className="unmodelled-note" role="note" data-testid="drafted">
+      <p>This change drafts {Object.keys(drafted).length === 1 ? "a projection" : "projections"}:{" "}
+        {Object.keys(drafted).map((n, i) => (
+          <span key={n}>{i ? ", " : ""}<AppLink to={`/?workbench=${encodeURIComponent(n)}&proposal=${encodeURIComponent(pid)}`}>
+            open {n} in the workbench</AppLink></span>
+        ))}{" "}(edit it there before saving, or accept the change as it is).</p>
+    </div>
   );
 }
 

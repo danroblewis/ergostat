@@ -1,6 +1,6 @@
 template: modelling
 once: true
-description: The model improved as a loop of its own - its fit a stock held by a goal, what check finds held as requests (a stock with no unit is a check finding, not a request), tiers that answer them (the fixer, a program of mechanical fixes, then an AI agent when asked), an improver for the fit, and ergostat's judge that tests each change and writes what the policy allows.
+description: The model improved as a loop of its own - its fit a stock held by a goal, what check finds held as requests (a stock with no unit is a check finding, not a request), tiers that answer them (the fixer, a program of mechanical fixes, then an AI agent when asked), an improver for the fit, with ai on a drafter that drafts projections for the events no projection takes, and ergostat's judge that tests each change and writes what the policy allows.
 reading: |
   System dynamics: the model's error is a stock (model-error, read by ergostat's built-in measure
   ergostat.model.fit, the Fit page's total), drained as changes are written (model-mended) and moved either way by
@@ -30,8 +30,17 @@ reading: |
     With ai: true a reviewer (an AI agent, haiku by default) reads each structural change and redesign the judge passed,
   deliberately disagreeable, and passes it, sends it back to its author with findings, or rejects it; those kinds are
   written, or offered to the owner, only after its pass, and each author's prompt carries its recent verdicts.
+  A third balancing loop, with ai: true: the events the blocks emit that no projection takes (none reads them, none
+  of its kinds takes them, or its key finds nothing; ergostat's own and a projection's published events never count)
+  are a stock, unexplained-events, read incrementally (only the record's new events each time), held at 0 by the goal
+  events-explained. They are grouped by source and type (and by the envelope's shape for a type that tells nothing),
+  each group a request; the owner ignores a group in with: ignore-events. While any wait, the drafter (an AI agent
+  following AGENT-GUIDE §3o: events shape, kinds and query, then projection try and review) drafts a projection, or
+  the kinds an existing one lacks, and proposes it; the judge passes it only when the events it targets become
+  explained and it adds no event with no key, no refusal, contradiction, split or finding; it waits for the owner,
+  who may open it in the workbench and edit it first. Written, it takes the events (events-taken).
   It is used once a model, and its parts keep the names written here (model-error, model-fits, improver, fixer,
-  modeller, reviewer, judge),
+  modeller, drafter, reviewer, judge),
   in a system named for the use (modelling, by convention).
 example: |
   uses:
@@ -39,7 +48,9 @@ example: |
       use: modelling
       with:
         fit: 0.05                     # the model's replay may be off by a scaled error of at most 0.05
-        ai: true                      # the AI tier answers what the rule tier cannot (haiku by default; it costs)
+        ai: true                      # the AI tier answers what the rule tier cannot (haiku by default; it costs),
+                                      # and the drafter drafts projections for the events no projection takes
+        ignore-events: ['debug.*']    # events left unexplained on purpose: never drafted for
         accept:
           parameter: auto             # a value the judge passes is written at once
           description: auto           # so is a description, a unit and an equation; the structure waits for the owner
@@ -115,6 +126,30 @@ params:
     type: any
     default: {when: auto, model: haiku, kinds: structure redesign, most: 3}
     description: 'the reviewer, with ai: true (SPEC §12e, The reviewer): an AI agent that reads each change of these kinds (structure and redesign; add equation if you like) after the judge passes it, deliberately disagreeable, through the review checklists of MODELLING-WELL.md, and passes it, sends it back to its author with findings (twice is a reject), or rejects it. With it on, the judge writes those kinds only after its pass, and the inbox offers them only after it (the review queue still lets the owner accept). when: auto, or off; model (haiku); most (changes read a run, 3). Its calls count against redesign.daily, the template''s one daily cap, a quarter of which is kept for it; a change it cannot decide on in 3 tries, or sends back with no author to take it, goes to the owner'
+  draft-every:
+    type: duration
+    default: 10m
+    description: 'the least time between the drafter''s runs while events no projection takes wait (with ai: true)'
+  draft-budget:
+    type: number
+    default: 0.5
+    min: 0.01
+    max: 5
+    description: 'the most dollars one drafter session may spend (counted in ai-daily with the AI tier: a session starts only when the day''s spend plus this stays within it)'
+  draft-most:
+    type: integer
+    default: 4
+    min: 1
+    max: 16
+    description: the event requests (groups of events no projection takes) given to one drafter session
+  events-every:
+    type: duration
+    default: 2m
+    description: 'how often the record''s new events are read for what no projection takes (with ai: true)'
+  ignore-events:
+    type: any
+    default: []
+    description: 'events the owner leaves unexplained, counted as ignored and never drafted for: each a type glob (aws.health.*), SOURCE TYPE globs (''collector-x debug.*''), or {source: GLOB, type: GLOB}'
   review-every:
     type: duration
     default: 2m
@@ -219,7 +254,16 @@ stocks:
     sensor:
       projection: ergostat.modelling-request
       state: [open, proposed]
+      where: {source: [check, craft, coherence, fit, redesign, architecture]}   # (the events' requests: unexplained-events)
       every: ${count-every}
+  unexplained-events:
+    if: ${ai}
+    unit: events
+    description: events in the record no projection takes (ergostat's own, a projection's published ones and the ignored left out)
+    sensor:
+      run: ${lib} modelling events
+      every: ${events-every}
+      description: the record's new events, read for what no projection takes
   answered-requests:
     unit: requests
     description: requests answered, check no longer finding them
@@ -295,6 +339,36 @@ flows:
       entering: made
       where: {made_by: modeller}
       over: ${over}
+  changes-made-by-drafter:
+    if: ${ai}
+    to: pending-changes
+    description: projections the drafter drafted, or kinds of event it added to one, for events no projection takes
+    driven-by: +stock.unexplained-events
+    sensor:
+      projection: ergostat.model-change
+      entering: made
+      where: {made_by: drafter}
+      over: ${over}
+  unexplained-arrived:
+    if: ${ai}
+    to: unexplained-events
+    description: events arriving that no projection takes (the stock's rises)
+    sensor:
+      changes: rises
+      over: ${over}
+      every: ${events-every}
+  events-taken:
+    if: ${ai}
+    from: unexplained-events
+    description: unexplained events a drafted projection takes as it is written (each change's explained, as the judge counted it)
+    driven-by:
+      - +stock.unexplained-events
+      - {cause: +flow.changes-accepted, instant: true}
+    sensor:
+      projection: ergostat.model-change
+      entering: accepted
+      sum: explained
+      over: ${over}
   requests-raised:
     to: unanswered-requests
     description: what check finds, raised as requests (and those found again)
@@ -368,6 +442,12 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: everything check finds answered (no request left unanswered)
+  events-explained:
+    if: ${ai}
+    stock: unexplained-events
+    hold: "<= 0"
+    tolerance: 0
+    description: every event the blocks emit taken by a projection (or ignored by the owner)
   model-fits:
     stock: model-error
     hold: "<= ${fit}"
@@ -415,6 +495,18 @@ blocks:
     timeout: ${timeout}
     in: +stock.unanswered-requests
     out: flow.changes-made-by-modeller
+  drafter:
+    if: ${ai}
+    type: ai
+    description: drafts the projections that take the events no projection takes, tried and reviewed on the record, proposed for the owner
+    goal: events-explained
+    prompt: ${folder}/drafter.md
+    run: ${lib} modelling draft --model ${ai-model} --budget ${draft-budget} --most ${draft-most} --daily ${ai-daily} --timeout ${timeout:seconds}
+    model: ${ai-model}
+    every: ${draft-every}
+    timeout: ${timeout}
+    in: +stock.unexplained-events
+    out: flow.changes-made-by-drafter
   redesigner:
     if: ${ai}
     unless: ${redesign.when|auto} == off

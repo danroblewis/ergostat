@@ -143,18 +143,19 @@ def parse(text: str) -> tuple[list[dict], list[dict]]:
     return props, cannot
 
 
-def call(text: str, model: str, timeout: float = 600.0) -> dict:
+def call(text: str, model: str, timeout: float = 600.0, tools: list[str] | None = None, budget: float | None = None,
+         cwd: str | None = None) -> dict:
     """One ``claude -p`` call, tools off: ``{"result", "usd", "tokens_in", "tokens_out", "seconds"}`` (``ERGOSTAT_AI`` names
     another command that answers the same way, as the tests' stand-in does). One that fails (times out, exits non-zero,
     says ``is_error``, or says no cost that is a number) has an ``error`` saying what it said, and is charged its
     reservation (``unsaid``), or what it said if more."""
     cmd = [os.environ.get("ERGOSTAT_AI") or "claude", "-p", "--model", model, "--output-format", "json",
-           "--disallowedTools", TOOLS_OFF]
+           *(["--allowedTools", *tools] if tools is not None else ["--disallowedTools", TOOLS_OFF])]
     if Path(cmd[0]).name == "claude":              # its reservation as claude's budget (checked after a turn: no ceiling)
-        cmd += ["--max-budget-usd", f"{unsaid(text, model)['usd']:.6f}"]
+        cmd += ["--max-budget-usd", f"{budget if budget is not None else unsaid(text, model)['usd']:.6f}"]
     t0 = time.perf_counter()
     try:
-        got = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=timeout)
+        got = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=timeout, cwd=cwd)
         try:
             out = json.loads(got.stdout)
         except ValueError:

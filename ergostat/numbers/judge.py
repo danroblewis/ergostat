@@ -516,6 +516,25 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                 out[verdict] += 1
                 out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
                 continue
+            if x.get("explains") and x["state"] in ("checked", "testing"):   # events no projection takes: judged
+                from . import unexplained as ux                              # on what it takes (unexplained.judged)
+                try:
+                    verdict, why, ev = ux.judged(p, x, spec)
+                except tr.TrialError as e:
+                    pr.event(p, x["id"], "superseded", {"why": f"its edit no longer applies ({e})"})
+                    out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": str(e)})
+                    continue
+                if x["state"] == "checked":
+                    pr.event(p, x["id"], "testing", {"testing": now, "judged_by": by})
+                    out["testing"] += 1
+                t = ev.get("targeted") or {}                  # what it explains: the flow events-taken sums it
+                pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by,
+                                                           "on": "events", "evidence": ev},
+                                               "explained": max(0, int(t.get("before") or 0) - int(t.get("after") or 0))
+                                               if verdict == "passed" else 0})
+                out[verdict] += 1
+                out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
+                continue
             if x["state"] == "passed" or x.get("kind") not in JUDGED:
                 continue
             since = x.get("made") or x.get("created") or now
